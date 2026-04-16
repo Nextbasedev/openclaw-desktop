@@ -37,3 +37,4 @@ npm-debug.log*
 # Test
 coverage/
 .stitch-sa.json
+.openclaw-src/
