@@ -1,0 +1,22 @@
+{
+  "name": "jarvis",
+  "version": "0.0.1",
+  "private": true,
+  "description": "OpenClaw Desktop — Neural Operations Center",
+  "scripts": {
+    "dev": "pnpm --filter ui dev",
+    "dev:tauri": "pnpm --filter desktop tauri dev",
+    "build": "pnpm --filter ui build",
+    "build:tauri": "pnpm --filter desktop tauri build",
+    "lint": "pnpm -r lint",
+    "lint:architecture": "npx tsx scripts/lint-architecture.ts",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "sandbox:verify": "./scripts/sandbox/verify-ui.sh",
+    "sandbox:check": "./scripts/sandbox/check-build.sh"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  }
+}
