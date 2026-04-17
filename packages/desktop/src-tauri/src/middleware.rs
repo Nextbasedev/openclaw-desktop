@@ -3140,24 +3140,21 @@ fn branch_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
 pub async fn middleware_branch_create(
   input: BranchCreateInput,
 ) -> Result<Value, String> {
-  // 1. Get chat history up to the source message
   let history = middleware_chat_history(SessionKeyInput { session_key: input.source_session_key.clone() }).await?;
-  
-  // 2. Create new session for the branch
+
   let new_session = middleware_chat_create_session(ChatCreateSessionInput {
     label: Some(input.branch_name.clone()),
     model: None,
     agent_id: Some("main".to_string()),
     verbose_level: Some("full".to_string()),
   }).await?;
-  
+
   let branch_session_key = new_session
     .get("sessionKey")
     .and_then(Value::as_str)
     .ok_or("Failed to create branch session")?
     .to_string();
-  
-  // 3. Create new topic for the branch
+
   let conn = open_db()?;
   let topic_id = format!("topic_{}", Uuid::new_v4().simple());
   let now = now_iso();
@@ -3166,19 +3163,17 @@ pub async fn middleware_branch_create(
     params![input.project_id],
     |row| row.get(0),
   ).map_err(|error| format!("Failed to compute topic sort order: {error}"))?;
-  
+
   conn.execute(
     "INSERT INTO topics (id, project_id, name, archived, unread_count, sort_order, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)",
     params![topic_id, input.project_id, input.branch_name, sort_order, now, now],
   ).map_err(|error| format!("Failed to create branch topic: {error}"))?;
-  
-  // 4. Create session mapping for the branch
+
   conn.execute(
     "INSERT INTO session_mappings (session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, NULL, ?, ?, 'main', ?, 'idle', ?, ?, 0, 0, 'jarvis')",
     params![branch_session_key, input.project_id, topic_id, input.branch_name, now, now],
   ).map_err(|error| format!("Failed to store branch session mapping: {error}"))?;
-  
-  // 5. Store branch relationship in database
+
   let branch_id = format!("branch_{}", Uuid::new_v4().simple());
   conn.execute(
     "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -3193,13 +3188,12 @@ pub async fn middleware_branch_create(
       metadata_json(&json!({"history": history}))
     ],
   ).map_err(|error| format!("Failed to store branch relationship: {error}"))?;
-  
-  // 6. Return branch info
+
   let mut stmt = conn.prepare("SELECT id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json FROM branches WHERE id = ?")
     .map_err(|error| format!("Failed to fetch created branch: {error}"))?;
   let branch = stmt.query_row(params![branch_id], branch_row_to_json)
     .map_err(|error| format!("Failed to decode created branch: {error}"))?;
-  
+
   Ok(json!({
     "branch": branch,
     "topicId": topic_id,
@@ -3213,13 +3207,13 @@ pub fn middleware_branch_list(input: BranchListInput) -> Result<Value, String> {
   let mut stmt = conn.prepare(
     "SELECT id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json FROM branches WHERE source_session_key = ? ORDER BY created_at DESC"
   ).map_err(|error| format!("Failed to prepare branch list query: {error}"))?;
-  
+
   let branches = stmt
     .query_map(params![input.source_session_key], branch_row_to_json)
     .map_err(|error| format!("Failed to list branches: {error}"))?
     .collect::<Result<Vec<_>, _>>()
     .map_err(|error| format!("Failed to decode branches: {error}"))?;
-  
+
   Ok(json!({ "branches": branches }))
 }
 
@@ -3229,42 +3223,39 @@ pub fn middleware_branch_get(input: BranchGetInput) -> Result<Value, String> {
   let mut stmt = conn.prepare(
     "SELECT id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json FROM branches WHERE branch_session_key = ?"
   ).map_err(|error| format!("Failed to prepare branch fetch: {error}"))?;
-  
+
   let branch = stmt.query_row(params![input.branch_session_key], branch_row_to_json)
     .optional()
     .map_err(|error| format!("Failed to fetch branch: {error}"))?
     .ok_or_else(|| "Branch not found".to_string())?;
-  
+
   Ok(json!({ "branch": branch }))
 }
 
 #[tauri::command]
 pub fn middleware_branch_delete(input: BranchGetInput) -> Result<Value, String> {
   let conn = open_db()?;
-  
-  // Get branch info first
+
   let branch_topic_id: Option<String> = conn.query_row(
     "SELECT branch_topic_id FROM branches WHERE branch_session_key = ?",
     params![input.branch_session_key],
     |row| row.get(0),
   ).optional().map_err(|error| format!("Failed to find branch: {error}"))?;
-  
+
   let topic_id = branch_topic_id.ok_or("Branch not found")?;
-  
-  // Delete branch record
+
   conn.execute(
     "DELETE FROM branches WHERE branch_session_key = ?",
     params![input.branch_session_key],
   ).map_err(|error| format!("Failed to delete branch: {error}"))?;
-  
-  // Archive the topic (don't delete, preserve history)
+
   conn.execute(
     "UPDATE topics SET archived = 1, updated_at = ? WHERE id = ?",
     params![now_iso(), topic_id],
   ).map_err(|error| format!("Failed to archive branch topic: {error}"))?;
-  
-  Ok(json!({ 
-    "deleted": true, 
+
+  Ok(json!({
+    "deleted": true,
     "branchSessionKey": input.branch_session_key,
     "topicArchived": topic_id,
   }))
@@ -3303,20 +3294,19 @@ pub async fn middleware_branch_from_edit(
     branch_name: format!("Edit {}", &source_message_id[..8.min(source_message_id.len())]),
     branch_reason: Some("edit".to_string()),
   }).await?;
-  
-  // Send the edited message in the new branch
+
   let branch_session_key = result
     .get("sessionKey")
     .and_then(Value::as_str)
     .ok_or("Failed to get branch session key")?
     .to_string();
-  
+
   middleware_chat_send(ChatSendInput {
     session_key: branch_session_key,
     text: new_message,
     timeout_ms: Some(60_000),
   }).await?;
-  
+
   Ok(result)
 }
 
