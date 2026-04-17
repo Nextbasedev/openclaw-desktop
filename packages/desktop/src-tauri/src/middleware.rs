@@ -2323,6 +2323,21 @@ fn parse_cron_schedule(schedule: &str) -> Result<Value, String> {
   }))
 }
 
+fn is_invalid_cron_params_error(error: &str, method: &str) -> bool {
+  error.contains(&format!("{method} failed: invalid {method} params"))
+}
+
+fn legacy_cron_schedule(schedule: &str) -> Value {
+  json!(schedule.trim())
+}
+
+fn legacy_cron_run_params(input: &CronRunJobInput) -> Value {
+  json!({
+    "id": input.job_id,
+    "params": input.params,
+  })
+}
+
 fn cron_task_to_job_fields(task: &str, params: Option<Value>, _metadata: Option<Value>) -> Result<Value, String> {
   match task {
     "session.message" => {
@@ -2396,12 +2411,21 @@ fn normalize_cron_schedule(value: &Value) -> String {
 }
 
 fn normalize_cron_job(value: &Value) -> Value {
-  let payload = value.get("payload").unwrap_or(&Value::Null);
-  let session_key = string_from_value(value.get("sessionKey"));
+  let raw_job = value.get("job").unwrap_or(value);
+  let payload = raw_job.get("payload").unwrap_or(&Value::Null);
+  let legacy_params = raw_job.get("params").cloned();
+  let session_key = string_from_value(raw_job.get("sessionKey")).or_else(|| {
+    legacy_params
+      .as_ref()
+      .and_then(Value::as_object)
+      .and_then(|params| params.get("key"))
+      .and_then(Value::as_str)
+      .map(ToString::to_string)
+  });
   let task = match payload.get("kind").and_then(Value::as_str) {
-    Some("agentTurn") => "session.message",
-    Some("systemEvent") => "system.event",
-    _ => "",
+    Some("agentTurn") => "session.message".to_string(),
+    Some("systemEvent") => "system.event".to_string(),
+    _ => string_from_value(raw_job.get("task")).unwrap_or_default(),
   };
   let params = match payload.get("kind").and_then(Value::as_str) {
     Some("agentTurn") => Some(json!({
@@ -2411,45 +2435,46 @@ fn normalize_cron_job(value: &Value) -> Value {
     Some("systemEvent") => Some(json!({
       "text": payload.get("text").and_then(Value::as_str),
     })),
-    _ => None,
+    _ => legacy_params,
   };
-  let state = value.get("state").unwrap_or(&Value::Null);
+  let state = raw_job.get("state").unwrap_or(&Value::Null);
 
   json!({
-    "id": string_from_value(value.get("id")),
-    "name": string_from_value(value.get("name")).unwrap_or_default(),
-    "schedule": normalize_cron_schedule(value.get("schedule").unwrap_or(&Value::Null)),
-    "enabled": value.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+    "id": string_from_value(raw_job.get("id")),
+    "name": string_from_value(raw_job.get("name")).unwrap_or_default(),
+    "schedule": normalize_cron_schedule(raw_job.get("schedule").unwrap_or(&Value::Null)),
+    "enabled": raw_job.get("enabled").and_then(Value::as_bool).unwrap_or(true),
     "task": task,
     "params": params,
-    "lastRunAt": timestamp_to_string(state.get("lastRunAtMs").or_else(|| value.get("lastRunAtMs"))),
-    "nextRunAt": timestamp_to_string(state.get("nextRunAtMs").or_else(|| value.get("nextRunAtMs"))),
-    "createdAt": timestamp_to_string(value.get("createdAtMs").or_else(|| value.get("createdAt"))).unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-    "updatedAt": timestamp_to_string(value.get("updatedAtMs").or_else(|| value.get("updatedAt"))).unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-    "status": string_from_value(state.get("lastRunStatus").or_else(|| state.get("lastStatus"))).unwrap_or_else(|| "idle".to_string()),
-    "runCount": value.get("runCount").and_then(Value::as_i64).unwrap_or(0),
-    "failCount": state.get("consecutiveErrors").and_then(Value::as_i64).unwrap_or(0),
-    "metadata": value.get("metadata").cloned(),
-    "sessionTarget": string_from_value(value.get("sessionTarget")),
-    "payload": value.get("payload").cloned(),
-    "delivery": value.get("delivery").cloned(),
-    "sessionKey": string_from_value(value.get("sessionKey")),
+    "lastRunAt": timestamp_to_string(state.get("lastRunAtMs").or_else(|| raw_job.get("lastRunAtMs")).or_else(|| raw_job.get("lastRunAt"))),
+    "nextRunAt": timestamp_to_string(state.get("nextRunAtMs").or_else(|| raw_job.get("nextRunAtMs")).or_else(|| raw_job.get("nextRunAt"))),
+    "createdAt": timestamp_to_string(raw_job.get("createdAtMs").or_else(|| raw_job.get("createdAt"))).unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+    "updatedAt": timestamp_to_string(raw_job.get("updatedAtMs").or_else(|| raw_job.get("updatedAt"))).unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+    "status": string_from_value(state.get("lastRunStatus").or_else(|| state.get("lastStatus")).or_else(|| raw_job.get("status"))).unwrap_or_else(|| "idle".to_string()),
+    "runCount": raw_job.get("runCount").and_then(Value::as_i64).unwrap_or(0),
+    "failCount": state.get("consecutiveErrors").and_then(Value::as_i64).or_else(|| raw_job.get("failCount").and_then(Value::as_i64)).unwrap_or(0),
+    "metadata": raw_job.get("metadata").cloned(),
+    "sessionTarget": string_from_value(raw_job.get("sessionTarget")),
+    "payload": raw_job.get("payload").cloned(),
+    "delivery": raw_job.get("delivery").cloned(),
+    "sessionKey": session_key,
   })
 }
 
 fn normalize_cron_run(value: &Value) -> Value {
+  let raw_run = value.get("run").unwrap_or(value);
   json!({
-    "id": string_from_value(value.get("id")),
-    "jobId": string_from_value(value.get("jobId")),
-    "status": string_from_value(value.get("status")).unwrap_or_else(|| "unknown".to_string()),
-    "startedAt": timestamp_to_string(value.get("startedAt").or_else(|| value.get("startedAtMs"))),
-    "completedAt": timestamp_to_string(value.get("completedAt").or_else(|| value.get("completedAtMs"))),
-    "summary": string_from_value(value.get("summary")),
-    "error": string_from_value(value.get("error")),
-    "output": string_from_value(value.get("output")),
-    "deliveryStatus": string_from_value(value.get("deliveryStatus")),
-    "metadata": value.get("metadata").cloned(),
-    "sessionKey": string_from_value(value.get("sessionKey")),
+    "id": string_from_value(raw_run.get("id")),
+    "jobId": string_from_value(raw_run.get("jobId")),
+    "status": string_from_value(raw_run.get("status")).unwrap_or_else(|| "unknown".to_string()),
+    "startedAt": timestamp_to_string(raw_run.get("startedAt").or_else(|| raw_run.get("startedAtMs"))),
+    "completedAt": timestamp_to_string(raw_run.get("completedAt").or_else(|| raw_run.get("completedAtMs"))),
+    "summary": string_from_value(raw_run.get("summary")),
+    "error": string_from_value(raw_run.get("error")),
+    "output": string_from_value(raw_run.get("output")),
+    "deliveryStatus": string_from_value(raw_run.get("deliveryStatus")),
+    "metadata": raw_run.get("metadata").cloned(),
+    "sessionKey": string_from_value(raw_run.get("sessionKey")),
   })
 }
 
@@ -2495,26 +2520,37 @@ pub async fn middleware_cron_get_job(input: CronGetJobInput) -> Result<Value, St
 pub async fn middleware_cron_create_job(input: CronCreateJobInput) -> Result<Value, String> {
   let mut socket = connect_to_gateway(&["operator.read", "operator.admin"]).await?;
   let schedule = parse_cron_schedule(&input.schedule)?;
-  let job_fields = cron_task_to_job_fields(&input.task, input.params, input.metadata)?;
-  let payload = extract_ok_payload(
-    gateway_request(
-      &mut socket,
-      "cron.add",
-      json!({
-        "name": input.name,
-        "schedule": schedule,
-        "enabled": input.enabled.unwrap_or(true),
-        "sessionTarget": job_fields.get("sessionTarget").cloned().unwrap_or(Value::Null),
-        "wakeMode": job_fields.get("wakeMode").cloned().unwrap_or(Value::Null),
-        "sessionKey": job_fields.get("sessionKey").cloned().unwrap_or(Value::Null),
-        "payload": job_fields.get("payload").cloned().unwrap_or(Value::Null),
-        "delivery": job_fields.get("delivery").cloned().unwrap_or(Value::Null),
-      }),
-      30_000,
-    )
-    .await?,
+  let job_fields = cron_task_to_job_fields(&input.task, input.params.clone(), input.metadata.clone())?;
+  let new_params = json!({
+    "name": input.name,
+    "schedule": schedule,
+    "enabled": input.enabled.unwrap_or(true),
+    "sessionTarget": job_fields.get("sessionTarget").cloned().unwrap_or(Value::Null),
+    "wakeMode": job_fields.get("wakeMode").cloned().unwrap_or(Value::Null),
+    "sessionKey": job_fields.get("sessionKey").cloned().unwrap_or(Value::Null),
+    "payload": job_fields.get("payload").cloned().unwrap_or(Value::Null),
+    "delivery": job_fields.get("delivery").cloned().unwrap_or(Value::Null),
+  });
+  let legacy_params = json!({
+    "name": input.name,
+    "schedule": legacy_cron_schedule(&input.schedule),
+    "task": input.task,
+    "params": input.params,
+    "enabled": input.enabled.unwrap_or(true),
+    "metadata": input.metadata,
+  });
+
+  let payload = match extract_ok_payload(
+    gateway_request(&mut socket, "cron.add", new_params, 30_000).await?,
     "cron.add",
-  )?;
+  ) {
+    Ok(payload) => payload,
+    Err(error) if is_invalid_cron_params_error(&error, "cron.add") => extract_ok_payload(
+      gateway_request(&mut socket, "cron.add", legacy_params, 30_000).await?,
+      "cron.add",
+    )?,
+    Err(error) => return Err(error),
+  };
   let _ = socket.close(None).await;
 
   let job = normalize_cron_job(&payload);
@@ -2526,18 +2562,18 @@ pub async fn middleware_cron_update_job(input: CronUpdateJobInput) -> Result<Val
   let mut socket = connect_to_gateway(&["operator.read", "operator.admin"]).await?;
 
   let mut patch = json!({});
-  if let Some(name) = input.name {
-    patch["name"] = json!(name);
+  let mut legacy_update_params = json!({ "id": input.job_id });
+  if let Some(name) = input.name.clone() {
+    patch["name"] = json!(name.clone());
+    legacy_update_params["name"] = json!(name);
   }
-  if let Some(schedule) = input.schedule {
+  if let Some(schedule) = input.schedule.clone() {
     patch["schedule"] = parse_cron_schedule(&schedule)?;
+    legacy_update_params["schedule"] = legacy_cron_schedule(&schedule);
   }
   if input.task.is_some() || input.params.is_some() || input.metadata.is_some() {
-    let job_fields = cron_task_to_job_fields(
-      input.task.as_deref().unwrap_or("session.message"),
-      input.params,
-      input.metadata,
-    )?;
+    let task = input.task.clone().unwrap_or_else(|| "session.message".to_string());
+    let job_fields = cron_task_to_job_fields(&task, input.params.clone(), input.metadata.clone())?;
     if let Some(value) = job_fields.get("sessionTarget") {
       patch["sessionTarget"] = value.clone();
     }
@@ -2553,15 +2589,26 @@ pub async fn middleware_cron_update_job(input: CronUpdateJobInput) -> Result<Val
     if let Some(value) = job_fields.get("delivery") {
       patch["delivery"] = value.clone();
     }
+    legacy_update_params["task"] = json!(task);
+    legacy_update_params["params"] = input.params.clone().unwrap_or(Value::Null);
+    legacy_update_params["metadata"] = input.metadata.clone().unwrap_or(Value::Null);
   }
   if let Some(enabled) = input.enabled {
     patch["enabled"] = json!(enabled);
+    legacy_update_params["enabled"] = json!(enabled);
   }
 
-  let payload = extract_ok_payload(
+  let payload = match extract_ok_payload(
     gateway_request(&mut socket, "cron.update", json!({ "id": input.job_id, "patch": patch }), 30_000).await?,
     "cron.update",
-  )?;
+  ) {
+    Ok(payload) => payload,
+    Err(error) if is_invalid_cron_params_error(&error, "cron.update") => extract_ok_payload(
+      gateway_request(&mut socket, "cron.update", legacy_update_params, 30_000).await?,
+      "cron.update",
+    )?,
+    Err(error) => return Err(error),
+  };
   let _ = socket.close(None).await;
 
   let job = normalize_cron_job(&payload);
@@ -2583,25 +2630,27 @@ pub async fn middleware_cron_delete_job(input: CronDeleteJobInput) -> Result<Val
 #[tauri::command]
 pub async fn middleware_cron_run_job(input: CronRunJobInput) -> Result<Value, String> {
   let mut socket = connect_to_gateway(&["operator.read", "operator.admin"]).await?;
-  let payload = extract_ok_payload(
-    gateway_request(
-      &mut socket,
-      "cron.run",
-      json!({
-        "id": input.job_id,
-        "mode": if input.params.is_some() { "force" } else { "force" },
-      }),
-      60_000,
-    )
-    .await?,
+  let new_params = json!({
+    "id": input.job_id,
+    "mode": "force",
+  });
+  let payload = match extract_ok_payload(
+    gateway_request(&mut socket, "cron.run", new_params, 60_000).await?,
     "cron.run",
-  )?;
+  ) {
+    Ok(payload) => payload,
+    Err(error) if is_invalid_cron_params_error(&error, "cron.run") => extract_ok_payload(
+      gateway_request(&mut socket, "cron.run", legacy_cron_run_params(&input), 60_000).await?,
+      "cron.run",
+    )?,
+    Err(error) => return Err(error),
+  };
   let _ = socket.close(None).await;
 
   Ok(json!({
     "runId": string_from_value(payload.get("runId")),
     "jobId": input.job_id,
-    "status": if payload.get("enqueued").and_then(Value::as_bool).unwrap_or(false) { "queued" } else { "started" },
+    "status": if payload.get("enqueued").and_then(Value::as_bool).unwrap_or(false) { "queued".to_string() } else { string_from_value(payload.get("status")).unwrap_or_else(|| "started".to_string()) },
   }))
 }
 
@@ -2613,20 +2662,28 @@ pub async fn middleware_cron_job_status(input: CronJobStatusInput) -> Result<Val
 #[tauri::command]
 pub async fn middleware_cron_list_runs(input: CronListRunsInput) -> Result<Value, String> {
   let mut socket = connect_to_gateway(&["operator.read"]).await?;
-  let payload = extract_ok_payload(
-    gateway_request(
-      &mut socket,
-      "cron.runs",
-      json!({
-        "id": input.job_id,
-        "limit": input.limit.unwrap_or(20),
-        "sortDir": input.sort_dir.as_deref().unwrap_or("desc"),
-      }),
-      30_000,
-    )
-    .await?,
+  let new_params = json!({
+    "id": input.job_id,
+    "limit": input.limit.unwrap_or(20),
+    "sortDir": input.sort_dir.as_deref().unwrap_or("desc"),
+  });
+  let legacy_params = json!({
+    "id": input.job_id,
+    "limit": input.limit.unwrap_or(20),
+    "sortDir": input.sort_dir.as_deref().unwrap_or("desc"),
+    "afterTs": input.after_ts,
+  });
+  let payload = match extract_ok_payload(
+    gateway_request(&mut socket, "cron.runs", new_params, 30_000).await?,
     "cron.runs",
-  )?;
+  ) {
+    Ok(payload) => payload,
+    Err(error) if is_invalid_cron_params_error(&error, "cron.runs") => extract_ok_payload(
+      gateway_request(&mut socket, "cron.runs", legacy_params, 30_000).await?,
+      "cron.runs",
+    )?,
+    Err(error) => return Err(error),
+  };
   let _ = socket.close(None).await;
 
   let runs = payload
