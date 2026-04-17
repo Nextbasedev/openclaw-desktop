@@ -1,12 +1,11 @@
 import type { ReactNode } from "react"
 
-import { HugeiconsIcon } from "@hugeicons/react"
 import {
   ArrowUpRight01Icon,
   Mic01Icon,
   PlusSignIcon,
   SparklesIcon,
-} from "@hugeicons/core-free-icons"
+} from "@hugeicons/react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -118,11 +117,11 @@ function ChatComposer() {
       <div className="flex flex-col gap-3 border-t border-border/60 px-1 pt-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <ComposerIconButton label="Add attachment">
-            <HugeiconsIcon icon={PlusSignIcon} className="size-5" />
+            <PlusSignIcon className="size-5" />
           </ComposerIconButton>
 
           <ComposerChip active>
-            <HugeiconsIcon icon={SparklesIcon} className="size-4" />
+            <SparklesIcon className="size-4" />
             Plan
           </ComposerChip>
         </div>
@@ -134,11 +133,11 @@ function ChatComposer() {
           </ComposerChip>
 
           <ComposerIconButton label="Voice input">
-            <HugeiconsIcon icon={Mic01Icon} className="size-5" />
+            <Mic01Icon className="size-5" />
           </ComposerIconButton>
 
           <ComposerIconButton label="Send message" emphasis>
-            <HugeiconsIcon icon={ArrowUpRight01Icon} className="size-5" />
+            <ArrowUpRight01Icon className="size-5" />
           </ComposerIconButton>
         </div>
       </div>
