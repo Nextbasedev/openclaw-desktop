@@ -23,7 +23,52 @@ pub fn run() {
       middleware::middleware_chat_history,
       middleware::middleware_chat_send,
       middleware::middleware_chat_stream_start,
-      middleware::middleware_chat_stream_stop
+      middleware::middleware_chat_stream_stop,
+      middleware::middleware_pty_spawn,
+      middleware::middleware_pty_write,
+      middleware::middleware_pty_resize,
+      middleware::middleware_pty_kill,
+      // File operations (fs_ prefix)
+      middleware::middleware_fs_read_dir,
+      middleware::middleware_fs_read_file,
+      middleware::middleware_fs_write_file,
+      middleware::middleware_fs_create_dir,
+      middleware::middleware_fs_remove,
+      middleware::middleware_fs_rename,
+      middleware::middleware_fs_metadata,
+      middleware::middleware_fs_search,
+      // File operations (files_ naming)
+      middleware::middleware_files_tree,
+      middleware::middleware_files_read,
+      middleware::middleware_files_write,
+      middleware::middleware_files_mkdir,
+      middleware::middleware_files_rename,
+      middleware::middleware_files_delete,
+      middleware::middleware_files_search,
+      // Projects
+      middleware::middleware_projects_list,
+      middleware::middleware_projects_create,
+      middleware::middleware_projects_get,
+      middleware::middleware_projects_update,
+      middleware::middleware_projects_archive,
+      middleware::middleware_projects_sidebar,
+      // Topics
+      middleware::middleware_topics_list,
+      middleware::middleware_topics_create,
+      middleware::middleware_topics_update,
+      middleware::middleware_topics_archive,
+      middleware::middleware_topics_attach_session,
+      middleware::middleware_topics_detach_session,
+      // Sessions
+      middleware::middleware_sessions_list,
+      middleware::middleware_sessions_create,
+      middleware::middleware_sessions_update,
+      middleware::middleware_sessions_reset,
+      middleware::middleware_sessions_delete,
+      // Profile tokens (keychain)
+      middleware::middleware_profile_token_set,
+      middleware::middleware_profile_token_get,
+      middleware::middleware_profile_token_delete,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
