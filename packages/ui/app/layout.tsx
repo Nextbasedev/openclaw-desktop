@@ -2,9 +2,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
-import { JotaiProvider } from "@/src/providers/JotaiProvider"
-import { SettingsProvider } from "@/src/providers/SettingsProvider"
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 const geistSans = Geist({
   subsets: ["latin"],
@@ -28,11 +26,7 @@ export default function RootLayout({
       className={cn("antialiased", geistSans.variable, geistMono.variable, "font-sans")}
     >
       <body>
-        <JotaiProvider>
-          <ThemeProvider>
-            <SettingsProvider>{children}</SettingsProvider>
-          </ThemeProvider>
-        </JotaiProvider>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   )
