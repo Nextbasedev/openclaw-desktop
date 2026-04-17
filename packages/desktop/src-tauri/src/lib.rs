@@ -69,6 +69,14 @@ pub fn run() {
       middleware::middleware_profile_token_set,
       middleware::middleware_profile_token_get,
       middleware::middleware_profile_token_delete,
+      // Branch Chat commands
+      middleware::middleware_branch_create,
+      middleware::middleware_branch_list,
+      middleware::middleware_branch_get,
+      middleware::middleware_branch_delete,
+      middleware::middleware_branch_from_regenerate,
+      middleware::middleware_branch_from_edit,
+      middleware::middleware_branch_create_thread,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
