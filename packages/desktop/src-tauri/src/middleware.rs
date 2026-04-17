@@ -549,6 +549,7 @@ fn init_db(conn: &Connection) -> Result<(), String> {
       profile_id TEXT NOT NULL,
       workspace_root TEXT NOT NULL,
       repo_root TEXT,
+      remotes_json TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       unread_count INTEGER NOT NULL DEFAULT 0,
       last_activity_at TEXT,
@@ -611,6 +612,13 @@ fn init_db(conn: &Connection) -> Result<(), String> {
     "#,
   )
   .map_err(|error| format!("Failed to initialize SQLite schema: {error}"))?;
+
+  match conn.execute("ALTER TABLE projects ADD COLUMN remotes_json TEXT", []) {
+    Ok(_) => {}
+    Err(error) if error.to_string().contains("duplicate column name") => {}
+    Err(error) => return Err(format!("Failed to migrate projects.remotes_json: {error}")),
+  }
+
   Ok(())
 }
 
@@ -3030,6 +3038,8 @@ mod fs_alias_tests;
 mod sqlite_local_tests;
 #[cfg(test)]
 mod openclaw_chat_tests;
+#[cfg(test)]
+mod onboarding_enhancements_tests;
 
 // ============================================================================
 // ONBOARDING ENHANCEMENTS: OpenClaw Detection, Install, Git Remote
