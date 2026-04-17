@@ -13,7 +13,6 @@ import { AppearanceTab } from "./tabs/AppearanceTab"
 import { DataControlTab } from "./tabs/DataControlTab"
 import { MaintenanceTab } from "./tabs/MaintenanceTab"
 import { HelpTab } from "./tabs/HelpTab"
-import { PlaceholderTab } from "./tabs/PlaceholderTab"
 import type { SettingsTabId } from "./settings.config"
 
 type SettingsDialogProps = {
@@ -30,10 +29,6 @@ export function SettingsDialog({
   const [activeTab, setActiveTab] = useState<SettingsTabId>(defaultTab)
 
   const handleTabChange = useCallback((tab: SettingsTabId) => {
-    if (tab === "affiliate") {
-      window.open("https://openclaw.ai/affiliate", "_blank")
-      return
-    }
     setActiveTab(tab)
   }, [])
 
@@ -71,10 +66,6 @@ function TabContent({ tab }: { tab: SettingsTabId }) {
       return <MaintenanceTab />
     case "help":
       return <HelpTab />
-    case "models":
-      return <PlaceholderTab title="Models" description="Manage AI model configurations." />
-    case "providers":
-      return <PlaceholderTab title="Providers" description="Configure API providers and connections." />
     default:
       return null
   }

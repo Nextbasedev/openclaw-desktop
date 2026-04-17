@@ -1,6 +1,6 @@
 "use client"
 
-import { Header } from "@/components/common/Header"
+import { Header } from "@/common/Header"
 
 export default function Page() {
   return (

@@ -9,7 +9,7 @@ type HelpLink = {
 const HELP_LINKS: HelpLink[] = [
   { label: "Documentation", description: "Read the official OpenClaw docs", url: "https://docs.openclaw.ai" },
   { label: "Community Discord", description: "Join the community", url: "https://discord.com/invite/clawd" },
-  { label: "GitHub", description: "Report issues and view source", url: "https://github.com/openclaw/openclaw" },
+  { label: "GitHub", description: "Report issues and view source", url: "https://github.com/nextbaseparadox-star/openclaw-desktop" },
   { label: "Keyboard Shortcuts", description: "View all shortcuts", url: "#" },
 ]
 
@@ -44,10 +44,6 @@ export function HelpTab({ links = HELP_LINKS }: HelpTabProps) {
             </span>
           </a>
         ))}
-      </div>
-
-      <div className="rounded-lg bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
-        OpenClaw Desktop v0.1.0 · Built with Tauri + Next.js
       </div>
     </div>
   )

@@ -26,7 +26,7 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
               type="button"
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] transition-colors cursor-pointer",
                 "outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isActive
                   ? "bg-accent text-accent-foreground font-medium"
@@ -57,7 +57,7 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
               type="button"
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] transition-colors cursor-pointer",
                 "outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isActive
                   ? "bg-accent text-accent-foreground font-medium"

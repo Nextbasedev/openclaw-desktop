@@ -23,8 +23,8 @@ export function MaintenanceTab({ onSignOut, onDeleteAccount }: MaintenanceTabPro
       </div>
 
       {/* Sign Out */}
-      <div className="rounded-xl border border-border/50 bg-card p-5">
-        <h3 className="text-sm font-medium text-foreground">Sign Out</h3>
+      <div className="bg-card p-2">
+        <h3 className="text-sm font-medium text-foreground cursor-pointer">Sign Out</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Disconnect from the current Gateway session. You can reconnect anytime.
         </p>
@@ -53,8 +53,8 @@ export function MaintenanceTab({ onSignOut, onDeleteAccount }: MaintenanceTabPro
       <Separator className="bg-border/50" />
 
       {/* Delete Account */}
-      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-5">
-        <h3 className="text-sm font-medium text-destructive">Delete Account</h3>
+      <div className="p-2">
+        <h3 className="text-sm font-medium text-destructive cursor-pointer">Delete Account</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Permanently delete all local data, cached sessions, and preferences.
           This action is <span className="text-destructive font-medium">irreversible</span>.
