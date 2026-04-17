@@ -7,7 +7,9 @@ Source of truth:
 
 Current Tauri commands:
 - `middleware_runtime_info`
-- `middleware_openclaw_bot_name`
+- `middleware_openclaw_bot_name_get`
+- `middleware_openclaw_bot_name_set`
+- `middleware_openclaw_bot_name` (compat alias for get)
 - `middleware_request_admin_access`
 - `middleware_approve_admin_access`
 
@@ -31,25 +33,52 @@ Use for:
 - debug/about screen
 - feature gating by contract version if needed later
 
-## `middleware_openclaw_bot_name`
+## `middleware_openclaw_bot_name_get`
 
-Returns the current OpenClaw/Jarvis bot display name used by middleware.
+Returns the saved OpenClaw bot name.
+Frontend should call this when loading onboarding, channel setup, or settings.
 
 ### Input
 No input.
 
-### Response
+### Response when already set
 ```json
 {
-  "botName": "Jarvis Desktop"
+  "botName": "My Telegram Bot"
 }
 ```
 
-Use for:
-- chat header/title fallback
-- onboarding copy
-- settings/about UI
-- anywhere frontend should show the middleware bot name without hardcoding it
+### Response when not set yet
+```json
+{
+  "botName": null
+}
+```
+
+## `middleware_openclaw_bot_name_set`
+
+Stores the OpenClaw bot name chosen by the user.
+
+### Input
+```json
+{
+  "botName": "My Telegram Bot"
+}
+```
+
+### Response
+```json
+{
+  "botName": "My Telegram Bot"
+}
+```
+
+Validation:
+- trimmed value cannot be empty
+
+## `middleware_openclaw_bot_name`
+
+Compatibility alias for `middleware_openclaw_bot_name_get`.
 
 ## `middleware_request_admin_access`
 

@@ -40,7 +40,7 @@ const CHAT_STREAM_EVENT_NAME: &str = "middleware://chat-event";
 const TERMINAL_STREAM_EVENT_NAME: &str = "middleware://terminal-event";
 const PTY_STREAM_EVENT_NAME: &str = "middleware://pty-event";
 const KEYCHAIN_SERVICE: &str = "ai.openclaw.jarvis";
-const OPENCLAW_BOT_DISPLAY_NAME: &str = "Jarvis Desktop";
+const APP_SETTING_OPENCLAW_BOT_NAME: &str = "openclaw.bot_name";
 
 #[derive(Default)]
 pub struct MiddlewareState {
@@ -61,10 +61,16 @@ pub struct MiddlewareRuntimeInfo {
   transport: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MiddlewareBotNamePayload {
-  bot_name: &'static str,
+  bot_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiddlewareBotNameSetInput {
+  bot_name: String,
 }
 
 #[derive(Deserialize)]
@@ -611,6 +617,12 @@ fn init_db(conn: &Connection) -> Result<(), String> {
       last_active_at TEXT NOT NULL,
       runtime_id TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT NOT NULL
+    );
     "#,
   )
   .map_err(|error| format!("Failed to initialize SQLite schema: {error}"))?;
@@ -621,6 +633,23 @@ fn init_db(conn: &Connection) -> Result<(), String> {
     Err(error) => return Err(format!("Failed to migrate projects.remotes_json: {error}")),
   }
 
+  Ok(())
+}
+
+fn get_app_setting(conn: &Connection, key: &str) -> Result<Option<String>, String> {
+  conn
+    .query_row("SELECT value FROM app_settings WHERE key = ?", params![key], |row| row.get(0))
+    .optional()
+    .map_err(|error| format!("Failed to read app setting: {error}"))
+}
+
+fn set_app_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
+  conn
+    .execute(
+      "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+      params![key, value, now_iso()],
+    )
+    .map_err(|error| format!("Failed to store app setting: {error}"))?;
   Ok(())
 }
 
@@ -1057,7 +1086,7 @@ async fn connect_to_gateway(scopes: &[&str]) -> Result<GatewaySocket, String> {
       "maxProtocol": PROTOCOL_VERSION,
       "client": {
         "id": "openclaw-control-ui",
-        "displayName": OPENCLAW_BOT_DISPLAY_NAME,
+        "displayName": "Jarvis Desktop",
         "version": "0.0.1",
         "platform": "desktop",
         "mode": "webchat"
@@ -1195,10 +1224,31 @@ pub fn middleware_runtime_info() -> MiddlewareRuntimeInfo {
 }
 
 #[tauri::command]
-pub fn middleware_openclaw_bot_name() -> MiddlewareBotNamePayload {
-  MiddlewareBotNamePayload {
-    bot_name: OPENCLAW_BOT_DISPLAY_NAME,
+pub fn middleware_openclaw_bot_name_get() -> Result<MiddlewareBotNamePayload, String> {
+  let conn = open_db()?;
+  let bot_name = get_app_setting(&conn, APP_SETTING_OPENCLAW_BOT_NAME)?;
+  Ok(MiddlewareBotNamePayload { bot_name })
+}
+
+#[tauri::command]
+pub fn middleware_openclaw_bot_name_set(
+  input: MiddlewareBotNameSetInput,
+) -> Result<MiddlewareBotNamePayload, String> {
+  let bot_name = input.bot_name.trim();
+  if bot_name.is_empty() {
+    return Err("Bot name cannot be empty".to_string());
   }
+
+  let conn = open_db()?;
+  set_app_setting(&conn, APP_SETTING_OPENCLAW_BOT_NAME, bot_name)?;
+  Ok(MiddlewareBotNamePayload {
+    bot_name: Some(bot_name.to_string()),
+  })
+}
+
+#[tauri::command]
+pub fn middleware_openclaw_bot_name() -> Result<MiddlewareBotNamePayload, String> {
+  middleware_openclaw_bot_name_get()
 }
 
 #[tauri::command]
