@@ -11,10 +11,10 @@ If you're building your own agent-first project, these are the lessons we wish w
 | Day | Date       | Title                        | Summary                                    |
 |-----|------------|------------------------------|--------------------------------------------|
 | 0   | 2026-04-16 | [Foundation & Philosophy](DAY-0-FOUNDATION.md) | 50 questions, architecture decisions, no code |
-| 1   | TBD        | Sandbox & Scaffold           | Testing tooling, monorepo setup            |
+| 1   | 2026-04-17 | [Middleware Contracts, Live Gateway Proof, and Desktop Bridge](DAY-1-MIDDLEWARE-CONTRACTS.md) | Contract-first API, live tool-output proof, build and test flow |
 | 2   | TBD        | Core Shell & Chat            | Tauri window, WebSocket, first messages    |
 | 3   | TBD        | Observability & Sidebar      | Tool call feed, sub-agents, Arc sidebar    |
-| 4   | TBD        | Files, Terminal, Polish       | File browser, editor, terminal, UI polish  |
+| 4   | TBD        | Files, Terminal, Polish      | File browser, editor, terminal, UI polish  |
 | 5   | TBD        | Ship                         | Integration, testing, builds, release      |
 
 ## Philosophy
