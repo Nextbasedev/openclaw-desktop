@@ -69,6 +69,12 @@ pub fn run() {
       middleware::middleware_profile_token_set,
       middleware::middleware_profile_token_get,
       middleware::middleware_profile_token_delete,
+      // Onboarding enhancements
+      middleware::middleware_openclaw_check,
+      middleware::middleware_openclaw_install,
+      middleware::middleware_git_remote_add,
+      middleware::middleware_git_remote_list,
+      middleware::middleware_git_remote_remove,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
