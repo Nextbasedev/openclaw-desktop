@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Jarvis chat stream reference</title>
+    <style>
+      body { font-family: Inter, system-ui, sans-serif; margin: 24px; background: #0b1020; color: #eef2ff; }
+      input, textarea, button { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #111827; color: inherit; }
+      button { cursor: pointer; background: #2563eb; border: none; margin-top: 12px; }
+      .grid { display: grid; gap: 16px; max-width: 900px; }
+      .card { background: #111827; border: 1px solid #1f2937; border-radius: 16px; padding: 16px; }
+      pre { white-space: pre-wrap; word-break: break-word; background: #020617; padding: 12px; border-radius: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="grid">
+      <div class="card">
+        <h2>Temp middleware probe</h2>
+        <input id="sessionKey" placeholder="session key" />
+        <textarea id="message" rows="4" placeholder="message"></textarea>
+        <button id="connect">Connect stream</button>
+        <button id="send">Send message</button>
+      </div>
+      <div class="card">
+        <h3>Status</h3>
+        <pre id="status"></pre>
+      </div>
+      <div class="card">
+        <h3>Events</h3>
+        <pre id="events"></pre>
+      </div>
+    </div>
+    <script>
+      const statusEl = document.getElementById('status')
+      const eventsEl = document.getElementById('events')
+      let source
+      function log(target, value) {
+        target.textContent = `${value}\n${target.textContent}`
+      }
+      document.getElementById('connect').onclick = () => {
+        const sessionKey = document.getElementById('sessionKey').value.trim()
+        if (!sessionKey) return
+        source?.close()
+        source = new EventSource(`/api/chat/stream?sessionKey=${encodeURIComponent(sessionKey)}`)
+        for (const name of ['chat.ready', 'chat.status', 'chat.tool', 'chat.message', 'chat.error']) {
+          source.addEventListener(name, (event) => log(eventsEl, `[${name}] ${event.data}`))
+        }
+        source.onerror = () => log(statusEl, 'stream error')
+        log(statusEl, 'stream connected')
+      }
+      document.getElementById('send').onclick = async () => {
+        const sessionKey = document.getElementById('sessionKey').value.trim()
+        const text = document.getElementById('message').value.trim()
+        const res = await fetch('/api/chat/send', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionKey, text }),
+        })
+        log(statusEl, await res.text())
+      }
+    </script>
+  </body>
+</html>
