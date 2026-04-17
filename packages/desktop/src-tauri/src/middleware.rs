@@ -549,6 +549,7 @@ fn init_db(conn: &Connection) -> Result<(), String> {
       profile_id TEXT NOT NULL,
       workspace_root TEXT NOT NULL,
       repo_root TEXT,
+      remotes_json TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       unread_count INTEGER NOT NULL DEFAULT 0,
       last_activity_at TEXT,
@@ -606,6 +607,13 @@ fn init_db(conn: &Connection) -> Result<(), String> {
     "#,
   )
   .map_err(|error| format!("Failed to initialize SQLite schema: {error}"))?;
+
+  match conn.execute("ALTER TABLE projects ADD COLUMN remotes_json TEXT", []) {
+    Ok(_) => {}
+    Err(error) if error.to_string().contains("duplicate column name") => {}
+    Err(error) => return Err(format!("Failed to migrate projects.remotes_json: {error}")),
+  }
+
   Ok(())
 }
 
@@ -3084,6 +3092,8 @@ mod sqlite_local_tests;
 mod openclaw_chat_tests;
 #[cfg(test)]
 mod branch_chat_tests;
+#[cfg(test)]
+mod onboarding_enhancements_tests;
 
 // ============================================================================
 // BRANCH CHAT MIDDLEWARE COMMANDS
@@ -3324,4 +3334,308 @@ pub async fn middleware_branch_create_thread(
     branch_name: thread_name,
     branch_reason: Some("thread".to_string()),
   }).await
+}
+
+// ============================================================================
+// ONBOARDING ENHANCEMENTS: OpenClaw Detection, Install, Git Remote
+// ============================================================================
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawCheckInput {
+  gateway_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawInstallInput {
+  install_path: Option<String>,
+  version: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRemoteAddInput {
+  project_id: String,
+  remote_name: String,
+  remote_url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRemoteRemoveInput {
+  project_id: String,
+  remote_name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRemoteListInput {
+  project_id: String,
+}
+
+#[tauri::command]
+pub async fn middleware_openclaw_check(input: OpenClawCheckInput) -> Result<Value, String> {
+  let gateway_url = input.gateway_url.unwrap_or_else(|| format!("ws://127.0.0.1:{}", DEFAULT_GATEWAY_PORT));
+
+  let cli_check = tokio::process::Command::new("which")
+    .arg("openclaw")
+    .output()
+    .await;
+  let cli_available = cli_check.map(|o| o.status.success()).unwrap_or(false);
+
+  let ws_check = timeout(Duration::from_secs(2), async {
+    let request = gateway_url.clone().into_client_request().map_err(|e| e.to_string())?;
+    connect_async(request).await.map_err(|e| e.to_string())
+  }).await;
+  let gateway_running = ws_check.is_ok();
+
+  let version = if cli_available {
+    tokio::process::Command::new("openclaw")
+      .arg("--version")
+      .output()
+      .await
+      .ok()
+      .and_then(|o| String::from_utf8(o.stdout).ok())
+      .map(|s| s.trim().to_string())
+  } else {
+    None
+  };
+
+  let gateway_status = if gateway_running {
+    Some(json!({
+      "url": gateway_url,
+      "status": "running",
+    }))
+  } else {
+    None
+  };
+
+  Ok(json!({
+    "installed": cli_available,
+    "running": gateway_running,
+    "version": version,
+    "gateway": gateway_status,
+    "recommendation": if !cli_available {
+      "install"
+    } else if !gateway_running {
+      "start"
+    } else {
+      "ready"
+    }
+  }))
+}
+
+#[tauri::command]
+pub async fn middleware_openclaw_install(input: OpenClawInstallInput) -> Result<Value, String> {
+  let install_path = input.install_path.unwrap_or_else(|| {
+    home_dir()
+      .map(|h| h.join(".openclaw").join("bin").to_string_lossy().to_string())
+      .unwrap_or_else(|_| "/usr/local/bin".to_string())
+  });
+
+  let version = input.version.unwrap_or_else(|| "stable".to_string());
+
+  tokio::fs::create_dir_all(&install_path).await
+    .map_err(|e| format!("Failed to create install directory: {}", e))?;
+
+  let install_script_url = match std::env::consts::OS {
+    "linux" => "https://get.openclaw.ai/install.sh",
+    "macos" => "https://get.openclaw.ai/install.sh",
+    "windows" => "https://get.openclaw.ai/install.ps1",
+    _ => return Err(format!("Unsupported OS: {}", std::env::consts::OS)),
+  };
+
+  let install_cmd = if std::env::consts::OS == "windows" {
+    tokio::process::Command::new("powershell")
+      .args(&["-Command", &format!(
+        "Invoke-RestMethod -Uri '{}' | Invoke-Expression",
+        install_script_url
+      )])
+      .env("OPENCLAW_INSTALL_PATH", &install_path)
+      .env("OPENCLAW_VERSION", &version)
+      .output()
+      .await
+  } else {
+    tokio::process::Command::new("sh")
+      .arg("-c")
+      .arg(format!(
+        "curl -fsSL '{}' | OPENCLAW_INSTALL_PATH='{}' OPENCLAW_VERSION='{}' sh",
+        install_script_url, install_path, version
+      ))
+      .output()
+      .await
+  };
+
+  match install_cmd {
+    Ok(output) => {
+      if output.status.success() {
+        Ok(json!({
+          "installed": true,
+          "path": install_path,
+          "version": version,
+          "output": String::from_utf8_lossy(&output.stdout).to_string(),
+        }))
+      } else {
+        Err(format!(
+          "Installation failed: {}",
+          String::from_utf8_lossy(&output.stderr)
+        ))
+      }
+    }
+    Err(e) => Err(format!("Failed to run installer: {}", e)),
+  }
+}
+
+#[tauri::command]
+pub async fn middleware_git_remote_add(input: GitRemoteAddInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let repo_root: String = conn.query_row(
+    "SELECT repo_root FROM projects WHERE id = ?",
+    params![input.project_id],
+    |row| row.get(0),
+  ).map_err(|e| format!("Project not found: {}", e))?;
+
+  if repo_root.is_empty() {
+    return Err("Project has no repo_root configured".to_string());
+  }
+
+  let git_dir = std::path::Path::new(&repo_root).join(".git");
+  if !git_dir.exists() {
+    let init_output = tokio::process::Command::new("git")
+      .arg("init")
+      .current_dir(&repo_root)
+      .output()
+      .await
+      .map_err(|e| format!("Failed to init git: {}", e))?;
+
+    if !init_output.status.success() {
+      return Err(format!("Git init failed: {}", String::from_utf8_lossy(&init_output.stderr)));
+    }
+  }
+
+  let output = tokio::process::Command::new("git")
+    .args(&["remote", "add", &input.remote_name, &input.remote_url])
+    .current_dir(&repo_root)
+    .output()
+    .await
+    .map_err(|e| format!("Failed to add remote: {}", e))?;
+
+  if output.status.success() {
+    let remotes_json: String = conn.query_row(
+      "SELECT remotes_json FROM projects WHERE id = ?",
+      params![input.project_id],
+      |row| row.get::<_, Option<String>>(0).map(|s| s.unwrap_or_else(|| "{}".to_string())),
+    ).unwrap_or_else(|_| "{}".to_string());
+
+    let mut remotes: Value = serde_json::from_str(&remotes_json).unwrap_or_else(|_| json!({}));
+    remotes[input.remote_name.clone()] = json!(input.remote_url);
+
+    conn.execute(
+      "UPDATE projects SET remotes_json = ?, updated_at = ? WHERE id = ?",
+      params![remotes.to_string(), now_iso(), input.project_id],
+    ).map_err(|e| format!("Failed to update project: {}", e))?;
+
+    Ok(json!({
+      "added": true,
+      "remoteName": input.remote_name,
+      "remoteUrl": input.remote_url,
+      "projectId": input.project_id,
+    }))
+  } else {
+    Err(format!("Git remote add failed: {}", String::from_utf8_lossy(&output.stderr)))
+  }
+}
+
+#[tauri::command]
+pub async fn middleware_git_remote_list(input: GitRemoteListInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let repo_root: String = conn.query_row(
+    "SELECT repo_root FROM projects WHERE id = ?",
+    params![input.project_id],
+    |row| row.get(0),
+  ).map_err(|e| format!("Project not found: {}", e))?;
+
+  if repo_root.is_empty() {
+    return Ok(json!({ "remotes": [] }));
+  }
+
+  let git_dir = std::path::Path::new(&repo_root).join(".git");
+  if !git_dir.exists() {
+    return Ok(json!({ "remotes": [] }));
+  }
+
+  let output = tokio::process::Command::new("git")
+    .args(&["remote", "-v"])
+    .current_dir(&repo_root)
+    .output()
+    .await
+    .map_err(|e| format!("Failed to list remotes: {}", e))?;
+
+  if !output.status.success() {
+    return Ok(json!({ "remotes": [] }));
+  }
+
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  let mut remotes = Vec::new();
+
+  for line in stdout.lines() {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() >= 2 {
+      remotes.push(json!({
+        "name": parts[0],
+        "url": parts[1],
+        "type": parts.get(2).unwrap_or(&"(fetch)").trim_start_matches('(').trim_end_matches(')'),
+      }));
+    }
+  }
+
+  Ok(json!({ "remotes": remotes }))
+}
+
+#[tauri::command]
+pub async fn middleware_git_remote_remove(input: GitRemoteRemoveInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let repo_root: String = conn.query_row(
+    "SELECT repo_root FROM projects WHERE id = ?",
+    params![input.project_id],
+    |row| row.get(0),
+  ).map_err(|e| format!("Project not found: {}", e))?;
+
+  if repo_root.is_empty() {
+    return Err("Project has no repo_root configured".to_string());
+  }
+
+  let output = tokio::process::Command::new("git")
+    .args(&["remote", "remove", &input.remote_name])
+    .current_dir(&repo_root)
+    .output()
+    .await
+    .map_err(|e| format!("Failed to remove remote: {}", e))?;
+
+  if output.status.success() {
+    let remotes_json: String = conn.query_row(
+      "SELECT remotes_json FROM projects WHERE id = ?",
+      params![input.project_id],
+      |row| row.get::<_, Option<String>>(0).map(|s| s.unwrap_or_else(|| "{}".to_string())),
+    ).unwrap_or_else(|_| "{}".to_string());
+
+    let mut remotes: Value = serde_json::from_str(&remotes_json).unwrap_or_else(|_| json!({}));
+    if let Some(obj) = remotes.as_object_mut() {
+      obj.remove(&input.remote_name);
+    }
+
+    conn.execute(
+      "UPDATE projects SET remotes_json = ?, updated_at = ? WHERE id = ?",
+      params![remotes.to_string(), now_iso(), input.project_id],
+    ).map_err(|e| format!("Failed to update project: {}", e))?;
+
+    Ok(json!({
+      "removed": true,
+      "remoteName": input.remote_name,
+      "projectId": input.project_id,
+    }))
+  } else {
+    Err(format!("Git remote remove failed: {}", String::from_utf8_lossy(&output.stderr)))
+  }
 }

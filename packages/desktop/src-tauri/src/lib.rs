@@ -77,6 +77,12 @@ pub fn run() {
       middleware::middleware_branch_from_regenerate,
       middleware::middleware_branch_from_edit,
       middleware::middleware_branch_create_thread,
+      // Onboarding enhancements
+      middleware::middleware_openclaw_check,
+      middleware::middleware_openclaw_install,
+      middleware::middleware_git_remote_add,
+      middleware::middleware_git_remote_list,
+      middleware::middleware_git_remote_remove,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
