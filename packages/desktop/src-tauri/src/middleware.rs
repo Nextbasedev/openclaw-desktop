@@ -579,6 +579,17 @@ fn init_db(conn: &Connection) -> Result<(), String> {
       source TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS branches (
+      id TEXT PRIMARY KEY,
+      source_session_key TEXT NOT NULL,
+      source_message_id TEXT NOT NULL,
+      branch_session_key TEXT NOT NULL UNIQUE,
+      branch_topic_id TEXT,
+      branch_reason TEXT,
+      created_at TEXT NOT NULL,
+      metadata_json TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS terminal_sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -2872,6 +2883,8 @@ mod fs_alias_tests;
 mod sqlite_local_tests;
 #[cfg(test)]
 mod openclaw_chat_tests;
+#[cfg(test)]
+mod branch_chat_tests;
 
 // ============================================================================
 // BRANCH CHAT MIDDLEWARE COMMANDS
