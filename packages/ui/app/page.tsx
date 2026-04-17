@@ -1,19 +1,33 @@
-import { Button } from "@/components/ui/button"
+"use client"
+
+import { Header } from "@/src/domains/shell/ui/components/Header"
+import { SettingsModal } from "@/src/domains/settings/ui/components/SettingsModal"
 
 export default function Page() {
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
+    <div className="flex min-h-svh flex-col bg-background">
+      <Header />
+      <SettingsModal />
+
+      {/* Main content area — placeholder for chat/dashboard */}
+      <main className="flex flex-1 items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10">
+            <span className="text-2xl font-bold text-primary">OC</span>
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold text-foreground">
+              OpenClaw Desktop
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Neural Operations Center — Ready
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground/60">
+            Click the ⚙️ icon in the header to open Settings
+          </p>
         </div>
-        <div className="font-mono text-xs text-muted-foreground">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
-      </div>
+      </main>
     </div>
   )
 }
