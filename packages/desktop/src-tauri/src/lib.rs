@@ -16,6 +16,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       middleware::middleware_runtime_info,
+      middleware::middleware_openclaw_bot_name,
       middleware::middleware_request_admin_access,
       middleware::middleware_approve_admin_access,
       middleware::middleware_chat_create_session,

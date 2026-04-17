@@ -40,6 +40,7 @@ const CHAT_STREAM_EVENT_NAME: &str = "middleware://chat-event";
 const TERMINAL_STREAM_EVENT_NAME: &str = "middleware://terminal-event";
 const PTY_STREAM_EVENT_NAME: &str = "middleware://pty-event";
 const KEYCHAIN_SERVICE: &str = "ai.openclaw.jarvis";
+const OPENCLAW_BOT_DISPLAY_NAME: &str = "Jarvis Desktop";
 
 #[derive(Default)]
 pub struct MiddlewareState {
@@ -58,6 +59,12 @@ struct TerminalHandle {
 pub struct MiddlewareRuntimeInfo {
   contract_version: &'static str,
   transport: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiddlewareBotNamePayload {
+  bot_name: &'static str,
 }
 
 #[derive(Deserialize)]
@@ -1050,7 +1057,7 @@ async fn connect_to_gateway(scopes: &[&str]) -> Result<GatewaySocket, String> {
       "maxProtocol": PROTOCOL_VERSION,
       "client": {
         "id": "openclaw-control-ui",
-        "displayName": "Jarvis Desktop",
+        "displayName": OPENCLAW_BOT_DISPLAY_NAME,
         "version": "0.0.1",
         "platform": "desktop",
         "mode": "webchat"
@@ -1184,6 +1191,13 @@ pub fn middleware_runtime_info() -> MiddlewareRuntimeInfo {
   MiddlewareRuntimeInfo {
     contract_version: MIDDLEWARE_CONTRACT_VERSION,
     transport: "tauri-ipc+gateway-ws+sqlite+keychain+pty+filesystem",
+  }
+}
+
+#[tauri::command]
+pub fn middleware_openclaw_bot_name() -> MiddlewareBotNamePayload {
+  MiddlewareBotNamePayload {
+    bot_name: OPENCLAW_BOT_DISPLAY_NAME,
   }
 }
 

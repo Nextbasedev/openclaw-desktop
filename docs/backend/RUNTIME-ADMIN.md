@@ -7,6 +7,7 @@ Source of truth:
 
 Current Tauri commands:
 - `middleware_runtime_info`
+- `middleware_openclaw_bot_name`
 - `middleware_request_admin_access`
 - `middleware_approve_admin_access`
 
@@ -29,6 +30,26 @@ Use for:
 - frontend compatibility checks
 - debug/about screen
 - feature gating by contract version if needed later
+
+## `middleware_openclaw_bot_name`
+
+Returns the current OpenClaw/Jarvis bot display name used by middleware.
+
+### Input
+No input.
+
+### Response
+```json
+{
+  "botName": "Jarvis Desktop"
+}
+```
+
+Use for:
+- chat header/title fallback
+- onboarding copy
+- settings/about UI
+- anywhere frontend should show the middleware bot name without hardcoding it
 
 ## `middleware_request_admin_access`
 

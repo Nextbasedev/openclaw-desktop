@@ -8,6 +8,12 @@ fn runtime_info_payload_is_stable() {
 }
 
 #[test]
+fn openclaw_bot_name_payload_is_stable() {
+  let payload = middleware_openclaw_bot_name();
+  assert_eq!(payload.bot_name, OPENCLAW_BOT_DISPLAY_NAME);
+}
+
+#[test]
 fn admin_access_request_and_approval_payloads_are_correct() {
   let request = middleware_request_admin_access(AdminAccessRequestInput {
     action_id: "sessions.delete".to_string(),
