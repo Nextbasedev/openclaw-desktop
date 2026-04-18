@@ -102,6 +102,13 @@ pub(crate) fn parse_cron_schedule(schedule: &str) -> Result<Value, String> {
   if trimmed.is_empty() {
     return Err("Cron schedule cannot be empty".to_string());
   }
+  let parts: Vec<&str> = trimmed.split_whitespace().collect();
+  if parts.len() < 5 || parts.len() > 6 {
+    return Err(format!(
+      "Invalid cron expression: expected 5-6 fields, got {}",
+      parts.len()
+    ));
+  }
 
   Ok(json!({
     "kind": "cron",
@@ -448,14 +455,15 @@ pub async fn middleware_cron_job_status(input: CronJobStatusInput) -> Result<Val
 #[tauri::command]
 pub async fn middleware_cron_list_runs(input: CronListRunsInput) -> Result<Value, String> {
   let mut socket = connect_to_gateway(&["operator.read"]).await?;
+  let limit = input.limit.unwrap_or(20).min(100); // default 20, cap at 100
   let new_params = json!({
     "id": input.job_id,
-    "limit": input.limit.unwrap_or(20),
+    "limit": limit,
     "sortDir": input.sort_dir.as_deref().unwrap_or("desc"),
   });
   let legacy_params = json!({
     "id": input.job_id,
-    "limit": input.limit.unwrap_or(20),
+    "limit": limit,
     "sortDir": input.sort_dir.as_deref().unwrap_or("desc"),
     "afterTs": input.after_ts,
   });
@@ -542,8 +550,8 @@ pub async fn middleware_cron_pause_job(input: CronPauseJobInput) -> Result<Value
 pub async fn middleware_cron_poll_run_completion(
   input: CronPollRunCompletionInput,
 ) -> Result<Value, String> {
-  let timeout_ms = input.timeout_ms.unwrap_or(90_000);
-  let interval_ms = input.interval_ms.unwrap_or(1_000);
+  let timeout_ms = input.timeout_ms.unwrap_or(30_000).min(60_000); // cap at 60s, default 30s
+  let interval_ms = input.interval_ms.unwrap_or(3_000).max(2_000); // minimum 2s interval
   let started_at = std::time::Instant::now();
   let after_ts = input.after_ts;
 
