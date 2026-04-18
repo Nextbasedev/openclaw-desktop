@@ -72,14 +72,10 @@ export function InspectorPanel({ open, onClose }: InspectorPanelProps) {
       style={{ width: open ? width : 0 }}
       aria-hidden={!open}
     >
-      {/* Drag handle — left edge */}
+      {/* Drag handle — left edge (invisible) */}
       <div
         onMouseDown={handleMouseDown}
-        className={cn(
-          "absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize",
-          "hover:bg-foreground/10",
-          isDragging && "bg-foreground/15",
-        )}
+        className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize"
       />
 
       <div className="flex h-full flex-col" style={{ width }}>

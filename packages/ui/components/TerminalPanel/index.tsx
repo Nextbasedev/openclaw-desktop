@@ -4,6 +4,10 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import { VscClose, VscAdd, VscChevronDown, VscChevronUp } from "react-icons/vsc"
 
+const MIN_HEIGHT = 120
+const MAX_HEIGHT = 600
+const DEFAULT_HEIGHT = 280
+
 type TerminalTab = {
   id: string
   title: string
@@ -21,6 +25,42 @@ export function TerminalPanel({ open, onToggle }: TerminalPanelProps) {
     { id: "term-1", title: "Terminal 1" },
   ])
   const [activeTabId, setActiveTabId] = React.useState("term-1")
+  const [height, setHeight] = React.useState(DEFAULT_HEIGHT)
+  const [isDragging, setIsDragging] = React.useState(false)
+  const dragRef = React.useRef<{ startY: number; startHeight: number } | null>(null)
+
+  const handleMouseDown = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      dragRef.current = { startY: e.clientY, startHeight: height }
+      setIsDragging(true)
+    },
+    [height],
+  )
+
+  React.useEffect(() => {
+    if (!isDragging) return
+
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return
+      // Dragging top edge — moving up = taller, moving down = shorter
+      const delta = dragRef.current.startY - e.clientY
+      const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, dragRef.current.startHeight + delta))
+      setHeight(newHeight)
+    }
+
+    function onMouseUp() {
+      setIsDragging(false)
+      dragRef.current = null
+    }
+
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [isDragging])
 
   const addTab = React.useCallback(() => {
     tabCounter++
@@ -55,12 +95,20 @@ export function TerminalPanel({ open, onToggle }: TerminalPanelProps) {
   return (
     <div
       className={cn(
-        "flex flex-col border-t border-border/50 bg-card transition-all duration-300 ease-in-out",
+        "relative flex flex-col border-t border-border/50 bg-card",
+        !isDragging && "transition-all duration-300 ease-in-out",
         open
-          ? "h-[280px] opacity-100"
+          ? "opacity-100"
           : "h-0 opacity-0 overflow-hidden"
       )}
+      style={{ height: open ? height : 0 }}
     >
+      {/* Drag handle — top edge (invisible) */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="absolute inset-x-0 top-0 z-10 h-1 cursor-row-resize"
+      />
+
       {/* Terminal header with tabs */}
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/40 bg-card">
         {/* Tabs */}
@@ -160,6 +208,9 @@ export function TerminalPanel({ open, onToggle }: TerminalPanelProps) {
           </div>
         ))}
       </div>
+
+      {/* Prevent text selection while dragging */}
+      {isDragging && <div className="fixed inset-0 z-50 cursor-row-resize" />}
     </div>
   )
 }
