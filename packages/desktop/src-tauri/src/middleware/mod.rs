@@ -406,6 +406,8 @@ pub struct TerminalListInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtySpawnInput {
+  /// Ignored for security — the system shell is always used.
+  #[allow(dead_code)]
   shell: Option<String>,
   cwd: Option<String>,
   cols: Option<u16>,
@@ -1035,7 +1037,6 @@ pub(crate) fn value_at_json_path<'a>(root: &'a Value, path: &str) -> Option<&'a 
 pub(crate) async fn read_device_identity() -> Result<DeviceIdentity, String> {
   let path = home_dir()?
     .join(".openclaw")
-    .join("state")
     .join("identity")
     .join("device.json");
   let raw = tokio::fs::read_to_string(path)
@@ -1268,9 +1269,17 @@ pub(crate) fn project_repo_root(project_id: &str) -> Result<PathBuf, String> {
 
 pub(crate) fn resolve_project_path(project_id: &str, path: &str) -> Result<PathBuf, String> {
   let root = project_workspace_root(project_id)?;
+  let root_canonical = fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
   let resolved = root.join(resolve_relative_path(path));
+  // Logical path check (before file exists)
   if !resolved.starts_with(&root) {
     return Err(format!("Path escapes project root: {path}"));
+  }
+  // Canonicalize to resolve symlinks; if file doesn't exist yet (e.g. writes), fall back to logical check above
+  if let Ok(canonical) = fs::canonicalize(&resolved) {
+    if !canonical.starts_with(&root_canonical) {
+      return Err(format!("Path escapes project root: {path}"));
+    }
   }
   Ok(resolved)
 }
@@ -1479,7 +1488,12 @@ pub(crate) async fn connect_to_gateway(scopes: &[&str]) -> Result<GatewaySocket,
 }
 
 
-fn spawn_pty_reader(app: AppHandle, pty_id: String, mut reader: Box<dyn Read + Send>) {
+fn spawn_pty_reader(
+  app: AppHandle,
+  pty_id: String,
+  mut reader: Box<dyn Read + Send>,
+  terminals_map: Arc<Mutex<HashMap<String, Arc<TerminalHandle>>>>,
+) {
   std::thread::spawn(move || {
     let mut buffer = [0_u8; 4096];
     loop {
@@ -1498,6 +1512,12 @@ fn spawn_pty_reader(app: AppHandle, pty_id: String, mut reader: Box<dyn Read + S
         }
       }
     }
+    // Clean up the terminals map entry when the PTY process exits.
+    let id = pty_id.clone();
+    let map = terminals_map.clone();
+    tauri::async_runtime::spawn(async move {
+      map.lock().await.remove(&id);
+    });
   });
 }
 
@@ -1516,7 +1536,7 @@ mod sqlite_local_tests;
 mod openclaw_chat_tests;
 #[cfg(test)]
 mod branch_chat_tests;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod onboarding_enhancements_tests;
 #[cfg(test)]
 mod onboarding_provider_tests;

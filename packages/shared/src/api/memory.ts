@@ -119,7 +119,7 @@ export const memoryRecallResponseSchema = z.object({
 // ── Reindex ─────────────────────────────────────────────────────────────────
 
 export const memoryReindexRequestSchema = z.object({}).strict()
-export const memoryReindexResponseSchema = apiSuccessSchema.extend({ queued: z.boolean() })
+export const memoryReindexResponseSchema = apiSuccessSchema.extend({ queued: z.boolean(), status: z.unknown().optional() })
 
 // ── Endpoint definitions ────────────────────────────────────────────────────
 
