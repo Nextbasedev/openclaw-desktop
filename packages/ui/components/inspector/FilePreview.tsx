@@ -109,11 +109,11 @@ export function FilePreview({ fileId, fileName, onBack }: FilePreviewProps) {
                   setIsRenaming(false)
                 }
               }}
-              style={{ width: `${Math.max(4, renameValue.length + 1)}ch` }}
-              className="h-6 rounded border border-border bg-background px-1.5 text-[11px] text-foreground outline-none"
+              size={Math.max(4, renameValue.length + 1)}
+              className="h-6 w-fit min-w-16 rounded border border-border bg-background px-1.5 text-[11px] text-foreground outline-none"
               autoFocus
             />
-            <IconBtn icon={VscCheck} label="Confirm" onClick={handleRenameConfirm} className="text-green-400" />
+            <IconBtn icon={VscCheck} label="Confirm" onClick={handleRenameConfirm} />
             <IconBtn
               icon={VscClose}
               label="Cancel"
@@ -164,8 +164,7 @@ export function FilePreview({ fileId, fileName, onBack }: FilePreviewProps) {
               icon={saved ? VscCheck : VscSave}
               label={saved ? "Saved" : "Save"}
               onClick={handleSave}
-              disabled={!hasChanges}
-              className={saved ? "text-green-400" : ""}
+              disabled={!hasChanges && !saved}
             />
           </>
         )}
