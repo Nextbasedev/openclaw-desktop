@@ -24,7 +24,6 @@ const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "skill", label: "Skill", icon: "skill" },
   { id: "connect", label: "Connect", icon: "connect" },
-  { id: "settings", label: "Settings", icon: "settings" },
 ]
 
 type SidebarProps = {
@@ -36,9 +35,6 @@ type SidebarProps = {
   onTabChange: (tab: string) => void
   items: SidebarNavItem[]
   onItemsChange: (items: SidebarNavItem[]) => void
-  isSettingsMode: boolean
-  onToggleSettingsMode: (val: boolean) => void
-  onBackToMain: () => void
 }
 
 export function Sidebar({
@@ -50,8 +46,6 @@ export function Sidebar({
   onTabChange,
   items,
   onItemsChange,
-  isSettingsMode,
-  onBackToMain,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [versionModalOpen, setVersionModalOpen] = useState(false)
@@ -98,103 +92,62 @@ export function Sidebar({
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
 
       <nav className={cn("relative z-10 flex-1 px-2 py-3", collapsed ? "overflow-hidden" : "overflow-y-auto scroll-smooth overscroll-contain")}>
-        {isSettingsMode ? (
-          <div className="flex h-full flex-col gap-1">
-            {collapsed ? (
-              <GlassTooltip label="Back to App">
-                <button
-                  onClick={onBackToMain}
-                  className="flex w-full cursor-pointer items-center justify-center rounded-sm px-0 py-2 font-medium transition-colors hover:text-foreground"
-                >
-                  <Icons.Back size={16} strokeWidth={1.5} />
-                </button>
-              </GlassTooltip>
-            ) : (
-              <button
-                onClick={onBackToMain}
-                className="flex w-full cursor-pointer items-center gap-1 rounded-sm px-2.5 py-1 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <Icons.Back size={16} strokeWidth={1.5} />
-                <span>Back to App</span>
-              </button>
-            )}
-
-            {!collapsed && <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Personal</div>}
-            <SettingsItem label="Usage" icon="usage" active={activeTab === "usage"} onClick={() => onTabChange("usage")} collapsed={collapsed} />
-            <SettingsItem label="Memory" icon="memory" active={activeTab === "memory"} onClick={() => onTabChange("memory")} collapsed={collapsed} />
-
-            {!collapsed && <div className="mb-2 mt-4 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">System</div>}
-            <SettingsItem label="Account" icon="user" active={activeTab === "account"} onClick={() => onTabChange("account")} collapsed={collapsed} />
-            <SettingsItem label="Appearance" icon="settings" active={activeTab === "personalization"} onClick={() => onTabChange("personalization")} collapsed={collapsed} />
-            <SettingsItem label="Data Control" icon="grid" active={activeTab === "data-control"} onClick={() => onTabChange("data-control")} collapsed={collapsed} />
-            <SettingsItem label="Maintenance" icon="wrench" active={activeTab === "maintenance"} onClick={() => onTabChange("maintenance")} collapsed={collapsed} />
-
-            <div className="mt-auto pt-4">
-              <SettingsItem label="Help" icon="help" active={activeTab === "help"} onClick={() => onTabChange("help")} collapsed={collapsed} />
-            </div>
-          </div>
-        ) : (
-          <>
-            {mounted && !collapsed ? (
-              <DndContext id={id} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                  <div className="flex flex-col gap-1">
-                    {items.map((item) => (
-                      <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            ) : (
+        {mounted && !collapsed ? (
+          <DndContext id={id} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
               <div className="flex flex-col gap-1">
                 {items.map((item) => (
                   <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
                 ))}
               </div>
-            )}
-
-            <div className="mt-3 border-t border-border/10">
-              {!collapsed && (
-                <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Pinned
-                </p>
-              )}
-              {collapsed ? (
-                <GlassTooltip label="Project">
-                  <button
-                    type="button"
-                    onClick={() => onTabChange("project")}
-                    className={cn(
-                      "flex w-full min-w-0 cursor-pointer items-center justify-center rounded-md px-0 py-2 font-medium transition-colors duration-150",
-                      activeTab === "project"
-                        ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
-                  </button>
-                </GlassTooltip>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => onTabChange("project")}
-                  className={cn(
-                    "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[13px] font-medium transition-colors duration-150",
-                    activeTab === "project"
-                      ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
-                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                  )}
-                >
-                  <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
-                  <span className="flex-1 truncate">Project</span>
-                </button>
-              )}
-            </div>
-          </>
+            </SortableContext>
+          </DndContext>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {items.map((item) => (
+              <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
+            ))}
+          </div>
         )}
+
+        <div className="mt-3 border-t border-border/10">
+          {!collapsed && (
+            <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              Pinned
+            </p>
+          )}
+          {collapsed ? (
+            <GlassTooltip label="Project">
+              <button
+                type="button"
+                onClick={() => onTabChange("project")}
+                className={cn(
+                  "flex w-full min-w-0 cursor-pointer items-center justify-center rounded-md px-0 py-2 font-medium transition-colors duration-150",
+                  activeTab === "project"
+                    ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
+              </button>
+            </GlassTooltip>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onTabChange("project")}
+              className={cn(
+                "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[13px] font-medium transition-colors duration-150",
+                activeTab === "project"
+                  ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+              )}
+            >
+              <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
+              <span className="flex-1 truncate">Project</span>
+            </button>
+          )}
+        </div>
       </nav>
-
-
 
       {!collapsed && (
         <button
@@ -211,48 +164,6 @@ export function Sidebar({
       <VersionUpdateModal open={versionModalOpen} onOpenChange={setVersionModalOpen} />
     </aside>
   )
-}
-
-function SettingsItem({ label, icon, active, onClick, collapsed }: {
-  label: string
-  icon: string
-  active: boolean
-  onClick: () => void
-  collapsed: boolean
-}) {
-  const iconMap: Record<string, any> = {
-    usage: Icons.Automations,
-    memory: Icons.Memory,
-    user: Icons.UserAccount,
-    settings: Icons.Settings,
-    grid: Icons.Grid,
-    wrench: Icons.Wrench,
-    help: Icons.Help,
-  }
-
-  const Icon = iconMap[icon] || Icons.Settings
-
-  const btn = (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex w-full cursor-pointer items-center rounded-md font-normal transition-colors",
-        collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1.5 text-left text-[13px]",
-        active
-          ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
-          : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-      )}
-    >
-      <Icon size={16} strokeWidth={active ? 2 : 1.5} className="shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
-    </button>
-  )
-
-  if (collapsed) {
-    return <GlassTooltip label={label}>{btn}</GlassTooltip>
-  }
-
-  return btn
 }
 
 export { DEFAULT_DRAGGABLE_ITEMS }
