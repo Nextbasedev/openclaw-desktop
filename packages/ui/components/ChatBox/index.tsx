@@ -5,8 +5,20 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import { ActionBar, MODELS } from "./ActionBar"
 
-export function ChatBox() {
-  const [input, setInput] = React.useState("")
+type ChatBoxProps = {
+  value?: string
+  onChange?: (value: string) => void
+  onSubmit?: (value: string) => void
+  disabled?: boolean
+}
+
+export function ChatBox({
+  value,
+  onChange,
+  onSubmit,
+  disabled = false,
+}: ChatBoxProps) {
+  const [internalInput, setInternalInput] = React.useState("")
   const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [selectedModel, setSelectedModel] = React.useState(MODELS[0])
@@ -15,7 +27,13 @@ export function ChatBox() {
   const [isFocused, setIsFocused] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
 
+  const input = value ?? internalInput
   const hasInput = input.trim().length > 0
+
+  function setInput(next: string) {
+    if (onChange) onChange(next)
+    else setInternalInput(next)
+  }
 
   function handleWebSearchToggle() {
     setWebSearchEnabled((prev) => !prev)
@@ -28,6 +46,17 @@ export function ChatBox() {
     el.style.height = "auto"
     const maxH = 8 * 24
     el.style.height = Math.max(56, Math.min(el.scrollHeight, maxH)) + "px"
+  }
+
+  function handleSubmit() {
+    if (!hasInput || disabled) return
+    onSubmit?.(input)
+    if (!onChange) {
+      setInternalInput("")
+      requestAnimationFrame(() => {
+        if (textareaRef.current) textareaRef.current.style.height = "68px"
+      })
+    }
   }
 
   return (
@@ -50,15 +79,22 @@ export function ChatBox() {
             }}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder="Message... (type / for commands)"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                handleSubmit()
+              }
+            }}
+            placeholder={disabled ? "Select a topic to start chatting" : "Message... (type / for commands)"}
             rows={1}
-            className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
+            disabled={disabled}
+            className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
           />
 
           <ActionBar
-            hasInput={hasInput}
+            hasInput={hasInput && !disabled}
             planEnabled={planEnabled}
             onPlanToggle={() => setPlanEnabled((prev) => !prev)}
             webSearchEnabled={webSearchEnabled}
