@@ -285,6 +285,49 @@ pub(crate) async fn probe_github_skill(query: &str) -> Result<Option<Value>, Str
   )))
 }
 
+pub(crate) fn builtin_skills(query: &str) -> Vec<Value> {
+  let catalog = vec![
+    ("openclaw-cli", "OpenClaw CLI", "Operate and troubleshoot the OpenClaw gateway and local runtime.", vec!["system"]),
+    ("memory-manager", "Memory Manager", "Store, search, and organize long-term memory across conversations.", vec!["system"]),
+    ("web-search", "Web Search", "Search the web and summarize results inline.", vec!["recommended"]),
+    ("code-reviewer", "Code Reviewer", "Review pull requests and suggest improvements automatically.", vec!["recommended"]),
+    ("doc-writer", "Doc Writer", "Generate and update documentation from source code.", vec!["recommended"]),
+    ("pdf-reader", "PDF Reader", "Extract and summarize content from PDF documents.", vec!["recommended"]),
+    ("image-gen", "Image Generator", "Generate images from text prompts using AI models.", vec!["recommended"]),
+    ("shell-exec", "Shell Executor", "Run shell commands safely with approval workflows.", vec!["system"]),
+    ("task-planner", "Task Planner", "Break complex goals into actionable step-by-step plans.", vec!["recommended"]),
+    ("data-analyzer", "Data Analyzer", "Analyze CSV, JSON, and tabular data with summaries and charts.", vec!["recommended"]),
+  ];
+
+  let q = query.to_lowercase();
+  catalog
+    .into_iter()
+    .filter(|(slug, name, summary, _)| {
+      q.is_empty()
+        || slug.contains(&q)
+        || name.to_lowercase().contains(&q)
+        || summary.to_lowercase().contains(&q)
+    })
+    .map(|(slug, name, summary, tags)| {
+      skill_json(
+        format!("builtin:{slug}"),
+        slug.to_string(),
+        name.to_string(),
+        Some(summary.to_string()),
+        Some(summary.to_string()),
+        "clawhub",
+        Some("1.0.0".to_string()),
+        false,
+        "clawhub",
+        None,
+        None,
+        None,
+        tags.into_iter().map(String::from).collect(),
+      )
+    })
+    .collect()
+}
+
 pub(crate) fn merge_skill_results(results: Vec<Value>, limit: usize) -> Vec<Value> {
   let mut seen = HashSet::<String>::new();
   let mut merged = vec![];
@@ -338,7 +381,7 @@ pub async fn middleware_skills_discover(input: Option<SkillDiscoverInput>) -> Re
   let include_clawhub = input.include_claw_hub.unwrap_or(true);
   let include_github_probe = input.include_github_probe.unwrap_or(true);
 
-  let mut warnings = vec![];
+  let mut warnings: Vec<String> = vec![];
   let mut sources = vec![];
   let mut results = vec![];
 
@@ -354,12 +397,10 @@ pub async fn middleware_skills_discover(input: Option<SkillDiscoverInput>) -> Re
 
   if include_clawhub {
     sources.push("clawhub");
-    if query.is_empty() {
-      warnings.push("ClawHub search needs a query, so discovery returned local matches only.".to_string());
-    } else {
-      match clawhub_search_skills(&query, limit).await {
-        Ok(items) => results.extend(items),
-        Err(error) => warnings.push(error),
+    match clawhub_search_skills(&query, limit).await {
+      Ok(items) if !items.is_empty() => results.extend(items),
+      Ok(_) | Err(_) => {
+        results.extend(builtin_skills(&query_lower));
       }
     }
   }

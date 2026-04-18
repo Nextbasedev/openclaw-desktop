@@ -23,17 +23,21 @@ mod cron_openclaw_tests;
 #[cfg(test)]
 mod git_context_tests;
 #[cfg(test)]
+mod memory_tests;
+#[cfg(test)]
 mod sync_tests;
 #[cfg(test)]
 mod usage_tests;
 
 mod branches;
 mod chat;
+mod connect;
 mod cron;
 mod crud;
 mod files;
 mod fs_raw;
 mod git;
+mod memory;
 mod onboarding;
 mod pty;
 mod skills;
@@ -43,11 +47,13 @@ mod usage;
 
 pub use branches::*;
 pub use chat::*;
+pub use connect::*;
 pub use cron::*;
 pub use crud::*;
 pub use files::*;
 pub use fs_raw::*;
 pub use git::*;
+pub use memory::*;
 pub use onboarding::*;
 pub use pty::*;
 pub use skills::*;
@@ -1016,7 +1022,6 @@ pub(crate) fn value_at_json_path<'a>(root: &'a Value, path: &str) -> Option<&'a 
 pub(crate) async fn read_device_identity() -> Result<DeviceIdentity, String> {
   let path = home_dir()?
     .join(".openclaw")
-    .join("state")
     .join("identity")
     .join("device.json");
   let raw = tokio::fs::read_to_string(path)
