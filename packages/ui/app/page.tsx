@@ -22,10 +22,12 @@ import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 220
+const SIDEBAR_COLLAPSED = 56
 
 export default function Page() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("chat")
   const [isSettingsMode, setIsSettingsMode] = useState(false)
@@ -37,12 +39,12 @@ export default function Page() {
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), [])
+  const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
   const openTerminal = useCallback(() => setTerminalOpen(true), [])
 
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
 
-  /* ── Ctrl+N: new chat ── */
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
@@ -58,12 +60,12 @@ export default function Page() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [])
 
-  /* ── Sidebar resize ── */
   const handleResizeStart = useCallback(() => {
+    if (!sidebarOpen) return
     isResizing.current = true
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-  }, [])
+  }, [sidebarOpen])
 
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
@@ -91,7 +93,7 @@ export default function Page() {
   const handleTabChange = useCallback((tab: string) => {
     if (tab === "settings") {
       setIsSettingsMode(true)
-      setActiveTab("usage") // Enter settings and show usage as default
+      setActiveTab("usage")
     } else {
       setActiveTab(tab)
       if (!isSettingsMode) {
@@ -112,11 +114,14 @@ export default function Page() {
         onToggleInspector={toggleInspector}
         terminalOpen={terminalOpen}
         onToggleTerminal={toggleTerminal}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={toggleSidebar}
       />
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
-          width={sidebarWidth}
+          width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+          collapsed={!sidebarOpen}
           onResizeStart={handleResizeStart}
           activeTab={activeTab}
           onTabChange={handleTabChange}
@@ -127,7 +132,6 @@ export default function Page() {
           onBackToMain={handleBackToMain}
         />
 
-        {/* Main + terminal column */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <main className="flex flex-1 items-start justify-center overflow-y-auto transition-all duration-300 ease-in-out">
             <MainContent
@@ -139,7 +143,6 @@ export default function Page() {
             />
           </main>
 
-          {/* Terminal panel — slides up from bottom */}
           <TerminalPanel
             open={terminalOpen}
             onToggle={toggleTerminal}
@@ -162,7 +165,6 @@ export default function Page() {
   )
 }
 
-/* ── Conditional main content based on active tab ── */
 function MainContent({
   activeTab,
   chatKey,
@@ -181,7 +183,6 @@ function MainContent({
     onTabChange(lastStandardTab)
   }
 
-  // Settings-related content
   if (activeTab === "usage") return <UsagePage onBack={settingsBack} />
   if (activeTab === "skill") return <SkillPage />
   if (activeTab === "memory") return <div className="text-muted-foreground italic">Memory system is loading...</div>
@@ -190,11 +191,8 @@ function MainContent({
   if (activeTab === "data-control") return <div className="w-full max-w-2xl px-6 py-10"><DataControlTab /></div>
   if (activeTab === "maintenance") return <div className="w-full max-w-2xl px-6 py-10"><MaintenanceTab /></div>
   if (activeTab === "help") return <div className="w-full max-w-2xl px-6 py-10"><HelpTab /></div>
-
-  // Project placeholder
   if (activeTab === "project") return <div className="text-muted-foreground italic">Project files...</div>
 
-  // Default: chat view (greeting + chatbox)
   return (
     <div key={`${activeTab}-${chatKey}`} className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
       <AnimatedGreeting />
