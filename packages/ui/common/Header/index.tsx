@@ -19,6 +19,7 @@ type HeaderProps = {
     onToggleTerminal?: () => void
     sidebarOpen?: boolean
     onToggleSidebar?: () => void
+    centerLabel?: string | null
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -35,6 +36,7 @@ export function Header({
     onToggleTerminal,
     sidebarOpen = true,
     onToggleSidebar,
+    centerLabel,
 }: HeaderProps) {
     const [settingsOpen, setSettingsOpen] = useState(false)
     const platform = usePlatform()
@@ -57,6 +59,15 @@ export function Header({
             >
                 <div data-tauri-drag-region className="absolute inset-0 z-0" />
 
+                {/* ── Center label (active project › topic) ── */}
+                {centerLabel && (
+                    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                        <span className="max-w-[40%] truncate text-center text-[12px] font-medium text-foreground/55 tracking-tight">
+                            {centerLabel}
+                        </span>
+                    </div>
+                )}
+
                 <div className="relative z-10 flex items-center gap-3">
                     {isMac && <TrafficLights />}
 
@@ -64,7 +75,7 @@ export function Header({
                         {user.name}
                     </span>
 
-                    <span className="rounded-[28px] border border-[#0E283D] bg-gradient-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner">
+                    <span className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner">
                         {user.version}
                     </span>
                 </div>
