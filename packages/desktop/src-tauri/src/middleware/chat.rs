@@ -362,6 +362,33 @@ pub async fn middleware_chat_send(input: ChatSendInput) -> Result<Value, String>
 }
 
 #[tauri::command]
+pub async fn middleware_chat_abort(input: SessionKeyInput) -> Result<Value, String> {
+  let mut socket = connect_to_gateway(&["operator.read", "operator.write"]).await?;
+  let result = gateway_request(
+    &mut socket,
+    "chat.abort",
+    json!({ "sessionKey": input.session_key }),
+    15_000,
+  )
+  .await;
+  let _ = socket.close(None).await;
+
+  match result {
+    Ok(payload) => {
+      let _ = update_session_mapping_status(&input.session_key, "aborted");
+      if let Some(error) = payload.get("error").and_then(Value::as_str) {
+        return Err(format!("Gateway abort failed: {error}"));
+      }
+      Ok(json!({ "ok": true, "sessionKey": input.session_key }))
+    }
+    Err(e) => {
+      let _ = update_session_mapping_status(&input.session_key, "aborted");
+      Err(format!("Failed to abort session: {e}"))
+    }
+  }
+}
+
+#[tauri::command]
 pub async fn middleware_chat_stream_start(
   app: AppHandle,
   state: State<'_, MiddlewareState>,
