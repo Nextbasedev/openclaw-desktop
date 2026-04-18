@@ -171,7 +171,41 @@ pub(crate) fn parse_github_repo_reference(input: &str) -> Option<(String, String
   None
 }
 
+pub(crate) async fn ensure_clawhub_cli() -> Result<(), String> {
+  let check = tokio::process::Command::new("clawhub")
+    .arg("--cli-version")
+    .output()
+    .await;
+  if check.is_ok() && check.unwrap().status.success() {
+    return Ok(());
+  }
+
+  let npm = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
+  let output = tokio::process::Command::new(npm)
+    .args(["install", "-g", "clawhub"])
+    .output()
+    .await
+    .map_err(|error| format!("Failed to install clawhub CLI via npm: {error}"))?;
+  if !output.status.success() {
+    return Err(format!(
+      "npm install -g clawhub failed: {}",
+      String::from_utf8_lossy(&output.stderr)
+    ));
+  }
+
+  let verify = tokio::process::Command::new("clawhub")
+    .arg("--cli-version")
+    .output()
+    .await
+    .map_err(|error| format!("clawhub installed but not reachable: {error}"))?;
+  if !verify.status.success() {
+    return Err("clawhub installed but --cli-version check failed".to_string());
+  }
+  Ok(())
+}
+
 pub(crate) async fn clawhub_search_skills(query: &str, limit: usize) -> Result<Vec<Value>, String> {
+  ensure_clawhub_cli().await?;
   let output = tokio::process::Command::new("clawhub")
     .args(["search", query, "--limit", &limit.to_string()])
     .output()
@@ -344,17 +378,25 @@ pub(crate) fn merge_skill_results(results: Vec<Value>, limit: usize) -> Vec<Valu
   merged
 }
 
-pub(crate) fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), String> {
-  fs::create_dir_all(to).map_err(|error| format!("Failed to create directory {}: {error}", to.display()))?;
-  for entry in fs::read_dir(from).map_err(|error| format!("Failed to read directory {}: {error}", from.display()))? {
-    let entry = entry.map_err(|error| format!("Failed to read directory entry: {error}"))?;
+pub(crate) fn copy_dir_recursive(from: &Path, to: &Path, depth: u32) -> Result<(), String> {
+  if depth > 20 {
+    return Err(format!("Directory nesting too deep at {}", from.display()));
+  }
+  fs::create_dir_all(to).map_err(|e| format!("Failed to create directory {}: {e}", to.display()))?;
+  for entry in fs::read_dir(from).map_err(|e| format!("Failed to read directory {}: {e}", from.display()))? {
+    let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
     let source_path = entry.path();
     let target_path = to.join(entry.file_name());
+    let metadata = fs::symlink_metadata(&source_path)
+      .map_err(|e| format!("Failed to read metadata for {}: {e}", source_path.display()))?;
+    if metadata.file_type().is_symlink() {
+      continue; // skip symlinks
+    }
     if source_path.is_dir() {
-      copy_dir_recursive(&source_path, &target_path)?;
+      copy_dir_recursive(&source_path, &target_path, depth + 1)?;
     } else {
-      fs::copy(&source_path, &target_path).map_err(|error| {
-        format!("Failed to copy {} to {}: {error}", source_path.display(), target_path.display())
+      fs::copy(&source_path, &target_path).map_err(|e| {
+        format!("Failed to copy {} to {}: {e}", source_path.display(), target_path.display())
       })?;
     }
   }
@@ -432,6 +474,7 @@ pub async fn middleware_skills_install(input: SkillInstallInput) -> Result<Value
 
   let (skill, location_path, status) = match input.source.as_str() {
     "clawhub" => {
+      ensure_clawhub_cli().await?;
       let slug = input.slug.clone().ok_or_else(|| "slug is required for ClawHub installs".to_string())?;
       let install_path = root.join(&slug);
       let status = installed_status_for_path(&install_path).to_string();
@@ -546,7 +589,7 @@ pub async fn middleware_skills_install(input: SkillInstallInput) -> Result<Value
         }
       }
       if !install_path.exists() {
-        copy_dir_recursive(&local_path, &install_path)?;
+        copy_dir_recursive(&local_path, &install_path, 0)?;
         actions.push(format!("copy {} {}", local_path.display(), install_path.display()));
       }
       let raw_skill = fs::read_to_string(install_path.join("SKILL.md")).unwrap_or_default();

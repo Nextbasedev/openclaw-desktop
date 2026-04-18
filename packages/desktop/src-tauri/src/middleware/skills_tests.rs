@@ -103,3 +103,9 @@ async fn skills_install_copies_local_skill_into_user_scope() {
     assert_eq!(result.get("location").and_then(|v| v.get("scope")).and_then(Value::as_str), Some("user"));
   }).await;
 }
+
+#[tokio::test]
+async fn ensure_clawhub_cli_succeeds_when_available() {
+  let result = ensure_clawhub_cli().await;
+  assert!(result.is_ok(), "ensure_clawhub_cli failed: {:?}", result.err());
+}

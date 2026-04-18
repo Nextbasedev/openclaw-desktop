@@ -5,7 +5,12 @@ pub(crate) fn shell_command() -> String {
 }
 
 
-pub(crate) fn spawn_terminal_reader(app: AppHandle, session_id: String, mut reader: Box<dyn Read + Send>) {
+pub(crate) fn spawn_terminal_reader(
+  app: AppHandle,
+  session_id: String,
+  mut reader: Box<dyn Read + Send>,
+  terminals_map: Arc<Mutex<HashMap<String, Arc<TerminalHandle>>>>,
+) {
   std::thread::spawn(move || {
     let mut buffer = [0_u8; 4096];
     loop {
@@ -35,6 +40,12 @@ pub(crate) fn spawn_terminal_reader(app: AppHandle, session_id: String, mut read
         }
       }
     }
+    // Clean up the terminals map entry when the terminal process exits.
+    let id = session_id.clone();
+    let map = terminals_map.clone();
+    tauri::async_runtime::spawn(async move {
+      map.lock().await.remove(&id);
+    });
   });
 }
 
@@ -59,6 +70,13 @@ pub async fn middleware_terminal_create(
   input: TerminalCreateInput,
 ) -> Result<Value, String> {
   let project_root = project_workspace_root(&input.project_id)?;
+  // Validate that the requested cwd exists and is a directory.
+  if let Some(ref cwd) = input.cwd {
+    let cwd_path = PathBuf::from(cwd);
+    if !cwd_path.exists() || !cwd_path.is_dir() {
+      return Err(format!("Terminal cwd does not exist or is not a directory: {cwd}"));
+    }
+  }
   let cwd = input.cwd.clone().map(PathBuf::from).unwrap_or(project_root);
   let title = input.title.unwrap_or_else(|| "Terminal".to_string());
   let pty_system = native_pty_system();
@@ -85,7 +103,7 @@ pub async fn middleware_terminal_create(
     child: StdMutex::new(child),
   });
   state.terminals.lock().await.insert(id.clone(), handle);
-  spawn_terminal_reader(app, id.clone(), reader);
+  spawn_terminal_reader(app, id.clone(), reader, Arc::clone(&state.terminals));
 
   let conn = open_db()?;
   conn.execute(

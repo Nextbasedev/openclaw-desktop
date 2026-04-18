@@ -335,11 +335,13 @@ pub(crate) fn merge_sync_states(
 }
 
 pub(crate) fn apply_sync_changes(conn: &Connection, result: &MergeResult) -> Result<(), String> {
+  let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin sync transaction: {e}"))?;
+
   // Apply upserts
   for entity in &result.to_upsert_locally {
     match entity {
       MergeEntity::Project(p) => {
-        conn.execute(
+        tx.execute(
           "INSERT INTO projects (id, name, profile_id, workspace_root, repo_root, archived, unread_count, created_at, updated_at, sync_dirty) \
            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 0) \
            ON CONFLICT(id) DO UPDATE SET name=excluded.name, workspace_root=excluded.workspace_root, repo_root=excluded.repo_root, archived=excluded.archived, updated_at=excluded.updated_at, sync_dirty=0",
@@ -347,7 +349,7 @@ pub(crate) fn apply_sync_changes(conn: &Connection, result: &MergeResult) -> Res
         ).map_err(|e| format!("Failed to upsert synced project: {e}"))?;
       }
       MergeEntity::Topic(t) => {
-        conn.execute(
+        tx.execute(
           "INSERT INTO topics (id, project_id, name, archived, unread_count, sort_order, created_at, updated_at, sync_dirty) \
            VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0) \
            ON CONFLICT(id) DO UPDATE SET name=excluded.name, archived=excluded.archived, sort_order=excluded.sort_order, updated_at=excluded.updated_at, sync_dirty=0",
@@ -355,7 +357,7 @@ pub(crate) fn apply_sync_changes(conn: &Connection, result: &MergeResult) -> Res
         ).map_err(|e| format!("Failed to upsert synced topic: {e}"))?;
       }
       MergeEntity::SessionMapping(s) => {
-        conn.execute(
+        tx.execute(
           "INSERT INTO session_mappings (session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source, sync_dirty) \
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0) \
            ON CONFLICT(session_key) DO UPDATE SET session_id=excluded.session_id, project_id=excluded.project_id, topic_id=excluded.topic_id, agent_id=excluded.agent_id, label=excluded.label, status=excluded.status, pinned=excluded.pinned, hidden=excluded.hidden, updated_at=excluded.updated_at, sync_dirty=0",
@@ -363,7 +365,7 @@ pub(crate) fn apply_sync_changes(conn: &Connection, result: &MergeResult) -> Res
         ).map_err(|e| format!("Failed to upsert synced session mapping: {e}"))?;
       }
       MergeEntity::Branch(b) => {
-        conn.execute(
+        tx.execute(
           "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json, sync_dirty) \
            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0) \
            ON CONFLICT(branch_session_key) DO UPDATE SET branch_topic_id=excluded.branch_topic_id, branch_reason=excluded.branch_reason, sync_dirty=0",
@@ -377,19 +379,19 @@ pub(crate) fn apply_sync_changes(conn: &Connection, result: &MergeResult) -> Res
   for (etype, eid) in &result.to_delete_locally {
     match etype.as_str() {
       "project" => {
-        conn.execute("DELETE FROM projects WHERE id = ?", params![eid])
+        tx.execute("DELETE FROM projects WHERE id = ?", params![eid])
           .map_err(|e| format!("Failed to delete synced project: {e}"))?;
       }
       "topic" => {
-        conn.execute("DELETE FROM topics WHERE id = ?", params![eid])
+        tx.execute("DELETE FROM topics WHERE id = ?", params![eid])
           .map_err(|e| format!("Failed to delete synced topic: {e}"))?;
       }
       "session_mapping" => {
-        conn.execute("DELETE FROM session_mappings WHERE session_key = ?", params![eid])
+        tx.execute("DELETE FROM session_mappings WHERE session_key = ?", params![eid])
           .map_err(|e| format!("Failed to delete synced session mapping: {e}"))?;
       }
       "branch" => {
-        conn.execute("DELETE FROM branches WHERE branch_session_key = ?", params![eid])
+        tx.execute("DELETE FROM branches WHERE branch_session_key = ?", params![eid])
           .map_err(|e| format!("Failed to delete synced branch: {e}"))?;
       }
       _ => {}
@@ -398,26 +400,27 @@ pub(crate) fn apply_sync_changes(conn: &Connection, result: &MergeResult) -> Res
 
   // Clear sync_dirty only on entities that were actually pushed
   for id in &result.pushed_project_ids {
-    conn.execute("UPDATE projects SET sync_dirty = 0 WHERE id = ? AND sync_dirty = 1", params![id])
+    tx.execute("UPDATE projects SET sync_dirty = 0 WHERE id = ? AND sync_dirty = 1", params![id])
       .map_err(|e| format!("Failed to clear project sync_dirty: {e}"))?;
   }
   for id in &result.pushed_topic_ids {
-    conn.execute("UPDATE topics SET sync_dirty = 0 WHERE id = ? AND sync_dirty = 1", params![id])
+    tx.execute("UPDATE topics SET sync_dirty = 0 WHERE id = ? AND sync_dirty = 1", params![id])
       .map_err(|e| format!("Failed to clear topic sync_dirty: {e}"))?;
   }
   for key in &result.pushed_session_keys {
-    conn.execute("UPDATE session_mappings SET sync_dirty = 0 WHERE session_key = ? AND sync_dirty = 1", params![key])
+    tx.execute("UPDATE session_mappings SET sync_dirty = 0 WHERE session_key = ? AND sync_dirty = 1", params![key])
       .map_err(|e| format!("Failed to clear session_mappings sync_dirty: {e}"))?;
   }
   for id in &result.pushed_branch_ids {
-    conn.execute("UPDATE branches SET sync_dirty = 0 WHERE id = ? AND sync_dirty = 1", params![id])
+    tx.execute("UPDATE branches SET sync_dirty = 0 WHERE id = ? AND sync_dirty = 1", params![id])
       .map_err(|e| format!("Failed to clear branches sync_dirty: {e}"))?;
   }
 
   // Prune expired tombstones
-  conn.execute("DELETE FROM sync_tombstones WHERE expires_at <= ?", params![now_iso()])
+  tx.execute("DELETE FROM sync_tombstones WHERE expires_at <= ?", params![now_iso()])
     .map_err(|e| format!("Failed to prune expired tombstones: {e}"))?;
 
+  tx.commit().map_err(|e| format!("Failed to commit sync changes: {e}"))?;
   Ok(())
 }
 
@@ -543,8 +546,14 @@ pub async fn middleware_sync_full(input: SyncFullInput) -> Result<Value, String>
     return Err("Sync is not enabled".to_string());
   }
 
-  let device_id = get_app_setting(&conn, APP_SETTING_SYNC_DEVICE_ID)?
-    .unwrap_or_else(|| Uuid::new_v4().to_string());
+  let device_id = match get_app_setting(&conn, APP_SETTING_SYNC_DEVICE_ID)? {
+    Some(id) => id,
+    None => {
+      let new_id = Uuid::new_v4().to_string();
+      set_app_setting(&conn, APP_SETTING_SYNC_DEVICE_ID, &new_id)?;
+      new_id
+    }
+  };
   let device_name = get_app_setting(&conn, APP_SETTING_SYNC_DEVICE_NAME)?
     .unwrap_or_else(|| "Unknown Device".to_string());
 

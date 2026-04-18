@@ -2,10 +2,8 @@ import { z } from "zod"
 import {
   defineEndpoint,
   nonEmptyStringSchema,
-  projectIdSchema,
   sessionKeySchema,
   timestampSchema,
-  topicIdSchema,
 } from "./common"
 
 export const contentBlockSchema = z.object({
@@ -18,34 +16,40 @@ export const contentBlockSchema = z.object({
 
 export const chatMessageSchema = z.object({
   id: z.string().min(1),
-  sessionKey: sessionKeySchema,
   role: z.enum(["user", "assistant", "system", "tool"]),
   content: z.union([z.string(), z.array(contentBlockSchema)]),
+  text: z.string().optional(),
   createdAt: timestampSchema,
-  model: z.string().optional(),
+  model: z.string().nullable().optional(),
 })
 
 export const chatHistoryRequestSchema = z.object({ sessionKey: sessionKeySchema })
 export const chatHistoryResponseSchema = z.object({
+  sessionKey: sessionKeySchema,
   messages: z.array(chatMessageSchema),
-  thinkingLevel: z.string().optional(),
-  verboseLevel: z.string().optional(),
+  thinkingLevel: z.string().nullable().optional(),
+  verboseLevel: z.string().nullable().optional(),
+})
+
+export const chatAttachmentSchema = z.object({
+  name: z.string().min(1),
+  mimeType: z.string().min(1),
+  content: z.string().optional(),
+  encoding: z.enum(["utf-8", "base64"]).default("utf-8"),
+  size: z.number().int().nonnegative().optional(),
 })
 
 export const chatSendRequestSchema = z.object({
   sessionKey: sessionKeySchema,
-  projectId: projectIdSchema.optional(),
-  topicId: topicIdSchema.optional(),
   text: nonEmptyStringSchema,
-  model: z.string().optional(),
-  attachments: z.array(z.object({ name: nonEmptyStringSchema, mimeType: nonEmptyStringSchema })).optional(),
+  timeoutMs: z.number().optional(),
+  attachments: z.array(chatAttachmentSchema).optional(),
 })
 export const chatSendResponseSchema = z.object({
   accepted: z.boolean(),
-  pendingMessageId: z.string().optional(),
-  runId: z.string().optional().nullable(),
-  status: z.string().optional(),
-  sessionKey: sessionKeySchema.optional(),
+  sessionKey: sessionKeySchema,
+  runId: z.string().nullable().optional(),
+  status: z.string(),
 })
 
 export const chatAbortRequestSchema = z.object({ sessionKey: sessionKeySchema })
@@ -133,4 +137,5 @@ export type ChatSendResponse = z.infer<typeof chatSendResponseSchema>
 export type ChatAbortRequest = z.infer<typeof chatAbortRequestSchema>
 export type ChatAbortResponse = z.infer<typeof chatAbortResponseSchema>
 export type ChatStreamRequest = z.infer<typeof chatStreamRequestSchema>
+export type ChatAttachment = z.infer<typeof chatAttachmentSchema>
 export type ChatStreamEvent = z.infer<typeof chatStreamEventSchema>
