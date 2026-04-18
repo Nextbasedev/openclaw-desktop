@@ -10,7 +10,6 @@ import {
     Search01Icon,
     ArrowLeft01Icon,
     ArrowRight01Icon,
-    Plus01Icon,
     Tick01Icon,
     UserCircleIcon,
     HelpCircleIcon,
@@ -19,8 +18,9 @@ import {
     DashboardSpeed01Icon,
     Message01Icon,
     TerminalIcon,
-    Folder01Icon,
+    FolderAddIcon,
     Database01Icon,
+    PencilEdit02Icon,
     AlarmClockIcon,
     Home01Icon,
     Clock01Icon,
@@ -78,7 +78,7 @@ const wrapReactIcon = (IconComponent: React.ElementType) => {
     const Component = ({ size = 20, className, ...props }: IconProps) => (
         <IconComponent size={size} className={className} {...props} />
     )
-    Component.displayName = `ReactIcon(${IconComponent.displayName || IconComponent.name || 'Unknown'})`
+    Component.displayName = `ReactIcon(${(IconComponent as any).displayName || (IconComponent as any).name || 'Unknown'})`
     return Component
 }
 
@@ -88,7 +88,7 @@ export const Icons = {
     Dashboard: wrapHugeicon(DashboardSpeed01Icon),
     Chat: wrapHugeicon(Message01Icon),
     Terminal: wrapHugeicon(TerminalIcon),
-    Files: wrapHugeicon(Folder01Icon),
+    Files: wrapHugeicon(FolderAddIcon),
     Memory: wrapHugeicon(Database01Icon),
     Cron: wrapHugeicon(AlarmClockIcon),
     Tasks: wrapHugeicon(Task01Icon),
@@ -99,8 +99,15 @@ export const Icons = {
     SidebarRight: wrapHugeicon(LayoutRightIcon),
     SidebarToggle: wrapReactIcon(VscLayoutSidebarRightOff),
 
+    // Sidebar Specific
+    NewChat: wrapHugeicon(PencilEdit02Icon),
+    Plugins: wrapHugeicon(GridIcon),
+    Automations: wrapHugeicon(Clock01Icon),
+    Project: wrapHugeicon(FolderAddIcon),
+
     // Actions
-    Add: wrapHugeicon(Plus01Icon),
+    Edit: wrapHugeicon(PencilEdit02Icon),
+    Add: wrapHugeicon(Add01Icon),
     Check: wrapHugeicon(Tick01Icon),
     Close: wrapHugeicon(Cancel01Icon),
     Search: wrapHugeicon(Search01Icon),
@@ -127,7 +134,7 @@ export const Icons = {
     ExternalLink: wrapHugeicon(ArrowUpRight01Icon),
     Minus: wrapHugeicon(MinusSignIcon),
     Plus: wrapHugeicon(Add01Icon),
-    
+
     // Media/State
     Power: wrapHugeicon(PowerIcon),
     Play: wrapHugeicon(PlayIcon),
@@ -140,15 +147,15 @@ export const Icons = {
  * You can paste raw SVG code here and wrap it in a standard component.
  */
 export const CustomLogo = ({ size = 24, className, ...props }: IconProps) => (
-    <svg 
-        width={size} 
-        height={size} 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        strokeWidth="2" 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
+    <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         className={className}
         {...props}
     >

@@ -34,7 +34,7 @@ export type ExportItem = {
   id: string
   title: string
   description: string
-  icon: IconSvgElement
+  icon: React.ElementType
 }
 
 /* ── Header Config ── */

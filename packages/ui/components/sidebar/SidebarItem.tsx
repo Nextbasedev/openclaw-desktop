@@ -38,11 +38,11 @@ export function SidebarItem({ item, isActive, onClick }: SidebarItemProps) {
       onClick={onClick}
       className={cn(
         "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium",
-        "transition-[background-color,color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform] duration-150 ease-in-out",
+        "transition-[background-color,color,text-decoration-color,fill,stroke,opacity,box-shadow,transform] duration-150 ease-in-out",
         "cursor-default active:cursor-default",
         isDragging && "z-50 scale-[1.02] shadow-lg shadow-black/20 ring-1 ring-primary/20 cursor-grabbing",
         isActive
-          ? "bg-accent text-accent-foreground shadow-sm"
+          ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
           : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
       )}
       {...attributes}
@@ -57,11 +57,11 @@ export function SidebarItem({ item, isActive, onClick }: SidebarItemProps) {
 /* ── Navigation icons ── */
 function NavIcon({ type }: { type: SidebarNavItem["icon"] }) {
   const iconMap: Record<string, React.ElementType> = {
-    chat: Icons.Chat,
-    skill: Icons.Tasks,
-    usage: Icons.Dashboard,
-    workspace: Icons.Home,
-    memory: Icons.Memory,
+    chat: Icons.NewChat,      // Keeps the beautiful new Chat/Edit icon
+    skill: Icons.Plugins,     // Keeps the Grid (Plugins) icon
+    usage: Icons.Automations, // Keeps the Clock (Automations) icon
+    workspace: Icons.Project, // Uses the FolderAdd icon just like standard Claude UI
+    memory: Icons.Memory,     // Standard database stack
   }
 
   const Icon = iconMap[type] || Icons.Chat

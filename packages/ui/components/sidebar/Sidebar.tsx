@@ -17,8 +17,6 @@ import {
 } from "@dnd-kit/sortable"
 import { cn } from "@/lib/utils"
 import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
-import { VersionUpdateButton } from "./VersionUpdateButton"
-import { VersionUpdateModal } from "./VersionUpdateModal"
 
 /* ── Default draggable nav items ── */
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
@@ -36,7 +34,6 @@ type SidebarProps = {
 export function Sidebar({ className }: SidebarProps) {
   const [items, setItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [activeTab, setActiveTab] = useState<string>("chat")
-  const [versionModalOpen, setVersionModalOpen] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -71,15 +68,13 @@ export function Sidebar({ className }: SidebarProps) {
         )}
       >
         {/* ── Draggable nav items ── */}
-        <nav 
+        <nav
           className={cn(
             "flex-1 overflow-y-auto px-2.5 py-3",
             "scroll-smooth overscroll-contain",
           )}
         >
-          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Navigation
-          </p>
+
 
           <DndContext
             sensors={sensors}
@@ -115,7 +110,7 @@ export function Sidebar({ className }: SidebarProps) {
                 "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-all duration-150",
                 "cursor-default",
                 activeTab === "project"
-                  ? "bg-accent text-accent-foreground shadow-sm"
+                  ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md ring-1 ring-inset ring-foreground/10"
                   : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
               )}
             >
@@ -124,17 +119,7 @@ export function Sidebar({ className }: SidebarProps) {
             </button>
           </div>
         </nav>
-
-        {/* ── Version Update at the bottom ── */}
-        <div className="border-t border-border/10 px-2.5 py-2.5 bg-card/50">
-          <VersionUpdateButton onClick={() => setVersionModalOpen(true)} />
-        </div>
       </aside>
-
-      <VersionUpdateModal
-        open={versionModalOpen}
-        onOpenChange={setVersionModalOpen}
-      />
     </>
   )
 }
