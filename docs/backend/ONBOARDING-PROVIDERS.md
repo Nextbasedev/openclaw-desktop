@@ -1,28 +1,27 @@
 # ONBOARDING-PROVIDERS.md
 
-Purpose: frontend-facing contract for provider selection during onboarding.
+Purpose: frontend-facing contract for provider selection, provider form generation, and provider submission during onboarding.
 
-These endpoints expose the real OpenClaw provider catalog from the bundled extension manifests in the Jarvis repo.
+These endpoints read the real bundled OpenClaw extension manifests from this repo and expose them in a frontend-friendly shape.
 
-Primary commands:
+Current commands:
 - `middleware_onboarding_providers`
+- `middleware_onboarding_provider_types`
 - `middleware_onboarding_provider_details`
+- `middleware_onboarding_provider_submit`
 
-Use them after core onboarding is `ready`, when the user needs to:
-- pick a provider
-- see available auth methods
-- render the next provider-specific setup step
+Use them after core onboarding is `ready`.
 
 ---
 
 ## 1. `middleware_onboarding_providers`
 
-Returns the full supported OpenClaw provider list as currently bundled in this repo.
+Returns the full bundled provider catalog.
 
 ### Input
 No input.
 
-### Response shape
+### Response
 ```json
 {
   "providers": [
@@ -34,49 +33,117 @@ No input.
       "authEnvVars": ["OPENAI_API_KEY"],
       "authMethods": ["api-key"],
       "optionKeys": ["openaiApiKey"],
-      "authChoices": [],
+      "authChoices": [...],
       "configFieldCount": 1,
-      "configFields": [],
-      "schema": {},
-      "uiHints": {}
+      "configFields": [...],
+      "schema": {...},
+      "uiHints": {...},
+      "submit": {...}
     }
   ],
   "count": 52
 }
 ```
 
-### Meaning of key fields
-- `id`: exact OpenClaw provider ID
-- `pluginId`: extension/plugin that owns this provider
-- `displayName`: best frontend display label derived from manifest auth choices/group labels
-- `category`:
-  - `core`
-  - `local`
-  - `advanced`
-- `authEnvVars`: env vars OpenClaw recognizes for this provider
-- `authMethods`: auth modes declared by the provider manifest
-- `optionKeys`: provider-specific option keys from auth choices
-- `configFieldCount`: number of flattened config fields exposed by manifest schema
+### Notes
+- `category` is a Jarvis UI hint, not raw OpenClaw metadata.
+- `submit` is the normalized submit/type contract for that provider.
 
-### Category meaning
-This is a Jarvis onboarding hint, not raw OpenClaw metadata.
-
-- `core`: common hosted providers we likely want to show first
-- `local`: local/custom/runtime-backed providers like Ollama or LM Studio
-- `advanced`: infra/specialized providers requiring more setup or uncommon flows
-
-### Frontend usage
-Use this endpoint to:
-- render provider picker
-- group providers by onboarding category
-- show badges like `API key`, `OAuth`, `Local`, `Advanced`
-- decide whether next step is simple or complex
+Use this to build the provider picker.
 
 ---
 
-## 2. `middleware_onboarding_provider_details`
+## 2. `middleware_onboarding_provider_types`
 
-Returns the detailed onboarding contract for a selected provider.
+Returns frontend-oriented typed schemas for every provider.
+
+This is the easiest endpoint for frontend form generation.
+
+### Input
+No input.
+
+### Response
+```json
+{
+  "version": "2026-04-18",
+  "submitEndpoint": "middleware_onboarding_provider_submit",
+  "providers": [
+    {
+      "providerId": "openai",
+      "displayName": "OpenAI",
+      "types": {
+        "providerId": "openai",
+        "submitEndpoint": "middleware_onboarding_provider_submit",
+        "stepKind": "api-key",
+        "typeNames": {
+          "payload": "OpenaiOnboardingSubmitPayload",
+          "authMethod": "OpenaiAuthMethod",
+          "values": "OpenaiOnboardingValues"
+        },
+        "payloadShape": {
+          "providerId": { "type": "literal", "value": "openai" },
+          "authMethod": { "type": "enum", "options": ["api-key"] },
+          "setDefault": { "type": "boolean", "default": true },
+          "values": {
+            "type": "object",
+            "fields": {
+              "credentials": [
+                {
+                  "key": "openaiApiKey",
+                  "label": "OpenAI API key",
+                  "group": "credentials",
+                  "authMethod": "api-key",
+                  "valueType": "string",
+                  "inputKind": "secret",
+                  "required": true,
+                  "sensitive": true,
+                  "envVar": "OPENAI_API_KEY"
+                }
+              ],
+              "config": [
+                {
+                  "key": "personality",
+                  "sourcePath": "personality",
+                  "group": "config",
+                  "valueType": "string",
+                  "inputKind": "select",
+                  "enum": ["friendly", "on", "off"],
+                  "default": "friendly"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+### Meaning of key type fields
+- `stepKind`
+  - `api-key`
+  - `mixed`
+  - `local`
+  - `advanced`
+- `typeNames`: suggested frontend-generated interface/type names
+- `payloadShape`: exact payload contract frontend should send to submit endpoint
+- `credentials`: auth-specific fields
+- `config`: provider config fields derived from manifest schema
+- `inputKind`: frontend widget hint
+  - `secret`
+  - `text`
+  - `number`
+  - `toggle`
+  - `select`
+  - `action`
+  - `group`
+
+---
+
+## 3. `middleware_onboarding_provider_details`
+
+Returns the full detailed contract for one provider.
 
 ### Input
 ```json
@@ -85,7 +152,7 @@ Returns the detailed onboarding contract for a selected provider.
 }
 ```
 
-### Response shape
+### Response
 ```json
 {
   "provider": {
@@ -95,174 +162,145 @@ Returns the detailed onboarding contract for a selected provider.
     "category": "core",
     "authEnvVars": ["OPENAI_API_KEY"],
     "authMethods": ["api-key"],
-    "optionKeys": ["openaiApiKey"],
-    "authChoices": [
-      {
-        "provider": "openai",
-        "method": "api-key",
-        "choiceId": "openai-api-key",
-        "choiceLabel": "OpenAI API key",
-        "optionKey": "openaiApiKey"
-      }
-    ],
-    "configFieldCount": 1,
-    "configFields": [
-      {
-        "path": "personality",
-        "type": "string",
-        "required": false,
-        "label": null,
-        "help": null,
-        "enum": ["friendly", "on", "off"],
-        "default": "friendly",
-        "sensitive": false
-      }
-    ],
-    "schema": {},
-    "uiHints": {}
+    "authChoices": [...],
+    "configFields": [...],
+    "schema": {...},
+    "uiHints": {...},
+    "submit": {...}
   }
 }
 ```
 
-### `configFields`
-`configFields` is a flattened view of the manifest `configSchema`.
+Use this when user has already chosen a provider and you want the full provider-specific form contract.
 
-Examples:
-- `personality`
-- `webSearch.apiKey`
-- `codeExecution.enabled`
-- `xSearch.timeoutSeconds`
+---
 
-Each field includes:
-- `path`: dotted field path
-- `type`: schema type or joined union type
-- `required`: whether parent schema marked it required
-- `label`: optional UI label from `uiHints`
-- `help`: optional help text from `uiHints`
-- `enum`: allowed enum values when present
-- `default`: default value when present
-- `sensitive`: whether UI should treat it as secret input
+## 4. `middleware_onboarding_provider_submit`
 
-### Error case
-If provider is unsupported:
+This is the write/post-style endpoint.
+
+Use it when the user submits provider setup.
+
+### Input
 ```json
-Unsupported OpenClaw provider: provider-id
+{
+  "providerId": "openai",
+  "authMethod": "api-key",
+  "values": {
+    "openaiApiKey": "sk-...",
+    "personality": "friendly"
+  },
+  "setDefault": true
+}
+```
+
+### What it does
+- validates provider ID
+- validates auth method when provider has multiple methods
+- validates required credential/config fields
+- persists selected provider + auth method in Jarvis SQLite app settings
+- writes credential env vars into `~/.openclaw/openclaw.json` under `env.vars`
+- writes provider config values into the plugin-owned top-level config block in `~/.openclaw/openclaw.json`
+- returns the next onboarding step and the typed contract again
+
+### Response
+```json
+{
+  "ok": true,
+  "providerId": "openai",
+  "authMethod": "api-key",
+  "saved": {
+    "envVars": ["OPENAI_API_KEY"],
+    "configPaths": ["openai.personality"],
+    "setDefault": true
+  },
+  "nextStep": "model-selection",
+  "openClawFlow": ["onboarding", "model-selection"],
+  "provider": {...},
+  "types": {...}
+}
+```
+
+### Error cases
+Examples:
+```json
+Unsupported OpenClaw provider: openaii
+```
+
+```json
+Provider anthropic requires authMethod. Supported values: api-key, cli
+```
+
+```json
+Missing required credential field: openaiApiKey
 ```
 
 ---
 
-## 3. Recommended frontend flow
+## 5. Recommended frontend flow
 
-### Step 1, load provider catalog
-Call:
+### Step 1, load providers
 ```ts
 invoke("middleware_onboarding_providers")
 ```
 
-Use result to build provider selection UI.
+### Step 2, get typed form contracts
+Either:
+```ts
+invoke("middleware_onboarding_provider_types")
+```
+for all providers,
 
-### Step 2, user selects provider
-Call:
+or:
 ```ts
 invoke("middleware_onboarding_provider_details", {
   providerId: selectedProviderId,
 })
 ```
+for one provider.
 
-### Step 3, render provider-specific step
-Use returned fields to decide the next form:
+### Step 3, render UI from type contract
+Build the form from:
+- `submit.payloadShape.values.fields.credentials`
+- `submit.payloadShape.values.fields.config`
 
-#### Simple API-key providers
-Examples:
-- `openai`
-- `anthropic`
-- `openrouter`
-- `google`
-- `deepseek`
-- `mistral`
+### Step 4, submit
+```ts
+invoke("middleware_onboarding_provider_submit", {
+  providerId: selectedProviderId,
+  authMethod,
+  values,
+  setDefault: true,
+})
+```
 
-Typical UI:
-- provider label
-- auth mode label
-- secret/API key input
-- maybe 0 or 1 optional advanced fields
+### Step 5, move forward
+Use returned:
+- `nextStep`
+- `openClawFlow`
 
-#### OAuth / local providers
-Examples:
-- `openai-codex`
-- `google-gemini-cli`
-- `github-copilot`
-- `ollama`
-- `lmstudio`
-- `vllm`
-- `sglang`
-
-Typical UI:
-- auth mode chooser or login CTA
-- local runtime guidance
-- optionally discovery toggles
-
-#### Advanced providers
-Examples:
-- `amazon-bedrock`
-- `anthropic-vertex`
-- `microsoft-foundry`
-- `comfy`
-
-Typical UI:
-- advanced setup form
-- infra-specific helper copy
-- do not treat them like plain API-key-only providers
+Current next step is:
+- `model-selection`
 
 ---
 
-## 4. Important product guidance
+## 6. Product guidance
 
-Do not hardcode provider fields in frontend if this endpoint can supply them.
+Do not hardcode provider setup forms in frontend.
 
-Frontend should use:
-- `authMethods`
-- `authEnvVars`
-- `authChoices`
-- `configFields`
-- `uiHints`
+Use backend-supplied:
+- provider list
+- auth methods
+- config fields
+- sensitivity flags
+- input widget hints
+- submit payload types
 
 That keeps Jarvis aligned with the actual bundled OpenClaw version.
 
 ---
 
-## 5. Practical examples
-
-### Example: OpenAI
-Expected onboarding shape:
-- auth method: `api-key`
-- env var: `OPENAI_API_KEY`
-- optional config field: `personality`
-
-### Example: Google
-Expected onboarding shape:
-- auth method: `api-key` or OAuth variant via related provider
-- env vars: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
-- config field: `webSearch.apiKey`, `webSearch.model`
-
-### Example: xAI
-Expected onboarding shape:
-- auth method: `api-key`
-- env var: `XAI_API_KEY`
-- extra config fields:
-  - `webSearch.*`
-  - `xSearch.*`
-  - `codeExecution.*`
-
-### Example: Amazon Bedrock
-Expected onboarding shape:
-- not simple API-key-first
-- advanced infra provider
-- config fields include discovery and guardrail settings
-
----
-
-## 6. Related docs
+## 7. Related docs
 
 - `docs/backend/ONBOARDING.md`
 - `docs/backend/ONBOARDING-FRONTEND.md`

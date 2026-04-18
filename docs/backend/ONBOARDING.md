@@ -20,7 +20,9 @@ Primary command:
 
 Provider setup commands after core onboarding is ready:
 - `middleware_onboarding_providers`
+- `middleware_onboarding_provider_types`
 - `middleware_onboarding_provider_details`
+- `middleware_onboarding_provider_submit`
 
 Compatibility helpers still available:
 - `middleware_openclaw_check`

@@ -83,7 +83,9 @@ pub fn run() {
       // Onboarding enhancements
       middleware::middleware_onboarding_core,
       middleware::middleware_onboarding_providers,
+      middleware::middleware_onboarding_provider_types,
       middleware::middleware_onboarding_provider_details,
+      middleware::middleware_onboarding_provider_submit,
       middleware::middleware_openclaw_check,
       middleware::middleware_openclaw_install,
       middleware::middleware_git_remote_add,

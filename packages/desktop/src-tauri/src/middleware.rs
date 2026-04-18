@@ -41,6 +41,9 @@ const TERMINAL_STREAM_EVENT_NAME: &str = "middleware://terminal-event";
 const PTY_STREAM_EVENT_NAME: &str = "middleware://pty-event";
 const KEYCHAIN_SERVICE: &str = "ai.openclaw.jarvis";
 const APP_SETTING_OPENCLAW_BOT_NAME: &str = "openclaw.bot_name";
+const APP_SETTING_ONBOARDING_PROVIDER_ID: &str = "onboarding.provider.id";
+const APP_SETTING_ONBOARDING_PROVIDER_AUTH_METHOD: &str = "onboarding.provider.auth_method";
+const APP_SETTING_ONBOARDING_PROVIDER_VALUES_PREFIX: &str = "onboarding.provider.values.";
 
 #[derive(Default)]
 pub struct MiddlewareState {
@@ -685,6 +688,67 @@ async fn read_gateway_config() -> Result<GatewayConfig, String> {
     .await
     .map_err(|error| format!("Failed to read OpenClaw config: {error}"))?;
   serde_json::from_str(&raw).map_err(|error| format!("Failed to parse OpenClaw config: {error}"))
+}
+
+fn openclaw_config_path() -> Result<PathBuf, String> {
+  Ok(home_dir()?.join(".openclaw").join("openclaw.json"))
+}
+
+fn read_openclaw_config_value() -> Result<Value, String> {
+  let path = openclaw_config_path()?;
+  match fs::read_to_string(&path) {
+    Ok(raw) => serde_json::from_str(&raw)
+      .map_err(|error| format!("Failed to parse OpenClaw config {}: {error}", path.display())),
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+    Err(error) => Err(format!("Failed to read OpenClaw config {}: {error}", path.display())),
+  }
+}
+
+fn write_openclaw_config_value(config: &Value) -> Result<(), String> {
+  let path = openclaw_config_path()?;
+  if let Some(parent) = path.parent() {
+    fs::create_dir_all(parent)
+      .map_err(|error| format!("Failed to create OpenClaw config dir {}: {error}", parent.display()))?;
+  }
+  let raw = serde_json::to_string_pretty(config)
+    .map_err(|error| format!("Failed to serialize OpenClaw config: {error}"))?;
+  fs::write(&path, format!("{raw}\n"))
+    .map_err(|error| format!("Failed to write OpenClaw config {}: {error}", path.display()))
+}
+
+fn ensure_json_object(value: &mut Value) -> &mut serde_json::Map<String, Value> {
+  if !value.is_object() {
+    *value = json!({});
+  }
+  value
+    .as_object_mut()
+    .expect("json value should be object after normalization")
+}
+
+fn set_json_path(root: &mut Value, path: &str, value: Value) {
+  let parts = path.split('.').filter(|part| !part.is_empty()).collect::<Vec<_>>();
+  if parts.is_empty() {
+    *root = value;
+    return;
+  }
+
+  let mut current = root;
+  for part in &parts[..parts.len().saturating_sub(1)] {
+    let object = ensure_json_object(current);
+    current = object.entry((*part).to_string()).or_insert_with(|| json!({}));
+  }
+
+  if let Some(last) = parts.last() {
+    ensure_json_object(current).insert((*last).to_string(), value);
+  }
+}
+
+fn value_at_json_path<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
+  let mut current = root;
+  for part in path.split('.').filter(|part| !part.is_empty()) {
+    current = current.get(part)?;
+  }
+  Some(current)
 }
 
 async fn read_device_identity() -> Result<DeviceIdentity, String> {
@@ -3424,6 +3488,15 @@ pub struct OnboardingProviderInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OnboardingProviderSubmitInput {
+  provider_id: String,
+  auth_method: Option<String>,
+  values: Option<Value>,
+  set_default: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitRemoteAddInput {
   project_id: String,
   remote_name: String,
@@ -3643,6 +3716,254 @@ fn read_openclaw_provider_manifests() -> Result<Vec<Value>, String> {
   Ok(manifests)
 }
 
+fn manifest_for_provider(provider_id: &str) -> Result<Value, String> {
+  let manifests = read_openclaw_provider_manifests()?;
+  manifests
+    .into_iter()
+    .find(|manifest| {
+      manifest
+        .get("providers")
+        .and_then(Value::as_array)
+        .map(|providers| {
+          providers
+            .iter()
+            .any(|provider| provider.as_str() == Some(provider_id))
+        })
+        .unwrap_or(false)
+    })
+    .ok_or_else(|| format!("Unsupported OpenClaw provider: {provider_id}"))
+}
+
+fn provider_type_name(provider_id: &str, suffix: &str) -> String {
+  format!(
+    "{}{}",
+    provider_id
+      .split('-')
+      .filter(|part| !part.is_empty())
+      .map(|part| {
+        let mut chars = part.chars();
+        match chars.next() {
+          Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+          None => String::new(),
+        }
+      })
+      .collect::<String>(),
+    suffix
+  )
+}
+
+fn infer_auth_method_from_env_var(env_var: &str) -> &'static str {
+  if env_var.contains("OAUTH") {
+    "oauth"
+  } else if env_var.starts_with("AWS_") {
+    "aws-sdk"
+  } else if env_var.contains("TOKEN") {
+    "token"
+  } else {
+    "api-key"
+  }
+}
+
+fn preferred_env_var_for_auth_method(
+  auth_method: &str,
+  auth_env_vars: &[Value],
+) -> Option<String> {
+  let matcher = match auth_method {
+    "oauth" => Some("OAUTH"),
+    "token" | "device" => Some("TOKEN"),
+    "aws-sdk" => Some("AWS_"),
+    _ => Some("API_KEY"),
+  };
+
+  matcher
+    .and_then(|needle| {
+      auth_env_vars.iter().find_map(|value| {
+        let env_var = value.as_str()?;
+        if env_var.contains(needle) || (needle == "AWS_" && env_var.starts_with("AWS_")) {
+          Some(env_var.to_string())
+        } else {
+          None
+        }
+      })
+    })
+    .or_else(|| {
+      auth_env_vars
+        .iter()
+        .find_map(|value| value.as_str().map(ToString::to_string))
+    })
+}
+
+fn field_input_kind(field_type: &str, has_enum: bool, sensitive: bool) -> &'static str {
+  if sensitive {
+    "secret"
+  } else if has_enum {
+    "select"
+  } else if field_type.contains("boolean") {
+    "toggle"
+  } else if field_type.contains("number") || field_type.contains("integer") {
+    "number"
+  } else if field_type == "object" {
+    "group"
+  } else {
+    "text"
+  }
+}
+
+fn is_leaf_field(config_fields: &[Value], path: &str) -> bool {
+  !config_fields.iter().any(|candidate| {
+    candidate
+      .get("path")
+      .and_then(Value::as_str)
+      .map(|other| other != path && other.starts_with(&format!("{path}.")))
+      .unwrap_or(false)
+  })
+}
+
+fn build_provider_auth_fields(auth_choices: &[Value], auth_env_vars: &[Value]) -> Vec<Value> {
+  let mut fields = Vec::new();
+  let mut used_env_vars = HashSet::new();
+
+  for choice in auth_choices {
+    let auth_method = choice
+      .get("method")
+      .and_then(Value::as_str)
+      .unwrap_or("api-key");
+    let option_key = choice.get("optionKey").and_then(Value::as_str);
+    let env_var = preferred_env_var_for_auth_method(auth_method, auth_env_vars);
+    if let Some(env_var_name) = env_var.as_ref() {
+      used_env_vars.insert(env_var_name.clone());
+    }
+
+    fields.push(json!({
+      "key": option_key.unwrap_or(auth_method),
+      "label": choice.get("choiceLabel").cloned().unwrap_or_else(|| Value::String(title_case_provider_id(auth_method))),
+      "help": choice.get("choiceHint").cloned().unwrap_or(Value::Null),
+      "group": "credentials",
+      "authMethod": auth_method,
+      "valueType": "string",
+      "inputKind": if auth_method == "oauth" { "action" } else { "secret" },
+      "required": option_key.is_some() && auth_method != "oauth",
+      "sensitive": auth_method != "oauth",
+      "envVar": env_var,
+      "optionKey": option_key,
+      "cliFlag": choice.get("cliFlag").cloned().unwrap_or(Value::Null),
+    }));
+  }
+
+  for env_var in auth_env_vars.iter().filter_map(Value::as_str) {
+    if used_env_vars.contains(env_var) {
+      continue;
+    }
+    let auth_method = infer_auth_method_from_env_var(env_var);
+    fields.push(json!({
+      "key": env_var,
+      "label": title_case_provider_id(env_var),
+      "help": Value::Null,
+      "group": "credentials",
+      "authMethod": auth_method,
+      "valueType": "string",
+      "inputKind": if auth_method == "oauth" { "action" } else { "secret" },
+      "required": auth_method != "oauth" && auth_method != "aws-sdk",
+      "sensitive": auth_method != "oauth",
+      "envVar": env_var,
+      "optionKey": Value::Null,
+      "cliFlag": Value::Null,
+    }));
+  }
+
+  fields
+}
+
+fn build_provider_config_input_fields(config_fields: &[Value]) -> Vec<Value> {
+  config_fields
+    .iter()
+    .filter(|field| {
+      field
+        .get("path")
+        .and_then(Value::as_str)
+        .map(|path| is_leaf_field(config_fields, path))
+        .unwrap_or(false)
+    })
+    .map(|field| {
+      let field_type = field.get("type").and_then(Value::as_str).unwrap_or("string");
+      let sensitive = field
+        .get("sensitive")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+      let has_enum = field.get("enum").map(|value| value.is_array()).unwrap_or(false);
+      json!({
+        "key": field.get("path").cloned().unwrap_or(Value::Null),
+        "sourcePath": field.get("path").cloned().unwrap_or(Value::Null),
+        "label": field.get("label").cloned().unwrap_or_else(|| field.get("path").cloned().unwrap_or(Value::Null)),
+        "help": field.get("help").cloned().unwrap_or(Value::Null),
+        "group": "config",
+        "valueType": field_type,
+        "inputKind": field_input_kind(field_type, has_enum, sensitive),
+        "required": field.get("required").cloned().unwrap_or(Value::Bool(false)),
+        "sensitive": field.get("sensitive").cloned().unwrap_or(Value::Bool(false)),
+        "enum": field.get("enum").cloned().unwrap_or(Value::Null),
+        "default": field.get("default").cloned().unwrap_or(Value::Null),
+      })
+    })
+    .collect()
+}
+
+fn provider_submit_schema_from_manifest(manifest: &Value, provider_id: &str) -> Value {
+  let auth_choices = manifest
+    .get("providerAuthChoices")
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|choice| choice.get("provider").and_then(Value::as_str) == Some(provider_id))
+    .collect::<Vec<_>>();
+  let auth_env_vars = manifest
+    .get("providerAuthEnvVars")
+    .and_then(|value| value.get(provider_id))
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default();
+  let auth_methods = auth_choices
+    .iter()
+    .filter_map(|choice| choice.get("method").cloned())
+    .collect::<Vec<_>>();
+  let config_schema = manifest.get("configSchema").cloned().unwrap_or_else(|| json!({}));
+  let ui_hints = manifest.get("uiHints").cloned().unwrap_or_else(|| json!({}));
+  let mut config_fields = Vec::new();
+  flatten_config_schema_fields(None, &config_schema, &ui_hints, &mut config_fields);
+  let credential_fields = build_provider_auth_fields(&auth_choices, &auth_env_vars);
+  let config_input_fields = build_provider_config_input_fields(&config_fields);
+  let step_kind = match onboarding_provider_category(provider_id) {
+    "local" => "local",
+    "advanced" => "advanced",
+    _ if auth_methods.iter().any(|method| method.as_str() == Some("oauth")) => "mixed",
+    _ => "api-key",
+  };
+
+  json!({
+    "providerId": provider_id,
+    "submitEndpoint": "middleware_onboarding_provider_submit",
+    "stepKind": step_kind,
+    "typeNames": {
+      "payload": provider_type_name(provider_id, "OnboardingSubmitPayload"),
+      "authMethod": provider_type_name(provider_id, "AuthMethod"),
+      "values": provider_type_name(provider_id, "OnboardingValues"),
+    },
+    "payloadShape": {
+      "providerId": { "type": "literal", "value": provider_id },
+      "authMethod": { "type": "enum", "options": auth_methods },
+      "setDefault": { "type": "boolean", "default": true },
+      "values": {
+        "type": "object",
+        "fields": {
+          "credentials": credential_fields,
+          "config": config_input_fields,
+        }
+      }
+    }
+  })
+}
+
 fn provider_summary_from_manifest(manifest: &Value, provider_id: &str) -> Value {
   let plugin_id = manifest.get("id").and_then(Value::as_str).unwrap_or_default();
   let auth_choices = manifest
@@ -3692,6 +4013,7 @@ fn provider_summary_from_manifest(manifest: &Value, provider_id: &str) -> Value 
     "configFields": config_fields,
     "schema": config_schema,
     "uiHints": ui_hints,
+    "submit": provider_submit_schema_from_manifest(manifest, provider_id),
   })
 }
 
@@ -3719,19 +4041,228 @@ pub fn middleware_onboarding_providers() -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub fn middleware_onboarding_provider_details(input: OnboardingProviderInput) -> Result<Value, String> {
+pub fn middleware_onboarding_provider_types() -> Result<Value, String> {
   let manifests = read_openclaw_provider_manifests()?;
+  let mut providers = Vec::new();
   for manifest in manifests {
-    let has_provider = manifest
+    for provider_id in manifest
       .get("providers")
       .and_then(Value::as_array)
-      .map(|providers| providers.iter().any(|provider| provider.as_str() == Some(input.provider_id.as_str())))
-      .unwrap_or(false);
-    if has_provider {
-      return Ok(json!({ "provider": provider_summary_from_manifest(&manifest, &input.provider_id) }));
+      .into_iter()
+      .flatten()
+      .filter_map(Value::as_str)
+    {
+      providers.push(json!({
+        "providerId": provider_id,
+        "displayName": provider_summary_from_manifest(&manifest, provider_id)
+          .get("displayName")
+          .cloned()
+          .unwrap_or(Value::Null),
+        "types": provider_submit_schema_from_manifest(&manifest, provider_id),
+      }));
     }
   }
-  Err(format!("Unsupported OpenClaw provider: {}", input.provider_id))
+  providers.sort_by(|left, right| {
+    left
+      .get("providerId")
+      .and_then(Value::as_str)
+      .cmp(&right.get("providerId").and_then(Value::as_str))
+  });
+  Ok(json!({
+    "version": "2026-04-18",
+    "submitEndpoint": "middleware_onboarding_provider_submit",
+    "providers": providers,
+  }))
+}
+
+#[tauri::command]
+pub fn middleware_onboarding_provider_details(input: OnboardingProviderInput) -> Result<Value, String> {
+  let manifest = manifest_for_provider(&input.provider_id)?;
+  Ok(json!({ "provider": provider_summary_from_manifest(&manifest, &input.provider_id) }))
+}
+
+#[tauri::command]
+pub fn middleware_onboarding_provider_submit(
+  input: OnboardingProviderSubmitInput,
+) -> Result<Value, String> {
+  let manifest = manifest_for_provider(&input.provider_id)?;
+  let provider = provider_summary_from_manifest(&manifest, &input.provider_id);
+  let submit_schema = provider_submit_schema_from_manifest(&manifest, &input.provider_id);
+  let auth_methods = provider
+    .get("authMethods")
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|value| value.as_str().map(ToString::to_string))
+    .collect::<Vec<_>>();
+  let auth_method = input.auth_method.or_else(|| {
+    if auth_methods.len() == 1 {
+      auth_methods.first().cloned()
+    } else {
+      None
+    }
+  });
+
+  if auth_methods.len() > 1 && auth_method.is_none() {
+    return Err(format!(
+      "Provider {} requires authMethod. Supported values: {}",
+      input.provider_id,
+      auth_methods.join(", ")
+    ));
+  }
+
+  if let Some(selected_auth_method) = auth_method.as_deref() {
+    if !auth_methods.is_empty() && !auth_methods.iter().any(|method| method == selected_auth_method) {
+      return Err(format!(
+        "Unsupported authMethod '{}' for provider {}",
+        selected_auth_method, input.provider_id
+      ));
+    }
+  }
+
+  let values = input.values.unwrap_or_else(|| json!({}));
+  let values_object = values
+    .as_object()
+    .ok_or_else(|| "values must be a JSON object".to_string())?;
+
+  let credential_fields = submit_schema
+    .get("payloadShape")
+    .and_then(|value| value.get("values"))
+    .and_then(|value| value.get("fields"))
+    .and_then(|value| value.get("credentials"))
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default();
+  let config_fields = submit_schema
+    .get("payloadShape")
+    .and_then(|value| value.get("values"))
+    .and_then(|value| value.get("fields"))
+    .and_then(|value| value.get("config"))
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default();
+
+  for field in &credential_fields {
+    let field_auth_method = field.get("authMethod").and_then(Value::as_str);
+    if auth_method.as_deref().is_some()
+      && field_auth_method.is_some()
+      && field_auth_method != auth_method.as_deref()
+    {
+      continue;
+    }
+    let key = field.get("key").and_then(Value::as_str).unwrap_or_default();
+    let required = field.get("required").and_then(Value::as_bool).unwrap_or(false);
+    let is_present = values_object
+      .get(key)
+      .and_then(Value::as_str)
+      .map(|value| !value.trim().is_empty())
+      .unwrap_or(false);
+    if required && !is_present {
+      return Err(format!("Missing required credential field: {key}"));
+    }
+  }
+
+  for field in &config_fields {
+    let key = field.get("key").and_then(Value::as_str).unwrap_or_default();
+    let required = field.get("required").and_then(Value::as_bool).unwrap_or(false);
+    if required && !values_object.contains_key(key) {
+      return Err(format!("Missing required config field: {key}"));
+    }
+  }
+
+  let mut config = read_openclaw_config_value()?;
+  let mut saved_env_vars = Vec::new();
+  let mut saved_config_paths = Vec::new();
+
+  for field in &credential_fields {
+    let field_auth_method = field.get("authMethod").and_then(Value::as_str);
+    if auth_method.as_deref().is_some()
+      && field_auth_method.is_some()
+      && field_auth_method != auth_method.as_deref()
+    {
+      continue;
+    }
+    let key = field.get("key").and_then(Value::as_str).unwrap_or_default();
+    if let Some(value) = values_object.get(key).and_then(Value::as_str) {
+      if value.trim().is_empty() {
+        continue;
+      }
+      if let Some(env_var) = field.get("envVar").and_then(Value::as_str) {
+        set_json_path(&mut config, &format!("env.vars.{env_var}"), Value::String(value.to_string()));
+        saved_env_vars.push(env_var.to_string());
+      }
+    }
+  }
+
+  let plugin_id = provider
+    .get("pluginId")
+    .and_then(Value::as_str)
+    .unwrap_or_default();
+  let mut plugin_config = value_at_json_path(&config, plugin_id)
+    .cloned()
+    .unwrap_or_else(|| json!({}));
+
+  for field in &config_fields {
+    let key = field.get("key").and_then(Value::as_str).unwrap_or_default();
+    let source_path = field
+      .get("sourcePath")
+      .and_then(Value::as_str)
+      .unwrap_or(key);
+    if let Some(value) = values_object.get(key).cloned() {
+      set_json_path(&mut plugin_config, source_path, value);
+      saved_config_paths.push(format!("{plugin_id}.{source_path}"));
+    }
+  }
+
+  if !saved_config_paths.is_empty() {
+    set_json_path(&mut config, plugin_id, plugin_config);
+  }
+
+  write_openclaw_config_value(&config)?;
+
+  let conn = open_db()?;
+  set_app_setting(&conn, APP_SETTING_ONBOARDING_PROVIDER_ID, &input.provider_id)?;
+  set_app_setting(
+    &conn,
+    APP_SETTING_ONBOARDING_PROVIDER_AUTH_METHOD,
+    auth_method.as_deref().unwrap_or(""),
+  )?;
+
+  let persisted_values = values_object
+    .iter()
+    .filter_map(|(key, value)| {
+      let is_sensitive = credential_fields.iter().chain(config_fields.iter()).any(|field| {
+        field.get("key").and_then(Value::as_str) == Some(key.as_str())
+          && field.get("sensitive").and_then(Value::as_bool).unwrap_or(false)
+      });
+      if is_sensitive {
+        None
+      } else {
+        Some((key.clone(), value.clone()))
+      }
+    })
+    .collect::<serde_json::Map<String, Value>>();
+  set_app_setting(
+    &conn,
+    &format!("{APP_SETTING_ONBOARDING_PROVIDER_VALUES_PREFIX}{}", input.provider_id),
+    &Value::Object(persisted_values).to_string(),
+  )?;
+
+  Ok(json!({
+    "ok": true,
+    "providerId": input.provider_id,
+    "authMethod": auth_method,
+    "saved": {
+      "envVars": saved_env_vars,
+      "configPaths": saved_config_paths,
+      "setDefault": input.set_default.unwrap_or(true),
+    },
+    "nextStep": "model-selection",
+    "openClawFlow": ["onboarding", "model-selection"],
+    "provider": provider,
+    "types": submit_schema,
+  }))
 }
 
 #[tauri::command]
