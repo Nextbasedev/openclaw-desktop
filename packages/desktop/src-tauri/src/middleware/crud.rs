@@ -226,7 +226,7 @@ pub fn middleware_environment_detect(input: ProfileIdInput) -> Result<Value, Str
 #[tauri::command]
 pub fn middleware_projects_list() -> Result<Value, String> {
   let conn = open_db()?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects ORDER BY updated_at DESC")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects ORDER BY pinned DESC, updated_at DESC")
     .map_err(|error| format!("Failed to prepare projects query: {error}"))?;
   let projects = stmt
     .query_map([], project_row_to_json)
@@ -245,7 +245,7 @@ pub fn middleware_projects_create(input: ProjectCreateInput) -> Result<Value, St
     "INSERT INTO projects (id, name, profile_id, workspace_root, repo_root, archived, unread_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)",
     params![id, input.name, input.profile_id, input.workspace_root, input.repo_root, now, now],
   ).map_err(|error| format!("Failed to create project: {error}"))?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects WHERE id = ?")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects WHERE id = ?")
     .map_err(|error| format!("Failed to fetch created project: {error}"))?;
   let project = stmt.query_row(params![id], project_row_to_json).map_err(|error| format!("Failed to decode created project: {error}"))?;
   Ok(json!({ "project": project }))
@@ -254,7 +254,7 @@ pub fn middleware_projects_create(input: ProjectCreateInput) -> Result<Value, St
 #[tauri::command]
 pub fn middleware_projects_get(input: ProjectIdInput) -> Result<Value, String> {
   let conn = open_db()?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects WHERE id = ?")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects WHERE id = ?")
     .map_err(|error| format!("Failed to prepare project fetch: {error}"))?;
   let project = stmt.query_row(params![input.project_id], project_row_to_json).optional().map_err(|error| format!("Failed to fetch project: {error}"))?
     .ok_or_else(|| "Project not found".to_string())?;
@@ -277,7 +277,7 @@ pub fn middleware_projects_update(input: ProjectUpdateInput) -> Result<Value, St
     "UPDATE projects SET name = ?, workspace_root = ?, repo_root = ?, archived = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
     params![input.name.unwrap_or(name), input.workspace_root.unwrap_or(workspace_root), input.repo_root.or(repo_root), bool_to_sql(input.archived.unwrap_or(archived)), now_iso(), input.project_id],
   ).map_err(|error| format!("Failed to update project: {error}"))?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects WHERE id = ?")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects WHERE id = ?")
     .map_err(|error| format!("Failed to fetch updated project: {error}"))?;
   let project = stmt.query_row(params![input.project_id], project_row_to_json).map_err(|error| format!("Failed to decode updated project: {error}"))?;
   Ok(json!({ "project": project }))
@@ -292,6 +292,40 @@ pub fn middleware_projects_archive(input: ProjectUpdateInput) -> Result<Value, S
     params![bool_to_sql(archived), now_iso(), input.project_id],
   ).map_err(|error| format!("Failed to archive project: {error}"))?;
   Ok(json!({ "ok": true, "projectId": input.project_id, "archived": archived }))
+}
+
+#[tauri::command]
+pub fn middleware_projects_pin(input: ProjectPinInput) -> Result<Value, String> {
+  let pinned = input.pinned.unwrap_or(true);
+  let conn = open_db()?;
+  let changed = conn.execute(
+    "UPDATE projects SET pinned = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+    params![bool_to_sql(pinned), now_iso(), input.project_id],
+  ).map_err(|error| format!("Failed to pin project: {error}"))?;
+  if changed == 0 {
+    return Err(format!("Project not found: {}", input.project_id));
+  }
+  Ok(json!({ "ok": true, "projectId": input.project_id, "pinned": pinned }))
+}
+
+#[tauri::command]
+pub fn middleware_projects_delete(input: ProjectIdInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let exists: bool = conn.query_row(
+    "SELECT COUNT(*) FROM projects WHERE id = ?",
+    params![input.project_id],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check project existence: {error}"))? > 0;
+  if !exists {
+    return Err(format!("Project not found: {}", input.project_id));
+  }
+  conn.execute("DELETE FROM session_mappings WHERE project_id = ?", params![input.project_id])
+    .map_err(|error| format!("Failed to delete project sessions: {error}"))?;
+  conn.execute("DELETE FROM topics WHERE project_id = ?", params![input.project_id])
+    .map_err(|error| format!("Failed to delete project topics: {error}"))?;
+  conn.execute("DELETE FROM projects WHERE id = ?", params![input.project_id])
+    .map_err(|error| format!("Failed to delete project: {error}"))?;
+  Ok(json!({ "ok": true, "projectId": input.project_id }))
 }
 
 #[tauri::command]

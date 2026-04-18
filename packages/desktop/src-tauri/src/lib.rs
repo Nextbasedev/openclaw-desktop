@@ -83,6 +83,8 @@ pub fn run() {
       middleware::middleware_projects_get,
       middleware::middleware_projects_update,
       middleware::middleware_projects_archive,
+      middleware::middleware_projects_pin,
+      middleware::middleware_projects_delete,
       middleware::middleware_projects_sidebar,
       // Topics
       middleware::middleware_topics_list,
