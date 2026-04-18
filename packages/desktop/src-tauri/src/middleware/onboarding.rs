@@ -69,7 +69,11 @@ pub(crate) async fn command_version(binary: &str, version_arg: &str) -> Option<S
 pub(crate) async fn gateway_running(gateway_url: &str) -> bool {
   matches!(
     timeout(Duration::from_secs(2), async {
-      let request = gateway_url.to_string().into_client_request().map_err(|e| e.to_string())?;
+      let mut request = gateway_url.to_string().into_client_request().map_err(|e| e.to_string())?;
+      request.headers_mut().insert(
+        http::header::ORIGIN,
+        http::HeaderValue::from_static(DEFAULT_GATEWAY_ORIGIN),
+      );
       connect_async(request).await.map_err(|e| e.to_string())
     })
     .await,
@@ -980,6 +984,9 @@ pub fn middleware_onboarding_model_submit(input: OnboardingModelSubmitInput) -> 
   let model_ref = input.model_ref.trim();
   if model_ref.is_empty() {
     return Err("modelRef is required".to_string());
+  }
+  if model_ref.contains("..") {
+    return Err("Invalid model reference".to_string());
   }
   if !model_ref.contains('/') {
     return Err("modelRef must use provider/model format".to_string());
