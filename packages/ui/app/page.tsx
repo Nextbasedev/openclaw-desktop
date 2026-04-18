@@ -18,6 +18,7 @@ import { MaintenanceTab } from "@/components/settings/tabs/MaintenanceTab"
 import { HelpTab } from "@/components/settings/tabs/HelpTab"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
+import ConnectPage from "@/app/connect/page"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -191,6 +192,7 @@ function MainContent({
   if (activeTab === "data-control") return <div className="w-full max-w-2xl px-6 py-10"><DataControlTab /></div>
   if (activeTab === "maintenance") return <div className="w-full max-w-2xl px-6 py-10"><MaintenanceTab /></div>
   if (activeTab === "help") return <div className="w-full max-w-2xl px-6 py-10"><HelpTab /></div>
+  if (activeTab === "connect") return <ConnectPage />
   if (activeTab === "project") return <div className="text-muted-foreground italic">Project files...</div>
 
   return (
