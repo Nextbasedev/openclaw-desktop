@@ -16,11 +16,13 @@ type TerminalTab = {
 type TerminalPanelProps = {
   open: boolean
   onToggle: () => void
+  externalHeight?: number | null
+  onExternalHeightUsed?: () => void
 }
 
 let tabCounter = 1
 
-export function TerminalPanel({ open, onToggle }: TerminalPanelProps) {
+export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeightUsed }: TerminalPanelProps) {
   const [tabs, setTabs] = React.useState<TerminalTab[]>([
     { id: "term-1", title: "Terminal 1" },
   ])
@@ -28,6 +30,14 @@ export function TerminalPanel({ open, onToggle }: TerminalPanelProps) {
   const [height, setHeight] = React.useState(DEFAULT_HEIGHT)
   const [isDragging, setIsDragging] = React.useState(false)
   const dragRef = React.useRef<{ startY: number; startHeight: number } | null>(null)
+
+  // Accept height from footer drag-to-open
+  React.useEffect(() => {
+    if (externalHeight != null && externalHeight > 0) {
+      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, externalHeight)))
+      onExternalHeightUsed?.()
+    }
+  }, [externalHeight, onExternalHeightUsed])
 
   const handleMouseDown = React.useCallback(
     (e: React.MouseEvent) => {

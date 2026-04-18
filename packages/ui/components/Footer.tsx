@@ -1,54 +1,98 @@
 "use client"
 
+import { useCallback, useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscSearch, VscTerminal } from "react-icons/vsc"
-import { useState } from "react"
 import { VersionUpdateButton } from "./sidebar/VersionUpdateButton"
 import { VersionUpdateModal } from "./sidebar/VersionUpdateModal"
 
 type FooterProps = {
   className?: string
   onToggleTerminal?: () => void
+  onDragOpenTerminal?: (height: number) => void
 }
 
-export function Footer({ className, onToggleTerminal }: FooterProps) {
+export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: FooterProps) {
   const [versionModalOpen, setVersionModalOpen] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragRef = useRef<{ startY: number } | null>(null)
+  const footerRef = useRef<HTMLElement>(null)
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only respond to clicks on the top border area (top 4px of footer)
+    const rect = footerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const offsetY = e.clientY - rect.top
+    if (offsetY > 4) return
+
+    e.preventDefault()
+    dragRef.current = { startY: e.clientY }
+    setIsDragging(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current || !onDragOpenTerminal) return
+      const delta = dragRef.current.startY - e.clientY
+      if (delta > 30) {
+        // Dragged up enough — open terminal with the dragged height
+        onDragOpenTerminal(Math.min(600, Math.max(120, delta)))
+      }
+    }
+
+    function onMouseUp() {
+      setIsDragging(false)
+      dragRef.current = null
+    }
+
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [isDragging, onDragOpenTerminal])
 
   return (
     <>
       <footer
+        ref={footerRef}
+        onMouseDown={handleMouseDown}
         className={cn(
-          "flex h-[26px] shrink-0 items-center justify-between",
+          "relative flex h-[26px] shrink-0 items-center justify-between",
           "border-t border-border/50 bg-card px-3",
-          "select-none",
+          "select-none cursor-row-resize",
           className,
         )}
       >
-        
-     <div>
-       <VersionUpdateButton onClick={() => setVersionModalOpen(true)} />
-     </div>
+        <div>
+          <VersionUpdateButton onClick={() => setVersionModalOpen(true)} />
+        </div>
 
-      {/* Right: keyboard shortcuts */}
-      <div className="flex items-center gap-3">
-        <ShortcutButton
-          icon={<VscSearch className="size-3.5" />}
-          keys={["Ctrl", "K"]}
-          label="Search"
-        />
-        <ShortcutButton
-          icon={<VscTerminal className="size-3.5" />}
-          keys={["Ctrl", "~"]}
-          label="Terminal"
-          onClick={onToggleTerminal}
-        />
-      </div>
+        {/* Right: keyboard shortcuts */}
+        <div className="flex items-center gap-3">
+          <ShortcutButton
+            icon={<VscSearch className="size-3.5" />}
+            keys={["Ctrl", "K"]}
+            label="Search"
+          />
+          <ShortcutButton
+            icon={<VscTerminal className="size-3.5" />}
+            keys={["Ctrl", "~"]}
+            label="Terminal"
+            onClick={onToggleTerminal}
+          />
+        </div>
       </footer>
 
       <VersionUpdateModal
         open={versionModalOpen}
         onOpenChange={setVersionModalOpen}
       />
+
+      {isDragging && <div className="fixed inset-0 z-50 cursor-row-resize" />}
     </>
   )
 }
