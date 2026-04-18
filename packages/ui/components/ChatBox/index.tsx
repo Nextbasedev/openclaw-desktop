@@ -2,12 +2,7 @@
 
 import * as React from "react"
 
-import { PlusMenu } from "./PlusMenu"
-import { PlanButton } from "./PlanButton"
-import { WebSearchPill } from "./WebSearchPill"
-import { ModelSelector, MODELS } from "./ModelSelector"
-import { MicButton } from "./MicButton"
-import { SendButton } from "./SendButton"
+import { ActionBar, MODELS } from "./ActionBar"
 
 export function ChatBox() {
   const [input, setInput] = React.useState("")
@@ -50,42 +45,24 @@ export function ChatBox() {
           />
         </div>
 
-        {/* Bottom bar */}
-        <div className="flex items-center justify-between gap-2 px-3 pb-3">
-          {/* Left side */}
-          <div className="flex items-center gap-1.5">
-            <PlusMenu
-              open={plusOpen}
-              onOpenChange={setPlusOpen}
-              webSearchEnabled={webSearchEnabled}
-              onWebSearchToggle={handleWebSearchToggle}
-            />
-            <PlanButton
-              enabled={planEnabled}
-              onToggle={() => setPlanEnabled((prev) => !prev)}
-            />
-            {webSearchEnabled && (
-              <WebSearchPill
-                onDisable={() => setWebSearchEnabled(false)}
-              />
-            )}
-          </div>
-
-          {/* Right side */}
-          <div className="flex items-center gap-1.5">
-            <ModelSelector
-              open={modelOpen}
-              onOpenChange={setModelOpen}
-              selected={selectedModel}
-              onSelect={(model) => {
-                setSelectedModel(model)
-                setModelOpen(false)
-              }}
-            />
-            <MicButton />
-            <SendButton disabled={!hasInput} />
-          </div>
-        </div>
+        {/* Action bar */}
+        <ActionBar
+          hasInput={hasInput}
+          planEnabled={planEnabled}
+          onPlanToggle={() => setPlanEnabled((prev) => !prev)}
+          webSearchEnabled={webSearchEnabled}
+          onWebSearchToggle={handleWebSearchToggle}
+          onWebSearchDisable={() => setWebSearchEnabled(false)}
+          plusOpen={plusOpen}
+          onPlusOpenChange={setPlusOpen}
+          modelOpen={modelOpen}
+          onModelOpenChange={setModelOpen}
+          selectedModel={selectedModel}
+          onModelSelect={(model) => {
+            setSelectedModel(model)
+            setModelOpen(false)
+          }}
+        />
       </div>
     </div>
   )
