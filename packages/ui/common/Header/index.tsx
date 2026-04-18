@@ -112,7 +112,7 @@ function HeaderIconButton({
                 "flex size-8 items-center justify-center rounded-md",
                 "transition-colors cursor-pointer group/icon",
                 active
-                    ? "bg-secondary/60 text-foreground"
+                    ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
             )}
         >
