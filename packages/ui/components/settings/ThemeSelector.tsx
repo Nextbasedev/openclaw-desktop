@@ -1,11 +1,6 @@
 "use client"
 
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
-  Sun01Icon,
-  Moon01Icon,
-  ComputerIcon,
-} from "@hugeicons/core-free-icons"
+import { Icons } from "@/components/icons"
 import { useTheme } from "next-themes"
 
 import { cn } from "@/lib/utils"
@@ -14,17 +9,17 @@ const themeOptions = [
   {
     value: "light",
     label: "Light Theme",
-    icon: Sun01Icon,
+    Icon: Icons.Sun,
   },
   {
     value: "dark",
     label: "Dark Theme",
-    icon: Moon01Icon,
+    Icon: Icons.Moon,
   },
   {
     value: "system",
     label: "System Theme",
-    icon: ComputerIcon,
+    Icon: Icons.System,
   },
 ] as const
 
@@ -36,6 +31,7 @@ export function ThemeSelector() {
     <div className="flex w-full items-center gap-2">
       {themeOptions.map((option) => {
         const isActive = activeTheme === option.value
+        const Icon = option.Icon
 
         return (
           <button
@@ -48,8 +44,7 @@ export function ThemeSelector() {
               isActive && "border-primary/50 bg-primary/5 text-primary shadow-sm ring-1 ring-primary/20"
             )}
           >
-            <HugeiconsIcon
-              icon={option.icon}
+            <Icon
               size={24}
               strokeWidth={isActive ? 2 : 1.5}
             />
@@ -62,6 +57,7 @@ export function ThemeSelector() {
     </div>
   )
 }
+
 
 
 
