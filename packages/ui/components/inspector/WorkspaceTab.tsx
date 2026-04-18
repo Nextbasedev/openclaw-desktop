@@ -33,12 +33,18 @@ const MOCK_TREE: FileNode[] = [
         name: "skills",
         type: "dir",
         children: [
-          { id: "s1", name: "camoufox-browser", type: "dir", children: [
-            { id: "s1a", name: "SKILL.md", type: "file" },
-          ]},
-          { id: "s2", name: "agent-brain", type: "dir", children: [
-            { id: "s2a", name: "SKILL.md", type: "file" },
-          ]},
+          {
+            id: "s1",
+            name: "camoufox-browser",
+            type: "dir",
+            children: [{ id: "s1a", name: "SKILL.md", type: "file" }],
+          },
+          {
+            id: "s2",
+            name: "agent-brain",
+            type: "dir",
+            children: [{ id: "s2a", name: "SKILL.md", type: "file" }],
+          },
         ],
       },
       {
@@ -60,15 +66,15 @@ const MOCK_TREE: FileNode[] = [
   },
 ]
 
-/* ── File icon ── */
+/* ── File icon by extension ── */
 
 function FileIcon({ name }: { name: string }) {
   const ext = name.split(".").pop()?.toLowerCase()
-  if (ext === "md") return <VscMarkdown className="size-3.5 shrink-0 text-blue-400" />
-  if (ext === "json") return <VscJson className="size-3.5 shrink-0 text-yellow-400" />
+  if (ext === "md") return <VscMarkdown className="size-4 shrink-0 text-blue-400/80" />
+  if (ext === "json") return <VscJson className="size-4 shrink-0 text-amber-400/80" />
   if (["ts", "tsx", "js", "jsx"].includes(ext ?? ""))
-    return <VscCode className="size-3.5 shrink-0 text-sky-400" />
-  return <VscFile className="size-3.5 shrink-0 text-muted-foreground" />
+    return <VscCode className="size-4 shrink-0 text-sky-400/80" />
+  return <VscFile className="size-4 shrink-0 text-muted-foreground/60" />
 }
 
 /* ── Tree node ── */
@@ -96,32 +102,32 @@ function TreeNode({
           if (isDir) setOpen((p) => !p)
           else onSelect(node.id)
         }}
-        style={{ paddingLeft: `${8 + depth * 12}px` }}
+        style={{ paddingLeft: `${16 + depth * 16}px` }}
         className={cn(
-          "flex w-full items-center gap-1.5 py-0.5 pr-3 text-left text-[12px] transition-colors",
+          "flex w-full items-center gap-2 py-[5px] pr-4 text-left transition-colors",
           isSelected && !isDir
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+            ? "bg-secondary/60 text-foreground"
+            : "text-foreground/80 hover:bg-secondary/30",
         )}
       >
         {isDir ? (
           <>
-            <span className="size-3 shrink-0 text-muted-foreground">
-              {open ? <VscChevronDown /> : <VscChevronRight />}
+            <span className="flex size-4 items-center justify-center text-muted-foreground/60">
+              {open ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
             </span>
             {open ? (
-              <VscFolderOpened className="size-3.5 shrink-0 text-yellow-400" />
+              <VscFolderOpened className="size-4 shrink-0 text-amber-400/70" />
             ) : (
-              <VscFolder className="size-3.5 shrink-0 text-yellow-500" />
+              <VscFolder className="size-4 shrink-0 text-amber-400/70" />
             )}
           </>
         ) : (
           <>
-            <span className="size-3 shrink-0" />
+            <span className="size-4 shrink-0" />
             <FileIcon name={node.name} />
           </>
         )}
-        <span className="truncate">{node.name}</span>
+        <span className="truncate text-[12px]">{node.name}</span>
       </button>
 
       {isDir && open && node.children && (
@@ -148,12 +154,16 @@ export function WorkspaceTab() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="border-b border-border/20 px-3 py-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Workspace files
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <span className="text-[11px] font-medium text-muted-foreground">Files</span>
+        <span className="rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+          8 files
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto py-1 font-mono">
+
+      <div className="h-px bg-border/30" />
+
+      <div className="flex-1 overflow-y-auto py-1">
         {MOCK_TREE.map((node) => (
           <TreeNode
             key={node.id}

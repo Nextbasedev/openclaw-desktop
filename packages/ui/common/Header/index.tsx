@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import { VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscLayoutPanelOff, VscLayoutPanel } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -18,6 +19,8 @@ type HeaderProps = {
     className?: string
     inspectorOpen?: boolean
     onToggleInspector?: () => void
+    terminalOpen?: boolean
+    onToggleTerminal?: () => void
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -37,6 +40,8 @@ export function Header({
     className,
     inspectorOpen = false,
     onToggleInspector,
+    terminalOpen = false,
+    onToggleTerminal,
 }: HeaderProps) {
     const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -67,13 +72,43 @@ export function Header({
                 </div>
 
                 {/* Right: action icons */}
-                <div className="flex items-center gap-1">
-                    <HeaderIconButton
-                        icon={Icons.SidebarToggle}
-                        label="Toggle inspector panel"
-                        active={inspectorOpen}
+                <div className="flex items-center gap-0">
+                    <button
+                        type="button"
+                        aria-label="Toggle terminal"
+                        onClick={onToggleTerminal}
+                        className={cn(
+                            "flex size-7 items-center justify-center rounded-md",
+                            "transition-colors cursor-pointer",
+                            terminalOpen
+                                ? "text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        {terminalOpen ? (
+                            <VscLayoutPanel className="size-4" />
+                        ) : (
+                            <VscLayoutPanelOff className="size-4" />
+                        )}
+                    </button>
+                    <button
+                        type="button"
+                        aria-label="Toggle inspector panel"
                         onClick={onToggleInspector}
-                    />
+                        className={cn(
+                            "flex size-7 items-center justify-center rounded-md",
+                            "transition-colors cursor-pointer",
+                            inspectorOpen
+                                ? "text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        {inspectorOpen ? (
+                            <VscLayoutSidebarRight className="size-4" />
+                        ) : (
+                            <VscLayoutSidebarRightOff className="size-4" />
+                        )}
+                    </button>
                     <HeaderIconButton
                         icon={Icons.Notification}
                         label="Notifications"
@@ -108,10 +143,10 @@ function HeaderIconButton({
             aria-label={label}
             onClick={onClick}
             className={cn(
-                "flex size-8 items-center justify-center rounded-md",
+                "flex size-7 items-center justify-center rounded-md",
                 "transition-colors cursor-pointer group/icon",
                 active
-                    ? "bg-secondary/60 text-foreground"
+                    ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
             )}
         >

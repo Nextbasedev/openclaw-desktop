@@ -2,9 +2,14 @@
 
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import { VscChevronRight, VscChevronDown, VscCircleFilled } from "react-icons/vsc"
+import {
+  VscChevronRight,
+  VscChevronDown,
+  VscCircleFilled,
+  VscPulse,
+} from "react-icons/vsc"
 
-/* ── Mock data ── */
+/* ── Types ── */
 
 type ToolCallStatus = "running" | "success" | "error"
 
@@ -25,6 +30,8 @@ interface AgentNode {
   calls: ToolCall[]
   children?: AgentNode[]
 }
+
+/* ── Mock data ── */
 
 const MOCK_TREE: AgentNode[] = [
   {
@@ -61,7 +68,7 @@ const MOCK_TREE: AgentNode[] = [
     children: [
       {
         id: "sub1",
-        label: "subagent:inspector-panel-build",
+        label: "subagent:inspector-build",
         model: "claude-sonnet-4-6",
         status: "running",
         calls: [
@@ -71,7 +78,7 @@ const MOCK_TREE: AgentNode[] = [
             status: "success",
             duration: "0.1s",
             input: { path: "/packages/ui/app/page.tsx" },
-            output: '"use client"\n\nimport { Header } from "@/common/Header"...',
+            output: '"use client"\nimport { Header }...',
           },
           {
             id: "s2",
@@ -85,62 +92,75 @@ const MOCK_TREE: AgentNode[] = [
   },
 ]
 
-/* ── Status badge ── */
+/* ── Status indicator ── */
 
-function StatusDot({ status }: { status: ToolCallStatus }) {
+function StatusIndicator({ status }: { status: ToolCallStatus }) {
   return (
-    <VscCircleFilled
-      className={cn("size-2 shrink-0", {
-        "text-yellow-400 animate-pulse": status === "running",
-        "text-emerald-400": status === "success",
-        "text-red-400": status === "error",
-      })}
-    />
+    <span
+      className={cn(
+        "relative flex size-[7px] shrink-0",
+        status === "running" && "animate-pulse",
+      )}
+    >
+      <VscCircleFilled
+        className={cn("size-[7px]", {
+          "text-amber-400": status === "running",
+          "text-emerald-400": status === "success",
+          "text-red-400": status === "error",
+        })}
+      />
+    </span>
   )
 }
 
-/* ── Single tool call row ── */
+/* ── Tool call row ── */
 
 function ToolCallRow({ call }: { call: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="border-b border-border/20 last:border-0">
+    <div className="group/row">
       <button
         type="button"
         onClick={() => setExpanded((p) => !p)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-white/[0.03] transition-colors"
-      >
-        {expanded ? (
-          <VscChevronDown className="size-3 shrink-0 text-muted-foreground" />
-        ) : (
-          <VscChevronRight className="size-3 shrink-0 text-muted-foreground" />
+        className={cn(
+          "flex w-full items-center gap-2.5 px-4 py-[7px] text-left transition-colors",
+          "hover:bg-secondary/30",
+          expanded && "bg-secondary/20",
         )}
-        <StatusDot status={call.status} />
-        <span className="flex-1 font-mono text-[11px] text-foreground">{call.tool}</span>
+      >
+        <span className="flex size-3.5 items-center justify-center text-muted-foreground/70">
+          {expanded ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
+        </span>
+        <StatusIndicator status={call.status} />
+        <code className="flex-1 truncate text-[12px] text-foreground/90">{call.tool}</code>
         {call.duration && (
-          <span className="font-mono text-[10px] text-muted-foreground">{call.duration}</span>
+          <span className="tabular-nums text-[11px] text-muted-foreground/70">{call.duration}</span>
         )}
       </button>
 
       {expanded && (
-        <div className="border-t border-border/20 bg-black/30 px-3 py-2 font-mono text-[10px]">
+        <div className="mx-4 mb-2 overflow-hidden rounded-lg border border-border/40 bg-background/60">
           {call.input && (
-            <div className="mb-2">
-              <span className="text-muted-foreground">INPUT</span>
-              <pre className="mt-0.5 whitespace-pre-wrap break-all text-[#7dd3fc]">
+            <div className="border-b border-border/30 px-3 py-2.5">
+              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
+                Input
+              </p>
+              <pre className="whitespace-pre-wrap break-all text-[11px] leading-[1.5] text-sky-300/90">
                 {JSON.stringify(call.input, null, 2)}
               </pre>
             </div>
           )}
           {call.output && (
-            <div>
-              <span className="text-muted-foreground">OUTPUT</span>
+            <div className="px-3 py-2.5">
+              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
+                Output
+              </p>
               <pre
-                className={cn("mt-0.5 whitespace-pre-wrap break-all", {
-                  "text-emerald-300": call.status === "success",
-                  "text-red-300": call.status === "error",
-                  "text-yellow-300": call.status === "running",
+                className={cn("whitespace-pre-wrap break-all text-[11px] leading-[1.5]", {
+                  "text-emerald-300/90": call.status === "success",
+                  "text-red-300/90": call.status === "error",
+                  "text-amber-300/90": call.status === "running",
                 })}
               >
                 {call.output}
@@ -159,38 +179,30 @@ function AgentNodeBlock({ node, depth = 0 }: { node: AgentNode; depth?: number }
   const [expanded, setExpanded] = useState(true)
 
   return (
-    <div
-      className={cn("border-b border-border/20 last:border-0", {
-        "ml-3 border-l border-border/30": depth > 0,
-      })}
-    >
+    <div className={cn(depth > 0 && "ml-2.5 border-l border-border/30")}>
       {/* Agent header */}
       <button
         type="button"
         onClick={() => setExpanded((p) => !p)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors"
+        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-secondary/30"
       >
-        {expanded ? (
-          <VscChevronDown className="size-3 shrink-0 text-muted-foreground" />
-        ) : (
-          <VscChevronRight className="size-3 shrink-0 text-muted-foreground" />
-        )}
-        <StatusDot status={node.status} />
-        <div className="flex flex-1 flex-col min-w-0">
-          <span className="font-mono text-[11px] font-semibold text-foreground truncate">
-            {node.label}
-          </span>
+        <span className="flex size-3.5 items-center justify-center text-muted-foreground/70">
+          {expanded ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
+        </span>
+        <StatusIndicator status={node.status} />
+        <div className="flex flex-1 flex-col gap-0.5 min-w-0">
+          <span className="text-[12px] font-medium text-foreground truncate">{node.label}</span>
           {node.model && (
-            <span className="font-mono text-[9px] text-muted-foreground">{node.model}</span>
+            <span className="text-[10px] text-muted-foreground/70">{node.model}</span>
           )}
         </div>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {node.calls.length} calls
+        <span className="rounded-md bg-secondary/50 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+          {node.calls.length}
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t border-border/20">
+        <div>
           {node.calls.map((call) => (
             <ToolCallRow key={call.id} call={call} />
           ))}
@@ -207,17 +219,24 @@ function AgentNodeBlock({ node, depth = 0 }: { node: AgentNode; depth?: number }
 
 export function ActivityTab() {
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0a0a0a]">
-      {/* Live indicator */}
-      <div className="flex items-center gap-2 border-b border-border/20 px-3 py-1.5">
-        <VscCircleFilled className="size-2 animate-pulse text-emerald-400" />
-        <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">
-          Live feed
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Live indicator bar */}
+      <div className="flex items-center gap-2 px-4 py-2.5">
+        <VscPulse className="size-3.5 text-emerald-400" />
+        <span className="text-[11px] font-medium text-muted-foreground">Live</span>
+        <span className="ml-auto rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+          {MOCK_TREE.reduce(
+            (sum, node) => sum + node.calls.length + (node.children?.reduce((s, c) => s + c.calls.length, 0) ?? 0),
+            0,
+          )}{" "}
+          tool calls
         </span>
       </div>
 
+      <div className="h-px bg-border/30" />
+
       {/* Scrollable tree */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto py-1">
         {MOCK_TREE.map((node) => (
           <AgentNodeBlock key={node.id} node={node} />
         ))}

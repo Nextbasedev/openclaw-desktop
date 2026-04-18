@@ -1,13 +1,9 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import {
-  VscGitCommit,
-  VscSourceControl,
-  VscCircleFilled,
-} from "react-icons/vsc"
+import { VscGitCommit, VscSourceControl } from "react-icons/vsc"
 
-/* ── Mock data ── */
+/* ── Types ── */
 
 type FileState = "modified" | "added" | "deleted" | "renamed"
 
@@ -18,7 +14,7 @@ interface GitFile {
   deletions?: number
 }
 
-interface GitCommit {
+interface GitCommitEntry {
   hash: string
   message: string
   author: string
@@ -26,6 +22,8 @@ interface GitCommit {
   additions: number
   deletions: number
 }
+
+/* ── Mock data ── */
 
 const MOCK_BRANCH = "krish-work"
 const MOCK_AHEAD = 3
@@ -40,7 +38,7 @@ const MOCK_FILES: GitFile[] = [
   { path: "packages/ui/common/Header/index.tsx", state: "modified", additions: 12, deletions: 4 },
 ]
 
-const MOCK_COMMITS: GitCommit[] = [
+const MOCK_COMMITS: GitCommitEntry[] = [
   {
     hash: "a3f9c12",
     message: "feat: add inspector panel with activity, workspace, git tabs",
@@ -85,125 +83,139 @@ const MOCK_COMMITS: GitCommit[] = [
 
 /* ── State badge ── */
 
-const STATE_STYLE: Record<FileState, { label: string; className: string }> = {
-  modified: { label: "M", className: "bg-yellow-500/20 text-yellow-400" },
-  added: { label: "A", className: "bg-emerald-500/20 text-emerald-400" },
-  deleted: { label: "D", className: "bg-red-500/20 text-red-400" },
-  renamed: { label: "R", className: "bg-blue-500/20 text-blue-400" },
+const STATE_CONFIG: Record<FileState, { letter: string; color: string }> = {
+  modified: { letter: "M", color: "text-amber-400 bg-amber-400/10" },
+  added: { letter: "A", color: "text-emerald-400 bg-emerald-400/10" },
+  deleted: { letter: "D", color: "text-red-400 bg-red-400/10" },
+  renamed: { letter: "R", color: "text-blue-400 bg-blue-400/10" },
 }
 
 function StateBadge({ state }: { state: FileState }) {
-  const { label, className } = STATE_STYLE[state]
+  const config = STATE_CONFIG[state]
   return (
     <span
       className={cn(
-        "inline-flex size-4 shrink-0 items-center justify-center rounded text-[9px] font-bold",
-        className,
+        "inline-flex size-[18px] shrink-0 items-center justify-center rounded text-[10px] font-semibold",
+        config.color,
       )}
     >
-      {label}
+      {config.letter}
     </span>
-  )
-}
-
-/* ── Section heading ── */
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-1.5 px-3 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-      {children}
-    </p>
   )
 }
 
 /* ── Git tab ── */
 
 export function GitTab() {
-  const totalAdded = MOCK_FILES.reduce((s, f) => s + (f.additions ?? 0), 0)
-  const totalDeleted = MOCK_FILES.reduce((s, f) => s + (f.deletions ?? 0), 0)
-  const changedCount = MOCK_FILES.length
+  const totalAdded = MOCK_FILES.reduce((sum, f) => sum + (f.additions ?? 0), 0)
+  const totalDeleted = MOCK_FILES.reduce((sum, f) => sum + (f.deletions ?? 0), 0)
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Branch status */}
-      <div className="border-b border-border/20 px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <VscSourceControl className="size-3.5 text-muted-foreground" />
-          <span className="font-mono text-[12px] font-semibold text-foreground">
-            {MOCK_BRANCH}
-          </span>
-          {MOCK_AHEAD > 0 && (
-            <span className="rounded-full bg-emerald-500/20 px-1.5 py-px font-mono text-[9px] text-emerald-400">
-              ↑{MOCK_AHEAD}
-            </span>
-          )}
-          {MOCK_BEHIND > 0 && (
-            <span className="rounded-full bg-yellow-500/20 px-1.5 py-px font-mono text-[9px] text-yellow-400">
-              ↓{MOCK_BEHIND}
-            </span>
-          )}
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <VscSourceControl className="size-4 text-muted-foreground/70" />
+          <span className="text-[13px] font-medium text-foreground">{MOCK_BRANCH}</span>
+          <div className="flex items-center gap-1.5 ml-auto">
+            {MOCK_AHEAD > 0 && (
+              <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium tabular-nums text-emerald-400">
+                ↑ {MOCK_AHEAD}
+              </span>
+            )}
+            {MOCK_BEHIND > 0 && (
+              <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium tabular-nums text-amber-400">
+                ↓ {MOCK_BEHIND}
+              </span>
+            )}
+          </div>
         </div>
-        {/* Diff summary */}
-        <div className="mt-1.5 flex items-center gap-3 font-mono text-[10px] text-muted-foreground">
-          <span>{changedCount} file{changedCount !== 1 ? "s" : ""} changed</span>
-          <span className="text-emerald-400">+{totalAdded}</span>
-          <span className="text-red-400">−{totalDeleted}</span>
+
+        {/* Summary stats */}
+        <div className="mt-3 flex gap-4">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[18px] font-semibold tabular-nums text-foreground">
+              {MOCK_FILES.length}
+            </span>
+            <span className="text-[11px] text-muted-foreground">changed</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[18px] font-semibold tabular-nums text-emerald-400">
+              +{totalAdded}
+            </span>
+            <span className="text-[11px] text-muted-foreground">added</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[18px] font-semibold tabular-nums text-red-400">
+              −{totalDeleted}
+            </span>
+            <span className="text-[11px] text-muted-foreground">removed</span>
+          </div>
         </div>
       </div>
 
+      <div className="h-px bg-border/30" />
+
       {/* Changed files */}
-      <div className="border-b border-border/20 py-2.5">
-        <SectionHeading>Changes</SectionHeading>
-        <div className="flex flex-col gap-px">
+      <div className="py-3">
+        <p className="mb-2 px-4 text-[11px] font-medium text-muted-foreground">
+          Changes
+        </p>
+        <div className="flex flex-col">
           {MOCK_FILES.map((file) => {
-            const shortPath = file.path.split("/").slice(-2).join("/")
+            const fileName = file.path.split("/").pop() ?? file.path
+            const dirPath = file.path.split("/").slice(0, -1).join("/")
+
             return (
               <div
                 key={file.path}
-                className="flex items-center gap-2 px-3 py-1 hover:bg-white/[0.03] transition-colors"
+                className="flex items-center gap-2.5 px-4 py-[6px] transition-colors hover:bg-secondary/30"
               >
                 <StateBadge state={file.state} />
-                <span className="flex-1 truncate font-mono text-[11px] text-foreground">
-                  {shortPath}
-                </span>
-                {(file.additions || file.deletions) && (
-                  <div className="flex items-center gap-1 font-mono text-[10px]">
-                    {file.additions ? (
-                      <span className="text-emerald-400">+{file.additions}</span>
-                    ) : null}
-                    {file.deletions ? (
-                      <span className="text-red-400">−{file.deletions}</span>
-                    ) : null}
-                  </div>
-                )}
+                <div className="flex flex-1 flex-col min-w-0">
+                  <span className="truncate text-[12px] text-foreground">{fileName}</span>
+                  <span className="truncate text-[10px] text-muted-foreground/60">{dirPath}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] tabular-nums">
+                  {file.additions ? <span className="text-emerald-400/80">+{file.additions}</span> : null}
+                  {file.deletions ? <span className="text-red-400/80">−{file.deletions}</span> : null}
+                </div>
               </div>
             )
           })}
         </div>
       </div>
 
+      <div className="h-px bg-border/30" />
+
       {/* Commit history */}
-      <div className="py-2.5">
-        <SectionHeading>Recent commits</SectionHeading>
-        <div className="flex flex-col gap-px">
+      <div className="py-3">
+        <p className="mb-2 px-4 text-[11px] font-medium text-muted-foreground">
+          Recent commits
+        </p>
+        <div className="flex flex-col">
           {MOCK_COMMITS.map((commit, i) => (
             <div
               key={commit.hash}
-              className="flex items-start gap-2 px-3 py-1.5 hover:bg-white/[0.03] transition-colors"
+              className="flex items-start gap-2.5 px-4 py-2 transition-colors hover:bg-secondary/30"
             >
-              <div className="relative mt-0.5 flex flex-col items-center">
-                <VscGitCommit className="size-3.5 shrink-0 text-muted-foreground" />
+              {/* Timeline connector */}
+              <div className="relative mt-[3px] flex flex-col items-center">
+                <VscGitCommit className="size-3.5 shrink-0 text-muted-foreground/50" />
                 {i < MOCK_COMMITS.length - 1 && (
-                  <div className="mt-0.5 h-full w-px flex-1 bg-border/30" />
+                  <div className="absolute top-4 w-px bg-border/30" style={{ height: 20 }} />
                 )}
               </div>
+
               <div className="flex-1 min-w-0">
-                <p className="truncate font-mono text-[11px] text-foreground leading-tight">
+                <p className="truncate text-[12px] text-foreground leading-snug">
                   {commit.message}
                 </p>
-                <div className="mt-0.5 flex items-center gap-2 font-mono text-[9px] text-muted-foreground">
-                  <span className="text-[#7dd3fc]">{commit.hash}</span>
+                <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground/60">
+                  <code className="text-sky-400/60">{commit.hash}</code>
+                  <span>·</span>
                   <span>{commit.author}</span>
+                  <span>·</span>
                   <span>{commit.date}</span>
                 </div>
               </div>
