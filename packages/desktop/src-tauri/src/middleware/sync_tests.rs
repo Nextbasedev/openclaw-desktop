@@ -394,6 +394,10 @@ fn apply_sync_changes_upserts_and_clears_dirty() {
       new_remote_state: SyncState::empty(),
       pulled: 1,
       pushed: 0,
+      pushed_project_ids: Vec::new(),
+      pushed_topic_ids: Vec::new(),
+      pushed_session_keys: Vec::new(),
+      pushed_branch_ids: Vec::new(),
     };
     apply_sync_changes(&conn, &merge_result).expect("apply changes");
 

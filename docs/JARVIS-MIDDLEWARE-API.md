@@ -89,6 +89,23 @@ What is **not** a stable frontend contract today:
 
 Live validation against current OpenClaw on this machine did not produce usable reasoning text events for frontend, even with reasoning/ thinking settings enabled.
 
+## Usage surface
+
+Commands:
+- `middleware_usage_summary`
+- `middleware_usage_by_project`
+- `middleware_usage_by_topic`
+- `middleware_usage_session`
+
+Design intent:
+- frontend gets token counts, costs, and daily trends grouped by Jarvis projects and topics
+- middleware fetches raw session usage from the Gateway and aggregates locally using SQLite session_mappings
+- all costs in USD, all token counts are raw integers
+- date range filtering via optional `startDate` / `endDate` (ISO date strings)
+- drill-down: summary -> by project -> by topic -> single session
+
+Full contract with examples and TypeScript types: see `docs/USAGE-API.md`.
+
 ## Error shape
 
 Use one consistent error contract:

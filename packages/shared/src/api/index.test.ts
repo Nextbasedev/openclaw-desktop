@@ -24,6 +24,7 @@ import {
   syncEndpoints,
   terminalEndpoints,
   topicEndpoints,
+  usageEndpoints,
 } from "./index"
 
 const timestamp = "2026-04-17T09:00:00.000Z"
@@ -286,6 +287,39 @@ const representativeParsers: Record<string, RepresentativeParser> = {
       dirtyCount: 3,
     },
     responseAssert: (parsed: { dirtyCount: number }) => expect(parsed.dirtyCount).toBe(3),
+  },
+  usage: {
+    endpoint: usageEndpoints[0],
+    request: {
+      profileId: "prof_local",
+      startDate: "2026-04-01",
+      endDate: "2026-04-18",
+    },
+    response: {
+      projects: [
+        {
+          projectId: "proj_1",
+          projectName: "Jarvis Desktop",
+          totals: {
+            input: 5000,
+            output: 2500,
+            cacheRead: 100,
+            cacheWrite: 50,
+            totalTokens: 7650,
+            totalCost: 0.15,
+            inputCost: 0.06,
+            outputCost: 0.09,
+            cacheReadCost: 0.002,
+            cacheWriteCost: 0.001,
+          },
+          sessionCount: 3,
+          sessions: [],
+        },
+      ],
+      truncated: false,
+    },
+    requestAssert: (parsed: { profileId: string }) => expect(parsed.profileId).toBe("prof_local"),
+    responseAssert: (parsed: { projects: Array<{ projectId: string }> }) => expect(parsed.projects[0]?.projectId).toBe("proj_1"),
   },
 } as const
 

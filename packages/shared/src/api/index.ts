@@ -20,5 +20,6 @@ export * from "./skills"
 export * from "./sync"
 export * from "./terminal"
 export * from "./topics"
+export * from "./usage"
 
 export { common }

@@ -101,6 +101,11 @@ pub fn run() {
       middleware::middleware_sync_status,
       middleware::middleware_sync_enable,
       middleware::middleware_sync_devices,
+      // Usage
+      middleware::middleware_usage_by_project,
+      middleware::middleware_usage_by_topic,
+      middleware::middleware_usage_summary,
+      middleware::middleware_usage_session,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
