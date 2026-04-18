@@ -2,6 +2,7 @@ import { Icons } from "@/components/icons"
 import { useState, useCallback, useMemo, useEffect, useId } from "react"
 import { VersionUpdateButton } from "./VersionUpdateButton"
 import { VersionUpdateModal } from "./VersionUpdateModal"
+import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
 import {
   DndContext,
   closestCenter,
@@ -40,6 +41,8 @@ type SidebarProps = {
   isSettingsMode: boolean
   onToggleSettingsMode: (val: boolean) => void
   onBackToMain: () => void
+  activeTopic: ActiveTopic | null
+  onTopicSelect: (topic: ActiveTopic) => void
 }
 
 export function Sidebar({
@@ -53,6 +56,8 @@ export function Sidebar({
   onItemsChange,
   isSettingsMode,
   onBackToMain,
+  activeTopic,
+  onTopicSelect,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [versionModalOpen, setVersionModalOpen] = useState(false)
@@ -147,28 +152,11 @@ export function Sidebar({
               </div>
             )}
 
-            <div className="mt-3 border-t border-border/10">
-              {!collapsed && (
-                <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Pinned
-                </p>
-              )}
-              <button
-                type="button"
-                title="Project"
-                onClick={() => onTabChange("project")}
-                className={cn(
-                  "flex w-full min-w-0 cursor-pointer items-center rounded-md text-left font-medium transition-colors duration-150",
-                  collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1 text-[13px]",
-                  activeTab === "project"
-                    ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                )}
-              >
-                <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
-                {!collapsed && <span className="flex-1 truncate">Project</span>}
-              </button>
-            </div>
+            <ProjectsSection
+              collapsed={collapsed}
+              activeTopic={activeTopic}
+              onTopicSelect={onTopicSelect}
+            />
           </>
         )}
       </nav>

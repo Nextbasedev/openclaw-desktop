@@ -43,6 +43,9 @@ import {
     PlayIcon,
     PauseIcon,
     StopIcon,
+    PinIcon,
+    PinOffIcon,
+    MoreVerticalIcon,
 } from "@hugeicons/core-free-icons"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
@@ -140,6 +143,11 @@ export const Icons = {
     Play: wrapHugeicon(PlayIcon),
     Pause: wrapHugeicon(PauseIcon),
     Stop: wrapHugeicon(StopIcon),
+
+    // Context menus / pins
+    Pin: wrapHugeicon(PinIcon),
+    PinOff: wrapHugeicon(PinOffIcon),
+    MoreVertical: wrapHugeicon(MoreVerticalIcon),
 }
 
 /**

@@ -47,6 +47,143 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ─── Glassmorphism Variables ─── */
+:root {
+  --glass-bg: oklch(0.99 0 0 / 0.84);
+  --glass-border: oklch(0 0 0 / 0.07);
+  --glass-shadow: oklch(0 0 0 / 0.1);
+  --glass-input-bg: oklch(0 0 0 / 0.03);
+  --glass-input-border: oklch(0 0 0 / 0.09);
+  --glass-overlay-bg: oklch(0 0 0 / 0.28);
+  --glass-inset: oklch(1 0 0 / 0.5);
+}
+
+.dark {
+  --glass-bg: oklch(0.19 0.005 286 / 0.88);
+  --glass-border: oklch(1 0 0 / 0.1);
+  --glass-shadow: oklch(0 0 0 / 0.55);
+  --glass-input-bg: oklch(1 0 0 / 0.04);
+  --glass-input-border: oklch(1 0 0 / 0.1);
+  --glass-overlay-bg: oklch(0 0 0 / 0.52);
+  --glass-inset: oklch(1 0 0 / 0.07);
+}
+
+/* ─── Glass Overlay (backdrop) ─── */
+.glass-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: var(--glass-overlay-bg);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: glass-overlay-in 0.15s ease;
+}
+
+@keyframes glass-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Glass Dialog Panel ─── */
+.glass-dialog {
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow:
+    0 24px 64px var(--glass-shadow),
+    0 2px 12px var(--glass-shadow),
+    inset 0 1px 0 var(--glass-inset);
+  min-width: 340px;
+  max-width: 440px;
+  width: 92vw;
+  padding: 24px;
+  animation: glass-dialog-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes glass-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ─── Glass Input ─── */
+.glass-input {
+  width: 100%;
+  background: var(--glass-input-bg);
+  border: 1px solid var(--glass-input-border);
+  border-radius: 10px;
+  padding: 9px 13px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--foreground);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.glass-input::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.55;
+}
+
+.glass-input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 18%, transparent);
+}
+
+/* ─── Glass Buttons ─── */
+.glass-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--foreground);
+  color: var(--background);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.glass-btn-primary:hover:not(:disabled) { opacity: 0.88; }
+.glass-btn-primary:active:not(:disabled) { transform: scale(0.98); }
+.glass-btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.glass-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 1px solid var(--glass-input-border);
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.glass-btn-secondary:hover { color: var(--foreground); border-color: var(--glass-border); }
+
 /* ─── Light Mode ─── */
 :root {
   --card: oklch(1 0 0);

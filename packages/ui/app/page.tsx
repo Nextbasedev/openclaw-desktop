@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import { Header } from "@/common/Header"
 import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
-import type { SidebarNavItem } from "@/components/sidebar"
+import type { SidebarNavItem, ActiveTopic } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
@@ -19,6 +19,8 @@ import { HelpTab } from "@/components/settings/tabs/HelpTab"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import ConnectPage from "@/app/connect/page"
+import { ChatView } from "@/components/ChatView"
+import { TopicView } from "@/components/TopicView"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -35,6 +37,12 @@ export default function Page() {
   const [lastStandardTab, setLastStandardTab] = useState("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
+
+  // Project / topic / session navigation state
+  const [activeTopic, setActiveTopic] = useState<ActiveTopic | null>(null)
+  const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
+  const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
+
   const isResizing = useRef(false)
   const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
 
@@ -46,6 +54,7 @@ export default function Page() {
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
 
+  // Ctrl/Cmd+N → new chat, clear project context
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
@@ -53,10 +62,12 @@ export default function Page() {
         setActiveTab("chat")
         setLastStandardTab("chat")
         setIsSettingsMode(false)
+        setActiveTopic(null)
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
         setChatKey((k) => k + 1)
       }
     }
-
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [])
@@ -74,39 +85,62 @@ export default function Page() {
       const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
       setSidebarWidth(newWidth)
     }
-
     function onMouseUp() {
       if (!isResizing.current) return
       isResizing.current = false
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
     }
-
     window.addEventListener("mousemove", onMouseMove)
     window.addEventListener("mouseup", onMouseUp)
-
     return () => {
       window.removeEventListener("mousemove", onMouseMove)
       window.removeEventListener("mouseup", onMouseUp)
     }
   }, [])
 
-  const handleTabChange = useCallback((tab: string) => {
-    if (tab === "settings") {
-      setIsSettingsMode(true)
-      setActiveTab("usage")
-    } else {
-      setActiveTab(tab)
-      if (!isSettingsMode) {
-        setLastStandardTab(tab)
+  // Topic selected from sidebar → show TopicView, clear active session
+  const handleTopicSelect = useCallback((topic: ActiveTopic) => {
+    setActiveTopic(topic)
+    setActiveSessionKey(null)
+    setActiveSessionTitle(null)
+    setIsSettingsMode(false)
+  }, [])
+
+  // Session selected from TopicView → show ChatView
+  const handleSessionSelect = useCallback((sessionKey: string, title: string) => {
+    setActiveSessionKey(sessionKey)
+    setActiveSessionTitle(title)
+  }, [])
+
+  // Nav tab change → clear project context
+  const handleTabChange = useCallback(
+    (tab: string) => {
+      if (tab === "settings") {
+        setIsSettingsMode(true)
+        setActiveTab("usage")
+      } else {
+        setActiveTab(tab)
+        setActiveTopic(null)
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
+        if (!isSettingsMode) setLastStandardTab(tab)
       }
-    }
-  }, [isSettingsMode])
+    },
+    [isSettingsMode],
+  )
 
   const handleBackToMain = useCallback(() => {
     setIsSettingsMode(false)
     setActiveTab(lastStandardTab || "chat")
   }, [lastStandardTab])
+
+  // Compute the center label for the header
+  const centerLabel = activeSessionKey && activeSessionTitle && activeTopic
+    ? `${activeTopic.projectName} › ${activeTopic.name} › ${activeSessionTitle}`
+    : activeTopic
+      ? `${activeTopic.projectName} › ${activeTopic.name}`
+      : null
 
   return (
     <div className="flex h-svh flex-col bg-background">
@@ -117,6 +151,7 @@ export default function Page() {
         onToggleTerminal={toggleTerminal}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
+        centerLabel={centerLabel}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -131,16 +166,22 @@ export default function Page() {
           isSettingsMode={isSettingsMode}
           onToggleSettingsMode={setIsSettingsMode}
           onBackToMain={handleBackToMain}
+          activeTopic={activeTopic}
+          onTopicSelect={handleTopicSelect}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <main className="flex flex-1 items-start justify-center overflow-y-auto transition-all duration-300 ease-in-out">
+          <main className="flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
             <MainContent
               activeTab={activeTab}
               chatKey={chatKey}
               lastStandardTab={lastStandardTab}
               onTabChange={handleTabChange}
               onToggleSettingsMode={setIsSettingsMode}
+              activeTopic={activeTopic}
+              activeSessionKey={activeSessionKey}
+              activeSessionTitle={activeSessionTitle}
+              onSessionSelect={handleSessionSelect}
             />
           </main>
 
@@ -173,31 +214,67 @@ function MainContent({
   lastStandardTab,
   onTabChange,
   onToggleSettingsMode,
+  activeTopic,
+  activeSessionKey,
+  activeSessionTitle,
+  onSessionSelect,
 }: {
   activeTab: string
   chatKey: number
   lastStandardTab: string
   onTabChange: (tab: string) => void
   onToggleSettingsMode: (val: boolean) => void
+  activeTopic: ActiveTopic | null
+  activeSessionKey: string | null
+  activeSessionTitle: string | null
+  onSessionSelect: (sessionKey: string, title: string) => void
 }) {
   const settingsBack = () => {
     onToggleSettingsMode(false)
     onTabChange(lastStandardTab)
   }
 
+  // 1. Session history view (deepest level)
+  if (activeSessionKey && activeTopic) {
+    return (
+      <div className="flex h-full w-full">
+        <ChatView sessionKey={activeSessionKey} sessionTitle={activeSessionTitle ?? undefined} />
+      </div>
+    )
+  }
+
+  // 2. Topic view — list of sessions
+  if (activeTopic) {
+    return (
+      <div className="flex h-full w-full">
+        <TopicView
+          topicId={activeTopic.id}
+          projectId={activeTopic.projectId}
+          topicName={activeTopic.name}
+          projectName={activeTopic.projectName}
+          onSessionSelect={onSessionSelect}
+        />
+      </div>
+    )
+  }
+
+  // 3. Normal tab views
   if (activeTab === "usage") return <UsagePage onBack={settingsBack} />
   if (activeTab === "skill") return <SkillPage />
-  if (activeTab === "memory") return <div className="text-muted-foreground italic">Memory system is loading...</div>
+  if (activeTab === "memory") return <div className="italic text-muted-foreground">Memory system is loading...</div>
   if (activeTab === "account") return <div className="w-full max-w-2xl px-6 py-10"><AccountTab /></div>
   if (activeTab === "personalization") return <div className="w-full max-w-2xl px-6 py-10"><AppearanceTab /></div>
   if (activeTab === "data-control") return <div className="w-full max-w-2xl px-6 py-10"><DataControlTab /></div>
   if (activeTab === "maintenance") return <div className="w-full max-w-2xl px-6 py-10"><MaintenanceTab /></div>
   if (activeTab === "help") return <div className="w-full max-w-2xl px-6 py-10"><HelpTab /></div>
   if (activeTab === "connect") return <ConnectPage />
-  if (activeTab === "project") return <div className="text-muted-foreground italic">Project files...</div>
 
+  // 4. Default: chat / greeting
   return (
-    <div key={`${activeTab}-${chatKey}`} className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
+    <div
+      key={`${activeTab}-${chatKey}`}
+      className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10"
+    >
       <AnimatedGreeting />
       <ChatBox />
     </div>
