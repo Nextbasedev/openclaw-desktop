@@ -1,20 +1,12 @@
 "use client"
 
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
-  Download04Icon,
-  File01Icon,
-  BubbleChatIcon,
-  Globe02Icon,
-  Settings02Icon,
-} from "@hugeicons/core-free-icons"
-import type { IconSvgElement } from "@hugeicons/react"
+import { Icons } from "@/components/icons"
 
 type ExportItem = {
   id: string
   title: string
   description: string
-  icon: IconSvgElement
+  Icon: React.ElementType
 }
 
 const EXPORT_ITEMS: ExportItem[] = [
@@ -22,25 +14,25 @@ const EXPORT_ITEMS: ExportItem[] = [
     id: "full-export",
     title: "Full Export",
     description: "Everything as a .tar.gz archive (max 200MB)",
-    icon: File01Icon,
+    Icon: Icons.File,
   },
   {
     id: "conversations",
     title: "Conversations",
     description: "Chat messages (up to 50 sessions)",
-    icon: BubbleChatIcon,
+    Icon: Icons.BubbleChat,
   },
   {
     id: "memory",
     title: "Memory",
     description: "Memory files, soul, and identity",
-    icon: Globe02Icon,
+    Icon: Icons.Globe,
   },
   {
     id: "config",
     title: "Config",
     description: "Gateway config, tools, agents, skills",
-    icon: Settings02Icon,
+    Icon: Icons.Settings,
   },
 ]
 
@@ -65,35 +57,39 @@ export function DataControlTab({
       </div>
 
       <div className="flex flex-col gap-2.5">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4 transition-colors hover:border-border"
-          >
-            <div className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
-              <HugeiconsIcon icon={item.icon} size={18} strokeWidth={1.5} />
-            </div>
-
-            <div className="flex flex-1 flex-col gap-0.5">
-              <span className="text-sm font-medium text-foreground">
-                {item.title}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {item.description}
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => onExport?.(item.id)}
-              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/50"
-              aria-label={`Export ${item.title}`}
+        {items.map((item) => {
+          const ItemIcon = item.Icon
+          return (
+            <div
+              key={item.id}
+              className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4 transition-colors hover:border-border"
             >
-              <HugeiconsIcon icon={Download04Icon} size={18} strokeWidth={1.5} />
-            </button>
-          </div>
-        ))}
+              <div className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
+                <ItemIcon size={18} strokeWidth={1.5} />
+              </div>
+
+              <div className="flex flex-1 flex-col gap-0.5">
+                <span className="text-sm font-medium text-foreground">
+                  {item.title}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {item.description}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onExport?.(item.id)}
+                className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/50"
+                aria-label={`Export ${item.title}`}
+              >
+                <Icons.Download size={18} strokeWidth={1.5} />
+              </button>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
+

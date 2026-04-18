@@ -17,11 +17,8 @@ export function Footer({ className }: FooterProps) {
         className,
       )}
     >
-      {/* Left: status / placeholder */}
-      <div className="flex items-center gap-2">
-        <span className="size-2 rounded-full bg-chart-1" />
-        <span className="text-[11px] text-muted-foreground">Ready</span>
-      </div>
+      
+   <div></div>
 
       {/* Right: keyboard shortcuts */}
       <div className="flex items-center gap-3">

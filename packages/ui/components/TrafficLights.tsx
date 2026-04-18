@@ -1,9 +1,4 @@
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
-  Cancel01Icon,
-  MinusSignIcon,
-  Add01Icon,
-} from "@hugeicons/core-free-icons"
+import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 
 type TrafficLightsProps = {
@@ -11,9 +6,9 @@ type TrafficLightsProps = {
 }
 
 /**
- * macOS-style traffic light window controls (close, minimize, maximize).
- * Icons appear individually on hover using Hugeicons.
- */
+  * macOS-style traffic light window controls (close, minimize, maximize).
+  * Icons appear individually on hover using Hugeicons.
+  */
 export function TrafficLights({ className }: TrafficLightsProps) {
   return (
     <div className={cn("flex items-center gap-1.5", className)}>
@@ -25,8 +20,7 @@ export function TrafficLights({ className }: TrafficLightsProps) {
           "bg-[#FF5F56] border border-[#E0443E] active:brightness-75"
         )}
       >
-        <HugeiconsIcon
-          icon={Cancel01Icon}
+        <Icons.Close
           size={8}
           strokeWidth={3}
           className="text-[#4c0000] opacity-0 transition-opacity duration-150 group-hover:opacity-100 cursor-pointer"
@@ -40,8 +34,7 @@ export function TrafficLights({ className }: TrafficLightsProps) {
           "bg-[#FFBD2E] border border-[#DEA123] active:brightness-75"
         )}
       >
-        <HugeiconsIcon
-          icon={MinusSignIcon}
+        <Icons.Minus
           size={8}
           strokeWidth={3}
           className="text-[#995700] opacity-0 transition-opacity duration-150 group-hover:opacity-100"
@@ -55,8 +48,7 @@ export function TrafficLights({ className }: TrafficLightsProps) {
           "bg-[#27C93F] border border-[#1AAB29] active:brightness-75"
         )}
       >
-        <HugeiconsIcon
-          icon={Add01Icon}
+        <Icons.Plus
           size={8}
           strokeWidth={3}
           className="text-[#006500] opacity-0 transition-opacity duration-150 group-hover:opacity-100"
@@ -65,5 +57,6 @@ export function TrafficLights({ className }: TrafficLightsProps) {
     </div>
   )
 }
+
 
 

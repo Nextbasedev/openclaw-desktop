@@ -16,13 +16,13 @@ export function VersionUpdateButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium",
+        "group flex w-full items-center gap-2.5 font-medium",
         "text-muted-foreground transition-all duration-200",
-        "hover:bg-secondary/60 hover:text-foreground",
+        " hover:text-foreground",
       )}
     >
       {/* Arrow-up icon */}
-      <span className="flex size-4 shrink-0 items-center justify-center">
+      <span className="flex  size-4 shrink-0 items-center justify-center">
         <svg
           width="16"
           height="16"
@@ -50,3 +50,5 @@ export function VersionUpdateButton({
     </button>
   )
 }
+
+

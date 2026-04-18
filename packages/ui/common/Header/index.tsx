@@ -1,12 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
-    Notification02Icon,
-    Settings02Icon,
-} from "@hugeicons/core-free-icons"
-import { VscLayoutSidebarRightOff } from "react-icons/vsc"
+import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { SettingsDialog } from "@/components/settings/SettingsDialog"
@@ -61,15 +56,15 @@ export function Header({ user = DEFAULT_USER, className }: HeaderProps) {
                 {/* Right: action icons */}
                 <div className="flex items-center gap-1">
                     <HeaderIconButton
-                        icon={VscLayoutSidebarRightOff}
+                        icon={Icons.SidebarToggle}
                         label="Toggle sidebar"
                     />
                     <HeaderIconButton
-                        icon={Notification02Icon}
+                        icon={Icons.Notification}
                         label="Notifications"
                     />
                     <HeaderIconButton
-                        icon={Settings02Icon}
+                        icon={Icons.Settings}
                         label="Settings"
                         onClick={openSettings}
                     />
@@ -88,7 +83,7 @@ function HeaderIconButton({
     label,
     onClick,
 }: {
-    icon: any
+    icon: React.ElementType
     label: string
     onClick?: () => void
 }) {
@@ -103,12 +98,9 @@ function HeaderIconButton({
                 "hover:text-foreground cursor-pointer group/icon",
             )}
         >
-            {typeof Icon === "function" ? (
-                <Icon className="size-4" />
-            ) : (
-                <HugeiconsIcon icon={Icon} size={16} strokeWidth={1.5} />
-            )}
+            <Icon size={16} strokeWidth={1.5} className="size-4" />
         </button>
     )
 }
+
 

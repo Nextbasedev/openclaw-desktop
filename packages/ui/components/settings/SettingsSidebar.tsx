@@ -1,7 +1,6 @@
 "use client"
 
-import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons"
+import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { SETTINGS_TABS, type SettingsTabId } from "./settings.config"
 
@@ -17,9 +16,10 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
   return (
     <nav className="flex w-[200px] shrink-0 flex-col border-r border-border/50 py-4">
       {/* Main tabs */}
-      <div className="flex flex-col gap-0.5 px-3">
+      <div className="flex flex-col gap-1 px-3">
         {mainTabs.map((tab) => {
           const isActive = activeTab === tab.id
+          const TabIcon = tab.Icon
           return (
             <button
               key={tab.id}
@@ -33,8 +33,7 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
-              <HugeiconsIcon
-                icon={tab.icon}
+              <TabIcon
                 size={16}
                 strokeWidth={isActive ? 2 : 1.5}
               />
@@ -51,6 +50,7 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
       <div className="flex flex-col gap-0.5 px-3">
         {footerTabs.map((tab) => {
           const isActive = activeTab === tab.id
+          const TabIcon = tab.Icon
           return (
             <button
               key={tab.id}
@@ -64,15 +64,13 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
-              <HugeiconsIcon
-                icon={tab.icon}
+              <TabIcon
                 size={16}
                 strokeWidth={isActive ? 2 : 1.5}
               />
               {tab.label}
               {tab.external && (
-                <HugeiconsIcon
-                  icon={ArrowUpRight01Icon}
+                <Icons.ExternalLink
                   size={12}
                   strokeWidth={1.5}
                   className="ml-auto text-muted-foreground"
@@ -85,3 +83,4 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
     </nav>
   )
 }
+
