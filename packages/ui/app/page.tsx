@@ -19,6 +19,7 @@ import { HelpTab } from "@/components/settings/tabs/HelpTab"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import ConnectPage from "@/app/connect/page"
+import { OnboardingWizard, useOnboardingFlow } from "@/components/onboarding"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -26,6 +27,31 @@ const SIDEBAR_DEFAULT = 220
 const SIDEBAR_COLLAPSED = 56
 
 export default function Page() {
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
+  const { flowState, loading: onboardingLoading } = useOnboardingFlow()
+
+  useEffect(() => {
+    if (!onboardingLoading && flowState) {
+      setOnboardingDone(flowState.flow.completed)
+    }
+  }, [onboardingLoading, flowState])
+
+  if (onboardingDone === null) {
+    return (
+      <div className="flex h-svh items-center justify-center bg-background">
+        <span className="text-sm text-muted-foreground">Loading...</span>
+      </div>
+    )
+  }
+
+  if (!onboardingDone) {
+    return <OnboardingWizard onComplete={() => setOnboardingDone(true)} />
+  }
+
+  return <AppShell onResetOnboarding={() => setOnboardingDone(false)} />
+}
+
+function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -37,6 +63,8 @@ export default function Page() {
   const [chatKey, setChatKey] = useState(0)
   const isResizing = useRef(false)
   const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
+
+  const { flowState, signOut, deleteAccount } = useOnboardingFlow()
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), [])
@@ -108,6 +136,16 @@ export default function Page() {
     setActiveTab(lastStandardTab || "chat")
   }, [lastStandardTab])
 
+  const handleSignOut = useCallback(async () => {
+    await signOut()
+    onResetOnboarding()
+  }, [signOut, onResetOnboarding])
+
+  const handleDeleteAccount = useCallback(async () => {
+    await deleteAccount()
+    onResetOnboarding()
+  }, [deleteAccount, onResetOnboarding])
+
   return (
     <div className="flex h-svh flex-col bg-background">
       <Header
@@ -141,6 +179,9 @@ export default function Page() {
               lastStandardTab={lastStandardTab}
               onTabChange={handleTabChange}
               onToggleSettingsMode={setIsSettingsMode}
+              onSignOut={handleSignOut}
+              onDeleteAccount={handleDeleteAccount}
+              flowState={flowState}
             />
           </main>
 
@@ -172,12 +213,18 @@ function MainContent({
   lastStandardTab,
   onTabChange,
   onToggleSettingsMode,
+  onSignOut,
+  onDeleteAccount,
+  flowState,
 }: {
   activeTab: string
   chatKey: number
   lastStandardTab: string
   onTabChange: (tab: string) => void
   onToggleSettingsMode: (val: boolean) => void
+  onSignOut: () => void
+  onDeleteAccount: () => void
+  flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
 }) {
   const settingsBack = () => {
     onToggleSettingsMode(false)
@@ -187,10 +234,30 @@ function MainContent({
   if (activeTab === "usage") return <UsagePage onBack={settingsBack} />
   if (activeTab === "skill") return <SkillPage />
   if (activeTab === "memory") return <div className="text-muted-foreground italic">Memory system is loading...</div>
-  if (activeTab === "account") return <div className="w-full max-w-2xl px-6 py-10"><AccountTab /></div>
+  if (activeTab === "account") {
+    return (
+      <div className="w-full max-w-2xl px-6 py-10">
+        <AccountTab
+          data={{
+            name: flowState?.state.bot.botName || "Not configured",
+            email: flowState?.state.provider.selection
+              ? `${flowState.state.provider.selection.providerId} (${flowState.state.provider.selection.authMethod || "default"})`
+              : "No provider selected",
+            model: flowState?.state.model.selectedModelRef || "No model selected",
+          }}
+        />
+      </div>
+    )
+  }
   if (activeTab === "personalization") return <div className="w-full max-w-2xl px-6 py-10"><AppearanceTab /></div>
   if (activeTab === "data-control") return <div className="w-full max-w-2xl px-6 py-10"><DataControlTab /></div>
-  if (activeTab === "maintenance") return <div className="w-full max-w-2xl px-6 py-10"><MaintenanceTab /></div>
+  if (activeTab === "maintenance") {
+    return (
+      <div className="w-full max-w-2xl px-6 py-10">
+        <MaintenanceTab onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />
+      </div>
+    )
+  }
   if (activeTab === "help") return <div className="w-full max-w-2xl px-6 py-10"><HelpTab /></div>
   if (activeTab === "connect") return <ConnectPage />
   if (activeTab === "project") return <div className="text-muted-foreground italic">Project files...</div>

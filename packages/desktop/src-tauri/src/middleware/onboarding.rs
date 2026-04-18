@@ -55,8 +55,7 @@ pub struct OnboardingModelSubmitInput {
 
 
 pub(crate) async fn command_version(binary: &str, version_arg: &str) -> Option<String> {
-  tokio::process::Command::new(binary)
-    .arg(version_arg)
+  shell_command(binary, &[version_arg])
     .output()
     .await
     .ok()
@@ -64,6 +63,18 @@ pub(crate) async fn command_version(binary: &str, version_arg: &str) -> Option<S
     .and_then(|output| String::from_utf8(output.stdout).ok())
     .map(|stdout| stdout.trim().to_string())
     .filter(|stdout| !stdout.is_empty())
+}
+
+fn shell_command(binary: &str, args: &[&str]) -> tokio::process::Command {
+  if cfg!(windows) {
+    let mut cmd = tokio::process::Command::new("cmd");
+    cmd.arg("/C").arg(binary).args(args);
+    cmd
+  } else {
+    let mut cmd = tokio::process::Command::new(binary);
+    cmd.args(args);
+    cmd
+  }
 }
 
 pub(crate) async fn gateway_running(gateway_url: &str) -> bool {
@@ -1114,8 +1125,7 @@ pub async fn middleware_onboarding_core(input: OnboardingCoreInput) -> Result<Va
     }
 
     if !openclaw_installed {
-      let output = tokio::process::Command::new("npm")
-        .args(&["i", "-g", "openclaw"])
+      let output = shell_command("npm", &["i", "-g", "openclaw"])
         .output()
         .await
         .map_err(|e| format!("Failed to run npm install: {}", e))?;
@@ -1131,8 +1141,7 @@ pub async fn middleware_onboarding_core(input: OnboardingCoreInput) -> Result<Va
     }
 
     if !gateway_is_running {
-      let output = tokio::process::Command::new("openclaw")
-        .args(&["gateway", "start"])
+      let output = shell_command("openclaw", &["gateway", "start"])
         .output()
         .await
         .map_err(|e| format!("Failed to start OpenClaw Gateway: {}", e))?;
@@ -1195,4 +1204,46 @@ pub async fn middleware_openclaw_install(_input: OpenClawInstallInput) -> Result
   }))
 }
 
+#[tauri::command]
+pub async fn middleware_onboarding_sign_out() -> Result<Value, String> {
+  let conn = open_db()?;
+  conn.execute(
+    "DELETE FROM app_settings WHERE key LIKE 'onboarding.%' OR key = ?",
+    params![APP_SETTING_OPENCLAW_BOT_NAME],
+  ).map_err(|e| format!("Failed to clear onboarding state: {e}"))?;
+  Ok(json!({ "ok": true, "cleared": ["onboarding.*", "openclaw.bot_name"] }))
+}
 
+#[tauri::command]
+pub async fn middleware_onboarding_delete_account() -> Result<Value, String> {
+  let conn = open_db()?;
+  conn.execute("DELETE FROM app_settings", [])
+    .map_err(|e| format!("Failed to clear app settings: {e}"))?;
+
+  let config_path = home_dir()?.join(".openclaw").join("openclaw.json");
+  if config_path.exists() {
+    if let Ok(content) = fs::read_to_string(&config_path) {
+      if let Ok(mut config) = serde_json::from_str::<Value>(&content) {
+        if let Some(env) = config.get_mut("env") {
+          if let Some(vars) = env.get_mut("vars") {
+            if let Some(obj) = vars.as_object_mut() {
+              obj.clear();
+            }
+          }
+        }
+        if let Some(agents) = config.get_mut("agents") {
+          if let Some(defaults) = agents.get_mut("defaults") {
+            if let Some(model) = defaults.get_mut("model") {
+              if let Some(obj) = model.as_object_mut() {
+                obj.remove("primary");
+              }
+            }
+          }
+        }
+        let _ = fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default());
+      }
+    }
+  }
+
+  Ok(json!({ "ok": true, "cleared": ["app_settings", "env.vars", "agents.defaults.model.primary"] }))
+}
