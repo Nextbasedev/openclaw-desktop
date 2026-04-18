@@ -16,7 +16,10 @@ export * from "./projects"
 export * from "./registry"
 export * from "./sessions"
 export * from "./settings"
+export * from "./skills"
+export * from "./sync"
 export * from "./terminal"
 export * from "./topics"
+export * from "./usage"
 
 export { common }

@@ -16,6 +16,9 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       middleware::middleware_runtime_info,
+      middleware::middleware_openclaw_bot_name,
+      middleware::middleware_openclaw_bot_name_get,
+      middleware::middleware_openclaw_bot_name_set,
       middleware::middleware_request_admin_access,
       middleware::middleware_approve_admin_access,
       middleware::middleware_chat_create_session,
@@ -69,6 +72,43 @@ pub fn run() {
       middleware::middleware_profile_token_set,
       middleware::middleware_profile_token_get,
       middleware::middleware_profile_token_delete,
+      // Branch Chat commands
+      middleware::middleware_branch_create,
+      middleware::middleware_branch_list,
+      middleware::middleware_branch_get,
+      middleware::middleware_branch_delete,
+      middleware::middleware_branch_from_regenerate,
+      middleware::middleware_branch_from_edit,
+      middleware::middleware_branch_create_thread,
+      // Onboarding enhancements
+      middleware::middleware_onboarding_core,
+      middleware::middleware_onboarding_providers,
+      middleware::middleware_onboarding_provider_types,
+      middleware::middleware_onboarding_provider_details,
+      middleware::middleware_onboarding_provider_submit,
+      middleware::middleware_onboarding_model_contract,
+      middleware::middleware_onboarding_model_submit,
+      middleware::middleware_onboarding_flow,
+      middleware::middleware_openclaw_check,
+      middleware::middleware_openclaw_install,
+      middleware::middleware_skills_discover,
+      middleware::middleware_skills_install,
+      middleware::middleware_git_remote_add,
+      middleware::middleware_git_remote_list,
+      middleware::middleware_git_remote_remove,
+      middleware::middleware_git_context,
+      middleware::middleware_git_switch_branch,
+      middleware::middleware_git_branches,
+      // Sync
+      middleware::middleware_sync_full,
+      middleware::middleware_sync_status,
+      middleware::middleware_sync_enable,
+      middleware::middleware_sync_devices,
+      // Usage
+      middleware::middleware_usage_by_project,
+      middleware::middleware_usage_by_topic,
+      middleware::middleware_usage_summary,
+      middleware::middleware_usage_session,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
