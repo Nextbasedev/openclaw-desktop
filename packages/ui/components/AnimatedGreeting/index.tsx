@@ -43,7 +43,7 @@ export function AnimatedGreeting() {
   }, [displayedText, showCursor])
 
   return (
-    <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+    <h1 className="text-center text-3xl font-semibold tracking-tight sm:text-4xl">
       <span
         className="bg-gradient-to-b from-white to-neutral-500 bg-clip-text text-transparent dark:from-white dark:to-neutral-600"
       >
