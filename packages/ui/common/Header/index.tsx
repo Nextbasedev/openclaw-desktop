@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import { VscLayoutSidebarRightOff, VscLayoutSidebarRight } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
@@ -62,12 +63,24 @@ export function Header({
 
                 {/* Right: action icons */}
                 <div className="flex items-center gap-1">
-                    <HeaderIconButton
-                        icon={Icons.SidebarToggle}
-                        label="Toggle inspector panel"
-                        active={inspectorOpen}
+                    <button
+                        type="button"
+                        aria-label="Toggle inspector panel"
                         onClick={onToggleInspector}
-                    />
+                        className={cn(
+                            "flex size-8 items-center justify-center rounded-md",
+                            "transition-colors cursor-pointer",
+                            inspectorOpen
+                                ? "text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        {inspectorOpen ? (
+                            <VscLayoutSidebarRight className="size-4" />
+                        ) : (
+                            <VscLayoutSidebarRightOff className="size-4" />
+                        )}
+                    </button>
                     <HeaderIconButton
                         icon={Icons.Notification}
                         label="Notifications"
