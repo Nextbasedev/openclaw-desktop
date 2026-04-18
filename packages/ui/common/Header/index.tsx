@@ -3,6 +3,11 @@
 import { useState, useCallback } from "react"
 import { VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscLayoutPanelOff, VscLayoutPanel } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
+    Notification02Icon,
+    Settings02Icon,
+} from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { SettingsDialog } from "@/components/settings/SettingsDialog"
@@ -148,3 +153,5 @@ function HeaderIconButton({
         </button>
     )
 }
+
+
