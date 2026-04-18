@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
-import { discoverSkills, mapDiscoveredSkillCategory, type DiscoveredSkill } from "./api"
+import { discoverSkills, mapDiscoveredSkillCategory, type DiscoveredSkill, type SkillDiscoverResponse } from "./api"
 import {
   SkillGhostIcon,
   SkillPdfIcon,
@@ -36,39 +36,35 @@ type SkillSection = {
   items: SkillItem[]
 }
 
-const DEFAULT_SKILLS: SkillItem[] = [
-  { id: "sora", name: "Sora", description: "Generate, edit, extend, and manage Sora content.", category: "Recommended", iconBg: "bg-[#0E5BC9]", iconKey: "ghost" },
-  { id: "pdf", name: "PDF", description: "Create, edit, and review PDFs.", category: "Recommended", iconBg: "bg-white", iconKey: "pdf" },
-  { id: "doc", name: "Doc", description: "Edit and review docx files.", category: "Recommended", iconBg: "bg-[#ECECEC]", iconKey: "doc" },
-  { id: "playwright", name: "Playwright", description: "Automate real browsers from the terminal.", category: "Recommended", iconBg: "bg-[#F0F0F0]", iconKey: "lab" },
-  { id: "image-gen", name: "Image Gen", description: "Generate or edit images for websites, games, and products.", category: "System", iconBg: "bg-[#2FC3F4]", iconKey: "image", installed: true },
-  { id: "openai-docs", name: "OpenAI Docs", description: "Reference official OpenAI docs, including APIs and guides.", category: "System", iconBg: "bg-[#FFF4EA]", iconKey: "book", installed: true },
-  { id: "plugin-creator", name: "Plugin Creator", description: "Scaffold plugins and marketplace entries.", category: "System", iconBg: "bg-[#1D1D1D]", iconKey: "pencil", installed: true },
-  { id: "skill-creator", name: "Skill Creator", description: "Create or update a skill.", category: "System", iconBg: "bg-[#1D1D1D]", iconKey: "pencil", installed: true },
-  { id: "skill-installer", name: "Skill Installer", description: "Install curated skills from ClawHub and other sources.", category: "System", iconBg: "bg-[#FFCC47]", iconKey: "puzzle", installed: true },
-  { id: "excel", name: "Excel", description: "Create and edit spreadsheet or excel files.", category: "Personal", iconBg: "bg-[#1F3B1E]", iconKey: "excel", installed: true },
-  { id: "powerpoint", name: "PowerPoint", description: "Create and edit presentation slide decks.", category: "Personal", iconBg: "bg-[#FFF1E7]", iconKey: "slides", installed: true },
-]
-
 export function SkillPage() {
   const [query, setQuery] = React.useState("")
   const [category, setCategory] = React.useState<SkillCategory>("All")
-  const [skills, setSkills] = React.useState<SkillItem[]>(DEFAULT_SKILLS)
-  const [loading, setLoading] = React.useState(false)
+  const [skills, setSkills] = React.useState<SkillItem[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [meta, setMeta] = React.useState<SkillDiscoverResponse | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
 
     async function loadSkills() {
       setLoading(true)
+      setError(null)
+
       const response = await discoverSkills("", 20)
-      if (cancelled || !response) {
+      if (cancelled) return
+
+      if (!response) {
+        setSkills([])
+        setMeta(null)
+        setError("Unable to load skills from middleware. Make sure the desktop runtime and skills backend are available.")
         setLoading(false)
         return
       }
 
       const mapped = response.results.map(mapBackendSkillToItem)
-      setSkills(mapped.length > 0 ? mapped : DEFAULT_SKILLS)
+      setSkills(mapped)
+      setMeta(response)
       setLoading(false)
     }
 
@@ -145,37 +141,38 @@ export function SkillPage() {
         </div>
       </div>
 
-      {loading && (
-        <div className="mb-5 text-center text-[12px] text-muted-foreground">
-          Loading skills from middleware...
+      {meta && (
+        <div className="mb-5 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>{meta.results.length} skill{meta.results.length === 1 ? "" : "s"} discovered</span>
+          <span>Sources: {meta.sources.join(", ")}</span>
         </div>
       )}
 
-      <div className="space-y-8">
-        {filteredSections.map((section) => (
-          <section key={section.title}>
-            <h2 className="mb-3 text-[13px] font-medium text-foreground">
-              {section.title}
-            </h2>
+      {loading ? (
+        <StatePanel text="Loading skills from middleware..." />
+      ) : error ? (
+        <StatePanel text={error} tone="error" />
+      ) : filteredSections.length === 0 ? (
+        <StatePanel text="No skills found from the middleware for your current filters." />
+      ) : (
+        <div className="space-y-8">
+          {filteredSections.map((section) => (
+            <section key={section.title}>
+              <h2 className="mb-3 text-[13px] font-medium text-foreground">
+                {section.title}
+              </h2>
 
-            <div className="border-t border-border/40">
-              <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
-                {section.items.map((item) => (
-                  <SkillCard key={item.id} item={item} />
-                ))}
+              <div className="border-t border-border/40">
+                <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+                  {section.items.map((item) => (
+                    <SkillCard key={item.id} item={item} />
+                  ))}
+                </div>
               </div>
-            </div>
-          </section>
-        ))}
-
-        {filteredSections.length === 0 && (
-          <div className="rounded-xl border border-border/50 bg-card px-5 py-8 text-center">
-            <p className="text-[13px] text-muted-foreground">
-              No skills found for your current filters.
-            </p>
-          </div>
-        )}
-      </div>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -237,6 +234,24 @@ function SkillTileIcon({ iconKey }: { iconKey: string }) {
     case "slides": return <SkillSlidesIcon />
     default: return <SkillPuzzleIcon />
   }
+}
+
+function StatePanel({ text, tone = "default" }: { text: string; tone?: "default" | "error" }) {
+  return (
+    <div className={cn(
+      "rounded-xl border px-5 py-8 text-center",
+      tone === "error"
+        ? "border-destructive/20 bg-destructive/5"
+        : "border-border/50 bg-card",
+    )}>
+      <p className={cn(
+        "text-[13px]",
+        tone === "error" ? "text-destructive" : "text-muted-foreground",
+      )}>
+        {text}
+      </p>
+    </div>
+  )
 }
 
 function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
