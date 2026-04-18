@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   PlusSignIcon,
   ArrowDown01Icon,
-  Upload04Icon,
+  AttachmentIcon,
   Cancel01Icon,
 } from "@hugeicons/core-free-icons"
 
@@ -66,7 +66,7 @@ export function ActionBar({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border border-foreground/15 bg-foreground/5 text-foreground shadow-sm transition-all hover:bg-foreground/10"
+              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-foreground/15 bg-foreground/5 text-foreground shadow-sm transition-all hover:bg-foreground/10"
               aria-label="Add"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={19} />
@@ -75,15 +75,15 @@ export function ActionBar({
           <PopoverContent side="top" align="start" sideOffset={8} className="w-56 gap-0 p-1.5">
             <button
               type="button"
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
             >
-              <HugeiconsIcon icon={Upload04Icon} size={18} />
+              <HugeiconsIcon icon={AttachmentIcon} size={16} />
               Upload
             </button>
             <div className="my-1 h-px bg-border" />
             <button
               type="button"
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
               onClick={onWebSearchToggle}
             >
               <WebSearchIcon className="size-[18px]" />
@@ -97,7 +97,7 @@ export function ActionBar({
           <button
             type="button"
             onClick={onWebSearchDisable}
-            className="group hidden items-center gap-2 rounded-full border border-foreground/60 bg-secondary px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:bg-secondary/80 sm:flex"
+            className="group hidden cursor-pointer items-center gap-2 rounded-full border border-foreground/60 bg-secondary px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:bg-secondary/80 sm:flex"
           >
             <span className="relative size-4">
               <WebSearchIcon className="absolute inset-0 size-4 opacity-100 transition-opacity group-hover:opacity-0" />
@@ -112,7 +112,7 @@ export function ActionBar({
           type="button"
           onClick={onPlanToggle}
           className={cn(
-            "flex h-8 items-center gap-2 rounded-full border px-3 transition-all",
+            "flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3 transition-all",
             planEnabled
               ? "border-foreground/60 bg-secondary text-foreground"
               : "border-foreground/15 bg-foreground/5 text-foreground shadow-sm hover:bg-foreground/10"
@@ -126,12 +126,12 @@ export function ActionBar({
 
       {/* Right controls */}
       <div className="flex items-center gap-0.5 sm:gap-1">
-        {/* Model selector — no background, plain text like mic */}
+        {/* Model selector */}
         <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-8 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:text-foreground"
+              className="flex h-8 cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:text-foreground"
             >
               {selectedModel.label}
               <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
@@ -143,7 +143,7 @@ export function ActionBar({
                 key={model.id}
                 type="button"
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
+                  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
                   selectedModel.id === model.id
                     ? "font-medium text-popover-foreground"
                     : "text-muted-foreground"
@@ -159,7 +159,7 @@ export function ActionBar({
         {/* Voice button */}
         <button
           type="button"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all hover:text-foreground"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-all hover:text-foreground"
           aria-label="Voice input"
         >
           <VoiceIcon className="size-[26px]" />
@@ -172,7 +172,7 @@ export function ActionBar({
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-full shadow-sm transition-all",
             hasInput
-              ? "bg-foreground text-background"
+              ? "cursor-pointer bg-foreground text-background"
               : "bg-foreground/50 text-background"
           )}
           aria-label="Send message"
