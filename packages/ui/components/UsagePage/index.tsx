@@ -1,5 +1,6 @@
 "use client"
 
+import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 
 /* ── Dummy data (will be replaced by API later) ── */
@@ -35,9 +36,15 @@ const CREDITS: CreditSection[] = [
   },
 ]
 
-export function UsagePage() {
+type UsagePageProps = {
+  onBack?: () => void
+}
+
+export function UsagePage({ onBack }: UsagePageProps) {
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-10">
+
+
       {/* Title */}
       <h1 className="mb-8 text-2xl font-semibold text-foreground">Usage</h1>
 

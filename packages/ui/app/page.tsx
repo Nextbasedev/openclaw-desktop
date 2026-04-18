@@ -10,7 +10,13 @@ import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import { TerminalPanel } from "@/components/TerminalPanel"
 import { UsagePage } from "@/components/UsagePage"
+import { AccountTab } from "@/components/settings/tabs/AccountTab"
+import { AppearanceTab } from "@/components/settings/tabs/AppearanceTab"
+import { DataControlTab } from "@/components/settings/tabs/DataControlTab"
+import { MaintenanceTab } from "@/components/settings/tabs/MaintenanceTab"
+import { HelpTab } from "@/components/settings/tabs/HelpTab"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
+import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -20,17 +26,20 @@ export default function Page() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [terminalOpen, setTerminalOpen] = useState(false)
-  const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState("chat")
+  const [isSettingsMode, setIsSettingsMode] = useState(false)
+  const [lastStandardTab, setLastStandardTab] = useState("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
   const isResizing = useRef(false)
+  const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), [])
   const openTerminal = useCallback(() => setTerminalOpen(true), [])
 
   useTerminalShortcut(toggleTerminal)
+  useAppShortcuts()
 
   /* ── Ctrl+N: new chat ── */
   useEffect(() => {
@@ -38,6 +47,8 @@ export default function Page() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault()
         setActiveTab("chat")
+        setLastStandardTab("chat")
+        setIsSettingsMode(false)
         setChatKey((k) => k + 1)
       }
     }
@@ -76,6 +87,23 @@ export default function Page() {
     }
   }, [])
 
+  const handleTabChange = useCallback((tab: string) => {
+    if (tab === "settings") {
+      setIsSettingsMode(true)
+      setActiveTab("usage") // Enter settings and show usage as default
+    } else {
+      setActiveTab(tab)
+      if (!isSettingsMode) {
+        setLastStandardTab(tab)
+      }
+    }
+  }, [isSettingsMode])
+
+  const handleBackToMain = useCallback(() => {
+    setIsSettingsMode(false)
+    setActiveTab(lastStandardTab || "chat")
+  }, [lastStandardTab])
+
   return (
     <div className="flex h-svh flex-col bg-background">
       <Header
@@ -90,15 +118,24 @@ export default function Page() {
           width={sidebarWidth}
           onResizeStart={handleResizeStart}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
           items={sidebarItems}
           onItemsChange={setSidebarItems}
+          isSettingsMode={isSettingsMode}
+          onToggleSettingsMode={setIsSettingsMode}
+          onBackToMain={handleBackToMain}
         />
 
         {/* Main + terminal column */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          <main className="flex flex-1 items-center justify-center overflow-y-auto transition-all duration-300 ease-in-out">
-            <MainContent activeTab={activeTab} chatKey={chatKey} />
+          <main className="flex flex-1 items-start justify-center overflow-y-auto transition-all duration-300 ease-in-out">
+            <MainContent
+              activeTab={activeTab}
+              chatKey={chatKey}
+              lastStandardTab={lastStandardTab}
+              onTabChange={handleTabChange}
+              onToggleSettingsMode={setIsSettingsMode}
+            />
           </main>
 
           {/* Terminal panel — slides up from bottom */}
@@ -125,14 +162,39 @@ export default function Page() {
 }
 
 /* ── Conditional main content based on active tab ── */
-function MainContent({ activeTab, chatKey }: { activeTab: string; chatKey: number }) {
-  if (activeTab === "usage") {
-    return <UsagePage />
+function MainContent({
+  activeTab,
+  chatKey,
+  lastStandardTab,
+  onTabChange,
+  onToggleSettingsMode,
+}: {
+  activeTab: string
+  chatKey: number
+  lastStandardTab: string
+  onTabChange: (tab: string) => void
+  onToggleSettingsMode: (val: boolean) => void
+}) {
+  const settingsBack = () => {
+    onToggleSettingsMode(false)
+    onTabChange(lastStandardTab)
   }
+
+  // Settings-related content
+  if (activeTab === "usage") return <UsagePage onBack={settingsBack} />
+  if (activeTab === "memory") return <div className="text-muted-foreground italic">Memory system is loading...</div>
+  if (activeTab === "account") return <div className="w-full max-w-2xl px-6 py-10"><AccountTab /></div>
+  if (activeTab === "personalization") return <div className="w-full max-w-2xl px-6 py-10"><AppearanceTab /></div>
+  if (activeTab === "data-control") return <div className="w-full max-w-2xl px-6 py-10"><DataControlTab /></div>
+  if (activeTab === "maintenance") return <div className="w-full max-w-2xl px-6 py-10"><MaintenanceTab /></div>
+  if (activeTab === "help") return <div className="w-full max-w-2xl px-6 py-10"><HelpTab /></div>
+
+  // Project placeholder
+  if (activeTab === "project") return <div className="text-muted-foreground italic">Project files...</div>
 
   // Default: chat view (greeting + chatbox)
   return (
-    <div key={chatKey} className="flex w-full flex-col items-center gap-8">
+    <div key={`${activeTab}-${chatKey}`} className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
       <AnimatedGreeting />
       <ChatBox />
     </div>

@@ -14,12 +14,8 @@ function getGreeting(): string {
 export function AnimatedGreeting() {
   const [displayedText, setDisplayedText] = React.useState("")
   const [showCursor, setShowCursor] = React.useState(true)
-  const hasAnimated = React.useRef(false)
 
   React.useEffect(() => {
-    if (hasAnimated.current) return
-    hasAnimated.current = true
-
     const greeting = getGreeting()
     let i = 0
 
