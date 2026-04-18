@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import { ActivityTab } from "./ActivityTab"
 import { WorkspaceTab } from "./WorkspaceTab"
@@ -14,6 +14,10 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: "git", label: "Git" },
 ]
 
+const MIN_WIDTH = 300
+const MAX_WIDTH = 600
+const DEFAULT_WIDTH = 390
+
 interface InspectorPanelProps {
   open: boolean
   onClose: () => void
@@ -21,17 +25,64 @@ interface InspectorPanelProps {
 
 export function InspectorPanel({ open, onClose }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
+  const [width, setWidth] = useState(DEFAULT_WIDTH)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      dragRef.current = { startX: e.clientX, startWidth: width }
+      setIsDragging(true)
+    },
+    [width],
+  )
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return
+      // Dragging left edge → moving left = wider, moving right = narrower
+      const delta = dragRef.current.startX - e.clientX
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragRef.current.startWidth + delta))
+      setWidth(newWidth)
+    }
+
+    function onMouseUp() {
+      setIsDragging(false)
+      dragRef.current = null
+    }
+
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [isDragging])
 
   return (
     <aside
       className={cn(
-        "shrink-0 overflow-hidden border-l border-border/50 bg-card",
-        "transition-[width,opacity] duration-300 ease-in-out",
-        open ? "w-[390px] opacity-100" : "w-0 opacity-0",
+        "relative shrink-0 overflow-hidden border-l border-border/50 bg-card",
+        !isDragging && "transition-[width,opacity] duration-300 ease-in-out",
+        open ? "opacity-100" : "w-0 opacity-0",
       )}
+      style={{ width: open ? width : 0 }}
       aria-hidden={!open}
     >
-      <div className="flex h-full w-[390px] flex-col">
+      {/* Drag handle — left edge */}
+      <div
+        onMouseDown={handleMouseDown}
+        className={cn(
+          "absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize",
+          "hover:bg-foreground/10",
+          isDragging && "bg-foreground/15",
+        )}
+      />
+
+      <div className="flex h-full flex-col" style={{ width }}>
         {/* Tabs */}
         <div className="flex h-9 shrink-0 items-center border-b border-border/50 px-1">
           {TABS.map((tab) => {
@@ -58,12 +109,15 @@ export function InspectorPanel({ open, onClose }: InspectorPanelProps) {
         </div>
 
         {/* Content */}
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {activeTab === "activity" && <ActivityTab />}
           {activeTab === "workspace" && <WorkspaceTab />}
           {activeTab === "git" && <GitTab />}
         </div>
       </div>
+
+      {/* Prevent text selection while dragging */}
+      {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
     </aside>
   )
 }
