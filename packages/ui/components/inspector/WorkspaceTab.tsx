@@ -246,6 +246,68 @@ function TreeNode({
   )
 }
 
+/* ── Code editor with line numbers (VS Code style) ── */
+
+function CodeEditor({
+  content,
+  onChange,
+  ext,
+}: {
+  content: string
+  onChange: (v: string) => void
+  ext: string
+}) {
+  const lines = content.split("\n")
+  const lineCount = lines.length
+  const gutterWidth = Math.max(2, String(lineCount).length)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const lineNumRef = useRef<HTMLDivElement>(null)
+
+  function handleScroll() {
+    if (textareaRef.current && lineNumRef.current) {
+      lineNumRef.current.scrollTop = textareaRef.current.scrollTop
+    }
+  }
+
+  return (
+    <div className="flex h-full overflow-hidden bg-background/50">
+      {/* Line numbers gutter */}
+      <div
+        ref={lineNumRef}
+        className="shrink-0 overflow-hidden border-r border-border/20 bg-background/30 py-2 pr-2 text-right select-none"
+        style={{ width: `${gutterWidth + 2}ch`, paddingLeft: "0.5ch" }}
+      >
+        {lines.map((_, i) => (
+          <div
+            key={i}
+            className="font-mono text-[11px] leading-5 text-muted-foreground/40"
+          >
+            {i + 1}
+          </div>
+        ))}
+      </div>
+
+      {/* Code area — no word wrap, scrollable both directions */}
+      <div className="flex-1 overflow-auto">
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={(e) => onChange(e.target.value)}
+          onScroll={handleScroll}
+          spellCheck={false}
+          className={cn(
+            "block min-h-full min-w-full resize-none whitespace-pre bg-transparent py-2 pl-3 pr-4 font-mono text-[11px] leading-5 outline-none",
+            ext === "json" && "text-amber-300/80",
+            ext === "md" && "text-foreground/80",
+            !["json", "md"].includes(ext) && "text-foreground/85",
+          )}
+          style={{ tabSize: 2, width: "max-content" }}
+        />
+      </div>
+    </div>
+  )
+}
+
 /* ── File preview pane ── */
 
 function FilePreviewPane({
@@ -362,26 +424,13 @@ function FilePreviewPane({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-hidden">
         {isMd && mode === "preview" ? (
-          <div className="prose prose-sm prose-invert max-w-none p-3 text-[12px] leading-6 text-foreground/85 [&_a]:text-blue-400 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px] [&_h1]:text-base [&_h1]:font-semibold [&_h1]:text-foreground [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-foreground [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-foreground [&_li]:text-foreground/85 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:text-foreground/85 [&_pre]:rounded-lg [&_pre]:bg-secondary/40 [&_pre]:p-3 [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:pl-4">
+          <div className="h-full overflow-auto p-3 text-[12px] leading-6 text-foreground/85 [&_a]:text-blue-400 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px] [&_h1]:text-base [&_h1]:font-semibold [&_h1]:text-foreground [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-foreground [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-foreground [&_li]:text-foreground/85 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:text-foreground/85 [&_pre]:rounded-lg [&_pre]:bg-secondary/40 [&_pre]:p-3 [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:pl-4">
             <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
           </div>
         ) : (
-          <div className="h-full overflow-auto rounded-none border-none bg-secondary/20">
-            <pre className="min-w-max p-3">
-              <code
-                className={cn(
-                  "font-mono text-[11px] leading-5 whitespace-pre",
-                  ext === "json" && "text-amber-300/80",
-                  ext === "md" && "text-foreground/80",
-                  !["json", "md"].includes(ext) && "text-foreground/85",
-                )}
-              >
-                {content}
-              </code>
-            </pre>
-          </div>
+          <CodeEditor content={content} onChange={setContent} ext={ext} />
         )}
       </div>
     </div>
