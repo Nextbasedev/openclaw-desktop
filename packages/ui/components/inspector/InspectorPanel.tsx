@@ -14,8 +14,8 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: "git", label: "Git" },
 ]
 
-const MIN_WIDTH = 420
-const MAX_WIDTH = 800
+const MIN_WIDTH = 400
+const MAX_WIDTH = 700
 const DEFAULT_WIDTH = 500
 
 interface InspectorPanelProps {
