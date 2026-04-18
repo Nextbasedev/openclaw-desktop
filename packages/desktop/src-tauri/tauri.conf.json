@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../../ui/out",
     "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "node ../../scripts/run-ui-dev.cjs",
+    "beforeDevCommand": "pnpm --filter ui dev",
     "beforeBuildCommand": "pnpm --filter ui build"
   },
   "app": {

@@ -1,13 +1,8 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscLayoutPanelOff, VscLayoutPanel } from "react-icons/vsc"
+import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscLayoutPanelOff, VscLayoutPanel } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
-    Notification02Icon,
-    Settings02Icon,
-} from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { WindowControls } from "@/components/WindowControls"
@@ -22,6 +17,8 @@ type HeaderProps = {
     onToggleInspector?: () => void
     terminalOpen?: boolean
     onToggleTerminal?: () => void
+    sidebarOpen?: boolean
+    onToggleSidebar?: () => void
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -29,14 +26,6 @@ const DEFAULT_USER: HeaderUser = {
     version: "V2.03",
 }
 
-/**
- * Desktop-style custom header (frameless window titlebar).
- * - data-tauri-drag-region makes it draggable in Tauri
- * - macOS: Traffic lights on left
- * - Windows/Linux: Window controls on right
- * - User name + version badge on left
- * - Action icons on right (inspector, notifications, settings)
- */
 export function Header({
     user = DEFAULT_USER,
     className,
@@ -44,6 +33,8 @@ export function Header({
     onToggleInspector,
     terminalOpen = false,
     onToggleTerminal,
+    sidebarOpen = true,
+    onToggleSidebar,
 }: HeaderProps) {
     const [settingsOpen, setSettingsOpen] = useState(false)
     const platform = usePlatform()
@@ -64,13 +55,8 @@ export function Header({
                     className,
                 )}
             >
-                {/* Drag region covers the whole header but sits behind buttons */}
-                <div
-                    data-tauri-drag-region
-                    className="absolute inset-0 z-0"
-                />
+                <div data-tauri-drag-region className="absolute inset-0 z-0" />
 
-                {/* Left: traffic lights (macOS) + user + version */}
                 <div className="relative z-10 flex items-center gap-3">
                     {isMac && <TrafficLights />}
 
@@ -83,11 +69,31 @@ export function Header({
                     </span>
                 </div>
 
-                {/* Right: action icons + window controls (Windows) */}
                 <div className="relative z-10 flex items-center gap-0">
                     <button
                         type="button"
+                        aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+                        title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+                        onClick={onToggleSidebar}
+                        className={cn(
+                            "flex size-7 items-center justify-center rounded-md",
+                            "transition-colors cursor-pointer",
+                            sidebarOpen
+                                ? "text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        {sidebarOpen ? (
+                            <VscLayoutSidebarLeft className="size-4" />
+                        ) : (
+                            <VscLayoutSidebarLeftOff className="size-4" />
+                        )}
+                    </button>
+
+                    <button
+                        type="button"
                         aria-label="Toggle terminal"
+                        title="Toggle terminal"
                         onClick={onToggleTerminal}
                         className={cn(
                             "flex size-7 items-center justify-center rounded-md",
@@ -106,6 +112,7 @@ export function Header({
                     <button
                         type="button"
                         aria-label="Toggle inspector panel"
+                        title="Toggle inspector panel"
                         onClick={onToggleInspector}
                         className={cn(
                             "flex size-7 items-center justify-center rounded-md",
@@ -125,9 +132,12 @@ export function Header({
                         icon={Icons.Notification}
                         label="Notifications"
                     />
+                    <HeaderIconButton
+                        icon={Icons.Settings}
+                        label="Settings"
+                        onClick={openSettings}
+                    />
 
-
-                    {/* Windows/Linux window controls — flush right */}
                     {isWindows && <WindowControls className="ml-2" />}
                 </div>
             </header>
@@ -152,6 +162,7 @@ function HeaderIconButton({
         <button
             type="button"
             aria-label={label}
+            title={label}
             onClick={onClick}
             className={cn(
                 "flex size-7 items-center justify-center rounded-md",
