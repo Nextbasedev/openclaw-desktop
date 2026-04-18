@@ -96,6 +96,9 @@ pub fn run() {
       middleware::middleware_git_remote_add,
       middleware::middleware_git_remote_list,
       middleware::middleware_git_remote_remove,
+      middleware::middleware_git_context,
+      middleware::middleware_git_switch_branch,
+      middleware::middleware_git_branches,
       // Sync
       middleware::middleware_sync_full,
       middleware::middleware_sync_status,

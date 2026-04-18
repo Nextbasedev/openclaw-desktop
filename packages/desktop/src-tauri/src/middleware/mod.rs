@@ -21,6 +21,8 @@ use tauri::{AppHandle, Emitter, State};
 #[cfg(test)]
 mod cron_openclaw_tests;
 #[cfg(test)]
+mod git_context_tests;
+#[cfg(test)]
 mod sync_tests;
 #[cfg(test)]
 mod usage_tests;
@@ -849,6 +851,24 @@ pub(crate) fn init_db(conn: &Connection) -> Result<(), String> {
     }
   }
 
+  // Git context: track which git branch a topic is working on
+  conn.execute_batch(
+    r#"
+    CREATE TABLE IF NOT EXISTS topic_git_context (
+      id TEXT PRIMARY KEY,
+      topic_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      branch_name TEXT NOT NULL,
+      repo_root TEXT NOT NULL,
+      detected_command TEXT,
+      detected_at TEXT NOT NULL,
+      session_key TEXT,
+      UNIQUE(topic_id, branch_name)
+    );
+    "#,
+  )
+  .map_err(|error| format!("Failed to create topic_git_context table: {error}"))?;
+
   // Sync: tombstones table for tracking deletions across devices
   conn.execute_batch(
     r#"
@@ -1209,6 +1229,21 @@ pub(crate) fn project_workspace_root(project_id: &str) -> Result<PathBuf, String
     .map_err(|error| format!("Failed to look up project workspace root: {error}"))?;
   let workspace_root = workspace_root.ok_or_else(|| format!("Project not found: {project_id}"))?;
   Ok(PathBuf::from(workspace_root))
+}
+
+pub(crate) fn project_repo_root(project_id: &str) -> Result<PathBuf, String> {
+  let conn = open_db()?;
+  let row: Option<(String, Option<String>)> = conn
+    .query_row(
+      "SELECT workspace_root, repo_root FROM projects WHERE id = ?",
+      params![project_id],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|e| format!("Failed to look up project: {e}"))?;
+  let (workspace_root, repo_root) = row.ok_or_else(|| format!("Project not found: {project_id}"))?;
+  let root = repo_root.filter(|r| !r.is_empty()).unwrap_or(workspace_root);
+  Ok(PathBuf::from(root))
 }
 
 pub(crate) fn resolve_project_path(project_id: &str, path: &str) -> Result<PathBuf, String> {

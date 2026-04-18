@@ -288,6 +288,23 @@ const representativeParsers: Record<string, RepresentativeParser> = {
     },
     responseAssert: (parsed: { dirtyCount: number }) => expect(parsed.dirtyCount).toBe(3),
   },
+  gitContext: {
+    endpoint: gitEndpoints[6],
+    request: { projectId: "proj_1", topicId: "topic_1" },
+    response: {
+      hasGit: true,
+      projectId: "proj_1",
+      topicId: "topic_1",
+      currentBranch: "feat/git-context",
+      uncommittedChanges: [{ status: "M", path: "src/middleware/git.rs" }],
+      uncommittedCount: 1,
+      recentCommits: [{ hash: "abc1234", message: "init" }],
+      trackedBranches: [{ branchName: "feat/git-context", detectedCommand: "git checkout feat/git-context", detectedAt: timestamp }],
+      repoRoot: "/workspace/Jarvis",
+    },
+    requestAssert: (parsed: { projectId: string }) => expect(parsed.projectId).toBe("proj_1"),
+    responseAssert: (parsed: { currentBranch: string }) => expect(parsed.currentBranch).toBe("feat/git-context"),
+  },
   usage: {
     endpoint: usageEndpoints[0],
     request: {

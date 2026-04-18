@@ -216,6 +216,33 @@ async fn spawn_stream_loop(app: AppHandle, stream_id: String, session_key: Strin
               "label": string_from_value(data.get("name")),
             }));
             let _ = update_session_mapping_status(&session_key, if data.get("phase").and_then(Value::as_str) == Some("error") { "error" } else { "running" });
+
+            // Detect git tool calls and store branch context
+            if let Some((branch, command)) = detect_git_tool_call(data) {
+              let sk = session_key.clone();
+              let repo_root_path = {
+                let conn = open_db().ok();
+                conn.and_then(|c| {
+                  c.query_row(
+                    "SELECT project_id FROM session_mappings WHERE session_key = ?",
+                    params![sk],
+                    |row| row.get::<_, Option<String>>(0),
+                  ).ok().flatten()
+                }).and_then(|pid| project_repo_root(&pid).ok())
+              };
+              let actual_branch = if branch == "__detect_from_repo__" {
+                if let Some(ref rr) = repo_root_path {
+                  detect_current_branch(rr).await.unwrap_or_default()
+                } else {
+                  String::new()
+                }
+              } else {
+                branch
+              };
+              if !actual_branch.is_empty() {
+                let _ = store_git_context_for_session(&sk, &actual_branch, &command);
+              }
+            }
           }
           _ => {}
         }
