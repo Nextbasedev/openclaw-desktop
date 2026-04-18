@@ -14,8 +14,8 @@ import {
     Tick01Icon,
     UserCircleIcon,
     HelpCircleIcon,
-    LayoutLeft01Icon,
-    LayoutRight01Icon,
+    LayoutLeftIcon,
+    LayoutRightIcon,
     DashboardSpeed01Icon,
     Message01Icon,
     TerminalIcon,
@@ -95,8 +95,8 @@ export const Icons = {
     Inbox: wrapHugeicon(Mail01Icon),
 
     // Layout
-    SidebarLeft: wrapHugeicon(LayoutLeft01Icon),
-    SidebarRight: wrapHugeicon(LayoutRight01Icon),
+    SidebarLeft: wrapHugeicon(LayoutLeftIcon),
+    SidebarRight: wrapHugeicon(LayoutRightIcon),
     SidebarToggle: wrapReactIcon(VscLayoutSidebarRightOff),
 
     // Actions
