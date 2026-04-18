@@ -23,6 +23,8 @@ mod cron_openclaw_tests;
 #[cfg(test)]
 mod git_context_tests;
 #[cfg(test)]
+mod memory_tests;
+#[cfg(test)]
 mod sync_tests;
 #[cfg(test)]
 mod usage_tests;
@@ -34,6 +36,7 @@ mod crud;
 mod files;
 mod fs_raw;
 mod git;
+mod memory;
 mod onboarding;
 mod pty;
 mod skills;
@@ -48,6 +51,7 @@ pub use crud::*;
 pub use files::*;
 pub use fs_raw::*;
 pub use git::*;
+pub use memory::*;
 pub use onboarding::*;
 pub use pty::*;
 pub use skills::*;
