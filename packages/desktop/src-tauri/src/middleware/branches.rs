@@ -61,26 +61,27 @@ pub async fn middleware_branch_create(
     .to_string();
 
   let conn = open_db()?;
+  let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
   let topic_id = format!("topic_{}", Uuid::new_v4().simple());
   let now = now_iso();
-  let sort_order: i64 = conn.query_row(
+  let sort_order: i64 = tx.query_row(
     "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM topics WHERE project_id = ?",
     params![input.project_id],
     |row| row.get(0),
   ).map_err(|error| format!("Failed to compute topic sort order: {error}"))?;
 
-  conn.execute(
+  tx.execute(
     "INSERT INTO topics (id, project_id, name, archived, unread_count, sort_order, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)",
     params![topic_id, input.project_id, input.branch_name, sort_order, now, now],
   ).map_err(|error| format!("Failed to create branch topic: {error}"))?;
 
-  conn.execute(
+  tx.execute(
     "INSERT INTO session_mappings (session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, NULL, ?, ?, 'main', ?, 'idle', ?, ?, 0, 0, 'jarvis')",
     params![branch_session_key, input.project_id, topic_id, input.branch_name, now, now],
   ).map_err(|error| format!("Failed to store branch session mapping: {error}"))?;
 
   let branch_id = format!("branch_{}", Uuid::new_v4().simple());
-  conn.execute(
+  tx.execute(
     "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     params![
       branch_id,
@@ -94,10 +95,12 @@ pub async fn middleware_branch_create(
     ],
   ).map_err(|error| format!("Failed to store branch relationship: {error}"))?;
 
-  let mut stmt = conn.prepare("SELECT id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json FROM branches WHERE id = ?")
+  let mut stmt = tx.prepare("SELECT id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json FROM branches WHERE id = ?")
     .map_err(|error| format!("Failed to fetch created branch: {error}"))?;
   let branch = stmt.query_row(params![branch_id], branch_row_to_json)
     .map_err(|error| format!("Failed to decode created branch: {error}"))?;
+  drop(stmt);
+  tx.commit().map_err(|e| format!("Failed to commit branch create: {e}"))?;
 
   Ok(json!({
     "branch": branch,
@@ -155,10 +158,16 @@ pub fn middleware_branch_delete(input: BranchGetInput) -> Result<Value, String> 
     params![input.branch_session_key],
   ).map_err(|error| format!("Failed to delete branch: {error}"))?;
 
+  let now = now_iso();
   conn.execute(
-    "UPDATE topics SET archived = 1, updated_at = ? WHERE id = ?",
-    params![now_iso(), topic_id],
+    "UPDATE topics SET archived = 1, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+    params![now, topic_id],
   ).map_err(|error| format!("Failed to archive branch topic: {error}"))?;
+
+  conn.execute(
+    "UPDATE session_mappings SET hidden = 1, updated_at = ?, sync_dirty = 1 WHERE session_key = ?",
+    params![now, input.branch_session_key],
+  ).ok(); // ok() since the session might not exist locally
 
   Ok(json!({
     "deleted": true,

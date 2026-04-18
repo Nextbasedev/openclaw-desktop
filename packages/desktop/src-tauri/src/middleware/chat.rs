@@ -71,7 +71,14 @@ pub(crate) fn repo_summary_for_root(root: &str) -> Option<Value> {
 }
 
 
-async fn spawn_stream_loop(app: AppHandle, stream_id: String, session_key: String, mut socket: GatewaySocket, mut stop_rx: oneshot::Receiver<()>) {
+async fn spawn_stream_loop(
+  app: AppHandle,
+  stream_id: String,
+  session_key: String,
+  mut socket: GatewaySocket,
+  mut stop_rx: oneshot::Receiver<()>,
+  streams: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+) {
   let mut seen_tool_events = HashSet::<String>::new();
   let mut seen_message_ids = HashSet::<String>::new();
 
@@ -81,14 +88,29 @@ async fn spawn_stream_loop(app: AppHandle, stream_id: String, session_key: Strin
         let _ = socket.close(None).await;
         break;
       }
-      next = next_json_message(&mut socket) => {
+      result = timeout(Duration::from_secs(120), next_json_message(&mut socket)) => {
+        let next = match result {
+          Ok(inner) => inner,
+          Err(_) => {
+            // Timeout — no data received for 120 seconds
+            emit_chat_stream_event(&app, &stream_id, json!({
+              "type": "stream.error",
+              "sessionKey": session_key,
+              "error": "Stream timed out (no data for 120s)",
+              "final": true,
+            }));
+            let _ = update_session_mapping_status(&session_key, "error");
+            break;
+          }
+        };
         let message = match next {
           Ok(message) => message,
           Err(error) => {
             emit_chat_stream_event(&app, &stream_id, json!({
-              "type": "chat.error",
+              "type": "stream.error",
               "sessionKey": session_key,
-              "message": error,
+              "error": format!("Stream read error: {error}"),
+              "final": true,
             }));
             let _ = update_session_mapping_status(&session_key, "error");
             break;
@@ -120,6 +142,9 @@ async fn spawn_stream_loop(app: AppHandle, stream_id: String, session_key: Strin
                 continue;
               }
               seen_message_ids.insert(message_id.clone());
+              if seen_message_ids.len() > 10_000 {
+                seen_message_ids.clear();
+              }
             }
 
             let role = string_from_value(chat_message.get("role")).unwrap_or_else(|| "assistant".to_string());
@@ -189,6 +214,9 @@ async fn spawn_stream_loop(app: AppHandle, stream_id: String, session_key: Strin
               continue;
             }
             seen_tool_events.insert(key);
+            if seen_tool_events.len() > 10_000 {
+              seen_tool_events.clear();
+            }
 
             let verbose_level = string_from_value(payload.get("verboseLevel"));
             emit_chat_stream_event(&app, &stream_id, json!({
@@ -248,6 +276,12 @@ async fn spawn_stream_loop(app: AppHandle, stream_id: String, session_key: Strin
         }
       }
     }
+  }
+
+  // Clean up the stream entry from state on loop exit
+  {
+    let mut guard = streams.lock().await;
+    guard.remove(&stream_id);
   }
 }
 
@@ -460,8 +494,9 @@ pub async fn middleware_chat_stream_start(
   }));
 
   let (stop_tx, stop_rx) = oneshot::channel();
-  state.streams.lock().await.insert(stream_id.clone(), stop_tx);
-  tauri::async_runtime::spawn(spawn_stream_loop(app.clone(), stream_id.clone(), input.session_key.clone(), socket, stop_rx));
+  let streams = state.streams.clone();
+  streams.lock().await.insert(stream_id.clone(), stop_tx);
+  tauri::async_runtime::spawn(spawn_stream_loop(app.clone(), stream_id.clone(), input.session_key.clone(), socket, stop_rx, streams));
 
   Ok(json!({
     "streamId": stream_id,

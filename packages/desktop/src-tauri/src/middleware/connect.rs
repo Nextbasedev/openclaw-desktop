@@ -20,6 +20,9 @@ pub struct GatewayConnectStatusInput {}
 
 fn parse_gateway_ws_url(url: &str) -> Result<String, String> {
   let trimmed = url.trim().trim_end_matches('/');
+  if trimmed.len() > 2048 {
+    return Err("Gateway URL too long".to_string());
+  }
   if trimmed.starts_with("ws://") || trimmed.starts_with("wss://") {
     return Ok(trimmed.to_string());
   }
@@ -29,9 +32,11 @@ fn parse_gateway_ws_url(url: &str) -> Result<String, String> {
   if trimmed.starts_with("https://") {
     return Ok(trimmed.replacen("https://", "wss://", 1));
   }
-  // Bare host:port — assume ws://
+  // Bare host:port — default to ws:// for local addresses, wss:// for everything else
   if trimmed.contains(':') || trimmed.contains('.') || trimmed == "localhost" {
-    return Ok(format!("ws://{}", trimmed));
+    let is_local = trimmed.starts_with("localhost") || trimmed.starts_with("127.") || trimmed.starts_with("[::1]");
+    let scheme = if is_local { "ws" } else { "wss" };
+    return Ok(format!("{scheme}://{trimmed}"));
   }
   Err(format!("Invalid gateway URL: {}", url))
 }
@@ -230,13 +235,23 @@ mod tests {
 
   #[test]
   fn parse_gateway_ws_url_handles_formats() {
+    // Explicit schemes are preserved as-is
     assert_eq!(parse_gateway_ws_url("ws://127.0.0.1:18789").unwrap(), "ws://127.0.0.1:18789");
     assert_eq!(parse_gateway_ws_url("wss://gateway.example.com").unwrap(), "wss://gateway.example.com");
     assert_eq!(parse_gateway_ws_url("http://localhost:18789").unwrap(), "ws://localhost:18789");
     assert_eq!(parse_gateway_ws_url("https://gateway.example.com").unwrap(), "wss://gateway.example.com");
+    // Bare local addresses default to ws://
     assert_eq!(parse_gateway_ws_url("127.0.0.1:18789").unwrap(), "ws://127.0.0.1:18789");
     assert_eq!(parse_gateway_ws_url("localhost").unwrap(), "ws://localhost");
+    assert_eq!(parse_gateway_ws_url("localhost:18789").unwrap(), "ws://localhost:18789");
+    assert_eq!(parse_gateway_ws_url("[::1]:18789").unwrap(), "ws://[::1]:18789");
+    // Bare non-local addresses default to wss://
+    assert_eq!(parse_gateway_ws_url("gateway.example.com:443").unwrap(), "wss://gateway.example.com:443");
+    assert_eq!(parse_gateway_ws_url("gateway.example.com").unwrap(), "wss://gateway.example.com");
+    // Whitespace and trailing slashes are trimmed
     assert_eq!(parse_gateway_ws_url("  ws://host:1234/  ").unwrap(), "ws://host:1234");
+    // URL length validation
+    assert!(parse_gateway_ws_url(&"x".repeat(2049)).is_err());
   }
 
   #[tokio::test]
