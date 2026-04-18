@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Icons } from "@/components/icons"
@@ -174,21 +173,28 @@ export function ProviderStep({
         <div>
           <button
             onClick={onBack}
-            className="mb-4 flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="mb-5 flex items-center gap-1.5 text-[13px] text-muted-foreground/60 transition-colors hover:text-foreground"
           >
-            <Icons.Back size={14} strokeWidth={1.5} />
+            <Icons.Back size={13} strokeWidth={1.5} />
             Back
           </button>
-          <h2 className="text-xl font-semibold tracking-tight">Choose a Provider</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Select the AI provider you want to use. You can change this later.
-          </p>
+          <div className="flex items-start gap-3.5">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-foreground/5">
+              <Icons.Grid size={20} className="text-foreground/70" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Choose a Provider</h2>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">
+                Select the AI provider you want to use. You can change this later.
+              </p>
+            </div>
+          </div>
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card/50 px-5 py-8">
-            <Icons.Refresh size={16} className="animate-spin text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Loading providers...</span>
+          <div className="flex flex-col items-center gap-3 py-8">
+            <Icons.Refresh size={18} className="animate-spin text-muted-foreground" />
+            <span className="text-[13px] text-muted-foreground">Loading providers...</span>
           </div>
         ) : (
           <div className="space-y-5">
@@ -220,8 +226,8 @@ export function ProviderStep({
         )}
 
         {error && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-            <p className="text-sm text-destructive">{error}</p>
+          <div className="rounded-xl bg-destructive/[0.06] px-4 py-3">
+            <p className="text-[13px] text-destructive">{error}</p>
           </div>
         )}
       </div>
@@ -234,42 +240,43 @@ export function ProviderStep({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
+      <div>
         <button
           onClick={() => {
             setPhase("pick")
             setFieldErrors({})
             setError(null)
           }}
-          className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="mb-5 flex items-center gap-1.5 text-[13px] text-muted-foreground/60 transition-colors hover:text-foreground"
         >
-          <Icons.Back size={14} strokeWidth={1.5} />
-          Back
+          <Icons.Back size={13} strokeWidth={1.5} />
+          All providers
         </button>
-      </div>
 
-      <div>
         <div className="flex items-center gap-3">
           <div
             className={cn(
-              "flex size-8 items-center justify-center rounded-md text-xs font-bold text-white",
+              "flex size-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-lg",
               PROVIDER_COLORS[selectedProvider?.id || ""] || "bg-neutral-600",
             )}
           >
             {PROVIDER_ICONS[selectedProvider?.id || ""] || "?"}
           </div>
-          <h2 className="text-xl font-semibold tracking-tight">
-            Configure {selectedProvider?.displayName}
-          </h2>
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">
+              {selectedProvider?.displayName}
+            </h2>
+            <p className="text-[12px] text-muted-foreground">Configure credentials to continue</p>
+          </div>
         </div>
       </div>
 
       {hasMultipleAuthMethods && (
         <div className="space-y-2">
-          <Label className="text-xs font-medium text-muted-foreground">
-            Authentication Method
-          </Label>
-          <div className="flex gap-2">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">
+            Auth Method
+          </p>
+          <div className="flex gap-1.5">
             {selectedProvider?.authMethods.map((method) => (
               <button
                 key={method}
@@ -279,10 +286,10 @@ export function ProviderStep({
                   setFieldErrors({})
                 }}
                 className={cn(
-                  "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                  "rounded-lg px-3 py-1.5 text-[12px] font-medium transition-all",
                   method === selectedAuthMethod
-                    ? "border-foreground/20 bg-foreground/5 text-foreground"
-                    : "border-border/50 text-muted-foreground hover:border-foreground/20 hover:text-foreground",
+                    ? "bg-foreground text-background"
+                    : "bg-foreground/[0.05] text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
                 )}
               >
                 {method === "api-key"
@@ -301,12 +308,12 @@ export function ProviderStep({
       )}
 
       {credentialFields.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {credentialFields.map((field, idx) => (
-            <div key={field.key} className="space-y-1.5">
-              <Label htmlFor={`field-${field.key}`} className="text-[13px]">
+            <div key={field.key} className="space-y-2">
+              <Label htmlFor={`field-${field.key}`} className="text-[13px] text-foreground/80">
                 {field.label}
-                {field.required && <span className="ml-1 text-destructive">*</span>}
+                {field.required && <span className="ml-1 text-destructive/60">*</span>}
               </Label>
               <Input
                 id={`field-${field.key}`}
@@ -320,7 +327,7 @@ export function ProviderStep({
                   }
                 }}
                 placeholder={field.help || ""}
-                className="font-mono text-sm"
+                className="h-11 rounded-xl border-foreground/[0.06] bg-foreground/[0.03] font-mono text-[13px] focus-visible:ring-foreground/10"
                 autoComplete="off"
                 spellCheck={false}
                 autoFocus={idx === 0}
@@ -330,8 +337,8 @@ export function ProviderStep({
                 <p className="text-[11px] text-destructive">{fieldErrors[field.key]}</p>
               )}
               {field.envVar && !fieldErrors[field.key] && (
-                <p className="text-[11px] text-muted-foreground">
-                  Env: <code className="rounded bg-muted px-1 py-0.5">{field.envVar}</code>
+                <p className="text-[11px] text-muted-foreground/50">
+                  Env: <code className="rounded bg-foreground/5 px-1.5 py-0.5 text-[10px]">{field.envVar}</code>
                 </p>
               )}
             </div>
@@ -340,11 +347,13 @@ export function ProviderStep({
       )}
 
       {configFields.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs font-medium text-muted-foreground">Configuration</p>
+        <div className="space-y-4">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">
+            Configuration
+          </p>
           {configFields.map((field) => (
-            <div key={field.key} className="space-y-1.5">
-              <Label htmlFor={`config-${field.key}`} className="text-[13px]">
+            <div key={field.key} className="space-y-2">
+              <Label htmlFor={`config-${field.key}`} className="text-[13px] text-foreground/80">
                 {typeof field.label === "string" ? field.label : field.key}
               </Label>
               {field.inputKind === "select" && Array.isArray(field.enum) ? (
@@ -355,7 +364,7 @@ export function ProviderStep({
                     (typeof field.default === "string" ? field.default : "")
                   }
                   onChange={(e) => updateField(field.key, e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  className="h-11 w-full rounded-xl border border-foreground/[0.06] bg-foreground/[0.03] px-3 text-[13px] outline-none transition-all focus-visible:ring-2 focus-visible:ring-foreground/10"
                 >
                   {field.enum.map((opt) => (
                     <option key={String(opt)} value={String(opt)}>
@@ -373,7 +382,7 @@ export function ProviderStep({
                   }
                   className={cn(
                     "h-6 w-10 rounded-full transition-colors",
-                    fieldValues[field.key] === "true" ? "bg-foreground" : "bg-border",
+                    fieldValues[field.key] === "true" ? "bg-foreground" : "bg-foreground/20",
                   )}
                 >
                   <div
@@ -399,7 +408,7 @@ export function ProviderStep({
                   }
                   onChange={(e) => updateField(field.key, e.target.value)}
                   placeholder={typeof field.help === "string" ? field.help : ""}
-                  className="text-sm"
+                  className="h-11 rounded-xl border-foreground/[0.06] bg-foreground/[0.03] text-[13px] focus-visible:ring-foreground/10"
                 />
               )}
             </div>
@@ -408,14 +417,24 @@ export function ProviderStep({
       )}
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-          <p className="text-sm text-destructive">{error}</p>
+        <div className="rounded-xl bg-destructive/[0.06] px-4 py-3">
+          <p className="text-[13px] text-destructive">{error}</p>
         </div>
       )}
 
-      <Button size="sm" onClick={handleSubmit} disabled={submitting}>
-        {submitting ? "Saving..." : "Continue"}
-      </Button>
+      <div className="flex justify-end pt-1">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className={cn(
+            "rounded-xl bg-foreground px-6 py-2.5 text-[13px] font-medium text-background transition-all",
+            "hover:bg-foreground/90 active:scale-[0.98]",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+          )}
+        >
+          {submitting ? "Saving..." : "Continue"}
+        </button>
+      </div>
     </div>
   )
 }
@@ -433,7 +452,7 @@ function ProviderSection({
 }) {
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+      <p className="mb-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">
         {title}
       </p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -443,29 +462,31 @@ function ProviderSection({
             onClick={() => onPick(provider)}
             disabled={loadingId !== null}
             className={cn(
-              "flex items-center gap-2.5 rounded-lg border border-border/40 bg-card/50 px-3 py-2.5",
-              "text-left transition-all hover:border-foreground/20 hover:bg-card",
+              "group flex flex-col items-center gap-2.5 rounded-xl px-3 py-4",
+              "bg-foreground/[0.03] transition-all",
+              "hover:bg-foreground/[0.07] hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)]",
+              "active:scale-[0.97]",
               "cursor-pointer disabled:cursor-wait disabled:opacity-60",
             )}
           >
             {loadingId === provider.id ? (
-              <div className="flex size-7 shrink-0 items-center justify-center">
-                <Icons.Refresh size={14} className="animate-spin text-muted-foreground" />
+              <div className="flex size-10 items-center justify-center">
+                <Icons.Refresh size={16} className="animate-spin text-muted-foreground" />
               </div>
             ) : (
               <div
                 className={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white",
+                  "flex size-10 items-center justify-center rounded-xl text-sm font-bold text-white shadow-md transition-transform group-hover:scale-105",
                   PROVIDER_COLORS[provider.id] || "bg-neutral-600",
                 )}
               >
                 {PROVIDER_ICONS[provider.id] || "?"}
               </div>
             )}
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-medium">{provider.displayName}</p>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {provider.authMethods.join(", ")}
+            <div className="text-center">
+              <p className="text-[13px] font-medium leading-tight">{provider.displayName}</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground/50">
+                {provider.authMethods.join(" · ")}
               </p>
             </div>
           </button>
