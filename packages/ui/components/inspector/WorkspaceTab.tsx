@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { cn } from "@/lib/utils"
+import { FilePreview } from "./FilePreview"
 import {
   VscFolder,
   VscFolderOpened,
@@ -147,13 +148,34 @@ function TreeNode({
   )
 }
 
+/* ── Find node by id ── */
+
+function findNode(nodes: FileNode[], id: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node
+    if (node.children) {
+      const found = findNode(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 /* ── Workspace tab ── */
 
 export function WorkspaceTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null)
+
+  const previewNode = previewFileId ? findNode(MOCK_TREE, previewFileId) : null
+
+  function handleSelect(id: string) {
+    setSelectedId(id)
+    setPreviewFileId(id)
+  }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5">
         <span className="text-[11px] font-medium text-muted-foreground">Files</span>
         <span className="rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
@@ -170,10 +192,19 @@ export function WorkspaceTab() {
             node={node}
             depth={0}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={handleSelect}
           />
         ))}
       </div>
+
+      {/* File preview overlay */}
+      {previewFileId && previewNode && (
+        <FilePreview
+          fileId={previewFileId}
+          fileName={previewNode.name}
+          onBack={() => setPreviewFileId(null)}
+        />
+      )}
     </div>
   )
 }
