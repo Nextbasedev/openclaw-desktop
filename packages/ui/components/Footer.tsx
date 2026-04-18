@@ -10,11 +10,12 @@ import { VersionUpdateModal } from "./sidebar/VersionUpdateModal"
 
 type FooterProps = {
   className?: string
+  terminalOpen?: boolean
   onToggleTerminal?: () => void
   onDragOpenTerminal?: (height: number) => void
 }
 
-export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: FooterProps) {
+export function Footer({ className, terminalOpen = false, onToggleTerminal, onDragOpenTerminal }: FooterProps) {
   const [versionModalOpen, setVersionModalOpen] = useState(false)
   const platform = usePlatform()
   const isMac = platform === "macos"
@@ -24,7 +25,8 @@ export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: Foot
   const footerRef = useRef<HTMLElement>(null)
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // Only respond to clicks on the top border area (top 4px of footer)
+    if (terminalOpen) return
+
     const rect = footerRef.current?.getBoundingClientRect()
     if (!rect) return
     const offsetY = e.clientY - rect.top
@@ -33,7 +35,7 @@ export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: Foot
     e.preventDefault()
     dragRef.current = { startY: e.clientY }
     setIsDragging(true)
-  }, [])
+  }, [terminalOpen])
 
   useEffect(() => {
     if (!isDragging) return
@@ -41,9 +43,10 @@ export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: Foot
     function onMouseMove(e: MouseEvent) {
       if (!dragRef.current || !onDragOpenTerminal) return
       const delta = dragRef.current.startY - e.clientY
-      if (delta > 30) {
-        // Dragged up enough — open terminal with the dragged height
+      if (delta > 8) {
         onDragOpenTerminal(Math.min(600, Math.max(120, delta)))
+        setIsDragging(false)
+        dragRef.current = null
       }
     }
 
@@ -68,7 +71,7 @@ export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: Foot
         className={cn(
           "relative flex h-[26px] shrink-0 items-center justify-between",
           "border-t border-border/50 bg-card px-3",
-          "select-none cursor-row-resize",
+          terminalOpen ? "select-none" : "select-none cursor-row-resize",
           className,
         )}
       >

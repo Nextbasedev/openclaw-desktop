@@ -18,11 +18,12 @@ type TerminalPanelProps = {
   onToggle: () => void
   externalHeight?: number | null
   onExternalHeightUsed?: () => void
+  instantOpen?: boolean
 }
 
 let tabCounter = 1
 
-export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeightUsed }: TerminalPanelProps) {
+export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeightUsed, instantOpen = false }: TerminalPanelProps) {
   const [tabs, setTabs] = React.useState<TerminalTab[]>([
     { id: "term-1", title: "Terminal 1" },
   ])
@@ -30,14 +31,16 @@ export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeight
   const [height, setHeight] = React.useState(DEFAULT_HEIGHT)
   const [isDragging, setIsDragging] = React.useState(false)
   const dragRef = React.useRef<{ startY: number; startHeight: number } | null>(null)
+  const skipNextOpenAnimationRef = React.useRef(false)
 
   // Accept height from footer drag-to-open
   React.useEffect(() => {
     if (externalHeight != null && externalHeight > 0) {
+      skipNextOpenAnimationRef.current = instantOpen
       setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, externalHeight)))
       onExternalHeightUsed?.()
     }
-  }, [externalHeight, onExternalHeightUsed])
+  }, [externalHeight, onExternalHeightUsed, instantOpen])
 
   const handleMouseDown = React.useCallback(
     (e: React.MouseEvent) => {
@@ -47,6 +50,15 @@ export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeight
     },
     [height],
   )
+
+  React.useEffect(() => {
+    if (open && skipNextOpenAnimationRef.current) {
+      const id = window.requestAnimationFrame(() => {
+        skipNextOpenAnimationRef.current = false
+      })
+      return () => window.cancelAnimationFrame(id)
+    }
+  }, [open])
 
   React.useEffect(() => {
     if (!isDragging) return
@@ -106,7 +118,7 @@ export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeight
     <div
       className={cn(
         "relative flex flex-col border-t border-border/50 bg-card",
-        !isDragging && "transition-all duration-300 ease-in-out",
+        !isDragging && !skipNextOpenAnimationRef.current && "transition-all duration-300 ease-in-out",
         open
           ? "opacity-100"
           : "h-0 opacity-0 overflow-hidden"

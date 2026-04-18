@@ -144,6 +144,7 @@ export default function Page() {
             onToggle={toggleTerminal}
             externalHeight={terminalHeight}
             onExternalHeightUsed={() => setTerminalHeight(null)}
+            instantOpen={terminalHeight != null}
           />
         </div>
 
@@ -151,6 +152,7 @@ export default function Page() {
       </div>
 
       <Footer
+        terminalOpen={terminalOpen}
         onToggleTerminal={toggleTerminal}
         onDragOpenTerminal={(height) => {
           openTerminal()
