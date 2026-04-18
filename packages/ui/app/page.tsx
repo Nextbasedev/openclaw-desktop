@@ -10,6 +10,7 @@ import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import { TerminalPanel } from "@/components/TerminalPanel"
 import { UsagePage } from "@/components/UsagePage"
+import { SkillPage } from "@/components/SkillPage"
 import { AccountTab } from "@/components/settings/tabs/AccountTab"
 import { AppearanceTab } from "@/components/settings/tabs/AppearanceTab"
 import { DataControlTab } from "@/components/settings/tabs/DataControlTab"
@@ -182,6 +183,7 @@ function MainContent({
 
   // Settings-related content
   if (activeTab === "usage") return <UsagePage onBack={settingsBack} />
+  if (activeTab === "skill") return <SkillPage />
   if (activeTab === "memory") return <div className="text-muted-foreground italic">Memory system is loading...</div>
   if (activeTab === "account") return <div className="w-full max-w-2xl px-6 py-10"><AccountTab /></div>
   if (activeTab === "personalization") return <div className="w-full max-w-2xl px-6 py-10"><AppearanceTab /></div>
