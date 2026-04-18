@@ -66,7 +66,7 @@ export function Header({
                 </div>
 
                 {/* Right: action icons */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0">
                     <button
                         type="button"
                         aria-label="Toggle terminal"
