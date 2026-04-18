@@ -1,7 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 
 type UpdateEntry = {
@@ -53,154 +52,145 @@ export function VersionUpdateModal({
   open,
   onOpenChange,
 }: VersionUpdateModalProps) {
-  // Close on Escape
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+
+    if (open) {
+      dialog.showModal()
+    } else {
+      dialog.close()
+    }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onOpenChange(false)
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onOpenChange(false)
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [open, onOpenChange])
 
+  if (!open) return null
+
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={() => onOpenChange(false)}
-          />
-
-          {/* Modal */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{
-              type: "spring",
-              stiffness: 350,
-              damping: 30,
-            }}
-            className={cn(
-              "fixed inset-0 z-50 m-auto flex h-fit max-h-[80vh] w-full max-w-md flex-col",
-              "overflow-hidden rounded-2xl border border-border/50",
-              "bg-card shadow-2xl shadow-black/20",
-            )}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-border/30 px-5 py-4">
-              <div className="flex items-center gap-2.5">
-                <span className="text-lg">🚀</span>
-                <h2 className="text-[15px] font-semibold text-foreground">
-                  What&apos;s New
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className={cn(
-                  "flex size-7 items-center justify-center rounded-md",
-                  "text-muted-foreground transition-colors",
-                  "hover:bg-secondary/60 hover:text-foreground",
-                )}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 6 6 18" />
-                  <path d="m6 6 12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Update entries */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-              <div className="flex flex-col gap-5">
-                {UPDATES.map((entry, idx) => (
-                  <motion.div
-                    key={entry.version}
-                    initial={{ opacity: 0, x: -12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.08, duration: 0.3 }}
-                    className="flex flex-col gap-2"
-                  >
-                    {/* Version header */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-bold text-foreground">
-                        {entry.version}
-                      </span>
-                      {entry.tag && (
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
-                            entry.tag === "latest"
-                              ? "bg-chart-1/20 text-chart-1"
-                              : "bg-chart-4/20 text-chart-4",
-                          )}
-                        >
-                          {entry.tag}
-                        </span>
-                      )}
-                      <span className="text-[11px] text-muted-foreground">
-                        {entry.date}
-                      </span>
-                    </div>
-
-                    {/* Changes list */}
-                    <ul className="flex flex-col gap-1 pl-1">
-                      {entry.changes.map((change) => (
-                        <li
-                          key={change}
-                          className="flex items-start gap-2 text-[12px] text-muted-foreground"
-                        >
-                          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-muted-foreground/50" />
-                          {change}
-                        </li>
-                      ))}
-                    </ul>
-
-                    {/* Separator (except last) */}
-                    {idx < UPDATES.length - 1 && (
-                      <div className="mt-1 border-b border-border/20" />
-                    )}
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="border-t border-border/30 px-5 py-3">
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className={cn(
-                  "w-full rounded-lg py-2 text-[13px] font-medium",
-                  "bg-accent text-accent-foreground transition-all",
-                  "hover:brightness-110 active:brightness-95",
-                )}
-              >
-                Got it
-              </button>
-            </div>
-          </motion.div>
-        </>
+    <dialog
+      ref={dialogRef}
+      className={cn(
+        "fixed inset-0 z-50 m-auto h-fit max-h-[80vh] w-full max-w-md",
+        "overflow-hidden rounded-2xl border border-white/10 bg-[#141620] p-0",
+        "text-white shadow-2xl shadow-black/40 backdrop:bg-black/60 backdrop:backdrop-blur-sm",
+        "animate-in fade-in zoom-in-95 duration-200",
       )}
-    </AnimatePresence>
+      onClose={() => onOpenChange(false)}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <span className="text-lg">🚀</span>
+          <h2 className="text-[15px] font-semibold text-white/95">
+            What&apos;s New
+          </h2>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className={cn(
+            "flex size-7 items-center justify-center rounded-lg",
+            "text-white/40 transition-colors",
+            "hover:bg-white/10 hover:text-white/70",
+          )}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Update entries */}
+      <div className="max-h-[55vh] overflow-y-auto px-5 py-4">
+        <div className="flex flex-col gap-5">
+          {UPDATES.map((entry, idx) => (
+            <div
+              key={entry.version}
+              className="flex flex-col gap-2 animate-in slide-in-from-left-2 fade-in duration-300"
+              style={{ animationDelay: `${idx * 80}ms`, animationFillMode: "both" }}
+            >
+              {/* Version header */}
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-bold text-white/95">
+                  {entry.version}
+                </span>
+                {entry.tag && (
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
+                      entry.tag === "latest"
+                        ? "bg-emerald-400/15 text-emerald-300"
+                        : "bg-amber-400/15 text-amber-300",
+                    )}
+                  >
+                    {entry.tag}
+                  </span>
+                )}
+                <span className="text-[11px] text-white/35">{entry.date}</span>
+              </div>
+
+              {/* Changes list */}
+              <ul className="flex flex-col gap-1.5 pl-1">
+                {entry.changes.map((change) => (
+                  <li
+                    key={change}
+                    className="flex items-start gap-2 text-[12px] leading-relaxed text-white/55"
+                  >
+                    <span className="mt-1.5 size-1 shrink-0 rounded-full bg-white/25" />
+                    {change}
+                  </li>
+                ))}
+              </ul>
+
+              {/* Separator */}
+              {idx < UPDATES.length - 1 && (
+                <div className="mt-1 border-b border-white/6" />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="border-t border-white/8 px-5 py-3">
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className={cn(
+            "w-full rounded-xl py-2.5 text-[13px] font-medium",
+            "border border-white/12 bg-white/8 text-white/90 transition-all",
+            "hover:bg-white/12 active:bg-white/6",
+          )}
+        >
+          Got it
+        </button>
+      </div>
+    </dialog>
   )
 }
