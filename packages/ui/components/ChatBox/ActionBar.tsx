@@ -2,14 +2,14 @@
 
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  ArrowRight01Icon,
+  ArrowUp01Icon,
+  Mic01Icon,
   PlusSignIcon,
   SparklesIcon,
   Image01Icon,
   File01Icon,
   Globe02Icon,
   Tick01Icon,
-  BubbleChatIcon,
   ArrowDown01Icon,
 } from "@hugeicons/core-free-icons"
 
@@ -114,30 +114,6 @@ export function ActionBar({
           </PopoverContent>
         </Popover>
 
-        {/* Chat mode button */}
-        <button
-          type="button"
-          className="flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-sm font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
-        >
-          <HugeiconsIcon icon={BubbleChatIcon} size={14} />
-          Chat
-        </button>
-
-        {/* Web search pill (shows when enabled) */}
-        {webSearchEnabled && (
-          <button
-            type="button"
-            onClick={onWebSearchDisable}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-sm font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
-          >
-            <HugeiconsIcon icon={Globe02Icon} size={14} />
-            Web
-          </button>
-        )}
-      </div>
-
-      {/* Right side */}
-      <div className="flex items-center gap-1.5">
         {/* Plan button */}
         <button
           type="button"
@@ -153,6 +129,21 @@ export function ActionBar({
           Plan
         </button>
 
+        {/* Web search pill (shows when enabled) */}
+        {webSearchEnabled && (
+          <button
+            type="button"
+            onClick={onWebSearchDisable}
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors"
+          >
+            <HugeiconsIcon icon={Globe02Icon} size={14} />
+            Web
+          </button>
+        )}
+      </div>
+
+      {/* Right side */}
+      <div className="flex items-center gap-1.5">
         {/* Model selector */}
         <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
           <PopoverTrigger asChild>
@@ -190,6 +181,15 @@ export function ActionBar({
           </PopoverContent>
         </Popover>
 
+        {/* Mic button */}
+        <button
+          type="button"
+          className="flex size-8 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="Voice input"
+        >
+          <HugeiconsIcon icon={Mic01Icon} size={16} />
+        </button>
+
         {/* Send button */}
         <button
           type="button"
@@ -202,7 +202,7 @@ export function ActionBar({
           )}
           aria-label="Send message"
         >
-          <HugeiconsIcon icon={ArrowRight01Icon} size={16} />
+          <HugeiconsIcon icon={ArrowUp01Icon} size={16} />
         </button>
       </div>
     </div>
