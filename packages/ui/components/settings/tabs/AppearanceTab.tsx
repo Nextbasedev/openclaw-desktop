@@ -13,7 +13,7 @@ export function AppearanceTab() {
       </div>
 
       <div>
-        <h3 className="text-sm font-medium text-foreground mb-3">Theme</h3>
+        <h3 className="text-sm mb-3">Theme</h3>
         <ThemeSelector />
       </div>
     </div>

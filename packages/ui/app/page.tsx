@@ -8,13 +8,8 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
-import { UsagePage } from "@/components/UsagePage"
 import { SkillPage } from "@/components/SkillPage"
-import { AccountTab } from "@/components/settings/tabs/AccountTab"
-import { AppearanceTab } from "@/components/settings/tabs/AppearanceTab"
-import { DataControlTab } from "@/components/settings/tabs/DataControlTab"
-import { MaintenanceTab } from "@/components/settings/tabs/MaintenanceTab"
-import { HelpTab } from "@/components/settings/tabs/HelpTab"
+import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import ConnectPage from "@/app/connect/page"
@@ -56,8 +51,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [terminalActive, setTerminalActive] = useState(false)
   const [activeTab, setActiveTab] = useState("chat")
-  const [isSettingsMode, setIsSettingsMode] = useState(false)
-  const [lastStandardTab, setLastStandardTab] = useState("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
   const isResizing = useRef(false)
@@ -76,6 +69,8 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   }, [inspectorOpen, terminalActive])
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
 
+  const openSettings = useCallback(() => setActiveTab("settings"), [])
+
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
 
@@ -84,8 +79,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault()
         setActiveTab("chat")
-        setLastStandardTab("chat")
-        setIsSettingsMode(false)
         setChatKey((k) => k + 1)
       }
     }
@@ -125,21 +118,8 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   }, [])
 
   const handleTabChange = useCallback((tab: string) => {
-    if (tab === "settings") {
-      setIsSettingsMode(true)
-      setActiveTab("usage")
-    } else {
-      setActiveTab(tab)
-      if (!isSettingsMode) {
-        setLastStandardTab(tab)
-      }
-    }
-  }, [isSettingsMode])
-
-  const handleBackToMain = useCallback(() => {
-    setIsSettingsMode(false)
-    setActiveTab(lastStandardTab || "chat")
-  }, [lastStandardTab])
+    setActiveTab(tab)
+  }, [])
 
   const handleSignOut = useCallback(async () => {
     await signOut()
@@ -160,6 +140,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         onToggleTerminal={toggleTerminal}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
+        onOpenSettings={openSettings}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -171,9 +152,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           onTabChange={handleTabChange}
           items={sidebarItems}
           onItemsChange={setSidebarItems}
-          isSettingsMode={isSettingsMode}
-          onToggleSettingsMode={setIsSettingsMode}
-          onBackToMain={handleBackToMain}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -181,9 +159,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
             <MainContent
               activeTab={activeTab}
               chatKey={chatKey}
-              lastStandardTab={lastStandardTab}
               onTabChange={handleTabChange}
-              onToggleSettingsMode={setIsSettingsMode}
               onSignOut={handleSignOut}
               onDeleteAccount={handleDeleteAccount}
               flowState={flowState}
@@ -209,57 +185,38 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 function MainContent({
   activeTab,
   chatKey,
-  lastStandardTab,
   onTabChange,
-  onToggleSettingsMode,
   onSignOut,
   onDeleteAccount,
   flowState,
 }: {
   activeTab: string
   chatKey: number
-  lastStandardTab: string
   onTabChange: (tab: string) => void
-  onToggleSettingsMode: (val: boolean) => void
   onSignOut: () => void
   onDeleteAccount: () => void
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
 }) {
-  const settingsBack = () => {
-    onToggleSettingsMode(false)
-    onTabChange(lastStandardTab)
-  }
-
-  if (activeTab === "usage") return <UsagePage onBack={settingsBack} />
   if (activeTab === "skill") return <SkillPage />
-  if (activeTab === "memory") return <div className="text-muted-foreground italic">Memory system is loading...</div>
-  if (activeTab === "account") {
-    return (
-      <div className="w-full max-w-2xl px-6 py-10">
-        <AccountTab
-          data={{
-            name: flowState?.state.bot.botName || "Not configured",
-            email: flowState?.state.provider.selection
-              ? `${flowState.state.provider.selection.providerId} (${flowState.state.provider.selection.authMethod || "default"})`
-              : "No provider selected",
-            model: flowState?.state.model.selectedModelRef || "No model selected",
-          }}
-        />
-      </div>
-    )
-  }
-  if (activeTab === "personalization") return <div className="w-full max-w-2xl px-6 py-10"><AppearanceTab /></div>
-  if (activeTab === "data-control") return <div className="w-full max-w-2xl px-6 py-10"><DataControlTab /></div>
-  if (activeTab === "maintenance") {
-    return (
-      <div className="w-full max-w-2xl px-6 py-10">
-        <MaintenanceTab onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />
-      </div>
-    )
-  }
-  if (activeTab === "help") return <div className="w-full max-w-2xl px-6 py-10"><HelpTab /></div>
   if (activeTab === "connect") return <ConnectPage />
   if (activeTab === "project") return <div className="text-muted-foreground italic">Project files...</div>
+
+  if (activeTab === "settings") {
+    return (
+      <SettingsDashboard
+        onBack={() => onTabChange("chat")}
+        onSignOut={onSignOut}
+        onDeleteAccount={onDeleteAccount}
+        accountData={{
+          botName: flowState?.state.bot.botName || "Not configured",
+          provider: flowState?.state.provider.selection
+            ? `${flowState.state.provider.selection.providerId} (${flowState.state.provider.selection.authMethod || "default"})`
+            : "No provider selected",
+          model: flowState?.state.model.selectedModelRef || "No model selected",
+        }}
+      />
+    )
+  }
 
   return (
     <div key={`${activeTab}-${chatKey}`} className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 export type SidebarNavItem = {
   id: string
   label: string
-  icon: "chat" | "skill" | "usage" | "memory" | "settings" | "connect"
+  icon: "chat" | "skill" | "usage" | "memory" | "connect"
 }
 
 type SidebarItemProps = {
@@ -124,7 +124,6 @@ function NavIcon({ type }: { type: SidebarNavItem["icon"] }) {
     usage: Icons.Automations,
     workspace: Icons.Project,
     memory: Icons.Memory,
-    settings: Icons.Settings,
     connect: Icons.Globe,
   }
 
