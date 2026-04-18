@@ -303,6 +303,12 @@ pub struct TopicArchiveInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TopicIdInput {
+  topic_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TopicSessionInput {
   topic_id: String,
   session_key: String,

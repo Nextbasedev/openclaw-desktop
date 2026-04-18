@@ -91,6 +91,7 @@ pub fn run() {
       middleware::middleware_topics_create,
       middleware::middleware_topics_update,
       middleware::middleware_topics_archive,
+      middleware::middleware_topics_delete,
       middleware::middleware_topics_attach_session,
       middleware::middleware_topics_detach_session,
       // Sessions

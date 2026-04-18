@@ -482,6 +482,43 @@ pub fn middleware_topics_archive(input: TopicArchiveInput) -> Result<Value, Stri
 }
 
 #[tauri::command]
+pub fn middleware_topics_delete(input: TopicIdInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let exists: bool = conn.query_row(
+    "SELECT COUNT(*) FROM topics WHERE id = ?",
+    params![input.topic_id],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check topic existence: {error}"))? > 0;
+  if !exists {
+    return Err(format!("Topic not found: {}", input.topic_id));
+  }
+  let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
+  tx.execute(
+    "UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 1 WHERE topic_id = ?",
+    params![now_iso(), input.topic_id],
+  ).map_err(|error| format!("Failed to detach topic sessions: {error}"))?;
+  tx.execute(
+    "UPDATE branches SET branch_topic_id = NULL WHERE branch_topic_id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to detach topic branches: {error}"))?;
+  tx.execute(
+    "UPDATE terminal_sessions SET topic_id = NULL WHERE topic_id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to detach topic terminals: {error}"))?;
+  tx.execute(
+    "DELETE FROM topic_git_context WHERE topic_id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to delete topic git context: {error}"))?;
+  tx.execute(
+    "DELETE FROM topics WHERE id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to delete topic: {error}"))?;
+  record_sync_tombstone(&tx, "topic", &input.topic_id)?;
+  tx.commit().map_err(|e| format!("Failed to commit topic delete: {e}"))?;
+  Ok(json!({ "ok": true, "topicId": input.topic_id }))
+}
+
+#[tauri::command]
 pub fn middleware_topics_attach_session(input: TopicSessionInput) -> Result<Value, String> {
   let conn = open_db()?;
   let changed = conn.execute(
