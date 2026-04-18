@@ -32,9 +32,11 @@ export default function Page() {
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
   const isResizing = useRef(false)
+  const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), [])
+  const openTerminal = useCallback(() => setTerminalOpen(true), [])
 
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
@@ -136,13 +138,25 @@ export default function Page() {
             />
           </main>
 
-          <TerminalPanel open={terminalOpen} onToggle={toggleTerminal} />
+          {/* Terminal panel — slides up from bottom */}
+          <TerminalPanel
+            open={terminalOpen}
+            onToggle={toggleTerminal}
+            externalHeight={terminalHeight}
+            onExternalHeightUsed={() => setTerminalHeight(null)}
+          />
         </div>
 
         <InspectorPanel open={inspectorOpen} onClose={toggleInspector} />
       </div>
 
-      <Footer onToggleTerminal={toggleTerminal} />
+      <Footer
+        onToggleTerminal={toggleTerminal}
+        onDragOpenTerminal={(height) => {
+          openTerminal()
+          setTerminalHeight(height)
+        }}
+      />
     </div>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo } from "react"
 import { cn } from "@/lib/utils"
 import {
   VscFolder,
@@ -11,9 +11,27 @@ import {
   VscCode,
   VscChevronRight,
   VscChevronDown,
+  VscNewFile,
+  VscNewFolder,
+  VscCollapseAll,
+  VscArrowLeft,
+  VscEdit,
+  VscCloudDownload,
+  VscTrash,
+  VscSave,
+  VscCheck,
+  VscClose,
+  VscOpenPreview,
 } from "react-icons/vsc"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import Markdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
-/* ── Mock file tree ── */
+/* ── Types ── */
 
 interface FileNode {
   id: string
@@ -21,6 +39,8 @@ interface FileNode {
   type: "file" | "dir"
   children?: FileNode[]
 }
+
+/* ── Mock data ── */
 
 const MOCK_TREE: FileNode[] = [
   {
@@ -66,13 +86,85 @@ const MOCK_TREE: FileNode[] = [
   },
 ]
 
+const MOCK_CONTENT: Record<string, string> = {
+  s1a: "# Camoufox Browser Skill\n\nHeavy-duty stealth browser automation with Camoufox (Firefox).\n\n## Features\n- Scraping, forms, downloads, monitoring\n- Bypasses bot detection (Google, Cloudflare)\n- OAuth support included\n\n> Use for complex workflows that need stealth.",
+  s2a: "# Agent Brain Skill\n\nTransform OpenClaw from a chatbot into a **proactive personal AI**.\n\n## Use When\n- Setting up your agent\n- Making it proactive\n- Configuring memory\n- Scheduling morning briefings",
+  m1: "# 2026-04-18\n\n## Session Notes\n- Working on OpenClaw Desktop chatbox design\n- Terminal panel added with multi-tab support\n- Animated greeting component created",
+  m2: '{\n  "lastChecks": {\n    "email": null,\n    "calendar": null,\n    "weather": null\n  }\n}',
+  f1: "# AGENTS.md\n\nThis folder is home. Treat it that way.\n\n## Every Session\n1. Read `SOUL.md`\n2. Read `USER.md`\n3. Read memory files",
+  f2: "# Soul\n\nYou are **Assistant** — a personal AI assistant.\n\n## Personality\nhelpful, friendly, and professional",
+  f3: "# USER.md\n\n- **Name:** Krish Munjapara\n- **GitHub:** krishmunjapara\n- **Timezone:** UTC",
+  f4: "# MEMORY.md - Long-Term Context\n\n## Current Projects\n- OpenClaw Desktop (Tauri + Next.js)\n- Ampere.sh marketplace",
+  f5: "# TOOLS.md - Local Notes\n\nSkills define how tools work.\nThis file is for your specifics.",
+  f6: "# IDENTITY.md\n\n- **Name:** Empire\n- **Creature:** AI assistant\n- **Vibe:** Competent, direct, warm",
+}
+
+/* ── Helpers ── */
+
+function findNode(nodes: FileNode[], id: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node
+    if (node.children) {
+      const found = findNode(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function getExt(name: string): string {
+  return name.split(".").pop()?.toLowerCase() ?? ""
+}
+
+/* ── Icon button with tooltip ── */
+
+function IconBtn({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  active,
+  className,
+}: {
+  icon: React.ElementType
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  active?: boolean
+  className?: string
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className={cn(
+            "flex size-6 cursor-pointer items-center justify-center rounded transition-colors",
+            "text-muted-foreground hover:bg-secondary hover:text-foreground",
+            active && "bg-secondary text-foreground",
+            disabled && "cursor-default opacity-30 hover:bg-transparent hover:text-muted-foreground",
+            className,
+          )}
+        >
+          <Icon className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="text-xs">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 /* ── File icon by extension ── */
 
 function FileIcon({ name }: { name: string }) {
-  const ext = name.split(".").pop()?.toLowerCase()
+  const ext = getExt(name)
   if (ext === "md") return <VscMarkdown className="size-4 shrink-0 text-blue-400/80" />
   if (ext === "json") return <VscJson className="size-4 shrink-0 text-amber-400/80" />
-  if (["ts", "tsx", "js", "jsx"].includes(ext ?? ""))
+  if (["ts", "tsx", "js", "jsx"].includes(ext))
     return <VscCode className="size-4 shrink-0 text-sky-400/80" />
   return <VscFile className="size-4 shrink-0 text-muted-foreground/60" />
 }
@@ -84,15 +176,21 @@ function TreeNode({
   depth,
   selectedId,
   onSelect,
+  collapsedAll,
 }: {
   node: FileNode
   depth: number
   selectedId: string | null
   onSelect: (id: string) => void
+  collapsedAll: number
 }) {
   const [open, setOpen] = useState(depth === 0)
   const isDir = node.type === "dir"
   const isSelected = selectedId === node.id
+
+  useEffect(() => {
+    if (collapsedAll > 0 && depth > 0) setOpen(false)
+  }, [collapsedAll, depth])
 
   return (
     <div>
@@ -102,9 +200,9 @@ function TreeNode({
           if (isDir) setOpen((p) => !p)
           else onSelect(node.id)
         }}
-        style={{ paddingLeft: `${16 + depth * 16}px` }}
+        style={{ paddingLeft: `${12 + depth * 14}px` }}
         className={cn(
-          "flex w-full items-center gap-2 py-[5px] pr-4 text-left transition-colors",
+          "flex w-full cursor-pointer items-center gap-1.5 py-[4px] pr-3 text-left transition-colors",
           isSelected && !isDir
             ? "bg-secondary/60 text-foreground"
             : "text-foreground/80 hover:bg-secondary/30",
@@ -112,22 +210,22 @@ function TreeNode({
       >
         {isDir ? (
           <>
-            <span className="flex size-4 items-center justify-center text-muted-foreground/60">
+            <span className="flex size-3.5 items-center justify-center text-muted-foreground/60">
               {open ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
             </span>
             {open ? (
-              <VscFolderOpened className="size-4 shrink-0 text-amber-400/70" />
+              <VscFolderOpened className="size-3.5 shrink-0 text-amber-400/70" />
             ) : (
-              <VscFolder className="size-4 shrink-0 text-amber-400/70" />
+              <VscFolder className="size-3.5 shrink-0 text-amber-400/70" />
             )}
           </>
         ) : (
           <>
-            <span className="size-4 shrink-0" />
+            <span className="size-3.5 shrink-0" />
             <FileIcon name={node.name} />
           </>
         )}
-        <span className="truncate text-[12px]">{node.name}</span>
+        <span className="truncate text-[11px]">{node.name}</span>
       </button>
 
       {isDir && open && node.children && (
@@ -139,6 +237,7 @@ function TreeNode({
               depth={depth + 1}
               selectedId={selectedId}
               onSelect={onSelect}
+              collapsedAll={collapsedAll}
             />
           ))}
         </div>
@@ -147,33 +246,306 @@ function TreeNode({
   )
 }
 
-/* ── Workspace tab ── */
+/* ── Code editor with line numbers (VS Code style) ── */
+
+function CodeEditor({
+  content,
+  onChange,
+  ext,
+}: {
+  content: string
+  onChange: (v: string) => void
+  ext: string
+}) {
+  const lines = content.split("\n")
+  const lineCount = lines.length
+  const gutterWidth = Math.max(2, String(lineCount).length)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const lineNumRef = useRef<HTMLDivElement>(null)
+
+  function handleScroll() {
+    if (textareaRef.current && lineNumRef.current) {
+      lineNumRef.current.scrollTop = textareaRef.current.scrollTop
+    }
+  }
+
+  return (
+    <div className="flex h-full overflow-hidden bg-background/50">
+      {/* Line numbers gutter */}
+      <div
+        ref={lineNumRef}
+        className="shrink-0 overflow-hidden border-r border-border/20 bg-background/30 py-2 pr-2 text-right select-none"
+        style={{ width: `${gutterWidth + 2}ch`, paddingLeft: "0.5ch" }}
+      >
+        {lines.map((_, i) => (
+          <div
+            key={i}
+            className="font-mono text-[11px] leading-5 text-muted-foreground/40"
+          >
+            {i + 1}
+          </div>
+        ))}
+      </div>
+
+      {/* Code area — no word wrap, scrollable both directions */}
+      <div className="flex-1 overflow-auto">
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={(e) => onChange(e.target.value)}
+          onScroll={handleScroll}
+          spellCheck={false}
+          className={cn(
+            "block min-h-full min-w-full resize-none whitespace-pre bg-transparent py-2 pl-3 pr-4 font-mono text-[11px] leading-5 outline-none",
+            ext === "json" && "text-amber-300/80",
+            ext === "md" && "text-foreground/80",
+            !["json", "md"].includes(ext) && "text-foreground/85",
+          )}
+          style={{ tabSize: 2, width: "max-content" }}
+        />
+      </div>
+    </div>
+  )
+}
+
+/* ── File preview pane ── */
+
+function FilePreviewPane({
+  fileId,
+  fileName,
+}: {
+  fileId: string
+  fileName: string
+}) {
+  const ext = getExt(fileName)
+  const isMd = ext === "md"
+  const originalContent = MOCK_CONTENT[fileId] ?? "// File content not available"
+
+  const [content, setContent] = useState(originalContent)
+  const [displayName, setDisplayName] = useState(fileName)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState(fileName)
+  const [saved, setSaved] = useState(false)
+  const [mode, setMode] = useState<"preview" | "edit">(isMd ? "preview" : "edit")
+
+  const hasChanges = useMemo(() => content !== originalContent, [content, originalContent])
+
+  // Reset state when file changes
+  useEffect(() => {
+    setContent(MOCK_CONTENT[fileId] ?? "// File content not available")
+    setDisplayName(fileName)
+    setIsRenaming(false)
+    setSaved(false)
+    setMode(getExt(fileName) === "md" ? "preview" : "edit")
+  }, [fileId, fileName])
+
+  function handleSave() {
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  function handleDownload() {
+    const blob = new Blob([content], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = displayName
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleRenameConfirm() {
+    if (renameValue.trim()) setDisplayName(renameValue.trim())
+    setIsRenaming(false)
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Preview header */}
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/40 px-2">
+        {/* Filename */}
+        {isRenaming ? (
+          <div className="flex min-w-0 items-center gap-1">
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRenameConfirm()
+                if (e.key === "Escape") {
+                  setRenameValue(displayName)
+                  setIsRenaming(false)
+                }
+              }}
+              size={Math.max(4, renameValue.length + 1)}
+              className="h-5 w-fit min-w-16 rounded border border-border bg-background px-1.5 text-[11px] text-foreground outline-none"
+              autoFocus
+            />
+            <IconBtn icon={VscCheck} label="Confirm" onClick={handleRenameConfirm} />
+            <IconBtn icon={VscClose} label="Cancel" onClick={() => {
+              setRenameValue(displayName)
+              setIsRenaming(false)
+            }} />
+          </div>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+            {displayName}
+          </span>
+        )}
+
+        <div className="flex-1" />
+
+        {/* Md toggle */}
+        {isMd && (
+          <>
+            <IconBtn icon={VscOpenPreview} label="Preview" onClick={() => setMode("preview")} active={mode === "preview"} />
+            <IconBtn icon={VscCode} label="Edit" onClick={() => setMode("edit")} active={mode === "edit"} />
+            <div className="mx-0.5 h-3.5 w-px bg-border/40" />
+          </>
+        )}
+
+        {/* Actions */}
+        {!isRenaming && (
+          <>
+            <IconBtn icon={VscEdit} label="Rename" onClick={() => {
+              setRenameValue(displayName)
+              setIsRenaming(true)
+            }} />
+            <IconBtn icon={VscCloudDownload} label="Download" onClick={handleDownload} />
+            <IconBtn icon={VscTrash} label="Delete" onClick={() => {}} className="hover:!text-destructive" />
+            <IconBtn
+              icon={saved ? VscCheck : VscSave}
+              label={saved ? "Saved" : "Save"}
+              onClick={handleSave}
+              disabled={!hasChanges && !saved}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {isMd && mode === "preview" ? (
+          <div className="h-full overflow-auto p-3 text-[12px] leading-6 text-foreground/85 [&_a]:text-blue-400 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-secondary/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px] [&_h1]:text-base [&_h1]:font-semibold [&_h1]:text-foreground [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-foreground [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-foreground [&_li]:text-foreground/85 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:text-foreground/85 [&_pre]:rounded-lg [&_pre]:bg-secondary/40 [&_pre]:p-3 [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:pl-4">
+            <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+          </div>
+        ) : (
+          <CodeEditor content={content} onChange={setContent} ext={ext} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── Empty state ── */
+
+function EmptyPreview() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+      <VscFile className="size-10 text-muted-foreground/20" />
+      <div>
+        <p className="text-[12px] font-medium text-muted-foreground/50">No file selected</p>
+        <p className="mt-1 text-[11px] text-muted-foreground/30">Select a file from the tree to preview</p>
+      </div>
+    </div>
+  )
+}
+
+/* ── Workspace tab (split pane) ── */
+
+const FILE_SIDEBAR_MIN = 140
+const FILE_SIDEBAR_MAX = 260
+const FILE_SIDEBAR_DEFAULT = 180
 
 export function WorkspaceTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [collapsedAll, setCollapsedAll] = useState(0)
+  const [sidebarWidth, setSidebarWidth] = useState(FILE_SIDEBAR_DEFAULT)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  const selectedNode = selectedId ? findNode(MOCK_TREE, selectedId) : null
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      dragRef.current = { startX: e.clientX, startWidth: sidebarWidth }
+      setIsDragging(true)
+    },
+    [sidebarWidth],
+  )
+
+  useEffect(() => {
+    if (!isDragging) return
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return
+      const delta = e.clientX - dragRef.current.startX
+      const newWidth = Math.min(FILE_SIDEBAR_MAX, Math.max(FILE_SIDEBAR_MIN, dragRef.current.startWidth + delta))
+      setSidebarWidth(newWidth)
+    }
+    function onMouseUp() {
+      setIsDragging(false)
+      dragRef.current = null
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [isDragging])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5">
-        <span className="text-[11px] font-medium text-muted-foreground">Files</span>
-        <span className="rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          8 files
-        </span>
+    <div className="flex h-full overflow-hidden">
+      {/* Left: file tree sidebar */}
+      <div
+        className="flex shrink-0 flex-col border-r border-border/30"
+        style={{ width: sidebarWidth }}
+      >
+        {/* File sidebar header */}
+        <div className="flex h-7 shrink-0 items-center justify-between border-b border-border/30 px-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+            Files
+          </span>
+          <div className="flex items-center gap-0">
+            <IconBtn icon={VscNewFile} label="New file" onClick={() => {}} />
+            <IconBtn icon={VscNewFolder} label="New folder" onClick={() => {}} />
+            <IconBtn icon={VscCollapseAll} label="Collapse all" onClick={() => setCollapsedAll((c) => c + 1)} />
+          </div>
+        </div>
+
+        {/* Tree */}
+        <div className="flex-1 overflow-y-auto py-0.5">
+          {MOCK_TREE.map((node) => (
+            <TreeNode
+              key={node.id}
+              node={node}
+              depth={0}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              collapsedAll={collapsedAll}
+            />
+          ))}
+        </div>
       </div>
 
-      <div className="h-px bg-border/30" />
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleDragStart}
+        className="w-[3px] shrink-0 cursor-col-resize bg-transparent hover:bg-ring/30 transition-colors"
+      />
 
-      <div className="flex-1 overflow-y-auto py-1">
-        {MOCK_TREE.map((node) => (
-          <TreeNode
-            key={node.id}
-            node={node}
-            depth={0}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
-        ))}
+      {/* Right: preview pane */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {selectedNode ? (
+          <FilePreviewPane fileId={selectedId!} fileName={selectedNode.name} />
+        ) : (
+          <EmptyPreview />
+        )}
       </div>
+
+      {/* Prevent text selection while dragging */}
+      {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
     </div>
   )
 }
