@@ -290,7 +290,7 @@ function CodeEditor({
           lineNumberStyle={{
             minWidth: "2.5em",
             paddingRight: "1em",
-            color: "#8A8A8A",
+            color: "rgba(138, 138, 138, 1)",
             borderRight: "1px solid #333333",
             marginRight: "12px",
           }}
@@ -499,7 +499,7 @@ export function WorkspaceTab() {
     <div className="flex h-full overflow-hidden">
       {/* Left: file tree sidebar */}
       <div
-        className="flex shrink-0 flex-col border-r border-border/30"
+        className="flex shrink-0 flex-col"
         style={{ width: sidebarWidth }}
       >
         {/* File sidebar header */}
@@ -532,7 +532,7 @@ export function WorkspaceTab() {
       {/* Resize handle */}
       <div
         onMouseDown={handleDragStart}
-        className="w-[3px] shrink-0 cursor-col-resize bg-transparent hover:bg-ring/30 transition-colors"
+        className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
       />
 
       {/* Right: preview pane */}
