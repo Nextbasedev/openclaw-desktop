@@ -91,6 +91,8 @@ pub fn run() {
       middleware::middleware_onboarding_flow,
       middleware::middleware_openclaw_check,
       middleware::middleware_openclaw_install,
+      middleware::middleware_skills_discover,
+      middleware::middleware_skills_install,
       middleware::middleware_git_remote_add,
       middleware::middleware_git_remote_list,
       middleware::middleware_git_remote_remove,

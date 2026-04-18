@@ -16,6 +16,7 @@ export * from "./projects"
 export * from "./registry"
 export * from "./sessions"
 export * from "./settings"
+export * from "./skills"
 export * from "./terminal"
 export * from "./topics"
 

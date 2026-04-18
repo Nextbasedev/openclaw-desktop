@@ -14,6 +14,7 @@ import { profileEndpoints } from "./profiles"
 import { projectEndpoints } from "./projects"
 import { sessionEndpoints } from "./sessions"
 import { settingsEndpoints } from "./settings"
+import { skillEndpoints } from "./skills"
 import { terminalEndpoints } from "./terminal"
 import { topicEndpoints } from "./topics"
 
@@ -32,6 +33,7 @@ export const middlewareContracts = [
   ...inboxEndpoints,
   ...memoryEndpoints,
   ...settingsEndpoints,
+  ...skillEndpoints,
   ...approvalEndpoints,
   ...bootstrapEndpoints,
 ] as const satisfies readonly EndpointContract[]

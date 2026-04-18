@@ -11,6 +11,18 @@ Goal:
 
 Frontend should call Jarvis middleware only, not raw OpenClaw methods directly.
 
+## Skills surface
+
+Commands:
+- `middleware_skills_discover`
+- `middleware_skills_install`
+
+Design intent:
+- ClawHub is the primary discovery and install path
+- local OpenClaw skill folders are discoverable and installable
+- GitHub SKILL.md repos are supported as a practical secondary path
+- responses return UI-ready cards with install metadata, warnings, and final location
+
 ## Chat surface
 
 Current chat middleware shape is built around:
