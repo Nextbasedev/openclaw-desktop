@@ -17,6 +17,13 @@ pub async fn middleware_pty_spawn(
   state: State<'_, MiddlewareState>,
   input: PtySpawnInput,
 ) -> Result<Value, String> {
+  // Enforce a session limit to prevent resource exhaustion.
+  let existing = state.terminals.lock().await;
+  if existing.len() >= 20 {
+    return Err("Too many active terminal/PTY sessions (max 20)".to_string());
+  }
+  drop(existing);
+
   let cwd = input
     .cwd
     .clone()
@@ -32,8 +39,8 @@ pub async fn middleware_pty_spawn(
     })
     .map_err(|e| format!("Failed to open PTY: {e}"))?;
 
-  let shell = input.shell.unwrap_or_else(shell_command);
-  let mut command = CommandBuilder::new(shell);
+  // Always use the system shell — never allow arbitrary executables.
+  let mut command = CommandBuilder::new(shell_command());
   command.cwd(cwd.clone());
   let child = pair.slave.spawn_command(command).map_err(|e| format!("Failed to spawn shell: {e}"))?;
   let reader = pair.master.try_clone_reader().map_err(|e| format!("Failed to create PTY reader: {e}"))?;
@@ -46,7 +53,7 @@ pub async fn middleware_pty_spawn(
     child: StdMutex::new(child),
   });
   state.terminals.lock().await.insert(pty_id.clone(), handle);
-  spawn_pty_reader(app, pty_id.clone(), reader);
+  spawn_pty_reader(app, pty_id.clone(), reader, Arc::clone(&state.terminals));
 
   Ok(json!({ "ptyId": pty_id, "cwd": cwd.to_string_lossy().to_string() }))
 }
