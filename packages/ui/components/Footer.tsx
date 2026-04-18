@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils"
 import { VscSearch, VscTerminal } from "react-icons/vsc"
+import { usePlatform } from "@/hooks/usePlatform"
 import { useState } from "react"
 import { VersionUpdateButton } from "./sidebar/VersionUpdateButton"
 import { VersionUpdateModal } from "./sidebar/VersionUpdateModal"
@@ -13,6 +14,9 @@ type FooterProps = {
 
 export function Footer({ className, onToggleTerminal }: FooterProps) {
   const [versionModalOpen, setVersionModalOpen] = useState(false)
+  const platform = usePlatform()
+  const isMac = platform === "macos"
+  const modKey = isMac ? "⌘" : "Ctrl"
 
   return (
     <>
@@ -33,12 +37,12 @@ export function Footer({ className, onToggleTerminal }: FooterProps) {
       <div className="flex items-center gap-3">
         <ShortcutButton
           icon={<VscSearch className="size-3.5" />}
-          keys={["Ctrl", "K"]}
+          keys={[modKey, "K"]}
           label="Search"
         />
         <ShortcutButton
           icon={<VscTerminal className="size-3.5" />}
-          keys={["Ctrl", "~"]}
+          keys={[modKey, "`"]}
           label="Terminal"
           onClick={onToggleTerminal}
         />

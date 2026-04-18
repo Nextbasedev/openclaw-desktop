@@ -10,6 +10,8 @@ import {
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
+import { WindowControls } from "@/components/WindowControls"
+import { usePlatform } from "@/hooks/usePlatform"
 import { SettingsDialog } from "@/components/settings/SettingsDialog"
 import type { HeaderUser } from "@/components/settings/settings.config"
 
@@ -30,7 +32,8 @@ const DEFAULT_USER: HeaderUser = {
 /**
  * Desktop-style custom header (frameless window titlebar).
  * - data-tauri-drag-region makes it draggable in Tauri
- * - Traffic lights for window controls
+ * - macOS: Traffic lights on left
+ * - Windows/Linux: Window controls on right
  * - User name + version badge on left
  * - Action icons on right (inspector, notifications, settings)
  */
@@ -43,23 +46,33 @@ export function Header({
     onToggleTerminal,
 }: HeaderProps) {
     const [settingsOpen, setSettingsOpen] = useState(false)
+    const platform = usePlatform()
+
+    const isMac = platform === "macos"
+    const isWindows = platform === "windows" || platform === "linux"
 
     const openSettings = useCallback(() => setSettingsOpen(true), [])
 
     return (
         <>
             <header
-                data-tauri-drag-region
                 className={cn(
-                    "flex h-10 shrink-0 items-center justify-between",
+                    "relative flex h-9 shrink-0 items-center justify-between",
                     "border-b border-border/50 bg-card",
-                    "select-none px-3",
+                    "select-none",
+                    isWindows ? "pl-3 pr-0" : "px-3",
                     className,
                 )}
             >
-                {/* Left: traffic lights + user + version */}
-                <div className="flex items-center gap-3">
-                    <TrafficLights />
+                {/* Drag region covers the whole header but sits behind buttons */}
+                <div
+                    data-tauri-drag-region
+                    className="absolute inset-0 z-0"
+                />
+
+                {/* Left: traffic lights (macOS) + user + version */}
+                <div className="relative z-10 flex items-center gap-3">
+                    {isMac && <TrafficLights />}
 
                     <span className="text-[13px] font-medium text-foreground">
                         {user.name}
@@ -70,8 +83,8 @@ export function Header({
                     </span>
                 </div>
 
-                {/* Right: action icons */}
-                <div className="flex items-center gap-0">
+                {/* Right: action icons + window controls (Windows) */}
+                <div className="relative z-10 flex items-center gap-0">
                     <button
                         type="button"
                         aria-label="Toggle terminal"
@@ -112,11 +125,10 @@ export function Header({
                         icon={Icons.Notification}
                         label="Notifications"
                     />
-                    <HeaderIconButton
-                        icon={Icons.Settings}
-                        label="Settings"
-                        onClick={openSettings}
-                    />
+
+
+                    {/* Windows/Linux window controls — flush right */}
+                    {isWindows && <WindowControls className="ml-2" />}
                 </div>
             </header>
 
@@ -153,5 +165,3 @@ function HeaderIconButton({
         </button>
     )
 }
-
-
