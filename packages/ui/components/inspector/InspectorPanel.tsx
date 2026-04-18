@@ -17,7 +17,6 @@ const TABS: Array<{ id: TabId; label: string }> = [
 const MIN_WIDTH = 300
 const MAX_WIDTH = 600
 const DEFAULT_WIDTH = 390
-const CLOSE_THRESHOLD = 240 // drag below min → close the panel
 
 interface InspectorPanelProps {
   open: boolean
@@ -44,21 +43,14 @@ export function InspectorPanel({ open, onClose }: InspectorPanelProps) {
 
     function onMouseMove(e: MouseEvent) {
       if (!dragRef.current) return
+      // Dragging left edge → moving left = wider, moving right = narrower
       const delta = dragRef.current.startX - e.clientX
-      const rawWidth = dragRef.current.startWidth + delta
-      // Allow dragging below min to show intent to close
-      const newWidth = Math.min(MAX_WIDTH, Math.max(CLOSE_THRESHOLD, rawWidth))
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragRef.current.startWidth + delta))
       setWidth(newWidth)
     }
 
     function onMouseUp() {
       setIsDragging(false)
-      if (width < MIN_WIDTH) {
-        onClose()
-        setWidth(DEFAULT_WIDTH)
-      } else {
-        setWidth((current) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, current)))
-      }
       dragRef.current = null
     }
 
