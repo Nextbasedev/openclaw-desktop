@@ -11,6 +11,7 @@ Current Tauri commands:
 - `middleware_topics_create`
 - `middleware_topics_update`
 - `middleware_topics_archive`
+- `middleware_topics_delete`
 - `middleware_topics_attach_session`
 - `middleware_topics_detach_session`
 
@@ -73,12 +74,14 @@ Use for:
 - inline rename
 - drag-and-drop ordering save
 
-### Step 4, archive or restore topic
-Call:
+### Step 4, archive, restore, or delete topic
+Calls:
 - `middleware_topics_archive`
+- `middleware_topics_delete`
 
 Use for:
-- hiding old topic threads without deleting history
+- hiding old topic threads without deleting history (archive)
+- permanently removing a topic and detaching its sessions (delete)
 
 ### Step 5, attach or detach sessions
 Calls:
@@ -268,7 +271,51 @@ If a field is omitted:
 
 ---
 
-## 3.5 `middleware_topics_attach_session`
+## 3.5 `middleware_topics_delete`
+
+### Input
+```json
+{
+  "topicId": "topic_1"
+}
+```
+
+### Success response
+```json
+{
+  "ok": true,
+  "topicId": "topic_1"
+}
+```
+
+### Behavior
+- **hard delete** — permanently removes the topic
+- cascades to related data:
+  - detaches all `session_mappings` for the topic (sets `topic_id = NULL`)
+  - detaches all `branches` referencing the topic (sets `branch_topic_id = NULL`)
+  - detaches all `terminal_sessions` for the topic (sets `topic_id = NULL`)
+  - deletes all `topic_git_context` rows for the topic
+  - deletes the topic row itself
+  - records a sync tombstone for multi-device sync
+- this is irreversible
+
+### Failure cases
+- `Topic not found: <id>`
+- `Failed to check topic existence: ...`
+- `Failed to detach topic sessions: ...`
+- `Failed to detach topic branches: ...`
+- `Failed to detach topic terminals: ...`
+- `Failed to delete topic git context: ...`
+- `Failed to delete topic: ...`
+
+### UI guidance
+- require a confirmation dialog before calling this
+- prefer archive for soft removal; delete for permanent cleanup
+- label clearly as "Delete permanently" or similar
+
+---
+
+## 3.6 `middleware_topics_attach_session`
 
 ### Input
 ```json
@@ -301,7 +348,7 @@ If a field is omitted:
 
 ---
 
-## 3.6 `middleware_topics_detach_session`
+## 3.7 `middleware_topics_detach_session`
 
 ### Input
 ```json
@@ -421,6 +468,12 @@ export async function archiveTopic(topicId: string, archived = true) {
   });
 }
 
+export async function deleteTopic(topicId: string) {
+  return invoke("middleware_topics_delete", {
+    input: { topicId },
+  });
+}
+
 export async function attachSessionToTopic(input: {
   topicId: string;
   sessionKey: string;
@@ -441,7 +494,6 @@ export async function detachSessionFromTopic(input: {
 ## 8. Current backend limitations
 
 Frontend should know these limits exist today:
-- no topic delete command
 - no batch reorder command
 - no dedicated topic detail/get endpoint
 - attach/detach assumes session mapping already exists
@@ -455,6 +507,5 @@ Frontend should know these limits exist today:
 Useful next commands or improvements:
 - `middleware_topics_get`
 - `middleware_topics_reorder_bulk`
-- `middleware_topics_delete`
 - better validation when attaching/detaching unknown sessions
 - topic-level session listing payload for direct topic detail screens

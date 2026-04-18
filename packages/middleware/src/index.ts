@@ -492,15 +492,30 @@ export async function getChatHistory(sessionKey: string) {
   }
 }
 
-export async function sendChatMessage(input: { sessionKey: string; text: string; timeoutMs?: number }) {
+export async function sendChatMessage(input: {
+  sessionKey: string
+  text: string
+  timeoutMs?: number
+  attachments?: Array<{
+    name: string
+    mimeType: string
+    content?: string
+    encoding?: "utf-8" | "base64"
+    size?: number
+  }>
+}) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals"] })
   try {
-    const response = await gateway.request<{ runId?: string; status?: string }>("chat.send", {
+    const params: Record<string, unknown> = {
       sessionKey: input.sessionKey,
       message: input.text,
       timeoutMs: input.timeoutMs ?? 60_000,
       idempotencyKey: crypto.randomUUID(),
-    }, 65_000)
+    }
+    if (input.attachments && input.attachments.length > 0) {
+      params.attachments = input.attachments
+    }
+    const response = await gateway.request<{ runId?: string; status?: string }>("chat.send", params, 65_000)
     if (!response.ok) throw new Error(response.error?.message ?? "chat.send failed")
     return {
       accepted: true,

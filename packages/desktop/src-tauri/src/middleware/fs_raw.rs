@@ -23,10 +23,48 @@ pub async fn middleware_fs_read_dir(input: FsReadDirInput) -> Result<Value, Stri
 
 #[tauri::command]
 pub async fn middleware_fs_read_file(input: FsReadFileInput) -> Result<Value, String> {
+  const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50MB
+  let metadata = tokio::fs::metadata(&input.path).await.map_err(|e| format!("Failed to read file metadata: {e}"))?;
+  if metadata.len() > MAX_FILE_SIZE {
+    return Err(format!("File too large ({} bytes, max {})", metadata.len(), MAX_FILE_SIZE));
+  }
   let content = tokio::fs::read(&input.path).await.map_err(|e| format!("Failed to read file: {e}"))?;
   match String::from_utf8(content.clone()) {
     Ok(text) => Ok(json!({ "content": text, "encoding": "utf-8" })),
     Err(_) => Ok(json!({ "content": URL_SAFE_NO_PAD.encode(&content), "encoding": "base64" })),
+  }
+}
+
+#[tauri::command]
+pub async fn middleware_fs_prepare_attachment(input: FsReadFileInput) -> Result<Value, String> {
+  const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+  let path = PathBuf::from(&input.path);
+  let file_name = path.file_name()
+    .map(|n| n.to_string_lossy().to_string())
+    .unwrap_or_else(|| "unnamed".to_string());
+  let metadata = tokio::fs::metadata(&input.path).await
+    .map_err(|e| format!("Failed to read file metadata: {e}"))?;
+  if metadata.len() > MAX_FILE_SIZE {
+    return Err(format!("File too large ({} bytes, max {})", metadata.len(), MAX_FILE_SIZE));
+  }
+  let content = tokio::fs::read(&input.path).await
+    .map_err(|e| format!("Failed to read file: {e}"))?;
+  let mime_type = mime_from_extension(&file_name);
+  match String::from_utf8(content.clone()) {
+    Ok(text) => Ok(json!({
+      "name": file_name,
+      "mimeType": mime_type,
+      "content": text,
+      "encoding": "utf-8",
+      "size": metadata.len(),
+    })),
+    Err(_) => Ok(json!({
+      "name": file_name,
+      "mimeType": mime_type,
+      "content": URL_SAFE_NO_PAD.encode(&content),
+      "encoding": "base64",
+      "size": metadata.len(),
+    })),
   }
 }
 
@@ -90,7 +128,8 @@ pub async fn middleware_fs_search(input: FsSearchInput) -> Result<Value, String>
   let max_results = input.max_results.unwrap_or(100);
   let mut results = Vec::new();
 
-  async fn search_recursive(dir: &std::path::Path, query: &str, results: &mut Vec<FsSearchResult>, max_results: usize) -> Result<(), String> {
+  async fn search_recursive(dir: &std::path::Path, query: &str, results: &mut Vec<FsSearchResult>, max_results: usize, depth: u32) -> Result<(), String> {
+    if depth > 10 || results.len() >= max_results { return Ok(()); }
     let mut entries = tokio::fs::read_dir(dir).await.map_err(|e| format!("Failed to read directory: {e}"))?;
     while let Some(entry) = entries.next_entry().await.map_err(|e| format!("Failed to read entry: {e}"))? {
       if results.len() >= max_results { return Ok(()); }
@@ -101,14 +140,14 @@ pub async fn middleware_fs_search(input: FsSearchInput) -> Result<Value, String>
         results.push(FsSearchResult { path: path.to_string_lossy().to_string(), name, is_dir });
       }
       if is_dir {
-        Box::pin(search_recursive(&path, query, results, max_results)).await?;
+        Box::pin(search_recursive(&path, query, results, max_results, depth + 1)).await?;
       }
     }
     Ok(())
   }
 
   if root.is_dir() {
-    search_recursive(&root, &query, &mut results, max_results).await?;
+    search_recursive(&root, &query, &mut results, max_results, 0).await?;
   }
 
   Ok(json!({ "results": results, "query": input.query, "count": results.len() }))

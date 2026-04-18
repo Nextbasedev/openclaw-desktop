@@ -101,18 +101,24 @@ pub fn middleware_profiles_list() -> Result<Value, String> {
 
 #[tauri::command]
 pub fn middleware_profiles_create(input: ProfileCreateInput) -> Result<Value, String> {
+  if input.name.trim().is_empty() {
+    return Err("Name cannot be empty".to_string());
+  }
   let conn = open_db()?;
   let id = format!("prof_{}", Uuid::new_v4().simple());
   let now = now_iso();
   let capabilities = detect_capabilities_for_workspace(&input.workspace_root);
-  if input.is_default.unwrap_or(false) {
-    conn.execute("UPDATE profiles SET is_default = 0", [])
+  let is_default = input.is_default.unwrap_or(false);
+  let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
+  if is_default {
+    tx.execute("UPDATE profiles SET is_default = 0", [])
       .map_err(|error| format!("Failed to clear existing default profile: {error}"))?;
   }
-  conn.execute(
+  tx.execute(
     "INSERT INTO profiles (id, name, mode, gateway_url, workspace_root, is_default, status, capabilities_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'disconnected', ?, ?, ?)",
-    params![id, input.name, input.mode, input.gateway_url, input.workspace_root, bool_to_sql(input.is_default.unwrap_or(false)), metadata_json(&capabilities), now, now],
+    params![id, input.name, input.mode, input.gateway_url, input.workspace_root, bool_to_sql(is_default), metadata_json(&capabilities), now, now],
   ).map_err(|error| format!("Failed to create profile: {error}"))?;
+  tx.commit().map_err(|e| format!("Failed to commit profile create: {e}"))?;
   if let Some(token) = input.token.as_deref() {
     set_profile_token(&id, token)?;
   }
@@ -154,6 +160,25 @@ pub fn middleware_profiles_update(input: ProfileUpdateInput) -> Result<Value, St
 #[tauri::command]
 pub fn middleware_profiles_delete(input: ProfileIdInput) -> Result<Value, String> {
   let conn = open_db()?;
+  let exists: bool = conn.query_row(
+    "SELECT COUNT(*) FROM profiles WHERE id = ?",
+    params![input.profile_id],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check profile existence: {error}"))? > 0;
+  if !exists {
+    return Err(format!("Profile not found: {}", input.profile_id));
+  }
+  let referencing_projects: i64 = conn.query_row(
+    "SELECT COUNT(*) FROM projects WHERE profile_id = ?",
+    params![input.profile_id],
+    |row| row.get(0),
+  ).map_err(|error| format!("Failed to check referencing projects: {error}"))?;
+  if referencing_projects > 0 {
+    return Err(format!(
+      "Cannot delete profile {}: {} project(s) still reference it. Reassign or delete them first.",
+      input.profile_id, referencing_projects
+    ));
+  }
   conn.execute("DELETE FROM profiles WHERE id = ?", params![input.profile_id])
     .map_err(|error| format!("Failed to delete profile: {error}"))?;
   delete_profile_token(&input.profile_id)?;
@@ -226,7 +251,7 @@ pub fn middleware_environment_detect(input: ProfileIdInput) -> Result<Value, Str
 #[tauri::command]
 pub fn middleware_projects_list() -> Result<Value, String> {
   let conn = open_db()?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects ORDER BY updated_at DESC")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects ORDER BY pinned DESC, updated_at DESC")
     .map_err(|error| format!("Failed to prepare projects query: {error}"))?;
   let projects = stmt
     .query_map([], project_row_to_json)
@@ -238,14 +263,25 @@ pub fn middleware_projects_list() -> Result<Value, String> {
 
 #[tauri::command]
 pub fn middleware_projects_create(input: ProjectCreateInput) -> Result<Value, String> {
+  if input.name.trim().is_empty() {
+    return Err("Name cannot be empty".to_string());
+  }
   let conn = open_db()?;
+  let duplicate: bool = conn.query_row(
+    "SELECT COUNT(*) FROM projects WHERE name = ? COLLATE NOCASE",
+    params![input.name.trim()],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check project name: {error}"))? > 0;
+  if duplicate {
+    return Err(format!("A project named '{}' already exists", input.name.trim()));
+  }
   let id = format!("proj_{}", Uuid::new_v4().simple());
   let now = now_iso();
   conn.execute(
     "INSERT INTO projects (id, name, profile_id, workspace_root, repo_root, archived, unread_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)",
     params![id, input.name, input.profile_id, input.workspace_root, input.repo_root, now, now],
   ).map_err(|error| format!("Failed to create project: {error}"))?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects WHERE id = ?")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects WHERE id = ?")
     .map_err(|error| format!("Failed to fetch created project: {error}"))?;
   let project = stmt.query_row(params![id], project_row_to_json).map_err(|error| format!("Failed to decode created project: {error}"))?;
   Ok(json!({ "project": project }))
@@ -254,7 +290,7 @@ pub fn middleware_projects_create(input: ProjectCreateInput) -> Result<Value, St
 #[tauri::command]
 pub fn middleware_projects_get(input: ProjectIdInput) -> Result<Value, String> {
   let conn = open_db()?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects WHERE id = ?")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects WHERE id = ?")
     .map_err(|error| format!("Failed to prepare project fetch: {error}"))?;
   let project = stmt.query_row(params![input.project_id], project_row_to_json).optional().map_err(|error| format!("Failed to fetch project: {error}"))?
     .ok_or_else(|| "Project not found".to_string())?;
@@ -277,7 +313,7 @@ pub fn middleware_projects_update(input: ProjectUpdateInput) -> Result<Value, St
     "UPDATE projects SET name = ?, workspace_root = ?, repo_root = ?, archived = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
     params![input.name.unwrap_or(name), input.workspace_root.unwrap_or(workspace_root), input.repo_root.or(repo_root), bool_to_sql(input.archived.unwrap_or(archived)), now_iso(), input.project_id],
   ).map_err(|error| format!("Failed to update project: {error}"))?;
-  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at FROM projects WHERE id = ?")
+  let mut stmt = conn.prepare("SELECT id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned FROM projects WHERE id = ?")
     .map_err(|error| format!("Failed to fetch updated project: {error}"))?;
   let project = stmt.query_row(params![input.project_id], project_row_to_json).map_err(|error| format!("Failed to decode updated project: {error}"))?;
   Ok(json!({ "project": project }))
@@ -292,6 +328,50 @@ pub fn middleware_projects_archive(input: ProjectUpdateInput) -> Result<Value, S
     params![bool_to_sql(archived), now_iso(), input.project_id],
   ).map_err(|error| format!("Failed to archive project: {error}"))?;
   Ok(json!({ "ok": true, "projectId": input.project_id, "archived": archived }))
+}
+
+#[tauri::command]
+pub fn middleware_projects_pin(input: ProjectPinInput) -> Result<Value, String> {
+  let pinned = input.pinned.unwrap_or(true);
+  let conn = open_db()?;
+  let changed = conn.execute(
+    "UPDATE projects SET pinned = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+    params![bool_to_sql(pinned), now_iso(), input.project_id],
+  ).map_err(|error| format!("Failed to pin project: {error}"))?;
+  if changed == 0 {
+    return Err(format!("Project not found: {}", input.project_id));
+  }
+  Ok(json!({ "ok": true, "projectId": input.project_id, "pinned": pinned }))
+}
+
+#[tauri::command]
+pub fn middleware_projects_delete(input: ProjectIdInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let exists: bool = conn.query_row(
+    "SELECT COUNT(*) FROM projects WHERE id = ?",
+    params![input.project_id],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check project existence: {error}"))? > 0;
+  if !exists {
+    return Err(format!("Project not found: {}", input.project_id));
+  }
+  let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
+  // Delete branches that reference session_mappings belonging to this project
+  // (must happen before session_mappings are removed so the subquery can resolve)
+  tx.execute(
+    "DELETE FROM branches WHERE source_session_key IN (SELECT session_key FROM session_mappings WHERE project_id = ?)",
+    params![input.project_id],
+  ).map_err(|error| format!("Failed to delete project branches: {error}"))?;
+  tx.execute("DELETE FROM topic_git_context WHERE project_id = ?", params![input.project_id])
+    .map_err(|error| format!("Failed to delete project git context: {error}"))?;
+  tx.execute("DELETE FROM session_mappings WHERE project_id = ?", params![input.project_id])
+    .map_err(|error| format!("Failed to delete project sessions: {error}"))?;
+  tx.execute("DELETE FROM topics WHERE project_id = ?", params![input.project_id])
+    .map_err(|error| format!("Failed to delete project topics: {error}"))?;
+  tx.execute("DELETE FROM projects WHERE id = ?", params![input.project_id])
+    .map_err(|error| format!("Failed to delete project: {error}"))?;
+  tx.commit().map_err(|e| format!("Failed to commit project delete: {e}"))?;
+  Ok(json!({ "ok": true, "projectId": input.project_id }))
 }
 
 #[tauri::command]
@@ -355,7 +435,18 @@ pub fn middleware_topics_list(input: TopicListInput) -> Result<Value, String> {
 
 #[tauri::command]
 pub fn middleware_topics_create(input: TopicCreateInput) -> Result<Value, String> {
+  if input.name.trim().is_empty() {
+    return Err("Name cannot be empty".to_string());
+  }
   let conn = open_db()?;
+  let duplicate: bool = conn.query_row(
+    "SELECT COUNT(*) FROM topics WHERE project_id = ? AND name = ? COLLATE NOCASE",
+    params![input.project_id, input.name.trim()],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check topic name: {error}"))? > 0;
+  if duplicate {
+    return Err(format!("A topic named '{}' already exists in this project", input.name.trim()));
+  }
   let id = format!("topic_{}", Uuid::new_v4().simple());
   let sort_order: i64 = conn.query_row(
     "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM topics WHERE project_id = ?",
@@ -396,30 +487,76 @@ pub fn middleware_topics_update(input: TopicUpdateInput) -> Result<Value, String
 pub fn middleware_topics_archive(input: TopicArchiveInput) -> Result<Value, String> {
   let archived = input.archived.unwrap_or(true);
   let conn = open_db()?;
-  conn.execute(
+  let changed = conn.execute(
     "UPDATE topics SET archived = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
     params![bool_to_sql(archived), now_iso(), input.topic_id],
   ).map_err(|error| format!("Failed to archive topic: {error}"))?;
+  if changed == 0 {
+    return Err(format!("Topic not found: {}", input.topic_id));
+  }
   Ok(json!({ "ok": true, "topicId": input.topic_id, "archived": archived }))
+}
+
+#[tauri::command]
+pub fn middleware_topics_delete(input: TopicIdInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let exists: bool = conn.query_row(
+    "SELECT COUNT(*) FROM topics WHERE id = ?",
+    params![input.topic_id],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check topic existence: {error}"))? > 0;
+  if !exists {
+    return Err(format!("Topic not found: {}", input.topic_id));
+  }
+  let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
+  tx.execute(
+    "UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 1 WHERE topic_id = ?",
+    params![now_iso(), input.topic_id],
+  ).map_err(|error| format!("Failed to detach topic sessions: {error}"))?;
+  tx.execute(
+    "UPDATE branches SET branch_topic_id = NULL WHERE branch_topic_id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to detach topic branches: {error}"))?;
+  tx.execute(
+    "UPDATE terminal_sessions SET topic_id = NULL WHERE topic_id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to detach topic terminals: {error}"))?;
+  tx.execute(
+    "DELETE FROM topic_git_context WHERE topic_id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to delete topic git context: {error}"))?;
+  tx.execute(
+    "DELETE FROM topics WHERE id = ?",
+    params![input.topic_id],
+  ).map_err(|error| format!("Failed to delete topic: {error}"))?;
+  record_sync_tombstone(&tx, "topic", &input.topic_id)?;
+  tx.commit().map_err(|e| format!("Failed to commit topic delete: {e}"))?;
+  Ok(json!({ "ok": true, "topicId": input.topic_id }))
 }
 
 #[tauri::command]
 pub fn middleware_topics_attach_session(input: TopicSessionInput) -> Result<Value, String> {
   let conn = open_db()?;
-  conn.execute(
+  let changed = conn.execute(
     "UPDATE session_mappings SET topic_id = ?, updated_at = ?, sync_dirty = 1 WHERE session_key = ?",
     params![input.topic_id, now_iso(), input.session_key],
   ).map_err(|error| format!("Failed to attach session to topic: {error}"))?;
+  if changed == 0 {
+    return Err(format!("Session mapping not found: {}", input.session_key));
+  }
   Ok(json!({ "ok": true, "topicId": input.topic_id, "sessionKey": input.session_key }))
 }
 
 #[tauri::command]
 pub fn middleware_topics_detach_session(input: TopicSessionInput) -> Result<Value, String> {
   let conn = open_db()?;
-  conn.execute(
+  let changed = conn.execute(
     "UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 1 WHERE session_key = ?",
     params![now_iso(), input.session_key],
   ).map_err(|error| format!("Failed to detach session from topic: {error}"))?;
+  if changed == 0 {
+    return Err(format!("Session mapping not found: {}", input.session_key));
+  }
   Ok(json!({ "ok": true, "topicId": input.topic_id, "sessionKey": input.session_key }))
 }
 

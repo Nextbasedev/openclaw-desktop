@@ -193,12 +193,23 @@ pub struct SessionKeyInput {
   session_key: String,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatAttachment {
+  pub(crate) name: String,
+  pub(crate) mime_type: String,
+  pub(crate) content: Option<String>,
+  pub(crate) encoding: Option<String>,
+  pub(crate) size: Option<u64>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSendInput {
   session_key: String,
   text: String,
   timeout_ms: Option<u64>,
+  attachments: Option<Vec<ChatAttachment>>,
 }
 
 #[derive(Deserialize)]
@@ -268,6 +279,13 @@ pub struct ProjectIdInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectPinInput {
+  pub(crate) project_id: String,
+  pub(crate) pinned: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TopicListInput {
   project_id: String,
 }
@@ -292,6 +310,12 @@ pub struct TopicUpdateInput {
 pub struct TopicArchiveInput {
   topic_id: String,
   archived: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopicIdInput {
+  topic_id: String,
 }
 
 #[derive(Deserialize)]
@@ -399,6 +423,8 @@ pub struct TerminalListInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtySpawnInput {
+  /// Ignored for security — the system shell is always used.
+  #[allow(dead_code)]
   shell: Option<String>,
   cwd: Option<String>,
   cols: Option<u16>,
@@ -702,6 +728,24 @@ pub(crate) fn sql_to_bool(value: i64) -> bool {
   value != 0
 }
 
+pub(crate) fn mime_from_extension(name: &str) -> String {
+  let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+  match ext.as_str() {
+    "txt" | "md" | "markdown" | "csv" | "log" => "text/plain",
+    "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "h" | "css" | "html" | "xml" | "yaml" | "yml" | "toml" | "json" | "sh" | "bash" | "zsh" | "sql" | "rb" | "swift" | "kt" => "text/plain",
+    "png" => "image/png",
+    "jpg" | "jpeg" => "image/jpeg",
+    "gif" => "image/gif",
+    "webp" => "image/webp",
+    "svg" => "image/svg+xml",
+    "pdf" => "application/pdf",
+    "zip" => "application/zip",
+    "tar" => "application/x-tar",
+    "gz" => "application/gzip",
+    _ => "application/octet-stream",
+  }.to_string()
+}
+
 pub(crate) fn action_label(action_id: &str, fallback: Option<&str>) -> String {
   match action_id {
     "sessions.patch" => "edit session details".to_string(),
@@ -840,6 +884,12 @@ pub(crate) fn init_db(conn: &Connection) -> Result<(), String> {
     Ok(_) => {}
     Err(error) if error.to_string().contains("duplicate column name") => {}
     Err(error) => return Err(format!("Failed to migrate projects.remotes_json: {error}")),
+  }
+
+  match conn.execute("ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", []) {
+    Ok(_) => {}
+    Err(error) if error.to_string().contains("duplicate column name") => {}
+    Err(error) => return Err(format!("Failed to migrate projects.pinned: {error}")),
   }
 
   // Sync: add sync_dirty column to projects, topics, session_mappings, branches
@@ -1146,6 +1196,7 @@ pub(crate) fn project_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<V
     "lastActivityAt": row.get::<_, Option<String>>(7)?,
     "createdAt": row.get::<_, String>(8)?,
     "updatedAt": row.get::<_, String>(9)?,
+    "pinned": sql_to_bool(row.get::<_, i64>(10)?),
   }))
 }
 
@@ -1253,9 +1304,17 @@ pub(crate) fn project_repo_root(project_id: &str) -> Result<PathBuf, String> {
 
 pub(crate) fn resolve_project_path(project_id: &str, path: &str) -> Result<PathBuf, String> {
   let root = project_workspace_root(project_id)?;
+  let root_canonical = fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
   let resolved = root.join(resolve_relative_path(path));
+  // Logical path check (before file exists)
   if !resolved.starts_with(&root) {
     return Err(format!("Path escapes project root: {path}"));
+  }
+  // Canonicalize to resolve symlinks; if file doesn't exist yet (e.g. writes), fall back to logical check above
+  if let Ok(canonical) = fs::canonicalize(&resolved) {
+    if !canonical.starts_with(&root_canonical) {
+      return Err(format!("Path escapes project root: {path}"));
+    }
   }
   Ok(resolved)
 }
@@ -1464,7 +1523,12 @@ pub(crate) async fn connect_to_gateway(scopes: &[&str]) -> Result<GatewaySocket,
 }
 
 
-fn spawn_pty_reader(app: AppHandle, pty_id: String, mut reader: Box<dyn Read + Send>) {
+fn spawn_pty_reader(
+  app: AppHandle,
+  pty_id: String,
+  mut reader: Box<dyn Read + Send>,
+  terminals_map: Arc<Mutex<HashMap<String, Arc<TerminalHandle>>>>,
+) {
   std::thread::spawn(move || {
     let mut buffer = [0_u8; 4096];
     loop {
@@ -1483,6 +1547,12 @@ fn spawn_pty_reader(app: AppHandle, pty_id: String, mut reader: Box<dyn Read + S
         }
       }
     }
+    // Clean up the terminals map entry when the PTY process exits.
+    let id = pty_id.clone();
+    let map = terminals_map.clone();
+    tauri::async_runtime::spawn(async move {
+      map.lock().await.remove(&id);
+    });
   });
 }
 
@@ -1501,7 +1571,7 @@ mod sqlite_local_tests;
 mod openclaw_chat_tests;
 #[cfg(test)]
 mod branch_chat_tests;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod onboarding_enhancements_tests;
 #[cfg(test)]
 mod onboarding_provider_tests;

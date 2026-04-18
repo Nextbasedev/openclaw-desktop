@@ -170,6 +170,19 @@ pub(crate) async fn detect_current_branch(repo_root: &Path) -> Option<String> {
 
 #[tauri::command]
 pub async fn middleware_git_remote_add(input: GitRemoteAddInput) -> Result<Value, String> {
+  if input.remote_name.starts_with('-') {
+    return Err("Remote name cannot start with '-'".to_string());
+  }
+
+  let url = input.remote_url.trim();
+  let valid_prefix = url.starts_with("https://")
+    || url.starts_with("git://")
+    || url.starts_with("ssh://")
+    || url.starts_with("git@");
+  if !valid_prefix {
+    return Err(format!("Invalid remote URL protocol. Must start with https://, git://, ssh://, or git@"));
+  }
+
   let conn = open_db()?;
   let repo_root: String = conn.query_row(
     "SELECT repo_root FROM projects WHERE id = ?",
@@ -418,6 +431,10 @@ pub async fn middleware_git_context(input: GitContextInput) -> Result<Value, Str
 
 #[tauri::command]
 pub async fn middleware_git_switch_branch(input: GitSwitchBranchInput) -> Result<Value, String> {
+  if input.branch_name.starts_with('-') {
+    return Err("Branch name cannot start with '-'".to_string());
+  }
+
   let repo_root = project_repo_root(&input.project_id)?;
   let git_dir = repo_root.join(".git");
   if !git_dir.exists() {
