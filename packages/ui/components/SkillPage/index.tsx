@@ -3,7 +3,6 @@
 import * as React from "react"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
-import { discoverSkills, mapDiscoveredSkillCategory, type DiscoveredSkill, type SkillDiscoverResponse } from "./api"
 import {
   SkillGhostIcon,
   SkillPdfIcon,
@@ -19,6 +18,29 @@ import {
 
 type SkillCategory = "All" | "Recommended" | "System" | "Personal"
 
+type DiscoveredSkill = {
+  id: string
+  slug: string
+  name: string
+  summary: string | null
+  description: string | null
+  source: "clawhub" | "local" | "github"
+  version: string | null
+  installed: boolean
+  installSource: "clawhub" | "github" | "local"
+  repoUrl: string | null
+  homepageUrl: string | null
+  localPath: string | null
+  tags: string[]
+}
+
+type SkillDiscoverResponse = {
+  query: string
+  results: DiscoveredSkill[]
+  warnings: string[]
+  sources: Array<"clawhub" | "local" | "github">
+}
+
 type SkillItem = {
   id: string
   name: string
@@ -29,11 +51,6 @@ type SkillItem = {
   installed?: boolean
   source?: string
   version?: string | null
-}
-
-type SkillSection = {
-  title: Exclude<SkillCategory, "All">
-  items: SkillItem[]
 }
 
 export function SkillPage() {
@@ -51,21 +68,39 @@ export function SkillPage() {
       setLoading(true)
       setError(null)
 
-      const response = await discoverSkills("", 20)
-      if (cancelled) return
-
-      if (!response) {
+      if (typeof window === "undefined" || !window.__TAURI_INTERNALS__) {
         setSkills([])
         setMeta(null)
-        setError("Unable to load skills from middleware. Make sure the desktop runtime and skills backend are available.")
+        setError("Desktop runtime not detected, so middleware_skills_discover is unavailable.")
         setLoading(false)
         return
       }
 
-      const mapped = response.results.map(mapBackendSkillToItem)
-      setSkills(mapped)
-      setMeta(response)
-      setLoading(false)
+      try {
+        const { invoke } = await import("@tauri-apps/api/core")
+        const response = await invoke<SkillDiscoverResponse>("middleware_skills_discover", {
+          input: {
+            query: "",
+            limit: 20,
+            includeLocal: true,
+            includeClawHub: true,
+            includeGithubProbe: true,
+          },
+        })
+
+        if (cancelled) return
+
+        setMeta(response)
+        setSkills(response.results.map(mapBackendSkillToItem))
+        setLoading(false)
+      } catch (err) {
+        if (cancelled) return
+        console.error("middleware_skills_discover failed", err)
+        setSkills([])
+        setMeta(null)
+        setError("Failed to load skills from middleware_skills_discover.")
+        setLoading(false)
+      }
     }
 
     loadSkills()
@@ -153,7 +188,7 @@ export function SkillPage() {
       ) : error ? (
         <StatePanel text={error} tone="error" />
       ) : filteredSections.length === 0 ? (
-        <StatePanel text="No skills found from the middleware for your current filters." />
+        <StatePanel text="No skills found from middleware_skills_discover for your current filters." />
       ) : (
         <div className="space-y-8">
           {filteredSections.map((section) => (
@@ -266,6 +301,15 @@ function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
     source: skill.source,
     version: skill.version,
   }
+}
+
+function mapDiscoveredSkillCategory(skill: DiscoveredSkill): "Recommended" | "System" | "Personal" {
+  if (skill.source === "local") return "Personal"
+
+  const tags = skill.tags.map((tag) => tag.toLowerCase())
+  if (tags.includes("system") || skill.installed) return "System"
+
+  return "Recommended"
 }
 
 function getSkillIconKey(skill: DiscoveredSkill) {
