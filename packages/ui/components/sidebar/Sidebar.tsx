@@ -24,6 +24,7 @@ const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "skill", label: "Skill", icon: "skill" },
   { id: "workspace", label: "Workspace", icon: "workspace" },
+  { id: "connect", label: "Connect", icon: "connect" },
   { id: "settings", label: "Settings", icon: "settings" },
 ]
 
@@ -172,9 +173,7 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className={cn("relative z-10 border-t border-border/10", collapsed ? "px-0 py-2" : "px-2 py-2") }>
-        <VersionUpdateButton collapsed={collapsed} onClick={() => setVersionModalOpen(true)} />
-      </div>
+
 
       {!collapsed && (
         <button

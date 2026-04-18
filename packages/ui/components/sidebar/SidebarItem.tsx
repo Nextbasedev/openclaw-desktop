@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 export type SidebarNavItem = {
   id: string
   label: string
-  icon: "chat" | "skill" | "usage" | "workspace" | "memory" | "settings"
+  icon: "chat" | "skill" | "usage" | "workspace" | "memory" | "settings" | "connect"
 }
 
 type SidebarItemProps = {
@@ -65,6 +65,7 @@ function NavIcon({ type }: { type: SidebarNavItem["icon"] }) {
     workspace: Icons.Project,
     memory: Icons.Memory,
     settings: Icons.Settings,
+    connect: Icons.Globe,
   }
 
   const Icon = iconMap[type] || Icons.Chat
