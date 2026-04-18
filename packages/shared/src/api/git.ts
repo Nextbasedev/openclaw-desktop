@@ -53,6 +53,65 @@ export const gitCheckoutResponseSchema = z.object({ ok: z.literal(true), branch:
 export const gitCommitRequestSchema = z.object({ projectId: projectIdSchema, message: nonEmptyStringSchema })
 export const gitCommitResponseSchema = z.object({ ok: z.literal(true), commit: gitCommitSchema })
 
+// Git context tracking — middleware-level endpoints for sidebar git info
+export const gitContextUncommittedChangeSchema = z.object({
+  status: z.string(),
+  path: z.string(),
+})
+
+export const gitContextCommitSchema = z.object({
+  hash: z.string(),
+  message: z.string(),
+})
+
+export const gitContextTrackedBranchSchema = z.object({
+  branchName: z.string(),
+  detectedCommand: z.string().nullable(),
+  detectedAt: z.string(),
+})
+
+export const gitContextRequestSchema = z.object({
+  projectId: projectIdSchema,
+  topicId: z.string().optional(),
+})
+
+export const gitContextResponseSchema = z.object({
+  hasGit: z.boolean(),
+  projectId: z.string(),
+  topicId: z.string().nullable().optional(),
+  currentBranch: z.string().nullable().optional(),
+  uncommittedChanges: z.array(gitContextUncommittedChangeSchema).optional(),
+  uncommittedCount: z.number().int().nonnegative().optional(),
+  recentCommits: z.array(gitContextCommitSchema).optional(),
+  trackedBranches: z.array(gitContextTrackedBranchSchema).optional(),
+  repoRoot: z.string().optional(),
+})
+
+export const gitSwitchBranchRequestSchema = z.object({
+  projectId: projectIdSchema,
+  branchName: z.string().min(1),
+  create: z.boolean().optional(),
+})
+
+export const gitSwitchBranchResponseSchema = z.object({
+  switched: z.boolean(),
+  branch: z.string(),
+  projectId: z.string(),
+  hadUncommittedChanges: z.boolean(),
+})
+
+export const gitBranchesListRequestSchema = z.object({
+  projectId: projectIdSchema,
+})
+
+export const gitBranchesListResponseSchema = z.object({
+  hasGit: z.boolean(),
+  current: z.string().nullable(),
+  local: z.array(z.string()),
+  remote: z.array(z.string()),
+  projectId: z.string(),
+})
+
 export const gitEndpoints = [
   defineEndpoint({ operationId: "git.status", method: "GET", path: "/api/git/status", request: gitStatusRequestSchema, response: gitStatusResponseSchema }),
   defineEndpoint({ operationId: "git.diff", method: "GET", path: "/api/git/diff", request: gitDiffRequestSchema, response: gitDiffResponseSchema }),
@@ -60,6 +119,9 @@ export const gitEndpoints = [
   defineEndpoint({ operationId: "git.branches", method: "GET", path: "/api/git/branches", request: gitBranchesRequestSchema, response: gitBranchesResponseSchema }),
   defineEndpoint({ operationId: "git.checkout", method: "POST", path: "/api/git/checkout", request: gitCheckoutRequestSchema, response: gitCheckoutResponseSchema }),
   defineEndpoint({ operationId: "git.commit", method: "POST", path: "/api/git/commit", request: gitCommitRequestSchema, response: gitCommitResponseSchema }),
+  defineEndpoint({ operationId: "git.context", method: "GET", path: "/api/git/context", request: gitContextRequestSchema, response: gitContextResponseSchema }),
+  defineEndpoint({ operationId: "git.switchBranch", method: "POST", path: "/api/git/switch-branch", request: gitSwitchBranchRequestSchema, response: gitSwitchBranchResponseSchema }),
+  defineEndpoint({ operationId: "git.branchesList", method: "GET", path: "/api/git/branches-list", request: gitBranchesListRequestSchema, response: gitBranchesListResponseSchema }),
 ] as const
 
 export type GitFileChange = z.infer<typeof gitFileChangeSchema>
@@ -78,3 +140,12 @@ export type GitCheckoutRequest = z.infer<typeof gitCheckoutRequestSchema>
 export type GitCheckoutResponse = z.infer<typeof gitCheckoutResponseSchema>
 export type GitCommitRequest = z.infer<typeof gitCommitRequestSchema>
 export type GitCommitResponse = z.infer<typeof gitCommitResponseSchema>
+export type GitContextRequest = z.infer<typeof gitContextRequestSchema>
+export type GitContextResponse = z.infer<typeof gitContextResponseSchema>
+export type GitSwitchBranchRequest = z.infer<typeof gitSwitchBranchRequestSchema>
+export type GitSwitchBranchResponse = z.infer<typeof gitSwitchBranchResponseSchema>
+export type GitBranchesListRequest = z.infer<typeof gitBranchesListRequestSchema>
+export type GitBranchesListResponse = z.infer<typeof gitBranchesListResponseSchema>
+export type GitContextUncommittedChange = z.infer<typeof gitContextUncommittedChangeSchema>
+export type GitContextCommit = z.infer<typeof gitContextCommitSchema>
+export type GitContextTrackedBranch = z.infer<typeof gitContextTrackedBranchSchema>

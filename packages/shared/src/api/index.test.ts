@@ -20,8 +20,11 @@ import {
   projectEndpoints,
   sessionEndpoints,
   settingsEndpoints,
+  skillEndpoints,
+  syncEndpoints,
   terminalEndpoints,
   topicEndpoints,
+  usageEndpoints,
 } from "./index"
 
 const timestamp = "2026-04-17T09:00:00.000Z"
@@ -228,6 +231,37 @@ const representativeParsers: Record<string, RepresentativeParser> = {
     request: { showExistingSessions: true, sessionVisibility: "all-visible", uiMode: "mission-control" },
     requestAssert: (parsed: { uiMode?: string }) => expect(parsed.uiMode).toBe("mission-control"),
   },
+  skills: {
+    endpoint: skillEndpoints[1],
+    request: { source: "clawhub", slug: "openclaw-cli", scope: "user" },
+    response: {
+      status: "installed",
+      skill: {
+        id: "clawhub:openclaw-cli",
+        slug: "openclaw-cli",
+        name: "OpenClaw CLI",
+        summary: "Operate OpenClaw",
+        description: null,
+        source: "clawhub",
+        version: "1.0.0",
+        installed: true,
+        installSource: "clawhub",
+        repoUrl: null,
+        homepageUrl: null,
+        localPath: "/root/.openclaw/skills/openclaw-cli",
+        tags: ["openclaw"],
+      },
+      location: {
+        scope: "user",
+        root: "/root/.openclaw/skills",
+        path: "/root/.openclaw/skills/openclaw-cli",
+      },
+      actions: ["clawhub install openclaw-cli"],
+      warnings: [],
+    },
+    requestAssert: (parsed: { slug?: string }) => expect(parsed.slug).toBe("openclaw-cli"),
+    responseAssert: (parsed: { skill: { slug: string } }) => expect(parsed.skill.slug).toBe("openclaw-cli"),
+  },
   approvals: {
     endpoint: approvalEndpoints[1],
     request: { approvalId: "appr_1", decision: "allow-once" },
@@ -242,6 +276,67 @@ const representativeParsers: Record<string, RepresentativeParser> = {
       plannedSteps: ["detect", "install"],
     },
     responseAssert: (parsed: { plannedSteps: string[] }) => expect(parsed.plannedSteps).toHaveLength(2),
+  },
+  sync: {
+    endpoint: syncEndpoints[1],
+    response: {
+      enabled: true,
+      deviceId: "device_abc",
+      deviceName: "My Laptop",
+      lastSyncAt: timestamp,
+      dirtyCount: 3,
+    },
+    responseAssert: (parsed: { dirtyCount: number }) => expect(parsed.dirtyCount).toBe(3),
+  },
+  gitContext: {
+    endpoint: gitEndpoints[6],
+    request: { projectId: "proj_1", topicId: "topic_1" },
+    response: {
+      hasGit: true,
+      projectId: "proj_1",
+      topicId: "topic_1",
+      currentBranch: "feat/git-context",
+      uncommittedChanges: [{ status: "M", path: "src/middleware/git.rs" }],
+      uncommittedCount: 1,
+      recentCommits: [{ hash: "abc1234", message: "init" }],
+      trackedBranches: [{ branchName: "feat/git-context", detectedCommand: "git checkout feat/git-context", detectedAt: timestamp }],
+      repoRoot: "/workspace/Jarvis",
+    },
+    requestAssert: (parsed: { projectId: string }) => expect(parsed.projectId).toBe("proj_1"),
+    responseAssert: (parsed: { currentBranch: string }) => expect(parsed.currentBranch).toBe("feat/git-context"),
+  },
+  usage: {
+    endpoint: usageEndpoints[0],
+    request: {
+      profileId: "prof_local",
+      startDate: "2026-04-01",
+      endDate: "2026-04-18",
+    },
+    response: {
+      projects: [
+        {
+          projectId: "proj_1",
+          projectName: "Jarvis Desktop",
+          totals: {
+            input: 5000,
+            output: 2500,
+            cacheRead: 100,
+            cacheWrite: 50,
+            totalTokens: 7650,
+            totalCost: 0.15,
+            inputCost: 0.06,
+            outputCost: 0.09,
+            cacheReadCost: 0.002,
+            cacheWriteCost: 0.001,
+          },
+          sessionCount: 3,
+          sessions: [],
+        },
+      ],
+      truncated: false,
+    },
+    requestAssert: (parsed: { profileId: string }) => expect(parsed.profileId).toBe("prof_local"),
+    responseAssert: (parsed: { projects: Array<{ projectId: string }> }) => expect(parsed.projects[0]?.projectId).toBe("proj_1"),
   },
 } as const
 

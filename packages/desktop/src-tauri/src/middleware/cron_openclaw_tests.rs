@@ -1,5 +1,38 @@
 use super::*;
-use serde_json::Value;
+use serde_json::{json, Value};
+
+#[test]
+fn normalizes_legacy_cron_job_shape() {
+  let normalized = normalize_cron_job(&json!({
+    "id": "job-1",
+    "name": "Legacy job",
+    "schedule": "0 7 * * *",
+    "enabled": true,
+    "task": "session.message",
+    "params": {
+      "key": "agent:main:session:abc",
+      "message": "hello"
+    },
+    "createdAt": "2026-04-17T00:00:00Z",
+    "updatedAt": "2026-04-17T00:00:00Z",
+    "status": "idle",
+    "runCount": 3,
+    "failCount": 1
+  }));
+
+  assert_eq!(normalized.get("task").and_then(Value::as_str), Some("session.message"));
+  assert_eq!(normalized.get("schedule").and_then(Value::as_str), Some("0 7 * * *"));
+  assert_eq!(normalized.get("params").and_then(|v| v.get("message")).and_then(Value::as_str), Some("hello"));
+}
+
+#[test]
+fn detects_invalid_cron_params_error_messages() {
+  assert!(is_invalid_cron_params_error(
+    "cron.add failed: invalid cron.add params: at root: unexpected property 'payload'",
+    "cron.add"
+  ));
+  assert!(!is_invalid_cron_params_error("cron.add failed: permission denied", "cron.add"));
+}
 
 fn live_openclaw_enabled() -> bool {
   std::env::var("JARVIS_LIVE_OPENCLAW_TESTS").ok().as_deref() == Some("1")
