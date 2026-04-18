@@ -87,3 +87,85 @@ fn sqlite_projects_topics_and_sessions_local_flows_work() {
     assert_eq!(final_projects.get("projects").and_then(Value::as_array).map(|v| v.len()), Some(1));
   });
 }
+
+#[test]
+fn sqlite_project_pin_and_unpin() {
+  with_test_db(|| {
+    let p1 = middleware_projects_create(ProjectCreateInput {
+      name: "Alpha".to_string(),
+      profile_id: "prof_test".to_string(),
+      workspace_root: "/tmp/alpha".to_string(),
+      repo_root: None,
+    }).expect("create alpha");
+    let p1_id = p1.get("project").and_then(|p| p.get("id")).and_then(Value::as_str).unwrap().to_string();
+    assert_eq!(p1.get("project").and_then(|p| p.get("pinned")).and_then(Value::as_bool), Some(false));
+
+    let p2 = middleware_projects_create(ProjectCreateInput {
+      name: "Beta".to_string(),
+      profile_id: "prof_test".to_string(),
+      workspace_root: "/tmp/beta".to_string(),
+      repo_root: None,
+    }).expect("create beta");
+    let p2_id = p2.get("project").and_then(|p| p.get("id")).and_then(Value::as_str).unwrap().to_string();
+
+    // Pin Alpha
+    let pin_result = middleware_projects_pin(ProjectPinInput { project_id: p1_id.clone(), pinned: Some(true) }).expect("pin alpha");
+    assert_eq!(pin_result.get("pinned").and_then(Value::as_bool), Some(true));
+
+    // Verify pinned project appears first in list
+    let listed = middleware_projects_list().expect("list projects");
+    let projects = listed.get("projects").and_then(Value::as_array).unwrap();
+    assert_eq!(projects[0].get("id").and_then(Value::as_str), Some(p1_id.as_str()));
+    assert_eq!(projects[0].get("pinned").and_then(Value::as_bool), Some(true));
+
+    // Unpin Alpha
+    let unpin_result = middleware_projects_pin(ProjectPinInput { project_id: p1_id.clone(), pinned: Some(false) }).expect("unpin alpha");
+    assert_eq!(unpin_result.get("pinned").and_then(Value::as_bool), Some(false));
+
+    // Pin on nonexistent project fails
+    let bad = middleware_projects_pin(ProjectPinInput { project_id: "proj_nonexistent".to_string(), pinned: None });
+    assert!(bad.is_err());
+
+    drop(p2_id);
+  });
+}
+
+#[test]
+fn sqlite_project_delete_cascades() {
+  with_test_db(|| {
+    let project = middleware_projects_create(ProjectCreateInput {
+      name: "ToDelete".to_string(),
+      profile_id: "prof_test".to_string(),
+      workspace_root: "/tmp/delete_me".to_string(),
+      repo_root: None,
+    }).expect("create project");
+    let project_id = project.get("project").and_then(|p| p.get("id")).and_then(Value::as_str).unwrap().to_string();
+
+    // Add a topic and session
+    let topic = middleware_topics_create(TopicCreateInput {
+      project_id: project_id.clone(),
+      name: "Will be deleted".to_string(),
+    }).expect("create topic");
+    let topic_id = topic.get("topic").and_then(|t| t.get("id")).and_then(Value::as_str).unwrap().to_string();
+
+    let conn = open_db().expect("open db");
+    seed_session_mapping(&conn, &project_id, Some(&topic_id), "sess_del");
+    drop(conn);
+
+    // Delete the project
+    let del_result = middleware_projects_delete(ProjectIdInput { project_id: project_id.clone() }).expect("delete project");
+    assert_eq!(del_result.get("ok").and_then(Value::as_bool), Some(true));
+
+    // Verify project is gone
+    let listed = middleware_projects_list().expect("list projects");
+    assert_eq!(listed.get("projects").and_then(Value::as_array).map(|v| v.len()), Some(0));
+
+    // Verify topics are gone
+    let topics = middleware_topics_list(TopicListInput { project_id: project_id.clone() }).expect("list topics");
+    assert_eq!(topics.get("topics").and_then(Value::as_array).map(|v| v.len()), Some(0));
+
+    // Delete nonexistent project fails
+    let bad = middleware_projects_delete(ProjectIdInput { project_id: "proj_nonexistent".to_string() });
+    assert!(bad.is_err());
+  });
+}

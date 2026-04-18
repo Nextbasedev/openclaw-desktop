@@ -21,8 +21,13 @@ pub fn middleware_files_tree(input: FilePathInput) -> Result<Value, String> {
 
 #[tauri::command]
 pub fn middleware_files_read(input: FilePathInput) -> Result<Value, String> {
-  let path = resolve_project_path(&input.project_id, &input.path)?;
-  let content = fs::read_to_string(&path).map_err(|error| format!("Failed to read file: {error}"))?;
+  let resolved = resolve_project_path(&input.project_id, &input.path)?;
+  const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50MB
+  let metadata = fs::metadata(&resolved).map_err(|e| format!("Failed to read file metadata: {e}"))?;
+  if metadata.len() > MAX_FILE_SIZE {
+    return Err(format!("File too large ({} bytes, max {})", metadata.len(), MAX_FILE_SIZE));
+  }
+  let content = fs::read_to_string(&resolved).map_err(|error| format!("Failed to read file: {error}"))?;
   Ok(json!({ "file": { "path": input.path, "content": content, "encoding": "utf8" } }))
 }
 
@@ -70,11 +75,15 @@ pub fn middleware_files_search(input: FileSearchInput) -> Result<Value, String> 
   let root = project_workspace_root(&input.project_id)?;
   let query = input.query.to_lowercase();
   let mut results = vec![];
+  const MAX_RESULTS: usize = 500;
   for entry in WalkDir::new(&root)
     .max_depth(6)
     .into_iter()
     .filter_map(|entry| entry.ok())
   {
+    if results.len() >= MAX_RESULTS {
+      break;
+    }
     let file_name = entry.file_name().to_string_lossy().to_string();
     if !file_name.to_lowercase().contains(&query) {
       continue;

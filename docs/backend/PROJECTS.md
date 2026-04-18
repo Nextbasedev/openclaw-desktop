@@ -12,6 +12,8 @@ Current Tauri commands:
 - `middleware_projects_get`
 - `middleware_projects_update`
 - `middleware_projects_archive`
+- `middleware_projects_pin`
+- `middleware_projects_delete`
 - `middleware_projects_sidebar`
 
 ---
@@ -27,6 +29,7 @@ A project currently stores:
 - `workspaceRoot`
 - `repoRoot`
 - `archived`
+- `pinned`
 - `unreadCount`
 - `lastActivityAt`
 - `createdAt`
@@ -41,6 +44,7 @@ Backend JSON shape:
   "workspaceRoot": "/Users/dixit/Jarvis",
   "repoRoot": "/Users/dixit/Jarvis",
   "archived": false,
+  "pinned": false,
   "unreadCount": 0,
   "lastActivityAt": null,
   "createdAt": "2026-04-17T21:00:00Z",
@@ -78,15 +82,19 @@ Use for:
 - project header
 - repo summary display
 
-### Step 4, update or archive project
+### Step 4, update, archive, pin, or delete project
 Calls:
 - `middleware_projects_update`
 - `middleware_projects_archive`
+- `middleware_projects_pin`
+- `middleware_projects_delete`
 
 Use for:
 - rename
 - change roots
 - soft archive / restore
+- pin / unpin for priority ordering
+- permanent deletion (cascades to topics + sessions)
 
 ### Step 5, load sidebar payload
 Call:
@@ -116,6 +124,7 @@ No input.
       "workspaceRoot": "/Users/dixit/Jarvis",
       "repoRoot": "/Users/dixit/Jarvis",
       "archived": false,
+      "pinned": false,
       "unreadCount": 0,
       "lastActivityAt": null,
       "createdAt": "2026-04-17T21:00:00Z",
@@ -126,7 +135,7 @@ No input.
 ```
 
 ### Behavior
-- ordered by `updated_at DESC`
+- ordered by `pinned DESC, updated_at DESC` (pinned projects always appear first)
 - includes archived and non-archived projects
 - does not add repo summary
 
@@ -329,7 +338,84 @@ If a field is omitted:
 
 ---
 
-## 3.6 `middleware_projects_sidebar`
+## 3.6 `middleware_projects_pin`
+
+### Input
+```json
+{
+  "projectId": "proj_1",
+  "pinned": true
+}
+```
+
+### Notes
+- `pinned` is optional
+- if omitted, backend defaults to `true`
+
+### Success response
+```json
+{
+  "ok": true,
+  "projectId": "proj_1",
+  "pinned": true
+}
+```
+
+### Behavior
+- toggles the `pinned` flag on the project
+- pinned projects appear first in list results
+- can unpin by sending `pinned: false`
+
+### Failure cases
+- `Project not found: <id>`
+- `Failed to pin project: ...`
+
+### UI guidance
+- use a star/pin icon on project cards
+- support toggling in-place
+
+---
+
+## 3.7 `middleware_projects_delete`
+
+### Input
+```json
+{
+  "projectId": "proj_1"
+}
+```
+
+### Success response
+```json
+{
+  "ok": true,
+  "projectId": "proj_1"
+}
+```
+
+### Behavior
+- **hard delete** — permanently removes the project
+- cascades to related data:
+  - deletes all `session_mappings` for the project
+  - deletes all `topics` for the project
+  - deletes the project row itself
+- this is irreversible
+
+### Failure cases
+- `Project not found: <id>`
+- `Failed to check project existence: ...`
+- `Failed to delete project sessions: ...`
+- `Failed to delete project topics: ...`
+- `Failed to delete project: ...`
+
+### UI guidance
+- require a confirmation dialog before calling this
+- prefer archive for soft removal; delete for permanent cleanup
+- label clearly as "Delete permanently" or similar
+
+---
+
+## 3.8 `middleware_projects_sidebar`
 
 ### Input
 ```json
@@ -473,6 +559,18 @@ export async function archiveProject(projectId: string, archived = true) {
   });
 }
 
+export async function pinProject(projectId: string, pinned = true) {
+  return invoke("middleware_projects_pin", {
+    input: { projectId, pinned },
+  });
+}
+
+export async function deleteProject(projectId: string) {
+  return invoke("middleware_projects_delete", {
+    input: { projectId },
+  });
+}
+
 export async function getProjectSidebar(projectId: string) {
   return invoke("middleware_projects_sidebar", {
     input: { projectId },
@@ -485,7 +583,6 @@ export async function getProjectSidebar(projectId: string) {
 ## 7. Current backend limitations
 
 Frontend should know these limits exist today:
-- no dedicated delete-project command
 - sidebar agent list is currently static
 - list API does not include computed repo summary
 - no server-side filtering for archived/non-archived project lists yet
@@ -496,7 +593,6 @@ Frontend should know these limits exist today:
 ## 8. Recommended next backend additions
 
 Useful next commands or improvements:
-- `middleware_projects_delete`
 - `middleware_projects_list_active`
 - `middleware_projects_list_archived`
 - richer `repo` summary in list payload
