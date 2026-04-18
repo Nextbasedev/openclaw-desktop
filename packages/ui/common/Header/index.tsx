@@ -2,6 +2,12 @@
 
 import { useState, useCallback } from "react"
 import { Icons } from "@/components/icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
+    Notification02Icon,
+    Settings02Icon,
+} from "@hugeicons/core-free-icons"
+import { VscLayoutSidebarRightOff, VscLayoutSidebarRight } from "react-icons/vsc"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { SettingsDialog } from "@/components/settings/SettingsDialog"
@@ -10,6 +16,8 @@ import type { HeaderUser } from "@/components/settings/settings.config"
 type HeaderProps = {
     user?: HeaderUser
     className?: string
+    inspectorOpen?: boolean
+    onToggleInspector?: () => void
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -24,7 +32,12 @@ const DEFAULT_USER: HeaderUser = {
  * - User name + version badge on left
  * - Action icons on right (sidebar, notifications, settings)
  */
-export function Header({ user = DEFAULT_USER, className }: HeaderProps) {
+export function Header({
+    user = DEFAULT_USER,
+    className,
+    inspectorOpen = false,
+    onToggleInspector,
+}: HeaderProps) {
     const [settingsOpen, setSettingsOpen] = useState(false)
 
     const openSettings = useCallback(() => setSettingsOpen(true), [])
@@ -56,8 +69,10 @@ export function Header({ user = DEFAULT_USER, className }: HeaderProps) {
                 {/* Right: action icons */}
                 <div className="flex items-center gap-1">
                     <HeaderIconButton
-                        icon={Icons.SidebarToggle}
-                        label="Toggle sidebar"
+                        icon={inspectorOpen ? VscLayoutSidebarRight : VscLayoutSidebarRightOff}
+                        label="Toggle inspector panel"
+                        active={inspectorOpen}
+                        onClick={onToggleInspector}
                     />
                     <HeaderIconButton
                         icon={Icons.Notification}
@@ -82,10 +97,12 @@ function HeaderIconButton({
     icon: Icon,
     label,
     onClick,
+    active,
 }: {
     icon: React.ElementType
     label: string
     onClick?: () => void
+    active?: boolean
 }) {
     return (
         <button
@@ -94,8 +111,10 @@ function HeaderIconButton({
             onClick={onClick}
             className={cn(
                 "flex size-8 items-center justify-center rounded-md",
-                "text-muted-foreground transition-colors",
-                "hover:text-foreground cursor-pointer group/icon",
+                "transition-colors cursor-pointer group/icon",
+                active
+                    ? "bg-secondary/60 text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
             )}
         >
             <Icon size={16} strokeWidth={1.5} className="size-4" />

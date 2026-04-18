@@ -1,30 +1,39 @@
 "use client"
 
+import { useState, useCallback } from "react"
 import { Header } from "@/common/Header"
 import { Sidebar } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
+import { ChatBox } from "@/components/ChatBox"
+import { AnimatedGreeting } from "@/components/AnimatedGreeting"
+import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 
 export default function Page() {
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+
+  const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
+
   return (
     <div className="flex h-svh flex-col bg-background">
-      <Header />
+      <Header
+        inspectorOpen={inspectorOpen}
+        onToggleInspector={toggleInspector}
+      />
 
-      {/* Content area: sidebar + main */}
+      {/* Content area: sidebar + main + inspector */}
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
 
-        {/* Main content area */}
-        <main className="flex flex-1 items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <span className="text-4xl">🤖</span>
-            <h1 className="text-base font-semibold text-foreground">
-              OpenClaw Desktop
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Neural Operations Center — Ready
-            </p>
+        {/* Main content area — vertically centered */}
+        <main className="flex flex-1 items-center justify-center transition-all duration-300 ease-in-out">
+          <div className="flex w-full flex-col items-center gap-8">
+            <AnimatedGreeting />
+            <ChatBox />
           </div>
         </main>
+
+        {/* Right inspector panel */}
+        <InspectorPanel open={inspectorOpen} onClose={toggleInspector} />
       </div>
 
       <Footer />
