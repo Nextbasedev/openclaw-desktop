@@ -4,6 +4,7 @@ import { Header } from "@/common/Header"
 import { Sidebar } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
+import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 
 export default function Page() {
   return (
@@ -17,9 +18,7 @@ export default function Page() {
         {/* Main content area — vertically centered */}
         <main className="flex flex-1 items-center justify-center">
           <div className="flex w-full flex-col items-center gap-8">
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-              What needs to be done?
-            </h1>
+            <AnimatedGreeting />
             <ChatBox />
           </div>
         </main>
