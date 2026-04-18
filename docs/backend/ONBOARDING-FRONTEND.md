@@ -377,5 +377,8 @@ Those are advanced flows after core onboarding is complete.
 For lower-level backend details:
 - `docs/backend/ONBOARDING.md`
 
+For provider selection and provider-specific setup fields after core onboarding:
+- `docs/backend/ONBOARDING-PROVIDERS.md`
+
 For bot name setup after onboarding:
 - `docs/backend/RUNTIME-ADMIN.md` plus bot-name endpoint docs there

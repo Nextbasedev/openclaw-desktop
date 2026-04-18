@@ -18,6 +18,10 @@ The current onboarding backend lives in:
 Primary command:
 - `middleware_onboarding_core`
 
+Provider setup commands after core onboarding is ready:
+- `middleware_onboarding_providers`
+- `middleware_onboarding_provider_details`
+
 Compatibility helpers still available:
 - `middleware_openclaw_check`
 - `middleware_openclaw_install`

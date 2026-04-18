@@ -3158,6 +3158,8 @@ mod openclaw_chat_tests;
 mod branch_chat_tests;
 #[cfg(test)]
 mod onboarding_enhancements_tests;
+#[cfg(test)]
+mod onboarding_provider_tests;
 
 // ============================================================================
 // BRANCH CHAT MIDDLEWARE COMMANDS
@@ -3416,6 +3418,12 @@ pub struct OpenClawInstallInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OnboardingProviderInput {
+  provider_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitRemoteAddInput {
   project_id: String,
   remote_name: String,
@@ -3507,6 +3515,223 @@ async fn onboarding_snapshot(gateway_url: String) -> Value {
       gateway_is_running,
     )
   })
+}
+
+fn openclaw_extensions_dir() -> PathBuf {
+  PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("../../..")
+    .join(".openclaw-src")
+    .join("extensions")
+}
+
+fn title_case_provider_id(provider_id: &str) -> String {
+  provider_id
+    .split('-')
+    .filter(|part| !part.is_empty())
+    .map(|part| {
+      let mut chars = part.chars();
+      match chars.next() {
+        Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+        None => String::new(),
+      }
+    })
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn onboarding_provider_category(provider_id: &str) -> &'static str {
+  match provider_id {
+    "openai" | "openai-codex" | "anthropic" | "google" | "google-gemini-cli" | "openrouter" | "deepseek" | "mistral" | "xai" | "qwen" | "moonshot" | "together" => "core",
+    "ollama" | "lmstudio" | "vllm" | "sglang" | "github-copilot" | "codex" | "copilot-proxy" | "opencode" | "opencode-go" | "kilocode" => "local",
+    _ => "advanced",
+  }
+}
+
+fn flatten_config_schema_fields(
+  prefix: Option<&str>,
+  schema: &Value,
+  ui_hints: &Value,
+  output: &mut Vec<Value>,
+) {
+  let properties = match schema.get("properties").and_then(Value::as_object) {
+    Some(properties) => properties,
+    None => return,
+  };
+
+  let required = schema
+    .get("required")
+    .and_then(Value::as_array)
+    .map(|arr| {
+      arr.iter()
+        .filter_map(Value::as_str)
+        .map(ToString::to_string)
+        .collect::<HashSet<_>>()
+    })
+    .unwrap_or_default();
+
+  for (key, field_schema) in properties {
+    let path = match prefix {
+      Some(prefix) if !prefix.is_empty() => format!("{prefix}.{key}"),
+      _ => key.to_string(),
+    };
+
+    let label = ui_hints
+      .get(&path)
+      .and_then(|hint| hint.get("label"))
+      .and_then(Value::as_str)
+      .map(ToString::to_string);
+    let help = ui_hints
+      .get(&path)
+      .and_then(|hint| hint.get("help"))
+      .and_then(Value::as_str)
+      .map(ToString::to_string);
+
+    let field_type = match field_schema.get("type") {
+      Some(Value::String(value)) => value.to_string(),
+      Some(Value::Array(values)) => values
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join("|"),
+      _ => "object".to_string(),
+    };
+
+    output.push(json!({
+      "path": path,
+      "type": field_type,
+      "required": required.contains(key),
+      "label": label,
+      "help": help,
+      "enum": field_schema.get("enum").cloned().unwrap_or(Value::Null),
+      "default": field_schema.get("default").cloned().unwrap_or(Value::Null),
+      "sensitive": ui_hints
+        .get(&path)
+        .and_then(|hint| hint.get("sensitive"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false),
+    }));
+
+    if field_schema.get("type").and_then(Value::as_str) == Some("object")
+      || field_schema.get("properties").is_some()
+    {
+      flatten_config_schema_fields(Some(&path), field_schema, ui_hints, output);
+    }
+  }
+}
+
+fn read_openclaw_provider_manifests() -> Result<Vec<Value>, String> {
+  let mut manifests = Vec::new();
+  for entry in fs::read_dir(openclaw_extensions_dir())
+    .map_err(|error| format!("Failed to read OpenClaw extensions dir: {error}"))?
+  {
+    let entry = entry.map_err(|error| format!("Failed to read OpenClaw extension entry: {error}"))?;
+    let manifest_path = entry.path().join("openclaw.plugin.json");
+    if !manifest_path.exists() {
+      continue;
+    }
+    let raw = fs::read_to_string(&manifest_path)
+      .map_err(|error| format!("Failed to read plugin manifest {}: {error}", manifest_path.display()))?;
+    let manifest = serde_json::from_str::<Value>(&raw)
+      .map_err(|error| format!("Failed to parse plugin manifest {}: {error}", manifest_path.display()))?;
+    manifests.push(manifest);
+  }
+  manifests.sort_by(|left, right| {
+    left.get("id")
+      .and_then(Value::as_str)
+      .cmp(&right.get("id").and_then(Value::as_str))
+  });
+  Ok(manifests)
+}
+
+fn provider_summary_from_manifest(manifest: &Value, provider_id: &str) -> Value {
+  let plugin_id = manifest.get("id").and_then(Value::as_str).unwrap_or_default();
+  let auth_choices = manifest
+    .get("providerAuthChoices")
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|choice| choice.get("provider").and_then(Value::as_str) == Some(provider_id))
+    .collect::<Vec<_>>();
+  let auth_env_vars = manifest
+    .get("providerAuthEnvVars")
+    .and_then(|value| value.get(provider_id))
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default();
+  let option_keys = auth_choices
+    .iter()
+    .filter_map(|choice| choice.get("optionKey").and_then(Value::as_str))
+    .collect::<Vec<_>>();
+  let auth_methods = auth_choices
+    .iter()
+    .filter_map(|choice| choice.get("method").and_then(Value::as_str))
+    .collect::<Vec<_>>();
+  let config_schema = manifest.get("configSchema").cloned().unwrap_or_else(|| json!({}));
+  let ui_hints = manifest.get("uiHints").cloned().unwrap_or_else(|| json!({}));
+  let mut config_fields = Vec::new();
+  flatten_config_schema_fields(None, &config_schema, &ui_hints, &mut config_fields);
+
+  let display_name = auth_choices
+    .iter()
+    .find_map(|choice| choice.get("groupLabel").and_then(Value::as_str))
+    .map(ToString::to_string)
+    .or_else(|| auth_choices.iter().find_map(|choice| choice.get("choiceLabel").and_then(Value::as_str)).map(ToString::to_string))
+    .unwrap_or_else(|| title_case_provider_id(provider_id));
+
+  json!({
+    "id": provider_id,
+    "pluginId": plugin_id,
+    "displayName": display_name,
+    "category": onboarding_provider_category(provider_id),
+    "authEnvVars": auth_env_vars,
+    "authMethods": auth_methods,
+    "optionKeys": option_keys,
+    "authChoices": auth_choices,
+    "configFieldCount": config_fields.len(),
+    "configFields": config_fields,
+    "schema": config_schema,
+    "uiHints": ui_hints,
+  })
+}
+
+#[tauri::command]
+pub fn middleware_onboarding_providers() -> Result<Value, String> {
+  let manifests = read_openclaw_provider_manifests()?;
+  let mut providers = Vec::new();
+  for manifest in manifests {
+    for provider_id in manifest
+      .get("providers")
+      .and_then(Value::as_array)
+      .into_iter()
+      .flatten()
+      .filter_map(Value::as_str)
+    {
+      providers.push(provider_summary_from_manifest(&manifest, provider_id));
+    }
+  }
+  providers.sort_by(|left, right| {
+    left.get("id")
+      .and_then(Value::as_str)
+      .cmp(&right.get("id").and_then(Value::as_str))
+  });
+  Ok(json!({ "providers": providers, "count": providers.len() }))
+}
+
+#[tauri::command]
+pub fn middleware_onboarding_provider_details(input: OnboardingProviderInput) -> Result<Value, String> {
+  let manifests = read_openclaw_provider_manifests()?;
+  for manifest in manifests {
+    let has_provider = manifest
+      .get("providers")
+      .and_then(Value::as_array)
+      .map(|providers| providers.iter().any(|provider| provider.as_str() == Some(input.provider_id.as_str())))
+      .unwrap_or(false);
+    if has_provider {
+      return Ok(json!({ "provider": provider_summary_from_manifest(&manifest, &input.provider_id) }));
+    }
+  }
+  Err(format!("Unsupported OpenClaw provider: {}", input.provider_id))
 }
 
 #[tauri::command]
