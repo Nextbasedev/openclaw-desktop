@@ -171,7 +171,41 @@ pub(crate) fn parse_github_repo_reference(input: &str) -> Option<(String, String
   None
 }
 
+pub(crate) async fn ensure_clawhub_cli() -> Result<(), String> {
+  let check = tokio::process::Command::new("clawhub")
+    .arg("--cli-version")
+    .output()
+    .await;
+  if check.is_ok() && check.unwrap().status.success() {
+    return Ok(());
+  }
+
+  let npm = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
+  let output = tokio::process::Command::new(npm)
+    .args(["install", "-g", "clawhub"])
+    .output()
+    .await
+    .map_err(|error| format!("Failed to install clawhub CLI via npm: {error}"))?;
+  if !output.status.success() {
+    return Err(format!(
+      "npm install -g clawhub failed: {}",
+      String::from_utf8_lossy(&output.stderr)
+    ));
+  }
+
+  let verify = tokio::process::Command::new("clawhub")
+    .arg("--cli-version")
+    .output()
+    .await
+    .map_err(|error| format!("clawhub installed but not reachable: {error}"))?;
+  if !verify.status.success() {
+    return Err("clawhub installed but --cli-version check failed".to_string());
+  }
+  Ok(())
+}
+
 pub(crate) async fn clawhub_search_skills(query: &str, limit: usize) -> Result<Vec<Value>, String> {
+  ensure_clawhub_cli().await?;
   let output = tokio::process::Command::new("clawhub")
     .args(["search", query, "--limit", &limit.to_string()])
     .output()
@@ -391,6 +425,7 @@ pub async fn middleware_skills_install(input: SkillInstallInput) -> Result<Value
 
   let (skill, location_path, status) = match input.source.as_str() {
     "clawhub" => {
+      ensure_clawhub_cli().await?;
       let slug = input.slug.clone().ok_or_else(|| "slug is required for ClawHub installs".to_string())?;
       let install_path = root.join(&slug);
       let status = installed_status_for_path(&install_path).to_string();
