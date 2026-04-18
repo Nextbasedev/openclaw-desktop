@@ -13,9 +13,10 @@ type SidebarItemProps = {
   item: SidebarNavItem
   isActive: boolean
   onClick: () => void
+  collapsed?: boolean
 }
 
-export function SidebarItem({ item, isActive, onClick }: SidebarItemProps) {
+export function SidebarItem({ item, isActive, onClick, collapsed = false }: SidebarItemProps) {
   const {
     attributes,
     listeners,
@@ -36,8 +37,10 @@ export function SidebarItem({ item, isActive, onClick }: SidebarItemProps) {
       type="button"
       style={style}
       onClick={onClick}
+      title={item.label}
       className={cn(
-        "group flex w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[13px] font-normal",
+        "group flex w-full min-w-0 items-center rounded-md font-normal",
+        collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1 text-left text-[13px]",
         "transition-[background-color,color,text-decoration-color,fill,stroke,opacity,box-shadow,transform] duration-150 ease-in-out",
         "cursor-pointer active:cursor-grabbing",
         isDragging && "z-50 scale-[1.02] shadow-lg shadow-black/20 ring-1 ring-primary/20 cursor-grabbing",
@@ -49,7 +52,7 @@ export function SidebarItem({ item, isActive, onClick }: SidebarItemProps) {
       {...listeners}
     >
       <NavIcon type={item.icon} />
-      <span className="flex-1 truncate">{item.label}</span>
+      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
     </button>
   )
 }
