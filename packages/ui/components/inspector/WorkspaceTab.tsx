@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/tooltip"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 
 /* ── Types ── */
 
@@ -250,71 +252,57 @@ function TreeNode({
 
 function CodeEditor({
   content,
-  onChange,
   ext,
 }: {
   content: string
   onChange: (v: string) => void
   ext: string
 }) {
-  const lines = content.split("\n")
-  const lineCount = lines.length
-  const gutterWidth = Math.max(2, String(lineCount).length)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const lineNumRef = useRef<HTMLDivElement>(null)
-
-  function handleScroll() {
-    if (textareaRef.current && lineNumRef.current) {
-      lineNumRef.current.scrollTop = textareaRef.current.scrollTop
-    }
-  }
+  const language =
+    ext === "json"
+      ? "json"
+      : ext === "md"
+        ? "markdown"
+        : ext === "ts" || ext === "tsx"
+          ? "typescript"
+          : ext === "js" || ext === "jsx"
+            ? "javascript"
+            : "text"
 
   return (
-    <div className="flex h-full overflow-hidden bg-background/50">
-      {/* Line numbers gutter */}
-      <div
-        ref={lineNumRef}
-        className="shrink-0 overflow-hidden border-r py-2 pr-2 text-right select-none"
-        style={{
-          width: `${gutterWidth + 2}ch`,
-          paddingLeft: "0.5ch",
-          borderRightColor: "#333333",
-          backgroundColor: "#252526",
-        }}
-      >
-        {lines.map((_, i) => (
-          <div
-            key={i}
-            className="font-mono text-[11px] leading-5"
-            style={{ color: "#858585" }}
-          >
-            {i + 1}
-          </div>
-        ))}
-      </div>
-
-      {/* Code area — no word wrap, scrollable both directions */}
-      <div className="flex-1 overflow-auto" style={{ backgroundColor: "#1E1E1E" }}>
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={(e) => onChange(e.target.value)}
-          onScroll={handleScroll}
-          spellCheck={false}
-          className={cn(
-            "block min-h-full min-w-full resize-none whitespace-pre bg-transparent py-2 pl-3 pr-4 font-mono text-[11px] leading-5 outline-none",
-          )}
-          style={{
-            color:
-              ext === "json"
-                ? "#CE9178"
-                : ext === "md"
-                  ? "#D4D4D4"
-                  : "#D4D4D4",
-            tabSize: 2,
-            width: "max-content",
+    <div className="h-full overflow-auto bg-[#1E1E1E]">
+      <div className="min-w-max">
+        <SyntaxHighlighter
+          language={language}
+          style={vscDarkPlus}
+          showLineNumbers
+          wrapLines={false}
+          wrapLongLines={false}
+          customStyle={{
+            margin: 0,
+            minHeight: "100%",
+            background: "#1E1E1E",
+            fontSize: "11px",
+            lineHeight: "20px",
+            padding: "12px",
+            overflow: "visible",
           }}
-        />
+          lineNumberStyle={{
+            minWidth: "2.5em",
+            paddingRight: "1em",
+            color: "#858585",
+            borderRight: "1px solid #333333",
+            marginRight: "12px",
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily:
+                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+            },
+          }}
+        >
+          {content}
+        </SyntaxHighlighter>
       </div>
     </div>
   )
