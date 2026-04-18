@@ -14,16 +14,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
-declare global {
-  interface Window {
-    __TAURI__?: {
-      core: {
-        invoke: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>
-      }
-    }
-  }
-}
-
 type ConnectionStatus = {
   configured: boolean
   url?: string
@@ -39,16 +29,14 @@ type ConnectResult = {
   connectedAt: string
 }
 
-function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!window.__TAURI__) {
-    return Promise.reject(new Error("Tauri API not available — run inside desktop app"))
-  }
-  return window.__TAURI__.core.invoke<T>(cmd, args)
+async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core")
+  return invoke<T>(cmd, args)
 }
 
 export default function ConnectPage() {
   const [url, setUrl] = useState("ws://127.0.0.1:18789")
-  const [token, setToken] = useState("")
+  const [token, setToken] = useState("3210ebae11309967d69099f8a4b60a67")
   const [showToken, setShowToken] = useState(false)
 
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
@@ -60,7 +48,7 @@ export default function ConnectPage() {
 
   const checkStatus = useCallback(async () => {
     try {
-      const s = await invoke<ConnectionStatus>("middleware_gateway_connect_status", {
+      const s = await tauriInvoke<ConnectionStatus>("middleware_gateway_connect_status", {
         input: {},
       })
       setStatus(s)
@@ -87,7 +75,7 @@ export default function ConnectPage() {
     setConnectResult(null)
 
     try {
-      const result = await invoke<ConnectResult>("middleware_gateway_connect", {
+      const result = await tauriInvoke<ConnectResult>("middleware_gateway_connect", {
         input: { url: url.trim(), token: token.trim() },
       })
       setConnectResult(result)
@@ -108,7 +96,7 @@ export default function ConnectPage() {
     setError(null)
 
     try {
-      await invoke("middleware_gateway_connect_save", {
+      await tauriInvoke("middleware_gateway_connect_save", {
         input: { url: url.trim(), token: token.trim() },
       })
       await checkStatus()
