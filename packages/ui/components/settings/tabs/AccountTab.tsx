@@ -3,11 +3,13 @@
 type AccountData = {
   name: string
   email: string
+  model?: string
 }
 
 const DEFAULT_ACCOUNT: AccountData = {
-  name: "John Doe",
-  email: "john@openclaw.ai",
+  name: "Not configured",
+  email: "No provider selected",
+  model: "No model selected",
 }
 
 type AccountTabProps = {
@@ -19,11 +21,15 @@ export function AccountTab({ data = DEFAULT_ACCOUNT }: AccountTabProps) {
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-lg font-semibold text-foreground">Account</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Your current assistant configuration.
+        </p>
       </div>
 
       <div className="flex flex-col gap-4">
-        <FormRow label="Name" value={data.name} />
-        <FormRow label="Email" value={data.email} />
+        <FormRow label="Bot Name" value={data.name} />
+        <FormRow label="Provider" value={data.email} />
+        {data.model && <FormRow label="Model" value={data.model} />}
       </div>
     </div>
   )

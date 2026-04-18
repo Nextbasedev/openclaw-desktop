@@ -118,6 +118,8 @@ pub fn run() {
       middleware::middleware_onboarding_model_contract,
       middleware::middleware_onboarding_model_submit,
       middleware::middleware_onboarding_flow,
+      middleware::middleware_onboarding_sign_out,
+      middleware::middleware_onboarding_delete_account,
       middleware::middleware_openclaw_check,
       middleware::middleware_openclaw_install,
       middleware::middleware_skills_discover,

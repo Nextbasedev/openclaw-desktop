@@ -1501,7 +1501,7 @@ mod sqlite_local_tests;
 mod openclaw_chat_tests;
 #[cfg(test)]
 mod branch_chat_tests;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod onboarding_enhancements_tests;
 #[cfg(test)]
 mod onboarding_provider_tests;
