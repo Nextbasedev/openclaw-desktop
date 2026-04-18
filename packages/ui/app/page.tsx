@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect, useMemo } from "react"
-import { cn } from "@/lib/utils"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { Header } from "@/common/Header"
-import { Sidebar } from "@/components/sidebar"
+import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
+import type { SidebarNavItem } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
@@ -18,17 +18,6 @@ import { HelpTab } from "@/components/settings/tabs/HelpTab"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import {
-  listProjects,
-  createProject,
-  getProjectSidebar,
-  listTopics,
-  createTopic,
-  listSessions,
-  createSessionMapping,
-  type Project,
-  type Topic,
-} from "@/lib/jarvis-middleware"
-import {
   chatHistory,
   chatSend,
   chatStreamStart,
@@ -37,6 +26,7 @@ import {
   type ChatHistoryMessage,
   type ChatStreamEnvelope,
 } from "@/lib/jarvis-chat"
+import { createSessionMapping } from "@/lib/jarvis-middleware"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -58,15 +48,9 @@ export default function Page() {
   const [activeTab, setActiveTab] = useState("chat")
   const [isSettingsMode, setIsSettingsMode] = useState(false)
   const [lastStandardTab, setLastStandardTab] = useState("chat")
+  const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
   const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
-  const [projects, setProjects] = useState<Project[]>([])
-  const [topics, setTopics] = useState<Topic[]>([])
-  const [projectSessions, setProjectSessions] = useState<Array<{ key: string; title: string | null; status: string | null }>>([])
-  const [loadingProjects, setLoadingProjects] = useState(false)
-  const [loadingTopics, setLoadingTopics] = useState(false)
-  const [creatingProject, setCreatingProject] = useState(false)
-  const [creatingTopic, setCreatingTopic] = useState(false)
   const [chatBinding, setChatBinding] = useState<ChatBinding>({ projectId: null, topicId: null, sessionKey: null })
   const isResizing = useRef(false)
 
@@ -80,7 +64,10 @@ export default function Page() {
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(CHAT_BINDING_STORAGE_KEY)
-      if (raw) setChatBinding(JSON.parse(raw) as ChatBinding)
+      if (raw) {
+        const parsed = JSON.parse(raw) as ChatBinding
+        setChatBinding(parsed)
+      }
     } catch (error) {
       console.error("Failed to restore chat binding", error)
     }
@@ -93,79 +80,6 @@ export default function Page() {
       console.error("Failed to persist chat binding", error)
     }
   }, [chatBinding])
-
-  const loadProjectsData = useCallback(async () => {
-    try {
-      setLoadingProjects(true)
-      const result = await listProjects()
-      const activeProjects = result.projects.filter((p) => !p.archived)
-      setProjects(activeProjects)
-      if (!chatBinding.projectId && activeProjects.length > 0) {
-        const first = activeProjects[0]
-        setChatBinding((prev) => ({ ...prev, projectId: first.id, projectName: first.name }))
-      }
-    } catch (error) {
-      console.error("Failed to load projects", error)
-    } finally {
-      setLoadingProjects(false)
-    }
-  }, [chatBinding.projectId])
-
-  const loadProjectScopedData = useCallback(async (projectId: string, preferredTopicId?: string | null) => {
-    try {
-      setLoadingTopics(true)
-      const [topicsResult, sidebarPayload] = await Promise.all([
-        listTopics(projectId),
-        getProjectSidebar(projectId),
-      ])
-      const activeTopics = topicsResult.topics.filter((t) => !t.archived)
-      setTopics(activeTopics)
-      setProjectSessions(sidebarPayload.sessions)
-      const selectedProject = projects.find((p) => p.id === projectId)
-      const nextProjectName = selectedProject?.name ?? sidebarPayload.project.name
-
-      let nextTopicId = preferredTopicId ?? chatBinding.topicId ?? null
-      let nextTopicName = chatBinding.topicName ?? null
-      if (!nextTopicId && activeTopics.length > 0) {
-        nextTopicId = activeTopics[0].id
-        nextTopicName = activeTopics[0].name
-      } else if (nextTopicId) {
-        const match = activeTopics.find((topic) => topic.id === nextTopicId)
-        nextTopicName = match?.name ?? null
-      }
-
-      let nextSessionKey: string | null = null
-      if (nextTopicId) {
-        const sessionResult = await listSessions({ projectId, topicId: nextTopicId, includeExisting: false })
-        nextSessionKey = sessionResult.sessions[0]?.sessionKey ?? null
-      }
-
-      setChatBinding({
-        projectId,
-        projectName: nextProjectName,
-        topicId: nextTopicId,
-        topicName: nextTopicName,
-        sessionKey: nextSessionKey,
-      })
-    } catch (error) {
-      console.error("Failed to load project scoped data", error)
-    } finally {
-      setLoadingTopics(false)
-    }
-  }, [projects, chatBinding.topicId, chatBinding.topicName])
-
-  useEffect(() => {
-    void loadProjectsData()
-  }, [loadProjectsData])
-
-  useEffect(() => {
-    if (chatBinding.projectId) {
-      void loadProjectScopedData(chatBinding.projectId, chatBinding.topicId)
-    } else {
-      setTopics([])
-      setProjectSessions([])
-    }
-  }, [chatBinding.projectId])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -194,12 +108,14 @@ export default function Page() {
       const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
       setSidebarWidth(newWidth)
     }
+
     function onMouseUp() {
       if (!isResizing.current) return
       isResizing.current = false
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
     }
+
     window.addEventListener("mousemove", onMouseMove)
     window.addEventListener("mouseup", onMouseUp)
     return () => {
@@ -223,8 +139,6 @@ export default function Page() {
     setActiveTab(lastStandardTab || "chat")
   }, [lastStandardTab])
 
-  const centerTitle = useMemo(() => chatBinding.projectName ?? undefined, [chatBinding.projectName])
-
   return (
     <div className="flex h-svh flex-col bg-background">
       <Header
@@ -232,76 +146,28 @@ export default function Page() {
         onToggleInspector={toggleInspector}
         terminalOpen={terminalOpen}
         onToggleTerminal={toggleTerminal}
-        centerTitle={centerTitle}
       />
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           width={sidebarWidth}
           onResizeStart={handleResizeStart}
-          projects={projects}
-          selectedProjectId={chatBinding.projectId}
-          topics={topics}
-          selectedTopicId={chatBinding.topicId}
-          projectSessions={projectSessions}
-          loadingProjects={loadingProjects}
-          loadingTopics={loadingTopics}
-          creatingProject={creatingProject}
-          creatingTopic={creatingTopic}
-          onSelectProject={(projectId) => void loadProjectScopedData(projectId, null)}
-          onSelectTopic={async (topicId) => {
-            const topic = topics.find((item) => item.id === topicId)
-            const sessions = await listSessions({ projectId: chatBinding.projectId!, topicId, includeExisting: false })
-            setChatBinding((prev) => ({
-              ...prev,
-              topicId,
-              topicName: topic?.name ?? null,
-              sessionKey: sessions.sessions[0]?.sessionKey ?? null,
-            }))
-          }}
-          onSelectSession={(sessionKey) => setChatBinding((prev) => ({ ...prev, sessionKey }))}
-          onCreateProject={async (name) => {
-            try {
-              setCreatingProject(true)
-              const created = await createProject({
-                name,
-                profileId: "prof_local_main",
-                workspaceRoot: "/root/.openclaw/workspace",
-                repoRoot: "/root/.openclaw/workspace",
-              })
-              const defaultTopic = await createTopic({ projectId: created.project.id, name: "General" })
-              await createSessionMapping({
-                projectId: created.project.id,
-                topicId: defaultTopic.topic.id,
-                agentId: "main",
-                label: defaultTopic.topic.name,
-              })
-              await loadProjectsData()
-              await loadProjectScopedData(created.project.id, defaultTopic.topic.id)
-            } finally {
-              setCreatingProject(false)
-            }
-          }}
-          onCreateTopic={async (name) => {
-            if (!chatBinding.projectId) return
-            try {
-              setCreatingTopic(true)
-              const created = await createTopic({ projectId: chatBinding.projectId, name })
-              await createSessionMapping({
-                projectId: chatBinding.projectId,
-                topicId: created.topic.id,
-                agentId: "main",
-                label: created.topic.name,
-              })
-              await loadProjectScopedData(chatBinding.projectId, created.topic.id)
-            } finally {
-              setCreatingTopic(false)
-            }
-          }}
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          items={sidebarItems}
+          onItemsChange={setSidebarItems}
+          isSettingsMode={isSettingsMode}
+          onToggleSettingsMode={setIsSettingsMode}
+          onBackToMain={handleBackToMain}
+          onProjectSelect={(projectId) => setChatBinding((prev) => ({ ...prev, projectId }))}
+          onTopicSelect={(topicId) => setChatBinding((prev) => ({ ...prev, topicId }))}
+          onSessionSelect={(sessionKey) => setChatBinding((prev) => ({ ...prev, sessionKey }))}
+          onProjectNameSelect={(projectName) => setChatBinding((prev) => ({ ...prev, projectName }))}
+          onTopicNameSelect={(topicName) => setChatBinding((prev) => ({ ...prev, topicName }))}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <main className="flex flex-1 overflow-hidden transition-all duration-300 ease-in-out">
+          <main className="flex flex-1 items-start justify-center overflow-y-auto transition-all duration-300 ease-in-out">
             <MainContent
               activeTab={activeTab}
               chatKey={chatKey}
@@ -373,6 +239,7 @@ function ChatWorkspaceView({ chatBinding }: { chatBinding: ChatBinding }) {
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  const [streamId, setStreamId] = useState<string | null>(null)
 
   useEffect(() => {
     let unlisten: (() => void) | undefined
@@ -395,7 +262,10 @@ function ChatWorkspaceView({ chatBinding }: { chatBinding: ChatBinding }) {
           const event = payload.event
           if (!event) return
 
-          if (event.type === "chat.status") setStatus(String(event.state ?? "connected"))
+          if (event.type === "chat.status") {
+            setStatus(String(event.state ?? "connected"))
+          }
+
           if (event.type === "chat.message") {
             setMessages((prev) => {
               const message = event as unknown as ChatHistoryMessage
@@ -407,6 +277,7 @@ function ChatWorkspaceView({ chatBinding }: { chatBinding: ChatBinding }) {
 
         const stream = await chatStreamStart(chatBinding.sessionKey)
         currentStreamId = stream.streamId
+        setStreamId(stream.streamId)
       } catch (error) {
         console.error("Failed to setup chat stream", error)
         setMessages([])
@@ -416,17 +287,31 @@ function ChatWorkspaceView({ chatBinding }: { chatBinding: ChatBinding }) {
     }
 
     void setup()
+
     return () => {
       if (unlisten) unlisten()
-      if (currentStreamId) void chatStreamStop(currentStreamId)
+      if (currentStreamId) {
+        void chatStreamStop(currentStreamId)
+      }
+      setStreamId(null)
     }
   }, [chatBinding.sessionKey])
 
   async function handleSubmit(value: string) {
-    if (!chatBinding.sessionKey || !value.trim()) return
+    if (!value.trim() || !chatBinding.projectId || !chatBinding.topicId) return
     try {
       setSending(true)
-      await chatSend({ sessionKey: chatBinding.sessionKey, text: value.trim() })
+      let sessionKey = chatBinding.sessionKey
+      if (!sessionKey) {
+        const createdSession = await createSessionMapping({
+          projectId: chatBinding.projectId,
+          topicId: chatBinding.topicId,
+          agentId: "main",
+          label: chatBinding.topicName ?? "Chat",
+        })
+        sessionKey = createdSession.session.sessionKey
+      }
+      await chatSend({ sessionKey, text: value.trim() })
       setInput("")
       setStatus("thinking")
     } catch (error) {
@@ -435,8 +320,6 @@ function ChatWorkspaceView({ chatBinding }: { chatBinding: ChatBinding }) {
       setSending(false)
     }
   }
-
-  const hasMessages = messages.length > 0
 
   if (!chatBinding.projectId) {
     return (
@@ -447,54 +330,46 @@ function ChatWorkspaceView({ chatBinding }: { chatBinding: ChatBinding }) {
     )
   }
 
-  if (!hasMessages) {
-    return (
-      <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 px-6 py-10">
-        <AnimatedGreeting />
-        <div className="w-full max-w-3xl text-center text-sm text-muted-foreground">
-          {chatBinding.topicName ? `Start a new conversation in ${chatBinding.topicName}` : "Select a topic to begin"}
-        </div>
-        <ChatBox value={input} onChange={setInput} onSubmit={handleSubmit} disabled={!chatBinding.sessionKey || sending} />
-      </div>
-    )
-  }
-
   return (
-    <div className="flex min-h-full w-full flex-col">
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-6 pt-8">
-        <div className="mb-4 flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground/60">Chat</span>
-          <h2 className="text-lg font-semibold text-foreground">{chatBinding.topicName ?? "Conversation"}</h2>
-          <p className="text-xs text-muted-foreground">
-            {chatBinding.projectName ? `${chatBinding.projectName}` : "No project selected"}
-            {status ? ` · ${status}` : ""}
-          </p>
-        </div>
+    <div className="flex min-h-full w-full max-w-4xl flex-col gap-6 px-6 py-10">
+      <div className="flex flex-col gap-1">
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground/60">Chat</span>
+        <h2 className="text-lg font-semibold text-foreground">
+          {chatBinding.topicName ?? "Select a topic"}
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {chatBinding.projectName ? `${chatBinding.projectName}` : "No project selected"}
+          {chatBinding.sessionKey ? ` · ${chatBinding.sessionKey}` : ""}
+          {status ? ` · ${status}` : ""}
+        </p>
+      </div>
 
-        <div className="flex-1 space-y-3 overflow-y-auto pb-32">
+      <div className="flex min-h-[260px] flex-1 flex-col rounded-2xl border border-border/50 bg-card">
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading messages…</p>
+          ) : messages.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No messages yet. Start the conversation.</p>
           ) : (
-            messages.map((message) => {
-              const isUser = message.role === "user"
-              return (
-                <div key={message.id} className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
-                  <div className={cn(
-                    "max-w-[78%] rounded-2xl px-4 py-3 text-sm shadow-sm",
-                    isUser ? "bg-foreground text-background" : "bg-card border border-border/40 text-foreground",
-                  )}>
-                    <p className="whitespace-pre-wrap">{message.text}</p>
-                  </div>
+            messages.map((message) => (
+              <div key={message.id} className="rounded-xl border border-border/40 bg-background/40 p-3">
+                <div className="mb-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                  <span className="font-medium uppercase tracking-wide">{message.role}</span>
+                  <span>{message.createdAt}</span>
                 </div>
-              )
-            })
+                <p className="whitespace-pre-wrap text-sm text-foreground/90">{message.text}</p>
+              </div>
+            ))
           )}
         </div>
       </div>
 
-      <div className="sticky bottom-0 border-t border-border/20 bg-background/80 pb-6 pt-4 backdrop-blur-md">
-        <ChatBox value={input} onChange={setInput} onSubmit={handleSubmit} disabled={!chatBinding.sessionKey || sending} />
-      </div>
+      <ChatBox
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        disabled={!chatBinding.projectId || !chatBinding.topicId || sending}
+      />
     </div>
   )
 }
