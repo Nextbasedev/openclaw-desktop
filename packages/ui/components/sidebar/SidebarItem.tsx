@@ -37,7 +37,7 @@ export function SidebarItem({ item, isActive, onClick }: SidebarItemProps) {
       style={style}
       onClick={onClick}
       className={cn(
-        "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium",
+        "group flex w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[12px] font-medium",
         "transition-[background-color,color,text-decoration-color,fill,stroke,opacity,box-shadow,transform] duration-150 ease-in-out",
         "cursor-pointer active:cursor-grabbing",
         isDragging && "z-50 scale-[1.02] shadow-lg shadow-black/20 ring-1 ring-primary/20 cursor-grabbing",

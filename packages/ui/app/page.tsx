@@ -61,7 +61,7 @@ export default function Page() {
           onResizeStart={handleResizeStart}
         />
 
-        <main className="flex flex-1 items-center justify-center transition-all duration-200 ease-out">
+        <main className="flex flex-1 items-center justify-center">
           <div className="flex w-full flex-col items-center gap-8">
             <AnimatedGreeting />
             <ChatBox />

@@ -70,7 +70,7 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
       className={cn(
         "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden",
         "border-r border-border/50 bg-card/70 backdrop-blur-xl",
-        "shadow-[0_10px_40px_rgba(0,0,0,0.08)] transition-[width,box-shadow,background-color] duration-200 ease-out",
+        "shadow-[0_10px_40px_rgba(0,0,0,0.08)] transition-[box-shadow,background-color] duration-200 ease-out",
         className,
       )}
     >
@@ -79,7 +79,7 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
 
       <nav
         className={cn(
-          "relative z-10 flex-1 overflow-y-auto px-2.5 py-3",
+          "relative z-10 flex-1 overflow-y-auto px-2 py-3",
           "scroll-smooth overscroll-contain",
         )}
       >
@@ -105,7 +105,7 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
           </SortableContext>
         </DndContext>
 
-        <div className="mt-3 border-t border-border/10 pt-3">
+        <div className="mt-3 border-t border-border/10">
           <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
             Pinned
           </p>
@@ -113,14 +113,14 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
             type="button"
             onClick={() => setActiveTab("project")}
             className={cn(
-              "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-all duration-150",
+              "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[12px] font-medium transition-colors duration-150",
               activeTab === "project"
                 ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md ring-1 ring-inset ring-foreground/10"
                 : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
             )}
           >
-            <Icons.Files size={16} strokeWidth={1.5} />
-            <span>Project</span>
+            <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
+            <span className="flex-1 truncate">Project</span>
           </button>
         </div>
       </nav>
@@ -131,10 +131,8 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
         aria-label="Resize sidebar"
         onMouseDown={onResizeStart}
         className={cn(
-          "absolute right-0 top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize",
+          "absolute right-0 top-0 z-20 h-full w-1 -translate-x-1/2 cursor-col-resize",
           "bg-transparent transition-colors duration-150",
-          "after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent after:transition-colors",
-          "hover:after:bg-primary/30 active:after:bg-primary/50",
         )}
       />
     </aside>
