@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -86,16 +85,23 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
         <div>
           <button
             onClick={onBack}
-            className="mb-4 flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="mb-5 flex items-center gap-1.5 text-[13px] text-muted-foreground/60 transition-colors hover:text-foreground"
           >
-            <Icons.Back size={14} strokeWidth={1.5} />
+            <Icons.Back size={13} strokeWidth={1.5} />
             Back
           </button>
-          <h2 className="text-xl font-semibold tracking-tight">Choose a Model</h2>
+          <div className="flex items-start gap-3.5">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-foreground/5">
+              <Icons.Settings size={20} className="text-foreground/70" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Choose a Model</h2>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card/50 px-5 py-8">
-          <Icons.Refresh size={16} className="animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Loading model options...</span>
+        <div className="flex items-center gap-3 py-8">
+          <Icons.Refresh size={18} className="animate-spin text-muted-foreground" />
+          <span className="text-[13px] text-muted-foreground">Loading model options...</span>
         </div>
       </div>
     )
@@ -106,19 +112,26 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
       <div>
         <button
           onClick={onBack}
-          className="mb-4 flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="mb-5 flex items-center gap-1.5 text-[13px] text-muted-foreground/60 transition-colors hover:text-foreground"
         >
-          <Icons.Back size={14} strokeWidth={1.5} />
+          <Icons.Back size={13} strokeWidth={1.5} />
           Back
         </button>
-        <h2 className="text-xl font-semibold tracking-tight">Choose a Model</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Select the default model for your assistant. You can change this later.
-        </p>
+        <div className="flex items-start gap-3.5">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-foreground/5">
+            <Icons.Settings size={20} className="text-foreground/70" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Choose a Model</h2>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
+              Select the default model for your assistant
+            </p>
+          </div>
+        </div>
       </div>
 
       {!customMode && options.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {options.map((option: ModelOption) => (
             <button
               key={option.id}
@@ -127,10 +140,10 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
                 setError(null)
               }}
               className={cn(
-                "flex w-full items-center justify-between rounded-lg border px-4 py-3 text-left transition-all",
+                "flex w-full items-center justify-between rounded-xl px-4 py-3 text-left transition-all",
                 selectedModel === option.value
-                  ? "border-foreground/20 bg-foreground/5"
-                  : "border-border/40 bg-card/50 hover:border-foreground/15 hover:bg-card",
+                  ? "bg-foreground/[0.08] ring-1 ring-foreground/10"
+                  : "bg-foreground/[0.03] hover:bg-foreground/[0.06]",
               )}
             >
               <div className="flex items-center gap-3">
@@ -138,17 +151,17 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
                   className={cn(
                     "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
                     selectedModel === option.value
-                      ? "border-foreground bg-foreground"
-                      : "border-muted-foreground/40",
+                      ? "border-emerald-500 bg-emerald-500"
+                      : "border-muted-foreground/30",
                   )}
                 >
                   {selectedModel === option.value && (
-                    <div className="size-1.5 rounded-full bg-background" />
+                    <div className="size-1.5 rounded-full bg-white" />
                   )}
                 </div>
                 <div>
                   <p className="text-[13px] font-medium">{option.label}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">{option.value}</p>
+                  <p className="font-mono text-[11px] text-muted-foreground/50">{option.value}</p>
                 </div>
               </div>
               {option.value === recommended && (
@@ -161,17 +174,17 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
 
           <button
             onClick={() => setCustomMode(true)}
-            className="flex items-center gap-2 px-1 py-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+            className="mt-2 flex items-center gap-1.5 px-1 text-[12px] text-muted-foreground/50 transition-colors hover:text-foreground"
           >
-            <Icons.Edit size={12} strokeWidth={1.5} />
+            <Icons.Edit size={11} strokeWidth={1.5} />
             Use a custom model
           </button>
         </div>
       )}
 
       {(customMode || options.length === 0) && (
-        <div className="space-y-2">
-          <Label className="text-[13px]">Model Reference</Label>
+        <div className="space-y-3">
+          <Label className="text-[13px] text-foreground/80">Model Reference</Label>
           <Input
             value={selectedModel}
             onChange={(e) => {
@@ -182,13 +195,13 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
               if (e.key === "Enter" && selectedModel.trim()) handleSubmit()
             }}
             placeholder={`e.g. ${contract?.providerId || "provider"}/model-name`}
-            className="font-mono text-sm"
+            className="h-11 rounded-xl border-foreground/[0.06] bg-foreground/[0.03] font-mono text-[13px] focus-visible:ring-foreground/10"
             autoFocus
             spellCheck={false}
             aria-invalid={!!error}
           />
-          <p className="text-[11px] text-muted-foreground">
-            Format: <code className="rounded bg-muted px-1 py-0.5">provider/model</code>
+          <p className="text-[11px] text-muted-foreground/50">
+            Format: <code className="rounded bg-foreground/5 px-1.5 py-0.5 text-[10px]">provider/model</code>
           </p>
           {options.length > 0 && (
             <button
@@ -197,9 +210,9 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
                 setSelectedModel(recommended || options[0]?.value || "")
                 setError(null)
               }}
-              className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+              className="flex items-center gap-1 text-[12px] text-muted-foreground/50 transition-colors hover:text-foreground"
             >
-              <Icons.Back size={12} strokeWidth={1.5} />
+              <Icons.Back size={11} strokeWidth={1.5} />
               Back to suggested models
             </button>
           )}
@@ -207,14 +220,24 @@ export function ModelStep({ getModelContract, submitModel, onComplete, onBack }:
       )}
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-          <p className="text-sm text-destructive">{error}</p>
+        <div className="rounded-xl bg-destructive/[0.06] px-4 py-3">
+          <p className="text-[13px] text-destructive">{error}</p>
         </div>
       )}
 
-      <Button size="sm" onClick={handleSubmit} disabled={submitting || !selectedModel.trim()}>
-        {submitting ? "Saving..." : "Continue"}
-      </Button>
+      <div className="flex justify-center pt-1">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !selectedModel.trim()}
+          className={cn(
+            "rounded-xl bg-foreground px-8 py-2.5 text-[13px] font-medium text-background transition-all",
+            "hover:bg-foreground/90 active:scale-[0.98]",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+          )}
+        >
+          {submitting ? "Saving..." : "Continue"}
+        </button>
+      </div>
     </div>
   )
 }
