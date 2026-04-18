@@ -33,7 +33,7 @@ export function InspectorPanel({ open, onClose }: InspectorPanelProps) {
     >
       <div className="flex h-full w-[390px] flex-col">
         {/* Tabs */}
-        <div className="flex h-10 shrink-0 items-center border-b border-border/50 px-1">
+        <div className="flex h-9 shrink-0 items-center border-b border-border/50 px-1">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id
             return (
@@ -42,7 +42,7 @@ export function InspectorPanel({ open, onClose }: InspectorPanelProps) {
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  "relative flex h-full items-center px-3 text-[12px] font-medium transition-colors",
+                  "relative flex h-full cursor-pointer items-center px-2.5 text-[11px] font-medium transition-colors",
                   isActive
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
@@ -50,7 +50,7 @@ export function InspectorPanel({ open, onClose }: InspectorPanelProps) {
               >
                 {tab.label}
                 {isActive && (
-                  <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-foreground/70" />
+                  <span className="absolute inset-x-2.5 bottom-0 h-[2px] rounded-full bg-foreground/70" />
                 )}
               </button>
             )
