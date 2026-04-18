@@ -18,12 +18,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { cn } from "@/lib/utils"
-import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
+import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
 
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "skill", label: "Skill", icon: "skill" },
-  { id: "workspace", label: "Workspace", icon: "workspace" },
   { id: "connect", label: "Connect", icon: "connect" },
   { id: "settings", label: "Settings", icon: "settings" },
 ]
@@ -98,20 +97,27 @@ export function Sidebar({
     >
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
 
-      <nav className={cn("relative z-10 flex-1 overflow-y-auto px-2 py-3", "scroll-smooth overscroll-contain")}>
+      <nav className={cn("relative z-10 flex-1 px-2 py-3", collapsed ? "overflow-hidden" : "overflow-y-auto scroll-smooth overscroll-contain")}>
         {isSettingsMode ? (
           <div className="flex h-full flex-col gap-1">
-            <button
-              onClick={onBackToMain}
-              title="Back to App"
-              className={cn(
-                "flex w-full cursor-pointer items-center rounded-md text-left font-medium transition-colors hover:text-foreground",
-                collapsed ? "justify-center px-0 py-2" : "gap-1 px-2.5 py-1 text-[12px] text-muted-foreground",
-              )}
-            >
-              <Icons.Back size={16} strokeWidth={1.5} />
-              {!collapsed && <span>Back to App</span>}
-            </button>
+            {collapsed ? (
+              <GlassTooltip label="Back to App">
+                <button
+                  onClick={onBackToMain}
+                  className="flex w-full cursor-pointer items-center justify-center rounded-sm px-0 py-2 font-medium transition-colors hover:text-foreground"
+                >
+                  <Icons.Back size={16} strokeWidth={1.5} />
+                </button>
+              </GlassTooltip>
+            ) : (
+              <button
+                onClick={onBackToMain}
+                className="flex w-full cursor-pointer items-center gap-1 rounded-sm px-2.5 py-1 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Icons.Back size={16} strokeWidth={1.5} />
+                <span>Back to App</span>
+              </button>
+            )}
 
             {!collapsed && <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Personal</div>}
             <SettingsItem label="Usage" icon="usage" active={activeTab === "usage"} onClick={() => onTabChange("usage")} collapsed={collapsed} />
@@ -153,21 +159,36 @@ export function Sidebar({
                   Pinned
                 </p>
               )}
-              <button
-                type="button"
-                title="Project"
-                onClick={() => onTabChange("project")}
-                className={cn(
-                  "flex w-full min-w-0 cursor-pointer items-center rounded-md text-left font-medium transition-colors duration-150",
-                  collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1 text-[13px]",
-                  activeTab === "project"
-                    ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                )}
-              >
-                <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
-                {!collapsed && <span className="flex-1 truncate">Project</span>}
-              </button>
+              {collapsed ? (
+                <GlassTooltip label="Project">
+                  <button
+                    type="button"
+                    onClick={() => onTabChange("project")}
+                    className={cn(
+                      "flex w-full min-w-0 cursor-pointer items-center justify-center rounded-md px-0 py-2 font-medium transition-colors duration-150",
+                      activeTab === "project"
+                        ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
+                  </button>
+                </GlassTooltip>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onTabChange("project")}
+                  className={cn(
+                    "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[13px] font-medium transition-colors duration-150",
+                    activeTab === "project"
+                      ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                  )}
+                >
+                  <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
+                  <span className="flex-1 truncate">Project</span>
+                </button>
+              )}
             </div>
           </>
         )}
@@ -211,10 +232,9 @@ function SettingsItem({ label, icon, active, onClick, collapsed }: {
 
   const Icon = iconMap[icon] || Icons.Settings
 
-  return (
+  const btn = (
     <button
       onClick={onClick}
-      title={label}
       className={cn(
         "flex w-full cursor-pointer items-center rounded-md font-normal transition-colors",
         collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1.5 text-left text-[13px]",
@@ -227,6 +247,12 @@ function SettingsItem({ label, icon, active, onClick, collapsed }: {
       {!collapsed && <span className="truncate">{label}</span>}
     </button>
   )
+
+  if (collapsed) {
+    return <GlassTooltip label={label}>{btn}</GlassTooltip>
+  }
+
+  return btn
 }
 
 export { DEFAULT_DRAGGABLE_ITEMS }

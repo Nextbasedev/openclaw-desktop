@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscLayoutPanelOff, VscLayoutPanel } from "react-icons/vsc"
+import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscTerminal } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
@@ -92,25 +92,6 @@ export function Header({
 
                     <button
                         type="button"
-                        aria-label="Toggle terminal"
-                        title="Toggle terminal"
-                        onClick={onToggleTerminal}
-                        className={cn(
-                            "flex size-7 items-center justify-center rounded-md",
-                            "transition-colors cursor-pointer",
-                            terminalOpen
-                                ? "text-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                        )}
-                    >
-                        {terminalOpen ? (
-                            <VscLayoutPanel className="size-4" />
-                        ) : (
-                            <VscLayoutPanelOff className="size-4" />
-                        )}
-                    </button>
-                    <button
-                        type="button"
                         aria-label="Toggle inspector panel"
                         title="Toggle inspector panel"
                         onClick={onToggleInspector}
@@ -128,6 +109,23 @@ export function Header({
                             <VscLayoutSidebarRightOff className="size-4" />
                         )}
                     </button>
+
+                    <button
+                        type="button"
+                        aria-label="Toggle terminal"
+                        title="Toggle terminal"
+                        onClick={onToggleTerminal}
+                        className={cn(
+                            "flex size-7 items-center justify-center rounded-md",
+                            "transition-colors cursor-pointer",
+                            terminalOpen
+                                ? "text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        <VscTerminal className="size-4" />
+                    </button>
+                    
                     <HeaderIconButton
                         icon={Icons.Notification}
                         label="Notifications"

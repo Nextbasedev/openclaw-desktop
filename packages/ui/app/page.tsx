@@ -8,7 +8,6 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
-import { TerminalPanel } from "@/components/TerminalPanel"
 import { UsagePage } from "@/components/UsagePage"
 import { SkillPage } from "@/components/SkillPage"
 import { AccountTab } from "@/components/settings/tabs/AccountTab"
@@ -55,21 +54,27 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [terminalActive, setTerminalActive] = useState(false)
   const [activeTab, setActiveTab] = useState("chat")
   const [isSettingsMode, setIsSettingsMode] = useState(false)
   const [lastStandardTab, setLastStandardTab] = useState("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
   const isResizing = useRef(false)
-  const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
 
   const { flowState, signOut, deleteAccount } = useOnboardingFlow()
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
-  const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), [])
+  const toggleTerminal = useCallback(() => {
+    if (inspectorOpen && terminalActive) {
+      setInspectorOpen(false)
+      setTerminalActive(false)
+    } else {
+      setInspectorOpen(true)
+      setTerminalActive(true)
+    }
+  }, [inspectorOpen, terminalActive])
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
-  const openTerminal = useCallback(() => setTerminalOpen(true), [])
 
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
@@ -151,7 +156,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
-        terminalOpen={terminalOpen}
+        terminalOpen={terminalActive}
         onToggleTerminal={toggleTerminal}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
@@ -184,24 +189,18 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               flowState={flowState}
             />
           </main>
-
-          <TerminalPanel
-            open={terminalOpen}
-            onToggle={toggleTerminal}
-            externalHeight={terminalHeight}
-            onExternalHeightUsed={() => setTerminalHeight(null)}
-          />
         </div>
 
-        <InspectorPanel open={inspectorOpen} onClose={toggleInspector} />
+        <InspectorPanel
+          open={inspectorOpen}
+          onClose={toggleInspector}
+          terminalActive={terminalActive}
+          onTerminalActiveChange={setTerminalActive}
+        />
       </div>
 
       <Footer
         onToggleTerminal={toggleTerminal}
-        onDragOpenTerminal={(height) => {
-          openTerminal()
-          setTerminalHeight(height)
-        }}
       />
     </div>
   )
