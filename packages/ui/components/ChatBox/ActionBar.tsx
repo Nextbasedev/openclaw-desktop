@@ -2,14 +2,15 @@
 
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  ArrowUp01Icon,
-  Mic01Icon,
+  ArrowRight01Icon,
   PlusSignIcon,
   SparklesIcon,
   Image01Icon,
   File01Icon,
   Globe02Icon,
   Tick01Icon,
+  BubbleChatIcon,
+  ArrowDown01Icon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -61,7 +62,7 @@ export function ActionBar({
   onModelSelect,
 }: ActionBarProps) {
   return (
-    <div className="flex items-center justify-between gap-2 px-3 pb-3">
+    <div className="flex items-center justify-between gap-2 border-t border-border/40 px-3 py-2.5">
       {/* Left side */}
       <div className="flex items-center gap-1.5">
         {/* Plus button with popover */}
@@ -69,43 +70,43 @@ export function ActionBar({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex size-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               aria-label="Add"
             >
-              <HugeiconsIcon icon={PlusSignIcon} size={18} />
+              <HugeiconsIcon icon={PlusSignIcon} size={16} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="w-52 gap-1 p-2">
+          <PopoverContent side="top" align="start" className="w-52 gap-1 p-1.5">
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
             >
-              <HugeiconsIcon icon={Image01Icon} size={18} />
+              <HugeiconsIcon icon={Image01Icon} size={16} />
               Upload media
             </button>
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
             >
-              <HugeiconsIcon icon={File01Icon} size={18} />
+              <HugeiconsIcon icon={File01Icon} size={16} />
               Upload file
             </button>
             <button
               type="button"
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted",
+                "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-secondary",
                 webSearchEnabled
                   ? "font-medium text-foreground"
                   : "text-foreground"
               )}
               onClick={onWebSearchToggle}
             >
-              <HugeiconsIcon icon={Globe02Icon} size={18} />
+              <HugeiconsIcon icon={Globe02Icon} size={16} />
               Web search
               {webSearchEnabled && (
                 <HugeiconsIcon
                   icon={Tick01Icon}
-                  size={16}
+                  size={14}
                   className="ml-auto text-primary"
                 />
               )}
@@ -113,19 +114,13 @@ export function ActionBar({
           </PopoverContent>
         </Popover>
 
-        {/* Plan button */}
+        {/* Chat mode button */}
         <button
           type="button"
-          onClick={onPlanToggle}
-          className={cn(
-            "flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors",
-            planEnabled
-              ? "border-primary/30 bg-primary/10 text-primary"
-              : "border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-          )}
+          className="flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-sm font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
         >
-          <HugeiconsIcon icon={SparklesIcon} size={16} />
-          Plan
+          <HugeiconsIcon icon={BubbleChatIcon} size={14} />
+          Chat
         </button>
 
         {/* Web search pill (shows when enabled) */}
@@ -133,9 +128,9 @@ export function ActionBar({
           <button
             type="button"
             onClick={onWebSearchDisable}
-            className="flex h-9 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3.5 text-sm font-medium text-primary transition-colors"
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-secondary px-3 text-sm font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
           >
-            <HugeiconsIcon icon={Globe02Icon} size={16} />
+            <HugeiconsIcon icon={Globe02Icon} size={14} />
             Web
           </button>
         )}
@@ -143,24 +138,39 @@ export function ActionBar({
 
       {/* Right side */}
       <div className="flex items-center gap-1.5">
+        {/* Plan button */}
+        <button
+          type="button"
+          onClick={onPlanToggle}
+          className={cn(
+            "flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors",
+            planEnabled
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+          )}
+        >
+          <HugeiconsIcon icon={SparklesIcon} size={14} />
+          Plan
+        </button>
+
         {/* Model selector */}
         <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-9 items-center gap-1 rounded-full border border-border/60 px-3.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex h-8 items-center gap-1 rounded-lg bg-secondary px-3 text-sm text-secondary-foreground transition-colors hover:bg-secondary/80"
             >
               {selectedModel.label}
-              <span className="text-xs">⌄</span>
+              <HugeiconsIcon icon={ArrowDown01Icon} size={14} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="end" className="w-48 gap-1 p-2">
+          <PopoverContent side="top" align="end" className="w-48 gap-1 p-1.5">
             {MODELS.map((model) => (
               <button
                 key={model.id}
                 type="button"
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted",
+                  "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-secondary",
                   selectedModel.id === model.id
                     ? "font-medium text-foreground"
                     : "text-muted-foreground"
@@ -171,7 +181,7 @@ export function ActionBar({
                 {selectedModel.id === model.id && (
                   <HugeiconsIcon
                     icon={Tick01Icon}
-                    size={16}
+                    size={14}
                     className="ml-auto text-primary"
                   />
                 )}
@@ -180,28 +190,19 @@ export function ActionBar({
           </PopoverContent>
         </Popover>
 
-        {/* Mic button */}
-        <button
-          type="button"
-          className="flex size-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-          aria-label="Voice input"
-        >
-          <HugeiconsIcon icon={Mic01Icon} size={18} />
-        </button>
-
         {/* Send button */}
         <button
           type="button"
           disabled={!hasInput}
           className={cn(
-            "flex size-9 items-center justify-center rounded-full transition-colors",
+            "flex size-8 items-center justify-center rounded-lg transition-colors",
             hasInput
               ? "bg-foreground text-background hover:bg-foreground/85"
-              : "cursor-not-allowed bg-muted text-muted-foreground/50"
+              : "cursor-not-allowed bg-secondary text-muted-foreground/50"
           )}
           aria-label="Send message"
         >
-          <HugeiconsIcon icon={ArrowUp01Icon} size={18} />
+          <HugeiconsIcon icon={ArrowRight01Icon} size={16} />
         </button>
       </div>
     </div>

@@ -29,14 +29,14 @@ export function ChatBox() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4">
-      <div className="rounded-2xl border border-border/70 bg-card/95 shadow-lg backdrop-blur-xl">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {/* Textarea */}
-        <div className="px-4 pt-4 pb-2">
+        <div className="px-4 pt-4 pb-3">
           <textarea
             ref={textareaRef}
-            className="w-full resize-none bg-transparent text-[15px] leading-7 text-foreground outline-none placeholder:text-muted-foreground/80"
+            className="min-h-[80px] w-full resize-none bg-transparent text-[15px] leading-7 text-foreground outline-none placeholder:text-muted-foreground/60"
             placeholder="Message..."
-            rows={1}
+            rows={3}
             value={input}
             onChange={(e) => {
               setInput(e.target.value)

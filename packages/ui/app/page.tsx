@@ -14,13 +14,12 @@ export default function Page() {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
 
-        {/* Main content area */}
-        <main className="flex flex-1 flex-col">
-          {/* Message area (future) */}
-          <div className="flex-1" />
-
-          {/* Chat input */}
-          <div className="pb-4">
+        {/* Main content area — vertically centered */}
+        <main className="flex flex-1 items-center justify-center">
+          <div className="flex w-full flex-col items-center gap-8">
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              What needs to be done?
+            </h1>
             <ChatBox />
           </div>
         </main>
