@@ -38,3 +38,54 @@ fn files_aliases_behave_like_project_file_commands() {
     assert!(!renamed.exists());
   });
 }
+
+#[test]
+fn files_prepare_attachment_returns_attachment_shape() {
+  with_test_db(|| {
+    let temp = tempdir().expect("create temp dir");
+    let workspace_root = temp.path();
+
+    let project = middleware_projects_create(ProjectCreateInput {
+      name: "Attachment Project".to_string(),
+      profile_id: "prof_att".to_string(),
+      workspace_root: path_string(workspace_root),
+      repo_root: Some(path_string(workspace_root)),
+    }).expect("create project");
+    let project_id = project.get("project").and_then(|p| p.get("id")).and_then(Value::as_str).expect("project id").to_string();
+
+    std::fs::create_dir_all(workspace_root.join("docs")).expect("mkdir docs");
+    std::fs::write(workspace_root.join("docs/plan.md"), "# Build plan\nStep 1").expect("write text file");
+
+    let result = middleware_files_prepare_attachment(FilePathInput { project_id: project_id.clone(), path: "/docs/plan.md".to_string() }).expect("prepare should succeed");
+    assert_eq!(result.get("name").and_then(Value::as_str), Some("plan.md"));
+    assert_eq!(result.get("mimeType").and_then(Value::as_str), Some("text/plain"));
+    assert_eq!(result.get("encoding").and_then(Value::as_str), Some("utf-8"));
+    assert_eq!(result.get("content").and_then(Value::as_str), Some("# Build plan\nStep 1"));
+    assert!(result.get("size").and_then(Value::as_u64).unwrap() > 0);
+  });
+}
+
+#[test]
+fn files_prepare_attachment_handles_binary() {
+  with_test_db(|| {
+    let temp = tempdir().expect("create temp dir");
+    let workspace_root = temp.path();
+
+    let project = middleware_projects_create(ProjectCreateInput {
+      name: "Binary Attachment Project".to_string(),
+      profile_id: "prof_bin".to_string(),
+      workspace_root: path_string(workspace_root),
+      repo_root: Some(path_string(workspace_root)),
+    }).expect("create project");
+    let project_id = project.get("project").and_then(|p| p.get("id")).and_then(Value::as_str).expect("project id").to_string();
+
+    let binary: Vec<u8> = vec![0x00, 0xFF, 0xAB, 0xCD];
+    std::fs::write(workspace_root.join("data.bin"), &binary).expect("write binary");
+
+    let result = middleware_files_prepare_attachment(FilePathInput { project_id, path: "/data.bin".to_string() }).expect("prepare should succeed");
+    assert_eq!(result.get("name").and_then(Value::as_str), Some("data.bin"));
+    assert_eq!(result.get("mimeType").and_then(Value::as_str), Some("application/octet-stream"));
+    assert_eq!(result.get("encoding").and_then(Value::as_str), Some("base64"));
+    assert_eq!(result.get("size").and_then(Value::as_u64), Some(4));
+  });
+}
