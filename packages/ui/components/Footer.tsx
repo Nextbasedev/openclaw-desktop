@@ -8,9 +8,10 @@ import { VersionUpdateModal } from "./sidebar/VersionUpdateModal"
 
 type FooterProps = {
   className?: string
+  onToggleTerminal?: () => void
 }
 
-export function Footer({ className }: FooterProps) {
+export function Footer({ className, onToggleTerminal }: FooterProps) {
   const [versionModalOpen, setVersionModalOpen] = useState(false)
 
   return (
@@ -39,6 +40,7 @@ export function Footer({ className }: FooterProps) {
           icon={<VscTerminal className="size-3.5" />}
           keys={["Ctrl", "~"]}
           label="Terminal"
+          onClick={onToggleTerminal}
         />
       </div>
       </footer>
@@ -56,17 +58,20 @@ function ShortcutButton({
   icon,
   keys,
   label,
+  onClick,
 }: {
   icon: React.ReactNode
   keys: string[]
   label: string
+  onClick?: () => void
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      onClick={onClick}
       className={cn(
-        "flex items-center gap-1.5 rounded-md px-1.5 py-0.5",
+        "flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5",
         "text-muted-foreground transition-colors",
         "hover:bg-secondary/60 hover:text-foreground",
       )}

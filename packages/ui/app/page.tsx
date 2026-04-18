@@ -7,11 +7,17 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
+import { TerminalPanel } from "@/components/TerminalPanel"
+import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 
 export default function Page() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
+  const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), [])
+
+  useTerminalShortcut(toggleTerminal)
 
   return (
     <div className="flex h-svh flex-col bg-background">
@@ -24,19 +30,25 @@ export default function Page() {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
 
-        {/* Main content area — vertically centered */}
-        <main className="flex flex-1 items-center justify-center transition-all duration-300 ease-in-out">
-          <div className="flex w-full flex-col items-center gap-8">
-            <AnimatedGreeting />
-            <ChatBox />
-          </div>
-        </main>
+        {/* Main + terminal column */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Main content area — vertically centered */}
+          <main className="flex flex-1 items-center justify-center transition-all duration-300 ease-in-out">
+            <div className="flex w-full flex-col items-center gap-8">
+              <AnimatedGreeting />
+              <ChatBox />
+            </div>
+          </main>
+
+          {/* Terminal panel — slides up from bottom */}
+          <TerminalPanel open={terminalOpen} onToggle={toggleTerminal} />
+        </div>
 
         {/* Right inspector panel */}
         <InspectorPanel open={inspectorOpen} onClose={toggleInspector} />
       </div>
 
-      <Footer />
+      <Footer onToggleTerminal={toggleTerminal} />
     </div>
   )
 }
