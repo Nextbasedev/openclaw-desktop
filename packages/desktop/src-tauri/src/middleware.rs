@@ -44,6 +44,8 @@ const APP_SETTING_OPENCLAW_BOT_NAME: &str = "openclaw.bot_name";
 const APP_SETTING_ONBOARDING_PROVIDER_ID: &str = "onboarding.provider.id";
 const APP_SETTING_ONBOARDING_PROVIDER_AUTH_METHOD: &str = "onboarding.provider.auth_method";
 const APP_SETTING_ONBOARDING_PROVIDER_VALUES_PREFIX: &str = "onboarding.provider.values.";
+const APP_SETTING_ONBOARDING_MODEL_REF: &str = "onboarding.model.ref";
+const APP_SETTING_ONBOARDING_MODEL_PROVIDER_ID: &str = "onboarding.model.provider_id";
 
 #[derive(Default)]
 pub struct MiddlewareState {
@@ -3497,6 +3499,20 @@ pub struct OnboardingProviderSubmitInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OnboardingModelContractInput {
+  provider_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardingModelSubmitInput {
+  provider_id: Option<String>,
+  model_ref: String,
+  set_default: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitRemoteAddInput {
   project_id: String,
   remote_name: String,
@@ -4017,6 +4033,146 @@ fn provider_summary_from_manifest(manifest: &Value, provider_id: &str) -> Value 
   })
 }
 
+fn onboarding_model_options_for_provider(provider_id: &str, auth_method: Option<&str>) -> Vec<Value> {
+  let refs = match provider_id {
+    "openai" => vec!["openai/gpt-5.4", "openai/gpt-5.4-mini", "openai/o4-mini"],
+    "openai-codex" => vec!["openai-codex/gpt-5.4", "openai-codex/gpt-5.4-pro"],
+    "anthropic" => {
+      if auth_method == Some("cli") {
+        vec![
+          "claude-cli/claude-sonnet-4-6",
+          "claude-cli/claude-opus-4-6",
+          "claude-cli/claude-haiku-4-5",
+        ]
+      } else {
+        vec![
+          "anthropic/claude-sonnet-4-6",
+          "anthropic/claude-opus-4-6",
+          "anthropic/claude-haiku-4-5",
+        ]
+      }
+    }
+    "google" => vec!["google/gemini-2.5-pro", "google/gemini-2.5-flash"],
+    "openrouter" => vec!["openrouter/openai/gpt-4o-mini", "openrouter/anthropic/claude-sonnet-4-5"],
+    "deepseek" => vec!["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
+    "mistral" => vec!["mistral/mistral-medium-2505", "mistral/mistral-small-2503"],
+    "xai" => vec!["xai/grok-4", "xai/grok-3-mini"],
+    "qwen" => vec!["qwen/qwen3-coder-plus", "qwen/qwen3-235b-a22b"],
+    "moonshot" => vec!["moonshot/kimi-k2", "moonshot/kimi-latest"],
+    "ollama" => vec!["ollama/qwen3:4b", "ollama/llama3.2:3b"],
+    "lmstudio" => vec!["lmstudio/local-model", "lmstudio/qwen2.5-coder"],
+    "github-copilot" => vec!["github-copilot/gpt-4.1", "github-copilot/claude-sonnet-4-5"],
+    "codex" => vec!["codex/gpt-5.4", "codex/gpt-5.4-mini"],
+    _ => Vec::new(),
+  };
+
+  refs
+    .into_iter()
+    .map(|model_ref| {
+      let display_name = model_ref
+        .split('/')
+        .last()
+        .unwrap_or(model_ref)
+        .to_string();
+      json!({
+        "id": model_ref,
+        "value": model_ref,
+        "label": display_name,
+      })
+    })
+    .collect()
+}
+
+fn default_onboarding_model_ref(provider_id: &str, auth_method: Option<&str>) -> Option<String> {
+  onboarding_model_options_for_provider(provider_id, auth_method)
+    .first()
+    .and_then(|value| value.get("value").and_then(Value::as_str))
+    .map(ToString::to_string)
+}
+
+fn selected_onboarding_provider(conn: &Connection) -> Result<Option<(String, Option<String>)>, String> {
+  let provider_id = get_app_setting(conn, APP_SETTING_ONBOARDING_PROVIDER_ID)?;
+  let auth_method = get_app_setting(conn, APP_SETTING_ONBOARDING_PROVIDER_AUTH_METHOD)?
+    .and_then(|value| if value.trim().is_empty() { None } else { Some(value) });
+  Ok(provider_id.map(|provider_id| (provider_id, auth_method)))
+}
+
+fn onboarding_model_contract_value(
+  conn: &Connection,
+  provider_id: String,
+  auth_method: Option<String>,
+) -> Result<Value, String> {
+  let manifest = manifest_for_provider(&provider_id)?;
+  let provider = provider_summary_from_manifest(&manifest, &provider_id);
+  let selected_model_ref = get_app_setting(conn, APP_SETTING_ONBOARDING_MODEL_REF)?;
+  let recommended_model_ref = default_onboarding_model_ref(&provider_id, auth_method.as_deref());
+  let recommended_for_field = recommended_model_ref.clone();
+  let model_options = onboarding_model_options_for_provider(&provider_id, auth_method.as_deref());
+
+  Ok(json!({
+    "providerId": provider_id,
+    "authMethod": auth_method,
+    "selectedModelRef": selected_model_ref,
+    "recommendedModelRef": recommended_model_ref,
+    "submitEndpoint": "middleware_onboarding_model_submit",
+    "nextStep": "complete",
+    "provider": provider,
+    "types": {
+      "providerId": provider.get("id").cloned().unwrap_or(Value::Null),
+      "submitEndpoint": "middleware_onboarding_model_submit",
+      "typeNames": {
+        "payload": provider_type_name(
+          provider.get("id").and_then(Value::as_str).unwrap_or("model"),
+          "OnboardingModelSubmitPayload",
+        ),
+        "selection": provider_type_name(
+          provider.get("id").and_then(Value::as_str).unwrap_or("model"),
+          "OnboardingModelSelection",
+        ),
+      },
+      "payloadShape": {
+        "providerId": { "type": "literal", "value": provider.get("id").cloned().unwrap_or(Value::Null) },
+        "modelRef": {
+          "type": "string",
+          "required": true,
+          "inputKind": if model_options.is_empty() { "text" } else { "combobox" },
+          "allowCustom": true,
+          "recommended": recommended_for_field,
+          "options": model_options,
+        },
+        "setDefault": { "type": "boolean", "default": true }
+      }
+    }
+  }))
+}
+
+fn onboarding_step_state(core_status: &Value, bot_name: Option<String>, provider_done: bool, model_done: bool) -> Value {
+  let core_done = core_status.get("recommendation").and_then(Value::as_str) == Some("ready");
+  let bot_done = bot_name.as_deref().map(|value| !value.trim().is_empty()).unwrap_or(false);
+  let next_step = if !core_done {
+    "core"
+  } else if !bot_done {
+    "bot"
+  } else if !provider_done {
+    "provider"
+  } else if !model_done {
+    "model"
+  } else {
+    "complete"
+  };
+
+  json!({
+    "steps": [
+      { "id": "core", "title": "Install and start OpenClaw", "complete": core_done },
+      { "id": "bot", "title": "Set bot name", "complete": bot_done },
+      { "id": "provider", "title": "Choose provider", "complete": provider_done },
+      { "id": "model", "title": "Choose default model", "complete": model_done }
+    ],
+    "nextStep": next_step,
+    "completed": next_step == "complete"
+  })
+}
+
 #[tauri::command]
 pub fn middleware_onboarding_providers() -> Result<Value, String> {
   let manifests = read_openclaw_provider_manifests()?;
@@ -4262,6 +4418,135 @@ pub fn middleware_onboarding_provider_submit(
     "openClawFlow": ["onboarding", "model-selection"],
     "provider": provider,
     "types": submit_schema,
+  }))
+}
+
+#[tauri::command]
+pub fn middleware_onboarding_model_contract(
+  input: Option<OnboardingModelContractInput>,
+) -> Result<Value, String> {
+  let conn = open_db()?;
+  let selected = if let Some(provider_id) = input.and_then(|value| value.provider_id) {
+    let auth_method = get_app_setting(&conn, APP_SETTING_ONBOARDING_PROVIDER_AUTH_METHOD)?
+      .and_then(|value| if value.trim().is_empty() { None } else { Some(value) });
+    Some((provider_id, auth_method))
+  } else {
+    selected_onboarding_provider(&conn)?
+  }
+  .ok_or_else(|| "No onboarding provider selected yet".to_string())?;
+
+  let (provider_id, auth_method) = selected;
+  let contract = onboarding_model_contract_value(&conn, provider_id, auth_method)?;
+  Ok(json!({ "contract": contract }))
+}
+
+#[tauri::command]
+pub fn middleware_onboarding_model_submit(input: OnboardingModelSubmitInput) -> Result<Value, String> {
+  let conn = open_db()?;
+  let (provider_id, auth_method) = match input.provider_id {
+    Some(provider_id) => {
+      let auth_method = get_app_setting(&conn, APP_SETTING_ONBOARDING_PROVIDER_AUTH_METHOD)?
+        .and_then(|value| if value.trim().is_empty() { None } else { Some(value) });
+      (provider_id, auth_method)
+    }
+    None => selected_onboarding_provider(&conn)?
+      .ok_or_else(|| "No onboarding provider selected yet".to_string())?,
+  };
+
+  let model_ref = input.model_ref.trim();
+  if model_ref.is_empty() {
+    return Err("modelRef is required".to_string());
+  }
+  if !model_ref.contains('/') {
+    return Err("modelRef must use provider/model format".to_string());
+  }
+  if !model_ref.starts_with(&format!("{provider_id}/")) {
+    return Err(format!(
+      "modelRef '{}' does not belong to selected provider {}",
+      model_ref, provider_id
+    ));
+  }
+
+  let mut config = read_openclaw_config_value()?;
+  set_json_path(
+    &mut config,
+    "agents.defaults.model.primary",
+    Value::String(model_ref.to_string()),
+  );
+  write_openclaw_config_value(&config)?;
+
+  set_app_setting(&conn, APP_SETTING_ONBOARDING_MODEL_REF, model_ref)?;
+  set_app_setting(&conn, APP_SETTING_ONBOARDING_MODEL_PROVIDER_ID, &provider_id)?;
+
+  let contract = onboarding_model_contract_value(&conn, provider_id.clone(), auth_method)?;
+  Ok(json!({
+    "ok": true,
+    "providerId": provider_id,
+    "modelRef": model_ref,
+    "saved": {
+      "setDefault": input.set_default.unwrap_or(true),
+      "configPaths": ["agents.defaults.model.primary"],
+    },
+    "nextStep": "complete",
+    "openClawFlow": ["onboarding", "complete"],
+    "contract": contract,
+  }))
+}
+
+#[tauri::command]
+pub async fn middleware_onboarding_flow(input: Option<OnboardingCoreInput>) -> Result<Value, String> {
+  let gateway_url = input
+    .and_then(|value| value.gateway_url)
+    .unwrap_or_else(|| format!("ws://127.0.0.1:{}", DEFAULT_GATEWAY_PORT));
+  let core_status = onboarding_snapshot(gateway_url).await;
+  let conn = open_db()?;
+  let bot_name = get_app_setting(&conn, APP_SETTING_OPENCLAW_BOT_NAME)?;
+  let selected_provider = selected_onboarding_provider(&conn)?;
+  let config = read_openclaw_config_value().unwrap_or_else(|_| json!({}));
+  let selected_model_ref = get_app_setting(&conn, APP_SETTING_ONBOARDING_MODEL_REF)?
+    .or_else(|| value_at_json_path(&config, "agents.defaults.model.primary").and_then(Value::as_str).map(ToString::to_string));
+
+  let provider_details = if let Some((provider_id, auth_method)) = selected_provider.clone() {
+    Some(json!({
+      "providerId": provider_id,
+      "authMethod": auth_method,
+    }))
+  } else {
+    None
+  };
+  let model_contract = if let Some((provider_id, auth_method)) = selected_provider.clone() {
+    Some(onboarding_model_contract_value(&conn, provider_id, auth_method)?)
+  } else {
+    None
+  };
+  let flow = onboarding_step_state(&core_status, bot_name.clone(), selected_provider.is_some(), selected_model_ref.is_some());
+
+  Ok(json!({
+    "flow": flow,
+    "state": {
+      "core": {
+        "status": core_status,
+        "checkEndpoint": "middleware_onboarding_core",
+      },
+      "bot": {
+        "botName": bot_name,
+        "getEndpoint": "middleware_openclaw_bot_name_get",
+        "setEndpoint": "middleware_openclaw_bot_name_set",
+      },
+      "provider": {
+        "selection": provider_details,
+        "listEndpoint": "middleware_onboarding_providers",
+        "typesEndpoint": "middleware_onboarding_provider_types",
+        "detailsEndpoint": "middleware_onboarding_provider_details",
+        "submitEndpoint": "middleware_onboarding_provider_submit",
+      },
+      "model": {
+        "selectedModelRef": selected_model_ref,
+        "contractEndpoint": "middleware_onboarding_model_contract",
+        "submitEndpoint": "middleware_onboarding_model_submit",
+        "contract": model_contract,
+      }
+    }
   }))
 }
 

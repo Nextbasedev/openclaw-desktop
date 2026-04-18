@@ -1,61 +1,51 @@
-# ONBOARDING.md
+# Jarvis Desktop Onboarding Backend Contract
 
-Scope: document the current backend/middleware contract for Jarvis core onboarding.
+This is the single source of truth for the end-to-end onboarding flow exposed by the desktop Tauri middleware.
 
-Goal:
-- frontend uses one core onboarding surface
-- onboarding focuses on prerequisites needed to run Jarvis with OpenClaw
-- git/repo setup is no longer the center of onboarding
-
----
-
-## 1. Current core onboarding surface
-
-The current onboarding backend lives in:
+Backend files:
 - `packages/desktop/src-tauri/src/middleware.rs`
-- command registration in `packages/desktop/src-tauri/src/lib.rs`
+- `packages/desktop/src-tauri/src/lib.rs`
 
-Primary command:
+## Commands
+
+Core setup:
 - `middleware_onboarding_core`
 
-Provider setup commands after core onboarding is ready:
+Bot setup:
+- `middleware_openclaw_bot_name_get`
+- `middleware_openclaw_bot_name_set`
+
+Provider setup:
 - `middleware_onboarding_providers`
 - `middleware_onboarding_provider_types`
 - `middleware_onboarding_provider_details`
 - `middleware_onboarding_provider_submit`
 
+Model setup:
+- `middleware_onboarding_model_contract`
+- `middleware_onboarding_model_submit`
+
+Unified flow:
+- `middleware_onboarding_flow`
+
 Compatibility helpers still available:
 - `middleware_openclaw_check`
 - `middleware_openclaw_install`
 
-Advanced repo utilities, not core onboarding:
-- `middleware_git_remote_add`
-- `middleware_git_remote_list`
-- `middleware_git_remote_remove`
+## Recommended frontend order
 
----
+1. Call `middleware_onboarding_flow` on screen load.
+2. If `flow.nextStep === "core"`, use `middleware_onboarding_core`.
+3. If `flow.nextStep === "bot"`, use bot-name get/set endpoints.
+4. If `flow.nextStep === "provider"`, load provider picker and submit provider.
+5. If `flow.nextStep === "model"`, fetch model contract and submit model.
+6. If `flow.nextStep === "complete"`, onboarding is done.
 
-## 2. Core onboarding philosophy
+## 1. Unified flow endpoint
 
-Jarvis core onboarding should answer one question:
-- can this machine run OpenClaw and reach a running Gateway yet?
+### `middleware_onboarding_flow`
 
-So the onboarding priority order is:
-1. Node.js
-2. npm
-3. OpenClaw CLI
-4. OpenClaw Gateway
-5. bot/channel setup in frontend
-
-Git is optional for later repo workflows. It is not a core prerequisite for first-run onboarding.
-
----
-
-## 3. `middleware_onboarding_core`
-
-This is the main endpoint frontend should use.
-
-### Input
+Input:
 ```json
 {
   "action": "check",
@@ -63,160 +53,404 @@ This is the main endpoint frontend should use.
 }
 ```
 
-Fields:
-- `action`: optional, `check` or `apply`
-- `gatewayUrl`: optional, defaults to `ws://127.0.0.1:${DEFAULT_GATEWAY_PORT}`
+Both fields are optional. `gatewayUrl` defaults to local gateway.
 
-### `check` behavior
-Returns full onboarding status without changing the machine.
-
-### `apply` behavior
-Attempts safe automatic setup in this order:
-1. if Node.js missing → returns manual action required
-2. if npm missing → returns manual action required
-3. if OpenClaw missing and npm exists → runs `npm i -g openclaw`
-4. if Gateway not running and OpenClaw exists → runs `openclaw gateway start`
-5. returns final status snapshot
-
-### Response shape
+Response:
 ```json
 {
-  "action": "check",
-  "applied": false,
-  "canAutoFix": true,
-  "status": {
-    "node": {
-      "installed": true,
-      "version": "v22.22.0"
-    },
-    "npm": {
-      "installed": true,
-      "version": "10.9.3"
-    },
-    "openclaw": {
-      "installed": true,
-      "version": "openclaw 0.x.x",
-      "installMethod": "npm i -g openclaw"
-    },
-    "gateway": {
-      "url": "ws://127.0.0.1:18789",
-      "running": true,
-      "status": "running"
-    },
-    "recommendation": "ready"
+  "flow": {
+    "steps": [
+      { "id": "core", "title": "Install and start OpenClaw", "complete": true },
+      { "id": "bot", "title": "Set bot name", "complete": true },
+      { "id": "provider", "title": "Choose provider", "complete": true },
+      { "id": "model", "title": "Choose default model", "complete": false }
+    ],
+    "nextStep": "model",
+    "completed": false
   },
-  "actionsRun": []
+  "state": {
+    "core": {
+      "status": {
+        "node": { "installed": true, "version": "v22.22.0" },
+        "npm": { "installed": true, "version": "10.9.3" },
+        "openclaw": {
+          "installed": true,
+          "version": "openclaw 0.x.x",
+          "installMethod": "npm i -g openclaw"
+        },
+        "gateway": {
+          "url": "ws://127.0.0.1:18789",
+          "running": true,
+          "status": "running"
+        },
+        "recommendation": "ready"
+      },
+      "checkEndpoint": "middleware_onboarding_core"
+    },
+    "bot": {
+      "botName": "Jarvis",
+      "getEndpoint": "middleware_openclaw_bot_name_get",
+      "setEndpoint": "middleware_openclaw_bot_name_set"
+    },
+    "provider": {
+      "selection": {
+        "providerId": "openai",
+        "authMethod": "api-key"
+      },
+      "listEndpoint": "middleware_onboarding_providers",
+      "typesEndpoint": "middleware_onboarding_provider_types",
+      "detailsEndpoint": "middleware_onboarding_provider_details",
+      "submitEndpoint": "middleware_onboarding_provider_submit"
+    },
+    "model": {
+      "selectedModelRef": null,
+      "contractEndpoint": "middleware_onboarding_model_contract",
+      "submitEndpoint": "middleware_onboarding_model_submit",
+      "contract": {
+        "providerId": "openai",
+        "recommendedModelRef": "openai/gpt-5.4"
+      }
+    }
+  }
 }
 ```
 
-### Recommendation values
+Meaning:
+- `flow.steps` is the ordered progress UI contract.
+- `flow.nextStep` is the exact screen the frontend should route to next.
+- `flow.completed` means onboarding is fully complete.
+- `state` contains the current saved state plus endpoint hints for each step.
+
+## 2. Core setup
+
+### `middleware_onboarding_core`
+
+Input:
+```json
+{
+  "action": "check",
+  "gatewayUrl": "ws://127.0.0.1:18789"
+}
+```
+
+`action`:
+- `check`: read-only status
+- `apply`: auto-fix what backend safely can
+
+Checks, in order:
+1. Node.js
+2. npm
+3. OpenClaw CLI
+4. OpenClaw Gateway
+
+Recommendation values:
 - `install_node`
 - `install_npm`
 - `install_openclaw`
 - `start_gateway`
 - `ready`
 
-### Manual-action response example
-When Node.js is missing:
+`apply` behavior:
+- installs OpenClaw with `npm i -g openclaw` when possible
+- starts gateway with `openclaw gateway start` when possible
+- returns updated status snapshot
+
+Example response:
 ```json
 {
   "action": "apply",
-  "applied": false,
-  "canAutoFix": false,
-  "message": "Node.js is not installed. Install Node.js first, then rerun onboarding.",
-  "manualAction": "install_node",
-  "docsUrl": "https://nodejs.org/en/download",
+  "applied": true,
+  "canAutoFix": true,
   "status": {
-    "recommendation": "install_node"
-  },
-  "actionsRun": []
-}
-```
-
-### Frontend guidance
-Use this flow:
-1. call `middleware_onboarding_core({ action: "check" })`
-2. render current prerequisite state
-3. if user clicks continue/fix, call `middleware_onboarding_core({ action: "apply" })`
-4. if response becomes `ready`, continue to bot-name/channel setup
-5. if response requires manual Node/npm install, show CTA + help text
-
----
-
-## 4. Compatibility helper: `middleware_openclaw_check`
-
-This older endpoint still exists for compatibility.
-
-### Input
-```json
-{
-  "gatewayUrl": "ws://127.0.0.1:18789"
-}
-```
-
-### Response
-```json
-{
-  "installed": true,
-  "running": true,
-  "version": "openclaw 0.x.x",
-  "gateway": {
-    "url": "ws://127.0.0.1:18789",
-    "running": true,
-    "status": "running"
-  },
-  "recommendation": "ready",
-  "core": {
-    "node": { "installed": true },
-    "npm": { "installed": true },
-    "openclaw": { "installed": true },
-    "gateway": { "running": true },
     "recommendation": "ready"
-  }
+  },
+  "actionsRun": ["npm i -g openclaw", "openclaw gateway start"]
 }
 ```
 
-Compatibility mapping:
-- core `install_node` / `install_npm` / `install_openclaw` → legacy `install`
-- core `start_gateway` → legacy `start`
-- core `ready` → legacy `ready`
+If Node or npm is missing, backend returns manual-action guidance instead of trying to install them.
 
----
+## 3. Bot setup
 
-## 5. Compatibility helper: `middleware_openclaw_install`
+### `middleware_openclaw_bot_name_get`
 
-This older endpoint now delegates to the core onboarding apply flow.
+Input: none.
 
-### Behavior
-- attempts `middleware_onboarding_core({ action: "apply" })`
-- installs OpenClaw via npm when possible
-- starts gateway when possible
-- returns resulting status
-
-### Response
+Response:
 ```json
 {
-  "installed": true,
-  "running": true,
-  "actionsRun": [
-    "npm i -g openclaw",
-    "openclaw gateway start"
+  "botName": "Jarvis"
+}
+```
+
+### `middleware_openclaw_bot_name_set`
+
+Input:
+```json
+{
+  "botName": "Jarvis"
+}
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "botName": "Jarvis"
+}
+```
+
+Persistence:
+- SQLite app setting: `openclaw.bot_name`
+
+Frontend rule:
+- bot step is complete when `botName` is non-empty.
+
+## 4. Provider catalog and typed setup
+
+Use these after core is ready.
+
+### `middleware_onboarding_providers`
+Returns the normalized provider catalog for the picker.
+
+Example:
+```json
+{
+  "providers": [
+    {
+      "id": "openai",
+      "pluginId": "openai",
+      "displayName": "OpenAI",
+      "category": "core",
+      "authEnvVars": ["OPENAI_API_KEY"],
+      "authMethods": ["api-key"],
+      "submit": { "submitEndpoint": "middleware_onboarding_provider_submit" }
+    }
   ],
-  "status": {
-    "recommendation": "ready"
+  "count": 52
+}
+```
+
+### `middleware_onboarding_provider_types`
+Returns frontend-oriented typed form contracts for all providers.
+
+Important fields:
+- `stepKind`: `api-key`, `mixed`, `local`, or `advanced`
+- `typeNames`: suggested generated type names
+- `payloadShape`: exact payload contract to submit
+- `values.fields.credentials`: auth fields
+- `values.fields.config`: config fields derived from manifest schema
+
+### `middleware_onboarding_provider_details`
+Input:
+```json
+{ "providerId": "openai" }
+```
+
+Returns the full provider contract for one provider, including raw schema-derived config fields and submit schema.
+
+### `middleware_onboarding_provider_submit`
+Input:
+```json
+{
+  "providerId": "openai",
+  "authMethod": "api-key",
+  "values": {
+    "openaiApiKey": "sk-...",
+    "personality": "friendly"
+  },
+  "setDefault": true
+}
+```
+
+What it does:
+- validates provider and auth method
+- validates required credential/config fields
+- stores onboarding selection in SQLite
+- writes env vars to `~/.openclaw/openclaw.json` under `env.vars`
+- writes provider config into the provider block in `~/.openclaw/openclaw.json`
+
+Persistence keys:
+- `onboarding.provider.id`
+- `onboarding.provider.auth_method`
+- `onboarding.provider.values.*`
+
+Response:
+```json
+{
+  "ok": true,
+  "providerId": "openai",
+  "authMethod": "api-key",
+  "saved": {
+    "envVars": ["OPENAI_API_KEY"],
+    "configPaths": ["openai.personality"],
+    "setDefault": true
+  },
+  "nextStep": "model-selection",
+  "openClawFlow": ["onboarding", "model-selection"],
+  "provider": { "id": "openai" },
+  "types": {
+    "submitEndpoint": "middleware_onboarding_provider_submit"
   }
 }
 ```
 
----
+## 5. Model selection
 
-## 6. Git endpoints
+Use this after provider submission.
 
-These still exist, but they are advanced repo setup utilities rather than core onboarding.
+### `middleware_onboarding_model_contract`
+Input:
+```json
+{
+  "providerId": "openai"
+}
+```
 
-Commands:
-- `middleware_git_remote_add`
-- `middleware_git_remote_list`
-- `middleware_git_remote_remove`
+`providerId` is optional. If omitted, backend uses the saved onboarding provider.
 
-Use them only after onboarding is complete, when the product enters repo/project management flows.
+Response:
+```json
+{
+  "contract": {
+    "providerId": "openai",
+    "authMethod": "api-key",
+    "selectedModelRef": null,
+    "recommendedModelRef": "openai/gpt-5.4",
+    "submitEndpoint": "middleware_onboarding_model_submit",
+    "nextStep": "complete",
+    "provider": {
+      "id": "openai",
+      "displayName": "OpenAI"
+    },
+    "types": {
+      "providerId": "openai",
+      "submitEndpoint": "middleware_onboarding_model_submit",
+      "typeNames": {
+        "payload": "OpenaiOnboardingModelSubmitPayload",
+        "selection": "OpenaiOnboardingModelSelection"
+      },
+      "payloadShape": {
+        "providerId": { "type": "literal", "value": "openai" },
+        "modelRef": {
+          "type": "string",
+          "required": true,
+          "inputKind": "combobox",
+          "allowCustom": true,
+          "recommended": "openai/gpt-5.4",
+          "options": [
+            { "id": "openai/gpt-5.4", "value": "openai/gpt-5.4", "label": "gpt-5.4" }
+          ]
+        },
+        "setDefault": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}
+```
+
+Frontend rules:
+- render the model field from `types.payloadShape.modelRef`
+- use `options` for suggested choices
+- allow manual entry because some providers support more models than the suggested shortlist
+- always submit full `provider/model` ref format
+
+### `middleware_onboarding_model_submit`
+Input:
+```json
+{
+  "providerId": "openai",
+  "modelRef": "openai/gpt-5.4",
+  "setDefault": true
+}
+```
+
+`providerId` is optional if a provider is already saved.
+
+Validation:
+- `modelRef` is required
+- `modelRef` must contain `/`
+- `modelRef` must match the selected provider prefix
+
+What it does:
+- writes `agents.defaults.model.primary` in `~/.openclaw/openclaw.json`
+- stores onboarding model selection in SQLite
+
+Persistence keys:
+- `onboarding.model.ref`
+- `onboarding.model.provider_id`
+
+Response:
+```json
+{
+  "ok": true,
+  "providerId": "openai",
+  "modelRef": "openai/gpt-5.4",
+  "saved": {
+    "setDefault": true,
+    "configPaths": ["agents.defaults.model.primary"]
+  },
+  "nextStep": "complete",
+  "openClawFlow": ["onboarding", "complete"],
+  "contract": {
+    "providerId": "openai",
+    "selectedModelRef": "openai/gpt-5.4"
+  }
+}
+```
+
+## 6. Completion rules
+
+The backend treats onboarding as complete when all of these are true:
+- core recommendation is `ready`
+- bot name is set
+- provider selection is saved
+- model selection is saved
+
+`middleware_onboarding_flow` computes this and exposes:
+- ordered `steps`
+- `nextStep`
+- `completed`
+
+## 7. Simple frontend implementation sketch
+
+```ts
+const flow = await invoke("middleware_onboarding_flow", {})
+
+switch (flow.flow.nextStep) {
+  case "core":
+    await invoke("middleware_onboarding_core", { action: "check" })
+    break
+  case "bot":
+    await invoke("middleware_openclaw_bot_name_get")
+    break
+  case "provider":
+    await invoke("middleware_onboarding_provider_types")
+    break
+  case "model":
+    await invoke("middleware_onboarding_model_contract", {})
+    break
+  case "complete":
+    // continue into app
+    break
+}
+```
+
+## 8. Error cases to handle
+
+Examples:
+- `Unsupported OpenClaw provider: definitely-not-real`
+- `Provider anthropic requires authMethod. Supported values: api-key, cli`
+- `Missing required credential field: openaiApiKey`
+- `No onboarding provider selected yet`
+- `modelRef is required`
+- `modelRef must use provider/model format`
+- `modelRef 'anthropic/claude-sonnet-4-6' does not belong to selected provider openai`
+
+## 9. Compatibility notes
+
+Older helpers remain for compatibility only:
+- `middleware_openclaw_check`
+- `middleware_openclaw_install`
+
+Prefer the onboarding endpoints above for all new frontend work.

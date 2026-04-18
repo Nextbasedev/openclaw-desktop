@@ -17,7 +17,7 @@ fn env_test_lock() -> &'static Mutex<()> {
 }
 
 pub fn with_test_db<T>(test_fn: impl FnOnce() -> T) -> T {
-  let _guard = db_test_lock().lock().expect("lock db tests");
+  let _guard = db_test_lock().lock().unwrap_or_else(|err| err.into_inner());
   let temp = tempdir().expect("create temp dir");
   let db_path = temp.path().join("jarvis-test.db");
   std::env::set_var("JARVIS_TEST_DB_PATH", &db_path);

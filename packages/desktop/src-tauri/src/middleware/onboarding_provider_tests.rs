@@ -163,3 +163,110 @@ fn onboarding_provider_details_errors_for_unknown_provider() {
 
   assert!(error.contains("Unsupported OpenClaw provider"));
 }
+
+#[test]
+fn onboarding_model_contract_and_submit_persist_default_model() {
+  with_test_db(|| {
+    with_locked_env(|| {
+      let temp_home = tempdir().expect("temp home");
+      let previous_home = std::env::var_os("HOME");
+      std::env::set_var("HOME", temp_home.path());
+
+      middleware_onboarding_provider_submit(OnboardingProviderSubmitInput {
+        provider_id: "openai".to_string(),
+        auth_method: Some("api-key".to_string()),
+        values: Some(json!({
+          "openaiApiKey": "sk-test-openai",
+          "personality": "friendly"
+        })),
+        set_default: Some(true),
+      })
+      .expect("submit provider");
+
+      let contract = middleware_onboarding_model_contract(None).expect("model contract");
+      assert_eq!(
+        contract
+          .get("contract")
+          .and_then(|value| value.get("providerId"))
+          .and_then(Value::as_str),
+        Some("openai")
+      );
+      assert_eq!(
+        contract
+          .get("contract")
+          .and_then(|value| value.get("recommendedModelRef"))
+          .and_then(Value::as_str),
+        Some("openai/gpt-5.4")
+      );
+
+      let submitted = middleware_onboarding_model_submit(OnboardingModelSubmitInput {
+        provider_id: None,
+        model_ref: "openai/gpt-5.4".to_string(),
+        set_default: Some(true),
+      })
+      .expect("submit model");
+
+      assert_eq!(submitted.get("nextStep").and_then(Value::as_str), Some("complete"));
+
+      let config_path = temp_home.path().join(".openclaw").join("openclaw.json");
+      let written = std::fs::read_to_string(config_path).expect("written config");
+      let parsed: Value = serde_json::from_str(&written).expect("valid config json");
+      assert_eq!(
+        value_at_json_path(&parsed, "agents.defaults.model.primary").and_then(Value::as_str),
+        Some("openai/gpt-5.4")
+      );
+
+      let conn = open_db().expect("open db");
+      assert_eq!(
+        get_app_setting(&conn, APP_SETTING_ONBOARDING_MODEL_REF).expect("model ref setting"),
+        Some("openai/gpt-5.4".to_string())
+      );
+
+      match previous_home {
+        Some(home) => std::env::set_var("HOME", home),
+        None => std::env::remove_var("HOME"),
+      }
+    })
+  });
+}
+
+#[test]
+fn onboarding_flow_reports_next_step_and_completion() {
+  with_test_db(|| {
+    with_locked_env(|| {
+      let conn = open_db().expect("open db");
+      set_app_setting(&conn, APP_SETTING_OPENCLAW_BOT_NAME, "Jarvis").expect("bot name");
+      set_app_setting(&conn, APP_SETTING_ONBOARDING_PROVIDER_ID, "openai").expect("provider id");
+      set_app_setting(&conn, APP_SETTING_ONBOARDING_PROVIDER_AUTH_METHOD, "api-key").expect("auth method");
+      set_app_setting(&conn, APP_SETTING_ONBOARDING_MODEL_REF, "openai/gpt-5.4").expect("model ref");
+
+      let rt = tokio::runtime::Runtime::new().expect("runtime");
+      let flow = rt.block_on(middleware_onboarding_flow(Some(OnboardingCoreInput {
+        action: Some("check".to_string()),
+        gateway_url: Some("ws://127.0.0.1:65534".to_string()),
+      })))
+      .expect("onboarding flow");
+
+      let core_recommendation = flow
+        .get("state")
+        .and_then(|value| value.get("core"))
+        .and_then(|value| value.get("status"))
+        .and_then(|value| value.get("recommendation"))
+        .and_then(Value::as_str);
+      let expected_next_step = if core_recommendation == Some("ready") {
+        "complete"
+      } else {
+        "core"
+      };
+
+      assert_eq!(
+        flow.get("flow").and_then(|value| value.get("nextStep")).and_then(Value::as_str),
+        Some(expected_next_step)
+      );
+      assert_eq!(
+        flow.get("state").and_then(|value| value.get("model")).and_then(|value| value.get("selectedModelRef")).and_then(Value::as_str),
+        Some("openai/gpt-5.4")
+      );
+    })
+  });
+}
