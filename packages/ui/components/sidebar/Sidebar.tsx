@@ -21,17 +21,10 @@ import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
 import {
   listProjects,
   createProject,
-  updateProject,
-  archiveProject,
-  getProjectSidebar,
   listTopics,
   createTopic,
-  updateTopic,
-  archiveTopic,
   listSessions,
   createSessionMapping,
-  updateSessionMapping,
-  deleteSessionMapping,
   type Project,
   type Topic,
 } from "@/lib/jarvis-middleware"
@@ -61,8 +54,7 @@ type SidebarProps = {
   onSessionSelect?: (sessionKey: string | null) => void
 }
 
-export function Sidebar({
-  className,
+export function Sidebar({ className,
   width = 220,
   onResizeStart,
   activeTab,
@@ -84,22 +76,15 @@ export function Sidebar({
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [topics, setTopics] = useState<Topic[]>([])
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null)
-  const [projectSessions, setProjectSessions] = useState<Array<{ key: string; title: string | null; status: string | null }>>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [loadingTopics, setLoadingTopics] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
   const [creatingTopic, setCreatingTopic] = useState(false)
-  const [newProjectName, setNewProjectName] = useState("")
-  const [newTopicName, setNewTopicName] = useState("")
-  const [showProjectInput, setShowProjectInput] = useState(false)
-  const [showTopicInput, setShowTopicInput] = useState(false)
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
-  const [editingProjectName, setEditingProjectName] = useState("")
-  const [editingTopicId, setEditingTopicId] = useState<string | null>(null)
-  const [editingTopicName, setEditingTopicName] = useState("")
   const id = useId()
 
-  useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const loadProjects = useCallback(async () => {
     try {
@@ -107,43 +92,37 @@ export function Sidebar({
       const result = await listProjects()
       const activeProjects = result.projects.filter((p) => !p.archived)
       setProjects(activeProjects)
+
       if (!selectedProjectId && activeProjects.length > 0) {
-        const first = activeProjects[0]
-        setSelectedProjectId(first.id)
-        onProjectSelect?.(first.id)
-        onProjectNameSelect?.(first.name)
+        setSelectedProjectId(activeProjects[0].id)
+        onProjectSelect?.(activeProjects[0].id)
+        onProjectNameSelect?.(activeProjects[0].name)
       }
     } catch (error) {
       console.error("Failed to load projects", error)
     } finally {
       setLoadingProjects(false)
     }
-  }, [selectedProjectId, onProjectSelect, onProjectNameSelect])
+  }, [selectedProjectId])
 
   const loadTopics = useCallback(async (projectId: string) => {
     try {
       setLoadingTopics(true)
-      const [topicsResult, sidebarPayload] = await Promise.all([
-        listTopics(projectId),
-        getProjectSidebar(projectId),
-      ])
-      const activeTopics = topicsResult.topics.filter((t) => !t.archived)
+      const result = await listTopics(projectId)
+      const activeTopics = result.topics.filter((t) => !t.archived)
       setTopics(activeTopics)
-      setProjectSessions(sidebarPayload.sessions)
-      const selectedProject = projects.find((p) => p.id === projectId)
-      if (selectedProject) onProjectNameSelect?.(selectedProject.name)
+
       if (!selectedTopicId && activeTopics.length > 0) {
-        const first = activeTopics[0]
-        setSelectedTopicId(first.id)
-        onTopicSelect?.(first.id)
-        onTopicNameSelect?.(first.name)
+        setSelectedTopicId(activeTopics[0].id)
+        onTopicSelect?.(activeTopics[0].id)
+        onTopicNameSelect?.(activeTopics[0].name)
       }
     } catch (error) {
-      console.error("Failed to load topics/sidebar", error)
+      console.error("Failed to load topics", error)
     } finally {
       setLoadingTopics(false)
     }
-  }, [selectedTopicId, projects, onProjectNameSelect, onTopicSelect, onTopicNameSelect])
+  }, [selectedTopicId])
 
   useEffect(() => {
     void loadProjects()
@@ -154,13 +133,12 @@ export function Sidebar({
       void loadTopics(selectedProjectId)
     } else {
       setTopics([])
-      setProjectSessions([])
       setSelectedTopicId(null)
       onTopicSelect?.(null)
       onTopicNameSelect?.(null)
       onSessionSelect?.(null)
     }
-  }, [selectedProjectId, loadTopics, onTopicSelect, onTopicNameSelect, onSessionSelect])
+  }, [selectedProjectId, loadTopics, onTopicSelect, onSessionSelect])
 
   useEffect(() => {
     async function syncTopicSession() {
@@ -187,18 +165,15 @@ export function Sidebar({
   }, [selectedProjectId, selectedTopicId, topics, onSessionSelect, onTopicNameSelect])
 
   const handleCreateProject = useCallback(async () => {
-    const name = newProjectName.trim()
-    if (!name) return
     try {
       setCreatingProject(true)
+      const name = `Project ${projects.length + 1}`
       const result = await createProject({
         name,
         profileId: "prof_local_main",
         workspaceRoot: "/root/.openclaw/workspace",
         repoRoot: "/root/.openclaw/workspace",
       })
-      setNewProjectName("")
-      setShowProjectInput(false)
       await loadProjects()
       setSelectedProjectId(result.project.id)
       setSelectedTopicId(null)
@@ -212,70 +187,72 @@ export function Sidebar({
     } finally {
       setCreatingProject(false)
     }
-  }, [newProjectName, loadProjects, onProjectSelect, onProjectNameSelect, onTopicSelect, onTopicNameSelect, onSessionSelect])
+  }, [projects.length, loadProjects])
 
   const handleCreateTopic = useCallback(async () => {
     if (!selectedProjectId) return
-    const name = newTopicName.trim()
-    if (!name) return
+
     try {
       setCreatingTopic(true)
-      const result = await createTopic({ projectId: selectedProjectId, name })
-      setNewTopicName("")
-      setShowTopicInput(false)
+      const name = `Topic ${topics.length + 1}`
+      const result = await createTopic({
+        projectId: selectedProjectId,
+        name,
+      })
+
       await loadTopics(selectedProjectId)
       setSelectedTopicId(result.topic.id)
       onTopicSelect?.(result.topic.id)
       onTopicNameSelect?.(result.topic.name)
+
+      // First working story: create a session mapping immediately for new topic
       const createdSession = await createSessionMapping({
         projectId: selectedProjectId,
         topicId: result.topic.id,
         agentId: "main",
         label: result.topic.name,
       })
+
       onSessionSelect?.(createdSession.session.sessionKey)
+
+      // Warm the mapping list to ensure backend path is exercised
+      await listSessions({
+        projectId: selectedProjectId,
+        topicId: result.topic.id,
+        includeExisting: false,
+      })
     } catch (error) {
       console.error("Failed to create topic/session", error)
     } finally {
       setCreatingTopic(false)
     }
-  }, [selectedProjectId, newTopicName, loadTopics, onTopicSelect, onTopicNameSelect, onSessionSelect])
-
-  const handleRenameProject = useCallback(async (projectId: string) => {
-    const name = editingProjectName.trim()
-    if (!name) return
-    await updateProject({ projectId, name })
-    setEditingProjectId(null)
-    setEditingProjectName("")
-    await loadProjects()
-    if (selectedProjectId === projectId) onProjectNameSelect?.(name)
-  }, [editingProjectName, loadProjects, selectedProjectId, onProjectNameSelect])
-
-  const handleRenameTopic = useCallback(async (topicId: string) => {
-    const name = editingTopicName.trim()
-    if (!name) return
-    await updateTopic({ topicId, name })
-    setEditingTopicId(null)
-    setEditingTopicName("")
-    if (selectedProjectId) await loadTopics(selectedProjectId)
-    if (selectedTopicId === topicId) onTopicNameSelect?.(name)
-  }, [editingTopicName, selectedProjectId, selectedTopicId, loadTopics, onTopicNameSelect])
+  }, [selectedProjectId, topics.length, loadTopics])
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   )
 
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const oldIndex = items.findIndex((i) => i.id === active.id)
-      const newIndex = items.findIndex((i) => i.id === over.id)
-      onItemsChange(arrayMove(items, oldIndex, newIndex))
-    }
-  }, [items, onItemsChange])
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (over && active.id !== over.id) {
+        const oldIndex = items.findIndex((i) => i.id === active.id)
+        const newIndex = items.findIndex((i) => i.id === over.id)
+        onItemsChange(arrayMove(items, oldIndex, newIndex))
+      }
+    },
+    [items, onItemsChange],
+  )
 
-  const sidebarStyle = useMemo(() => ({ width: `${width}px` }), [width])
+  const sidebarStyle = useMemo(
+    () => ({ width: `${width}px` }),
+    [width],
+  )
 
   return (
     <aside
@@ -289,220 +266,185 @@ export function Sidebar({
     >
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
 
-      <nav className="relative z-10 flex-1 overflow-y-auto px-2 py-3 scroll-smooth overscroll-contain">
+      <nav
+        className={cn(
+          "relative z-10 flex-1 overflow-y-auto px-2 py-3",
+          "scroll-smooth overscroll-contain",
+        )}
+      >
         {isSettingsMode ? (
-          <div className="flex h-full flex-col gap-1">/* settings unchanged */</div>
+          <div className="flex h-full flex-col gap-1">
+            <button
+              onClick={onBackToMain}
+              className="flex w-full cursor-pointer items-center gap-1 rounded-md px-2.5 py-1 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Icons.Back size={16} strokeWidth={1.5} />
+              <span>Back to App</span>
+            </button>
+
+            <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+              Personal
+            </div>
+            <SettingsItem id="usage" label="Usage" icon="usage" active={activeTab === "usage"} onClick={() => onTabChange("usage")} />
+            <SettingsItem id="memory" label="Memory" icon="memory" active={activeTab === "memory"} onClick={() => onTabChange("memory")} />
+
+            <div className="mb-2 mt-4 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+              System
+            </div>
+            <SettingsItem id="account" label="Account" icon="user" active={activeTab === "account"} onClick={() => onTabChange("account")} />
+            <SettingsItem id="personalization" label="Appearance" icon="settings" active={activeTab === "personalization"} onClick={() => onTabChange("personalization")} />
+            <SettingsItem id="data-control" label="Data Control" icon="grid" active={activeTab === "data-control"} onClick={() => onTabChange("data-control")} />
+            <SettingsItem id="maintenance" label="Maintenance" icon="wrench" active={activeTab === "maintenance"} onClick={() => onTabChange("maintenance")} />
+
+            <div className="mt-auto pt-4">
+              <SettingsItem id="help" label="Help" icon="help" active={activeTab === "help"} onClick={() => onTabChange("help")} />
+            </div>
+          </div>
         ) : (
           <>
             {mounted ? (
-              <DndContext id={id} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+              <DndContext
+                id={id}
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={items.map((i) => i.id)}
+                  strategy={verticalListSortingStrategy}
+                >
                   <div className="flex flex-col gap-1">
                     {items.map((item) => (
-                      <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} />
+                      <SidebarItem
+                        key={item.id}
+                        item={item}
+                        isActive={activeTab === item.id}
+                        onClick={() => onTabChange(item.id)}
+                      />
                     ))}
                   </div>
                 </SortableContext>
               </DndContext>
-            ) : null}
+            ) : (
+              <div className="flex flex-col gap-1">
+                {items.map((item) => (
+                  <SidebarItem
+                    key={item.id}
+                    item={item}
+                    isActive={activeTab === item.id}
+                    onClick={() => onTabChange(item.id)}
+                  />
+                ))}
+              </div>
+            )}
 
             <div className="mt-3 border-t border-border/10 pt-3">
-              <SectionHeader title="Projects" actionLabel={showProjectInput ? "Cancel" : "New"} onAction={() => setShowProjectInput((v) => !v)} />
-              {showProjectInput && (
-                <CreateRow
-                  value={newProjectName}
-                  placeholder="New project name"
-                  onChange={setNewProjectName}
-                  onConfirm={handleCreateProject}
-                  onCancel={() => {
-                    setShowProjectInput(false)
-                    setNewProjectName("")
-                  }}
-                  loading={creatingProject}
-                />
-              )}
+              <div className="mb-2 flex items-center justify-between px-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Projects
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCreateProject}
+                  disabled={creatingProject}
+                  className="flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                >
+                  <Icons.Plus size={12} />
+                  New
+                </button>
+              </div>
 
               {loadingProjects ? (
                 <p className="px-2 text-[11px] text-muted-foreground/60">Loading projects…</p>
               ) : projects.length === 0 ? (
-                <p className="px-2 text-[11px] text-muted-foreground/60">No projects yet</p>
+                <button
+                  type="button"
+                  onClick={handleCreateProject}
+                  disabled={creatingProject}
+                  className="mx-2 flex w-[calc(100%-16px)] cursor-pointer items-center justify-center rounded-md border border-dashed border-border/40 px-2 py-2 text-[11px] text-muted-foreground transition-colors hover:border-border/70 hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                >
+                  Create first project
+                </button>
               ) : (
                 <div className="flex flex-col gap-0.5">
                   {projects.map((project) => (
-                    <div key={project.id} className="group/project mx-1 rounded-md">
-                      <div className={cn(
-                        "flex items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors",
-                        selectedProjectId === project.id ? "bg-foreground/5 text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                      )}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedProjectId(project.id)
-                            setSelectedTopicId(null)
-                            onProjectSelect?.(project.id)
-                            onProjectNameSelect?.(project.name)
-                            onTopicSelect?.(null)
-                            onTopicNameSelect?.(null)
-                            onSessionSelect?.(null)
-                          }}
-                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-                        >
-                          <Icons.Project size={14} className="shrink-0" />
-                          {editingProjectId === project.id ? (
-                            <input
-                              value={editingProjectName}
-                              onChange={(e) => setEditingProjectName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") void handleRenameProject(project.id)
-                                if (e.key === "Escape") {
-                                  setEditingProjectId(null)
-                                  setEditingProjectName("")
-                                }
-                              }}
-                              autoFocus
-                              className="min-w-0 flex-1 bg-transparent outline-none"
-                            />
-                          ) : (
-                            <span className="truncate">{project.name}</span>
-                          )}
-                        </button>
-                        <div className="flex items-center opacity-0 transition-opacity group-hover/project:opacity-100">
-                          <MiniIcon onClick={() => {
-                            setEditingProjectId(project.id)
-                            setEditingProjectName(project.name)
-                          }}><Icons.Edit size={12} /></MiniIcon>
-                          <MiniIcon onClick={async () => {
-                            await archiveProject(project.id)
-                            if (selectedProjectId === project.id) {
-                              onProjectSelect?.(null)
-                              onProjectNameSelect?.(null)
-                              onTopicSelect?.(null)
-                              onTopicNameSelect?.(null)
-                              onSessionSelect?.(null)
-                              setSelectedProjectId(null)
-                            }
-                            await loadProjects()
-                          }}><Icons.Close size={12} /></MiniIcon>
-                        </div>
-                      </div>
-                    </div>
+                    <button
+                      key={project.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedProjectId(project.id)
+                        setSelectedTopicId(null)
+                        onProjectSelect?.(project.id)
+                        onProjectNameSelect?.(project.name)
+                        onTopicSelect?.(null)
+                        onTopicNameSelect?.(null)
+                        onSessionSelect?.(null)
+                      }}
+                      className={cn(
+                        "mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] transition-colors",
+                        selectedProjectId === project.id
+                          ? "bg-foreground/5 text-foreground"
+                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                      )}
+                    >
+                      <Icons.Project size={14} className="shrink-0" />
+                      <span className="truncate">{project.name}</span>
+                    </button>
                   ))}
                 </div>
               )}
 
-              <SectionHeader title="Topics" actionLabel={showTopicInput ? "Cancel" : "New"} onAction={() => setShowTopicInput((v) => !v)} className="mt-4" />
-              {showTopicInput && selectedProjectId && (
-                <CreateRow
-                  value={newTopicName}
-                  placeholder="New topic name"
-                  onChange={setNewTopicName}
-                  onConfirm={handleCreateTopic}
-                  onCancel={() => {
-                    setShowTopicInput(false)
-                    setNewTopicName("")
-                  }}
-                  loading={creatingTopic}
-                />
-              )}
+              <div className="mb-2 mt-4 flex items-center justify-between px-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Topics
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCreateTopic}
+                  disabled={!selectedProjectId || creatingTopic}
+                  className="flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                >
+                  <Icons.Plus size={12} />
+                  New
+                </button>
+              </div>
 
               {!selectedProjectId ? (
                 <p className="px-2 text-[11px] text-muted-foreground/60">Select a project first</p>
               ) : loadingTopics ? (
                 <p className="px-2 text-[11px] text-muted-foreground/60">Loading topics…</p>
+              ) : topics.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={handleCreateTopic}
+                  disabled={creatingTopic}
+                  className="mx-2 flex w-[calc(100%-16px)] cursor-pointer items-center justify-center rounded-md border border-dashed border-border/40 px-2 py-2 text-[11px] text-muted-foreground transition-colors hover:border-border/70 hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                >
+                  Create first topic
+                </button>
               ) : (
-                <>
-                  <div className="flex flex-col gap-0.5">
-                    {topics.map((topic) => (
-                      <div key={topic.id} className="group/topic mx-1 rounded-md">
-                        <div className={cn(
-                          "flex items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors",
-                          selectedTopicId === topic.id ? "bg-foreground/5 text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                        )}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedTopicId(topic.id)
-                              onTopicSelect?.(topic.id)
-                              onTopicNameSelect?.(topic.name)
-                            }}
-                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-                          >
-                            <Icons.BubbleChat size={14} className="shrink-0" />
-                            {editingTopicId === topic.id ? (
-                              <input
-                                value={editingTopicName}
-                                onChange={(e) => setEditingTopicName(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") void handleRenameTopic(topic.id)
-                                  if (e.key === "Escape") {
-                                    setEditingTopicId(null)
-                                    setEditingTopicName("")
-                                  }
-                                }}
-                                autoFocus
-                                className="min-w-0 flex-1 bg-transparent outline-none"
-                              />
-                            ) : (
-                              <span className="truncate">{topic.name}</span>
-                            )}
-                          </button>
-                          <span className="text-[10px] text-muted-foreground/60">{topic.unreadCount}</span>
-                          <div className="flex items-center opacity-0 transition-opacity group-hover/topic:opacity-100">
-                            <MiniIcon onClick={() => {
-                              setEditingTopicId(topic.id)
-                              setEditingTopicName(topic.name)
-                            }}><Icons.Edit size={12} /></MiniIcon>
-                            <MiniIcon onClick={async () => {
-                              await archiveTopic(topic.id)
-                              if (selectedTopicId === topic.id) {
-                                onTopicSelect?.(null)
-                                onTopicNameSelect?.(null)
-                                onSessionSelect?.(null)
-                                setSelectedTopicId(null)
-                              }
-                              if (selectedProjectId) await loadTopics(selectedProjectId)
-                            }}><Icons.Close size={12} /></MiniIcon>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <SectionHeader title="Chats" className="mt-4" />
-                  <div className="flex flex-col gap-0.5">
-                    {projectSessions.length === 0 ? (
-                      <p className="px-2 text-[11px] text-muted-foreground/60">No mapped chats yet</p>
-                    ) : projectSessions.map((session) => (
-                      <div key={session.key} className="group/session mx-1 rounded-md">
-                        <div className="flex items-center gap-2 rounded-md px-2 py-1 text-[12px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground">
-                          <button
-                            type="button"
-                            onClick={() => onSessionSelect?.(session.key)}
-                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-                          >
-                            <Icons.Chat size={14} className="shrink-0" />
-                            <span className="truncate">{session.title ?? session.key}</span>
-                          </button>
-                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">{session.status ?? "idle"}</span>
-                          <div className="flex items-center opacity-0 transition-opacity group-hover/session:opacity-100">
-                            <MiniIcon onClick={async () => {
-                              await updateSessionMapping({ sessionKey: session.key, pinned: true })
-                              if (selectedProjectId) await loadTopics(selectedProjectId)
-                            }}><Icons.Check size={12} /></MiniIcon>
-                            <MiniIcon onClick={async () => {
-                              await deleteSessionMapping(session.key)
-                              if (selectedProjectId) await loadTopics(selectedProjectId)
-                              if (selectedTopicId) {
-                                const result = await listSessions({ projectId: selectedProjectId!, topicId: selectedTopicId, includeExisting: false })
-                                onSessionSelect?.(result.sessions[0]?.sessionKey ?? null)
-                              }
-                            }}><Icons.Close size={12} /></MiniIcon>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
+                <div className="flex flex-col gap-0.5">
+                  {topics.map((topic) => (
+                    <button
+                      key={topic.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedTopicId(topic.id)
+                        onTopicSelect?.(topic.id)
+                        onTopicNameSelect?.(topic.name)
+                      }}
+                      className={cn(
+                        "mx-1 flex w-[calc(100%-8px)] cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] transition-colors",
+                        selectedTopicId === topic.id
+                          ? "bg-foreground/5 text-foreground"
+                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                      )}
+                    >
+                      <Icons.BubbleChat size={14} className="shrink-0" />
+                      <span className="truncate">{topic.name}</span>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </>
@@ -519,59 +461,21 @@ export function Sidebar({
         )}
       />
 
-      <VersionUpdateModal open={versionModalOpen} onOpenChange={setVersionModalOpen} />
+      <VersionUpdateModal
+        open={versionModalOpen}
+        onOpenChange={setVersionModalOpen}
+      />
     </aside>
   )
 }
 
-function SectionHeader({ title, actionLabel, onAction, className }: { title: string; actionLabel?: string; onAction?: () => void; className?: string }) {
-  return (
-    <div className={cn("mb-2 flex items-center justify-between px-2", className)}>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">{title}</p>
-      {actionLabel && onAction ? (
-        <button type="button" onClick={onAction} className="flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground">
-          <Icons.Plus size={12} />
-          {actionLabel}
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-function CreateRow({ value, placeholder, onChange, onConfirm, onCancel, loading }: { value: string; placeholder: string; onChange: (value: string) => void; onConfirm: () => void; onCancel: () => void; loading?: boolean }) {
-  return (
-    <div className="mx-2 mb-2 flex items-center gap-1 rounded-md border border-border/40 bg-background/40 px-2 py-1.5">
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onConfirm()
-          if (e.key === "Escape") onCancel()
-        }}
-        placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50"
-        autoFocus
-      />
-      <MiniIcon onClick={onConfirm} disabled={loading || !value.trim()}><Icons.Check size={12} /></MiniIcon>
-      <MiniIcon onClick={onCancel}><Icons.Close size={12} /></MiniIcon>
-    </div>
-  )
-}
-
-function MiniIcon({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:opacity-40"
-    >
-      {children}
-    </button>
-  )
-}
-
-function SettingsItem({ id, label, icon, active, onClick }: { id: string; label: string; icon: string; active: boolean; onClick: () => void }) {
+function SettingsItem({ id, label, icon, active, onClick }: {
+  id: string
+  label: string
+  icon: string
+  active: boolean
+  onClick: () => void
+}) {
   const iconMap: Record<string, any> = {
     usage: Icons.Automations,
     memory: Icons.Memory,
@@ -581,13 +485,17 @@ function SettingsItem({ id, label, icon, active, onClick }: { id: string; label:
     wrench: Icons.Wrench,
     help: Icons.Help,
   }
+
   const Icon = iconMap[icon] || Icons.Settings
+
   return (
     <button
       onClick={onClick}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] font-normal transition-colors",
-        active ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md" : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
+        active
+          ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+          : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground"
       )}
     >
       <Icon size={16} strokeWidth={active ? 2 : 1.5} className="shrink-0" />
