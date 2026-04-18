@@ -1,24 +1,34 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { cn } from "@/lib/utils"
 import {
   VscArrowLeft,
   VscEdit,
-  VscSave,
   VscCloudDownload,
-  VscClose,
+  VscTrash,
+  VscSave,
   VscCheck,
+  VscClose,
+  VscOpenPreview,
+  VscCode,
 } from "react-icons/vsc"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import Markdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
-/* ── Mock file content by id ── */
+/* ── Mock file content ── */
 
 const MOCK_CONTENT: Record<string, string> = {
-  s1a: `# Camoufox Browser Skill\n\nHeavy-duty stealth browser automation with Camoufox (Firefox).\nFor scraping, forms, downloads, monitoring, and complex workflows.\nBypasses bot detection (Google, Cloudflare).`,
-  s2a: `# Agent Brain Skill\n\nTransform OpenClaw from a chatbot into a proactive personal AI.\nUse when the user wants to set up their agent, make it proactive,\nconfigure memory, schedule morning briefings.`,
+  s1a: `# Camoufox Browser Skill\n\nHeavy-duty stealth browser automation with Camoufox (Firefox).\n\n## Features\n- Scraping, forms, downloads, monitoring\n- Bypasses bot detection (Google, Cloudflare)\n- OAuth support included\n\n> Use for complex workflows that need stealth.`,
+  s2a: `# Agent Brain Skill\n\nTransform OpenClaw from a chatbot into a **proactive personal AI**.\n\n## Use When\n- Setting up your agent\n- Making it proactive\n- Configuring memory\n- Scheduling morning briefings`,
   m1: `# 2026-04-18\n\n## Session Notes\n- Working on OpenClaw Desktop chatbox design\n- Terminal panel added with multi-tab support\n- Animated greeting component created`,
   m2: `{\n  "lastChecks": {\n    "email": null,\n    "calendar": null,\n    "weather": null\n  }\n}`,
-  f1: `# AGENTS.md\n\nThis folder is home. Treat it that way.\n\n## Every Session\n1. Read SOUL.md\n2. Read USER.md\n3. Read memory files`,
+  f1: `# AGENTS.md\n\nThis folder is home. Treat it that way.\n\n## Every Session\n1. Read \`SOUL.md\`\n2. Read \`USER.md\`\n3. Read memory files`,
   f2: `# Soul\n\nYou are **Assistant** — a personal AI assistant.\n\n## Personality\nhelpful, friendly, and professional`,
   f3: `# USER.md\n\n- **Name:** Krish Munjapara\n- **GitHub:** krishmunjapara\n- **Timezone:** UTC`,
   f4: `# MEMORY.md - Long-Term Context\n\n## Current Projects\n- OpenClaw Desktop (Tauri + Next.js)\n- Ampere.sh marketplace`,
@@ -26,7 +36,7 @@ const MOCK_CONTENT: Record<string, string> = {
   f6: `# IDENTITY.md\n\n- **Name:** Empire\n- **Creature:** AI assistant\n- **Vibe:** Competent, direct, warm`,
 }
 
-function getFileExtension(name: string): string {
+function getExt(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? ""
 }
 
@@ -37,22 +47,23 @@ type FilePreviewProps = {
 }
 
 export function FilePreview({ fileId, fileName, onBack }: FilePreviewProps) {
-  const [isEditing, setIsEditing] = useState(false)
+  const ext = getExt(fileName)
+  const isMd = ext === "md"
+  const originalContent = MOCK_CONTENT[fileId] ?? "// File content not available"
+
+  const [content, setContent] = useState(originalContent)
+  const [displayName, setDisplayName] = useState(fileName)
   const [isRenaming, setIsRenaming] = useState(false)
-  const [editedName, setEditedName] = useState(fileName)
-  const [content, setContent] = useState(MOCK_CONTENT[fileId] ?? "// File content not available")
+  const [renameValue, setRenameValue] = useState(fileName)
   const [saved, setSaved] = useState(false)
-  const ext = getFileExtension(fileName)
+  // For md files: "preview" or "edit". For non-md: always "edit"
+  const [mode, setMode] = useState<"preview" | "edit">(isMd ? "preview" : "edit")
+
+  const hasChanges = useMemo(() => content !== originalContent, [content, originalContent])
 
   function handleSave() {
     setSaved(true)
-    setIsEditing(false)
     setTimeout(() => setSaved(false), 2000)
-  }
-
-  function handleRename() {
-    setIsRenaming(false)
-    // In production this would call the Gateway API
   }
 
   function handleDownload() {
@@ -60,151 +71,163 @@ export function FilePreview({ fileId, fileName, onBack }: FilePreviewProps) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = editedName
+    a.download = displayName
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-card">
-      {/* Header */}
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/50 px-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          aria-label="Back"
-        >
-          <VscArrowLeft className="size-3.5" />
-        </button>
+  function handleRenameConfirm() {
+    if (renameValue.trim()) {
+      setDisplayName(renameValue.trim())
+    }
+    setIsRenaming(false)
+  }
 
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 z-20 flex flex-col bg-card",
+        "animate-in slide-in-from-right duration-200"
+      )}
+    >
+      {/* Single header — back, filename, action icons */}
+      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border/50 px-2">
+        {/* Back */}
+        <IconBtn icon={VscArrowLeft} label="Back" onClick={onBack} />
+
+        {/* Filename */}
         {isRenaming ? (
-          <div className="flex flex-1 items-center gap-1">
+          <div className="flex min-w-0 items-center gap-1">
             <input
               type="text"
-              value={editedName}
-              onChange={(e) => setEditedName(e.target.value)}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleRename()
+                if (e.key === "Enter") handleRenameConfirm()
                 if (e.key === "Escape") {
-                  setEditedName(fileName)
+                  setRenameValue(displayName)
                   setIsRenaming(false)
                 }
               }}
-              className="h-6 flex-1 rounded border border-border bg-background px-1.5 text-[11px] text-foreground outline-none"
+              style={{ width: `${Math.max(4, renameValue.length + 1)}ch` }}
+              className="h-6 rounded border border-border bg-background px-1.5 text-[11px] text-foreground outline-none"
               autoFocus
             />
-            <button
-              type="button"
-              onClick={handleRename}
-              className="flex size-5 cursor-pointer items-center justify-center rounded text-green-400 hover:bg-secondary"
-            >
-              <VscCheck className="size-3" />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditedName(fileName)
-                setIsRenaming(false)
-              }}
-              className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-secondary"
-            >
-              <VscClose className="size-3" />
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setIsRenaming(true)}
-            className="flex-1 cursor-pointer truncate text-left text-[12px] font-medium text-foreground hover:text-foreground/80"
-            title="Click to rename"
-          >
-            {editedName}
-          </button>
-        )}
-      </div>
-
-      {/* Action bar */}
-      <div className="flex items-center gap-1 border-b border-border/30 px-2 py-1.5">
-        {isEditing ? (
-          <>
-            <ActionButton
-              icon={VscSave}
-              label="Save"
-              onClick={handleSave}
-            />
-            <ActionButton
+            <IconBtn icon={VscCheck} label="Confirm" onClick={handleRenameConfirm} className="text-green-400" />
+            <IconBtn
               icon={VscClose}
               label="Cancel"
               onClick={() => {
-                setContent(MOCK_CONTENT[fileId] ?? "")
-                setIsEditing(false)
+                setRenameValue(displayName)
+                setIsRenaming(false)
               }}
             />
-          </>
+          </div>
         ) : (
-          <ActionButton
-            icon={VscEdit}
-            label="Edit"
-            onClick={() => setIsEditing(true)}
-          />
-        )}
-        <ActionButton
-          icon={VscCloudDownload}
-          label="Download"
-          onClick={handleDownload}
-        />
-        {saved && (
-          <span className="ml-auto flex items-center gap-1 text-[10px] text-green-400">
-            <VscCheck className="size-3" />
-            Saved
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
+            {displayName}
           </span>
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Md toggle: preview / edit */}
+        {isMd && (
+          <>
+            <IconBtn
+              icon={VscOpenPreview}
+              label="Preview"
+              onClick={() => setMode("preview")}
+              active={mode === "preview"}
+            />
+            <IconBtn
+              icon={VscCode}
+              label="Edit"
+              onClick={() => setMode("edit")}
+              active={mode === "edit"}
+            />
+            <div className="mx-1 h-4 w-px bg-border/40" />
+          </>
+        )}
+
+        {/* Action icons */}
+        {!isRenaming && (
+          <>
+            <IconBtn icon={VscEdit} label="Rename" onClick={() => {
+              setRenameValue(displayName)
+              setIsRenaming(true)
+            }} />
+            <IconBtn icon={VscCloudDownload} label="Download" onClick={handleDownload} />
+            <IconBtn icon={VscTrash} label="Delete" onClick={onBack} className="hover:!text-destructive" />
+            <IconBtn
+              icon={saved ? VscCheck : VscSave}
+              label={saved ? "Saved" : "Save"}
+              onClick={handleSave}
+              disabled={!hasChanges}
+              className={saved ? "text-green-400" : ""}
+            />
+          </>
         )}
       </div>
 
-      {/* Content area */}
-      <div className="flex-1 overflow-y-auto p-3">
-        {isEditing ? (
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto">
+        {isMd && mode === "preview" ? (
+          <div className="prose prose-sm prose-invert max-w-none p-4 text-[12px] leading-6 text-foreground/85 [&_a]:text-blue-400 [&_code]:rounded [&_code]:bg-secondary/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px] [&_h1]:text-base [&_h1]:font-semibold [&_h1]:text-foreground [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-foreground [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-foreground [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_li]:text-foreground/85 [&_p]:text-foreground/85 [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_pre]:rounded-lg [&_pre]:bg-secondary/40 [&_pre]:p-3">
+            <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+          </div>
+        ) : (
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="h-full w-full resize-none rounded bg-background p-3 font-mono text-[12px] leading-5 text-foreground outline-none"
+            className="h-full w-full resize-none bg-transparent p-4 font-mono text-[12px] leading-5 text-foreground/85 outline-none"
             spellCheck={false}
           />
-        ) : (
-          <pre
-            className={cn(
-              "whitespace-pre-wrap font-mono text-[12px] leading-5 text-foreground/85",
-              ext === "json" && "text-amber-300/80",
-              ext === "md" && "text-blue-300/80",
-            )}
-          >
-            {content}
-          </pre>
         )}
       </div>
     </div>
   )
 }
 
-function ActionButton({
+/* ── Icon button with tooltip ── */
+
+function IconBtn({
   icon: Icon,
   label,
   onClick,
+  disabled,
+  active,
+  className,
 }: {
   icon: React.ElementType
   label: string
   onClick: () => void
+  disabled?: boolean
+  active?: boolean
+  className?: string
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-      title={label}
-    >
-      <Icon className="size-3.5" />
-      {label}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className={cn(
+            "flex size-6 cursor-pointer items-center justify-center rounded transition-colors",
+            "text-muted-foreground hover:bg-secondary hover:text-foreground",
+            active && "bg-secondary text-foreground",
+            disabled && "cursor-default opacity-30 hover:bg-transparent hover:text-muted-foreground",
+            className,
+          )}
+        >
+          <Icon className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="text-xs">
+        {label}
+      </TooltipContent>
+    </Tooltip>
   )
 }
