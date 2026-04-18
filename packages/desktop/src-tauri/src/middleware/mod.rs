@@ -193,12 +193,23 @@ pub struct SessionKeyInput {
   session_key: String,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatAttachment {
+  pub(crate) name: String,
+  pub(crate) mime_type: String,
+  pub(crate) content: Option<String>,
+  pub(crate) encoding: Option<String>,
+  pub(crate) size: Option<u64>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSendInput {
   session_key: String,
   text: String,
   timeout_ms: Option<u64>,
+  attachments: Option<Vec<ChatAttachment>>,
 }
 
 #[derive(Deserialize)]
@@ -715,6 +726,24 @@ pub(crate) fn bool_to_sql(value: bool) -> i64 {
 
 pub(crate) fn sql_to_bool(value: i64) -> bool {
   value != 0
+}
+
+pub(crate) fn mime_from_extension(name: &str) -> String {
+  let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+  match ext.as_str() {
+    "txt" | "md" | "markdown" | "csv" | "log" => "text/plain",
+    "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "h" | "css" | "html" | "xml" | "yaml" | "yml" | "toml" | "json" | "sh" | "bash" | "zsh" | "sql" | "rb" | "swift" | "kt" => "text/plain",
+    "png" => "image/png",
+    "jpg" | "jpeg" => "image/jpeg",
+    "gif" => "image/gif",
+    "webp" => "image/webp",
+    "svg" => "image/svg+xml",
+    "pdf" => "application/pdf",
+    "zip" => "application/zip",
+    "tar" => "application/x-tar",
+    "gz" => "application/gzip",
+    _ => "application/octet-stream",
+  }.to_string()
 }
 
 pub(crate) fn action_label(action_id: &str, fallback: Option<&str>) -> String {

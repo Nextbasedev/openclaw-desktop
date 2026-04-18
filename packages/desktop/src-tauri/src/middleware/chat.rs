@@ -369,20 +369,46 @@ pub async fn middleware_chat_history(input: SessionKeyInput) -> Result<Value, St
 
 #[tauri::command]
 pub async fn middleware_chat_send(input: ChatSendInput) -> Result<Value, String> {
+  const MAX_ATTACHMENTS: usize = 10;
+  const MAX_PER_FILE: u64 = 50 * 1024 * 1024;
+  const MAX_TOTAL: u64 = 100 * 1024 * 1024;
+
+  let mut params = json!({
+    "sessionKey": input.session_key,
+    "message": input.text,
+    "timeoutMs": input.timeout_ms.unwrap_or(60_000),
+    "idempotencyKey": Uuid::new_v4().to_string(),
+  });
+
+  if let Some(attachments) = &input.attachments {
+    if attachments.len() > MAX_ATTACHMENTS {
+      return Err(format!("Too many attachments ({}, max {})", attachments.len(), MAX_ATTACHMENTS));
+    }
+    let mut total_size: u64 = 0;
+    let mut attachment_values: Vec<Value> = Vec::with_capacity(attachments.len());
+    for att in attachments {
+      let size = att.size.unwrap_or(att.content.as_ref().map(|c| c.len() as u64).unwrap_or(0));
+      if size > MAX_PER_FILE {
+        return Err(format!("Attachment '{}' exceeds 50MB limit", att.name));
+      }
+      total_size += size;
+      if total_size > MAX_TOTAL {
+        return Err("Total attachment size exceeds 100MB limit".to_string());
+      }
+      attachment_values.push(json!({
+        "name": att.name,
+        "mimeType": att.mime_type,
+        "content": att.content,
+        "encoding": att.encoding,
+        "size": att.size,
+      }));
+    }
+    params.as_object_mut().unwrap().insert("attachments".to_string(), json!(attachment_values));
+  }
+
   let mut socket = connect_to_gateway(&["operator.read", "operator.write", "operator.approvals"]).await?;
   let payload = extract_ok_payload(
-    gateway_request(
-      &mut socket,
-      "chat.send",
-      json!({
-        "sessionKey": input.session_key,
-        "message": input.text,
-        "timeoutMs": input.timeout_ms.unwrap_or(60_000),
-        "idempotencyKey": Uuid::new_v4().to_string(),
-      }),
-      65_000,
-    )
-    .await?,
+    gateway_request(&mut socket, "chat.send", params, 65_000).await?,
     "chat.send",
   )?;
   let _ = socket.close(None).await;

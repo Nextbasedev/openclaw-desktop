@@ -32,6 +32,37 @@ pub fn middleware_files_read(input: FilePathInput) -> Result<Value, String> {
 }
 
 #[tauri::command]
+pub fn middleware_files_prepare_attachment(input: FilePathInput) -> Result<Value, String> {
+  let resolved = resolve_project_path(&input.project_id, &input.path)?;
+  const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+  let metadata = fs::metadata(&resolved).map_err(|e| format!("Failed to read file metadata: {e}"))?;
+  if metadata.len() > MAX_FILE_SIZE {
+    return Err(format!("File too large ({} bytes, max {})", metadata.len(), MAX_FILE_SIZE));
+  }
+  let file_name = resolved.file_name()
+    .map(|n| n.to_string_lossy().to_string())
+    .unwrap_or_else(|| "unnamed".to_string());
+  let content = fs::read(&resolved).map_err(|e| format!("Failed to read file: {e}"))?;
+  let mime_type = mime_from_extension(&file_name);
+  match String::from_utf8(content.clone()) {
+    Ok(text) => Ok(json!({
+      "name": file_name,
+      "mimeType": mime_type,
+      "content": text,
+      "encoding": "utf-8",
+      "size": metadata.len(),
+    })),
+    Err(_) => Ok(json!({
+      "name": file_name,
+      "mimeType": mime_type,
+      "content": URL_SAFE_NO_PAD.encode(&content),
+      "encoding": "base64",
+      "size": metadata.len(),
+    })),
+  }
+}
+
+#[tauri::command]
 pub fn middleware_files_write(input: FileWriteInput) -> Result<Value, String> {
   let path = resolve_project_path(&input.project_id, &input.path)?;
   if let Some(parent) = path.parent() {
