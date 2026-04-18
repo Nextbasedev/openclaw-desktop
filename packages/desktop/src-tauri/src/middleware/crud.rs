@@ -267,6 +267,14 @@ pub fn middleware_projects_create(input: ProjectCreateInput) -> Result<Value, St
     return Err("Name cannot be empty".to_string());
   }
   let conn = open_db()?;
+  let duplicate: bool = conn.query_row(
+    "SELECT COUNT(*) FROM projects WHERE name = ? COLLATE NOCASE",
+    params![input.name.trim()],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check project name: {error}"))? > 0;
+  if duplicate {
+    return Err(format!("A project named '{}' already exists", input.name.trim()));
+  }
   let id = format!("proj_{}", Uuid::new_v4().simple());
   let now = now_iso();
   conn.execute(
@@ -431,6 +439,14 @@ pub fn middleware_topics_create(input: TopicCreateInput) -> Result<Value, String
     return Err("Name cannot be empty".to_string());
   }
   let conn = open_db()?;
+  let duplicate: bool = conn.query_row(
+    "SELECT COUNT(*) FROM topics WHERE project_id = ? AND name = ? COLLATE NOCASE",
+    params![input.project_id, input.name.trim()],
+    |row| row.get::<_, i64>(0),
+  ).map_err(|error| format!("Failed to check topic name: {error}"))? > 0;
+  if duplicate {
+    return Err(format!("A topic named '{}' already exists in this project", input.name.trim()));
+  }
   let id = format!("topic_{}", Uuid::new_v4().simple());
   let sort_order: i64 = conn.query_row(
     "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM topics WHERE project_id = ?",
