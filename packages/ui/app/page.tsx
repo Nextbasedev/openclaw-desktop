@@ -24,6 +24,8 @@ export default function Page() {
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
+        terminalOpen={terminalOpen}
+        onToggleTerminal={toggleTerminal}
       />
 
       {/* Content area: sidebar + main + inspector */}

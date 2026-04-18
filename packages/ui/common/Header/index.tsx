@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { VscLayoutSidebarRightOff, VscLayoutSidebarRight } from "react-icons/vsc"
+import { VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscLayoutPanelOff, VscLayoutPanel } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
@@ -13,6 +13,8 @@ type HeaderProps = {
     className?: string
     inspectorOpen?: boolean
     onToggleInspector?: () => void
+    terminalOpen?: boolean
+    onToggleTerminal?: () => void
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -32,6 +34,8 @@ export function Header({
     className,
     inspectorOpen = false,
     onToggleInspector,
+    terminalOpen = false,
+    onToggleTerminal,
 }: HeaderProps) {
     const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -63,6 +67,24 @@ export function Header({
 
                 {/* Right: action icons */}
                 <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        aria-label="Toggle terminal"
+                        onClick={onToggleTerminal}
+                        className={cn(
+                            "flex size-8 items-center justify-center rounded-md",
+                            "transition-colors cursor-pointer",
+                            terminalOpen
+                                ? "text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        {terminalOpen ? (
+                            <VscLayoutPanel className="size-4" />
+                        ) : (
+                            <VscLayoutPanelOff className="size-4" />
+                        )}
+                    </button>
                     <button
                         type="button"
                         aria-label="Toggle inspector panel"
