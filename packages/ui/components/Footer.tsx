@@ -1,7 +1,7 @@
 "use client"
 
-import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import { VscSearch, VscTerminal } from "react-icons/vsc"
 
 type FooterProps = {
   className?: string
@@ -17,25 +17,18 @@ export function Footer({ className }: FooterProps) {
         className,
       )}
     >
-      {/* Left: status */}
-      <div className="flex items-center gap-2">
-        <span className="relative flex size-2">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-40" />
-          <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-        </span>
-        <span className="text-[11px] text-muted-foreground">Ready</span>
-      </div>
+      
+   <div></div>
 
       {/* Right: keyboard shortcuts */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <ShortcutButton
-          icon={<Icons.Search size={13} strokeWidth={1.8} />}
+          icon={<VscSearch className="size-3.5" />}
           keys={["Ctrl", "K"]}
           label="Search"
         />
-        <span className="h-3 w-px bg-border/40" />
         <ShortcutButton
-          icon={<Icons.Terminal size={13} strokeWidth={1.8} />}
+          icon={<VscTerminal className="size-3.5" />}
           keys={["Ctrl", "~"]}
           label="Terminal"
         />
@@ -44,6 +37,7 @@ export function Footer({ className }: FooterProps) {
   )
 }
 
+/* ── Shortcut button ── */
 function ShortcutButton({
   icon,
   keys,
