@@ -3,9 +3,8 @@
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   PlusSignIcon,
-  Tick01Icon,
   ArrowDown01Icon,
-  AttachmentIcon,
+  Upload04Icon,
   Cancel01Icon,
 } from "@hugeicons/core-free-icons"
 
@@ -76,31 +75,19 @@ export function ActionBar({
           <PopoverContent side="top" align="start" sideOffset={8} className="w-56 gap-0 p-1.5">
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
             >
-              <HugeiconsIcon icon={AttachmentIcon} size={16} />
+              <HugeiconsIcon icon={Upload04Icon} size={18} />
               Upload
             </button>
             <div className="my-1 h-px bg-border" />
             <button
               type="button"
-              className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
-                webSearchEnabled
-                  ? "font-medium text-popover-foreground"
-                  : "text-popover-foreground"
-              )}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
               onClick={onWebSearchToggle}
             >
               <WebSearchIcon className="size-[18px]" />
-              <span className="flex-1">Web search</span>
-              {webSearchEnabled && (
-                <HugeiconsIcon
-                  icon={Tick01Icon}
-                  size={16}
-                  className="text-foreground"
-                />
-              )}
+              Web search
             </button>
           </PopoverContent>
         </Popover>
@@ -139,12 +126,12 @@ export function ActionBar({
 
       {/* Right controls */}
       <div className="flex items-center gap-0.5 sm:gap-1">
-        {/* Model selector */}
+        {/* Model selector — no background, plain text like mic */}
         <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-8 items-center gap-1 rounded-full border border-foreground/15 bg-foreground/5 px-3 text-xs text-foreground shadow-sm transition-all hover:bg-foreground/10"
+              className="flex h-8 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:text-foreground"
             >
               {selectedModel.label}
               <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
@@ -164,13 +151,6 @@ export function ActionBar({
                 onClick={() => onModelSelect(model)}
               >
                 {model.label}
-                {selectedModel.id === model.id && (
-                  <HugeiconsIcon
-                    icon={Tick01Icon}
-                    size={14}
-                    className="ml-auto text-foreground"
-                  />
-                )}
               </button>
             ))}
           </PopoverContent>
