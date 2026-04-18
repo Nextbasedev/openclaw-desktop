@@ -1,12 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { HugeiconsIcon } from "@hugeicons/react"
-import {
-    Notification02Icon,
-    Settings02Icon,
-} from "@hugeicons/core-free-icons"
-import { VscLayoutSidebarRightOff, VscLayoutSidebarRight } from "react-icons/vsc"
+import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { SettingsDialog } from "@/components/settings/SettingsDialog"
@@ -29,7 +24,7 @@ const DEFAULT_USER: HeaderUser = {
  * - data-tauri-drag-region makes it draggable in Tauri
  * - Traffic lights for window controls
  * - User name + version badge on left
- * - Action icons on right (sidebar, notifications, settings)
+ * - Action icons on right (inspector, notifications, settings)
  */
 export function Header({
     user = DEFAULT_USER,
@@ -68,17 +63,17 @@ export function Header({
                 {/* Right: action icons */}
                 <div className="flex items-center gap-1">
                     <HeaderIconButton
-                        icon={inspectorOpen ? VscLayoutSidebarRight : VscLayoutSidebarRightOff}
+                        icon={Icons.SidebarToggle}
                         label="Toggle inspector panel"
                         active={inspectorOpen}
                         onClick={onToggleInspector}
                     />
                     <HeaderIconButton
-                        icon={Notification02Icon}
+                        icon={Icons.Notification}
                         label="Notifications"
                     />
                     <HeaderIconButton
-                        icon={Settings02Icon}
+                        icon={Icons.Settings}
                         label="Settings"
                         onClick={openSettings}
                     />
@@ -90,15 +85,13 @@ export function Header({
     )
 }
 
-/* ── Reusable icon button for header actions ── */
-
 function HeaderIconButton({
     icon: Icon,
     label,
     onClick,
     active,
 }: {
-    icon: any
+    icon: React.ElementType
     label: string
     onClick?: () => void
     active?: boolean
@@ -116,11 +109,7 @@ function HeaderIconButton({
                     : "text-muted-foreground hover:text-foreground",
             )}
         >
-            {typeof Icon === "function" ? (
-                <Icon className="size-4" />
-            ) : (
-                <HugeiconsIcon icon={Icon} size={16} strokeWidth={1.5} />
-            )}
+            <Icon size={16} strokeWidth={1.5} className="size-4" />
         </button>
     )
 }

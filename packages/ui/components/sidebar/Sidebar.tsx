@@ -1,5 +1,4 @@
-"use client"
-
+import { Icons } from "@/components/icons"
 import { useState, useCallback } from "react"
 import {
   DndContext,
@@ -18,8 +17,6 @@ import {
 } from "@dnd-kit/sortable"
 import { cn } from "@/lib/utils"
 import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
-import { VersionUpdateButton } from "./VersionUpdateButton"
-import { VersionUpdateModal } from "./VersionUpdateModal"
 
 /* ── Default draggable nav items ── */
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
@@ -37,11 +34,10 @@ type SidebarProps = {
 export function Sidebar({ className }: SidebarProps) {
   const [items, setItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [activeTab, setActiveTab] = useState<string>("chat")
-  const [versionModalOpen, setVersionModalOpen] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 4 },
+      activationConstraint: { distance: 8 }, // increased distance for more reliable click vs drag
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
@@ -71,11 +67,14 @@ export function Sidebar({ className }: SidebarProps) {
           className,
         )}
       >
-        {/* ── Draggable nav items (kanban cards) ── */}
-        <nav className="flex-1 overflow-y-auto px-2.5 py-3">
-          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Navigation
-          </p>
+        {/* ── Draggable nav items ── */}
+        <nav
+          className={cn(
+            "flex-1 overflow-y-auto px-2.5 py-3",
+            "scroll-smooth overscroll-contain",
+          )}
+        >
+
 
           <DndContext
             sensors={sensors}
@@ -99,55 +98,29 @@ export function Sidebar({ className }: SidebarProps) {
             </SortableContext>
           </DndContext>
 
-          {/* ── Project (static, not draggable) ── */}
-          <div className="mt-3 border-t border-border/30 pt-3">
-            <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {/* ── Project (static) ── */}
+          <div className="mt-3 border-t border-border/10 pt-3">
+            <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
               Pinned
             </p>
             <button
               type="button"
               onClick={() => setActiveTab("project")}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-all",
+                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-all duration-150",
+                "cursor-default",
                 activeTab === "project"
-                  ? "bg-accent text-accent-foreground shadow-sm"
+                  ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md ring-1 ring-inset ring-foreground/10"
                   : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
               )}
             >
-              <ProjectIcon />
+              <Icons.Files size={16} strokeWidth={1.5} />
               <span>Project</span>
             </button>
           </div>
         </nav>
-
-        {/* ── Version Update at the bottom ── */}
-        <div className="border-t border-border/30 px-2.5 py-2.5">
-          <VersionUpdateButton onClick={() => setVersionModalOpen(true)} />
-        </div>
       </aside>
-
-      <VersionUpdateModal
-        open={versionModalOpen}
-        onOpenChange={setVersionModalOpen}
-      />
     </>
   )
 }
 
-/* ── Project icon (folder) ── */
-function ProjectIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-    </svg>
-  )
-}

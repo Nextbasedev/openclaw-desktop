@@ -1,11 +1,4 @@
-import type { IconSvgElement } from "@hugeicons/react"
-import {
-  UserAccountIcon,
-  Settings02Icon,
-  Wrench01Icon,
-  HelpCircleIcon,
-  GridIcon,
-} from "@hugeicons/core-free-icons"
+import { Icons } from "@/components/icons"
 
 /* ── Tab Types ── */
 
@@ -19,7 +12,7 @@ export type SettingsTabId =
 export type SettingsTabItem = {
   id: SettingsTabId
   label: string
-  icon: IconSvgElement
+  Icon: React.ElementType
   group: "main" | "footer"
   external?: boolean
 }
@@ -27,12 +20,13 @@ export type SettingsTabItem = {
 /* ── Tab Config (single source of truth) ── */
 
 export const SETTINGS_TABS: SettingsTabItem[] = [
-  { id: "account", label: "Account", icon: UserAccountIcon, group: "main" },
-  { id: "personalization", label: "Appearance", icon: Settings02Icon, group: "main" },
-  { id: "data-control", label: "Data Control", icon: GridIcon, group: "main" },
-  { id: "maintenance", label: "Maintenance", icon: Wrench01Icon, group: "main" },
-  { id: "help", label: "Help", icon: HelpCircleIcon, group: "footer" },
+  { id: "account", label: "Account", Icon: Icons.UserAccount, group: "main" },
+  { id: "personalization", label: "Appearance", Icon: Icons.Settings, group: "main" },
+  { id: "data-control", label: "Data Control", Icon: Icons.Grid, group: "main" },
+  { id: "maintenance", label: "Maintenance", Icon: Icons.Wrench, group: "main" },
+  { id: "help", label: "Help", Icon: Icons.Help, group: "footer" },
 ]
+
 
 /* ── Data Control Export Items ── */
 
@@ -40,7 +34,7 @@ export type ExportItem = {
   id: string
   title: string
   description: string
-  icon: IconSvgElement
+  icon: React.ElementType
 }
 
 /* ── Header Config ── */
