@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { Header } from "@/common/Header"
 import { Sidebar } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
@@ -8,10 +8,45 @@ import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 
+const SIDEBAR_MIN = 160
+const SIDEBAR_MAX = 480
+const SIDEBAR_DEFAULT = 220
+
 export default function Page() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
+  const isResizing = useRef(false)
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
+
+  const handleResizeStart = useCallback(() => {
+    isResizing.current = true
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }, [])
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!isResizing.current) return
+      const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
+      setSidebarWidth(newWidth)
+    }
+
+    function onMouseUp() {
+      if (!isResizing.current) return
+      isResizing.current = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    window.addEventListener("mousemove", onMouseMove)
+    window.addEventListener("mouseup", onMouseUp)
+
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove)
+      window.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [])
 
   return (
     <div className="flex h-svh flex-col bg-background">
@@ -20,19 +55,19 @@ export default function Page() {
         onToggleInspector={toggleInspector}
       />
 
-      {/* Content area: sidebar + main + inspector */}
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
+        <Sidebar
+          width={sidebarWidth}
+          onResizeStart={handleResizeStart}
+        />
 
-        {/* Main content area — vertically centered */}
-        <main className="flex flex-1 items-center justify-center transition-all duration-300 ease-in-out">
+        <main className="flex flex-1 items-center justify-center transition-all duration-200 ease-out">
           <div className="flex w-full flex-col items-center gap-8">
             <AnimatedGreeting />
             <ChatBox />
           </div>
         </main>
 
-        {/* Right inspector panel */}
         <InspectorPanel open={inspectorOpen} onClose={toggleInspector} />
       </div>
 

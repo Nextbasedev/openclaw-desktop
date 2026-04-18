@@ -30,7 +30,7 @@ const DEFAULT_USER: HeaderUser = {
  * - data-tauri-drag-region makes it draggable in Tauri
  * - Traffic lights for window controls
  * - User name + version badge on left
- * - Action icons on right (sidebar, notifications, settings)
+ * - Action icons on right (inspector, notifications, settings)
  */
 export function Header({
     user = DEFAULT_USER,
@@ -69,7 +69,7 @@ export function Header({
                 {/* Right: action icons */}
                 <div className="flex items-center gap-1">
                     <HeaderIconButton
-                        icon={inspectorOpen ? VscLayoutSidebarRight : VscLayoutSidebarRightOff}
+                        icon={Icons.SidebarToggle}
                         label="Toggle inspector panel"
                         active={inspectorOpen}
                         onClick={onToggleInspector}
@@ -90,8 +90,6 @@ export function Header({
         </>
     )
 }
-
-/* ── Reusable icon button for header actions ── */
 
 function HeaderIconButton({
     icon: Icon,
