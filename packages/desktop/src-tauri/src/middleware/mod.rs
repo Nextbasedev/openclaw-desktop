@@ -268,6 +268,13 @@ pub struct ProjectIdInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectPinInput {
+  pub(crate) project_id: String,
+  pub(crate) pinned: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TopicListInput {
   project_id: String,
 }
@@ -842,6 +849,12 @@ pub(crate) fn init_db(conn: &Connection) -> Result<(), String> {
     Err(error) => return Err(format!("Failed to migrate projects.remotes_json: {error}")),
   }
 
+  match conn.execute("ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", []) {
+    Ok(_) => {}
+    Err(error) if error.to_string().contains("duplicate column name") => {}
+    Err(error) => return Err(format!("Failed to migrate projects.pinned: {error}")),
+  }
+
   // Sync: add sync_dirty column to projects, topics, session_mappings, branches
   for (table, col) in [
     ("projects", "sync_dirty"),
@@ -1147,6 +1160,7 @@ pub(crate) fn project_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<V
     "lastActivityAt": row.get::<_, Option<String>>(7)?,
     "createdAt": row.get::<_, String>(8)?,
     "updatedAt": row.get::<_, String>(9)?,
+    "pinned": sql_to_bool(row.get::<_, i64>(10)?),
   }))
 }
 
