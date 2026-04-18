@@ -133,7 +133,7 @@ export function SkillPage() {
     <div className="mx-auto w-full max-w-4xl px-7 py-10">
       <div className="mb-7 text-center">
         <h1 className="text-[28px] font-medium tracking-tight text-foreground">
-          Make Codex work your way
+          Make Tauri work your way
         </h1>
       </div>
 
@@ -156,24 +156,7 @@ export function SkillPage() {
           />
         </div>
 
-        <div className="relative">
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value as SkillCategory)}
-            className={cn(
-              "h-9 appearance-none rounded-lg border border-border/60 bg-card px-3 pr-8",
-              "text-[13px] text-foreground outline-none transition-colors focus:border-foreground/20",
-            )}
-          >
-            <option>All</option>
-            <option>Recommended</option>
-            <option>System</option>
-            <option>Personal</option>
-          </select>
-          <svg viewBox="0 0 20 20" fill="none" className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground">
-            <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
+        <CategoryDropdown category={category} setCategory={setCategory} />
       </div>
 
       {meta && (
@@ -205,6 +188,85 @@ export function SkillPage() {
                 </div>
               </div>
             </section>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const CATEGORIES: SkillCategory[] = ["All", "Recommended", "System", "Personal"]
+
+function CategoryDropdown({
+  category,
+  setCategory,
+}: {
+  category: SkillCategory
+  setCategory: (c: SkillCategory) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const ref = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!open) return
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [open])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex h-9 items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 pr-8",
+          "text-[13px] text-foreground outline-none transition-colors hover:border-foreground/20",
+        )}
+      >
+        {category}
+      </button>
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+      >
+        <path
+          d="m5 7.5 5 5 5-5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+
+      {open && (
+        <div
+          className={cn(
+            "absolute right-0 top-[calc(100%+6px)] z-50 min-w-[160px] overflow-hidden rounded-xl p-1",
+            "border border-white/[0.12] bg-white/[0.06] shadow-xl shadow-black/30",
+            "backdrop-blur-2xl",
+          )}
+        >
+          {CATEGORIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => {
+                setCategory(c)
+                setOpen(false)
+              }}
+              className={cn(
+                "flex w-full items-center rounded-lg px-3 py-2 text-[13px] transition-colors",
+                c === category
+                  ? "bg-white/[0.12] text-foreground"
+                  : "text-foreground/80 hover:bg-white/[0.08] hover:text-foreground",
+              )}
+            >
+              {c}
+            </button>
           ))}
         </div>
       )}

@@ -19,12 +19,12 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { cn } from "@/lib/utils"
-import { SidebarItem, type SidebarNavItem } from "./SidebarItem"
+import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
+import { Icons } from "../icons"
 
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "skill", label: "Skill", icon: "skill" },
-  { id: "workspace", label: "Workspace", icon: "workspace" },
   { id: "connect", label: "Connect", icon: "connect" },
   { id: "settings", label: "Settings", icon: "settings" },
 ]
@@ -94,32 +94,30 @@ export function Sidebar({
     >
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
 
-      <nav className={cn("relative z-10 flex-1 overflow-y-auto px-2 py-3", "scroll-smooth overscroll-contain")}>
-        {isSettingsMode ? (
-          <SettingsNav activeTab={activeTab} onTabChange={onTabChange} onBackToMain={onBackToMain} collapsed={collapsed} />
-        ) : (
-          <>
-            {mounted && !collapsed ? (
-              <DndContext id={id} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                  <div className="flex flex-col gap-1">
-                    {items.map((item) => (
-                      <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {items.map((item) => (
-                  <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
-                ))}
-              </div>
-            )}
+      <nav className={cn("relative z-10 flex-1 px-2 py-3", collapsed ? "overflow-hidden" : "overflow-y-auto scroll-smooth overscroll-contain")}>
 
-            <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} />
-          </>
-        )}
+        <>
+          {mounted && !collapsed ? (
+            <DndContext id={id} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex flex-col gap-1">
+                  {items.map((item) => (
+                    <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {items.map((item) => (
+                <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
+              ))}
+            </div>
+          )}
+
+          <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} />
+        </>
+
       </nav>
 
       {!collapsed && (
@@ -138,6 +136,7 @@ export function Sidebar({
     </aside>
   )
 }
+
 
 export { DEFAULT_DRAGGABLE_ITEMS }
 export type { SidebarNavItem }

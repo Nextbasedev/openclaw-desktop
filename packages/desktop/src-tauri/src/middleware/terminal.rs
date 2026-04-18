@@ -1,7 +1,11 @@
 use super::*;
 
 pub(crate) fn shell_command() -> String {
-  std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+  if cfg!(windows) {
+    std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
+  } else {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+  }
 }
 
 
