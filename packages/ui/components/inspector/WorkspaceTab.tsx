@@ -270,7 +270,7 @@ function CodeEditor({
             : "text"
 
   return (
-    <div className="h-full overflow-auto bg-[#1E1E1E]">
+    <div className="h-full overflow-auto bg-[#1A1A1A]">
       <div className="min-w-max">
         <SyntaxHighlighter
           language={language}
@@ -281,7 +281,7 @@ function CodeEditor({
           customStyle={{
             margin: 0,
             minHeight: "100%",
-            background: "#1E1E1E",
+            background: "#1A1A1A",
             fontSize: "11px",
             lineHeight: "20px",
             padding: "12px",
@@ -290,7 +290,7 @@ function CodeEditor({
           lineNumberStyle={{
             minWidth: "2.5em",
             paddingRight: "1em",
-            color: "#858585",
+            color: "#5C5C5C",
             borderRight: "1px solid #333333",
             marginRight: "12px",
           }}

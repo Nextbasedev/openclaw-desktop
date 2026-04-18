@@ -18,11 +18,12 @@ type TerminalPanelProps = {
   onToggle: () => void
   externalHeight?: number | null
   onExternalHeightUsed?: () => void
+  instantOpen?: boolean
 }
 
 let tabCounter = 1
 
-export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeightUsed }: TerminalPanelProps) {
+export function TerminalPanel({ open, onToggle, externalHeight, onExternalHeightUsed, instantOpen = false }: TerminalPanelProps) {
   const [tabs, setTabs] = React.useState<TerminalTab[]>([
     { id: "term-1", title: "Terminal 1" },
   ])
