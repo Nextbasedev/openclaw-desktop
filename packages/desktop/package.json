@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "node ../../scripts/run-tauri.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
