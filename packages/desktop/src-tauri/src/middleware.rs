@@ -3545,12 +3545,14 @@ async fn command_version(binary: &str, version_arg: &str) -> Option<String> {
 }
 
 async fn gateway_running(gateway_url: &str) -> bool {
-  timeout(Duration::from_secs(2), async {
-    let request = gateway_url.to_string().into_client_request().map_err(|e| e.to_string())?;
-    connect_async(request).await.map_err(|e| e.to_string())
-  })
-  .await
-  .is_ok()
+  matches!(
+    timeout(Duration::from_secs(2), async {
+      let request = gateway_url.to_string().into_client_request().map_err(|e| e.to_string())?;
+      connect_async(request).await.map_err(|e| e.to_string())
+    })
+    .await,
+    Ok(Ok(_))
+  )
 }
 
 fn onboarding_recommendation(
