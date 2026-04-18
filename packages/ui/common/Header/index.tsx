@@ -10,6 +10,8 @@ import type { HeaderUser } from "@/components/settings/settings.config"
 type HeaderProps = {
     user?: HeaderUser
     className?: string
+    inspectorOpen?: boolean
+    onToggleInspector?: () => void
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -22,9 +24,14 @@ const DEFAULT_USER: HeaderUser = {
  * - data-tauri-drag-region makes it draggable in Tauri
  * - Traffic lights for window controls
  * - User name + version badge on left
- * - Action icons on right (sidebar, notifications, settings)
+ * - Action icons on right (inspector, notifications, settings)
  */
-export function Header({ user = DEFAULT_USER, className }: HeaderProps) {
+export function Header({
+    user = DEFAULT_USER,
+    className,
+    inspectorOpen = false,
+    onToggleInspector,
+}: HeaderProps) {
     const [settingsOpen, setSettingsOpen] = useState(false)
 
     const openSettings = useCallback(() => setSettingsOpen(true), [])
@@ -57,7 +64,9 @@ export function Header({ user = DEFAULT_USER, className }: HeaderProps) {
                 <div className="flex items-center gap-1">
                     <HeaderIconButton
                         icon={Icons.SidebarToggle}
-                        label="Toggle sidebar"
+                        label="Toggle inspector panel"
+                        active={inspectorOpen}
+                        onClick={onToggleInspector}
                     />
                     <HeaderIconButton
                         icon={Icons.Notification}
@@ -76,16 +85,16 @@ export function Header({ user = DEFAULT_USER, className }: HeaderProps) {
     )
 }
 
-/* ── Reusable icon button for header actions ── */
-
 function HeaderIconButton({
     icon: Icon,
     label,
     onClick,
+    active,
 }: {
     icon: React.ElementType
     label: string
     onClick?: () => void
+    active?: boolean
 }) {
     return (
         <button
@@ -94,13 +103,13 @@ function HeaderIconButton({
             onClick={onClick}
             className={cn(
                 "flex size-8 items-center justify-center rounded-md",
-                "text-muted-foreground transition-colors",
-                "hover:text-foreground cursor-pointer group/icon",
+                "transition-colors cursor-pointer group/icon",
+                active
+                    ? "bg-secondary/60 text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
             )}
         >
             <Icon size={16} strokeWidth={1.5} className="size-4" />
         </button>
     )
 }
-
-
