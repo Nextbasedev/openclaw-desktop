@@ -13,9 +13,11 @@ import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 export default function Page() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [terminalHeight, setTerminalHeight] = useState<number | null>(null)
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => setTerminalOpen((prev) => !prev), [])
+  const openTerminal = useCallback(() => setTerminalOpen(true), [])
 
   useTerminalShortcut(toggleTerminal)
 
@@ -43,14 +45,25 @@ export default function Page() {
           </main>
 
           {/* Terminal panel — slides up from bottom */}
-          <TerminalPanel open={terminalOpen} onToggle={toggleTerminal} />
+          <TerminalPanel
+            open={terminalOpen}
+            onToggle={toggleTerminal}
+            externalHeight={terminalHeight}
+            onExternalHeightUsed={() => setTerminalHeight(null)}
+          />
         </div>
 
         {/* Right inspector panel */}
         <InspectorPanel open={inspectorOpen} onClose={toggleInspector} />
       </div>
 
-      <Footer onToggleTerminal={toggleTerminal} />
+      <Footer
+        onToggleTerminal={toggleTerminal}
+        onDragOpenTerminal={(height) => {
+          openTerminal()
+          setTerminalHeight(height)
+        }}
+      />
     </div>
   )
 }
