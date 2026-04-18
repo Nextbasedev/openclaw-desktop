@@ -1,4 +1,3 @@
-export { Sidebar } from "./Sidebar"
+export { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "./Sidebar"
 export { SidebarItem } from "./SidebarItem"
-export { VersionUpdateButton } from "./VersionUpdateButton"
-export { VersionUpdateModal } from "./VersionUpdateModal"
+export type { SidebarNavItem } from "./SidebarItem"

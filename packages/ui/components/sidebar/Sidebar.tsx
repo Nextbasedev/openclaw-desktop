@@ -1,5 +1,5 @@
 import { Icons } from "@/components/icons"
-import { useState, useCallback, useMemo } from "react"
+import { useCallback, useMemo } from "react"
 import {
   DndContext,
   closestCenter,
@@ -30,12 +30,21 @@ type SidebarProps = {
   className?: string
   width?: number
   onResizeStart?: () => void
+  activeTab: string
+  onTabChange: (tab: string) => void
+  items: SidebarNavItem[]
+  onItemsChange: (items: SidebarNavItem[]) => void
 }
 
-export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps) {
-  const [items, setItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
-  const [activeTab, setActiveTab] = useState<string>("chat")
-
+export function Sidebar({
+  className,
+  width = 220,
+  onResizeStart,
+  activeTab,
+  onTabChange,
+  items,
+  onItemsChange,
+}: SidebarProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -49,14 +58,12 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
     (event: DragEndEvent) => {
       const { active, over } = event
       if (over && active.id !== over.id) {
-        setItems((prev) => {
-          const oldIndex = prev.findIndex((i) => i.id === active.id)
-          const newIndex = prev.findIndex((i) => i.id === over.id)
-          return arrayMove(prev, oldIndex, newIndex)
-        })
+        const oldIndex = items.findIndex((i) => i.id === active.id)
+        const newIndex = items.findIndex((i) => i.id === over.id)
+        onItemsChange(arrayMove(items, oldIndex, newIndex))
       }
     },
-    [],
+    [items, onItemsChange],
   )
 
   const sidebarStyle = useMemo(
@@ -98,7 +105,7 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
                   key={item.id}
                   item={item}
                   isActive={activeTab === item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => onTabChange(item.id)}
                 />
               ))}
             </div>
@@ -111,7 +118,7 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
           </p>
           <button
             type="button"
-            onClick={() => setActiveTab("project")}
+            onClick={() => onTabChange("project")}
             className={cn(
               "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[12px] font-medium transition-colors duration-150",
               activeTab === "project"
@@ -138,3 +145,6 @@ export function Sidebar({ className, width = 220, onResizeStart }: SidebarProps)
     </aside>
   )
 }
+
+export { DEFAULT_DRAGGABLE_ITEMS }
+export type { SidebarNavItem }
