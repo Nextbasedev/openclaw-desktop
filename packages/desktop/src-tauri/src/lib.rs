@@ -81,6 +81,7 @@ pub fn run() {
       middleware::middleware_branch_from_edit,
       middleware::middleware_branch_create_thread,
       // Onboarding enhancements
+      middleware::middleware_onboarding_core,
       middleware::middleware_openclaw_check,
       middleware::middleware_openclaw_install,
       middleware::middleware_git_remote_add,

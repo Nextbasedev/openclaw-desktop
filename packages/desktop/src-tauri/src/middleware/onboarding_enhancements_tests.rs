@@ -73,6 +73,35 @@ fn git_remote_add_list_remove_local_flow_works() {
   });
 }
 
+#[test]
+fn onboarding_recommendation_prioritizes_core_prerequisites() {
+  assert_eq!(onboarding_recommendation(false, false, false, false), "install_node");
+  assert_eq!(onboarding_recommendation(true, false, false, false), "install_npm");
+  assert_eq!(onboarding_recommendation(true, true, false, false), "install_openclaw");
+  assert_eq!(onboarding_recommendation(true, true, true, false), "start_gateway");
+  assert_eq!(onboarding_recommendation(true, true, true, true), "ready");
+}
+
+#[tokio::test]
+async fn onboarding_core_reports_complete_status_shape() {
+  let result = middleware_onboarding_core(OnboardingCoreInput {
+    action: Some("check".to_string()),
+    gateway_url: None,
+  })
+  .await
+  .expect("onboarding core");
+
+  assert!(result.get("status").is_some());
+  assert!(result.get("status").and_then(|v| v.get("node")).is_some());
+  assert!(result.get("status").and_then(|v| v.get("npm")).is_some());
+  assert!(result.get("status").and_then(|v| v.get("openclaw")).is_some());
+  assert!(result.get("status").and_then(|v| v.get("gateway")).is_some());
+  assert!(matches!(
+    result.get("status").and_then(|v| v.get("recommendation")).and_then(Value::as_str),
+    Some("install_node") | Some("install_npm") | Some("install_openclaw") | Some("start_gateway") | Some("ready")
+  ));
+}
+
 #[tokio::test]
 async fn openclaw_check_reports_install_state() {
   let result = middleware_openclaw_check(OpenClawCheckInput { gateway_url: None })
@@ -81,6 +110,7 @@ async fn openclaw_check_reports_install_state() {
 
   assert!(result.get("installed").and_then(Value::as_bool).is_some());
   assert!(result.get("running").and_then(Value::as_bool).is_some());
+  assert!(result.get("core").is_some());
   assert!(matches!(
     result.get("recommendation").and_then(Value::as_str),
     Some("install") | Some("start") | Some("ready")

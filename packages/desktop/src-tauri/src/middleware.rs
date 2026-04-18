@@ -3402,6 +3402,13 @@ pub struct OpenClawCheckInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OnboardingCoreInput {
+  action: Option<String>,
+  gateway_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenClawInstallInput {
   install_path: Option<String>,
   version: Option<String>,
@@ -3428,117 +3435,199 @@ pub struct GitRemoteListInput {
   project_id: String,
 }
 
-#[tauri::command]
-pub async fn middleware_openclaw_check(input: OpenClawCheckInput) -> Result<Value, String> {
-  let gateway_url = input.gateway_url.unwrap_or_else(|| format!("ws://127.0.0.1:{}", DEFAULT_GATEWAY_PORT));
-
-  let cli_check = tokio::process::Command::new("which")
-    .arg("openclaw")
+async fn command_version(binary: &str, version_arg: &str) -> Option<String> {
+  tokio::process::Command::new(binary)
+    .arg(version_arg)
     .output()
-    .await;
-  let cli_available = cli_check.map(|o| o.status.success()).unwrap_or(false);
+    .await
+    .ok()
+    .filter(|output| output.status.success())
+    .and_then(|output| String::from_utf8(output.stdout).ok())
+    .map(|stdout| stdout.trim().to_string())
+    .filter(|stdout| !stdout.is_empty())
+}
 
-  let ws_check = timeout(Duration::from_secs(2), async {
-    let request = gateway_url.clone().into_client_request().map_err(|e| e.to_string())?;
+async fn gateway_running(gateway_url: &str) -> bool {
+  timeout(Duration::from_secs(2), async {
+    let request = gateway_url.to_string().into_client_request().map_err(|e| e.to_string())?;
     connect_async(request).await.map_err(|e| e.to_string())
-  }).await;
-  let gateway_running = ws_check.is_ok();
+  })
+  .await
+  .is_ok()
+}
 
-  let version = if cli_available {
-    tokio::process::Command::new("openclaw")
-      .arg("--version")
-      .output()
-      .await
-      .ok()
-      .and_then(|o| String::from_utf8(o.stdout).ok())
-      .map(|s| s.trim().to_string())
+fn onboarding_recommendation(
+  node_installed: bool,
+  npm_installed: bool,
+  openclaw_installed: bool,
+  gateway_running: bool,
+) -> &'static str {
+  if !node_installed {
+    "install_node"
+  } else if !npm_installed {
+    "install_npm"
+  } else if !openclaw_installed {
+    "install_openclaw"
+  } else if !gateway_running {
+    "start_gateway"
   } else {
-    None
-  };
+    "ready"
+  }
+}
 
-  let gateway_status = if gateway_running {
-    Some(json!({
+async fn onboarding_snapshot(gateway_url: String) -> Value {
+  let node_version = command_version("node", "--version").await;
+  let npm_version = command_version("npm", "--version").await;
+  let openclaw_version = command_version("openclaw", "--version").await;
+  let gateway_is_running = gateway_running(&gateway_url).await;
+
+  json!({
+    "node": {
+      "installed": node_version.is_some(),
+      "version": node_version,
+    },
+    "npm": {
+      "installed": npm_version.is_some(),
+      "version": npm_version,
+    },
+    "openclaw": {
+      "installed": openclaw_version.is_some(),
+      "version": openclaw_version,
+      "installMethod": "npm i -g openclaw",
+    },
+    "gateway": {
       "url": gateway_url,
-      "status": "running",
-    }))
-  } else {
-    None
-  };
+      "running": gateway_is_running,
+      "status": if gateway_is_running { "running" } else { "stopped" },
+    },
+    "recommendation": onboarding_recommendation(
+      node_version.is_some(),
+      npm_version.is_some(),
+      openclaw_version.is_some(),
+      gateway_is_running,
+    )
+  })
+}
+
+#[tauri::command]
+pub async fn middleware_onboarding_core(input: OnboardingCoreInput) -> Result<Value, String> {
+  let gateway_url = input.gateway_url.unwrap_or_else(|| format!("ws://127.0.0.1:{}", DEFAULT_GATEWAY_PORT));
+  let action = input.action.unwrap_or_else(|| "check".to_string());
+  let mut actions_run: Vec<String> = Vec::new();
+
+  if action == "apply" {
+    let before = onboarding_snapshot(gateway_url.clone()).await;
+    let node_installed = before.get("node").and_then(|v| v.get("installed")).and_then(Value::as_bool).unwrap_or(false);
+    let npm_installed = before.get("npm").and_then(|v| v.get("installed")).and_then(Value::as_bool).unwrap_or(false);
+    let openclaw_installed = before.get("openclaw").and_then(|v| v.get("installed")).and_then(Value::as_bool).unwrap_or(false);
+    let gateway_is_running = before.get("gateway").and_then(|v| v.get("running")).and_then(Value::as_bool).unwrap_or(false);
+
+    if !node_installed {
+      return Ok(json!({
+        "action": action,
+        "applied": false,
+        "canAutoFix": false,
+        "message": "Node.js is not installed. Install Node.js first, then rerun onboarding.",
+        "manualAction": "install_node",
+        "docsUrl": "https://nodejs.org/en/download",
+        "status": before,
+        "actionsRun": actions_run,
+      }));
+    }
+
+    if !npm_installed {
+      return Ok(json!({
+        "action": action,
+        "applied": false,
+        "canAutoFix": false,
+        "message": "npm is not installed. Install npm first, then rerun onboarding.",
+        "manualAction": "install_npm",
+        "docsUrl": "https://docs.npmjs.com/downloading-and-installing-node-js-and-npm",
+        "status": before,
+        "actionsRun": actions_run,
+      }));
+    }
+
+    if !openclaw_installed {
+      let output = tokio::process::Command::new("npm")
+        .args(&["i", "-g", "openclaw"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run npm install: {}", e))?;
+
+      if !output.status.success() {
+        return Err(format!(
+          "OpenClaw npm install failed: {}",
+          String::from_utf8_lossy(&output.stderr)
+        ));
+      }
+
+      actions_run.push("npm i -g openclaw".to_string());
+    }
+
+    if !gateway_is_running {
+      let output = tokio::process::Command::new("openclaw")
+        .args(&["gateway", "start"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to start OpenClaw Gateway: {}", e))?;
+
+      if !output.status.success() {
+        return Err(format!(
+          "OpenClaw gateway start failed: {}",
+          String::from_utf8_lossy(&output.stderr)
+        ));
+      }
+
+      actions_run.push("openclaw gateway start".to_string());
+    }
+  }
+
+  let status = onboarding_snapshot(gateway_url).await;
+  let recommendation = status.get("recommendation").and_then(Value::as_str).unwrap_or("install_node");
 
   Ok(json!({
-    "installed": cli_available,
-    "running": gateway_running,
-    "version": version,
-    "gateway": gateway_status,
-    "recommendation": if !cli_available {
-      "install"
-    } else if !gateway_running {
-      "start"
-    } else {
-      "ready"
-    }
+    "action": action,
+    "applied": action == "apply" && !actions_run.is_empty(),
+    "canAutoFix": matches!(recommendation, "install_openclaw" | "start_gateway" | "ready"),
+    "status": status,
+    "actionsRun": actions_run,
   }))
 }
 
 #[tauri::command]
-pub async fn middleware_openclaw_install(input: OpenClawInstallInput) -> Result<Value, String> {
-  let install_path = input.install_path.unwrap_or_else(|| {
-    home_dir()
-      .map(|h| h.join(".openclaw").join("bin").to_string_lossy().to_string())
-      .unwrap_or_else(|_| "/usr/local/bin".to_string())
-  });
+pub async fn middleware_openclaw_check(input: OpenClawCheckInput) -> Result<Value, String> {
+  let status = onboarding_snapshot(
+    input.gateway_url.unwrap_or_else(|| format!("ws://127.0.0.1:{}", DEFAULT_GATEWAY_PORT))
+  ).await;
 
-  let version = input.version.unwrap_or_else(|| "stable".to_string());
+  Ok(json!({
+    "installed": status.get("openclaw").and_then(|v| v.get("installed")).and_then(Value::as_bool).unwrap_or(false),
+    "running": status.get("gateway").and_then(|v| v.get("running")).and_then(Value::as_bool).unwrap_or(false),
+    "version": status.get("openclaw").and_then(|v| v.get("version")).cloned().unwrap_or(Value::Null),
+    "gateway": status.get("gateway").cloned().unwrap_or(Value::Null),
+    "recommendation": match status.get("recommendation").and_then(Value::as_str).unwrap_or("install_openclaw") {
+      "ready" => "ready",
+      "start_gateway" => "start",
+      _ => "install",
+    },
+    "core": status,
+  }))
+}
 
-  tokio::fs::create_dir_all(&install_path).await
-    .map_err(|e| format!("Failed to create install directory: {}", e))?;
+#[tauri::command]
+pub async fn middleware_openclaw_install(_input: OpenClawInstallInput) -> Result<Value, String> {
+  let result = middleware_onboarding_core(OnboardingCoreInput {
+    action: Some("apply".to_string()),
+    gateway_url: None,
+  }).await?;
 
-  let install_script_url = match std::env::consts::OS {
-    "linux" => "https://get.openclaw.ai/install.sh",
-    "macos" => "https://get.openclaw.ai/install.sh",
-    "windows" => "https://get.openclaw.ai/install.ps1",
-    _ => return Err(format!("Unsupported OS: {}", std::env::consts::OS)),
-  };
-
-  let install_cmd = if std::env::consts::OS == "windows" {
-    tokio::process::Command::new("powershell")
-      .args(&["-Command", &format!(
-        "Invoke-RestMethod -Uri '{}' | Invoke-Expression",
-        install_script_url
-      )])
-      .env("OPENCLAW_INSTALL_PATH", &install_path)
-      .env("OPENCLAW_VERSION", &version)
-      .output()
-      .await
-  } else {
-    tokio::process::Command::new("sh")
-      .arg("-c")
-      .arg(format!(
-        "curl -fsSL '{}' | OPENCLAW_INSTALL_PATH='{}' OPENCLAW_VERSION='{}' sh",
-        install_script_url, install_path, version
-      ))
-      .output()
-      .await
-  };
-
-  match install_cmd {
-    Ok(output) => {
-      if output.status.success() {
-        Ok(json!({
-          "installed": true,
-          "path": install_path,
-          "version": version,
-          "output": String::from_utf8_lossy(&output.stdout).to_string(),
-        }))
-      } else {
-        Err(format!(
-          "Installation failed: {}",
-          String::from_utf8_lossy(&output.stderr)
-        ))
-      }
-    }
-    Err(e) => Err(format!("Failed to run installer: {}", e)),
-  }
+  Ok(json!({
+    "installed": result.get("status").and_then(|v| v.get("openclaw")).and_then(|v| v.get("installed")).and_then(Value::as_bool).unwrap_or(false),
+    "running": result.get("status").and_then(|v| v.get("gateway")).and_then(|v| v.get("running")).and_then(Value::as_bool).unwrap_or(false),
+    "actionsRun": result.get("actionsRun").cloned().unwrap_or_else(|| json!([])),
+    "status": result.get("status").cloned().unwrap_or(Value::Null),
+  }))
 }
 
 #[tauri::command]
