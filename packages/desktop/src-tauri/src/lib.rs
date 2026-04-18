@@ -96,6 +96,11 @@ pub fn run() {
       middleware::middleware_git_remote_add,
       middleware::middleware_git_remote_list,
       middleware::middleware_git_remote_remove,
+      // Sync
+      middleware::middleware_sync_full,
+      middleware::middleware_sync_status,
+      middleware::middleware_sync_enable,
+      middleware::middleware_sync_devices,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

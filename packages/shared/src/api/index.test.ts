@@ -21,6 +21,7 @@ import {
   sessionEndpoints,
   settingsEndpoints,
   skillEndpoints,
+  syncEndpoints,
   terminalEndpoints,
   topicEndpoints,
 } from "./index"
@@ -274,6 +275,17 @@ const representativeParsers: Record<string, RepresentativeParser> = {
       plannedSteps: ["detect", "install"],
     },
     responseAssert: (parsed: { plannedSteps: string[] }) => expect(parsed.plannedSteps).toHaveLength(2),
+  },
+  sync: {
+    endpoint: syncEndpoints[1],
+    response: {
+      enabled: true,
+      deviceId: "device_abc",
+      deviceName: "My Laptop",
+      lastSyncAt: timestamp,
+      dirtyCount: 3,
+    },
+    responseAssert: (parsed: { dirtyCount: number }) => expect(parsed.dirtyCount).toBe(3),
   },
 } as const
 

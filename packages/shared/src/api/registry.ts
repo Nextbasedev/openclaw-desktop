@@ -15,6 +15,7 @@ import { projectEndpoints } from "./projects"
 import { sessionEndpoints } from "./sessions"
 import { settingsEndpoints } from "./settings"
 import { skillEndpoints } from "./skills"
+import { syncEndpoints } from "./sync"
 import { terminalEndpoints } from "./terminal"
 import { topicEndpoints } from "./topics"
 
@@ -36,6 +37,7 @@ export const middlewareContracts = [
   ...skillEndpoints,
   ...approvalEndpoints,
   ...bootstrapEndpoints,
+  ...syncEndpoints,
 ] as const satisfies readonly EndpointContract[]
 
 type MiddlewareContractTuple = typeof middlewareContracts
