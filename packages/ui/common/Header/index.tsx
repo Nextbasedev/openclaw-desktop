@@ -8,7 +8,6 @@ import {
     Notification02Icon,
     Settings02Icon,
 } from "@hugeicons/core-free-icons"
-import { VscLayoutSidebarRightOff, VscLayoutSidebarRight } from "react-icons/vsc"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { SettingsDialog } from "@/components/settings/SettingsDialog"
