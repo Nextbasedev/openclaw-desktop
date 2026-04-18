@@ -31,6 +31,7 @@ mod usage_tests;
 
 mod branches;
 mod chat;
+mod connect;
 mod cron;
 mod crud;
 mod files;
@@ -46,6 +47,7 @@ mod usage;
 
 pub use branches::*;
 pub use chat::*;
+pub use connect::*;
 pub use cron::*;
 pub use crud::*;
 pub use files::*;

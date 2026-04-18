@@ -128,6 +128,10 @@ pub fn run() {
       middleware::middleware_git_context,
       middleware::middleware_git_switch_branch,
       middleware::middleware_git_branches,
+      // Gateway Connect
+      middleware::middleware_gateway_connect,
+      middleware::middleware_gateway_connect_save,
+      middleware::middleware_gateway_connect_status,
       // Memory
       middleware::middleware_memory_list,
       middleware::middleware_memory_read,
