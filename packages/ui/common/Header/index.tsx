@@ -72,7 +72,7 @@ export function Header({
                         aria-label="Toggle terminal"
                         onClick={onToggleTerminal}
                         className={cn(
-                            "flex size-8 items-center justify-center rounded-md",
+                            "flex size-7 items-center justify-center rounded-md",
                             "transition-colors cursor-pointer",
                             terminalOpen
                                 ? "text-foreground"
@@ -90,7 +90,7 @@ export function Header({
                         aria-label="Toggle inspector panel"
                         onClick={onToggleInspector}
                         className={cn(
-                            "flex size-8 items-center justify-center rounded-md",
+                            "flex size-7 items-center justify-center rounded-md",
                             "transition-colors cursor-pointer",
                             inspectorOpen
                                 ? "text-foreground"
@@ -137,7 +137,7 @@ function HeaderIconButton({
             aria-label={label}
             onClick={onClick}
             className={cn(
-                "flex size-8 items-center justify-center rounded-md",
+                "flex size-7 items-center justify-center rounded-md",
                 "transition-colors cursor-pointer group/icon",
                 active
                     ? "text-foreground"
