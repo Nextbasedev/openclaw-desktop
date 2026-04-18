@@ -274,13 +274,19 @@ function CodeEditor({
       {/* Line numbers gutter */}
       <div
         ref={lineNumRef}
-        className="shrink-0 overflow-hidden border-r border-border/20 bg-background/30 py-2 pr-2 text-right select-none"
-        style={{ width: `${gutterWidth + 2}ch`, paddingLeft: "0.5ch" }}
+        className="shrink-0 overflow-hidden border-r py-2 pr-2 text-right select-none"
+        style={{
+          width: `${gutterWidth + 2}ch`,
+          paddingLeft: "0.5ch",
+          borderRightColor: "#333333",
+          backgroundColor: "#252526",
+        }}
       >
         {lines.map((_, i) => (
           <div
             key={i}
-            className="font-mono text-[11px] leading-5 text-muted-foreground/40"
+            className="font-mono text-[11px] leading-5"
+            style={{ color: "#858585" }}
           >
             {i + 1}
           </div>
@@ -288,7 +294,7 @@ function CodeEditor({
       </div>
 
       {/* Code area — no word wrap, scrollable both directions */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto" style={{ backgroundColor: "#1E1E1E" }}>
         <textarea
           ref={textareaRef}
           value={content}
@@ -297,11 +303,17 @@ function CodeEditor({
           spellCheck={false}
           className={cn(
             "block min-h-full min-w-full resize-none whitespace-pre bg-transparent py-2 pl-3 pr-4 font-mono text-[11px] leading-5 outline-none",
-            ext === "json" && "text-amber-300/80",
-            ext === "md" && "text-foreground/80",
-            !["json", "md"].includes(ext) && "text-foreground/85",
           )}
-          style={{ tabSize: 2, width: "max-content" }}
+          style={{
+            color:
+              ext === "json"
+                ? "#CE9178"
+                : ext === "md"
+                  ? "#D4D4D4"
+                  : "#D4D4D4",
+            tabSize: 2,
+            width: "max-content",
+          }}
         />
       </div>
     </div>
