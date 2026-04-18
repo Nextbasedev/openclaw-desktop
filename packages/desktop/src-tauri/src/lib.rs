@@ -133,6 +133,8 @@ pub fn run() {
       middleware::middleware_memory_read,
       middleware::middleware_memory_write,
       middleware::middleware_memory_search,
+      middleware::middleware_memory_store,
+      middleware::middleware_memory_recall,
       middleware::middleware_memory_reindex,
       // Sync
       middleware::middleware_sync_full,
