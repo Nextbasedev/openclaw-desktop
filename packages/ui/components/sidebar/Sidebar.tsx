@@ -1,8 +1,8 @@
-import { Icons } from "@/components/icons"
 import { useState, useCallback, useMemo, useEffect, useId } from "react"
 import { VersionUpdateButton } from "./VersionUpdateButton"
 import { VersionUpdateModal } from "./VersionUpdateModal"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
+import { SettingsNav } from "./SettingsNav"
 import {
   DndContext,
   closestCenter,
@@ -63,31 +63,22 @@ export function Sidebar({
   const [versionModalOpen, setVersionModalOpen] = useState(false)
   const id = useId()
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  useEffect(() => { setMounted(true) }, [])
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event
-      if (collapsed) return
-      if (over && active.id !== over.id) {
-        const oldIndex = items.findIndex((i) => i.id === active.id)
-        const newIndex = items.findIndex((i) => i.id === over.id)
-        onItemsChange(arrayMove(items, oldIndex, newIndex))
-      }
-    },
-    [collapsed, items, onItemsChange],
-  )
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (collapsed) return
+    if (over && active.id !== over.id) {
+      const oldIndex = items.findIndex((i) => i.id === active.id)
+      const newIndex = items.findIndex((i) => i.id === over.id)
+      onItemsChange(arrayMove(items, oldIndex, newIndex))
+    }
+  }, [collapsed, items, onItemsChange])
 
   const sidebarStyle = useMemo(() => ({ width: `${width}px` }), [width])
 
@@ -105,33 +96,7 @@ export function Sidebar({
 
       <nav className={cn("relative z-10 flex-1 overflow-y-auto px-2 py-3", "scroll-smooth overscroll-contain")}>
         {isSettingsMode ? (
-          <div className="flex h-full flex-col gap-1">
-            <button
-              onClick={onBackToMain}
-              title="Back to App"
-              className={cn(
-                "flex w-full cursor-pointer items-center rounded-md text-left font-medium transition-colors hover:text-foreground",
-                collapsed ? "justify-center px-0 py-2" : "gap-1 px-2.5 py-1 text-[12px] text-muted-foreground",
-              )}
-            >
-              <Icons.Back size={16} strokeWidth={1.5} />
-              {!collapsed && <span>Back to App</span>}
-            </button>
-
-            {!collapsed && <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Personal</div>}
-            <SettingsItem label="Usage" icon="usage" active={activeTab === "usage"} onClick={() => onTabChange("usage")} collapsed={collapsed} />
-            <SettingsItem label="Memory" icon="memory" active={activeTab === "memory"} onClick={() => onTabChange("memory")} collapsed={collapsed} />
-
-            {!collapsed && <div className="mb-2 mt-4 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">System</div>}
-            <SettingsItem label="Account" icon="user" active={activeTab === "account"} onClick={() => onTabChange("account")} collapsed={collapsed} />
-            <SettingsItem label="Appearance" icon="settings" active={activeTab === "personalization"} onClick={() => onTabChange("personalization")} collapsed={collapsed} />
-            <SettingsItem label="Data Control" icon="grid" active={activeTab === "data-control"} onClick={() => onTabChange("data-control")} collapsed={collapsed} />
-            <SettingsItem label="Maintenance" icon="wrench" active={activeTab === "maintenance"} onClick={() => onTabChange("maintenance")} collapsed={collapsed} />
-
-            <div className="mt-auto pt-4">
-              <SettingsItem label="Help" icon="help" active={activeTab === "help"} onClick={() => onTabChange("help")} collapsed={collapsed} />
-            </div>
-          </div>
+          <SettingsNav activeTab={activeTab} onTabChange={onTabChange} onBackToMain={onBackToMain} collapsed={collapsed} />
         ) : (
           <>
             {mounted && !collapsed ? (
@@ -152,16 +117,10 @@ export function Sidebar({
               </div>
             )}
 
-            <ProjectsSection
-              collapsed={collapsed}
-              activeTopic={activeTopic}
-              onTopicSelect={onTopicSelect}
-            />
+            <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} />
           </>
         )}
       </nav>
-
-
 
       {!collapsed && (
         <button
@@ -177,43 +136,6 @@ export function Sidebar({
 
       <VersionUpdateModal open={versionModalOpen} onOpenChange={setVersionModalOpen} />
     </aside>
-  )
-}
-
-function SettingsItem({ label, icon, active, onClick, collapsed }: {
-  label: string
-  icon: string
-  active: boolean
-  onClick: () => void
-  collapsed: boolean
-}) {
-  const iconMap: Record<string, any> = {
-    usage: Icons.Automations,
-    memory: Icons.Memory,
-    user: Icons.UserAccount,
-    settings: Icons.Settings,
-    grid: Icons.Grid,
-    wrench: Icons.Wrench,
-    help: Icons.Help,
-  }
-
-  const Icon = iconMap[icon] || Icons.Settings
-
-  return (
-    <button
-      onClick={onClick}
-      title={label}
-      className={cn(
-        "flex w-full cursor-pointer items-center rounded-md font-normal transition-colors",
-        collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1.5 text-left text-[13px]",
-        active
-          ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
-          : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-      )}
-    >
-      <Icon size={16} strokeWidth={active ? 2 : 1.5} className="shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
-    </button>
   )
 }
 
