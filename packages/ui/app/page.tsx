@@ -119,7 +119,8 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab)
-  }, [])
+    if (!sidebarOpen) setSidebarOpen(true)
+  }, [sidebarOpen])
 
   const handleSignOut = useCallback(async () => {
     await signOut()

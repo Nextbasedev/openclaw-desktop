@@ -79,17 +79,19 @@ function ShortcutButton({
     >
       {icon}
       <div className="flex items-center gap-0.5">
-        {keys.map((key) => (
-          <kbd
-            key={key}
-            className={cn(
-              "inline-flex min-w-[18px] items-center justify-center rounded",
-              "border border-border/60 bg-secondary/40 px-1 py-px",
-              "text-[10px] font-medium text-muted-foreground",
-            )}
-          >
-            {key}
-          </kbd>
+        {keys.map((key, i) => (
+          <span key={key} className="flex items-center gap-0.5">
+            {i > 0 && <span className="text-[9px] text-muted-foreground/50">+</span>}
+            <kbd
+              className={cn(
+                "inline-flex min-w-[18px] items-center justify-center rounded",
+                "px-1 py-px",
+                "text-[10px]",
+              )}
+            >
+              {key}
+            </kbd>
+          </span>
         ))}
       </div>
     </button>
