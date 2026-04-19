@@ -18,6 +18,7 @@ import {
 type ConnectionStatus = {
   gatewayConfigured: boolean
   gatewayUrl?: string | null
+  gatewayToken?: string | null
   hasIdentity: boolean
   status: string
 }
@@ -37,8 +38,8 @@ type ConnectResult = {
 }
 
 export default function ConnectPage() {
-  const [url, setUrl] = useState("ws://127.0.0.1:18789")
-  const [token, setToken] = useState("3210ebae11309967d69099f8a4b60a67")
+  const [url, setUrl] = useState("")
+  const [token, setToken] = useState("")
   const [showToken, setShowToken] = useState(false)
 
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
@@ -55,6 +56,7 @@ export default function ConnectPage() {
       })
       setStatus(s)
       if (s.gatewayUrl) setUrl(s.gatewayUrl)
+      if (s.gatewayToken) setToken(s.gatewayToken)
     } catch {
       setStatus(null)
     } finally {
@@ -161,7 +163,7 @@ export default function ConnectPage() {
               <Input
                 id="gateway-url"
                 type="text"
-                placeholder="ws://127.0.0.1:18789"
+                placeholder={status?.gatewayUrl ? status.gatewayUrl : "ws://127.0.0.1:18789"}
                 value={url}
                 onChange={(e) => {
                   setUrl(e.target.value)
@@ -182,7 +184,7 @@ export default function ConnectPage() {
                 <Input
                   id="gateway-token"
                   type={showToken ? "text" : "password"}
-                  placeholder="Paste your gateway token"
+                  placeholder={status?.gatewayToken ? "Token saved" : "Paste your gateway token"}
                   value={token}
                   onChange={(e) => {
                     setToken(e.target.value)
@@ -287,14 +289,14 @@ export default function ConnectPage() {
         {connectResult && !connectResult.ok &&
           connectResult.error !== "origin_fixed_restart" &&
           connectResult.error !== "origin_not_allowed" && (
-          <Card className="border-destructive/30 bg-destructive/5">
-            <CardContent>
-              <p className="text-sm text-destructive">
-                {connectResult.error ?? connectResult.message}
-              </p>
-            </CardContent>
-          </Card>
-        )}
+            <Card className="border-destructive/30 bg-destructive/5">
+              <CardContent>
+                <p className="text-sm text-destructive">
+                  {connectResult.error ?? connectResult.message}
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
         {/* Success result */}
         {connectResult && connectResult.ok && (

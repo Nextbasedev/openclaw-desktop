@@ -60,7 +60,7 @@ export function DocView({
       <div className="flex items-center gap-3">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-          <LuX size={14} /> Back
+          <LuX size={14} /> Close
         </button>
         <div className="h-4 w-px bg-border/40" />
         <FileIcon name={doc.name} />
