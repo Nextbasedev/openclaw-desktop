@@ -39,6 +39,8 @@ export type DialogState = {
   deleteTopicOpen: boolean
   deleteTopicTarget: FullTopic | null
   deletingTopic: boolean
+
+  repoPickerOpen: boolean
 }
 
 export type DialogActions = {
@@ -70,6 +72,9 @@ export type DialogActions = {
   setDeleteTopicOpen: (v: boolean) => void
   openDeleteTopic: (topic: FullTopic) => void
   handleDeleteTopic: () => Promise<void>
+
+  setRepoPickerOpen: (v: boolean) => void
+  handleRepoSelect: (repo: { name: string; path: string }) => void
 }
 
 export function useProjectsData(
@@ -117,6 +122,16 @@ export function useProjectsData(
   const [deleteTopicOpen, setDeleteTopicOpen] = useState(false)
   const [deleteTopicTarget, setDeleteTopicTarget] = useState<FullTopic | null>(null)
   const [deletingTopic, setDeletingTopic] = useState(false)
+
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+
+  const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
+    setNewProjectPath(repo.path)
+    setRepoPickerOpen(false)
+    try {
+      await invoke("middleware_repos_select", { input: { path: repo.path, name: repo.name } })
+    } catch {}
+  }, [])
 
   const loadProjects = useCallback(async () => {
     try {
@@ -231,7 +246,7 @@ export function useProjectsData(
       } catch {}
 
       const result = await invoke<{ project: { id: string; name: string } }>("middleware_projects_create", {
-        input: { name: newProjectName.trim(), profileId, workspaceRoot: "~", repoRoot: "~" },
+        input: { name: newProjectName.trim(), profileId, workspaceRoot: newProjectPath || "~", repoRoot: newProjectPath || "~" },
       })
       const projectId = result.project.id
       const projectName = result.project.name
@@ -384,6 +399,7 @@ export function useProjectsData(
     renameTopicOpen, renameTopicTarget, renameTopicName, renameTopicRef,
     deleteProjectOpen, deleteProjectTarget, deletingProject,
     deleteTopicOpen, deleteTopicTarget, deletingTopic,
+    repoPickerOpen,
   }
 
   const dialogActions: DialogActions = {
@@ -393,6 +409,7 @@ export function useProjectsData(
     setRenameTopicOpen, setRenameTopicName, openRenameTopic, handleRenameTopicSave,
     setDeleteProjectOpen, openDeleteProject, handleDeleteProject,
     setDeleteTopicOpen, openDeleteTopic, handleDeleteTopic,
+    setRepoPickerOpen, handleRepoSelect,
   }
 
   return {
