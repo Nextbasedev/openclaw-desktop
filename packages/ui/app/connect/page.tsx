@@ -71,10 +71,15 @@ export default function ConnectPage() {
     setConnectResult(null)
 
     try {
+      await invoke("middleware_onboarding_save_gateway_config", {
+        input: { gatewayUrl: url.trim(), token: token.trim() },
+      })
+      await invoke("middleware_onboarding_generate_identity", { input: {} })
       const result = await invoke<ConnectResult>("middleware_connect_test", {
         input: {},
       })
       setConnectResult(result)
+      await checkStatus()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -93,8 +98,9 @@ export default function ConnectPage() {
 
     try {
       await invoke("middleware_onboarding_save_gateway_config", {
-        input: { gatewayUrl: url.trim() },
+        input: { gatewayUrl: url.trim(), token: token.trim() },
       })
+      await invoke("middleware_onboarding_generate_identity", { input: {} })
       await checkStatus()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

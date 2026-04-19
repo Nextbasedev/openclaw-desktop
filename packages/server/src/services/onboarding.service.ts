@@ -934,12 +934,20 @@ export function onboardingCheckDependencies() {
 
 export function onboardingSaveGatewayConfig(input: {
   gatewayUrl: string
+  token?: string
 }) {
   const configPath = openclawConfigPath()
   const dir = path.dirname(configPath)
   fs.mkdirSync(dir, { recursive: true })
   const existing = readOpenclawConfig()
   existing.gateway_url = input.gatewayUrl
+  if (input.token) {
+    const gw = (existing.gateway as Record<string, unknown>) ?? {}
+    const auth = (gw.auth as Record<string, unknown>) ?? {}
+    auth.token = input.token
+    gw.auth = auth
+    existing.gateway = gw
+  }
   fs.writeFileSync(configPath, JSON.stringify(existing, null, 2))
   return { saved: true, configPath }
 }

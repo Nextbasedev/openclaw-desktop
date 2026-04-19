@@ -10,7 +10,8 @@ export async function handleCommand(req: Request, res: Response): Promise<void> 
   }
 
   try {
-    const input = req.body ?? {}
+    const body = req.body ?? {}
+    const input = body.input !== undefined ? body.input : body
     const result = await handler(input)
     res.json(result)
   } catch (e: unknown) {
