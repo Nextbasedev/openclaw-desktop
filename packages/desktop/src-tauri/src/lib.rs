@@ -157,6 +157,8 @@ pub fn run() {
       middleware::middleware_usage_by_topic,
       middleware::middleware_usage_summary,
       middleware::middleware_usage_session,
+      // Utils
+      middleware::middleware_open_url,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

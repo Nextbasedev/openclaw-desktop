@@ -6,145 +6,225 @@ import { AccountTab } from "./tabs/AccountTab"
 import { AppearanceTab } from "./tabs/AppearanceTab"
 import { DataControlTab } from "./tabs/DataControlTab"
 import { MaintenanceTab } from "./tabs/MaintenanceTab"
-import { ProfilesTab } from "./tabs/ProfilesTab"
+import { HelpTab } from "./tabs/HelpTab"
+import { KeyboardShortcutsTab } from "./tabs/KeyboardShortcutsTab"
+import { ArchiveTab } from "./tabs/ArchiveTab"
+// import { UsagePage } from "@/components/UsagePage"
 import { cn } from "@/lib/utils"
-import { useRouter } from "next/navigation"
 
-type SettingSection = "overview" | "account" | "appearance" | "data" | "maintenance" | "profiles"
+type SettingSection = "usage" | "memory" | "archive" | "account" | "appearance" | "data" | "maintenance" | "help" | "shortcuts"
 
-export function SettingsDashboard() {
-  const [activeSection, setActiveSection] = React.useState<SettingSection>("overview")
-  const router = useRouter()
+const SYSTEM_IDS: SettingSection[] = ["account", "appearance", "data", "maintenance"]
 
-  const sections = [
-    {
-      id: "account" as const,
-      label: "Account",
-      description: "Manage your profile, email, and identity settings.",
-      icon: Icons.UserAccount,
-      component: AccountTab,
-      color: "text-blue-500",
-      bg: "bg-blue-500/10",
-    },
-    {
-      id: "appearance" as const,
-      label: "Appearance",
-      description: "Customize the theme, layout, and visual feel of Jarvis.",
-      icon: Icons.Settings,
-      component: AppearanceTab,
-      color: "text-purple-500",
-      bg: "bg-purple-500/10",
-    },
-    {
-      id: "profiles" as const,
-      label: "Profiles",
-      description: "Manage environment connections and gateway endpoints.",
-      icon: Icons.Grid,
-      component: ProfilesTab,
-      color: "text-emerald-500",
-      bg: "bg-emerald-500/10",
-    },
-    {
-      id: "data" as const,
-      label: "Data Control",
-      description: "Export conversations, memory, and sensitive agent data.",
-      icon: Icons.Files,
-      component: DataControlTab,
-      color: "text-orange-500",
-      bg: "bg-orange-500/10",
-    },
-    {
-      id: "maintenance" as const,
-      label: "Maintenance",
-      description: "Sign out, reset local storage, or delete your account.",
-      icon: Icons.Wrench,
-      component: MaintenanceTab,
-      color: "text-rose-500",
-      bg: "bg-rose-500/10",
-    },
-  ]
+type SectionGroup = {
+  label: string
+  items: Array<{ id: SettingSection; label: string; icon: React.ElementType }>
+}
 
-  if (activeSection !== "overview") {
-    const section = sections.find((s) => s.id === activeSection)
-    if (!section) return null
-    const Component = section.component
+const SECTION_GROUPS: SectionGroup[] = [
+  {
+    label: "Personal",
+    items: [
+      { id: "usage", label: "Usage", icon: Icons.Automations },
+      { id: "memory", label: "Memory", icon: Icons.Memory },
+      { id: "archive", label: "Archive", icon: Icons.File },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { id: "account", label: "Account", icon: Icons.UserAccount },
+      { id: "appearance", label: "Appearance", icon: Icons.Settings },
+      { id: "data", label: "Data Control", icon: Icons.Files },
+      { id: "maintenance", label: "Maintenance", icon: Icons.Wrench },
+    ],
+  },
+]
 
-    return (
-      <div className="w-full max-w-4xl px-8 py-10 animate-in fade-in slide-in-from-right-4 duration-300">
-        <button
-          onClick={() => setActiveSection("overview")}
-          className="mb-8 flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group cursor-pointer"
-        >
-          <Icons.Back size={16} className="transition-transform group-hover:-translate-x-0.5" />
-          Back to System
-        </button>
+const FOOTER_ITEMS: Array<{ id: SettingSection; label: string; icon: React.ElementType }> = [
+  { id: "help", label: "Help", icon: Icons.Help },
+]
 
-        <div className="rounded-3xl border border-border/40 bg-card/30 p-10 shadow-sm backdrop-blur-md">
-          <Component />
-        </div>
-      </div>
-    )
+type SettingsDashboardProps = {
+  onSignOut?: () => void
+  onDeleteAccount?: () => void
+  accountData?: { botName: string; provider: string; model: string }
+  onBack?: () => void
+}
+
+export function SettingsDashboard({ onSignOut, onDeleteAccount, accountData, onBack }: SettingsDashboardProps) {
+  const [activeSection, setActiveSection] = React.useState<SettingSection>("usage")
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const sectionRefs = React.useRef<Record<string, HTMLElement | null>>({})
+  const isClickScroll = React.useRef(false)
+
+  const activeView = SYSTEM_IDS.includes(activeSection) ? "system" : activeSection
+
+  React.useEffect(() => {
+    const container = scrollRef.current
+    if (!container || activeView !== "system") return
+
+    function onScroll() {
+      if (isClickScroll.current) return
+      const top = container!.getBoundingClientRect().top
+      let closest: SettingSection = "account"
+      let closestDist = Infinity
+      for (const id of SYSTEM_IDS) {
+        const el = sectionRefs.current[id]
+        if (!el) continue
+        const dist = Math.abs(el.getBoundingClientRect().top - top)
+        if (dist < closestDist) {
+          closestDist = dist
+          closest = id
+        }
+      }
+      setActiveSection(closest)
+    }
+
+    container.addEventListener("scroll", onScroll, { passive: true })
+    return () => container.removeEventListener("scroll", onScroll)
+  }, [activeView])
+
+  function handleSidebarClick(id: SettingSection) {
+    if (SYSTEM_IDS.includes(id) && activeView === "system") {
+      const el = sectionRefs.current[id]
+      if (el) {
+        isClickScroll.current = true
+        el.scrollIntoView({ behavior: "smooth", block: "start" })
+        setActiveSection(id)
+        setTimeout(() => { isClickScroll.current = false }, 600)
+      }
+    } else {
+      setActiveSection(id)
+      if (scrollRef.current) scrollRef.current.scrollTop = 0
+    }
   }
 
   return (
-    <div className="w-full max-w-5xl px-8 py-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="mb-12 flex items-center justify-between">
-        <div>
-          <h1 className="text-[36px] font-bold tracking-tight text-foreground">
-            System Options
-          </h1>
-          <p className="text-muted-foreground mt-2 text-[16px]">
-            Configure your core agent experience and desktop infrastructure.
-          </p>
-        </div>
-        <button
-          onClick={() => router.push("/connect")}
-          className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] hover:opacity-90 active:scale-[0.98] cursor-pointer"
-        >
-          <Icons.Globe size={18} />
-          Connect to Gateway
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {sections.map((section) => (
+    <div className="flex h-full w-full justify-center gap-15 pt-10">
+      <nav className="flex w-[180px] shrink-0 flex-col px-3 py-6">
+        {onBack && (
           <button
-            key={section.id}
-            onClick={() => setActiveSection(section.id)}
-            className={cn(
-              "group relative flex flex-col items-start p-6 text-left transition-all duration-300",
-              "rounded-2xl border border-border/40 bg-card/40 backdrop-blur-sm",
-              "hover:border-primary/30 hover:bg-card/60 hover:shadow-xl hover:-translate-y-1 cursor-pointer"
-            )}
+            onClick={onBack}
+            className="mb-4 flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground group"
           >
-            <div className={cn("mb-4 flex size-12 items-center justify-center rounded-xl", section.bg, section.color)}>
-              <section.icon size={24} strokeWidth={1.5} />
-            </div>
+            <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
+            Back
+          </button>
+        )}
 
-            <div className="space-y-1.5 rounded-lg">
-              <h3 className="text-[17px] font-semibold text-foreground group-hover:text-primary transition-colors">
-                {section.label}
-              </h3>
-              <p className="text-[13px] leading-relaxed text-muted-foreground/80">
-                {section.description}
+        {SECTION_GROUPS.map((group) => (
+          <div key={group.label} className="mb-3">
+            <p className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+              {group.label}
+            </p>
+            <div className="flex flex-col gap-0.5">
+              {group.items.map((item) => (
+                <SidebarButton
+                  key={item.id}
+                  item={item}
+                  isActive={activeSection === item.id}
+                  onClick={() => handleSidebarClick(item.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div className="mt-auto pt-3">
+          {FOOTER_ITEMS.map((item) => (
+            <SidebarButton
+              key={item.id}
+              item={item}
+              isActive={activeSection === item.id}
+              onClick={() => handleSidebarClick(item.id)}
+            />
+          ))}
+        </div>
+      </nav>
+
+      <div ref={scrollRef} className="w-full max-w-xl overflow-y-auto scrollbar-hide my-10 md:my-14 lg:my-18">
+        {/* {activeView === "usage" && <UsagePage />} */}
+        {activeView === "usage" && (
+          <div className="flex flex-col gap-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Usage</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Track your token consumption and costs.
               </p>
             </div>
-
-            <div className="absolute bottom-6 right-6 opacity-0 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-1">
-              <Icons.ExternalLink size={16} className="text-muted-foreground" />
+            <div className="rounded-xl border border-border/50 bg-card px-5 py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                Usage data will appear here once you have an active subscription connected.
+              </p>
             </div>
-          </button>
-        ))}
-      </div>
+          </div>
+        )}
 
-      <div className="mt-12 rounded-2xl border border-dashed border-border/50 p-8 text-center bg-muted/5">
-        <div className="inline-flex size-10 items-center justify-center rounded-full bg-secondary/50 text-muted-foreground mb-3">
-          <Icons.Help size={20} />
-        </div>
-        <p className="text-[14px] text-muted-foreground">
-          Need more help? Check out our <span className="text-primary cursor-pointer hover:underline">Documentation</span> or join the <span className="text-primary cursor-pointer hover:underline">Discord</span>.
-        </p>
+        {activeView === "memory" && (
+          <div className="flex flex-col gap-6">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Memory</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                View and manage your agent&apos;s stored memory and context.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/50 bg-card p-5 text-sm text-muted-foreground italic">
+              Memory system is loading...
+            </div>
+          </div>
+        )}
+
+        {activeView === "archive" && <ArchiveTab />}
+
+        {activeView === "system" && (
+          <div className="flex flex-col gap-12">
+            <div ref={(el) => { sectionRefs.current.account = el }}>
+              <AccountTab data={accountData} />
+            </div>
+            <div ref={(el) => { sectionRefs.current.appearance = el }}>
+              <AppearanceTab />
+            </div>
+            <div ref={(el) => { sectionRefs.current.data = el }}>
+              <DataControlTab />
+            </div>
+            <div ref={(el) => { sectionRefs.current.maintenance = el }}>
+              <MaintenanceTab onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />
+            </div>
+          </div>
+        )}
+
+        {activeView === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+
+        {activeView === "shortcuts" && <KeyboardShortcutsTab onBack={() => { setActiveSection("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
       </div>
     </div>
+  )
+}
+
+function SidebarButton({
+  item,
+  isActive,
+  onClick,
+}: {
+  item: { id: string; label: string; icon: React.ElementType }
+  isActive: boolean
+  onClick: () => void
+}) {
+  const Icon = item.icon
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[14px] transition-colors",
+        isActive
+          ? "bg-foreground/5 text-foreground"
+          : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+      )}
+    >
+      <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
+      {item.label}
+    </button>
   )
 }

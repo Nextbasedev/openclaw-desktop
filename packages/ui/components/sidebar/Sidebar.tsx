@@ -2,7 +2,6 @@ import { useState, useCallback, useMemo, useEffect, useId } from "react"
 import { VersionUpdateButton } from "./VersionUpdateButton"
 import { VersionUpdateModal } from "./VersionUpdateModal"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
-import { SettingsNav } from "./SettingsNav"
 import {
   DndContext,
   closestCenter,
@@ -26,7 +25,6 @@ const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "skill", label: "Skill", icon: "skill" },
   { id: "connect", label: "Connect", icon: "connect" },
-  { id: "settings", label: "Settings", icon: "settings" },
 ]
 
 type SidebarProps = {
@@ -38,9 +36,6 @@ type SidebarProps = {
   onTabChange: (tab: string) => void
   items: SidebarNavItem[]
   onItemsChange: (items: SidebarNavItem[]) => void
-  isSettingsMode: boolean
-  onToggleSettingsMode: (val: boolean) => void
-  onBackToMain: () => void
   activeTopic: ActiveTopic | null
   onTopicSelect: (topic: ActiveTopic) => void
 }
@@ -54,8 +49,6 @@ export function Sidebar({
   onTabChange,
   items,
   onItemsChange,
-  isSettingsMode,
-  onBackToMain,
   activeTopic,
   onTopicSelect,
 }: SidebarProps) {
@@ -95,29 +88,61 @@ export function Sidebar({
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
 
       <nav className={cn("relative z-10 flex-1 px-2 py-3", collapsed ? "overflow-hidden" : "overflow-y-auto scroll-smooth overscroll-contain")}>
+        {mounted && !collapsed ? (
+          <DndContext id={id} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+              <div className="flex flex-col gap-1">
+                {items.map((item) => (
+                  <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {items.map((item) => (
+              <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
+            ))}
+          </div>
+        )}
 
-        <>
-          {mounted && !collapsed ? (
-            <DndContext id={id} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                <div className="flex flex-col gap-1">
-                  {items.map((item) => (
-                    <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {items.map((item) => (
-                <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
-              ))}
-            </div>
+        <div className="mt-3 border-t border-border/10">
+          {!collapsed && (
+            <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              Pinned
+            </p>
           )}
-
-          <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} />
-        </>
-
+          {collapsed ? (
+            <GlassTooltip label="Project">
+              <button
+                type="button"
+                onClick={() => onTabChange("project")}
+                className={cn(
+                  "flex w-full min-w-0 cursor-pointer items-center justify-center rounded-md px-0 py-2 font-medium transition-colors duration-150",
+                  activeTab === "project"
+                    ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
+              </button>
+            </GlassTooltip>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onTabChange("project")}
+              className={cn(
+                "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-[13px] font-medium transition-colors duration-150",
+                activeTab === "project"
+                  ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+              )}
+            >
+              <Icons.Files size={16} strokeWidth={1.5} className="shrink-0" />
+              <span className="flex-1 truncate">Project</span>
+            </button>
+          )}
+        </div>
       </nav>
 
       {!collapsed && (
@@ -136,7 +161,6 @@ export function Sidebar({
     </aside>
   )
 }
-
 
 export { DEFAULT_DRAGGABLE_ITEMS }
 export type { SidebarNavItem }

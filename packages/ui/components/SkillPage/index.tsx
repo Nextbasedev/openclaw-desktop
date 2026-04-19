@@ -155,7 +155,7 @@ export function SkillPage() {
       </div>
 
       {meta && (
-        <div className="mb-5 flex items-center justify-between text-[11px] text-muted-foreground">
+        <div className="mb-5 flex items-center justify-between text-[14px] text-muted-foreground">
           <span>{meta.results.length} skill{meta.results.length === 1 ? "" : "s"} discovered</span>
           <span>Sources: {meta.sources.join(", ")}</span>
         </div>
@@ -171,7 +171,7 @@ export function SkillPage() {
         <div className="space-y-8">
           {filteredSections.map((section) => (
             <section key={section.title}>
-              <h2 className="mb-3 text-[13px] font-medium text-foreground">
+              <h2 className="mb-3 text-[14px]">
                 {section.title}
               </h2>
 
@@ -257,7 +257,7 @@ function CategoryDropdown({
                 "flex w-full items-center rounded-lg px-3 py-2 text-[13px] transition-colors",
                 c === category
                   ? "bg-white/[0.12] text-foreground"
-                  : "text-foreground/80 hover:bg-white/[0.08] hover:text-foreground",
+                  : "text-foreground/80 hover:bg-white/[0.08] hover:text-foreground my-1",
               )}
             >
               {c}
@@ -272,15 +272,15 @@ function CategoryDropdown({
 function SkillCard({ item }: { item: SkillItem }) {
   return (
     <div className="flex items-center gap-3.5 border-b border-border/30 py-4.5">
-      <div className={cn("flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg", item.iconBg)}>
+      <div className={cn("flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md", item.iconBg)}>
         <SkillTileIcon iconKey={item.iconKey} />
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="truncate text-[13px] font-medium text-foreground">{item.name}</p>
+          <p className="truncate text-[14px]">{item.name}</p>
           {item.version && (
-            <span className="rounded bg-secondary/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <span className="rounded bg-secondary/50 px-1.5 py-0.5 text-[12px] text-muted-foreground">
               {item.version}
             </span>
           )}

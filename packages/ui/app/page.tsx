@@ -8,19 +8,16 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
-import { UsagePage } from "@/components/UsagePage"
 import { SkillPage } from "@/components/SkillPage"
-import { AccountTab } from "@/components/settings/tabs/AccountTab"
-import { AppearanceTab } from "@/components/settings/tabs/AppearanceTab"
-import { DataControlTab } from "@/components/settings/tabs/DataControlTab"
-import { MaintenanceTab } from "@/components/settings/tabs/MaintenanceTab"
-import { HelpTab } from "@/components/settings/tabs/HelpTab"
+import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import ConnectPage from "@/app/connect/page"
 import { ChatView } from "@/components/ChatView"
 import { TopicView } from "@/components/TopicView"
 import { OnboardingWizard, useOnboardingFlow } from "@/components/onboarding"
+import { CommandPalette } from "@/components/CommandPalette"
+import { useTheme } from "next-themes"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -29,13 +26,16 @@ const SIDEBAR_COLLAPSED = 56
 
 export default function Page() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
-  const { flowState, loading: onboardingLoading } = useOnboardingFlow()
+  const { flowState, loading: onboardingLoading, error: onboardingError } = useOnboardingFlow()
 
   useEffect(() => {
-    if (!onboardingLoading && flowState) {
+    if (onboardingLoading) return
+    if (flowState) {
       setOnboardingDone(flowState.flow.completed)
+    } else if (onboardingError) {
+      setOnboardingDone(false)
     }
-  }, [onboardingLoading, flowState])
+  }, [onboardingLoading, flowState, onboardingError])
 
   if (onboardingDone === null) {
     return (
@@ -58,8 +58,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [terminalActive, setTerminalActive] = useState(false)
   const [activeTab, setActiveTab] = useState("chat")
-  const [isSettingsMode, setIsSettingsMode] = useState(false)
-  const [lastStandardTab, setLastStandardTab] = useState("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
 
@@ -68,9 +66,11 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
 
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const isResizing = useRef(false)
 
   const { flowState, signOut, deleteAccount } = useOnboardingFlow()
+  const { resolvedTheme, setTheme } = useTheme()
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => {
@@ -84,6 +84,11 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   }, [inspectorOpen, terminalActive])
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
 
+  const openSettings = useCallback(() => setActiveTab("settings"), [])
+  const toggleTheme = useCallback(() => {
+    setTheme(resolvedTheme === "dark" ? "light" : "dark")
+  }, [resolvedTheme, setTheme])
+
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
 
@@ -93,12 +98,14 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault()
         setActiveTab("chat")
-        setLastStandardTab("chat")
-        setIsSettingsMode(false)
         setActiveTopic(null)
         setActiveSessionKey(null)
         setActiveSessionTitle(null)
         setChatKey((k) => k + 1)
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setCommandPaletteOpen((prev) => !prev)
       }
     }
     window.addEventListener("keydown", onKeyDown)
@@ -137,7 +144,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     setActiveTopic(topic)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
-    setIsSettingsMode(false)
   }, [])
 
   // Session selected from TopicView → show ChatView
@@ -147,26 +153,13 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   }, [])
 
   // Nav tab change → clear project context
-  const handleTabChange = useCallback(
-    (tab: string) => {
-      if (tab === "settings") {
-        setIsSettingsMode(true)
-        setActiveTab("usage")
-      } else {
-        setActiveTab(tab)
-        setActiveTopic(null)
-        setActiveSessionKey(null)
-        setActiveSessionTitle(null)
-        if (!isSettingsMode) setLastStandardTab(tab)
-      }
-    },
-    [isSettingsMode],
-  )
-
-  const handleBackToMain = useCallback(() => {
-    setIsSettingsMode(false)
-    setActiveTab(lastStandardTab || "chat")
-  }, [lastStandardTab])
+  const handleTabChange = useCallback((tab: string) => {
+    setActiveTab(tab)
+    setActiveTopic(null)
+    setActiveSessionKey(null)
+    setActiveSessionTitle(null)
+    if (!sidebarOpen) setSidebarOpen(true)
+  }, [sidebarOpen])
 
   // Compute the center label for the header
   const centerLabel = activeSessionKey && activeSessionTitle && activeTopic
@@ -174,6 +167,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     : activeTopic
       ? `${activeTopic.projectName} › ${activeTopic.name}`
       : null
+
   const handleSignOut = useCallback(async () => {
     await signOut()
     onResetOnboarding()
@@ -194,6 +188,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         centerLabel={centerLabel}
+        onOpenSettings={openSettings}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -205,9 +200,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           onTabChange={handleTabChange}
           items={sidebarItems}
           onItemsChange={setSidebarItems}
-          isSettingsMode={isSettingsMode}
-          onToggleSettingsMode={setIsSettingsMode}
-          onBackToMain={handleBackToMain}
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
         />
@@ -217,9 +209,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
             <MainContent
               activeTab={activeTab}
               chatKey={chatKey}
-              lastStandardTab={lastStandardTab}
-              onTabChange={handleTabChange}
-              onToggleSettingsMode={setIsSettingsMode}
               activeTopic={activeTopic}
               activeSessionKey={activeSessionKey}
               activeSessionTitle={activeSessionTitle}
@@ -243,6 +232,16 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         terminalOpen={terminalActive}
         onToggleTerminal={toggleTerminal}
       />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onNavigateChat={() => { setActiveTab("chat") }}
+        onNewChat={() => { setActiveTab("chat"); setChatKey((k) => k + 1) }}
+        onOpenSettings={openSettings}
+        onToggleTerminal={toggleTerminal}
+        onToggleTheme={toggleTheme}
+      />
     </div>
   )
 }
@@ -250,9 +249,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 function MainContent({
   activeTab,
   chatKey,
-  lastStandardTab,
-  onTabChange,
-  onToggleSettingsMode,
   activeTopic,
   activeSessionKey,
   activeSessionTitle,
@@ -263,9 +259,6 @@ function MainContent({
 }: {
   activeTab: string
   chatKey: number
-  lastStandardTab: string
-  onTabChange: (tab: string) => void
-  onToggleSettingsMode: (val: boolean) => void
   activeTopic: ActiveTopic | null
   activeSessionKey: string | null
   activeSessionTitle: string | null
@@ -274,11 +267,6 @@ function MainContent({
   onDeleteAccount: () => void
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
 }) {
-  const settingsBack = () => {
-    onToggleSettingsMode(false)
-    onTabChange(lastStandardTab)
-  }
-
   // 1. Session history view (deepest level)
   if (activeSessionKey && activeTopic) {
     return (
@@ -303,17 +291,18 @@ function MainContent({
     )
   }
 
-  // 3. Normal tab views
-  if (activeTab === "usage") return <UsagePage onBack={settingsBack} />
+  // 3. Tab views
   if (activeTab === "skill") return <SkillPage />
-  if (activeTab === "memory") return <div className="text-muted-foreground italic">Memory system is loading...</div>
-  if (activeTab === "account") {
+  if (activeTab === "connect") return <ConnectPage />
+  if (activeTab === "settings") {
     return (
-      <div className="w-full max-w-2xl px-6 py-10">
-        <AccountTab
-          data={{
-            name: flowState?.state.bot.botName || "Not configured",
-            email: flowState?.state.provider.selection
+      <div className="flex h-full w-full">
+        <SettingsDashboard
+          onSignOut={onSignOut}
+          onDeleteAccount={onDeleteAccount}
+          accountData={{
+            botName: flowState?.state.bot.botName || "Not configured",
+            provider: flowState?.state.provider.selection
               ? `${flowState.state.provider.selection.providerId} (${flowState.state.provider.selection.authMethod || "default"})`
               : "No provider selected",
             model: flowState?.state.model.selectedModelRef || "No model selected",
@@ -322,17 +311,6 @@ function MainContent({
       </div>
     )
   }
-  if (activeTab === "personalization") return <div className="w-full max-w-2xl px-6 py-10"><AppearanceTab /></div>
-  if (activeTab === "data-control") return <div className="w-full max-w-2xl px-6 py-10"><DataControlTab /></div>
-  if (activeTab === "maintenance") {
-    return (
-      <div className="w-full max-w-2xl px-6 py-10">
-        <MaintenanceTab onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />
-      </div>
-    )
-  }
-  if (activeTab === "help") return <div className="w-full max-w-2xl px-6 py-10"><HelpTab /></div>
-  if (activeTab === "connect") return <ConnectPage />
 
   // 4. Default: chat / greeting
   return (
