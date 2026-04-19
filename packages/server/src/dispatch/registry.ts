@@ -122,6 +122,8 @@ export const commandRegistry: Record<string, Handler> = {
 
   // Skills
   middleware_skills_discover: (i) => skills.skillsDiscover(i as Parameters<typeof skills.skillsDiscover>[0]),
+  middleware_skills_detail: (i) => skills.skillsDetail(i as { slug: string }),
+  middleware_skills_versions: (i) => skills.skillsVersions(i as { slug: string; limit?: number; cursor?: string }),
   middleware_skills_install: (i) => skills.skillsInstall(i as Parameters<typeof skills.skillsInstall>[0]),
   middleware_skills_installed: (i) => skills.skillsInstalled(i as Parameters<typeof skills.skillsInstalled>[0]),
   middleware_skills_search_hub: (i) => skills.skillsSearchHub(i as Parameters<typeof skills.skillsSearchHub>[0]),
