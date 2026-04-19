@@ -529,18 +529,7 @@ function MainContent({
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
-        <SettingsDashboard
-          onBack={onSettingsBack}
-          onSignOut={onSignOut}
-          onDeleteAccount={onDeleteAccount}
-          accountData={{
-            botName: flowState?.state.bot.botName || "Not configured",
-            provider: flowState?.state.provider.selection
-              ? `${flowState.state.provider.selection.providerId} (${flowState.state.provider.selection.authMethod || "default"})`
-              : "No provider selected",
-            model: flowState?.state.model.selectedModelRef || "No model selected",
-          }}
-        />
+        <SettingsDashboard onBack={onSettingsBack} />
       </div>
     )
   }

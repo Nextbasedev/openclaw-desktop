@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
+import { on, emit } from "@/lib/events"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -72,6 +73,8 @@ export function useChatsData(
     loadChats()
   }, [loadChats, refreshTrigger])
 
+  useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
+
   useEffect(() => {
     setChatOrder((prev) => {
       const existing = prev.filter((id) =>
@@ -126,6 +129,7 @@ export function useChatsData(
         })
         if (activeChat?.id === chatId) onChatClear()
         await loadChats()
+        emit("archive:changed")
       } catch (e) {
         console.error("archive chat failed", e)
       }
