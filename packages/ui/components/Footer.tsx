@@ -3,9 +3,6 @@
 import { cn } from "@/lib/utils"
 import { VscSearch, VscTerminal } from "react-icons/vsc"
 import { usePlatform } from "@/hooks/usePlatform"
-import { useState } from "react"
-import { VersionUpdateButton } from "./sidebar/VersionUpdateButton"
-import { VersionUpdateModal } from "./sidebar/VersionUpdateModal"
 
 type FooterProps = {
   className?: string
@@ -14,45 +11,33 @@ type FooterProps = {
 }
 
 export function Footer({ className, onToggleTerminal }: FooterProps) {
-  const [versionModalOpen, setVersionModalOpen] = useState(false)
   const platform = usePlatform()
   const isMac = platform === "macos"
   const modKey = isMac ? "⌘" : "Ctrl"
 
   return (
-    <>
-      <footer
-        className={cn(
-          "relative flex h-[26px] shrink-0 items-center justify-between",
-          "border-t border-border/50 bg-card px-3",
-          "select-none",
-          className,
-        )}
-      >
-        <div>
-          <VersionUpdateButton onClick={() => setVersionModalOpen(true)} />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <ShortcutButton
-            icon={<VscSearch className="size-3.5" />}
-            keys={[modKey, "K"]}
-            label="Search"
-          />
-          <ShortcutButton
-            icon={<VscTerminal className="size-3.5" />}
-            keys={[modKey, "`"]}
-            label="Terminal"
-            onClick={onToggleTerminal}
-          />
-        </div>
-      </footer>
-
-      <VersionUpdateModal
-        open={versionModalOpen}
-        onOpenChange={setVersionModalOpen}
-      />
-    </>
+    <footer
+      className={cn(
+        "relative flex h-[26px] shrink-0 items-center justify-end",
+        "border-t border-border/50 bg-card px-3",
+        "select-none",
+        className,
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <ShortcutButton
+          icon={<VscSearch className="size-3.5" />}
+          keys={[modKey, "K"]}
+          label="Search"
+        />
+        <ShortcutButton
+          icon={<VscTerminal className="size-3.5" />}
+          keys={[modKey, "`"]}
+          label="Terminal"
+          onClick={onToggleTerminal}
+        />
+      </div>
+    </footer>
   )
 }
 

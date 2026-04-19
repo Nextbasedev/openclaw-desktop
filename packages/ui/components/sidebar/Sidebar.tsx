@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react"
 import { Reorder } from "framer-motion"
-import { VersionUpdateModal } from "./VersionUpdateModal"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { cn } from "@/lib/utils"
@@ -52,7 +51,6 @@ export function Sidebar({
   chatRefreshTrigger = 0,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
-  const [versionModalOpen, setVersionModalOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -150,8 +148,6 @@ export function Sidebar({
           )}
         />
       )}
-
-      <VersionUpdateModal open={versionModalOpen} onOpenChange={setVersionModalOpen} />
     </aside>
   )
 }
