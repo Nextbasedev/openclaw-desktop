@@ -1,10 +1,24 @@
 import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
-import { ensureGatewayClient } from "../gateway/client.js"
+import { ensureGatewayClient, isGatewayConnected } from "../gateway/client.js"
+import { invalidateSkillCache, isSkillEnabled } from "./skill-runtime.service.js"
+import { SKILL_TEMPLATES } from "./skill-templates.js"
+
+type CatalogSkill = {
+  slug: string
+  name: string
+  description: string
+  source: string
+  version: string
+}
 
 function openclawUserRoot(): string {
   return path.join(os.homedir(), ".openclaw")
+}
+
+function catalogPath(): string {
+  return path.join(openclawUserRoot(), "skills-catalog.json")
 }
 
 function openclawSkillRootForScope(scope: string): string {
@@ -33,43 +47,68 @@ export function parseSkillFrontmatter(
   return result
 }
 
-const BUILTIN_SKILLS = [
-  {
-    slug: "code-review",
-    name: "Code Review",
-    description: "Automated code review with suggestions",
-    source: "builtin",
-    version: "1.0.0",
-  },
-  {
-    slug: "git-commit",
-    name: "Git Commit",
-    description: "Smart commit message generation",
-    source: "builtin",
-    version: "1.0.0",
-  },
-  {
-    slug: "test-gen",
-    name: "Test Generator",
-    description: "Generate unit tests for functions",
-    source: "builtin",
-    version: "1.0.0",
-  },
-  {
-    slug: "refactor",
-    name: "Refactor",
-    description: "Suggest and apply code refactorings",
-    source: "builtin",
-    version: "1.0.0",
-  },
-  {
-    slug: "doc-gen",
-    name: "Documentation Generator",
-    description: "Generate documentation for code",
-    source: "builtin",
-    version: "1.0.0",
-  },
+const DEFAULT_CATALOG: CatalogSkill[] = [
+  { slug: "code-review", name: "Code Review", description: "Automated code review with suggestions", source: "catalog", version: "1.0.0" },
+  { slug: "git-commit", name: "Git Commit", description: "Smart commit message generation", source: "catalog", version: "1.0.0" },
+  { slug: "test-gen", name: "Test Generator", description: "Generate unit tests for functions", source: "catalog", version: "1.0.0" },
+  { slug: "refactor", name: "Refactor", description: "Suggest and apply code refactorings", source: "catalog", version: "1.0.0" },
+  { slug: "doc-gen", name: "Documentation Generator", description: "Generate documentation for code", source: "catalog", version: "1.0.0" },
+  { slug: "bug-finder", name: "Bug Finder", description: "Detect potential bugs and edge cases in code", source: "catalog", version: "1.0.0" },
+  { slug: "api-designer", name: "API Designer", description: "Design RESTful API endpoints and schemas", source: "catalog", version: "1.0.0" },
+  { slug: "sql-helper", name: "SQL Helper", description: "Write and optimize SQL queries", source: "catalog", version: "1.0.0" },
+  { slug: "playwright-browser", name: "Browser Automation", description: "Generate Playwright tests and browser scripts", source: "catalog", version: "1.0.0" },
+  { slug: "code-explainer", name: "Code Explainer", description: "Break down complex code into simple explanations", source: "catalog", version: "1.0.0" },
+  { slug: "security-audit", name: "Security Audit", description: "Scan code for vulnerabilities and security issues", source: "catalog", version: "1.0.0" },
+  { slug: "performance-optimizer", name: "Performance Optimizer", description: "Find and fix performance bottlenecks", source: "catalog", version: "1.0.0" },
+  { slug: "regex-builder", name: "Regex Builder", description: "Create and explain regular expressions", source: "catalog", version: "1.0.0" },
+  { slug: "csv-excel-processor", name: "CSV & Excel Processor", description: "Parse, transform, and analyze spreadsheet data", source: "catalog", version: "1.0.0" },
+  { slug: "image-describer", name: "Image Describer", description: "Analyze and describe images with AI vision", source: "catalog", version: "1.0.0" },
+  { slug: "pdf-reader", name: "PDF Reader", description: "Extract and summarize content from PDF documents", source: "catalog", version: "1.0.0" },
+  { slug: "slides-creator", name: "Slides Creator", description: "Generate presentation slides from content", source: "catalog", version: "1.0.0" },
 ]
+
+function readCatalog(): CatalogSkill[] {
+  const filePath = catalogPath()
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8")
+    const parsed = JSON.parse(raw) as unknown
+    if (Array.isArray(parsed)) return parsed as CatalogSkill[]
+    return DEFAULT_CATALOG
+  } catch {
+    writeCatalog(DEFAULT_CATALOG)
+    return DEFAULT_CATALOG
+  }
+}
+
+function writeCatalog(catalog: CatalogSkill[]): void {
+  const dir = openclawUserRoot()
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(catalogPath(), JSON.stringify(catalog, null, 2), "utf-8")
+}
+
+export function getSkillCatalog(): CatalogSkill[] {
+  return readCatalog()
+}
+
+export function addSkillToCatalog(skill: CatalogSkill): CatalogSkill {
+  const catalog = readCatalog()
+  const existing = catalog.findIndex((s) => s.slug === skill.slug)
+  if (existing >= 0) {
+    catalog[existing] = skill
+  } else {
+    catalog.push(skill)
+  }
+  writeCatalog(catalog)
+  return skill
+}
+
+export function removeSkillFromCatalog(slug: string): { removed: boolean; slug: string } {
+  const catalog = readCatalog()
+  const filtered = catalog.filter((s) => s.slug !== slug)
+  const removed = filtered.length < catalog.length
+  if (removed) writeCatalog(filtered)
+  return { removed, slug }
+}
 
 function scanLocalSkills(
   dir: string,
@@ -114,7 +153,7 @@ function scanLocalSkills(
   return results
 }
 
-export function skillsDiscover(input?: {
+export async function skillsDiscover(input?: {
   query?: string
   limit?: number
   includeLocal?: boolean
@@ -124,6 +163,7 @@ export function skillsDiscover(input?: {
   const query = input?.query?.toLowerCase()
   const limit = input?.limit ?? 50
   const includeLocal = input?.includeLocal ?? true
+  const includeClawHub = input?.includeClawHub ?? false
   const warnings: string[] = []
   const sources: string[] = []
 
@@ -135,34 +175,85 @@ export function skillsDiscover(input?: {
     version?: string
     location?: string
     installed?: boolean
+    enabled?: boolean
   }> = []
 
+  const catalog = getSkillCatalog()
   const userSkillRoot = path.join(openclawUserRoot(), "skills")
   results.push(
-    ...BUILTIN_SKILLS.map((s) => ({
-      ...s,
-      installed: fs.existsSync(path.join(userSkillRoot, s.slug, "SKILL.md")),
-    })),
+    ...catalog.map((s) => {
+      const installed = fs.existsSync(path.join(userSkillRoot, s.slug, "SKILL.md"))
+      return {
+        ...s,
+        installed,
+        enabled: installed ? isSkillEnabled(s.slug) : false,
+      }
+    }),
   )
-  sources.push("builtin")
+  sources.push("catalog")
 
   if (includeLocal) {
-    const builtinSlugs = new Set(BUILTIN_SKILLS.map((s) => s.slug))
+    const catalogSlugs = new Set(catalog.map((s) => s.slug))
     const userSkills = scanLocalSkills(
       path.join(openclawUserRoot(), "skills"),
-    ).filter((s) => !builtinSlugs.has(s.slug))
+    ).filter((s) => !catalogSlugs.has(s.slug))
     const workspaceSkills = scanLocalSkills(
       path.join(openclawUserRoot(), "workspace", "skills"),
     )
-    results.push(...userSkills, ...workspaceSkills)
+    const localWithEnabled = [...userSkills, ...workspaceSkills].map((s) => ({
+      ...s,
+      installed: true,
+      enabled: isSkillEnabled(s.slug),
+    }))
+    results.push(...localWithEnabled)
     if (userSkills.length > 0 || workspaceSkills.length > 0) {
       sources.push("local")
     }
   }
 
-  if (input?.includeClawHub) {
-    warnings.push("ClawHub discovery not yet implemented")
+  if (includeClawHub) {
+    try {
+      const gw = await ensureGatewayClient()
+      const res = await gw.request<{
+        results: Array<{
+          slug: string
+          name: string
+          description: string
+          version?: string
+          tags?: string[]
+        }>
+      }>("skills.search", {
+        query: input?.query ?? "",
+        limit,
+      })
+      if (res.ok && res.payload?.results) {
+        const existingSlugs = new Set(results.map((s) => s.slug))
+        for (const hub of res.payload.results) {
+          if (existingSlugs.has(hub.slug)) continue
+          const installed = fs.existsSync(
+            path.join(userSkillRoot, hub.slug, "SKILL.md"),
+          )
+          results.push({
+            slug: hub.slug,
+            name: hub.name,
+            description: hub.description ?? "",
+            source: "clawhub",
+            version: hub.version,
+            installed,
+            enabled: installed ? isSkillEnabled(hub.slug) : false,
+          })
+        }
+        sources.push("clawhub")
+      }
+    } catch {
+      if (!isGatewayConnected()) {
+        warnings.push("Gateway not connected — showing local catalog only")
+      } else {
+        warnings.push("ClawHub search failed — showing local catalog only")
+      }
+    }
   }
+
   if (input?.includeGithubProbe) {
     warnings.push("GitHub probe discovery not yet implemented")
   }
@@ -186,7 +277,7 @@ export function skillsDiscover(input?: {
   }
 }
 
-export function skillsInstall(input: {
+export async function skillsInstall(input: {
   source: string
   slug?: string
   version?: string
@@ -228,6 +319,7 @@ export function skillsInstall(input: {
 
     fs.mkdirSync(targetDir, { recursive: true })
     copyDirSync(localPath, targetDir)
+    invalidateSkillCache()
 
     return {
       status: "installed",
@@ -243,19 +335,20 @@ export function skillsInstall(input: {
     }
   }
 
-  if (input.source === "builtin") {
-    const builtin = BUILTIN_SKILLS.find((s) => s.slug === input.slug)
-    if (!builtin) {
-      throw new Error(`Unknown builtin skill: ${input.slug}`)
+  if (input.source === "catalog" || input.source === "builtin") {
+    const catalog = getSkillCatalog()
+    const entry = catalog.find((s) => s.slug === input.slug)
+    if (!entry) {
+      throw new Error(`Unknown catalog skill: ${input.slug}`)
     }
 
     const targetRoot = openclawSkillRootForScope(scope)
-    const targetDir = path.join(targetRoot, builtin.slug)
+    const targetDir = path.join(targetRoot, entry.slug)
 
     if (fs.existsSync(path.join(targetDir, "SKILL.md")) && !input.force) {
       return {
         status: "already-installed",
-        skill: { ...builtin, installed: true },
+        skill: { ...entry, installed: true },
         location: targetDir,
         actions: [],
         warnings: [],
@@ -263,24 +356,27 @@ export function skillsInstall(input: {
     }
 
     fs.mkdirSync(targetDir, { recursive: true })
+    const template = SKILL_TEMPLATES[entry.slug]
+    const body = template ?? entry.description
     const skillMd = [
       "---",
-      `name: ${builtin.name}`,
-      `description: ${builtin.description}`,
-      `version: ${builtin.version}`,
-      `source: builtin`,
+      `name: ${entry.name}`,
+      `description: ${entry.description}`,
+      `version: ${entry.version}`,
+      `source: catalog`,
       "---",
       "",
-      `# ${builtin.name}`,
+      `# ${entry.name}`,
       "",
-      builtin.description,
+      body,
       "",
     ].join("\n")
     fs.writeFileSync(path.join(targetDir, "SKILL.md"), skillMd, "utf-8")
+    invalidateSkillCache()
 
     return {
       status: "installed",
-      skill: { ...builtin, installed: true },
+      skill: { ...entry, installed: true },
       location: targetDir,
       actions: ["created SKILL.md"],
       warnings: [],
@@ -288,7 +384,73 @@ export function skillsInstall(input: {
   }
 
   if (input.source === "clawhub") {
-    throw new Error("ClawHub skill installation not yet implemented")
+    const slug = input.slug
+    if (!slug) {
+      throw new Error("slug is required for clawhub source")
+    }
+
+    const gw = await ensureGatewayClient()
+    const res = await gw.request<{
+      slug: string
+      name: string
+      description: string
+      version?: string
+      content?: string
+    }>("skills.detail", { slug })
+
+    if (!res.ok || !res.payload) {
+      throw new Error(
+        res.error?.message ?? `Skill "${slug}" not found on ClawHub`,
+      )
+    }
+
+    const detail = res.payload
+    const targetRoot = openclawSkillRootForScope(scope)
+    const targetDir = path.join(targetRoot, detail.slug)
+
+    if (fs.existsSync(path.join(targetDir, "SKILL.md")) && !input.force) {
+      return {
+        status: "already-installed",
+        skill: { slug: detail.slug, name: detail.name, description: detail.description, source: "clawhub", installed: true },
+        location: targetDir,
+        actions: [],
+        warnings: [],
+      }
+    }
+
+    fs.mkdirSync(targetDir, { recursive: true })
+    const body = detail.content ?? SKILL_TEMPLATES[detail.slug] ?? detail.description
+    const skillMd = [
+      "---",
+      `name: ${detail.name}`,
+      `description: ${detail.description}`,
+      `version: ${detail.version ?? "1.0.0"}`,
+      `source: clawhub`,
+      "---",
+      "",
+      `# ${detail.name}`,
+      "",
+      body,
+      "",
+    ].join("\n")
+    fs.writeFileSync(path.join(targetDir, "SKILL.md"), skillMd, "utf-8")
+
+    addSkillToCatalog({
+      slug: detail.slug,
+      name: detail.name,
+      description: detail.description,
+      source: "clawhub",
+      version: detail.version ?? "1.0.0",
+    })
+    invalidateSkillCache()
+
+    return {
+      status: "installed",
+      skill: { slug: detail.slug, name: detail.name, description: detail.description, source: "clawhub", installed: true },
+      location: targetDir,
+      actions: ["created SKILL.md", "added to catalog"],
+      warnings: [],
+    }
   }
 
   if (input.source === "github") {

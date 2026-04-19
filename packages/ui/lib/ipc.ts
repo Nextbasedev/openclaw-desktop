@@ -19,12 +19,16 @@ async function invokeHttp<T>(
   return res.json() as Promise<T>
 }
 
-// Universal IPC — works in both Tauri and browser
-// In Tauri mode, tries Rust first, falls back to Node.js server
+// All middleware_* commands are handled by the Node.js server, not Rust.
+// Skip Tauri IPC entirely for these to avoid failed preflight + fallback overhead.
 export async function invoke<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
+  if (command.startsWith("middleware_")) {
+    return invokeHttp<T>(command, args)
+  }
+
   if (
     typeof window !== "undefined" &&
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__

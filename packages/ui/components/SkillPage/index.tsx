@@ -21,26 +21,20 @@ import { LuPackageOpen, LuSearchX, LuWifiOff } from "react-icons/lu"
 type SkillCategory = "All" | "Recommended" | "System" | "Personal"
 
 type DiscoveredSkill = {
-  id: string
   slug: string
   name: string
-  summary: string | null
   description: string | null
-  source: "clawhub" | "local" | "github" | "builtin"
+  source: "clawhub" | "local" | "github" | "builtin" | "catalog"
   version: string | null
   installed: boolean
-  installSource: "clawhub" | "github" | "local"
-  repoUrl: string | null
-  homepageUrl: string | null
-  localPath: string | null
-  tags: string[]
+  enabled: boolean
 }
 
 type SkillDiscoverResponse = {
-  query: string
+  query: string | null
   results: DiscoveredSkill[]
   warnings: string[]
-  sources: Array<"clawhub" | "local" | "github">
+  sources: string[]
 }
 
 type SkillInstallResponse = {
@@ -58,12 +52,11 @@ type SkillItem = {
   category: Exclude<SkillCategory, "All">
   iconBg: string
   iconKey: string
-  installed?: boolean
-  source?: string
-  version?: string | null
-  slug?: string
-  localPath?: string | null
-  repoUrl?: string | null
+  installed: boolean
+  enabled: boolean
+  source: string
+  version: string | null
+  slug: string
 }
 
 export function SkillPage() {
@@ -75,29 +68,11 @@ export function SkillPage() {
   const [meta, setMeta] = React.useState<SkillDiscoverResponse | null>(null)
   const [installingId, setInstallingId] = React.useState<string | null>(null)
   const [installError, setInstallError] = React.useState<string | null>(null)
-
-  const refreshSkills = React.useCallback(async () => {
-    try {
-      const response = await invoke<SkillDiscoverResponse>(
-        "middleware_skills_discover",
-        {
-          input: {
-            query: "",
-            limit: 20,
-            includeLocal: true,
-            includeClawHub: true,
-            includeGithubProbe: true,
-          },
-        },
-      )
-      setMeta(response)
-      setSkills(response.results.map(mapBackendSkillToItem))
-    } catch {
-      // silent refresh failure
-    }
-  }, [])
+  const loadedRef = React.useRef(false)
+  const togglingRef = React.useRef<Set<string>>(new Set())
 
   const handleInstall = React.useCallback(async (item: SkillItem) => {
+    if (installingId) return
     setInstallingId(item.id)
     setInstallError(null)
 
@@ -106,20 +81,15 @@ export function SkillPage() {
         "middleware_skills_install",
         {
           input: {
-            source: item.source ?? "clawhub",
-            slug: item.slug ?? item.id,
-            version: item.version ?? undefined,
-            repoUrl: item.repoUrl ?? undefined,
-            localPath: item.localPath ?? undefined,
+            source: item.source,
+            slug: item.slug,
             scope: "user",
           },
         },
       )
-
       setSkills((prev) =>
-        prev.map((s) => s.id === item.id ? { ...s, installed: true } : s),
+        prev.map((s) => s.id === item.id ? { ...s, installed: true, enabled: true } : s),
       )
-      await refreshSkills()
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Install failed"
       setInstallError(msg)
@@ -127,10 +97,40 @@ export function SkillPage() {
     } finally {
       setInstallingId(null)
     }
-  }, [refreshSkills])
+  }, [installingId])
+
+  const handleToggle = React.useCallback(async (item: SkillItem) => {
+    if (togglingRef.current.has(item.id)) return
+    togglingRef.current.add(item.id)
+
+    const newEnabled = !item.enabled
+    setSkills((prev) =>
+      prev.map((s) =>
+        s.id === item.id ? { ...s, enabled: newEnabled } : s,
+      ),
+    )
+
+    try {
+      await invoke("middleware_skills_toggle", {
+        input: { slug: item.slug, enabled: newEnabled },
+      })
+    } catch (err) {
+      setSkills((prev) =>
+        prev.map((s) =>
+          s.id === item.id ? { ...s, enabled: !newEnabled } : s,
+        ),
+      )
+      const msg = err instanceof Error ? err.message : "Toggle failed"
+      setInstallError(msg)
+      setTimeout(() => setInstallError(null), 4000)
+    } finally {
+      togglingRef.current.delete(item.id)
+    }
+  }, [])
 
   React.useEffect(() => {
-    let cancelled = false
+    if (loadedRef.current) return
+    loadedRef.current = true
 
     async function loadSkills() {
       setLoading(true)
@@ -142,21 +142,17 @@ export function SkillPage() {
           {
             input: {
               query: "",
-              limit: 20,
+              limit: 50,
               includeLocal: true,
               includeClawHub: true,
-              includeGithubProbe: true,
             },
           },
         )
-
-        if (cancelled) return
 
         setMeta(response)
         setSkills(response.results.map(mapBackendSkillToItem))
         setLoading(false)
       } catch (err) {
-        if (cancelled) return
         console.error("middleware_skills_discover failed", err)
         setSkills([])
         setMeta(null)
@@ -166,9 +162,6 @@ export function SkillPage() {
     }
 
     loadSkills()
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   const filteredSections = React.useMemo(() => {
@@ -276,6 +269,7 @@ export function SkillPage() {
                       item={item}
                       installing={installingId === item.id}
                       onInstall={handleInstall}
+                      onToggle={handleToggle}
                     />
                   ))}
                 </div>
@@ -371,13 +365,18 @@ function SkillCard({
   item,
   installing,
   onInstall,
+  onToggle,
 }: {
   item: SkillItem
   installing: boolean
   onInstall: (item: SkillItem) => void
+  onToggle: (item: SkillItem) => void
 }) {
   return (
-    <div className="flex items-center gap-3.5 border-b border-border/30 py-4.5">
+    <div className={cn(
+      "flex items-center gap-3.5 border-b border-border/30 py-4.5",
+      item.installed && !item.enabled && "opacity-50",
+    )}>
       <div className={cn("flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md", item.iconBg)}>
         <SkillTileIcon iconKey={item.iconKey} />
       </div>
@@ -390,16 +389,32 @@ function SkillCard({
               {item.version}
             </span>
           )}
+          {item.installed && !item.enabled && (
+            <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              off
+            </span>
+          )}
         </div>
         <p className="truncate text-[12px] text-muted-foreground">{item.description}</p>
       </div>
 
       {item.installed ? (
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground">
-          <svg viewBox="0 0 20 20" fill="none" className="size-3.5">
-            <path d="m4.5 10 3.5 3.5L15.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
+        <button
+          type="button"
+          onClick={() => onToggle(item)}
+          className="shrink-0 cursor-pointer"
+          aria-label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`}
+        >
+          <div className={cn(
+            "relative h-5 w-9 rounded-full transition-colors",
+            item.enabled ? "bg-green-500" : "bg-muted-foreground/30",
+          )}>
+            <div className={cn(
+              "absolute top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform",
+              item.enabled ? "translate-x-4" : "translate-x-0.5",
+            )} />
+          </div>
+        </button>
       ) : installing ? (
         <div className="flex size-8 shrink-0 items-center justify-center">
           <div className="size-4 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
@@ -415,7 +430,7 @@ function SkillCard({
           aria-label={`Install ${item.name}`}
         >
           <svg viewBox="0 0 20 20" fill="none" className="size-3.5">
-            <path d="M10 4.5v11M4.5 10h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M10 3v10m0 0-3.5-3.5M10 13l3.5-3.5M4 16h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       )}
@@ -511,35 +526,31 @@ function SkillPageSkeleton() {
   )
 }
 
-function mapBackendSkillToItem(skill: DiscoveredSkill, index: number): SkillItem {
+function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
   return {
-    id: skill.id ?? `${skill.slug ?? skill.name ?? index}`,
+    id: skill.slug,
     name: skill.name,
-    description: skill.summary || skill.description || "No description available.",
+    description: skill.description || "No description available.",
     category: mapDiscoveredSkillCategory(skill),
     iconBg: getSkillBackground(skill),
     iconKey: getSkillIconKey(skill),
     installed: skill.installed,
+    enabled: skill.enabled,
     source: skill.source,
     version: skill.version,
     slug: skill.slug,
-    localPath: skill.localPath,
-    repoUrl: skill.repoUrl,
   }
 }
 
 function mapDiscoveredSkillCategory(skill: DiscoveredSkill): "Recommended" | "System" | "Personal" {
   if (skill.source === "local") return "Personal"
-  if (skill.source === "builtin") return "System"
-
-  const tags = (skill.tags ?? []).map((tag) => tag.toLowerCase())
-  if (tags.includes("system") || skill.installed) return "System"
-
+  if (skill.source === "builtin" || skill.source === "catalog") return "System"
+  if (skill.source === "clawhub") return "Recommended"
   return "Recommended"
 }
 
 function getSkillIconKey(skill: DiscoveredSkill) {
-  const slug = (skill.slug ?? "").toLowerCase()
+  const slug = skill.slug.toLowerCase()
   if (slug.includes("pdf")) return "pdf"
   if (slug.includes("doc")) return "doc"
   if (slug.includes("image")) return "image"
@@ -555,7 +566,7 @@ function getSkillIconKey(skill: DiscoveredSkill) {
 function getSkillBackground(skill: DiscoveredSkill) {
   if (skill.installed) return "bg-[#1D1D1D]"
   if (skill.source === "local") return "bg-[#1F3B1E]"
-  if ((skill.slug ?? "").toLowerCase().includes("pdf")) return "bg-white"
-  if ((skill.slug ?? "").toLowerCase().includes("docs")) return "bg-[#FFF4EA]"
+  if (skill.slug.includes("pdf")) return "bg-white"
+  if (skill.slug.includes("docs")) return "bg-[#FFF4EA]"
   return "bg-[#F0F0F0] dark:bg-[#202020]"
 }
