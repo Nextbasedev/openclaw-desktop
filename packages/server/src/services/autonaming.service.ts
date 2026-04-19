@@ -1,7 +1,7 @@
 function autoNameFromMessage(text: string): string {
   const clean = text.replace(/\n/g, " ").trim()
-  if (clean.length <= 50) return clean
-  return clean.slice(0, 47) + "..."
+  if (clean.length <= 30) return clean
+  return clean.slice(0, 27) + "..."
 }
 
 export async function generateConversationName(input: {

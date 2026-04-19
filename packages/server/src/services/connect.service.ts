@@ -71,18 +71,11 @@ function addAllowedOrigins(gatewayUrl: string) {
 }
 
 export function connectStatus() {
-  const configPath = path.join(
-    os.homedir(),
-    ".openclaw",
-    "openclaw.json",
-  )
-  let gatewayUrl = null
-  try {
-    const raw = JSON.parse(
-      fs.readFileSync(configPath, "utf-8"),
-    )
-    gatewayUrl = raw.gateway_url ?? null
-  } catch {}
+  const config = readConfig()
+  const gatewayUrl = (config.gateway_url as string) ?? null
+  const gw = (config.gateway as Record<string, unknown>) ?? {}
+  const auth = (gw.auth as Record<string, unknown>) ?? {}
+  const token = (auth.token as string) ?? null
 
   const identityPath = path.join(
     os.homedir(),
@@ -96,6 +89,7 @@ export function connectStatus() {
   return {
     gatewayConfigured: !!gatewayUrl,
     gatewayUrl,
+    gatewayToken: token,
     hasIdentity,
     isLocal: gatewayUrl ? isLocalGateway(gatewayUrl) : true,
     status:

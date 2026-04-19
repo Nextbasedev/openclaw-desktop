@@ -181,6 +181,17 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
               </button>
             )
           })}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close panel"
+            className={cn(
+              "ml-auto flex size-6 cursor-pointer items-center justify-center",
+             "text-muted-foreground",
+            )}
+          >
+            <VscClose className="size-4" />
+          </button>
         </div>
 
         {/* Content */}

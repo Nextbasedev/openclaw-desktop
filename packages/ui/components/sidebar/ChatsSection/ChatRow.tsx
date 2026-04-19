@@ -60,7 +60,7 @@ export function ChatRow({
           ease: [0.2, 0, 0, 1],
         },
       }}
-      className="group/row relative flex items-center rounded-md"
+      className="group/row relative flex min-w-0 items-center rounded-md"
       style={{ position: "relative", boxShadow: "none" }}
       whileDrag={{ boxShadow: "none" }}
       {...longPress}
@@ -69,7 +69,7 @@ export function ChatRow({
         onClick={onClick}
         style={isActive ? { color: "#ffffff" } : undefined}
         className={cn(
-          "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors duration-150",
+          "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 text-left transition-colors duration-150",
           isActive
             ? "bg-foreground/7"
             : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
