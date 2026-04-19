@@ -51,7 +51,7 @@ export function useQuickChat({ navigateToChat }: Props) {
         projectName = created.project.name
       }
 
-      const topicLabel = text.slice(0, 40).trim() || "New Chat"
+      const topicLabel = "New Chat"
       const topicResult = await invoke<{ topic: { id: string; name: string } }>(
         "middleware_topics_create",
         { input: { projectId, name: topicLabel } },

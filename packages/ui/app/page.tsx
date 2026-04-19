@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
+import { invoke } from "@/lib/ipc"
 import { Header } from "@/common/Header"
 import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
 import type { SidebarNavItem, ActiveTopic } from "@/components/sidebar"
@@ -160,7 +161,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     setActiveSessionTitle(title)
   }, [])
 
-  // Auto-resolve session when topic is selected without a session
   const { resolving: sessionResolving, error: sessionError } = useTopicSession(
     activeTopic, activeSessionKey, handleSessionResolved,
   )

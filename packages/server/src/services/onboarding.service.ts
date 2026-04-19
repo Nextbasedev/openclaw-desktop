@@ -709,7 +709,9 @@ function onboardingRecommendation(
   npmInstalled: boolean,
   openclawInstalled: boolean,
   gatewayRunning: boolean,
+  isRemoteGateway: boolean,
 ): string {
+  if (isRemoteGateway && gatewayRunning) return "ready"
   if (!nodeInstalled) return "install_node"
   if (!npmInstalled) return "install_npm"
   if (!openclawInstalled) return "install_openclaw"
@@ -724,7 +726,8 @@ function onboardingSnapshot(gatewayUrl: string): Record<string, unknown> {
     "openclaw",
     "--version",
   )
-  // Gateway check: try a simple HTTP fetch to see if something is listening
+  const isRemote = !isLocalGatewayUrl(gatewayUrl)
+
   let gatewayIsRunning = false
   try {
     const httpUrl = gatewayUrl
@@ -756,12 +759,14 @@ function onboardingSnapshot(gatewayUrl: string): Record<string, unknown> {
       url: gatewayUrl,
       running: gatewayIsRunning,
       status: gatewayIsRunning ? "running" : "stopped",
+      isRemote,
     },
     recommendation: onboardingRecommendation(
       nodeVersion !== null,
       npmVersion !== null,
       openclawVersion !== null,
       gatewayIsRunning,
+      isRemote,
     ),
   }
 }
@@ -771,6 +776,7 @@ function onboardingStepState(
   botName: string | null,
   providerDone: boolean,
   modelDone: boolean,
+  hasGatewayConnection: boolean,
 ): Record<string, unknown> {
   const coreDone =
     (coreStatus.recommendation as string) === "ready"
@@ -781,6 +787,9 @@ function onboardingStepState(
   else if (!providerDone) nextStep = "provider"
   else if (!modelDone) nextStep = "model"
   else nextStep = "complete"
+
+  const canSkip =
+    hasGatewayConnection && coreDone && modelDone
 
   return {
     steps: [
@@ -801,8 +810,8 @@ function onboardingStepState(
         complete: modelDone,
       },
     ],
-    nextStep,
-    completed: nextStep === "complete",
+    nextStep: canSkip ? "complete" : nextStep,
+    completed: canSkip || nextStep === "complete",
   }
 }
 
@@ -932,6 +941,25 @@ export function onboardingCheckDependencies() {
   }
 }
 
+function isLocalGatewayUrl(gatewayUrl: string): boolean {
+  try {
+    const url = new URL(
+      gatewayUrl
+        .replace("ws://", "http://")
+        .replace("wss://", "https://"),
+    )
+    const host = url.hostname
+    return (
+      host === "127.0.0.1" ||
+      host === "localhost" ||
+      host === "::1" ||
+      host === "0.0.0.0"
+    )
+  } catch {
+    return false
+  }
+}
+
 export function onboardingSaveGatewayConfig(input: {
   gatewayUrl: string
   token?: string
@@ -948,6 +976,25 @@ export function onboardingSaveGatewayConfig(input: {
     gw.auth = auth
     existing.gateway = gw
   }
+  if (isLocalGatewayUrl(input.gatewayUrl)) {
+    const gw = (existing.gateway as Record<string, unknown>) ?? {}
+    const controlUi =
+      (gw.controlUi as Record<string, unknown>) ?? {}
+    const current =
+      (controlUi.allowedOrigins as string[]) ?? []
+    const origins = [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://localhost:3001",
+      "http://127.0.0.1:3001",
+      "tauri://localhost",
+    ]
+    controlUi.allowedOrigins = [
+      ...new Set([...current, ...origins]),
+    ]
+    gw.controlUi = controlUi
+    existing.gateway = gw
+  }
   fs.writeFileSync(configPath, JSON.stringify(existing, null, 2))
   return { saved: true, configPath }
 }
@@ -962,19 +1009,31 @@ export function onboardingGenerateIdentity() {
   fs.mkdirSync(identityDir, { recursive: true })
   const identityPath = path.join(identityDir, "device.json")
   if (fs.existsSync(identityPath)) {
-    return {
-      created: false,
-      identityPath,
-      reason: "Identity already exists",
+    const existing = JSON.parse(fs.readFileSync(identityPath, "utf-8"))
+    if (existing.publicKeyPem && existing.privateKeyPem) {
+      return {
+        created: false,
+        identityPath,
+        reason: "Identity already exists",
+      }
     }
   }
   const deviceId = `device_${crypto.randomUUID().replace(/-/g, "")}`
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519")
+  const publicKeyPem = publicKey
+    .export({ type: "spki", format: "pem" })
+    .toString()
+  const privateKeyPem = privateKey
+    .export({ type: "pkcs8", format: "pem" })
+    .toString()
   fs.writeFileSync(
     identityPath,
     JSON.stringify(
       {
         device_id: deviceId,
         created_at: new Date().toISOString(),
+        publicKeyPem,
+        privateKeyPem,
       },
       null,
       2,
@@ -989,8 +1048,11 @@ export function onboardingCore(input: {
   action?: string
   gatewayUrl?: string
 }) {
+  const config = readOpenclawConfig()
+  const savedGatewayUrl = config.gateway_url as string | undefined
   const gatewayUrl =
     input.gatewayUrl ??
+    savedGatewayUrl ??
     `ws://127.0.0.1:${DEFAULT_GATEWAY_PORT}`
   const action = input.action ?? "check"
   const actionsRun: string[] = []
@@ -1445,8 +1507,11 @@ export function onboardingFlow(input?: {
   action?: string
   gatewayUrl?: string
 }) {
+  const savedConfig = readOpenclawConfig()
+  const savedGatewayUrl = savedConfig.gateway_url as string | undefined
   const gatewayUrl =
     input?.gatewayUrl ??
+    savedGatewayUrl ??
     `ws://127.0.0.1:${DEFAULT_GATEWAY_PORT}`
   const coreStatus = onboardingSnapshot(gatewayUrl)
   const db = getDb()
@@ -1482,11 +1547,17 @@ export function onboardingFlow(input?: {
       modelContract = null
     }
   }
+  const gatewayRunning =
+    (coreStatus.gateway as Record<string, unknown>)?.running === true
+  const hasIdentity = fs.existsSync(
+    path.join(os.homedir(), ".openclaw", "state", "identity", "device.json"),
+  )
   const flow = onboardingStepState(
     coreStatus,
     botName ?? null,
     selectedProvider !== null,
     selectedModelRef !== null,
+    gatewayRunning && hasIdentity,
   )
 
   return {

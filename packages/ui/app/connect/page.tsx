@@ -24,10 +24,16 @@ type ConnectionStatus = {
 
 type ConnectResult = {
   ok: boolean
-  url: string
-  serverVersion: string
-  agentName: string
-  connectedAt: string
+  url?: string
+  message?: string
+  error?: string
+  isLocal?: boolean
+  addedOrigins?: string[]
+  fix?: {
+    description: string
+    origins: string[]
+    example: Record<string, unknown>
+  }
 }
 
 export default function ConnectPage() {
@@ -229,8 +235,69 @@ export default function ConnectPage() {
           </Card>
         )}
 
+        {/* Origin auto-fixed (local gateway) */}
+        {connectResult && connectResult.error === "origin_fixed_restart" && (
+          <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardHeader>
+              <CardTitle className="text-yellow-700 dark:text-yellow-400">
+                Origins Configured — Restart Required
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-sm">{connectResult.message}</p>
+              <p className="text-xs text-muted-foreground">
+                Run{" "}
+                <code className="rounded bg-muted px-1 py-0.5">
+                  openclaw gateway restart
+                </code>{" "}
+                then click Test Connection again.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Origin error (remote gateway) */}
+        {connectResult && connectResult.error === "origin_not_allowed" && (
+          <Card className="border-destructive/30 bg-destructive/5">
+            <CardHeader>
+              <CardTitle className="text-destructive">
+                Origin Not Allowed
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm">{connectResult.message}</p>
+              {connectResult.fix && (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    {connectResult.fix.description}:
+                  </p>
+                  <pre className="overflow-x-auto rounded bg-muted p-3 font-mono text-xs">
+                    {JSON.stringify(connectResult.fix.example, null, 2)}
+                  </pre>
+                  <p className="text-xs text-muted-foreground">
+                    After updating, restart the gateway and try again.
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Other connection errors */}
+        {connectResult && !connectResult.ok &&
+          connectResult.error !== "origin_fixed_restart" &&
+          connectResult.error !== "origin_not_allowed" && (
+          <Card className="border-destructive/30 bg-destructive/5">
+            <CardContent>
+              <p className="text-sm text-destructive">
+                {connectResult.error ?? connectResult.message}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Success result */}
-        {connectResult && (
+        {connectResult && connectResult.ok && (
           <Card className="border-ring/30">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -242,14 +309,6 @@ export default function ConnectPage() {
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-muted-foreground">Gateway URL</dt>
                 <dd className="font-mono">{connectResult.url}</dd>
-                <dt className="text-muted-foreground">Server Version</dt>
-                <dd className="font-mono">{connectResult.serverVersion}</dd>
-                <dt className="text-muted-foreground">Agent Name</dt>
-                <dd>{connectResult.agentName}</dd>
-                <dt className="text-muted-foreground">Connected At</dt>
-                <dd className="font-mono text-xs">
-                  {new Date(connectResult.connectedAt).toLocaleString()}
-                </dd>
               </dl>
             </CardContent>
           </Card>
