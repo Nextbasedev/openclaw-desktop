@@ -1,21 +1,11 @@
-// Universal IPC — works in both Tauri and browser
-export async function invoke<T>(
+const SERVER_URL =
+  process.env.NEXT_PUBLIC_SERVER_URL || "http://127.0.0.1:3001"
+
+async function invokeHttp<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  // Try Tauri first
-  if (
-    typeof window !== "undefined" &&
-    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
-  ) {
-    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
-    return tauriInvoke<T>(command, args)
-  }
-
-  // Fallback to HTTP
-  const serverUrl =
-    process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
-  const res = await fetch(`${serverUrl}/api/ipc/${command}`, {
+  const res = await fetch(`${SERVER_URL}/api/ipc/${command}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(args ?? {}),
@@ -29,32 +19,53 @@ export async function invoke<T>(
   return res.json() as Promise<T>
 }
 
-// SSE helper for streaming
+// Universal IPC — works in both Tauri and browser
+// In Tauri mode, tries Rust first, falls back to Node.js server
+export async function invoke<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  if (
+    typeof window !== "undefined" &&
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+  ) {
+    try {
+      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
+      return await tauriInvoke<T>(command, args)
+    } catch {
+      return invokeHttp<T>(command, args)
+    }
+  }
+
+  return invokeHttp<T>(command, args)
+}
+
+// SSE helper for streaming — always uses HTTP EventSource to the Node.js server
 export function openEventStream(
   path: string,
   onEvent: (event: MessageEvent) => void,
 ): () => void {
   const serverUrl =
-    process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
+    process.env.NEXT_PUBLIC_SERVER_URL || "http://127.0.0.1:3001"
+  const source = new EventSource(`${serverUrl}${path}`)
 
-  // In Tauri, use Tauri events
+  const handler = (evt: MessageEvent) => onEvent(evt)
+  source.addEventListener("data", handler)
+  source.addEventListener("exit", handler)
+  source.addEventListener("error_event", handler)
+  source.onmessage = onEvent
+
+  return () => source.close()
+}
+
+// Open external URL — works in both Tauri and browser
+export async function openExternalUrl(url: string): Promise<void> {
   if (
     typeof window !== "undefined" &&
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
   ) {
-    const { listen } = require("@tauri-apps/api/event")
-    let unlisten: (() => void) | null = null
-    listen(path, (e: unknown) => onEvent(e as MessageEvent))
-      .then((fn: () => void) => {
-        unlisten = fn
-      })
-    return () => {
-      unlisten?.()
-    }
+    await invoke("middleware_open_url", { input: { url } })
+  } else {
+    window.open(url, "_blank")
   }
-
-  // In browser, use SSE
-  const source = new EventSource(`${serverUrl}${path}`)
-  source.onmessage = onEvent
-  return () => source.close()
 }

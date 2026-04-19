@@ -7,14 +7,16 @@ type Shortcut = {
 }
 
 const SHORTCUTS: Shortcut[] = [
+  { command: "Reload Window", keys: [["Ctrl", "R"], ["⌘", "R"]], scope: "Global" },
   { command: "New Chat", keys: [["Ctrl", "N"], ["⌘", "N"]], scope: "Global" },
+  { command: "Command Palette", keys: [["Ctrl", "K"], ["⌘", "K"]], scope: "Global" },
   { command: "Toggle Terminal", keys: [["Ctrl", "`"], ["⌘", "`"]], scope: "Global" },
-  { command: "Quit Application", keys: [["Ctrl", "Q"], ["⌘", "Q"]], scope: "Global" },
   { command: "Toggle Theme", keys: [["D"]], scope: "Global" },
+  { command: "Quit Application", keys: [["Ctrl", "Q"], ["⌘", "Q"]], scope: "Global" },
   { command: "Copy Selection", keys: [["Ctrl", "C"], ["⌘", "C"]], scope: "Terminal" },
   { command: "Paste", keys: [["Ctrl", "V"], ["⌘", "V"]], scope: "Terminal" },
-  { command: "Submit Input", keys: [["Enter"]], scope: "Forms" },
   { command: "Close Dialog", keys: [["Esc"]], scope: "Dialogs" },
+  { command: "Submit Input", keys: [["Enter"]], scope: "Forms" },
 ]
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)

@@ -18,9 +18,14 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: "terminal", label: "Terminal" },
 ]
 
-const MIN_WIDTH = 400
-const MAX_WIDTH = 700
-const DEFAULT_WIDTH = 500
+function getResponsiveDefaults() {
+  if (typeof window === "undefined") return { min: 400, max: 700, default: 500 }
+  const vw = window.innerWidth
+  if (vw < 768) return { min: 240, max: Math.min(vw * 0.7, 360), default: Math.min(vw * 0.6, 300) }
+  if (vw < 1024) return { min: 260, max: 380, default: 300 }
+  if (vw < 1440) return { min: 320, max: 500, default: 380 }
+  return { min: 400, max: 700, default: 500 }
+}
 
 type TerminalTab = {
   id: string
@@ -36,9 +41,20 @@ interface InspectorPanelProps {
 
 export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
-  const [width, setWidth] = useState(DEFAULT_WIDTH)
+  const responsiveRef = useRef(getResponsiveDefaults())
+  const [width, setWidth] = useState(responsiveRef.current.default)
   const [isDragging, setIsDragging] = useState(false)
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  useEffect(() => {
+    function onResize() {
+      const r = getResponsiveDefaults()
+      responsiveRef.current = r
+      setWidth((prev) => Math.min(r.max, Math.max(r.min, prev)))
+    }
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
 
   const tabCounterRef = useRef(1)
   const [termTabs, setTermTabs] = useState<TerminalTab[]>([
@@ -74,7 +90,8 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
     function onMouseMove(e: MouseEvent) {
       if (!dragRef.current) return
       const delta = dragRef.current.startX - e.clientX
-      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragRef.current.startWidth + delta))
+      const r = responsiveRef.current
+      const newWidth = Math.min(r.max, Math.max(r.min, dragRef.current.startWidth + delta))
       setWidth(newWidth)
     }
 
@@ -123,9 +140,11 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
   return (
     <aside
       className={cn(
-        "relative shrink-0 overflow-clip border-l border-border/50 bg-card",
+        "shrink-0 overflow-clip border-l border-border/50 bg-card",
         !isDragging && "transition-[width,opacity] duration-300 ease-in-out",
         open ? "opacity-100" : "w-0 opacity-0",
+        "max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:border-l max-md:shadow-xl",
+        "md:relative",
       )}
       style={{ width: open ? width : 0 }}
       aria-hidden={!open}

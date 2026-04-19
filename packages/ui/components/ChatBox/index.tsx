@@ -5,14 +5,16 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import { ActionBar, MODELS } from "./ActionBar"
 
-type Props = {
+
+  type Props = {
+  initialPrompt?: string
   onSend?: (text: string) => void
   disabled?: boolean
   isGenerating?: boolean
   onAbort?: () => void
 }
 
-export function ChatBox({ onSend, disabled, isGenerating, onAbort }: Props) {
+export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt }: Props) {
   const [input, setInput] = React.useState("")
   const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -21,6 +23,14 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort }: Props) {
   const [modelOpen, setModelOpen] = React.useState(false)
   const [isFocused, setIsFocused] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+
+  React.useEffect(() => {
+    if (initialPrompt && textareaRef.current) {
+      textareaRef.current.focus()
+      textareaRef.current.setSelectionRange(initialPrompt.length, initialPrompt.length)
+      autoResize()
+    }
+  }, [])
 
   const hasInput = input.trim().length > 0
 
@@ -46,7 +56,7 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort }: Props) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4">
+    <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
       <div
         className={cn(
           "relative flex flex-col rounded-2xl border bg-card transition-all",
