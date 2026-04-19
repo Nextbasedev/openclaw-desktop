@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { invoke } from "@/lib/ipc"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -29,11 +30,6 @@ type ConnectResult = {
   connectedAt: string
 }
 
-async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core")
-  return invoke<T>(cmd, args)
-}
-
 export default function ConnectPage() {
   const [url, setUrl] = useState("ws://127.0.0.1:18789")
   const [token, setToken] = useState("3210ebae11309967d69099f8a4b60a67")
@@ -48,7 +44,7 @@ export default function ConnectPage() {
 
   const checkStatus = useCallback(async () => {
     try {
-      const s = await tauriInvoke<ConnectionStatus>("middleware_gateway_connect_status", {
+      const s = await invoke<ConnectionStatus>("middleware_gateway_connect_status", {
         input: {},
       })
       setStatus(s)
@@ -75,7 +71,7 @@ export default function ConnectPage() {
     setConnectResult(null)
 
     try {
-      const result = await tauriInvoke<ConnectResult>("middleware_gateway_connect", {
+      const result = await invoke<ConnectResult>("middleware_gateway_connect", {
         input: { url: url.trim(), token: token.trim() },
       })
       setConnectResult(result)
@@ -96,7 +92,7 @@ export default function ConnectPage() {
     setError(null)
 
     try {
-      await tauriInvoke("middleware_gateway_connect_save", {
+      await invoke("middleware_gateway_connect_save", {
         input: { url: url.trim(), token: token.trim() },
       })
       await checkStatus()

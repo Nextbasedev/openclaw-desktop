@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react"
+import { invoke } from "@/lib/ipc"
 
 export type OnboardingStep = {
   id: string
@@ -103,11 +104,6 @@ export type FlowState = {
   }
 }
 
-async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core")
-  return invoke<T>(cmd, args)
-}
-
 export function useOnboardingFlow() {
   const [flowState, setFlowState] = useState<FlowState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -117,7 +113,7 @@ export function useOnboardingFlow() {
     try {
       setLoading(true)
       setError(null)
-      const result = await tauriInvoke<FlowState>("middleware_onboarding_flow", { input: {} })
+      const result = await invoke<FlowState>("middleware_onboarding_flow", { input: {} })
       setFlowState(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -131,7 +127,7 @@ export function useOnboardingFlow() {
   }, [loadFlow])
 
   const checkCore = useCallback(async (action: "check" | "apply") => {
-    return tauriInvoke<{
+    return invoke<{
       action: string
       applied: boolean
       canAutoFix: boolean
@@ -144,45 +140,45 @@ export function useOnboardingFlow() {
   }, [])
 
   const getBotName = useCallback(async () => {
-    return tauriInvoke<{ botName: string | null }>("middleware_openclaw_bot_name_get")
+    return invoke<{ botName: string | null }>("middleware_openclaw_bot_name_get")
   }, [])
 
   const setBotName = useCallback(async (botName: string) => {
-    return tauriInvoke<{ ok: boolean; botName: string }>("middleware_openclaw_bot_name_set", { input: { botName } })
+    return invoke<{ ok: boolean; botName: string }>("middleware_openclaw_bot_name_set", { input: { botName } })
   }, [])
 
   const getProviders = useCallback(async () => {
-    return tauriInvoke<{ providers: ProviderSummary[]; count: number }>("middleware_onboarding_providers", {})
+    return invoke<{ providers: ProviderSummary[]; count: number }>("middleware_onboarding_providers", {})
   }, [])
 
   const getProviderDetails = useCallback(async (providerId: string) => {
-    return tauriInvoke<{ provider: ProviderSummary }>("middleware_onboarding_provider_details", { input: { providerId } })
+    return invoke<{ provider: ProviderSummary }>("middleware_onboarding_provider_details", { input: { providerId } })
   }, [])
 
   const submitProvider = useCallback(async (providerId: string, authMethod: string, values: Record<string, string>, setDefault = true) => {
-    return tauriInvoke<{ ok: boolean; nextStep: string }>("middleware_onboarding_provider_submit", {
+    return invoke<{ ok: boolean; nextStep: string }>("middleware_onboarding_provider_submit", {
       input: { providerId, authMethod, values, setDefault },
     })
   }, [])
 
   const getModelContract = useCallback(async (providerId?: string) => {
-    return tauriInvoke<{ contract: ModelContract }>("middleware_onboarding_model_contract", {
+    return invoke<{ contract: ModelContract }>("middleware_onboarding_model_contract", {
       input: providerId ? { providerId } : {},
     })
   }, [])
 
   const submitModel = useCallback(async (modelRef: string, providerId?: string, setDefault = true) => {
-    return tauriInvoke<{ ok: boolean; nextStep: string }>("middleware_onboarding_model_submit", {
+    return invoke<{ ok: boolean; nextStep: string }>("middleware_onboarding_model_submit", {
       input: { modelRef, setDefault, ...(providerId ? { providerId } : {}) },
     })
   }, [])
 
   const signOut = useCallback(async () => {
-    return tauriInvoke<{ ok: boolean; cleared: string[] }>("middleware_onboarding_sign_out")
+    return invoke<{ ok: boolean; cleared: string[] }>("middleware_onboarding_sign_out")
   }, [])
 
   const deleteAccount = useCallback(async () => {
-    return tauriInvoke<{ ok: boolean; cleared: string[] }>("middleware_onboarding_delete_account")
+    return invoke<{ ok: boolean; cleared: string[] }>("middleware_onboarding_delete_account")
   }, [])
 
   return {
