@@ -22,6 +22,18 @@ import { CommandPalette } from "@/components/CommandPalette"
 import { useTheme } from "next-themes"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
+type SlugSegments = { primary: string; secondary?: string }
+
+function toSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+}
+
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 220
@@ -62,7 +74,29 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   )
   const [terminalActive, setTerminalActive] = useState(false)
-  const [activeTab, setActiveTab] = useState("chat")
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === "undefined") return "chat"
+    const p = window.location.pathname
+    if (p.startsWith("/skill")) return "skill"
+    if (p.startsWith("/connect")) return "connect"
+    if (p.startsWith("/settings")) return "settings"
+    if (p.startsWith("/notifications")) return "notifications"
+    return "chat"
+  })
+
+  const [projectSlug, setProjectSlug] = useState<SlugSegments | null>(() => {
+    if (typeof window === "undefined") return null
+    const p = window.location.pathname
+    const segments = p.split("/").filter(Boolean)
+    if (segments.length === 2) {
+      return {
+        primary: decodeURIComponent(segments[0]),
+        secondary: decodeURIComponent(segments[1]),
+      }
+    }
+    return null
+  })
+
   const prevTabRef = useRef("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
 
@@ -101,15 +135,23 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const openSettings = useCallback(() => {
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setActiveTab("settings")
+    window.history.pushState(null, "", "/settings")
   }, [activeTab])
 
   const openNotifications = useCallback(() => {
     prevTabRef.current = activeTab === "notifications" ? "chat" : activeTab
     setActiveTab("notifications")
+    window.history.pushState(null, "", "/notifications")
   }, [activeTab])
 
   const handleSettingsBack = useCallback(() => {
     setActiveTab(prevTabRef.current)
+    const url = prevTabRef.current === "skill"
+      ? "/skill"
+      : prevTabRef.current === "connect"
+        ? "/connect"
+        : "/"
+    window.history.pushState(null, "", url)
   }, [])
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
@@ -173,13 +215,25 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     }
   }, [])
 
+  const pushSlugUrl = useCallback(
+    (prefix: string, primary: string, secondary?: string) => {
+      const path = secondary
+        ? `/${prefix}/${toSlug(primary)}/${toSlug(secondary)}`
+        : `/${prefix}/${toSlug(primary)}`
+      window.history.pushState(null, "", path)
+    },
+    [],
+  )
+
   // Topic selected from sidebar → auto-resolve its session
   const handleTopicSelect = useCallback((topic: ActiveTopic) => {
     setActiveTopic(topic)
     setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
-  }, [])
+    pushSlugUrl(toSlug(topic.projectName), topic.name)
+    setProjectSlug({ primary: topic.projectName, secondary: topic.name })
+  }, [pushSlugUrl])
 
   // Standalone chat selected from sidebar
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
@@ -188,6 +242,8 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
+    setProjectSlug(null)
+    window.history.pushState(null, "", `/${toSlug(chat.name)}`)
 
     if (chat.sessionKey) {
       setActiveSessionKey(chat.sessionKey)
@@ -214,6 +270,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
+    window.history.pushState(null, "", "/")
   }, [])
 
   const handleNewChat = useCallback(async () => {
@@ -232,10 +289,12 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       setInitialMessages(undefined)
       setActiveTab("chat")
       setActiveTopic(null)
+      setProjectSlug(null)
       setActiveChat({ id: result.chat.id, name: result.chat.name, sessionKey: sessionResult.session.key })
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(result.chat.name)
       setChatRefreshTrigger((n) => n + 1)
+      window.history.pushState(null, "", "/")
     } catch (err) {
       console.error("Failed to create new chat", err)
     }
@@ -256,6 +315,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       setActiveChat((prev) => prev ? { ...prev, name } : prev)
       setActiveSessionTitle(name)
       setChatRefreshTrigger((n) => n + 1)
+      window.history.pushState(null, "", `/${toSlug(name)}`)
     } catch (err) {
       console.error("Auto-naming chat failed", err)
     }
@@ -308,10 +368,12 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         isOptimistic: true,
       }])
       setActiveTopic(null)
+      setProjectSlug(null)
       setActiveChat({ id: result.chat.id, name, sessionKey: sessionResult.session.key })
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(name)
       setChatRefreshTrigger((n) => n + 1)
+      window.history.pushState(null, "", `/${toSlug(name)}`)
     } catch (err) {
       console.error("Quick send failed", err)
     } finally {
@@ -319,7 +381,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     }
   }, [quickSending])
 
-  // Nav tab change → clear project context
+  // Nav tab change → clear project context + sync URL
   const handleTabChange = useCallback((tab: string) => {
     if (tab === "chat") {
       handleNewChat()
@@ -327,10 +389,19 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       return
     }
     setActiveTab(tab)
+    const tabUrls: Record<string, string> = {
+      skill: "/skill",
+      connect: "/connect",
+      settings: "/settings",
+      notifications: "/notifications",
+    }
+    const url = tabUrls[tab] ?? "/"
+    window.history.pushState(null, "", url)
     setActiveTopic(null)
     setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
+    setProjectSlug(null)
     if (!sidebarOpen) setSidebarOpen(true)
   }, [sidebarOpen, handleNewChat])
 
@@ -376,7 +447,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           onItemsChange={setSidebarItems}
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
-          onTopicClear={() => { setActiveTopic(null); setActiveSessionKey(null); setActiveSessionTitle(null) }}
+          onTopicClear={() => { setActiveTopic(null); setActiveSessionKey(null); setActiveSessionTitle(null); setProjectSlug(null); window.history.pushState(null, "", "/") }}
           activeChat={activeChat}
           onChatSelect={handleChatSelect}
           onChatClear={handleChatClear}
@@ -479,6 +550,23 @@ function MainContent({
   quickSending: boolean
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
 }) {
+  // 0. Settings and notifications always take priority
+  if (activeTab === "settings") {
+    return (
+      <div className="flex h-full w-full">
+        <SettingsDashboard onBack={onSettingsBack} />
+      </div>
+    )
+  }
+
+  if (activeTab === "notifications") {
+    return (
+      <div className="flex h-full w-full">
+        <NotificationDashboard onBack={onSettingsBack} />
+      </div>
+    )
+  }
+
   // 1. Session history view (deepest level — topic or standalone chat)
   if (activeSessionKey && (activeTopic || activeChat)) {
     return (
@@ -544,21 +632,6 @@ function MainContent({
   // 5. Normal tab views
   if (activeTab === "skill") return <SkillPage />
   if (activeTab === "connect") return <ConnectPage />
-  if (activeTab === "settings") {
-    return (
-      <div className="flex h-full w-full">
-        <SettingsDashboard onBack={onSettingsBack} />
-      </div>
-    )
-  }
-
-  if (activeTab === "notifications") {
-    return (
-      <div className="flex h-full w-full">
-        <NotificationDashboard onBack={onSettingsBack} />
-      </div>
-    )
-  }
 
   // 2. Session history view
   if (activeSessionKey && activeTopic) {
@@ -604,10 +677,6 @@ function MainContent({
       </div>
     )
   }
-
-  // 6. Other tab views
-  if (activeTab === "skill") return <SkillPage />
-  if (activeTab === "connect") return <ConnectPage />
 
   // Default: chat / greeting
   return (
