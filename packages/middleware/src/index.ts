@@ -445,11 +445,12 @@ export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibilit
 export async function createChatSession(input: { agentId?: string; label?: string; model?: string; verboseLevel?: string }) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"] })
   try {
-    const response = await gateway.request<{ key?: string }>("sessions.create", {
+    const params: Record<string, unknown> = {
       agentId: input.agentId ?? "main",
       label: input.label ?? `Jarvis middleware session ${new Date().toISOString()}`,
-      model: input.model ?? "openai-codex/gpt-5.4",
-    })
+    }
+    if (input.model) params.model = input.model
+    const response = await gateway.request<{ key?: string }>("sessions.create", params)
     if (!response.ok || !response.payload?.key) throw new Error(response.error?.message ?? "sessions.create failed")
 
     if (input.verboseLevel) {
