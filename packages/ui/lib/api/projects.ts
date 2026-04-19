@@ -23,3 +23,12 @@ export async function fetchProjects(): Promise<ProjectListResponse> {
     input: {},
   })
 }
+
+export async function archiveProject(
+  projectId: string,
+  archived = true,
+): Promise<{ ok: boolean; projectId: string; archived: boolean }> {
+  return invoke("middleware_projects_archive", {
+    input: { projectId, archived },
+  })
+}

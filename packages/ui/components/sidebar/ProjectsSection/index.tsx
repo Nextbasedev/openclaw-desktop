@@ -22,7 +22,7 @@ export function ProjectsSection({ collapsed, activeTopic, onTopicSelect, onTopic
     setProjectOrder, topicOrder, setTopicOrder,
     pinnedProjects, pinnedTopics, sortedProjectIds,
     handleProjectClick, togglePinProject, togglePinTopic,
-    handleArchiveProject, handleArchiveTopic,
+    handleArchiveProject, handleArchiveTopic, handleDeleteTopic,
     dialogState, dialogActions,
   } = useProjectsData(onTopicSelect, activeTopic, onTopicClear)
 

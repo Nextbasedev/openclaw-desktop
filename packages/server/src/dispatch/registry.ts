@@ -109,7 +109,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_git_remote_add: (i) => git.gitRemoteAdd(i as Parameters<typeof git.gitRemoteAdd>[0]),
   middleware_git_remote_list: (i) => git.gitRemoteList(i as { projectId: string }),
   middleware_git_remote_remove: (i) => git.gitRemoteRemove(i as Parameters<typeof git.gitRemoteRemove>[0]),
-  middleware_git_context: (i) => git.gitContext(i as { projectId: string; topicId?: string }),
+  middleware_git_context: (i) => git.gitContext(i as { projectId?: string; topicId?: string }),
   middleware_git_switch_branch: (i) => git.gitSwitchBranch(i as Parameters<typeof git.gitSwitchBranch>[0]),
   middleware_git_branches: (i) => git.gitBranches(i as { projectId: string }),
 
@@ -124,6 +124,8 @@ export const commandRegistry: Record<string, Handler> = {
 
   // Skills
   middleware_skills_discover: (i) => skills.skillsDiscover(i as Parameters<typeof skills.skillsDiscover>[0]),
+  middleware_skills_detail: (i) => skills.skillsDetail(i as { slug: string }),
+  middleware_skills_versions: (i) => skills.skillsVersions(i as { slug: string; limit?: number; cursor?: string }),
   middleware_skills_install: (i) => skills.skillsInstall(i as Parameters<typeof skills.skillsInstall>[0]),
   middleware_skills_installed: (i) => skills.skillsInstalled(i as Parameters<typeof skills.skillsInstalled>[0]),
   middleware_skills_search_hub: (i) => skills.skillsSearchHub(i as Parameters<typeof skills.skillsSearchHub>[0]),
