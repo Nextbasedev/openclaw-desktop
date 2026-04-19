@@ -21,6 +21,7 @@ import * as onboarding from "../services/onboarding.service.js"
 import * as connect from "../services/connect.service.js"
 import * as terminal from "../services/terminal.service.js"
 import * as ptyService from "../services/pty.service.js"
+import * as models from "../services/models.service.js"
 
 type Handler = (input: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -228,4 +229,9 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_pty_write: (i) => ptyService.ptyWrite(i as { ptyId: string; data: string }),
   middleware_pty_resize: (i) => ptyService.ptyResize(i as { ptyId: string; cols: number; rows: number }),
   middleware_pty_kill: (i) => ptyService.ptyKill(i as { ptyId: string }),
+
+  // Models (Gateway-dependent)
+  middleware_models_list: () => models.modelsList(),
+  middleware_models_auth_status: () => models.modelsAuthStatus(),
+  middleware_models_set_default: (i) => models.modelsSetDefault(i as { modelId: string }),
 }
