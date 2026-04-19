@@ -335,3 +335,38 @@
   0% { transform: translate3d(0, 0, 0); }
   100% { transform: translate3d(-50%, 0, 0); }
 }
+
+/* ─── Activity Panel ─── */
+@keyframes activity-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes activity-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.activity-item {
+  animation: activity-enter 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.activity-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(96, 165, 250, 0.15) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: activity-shimmer 1.8s ease-in-out infinite;
+}
+
+.activity-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+
+.activity-expand[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.activity-expand > div {
+  overflow: hidden;
+}

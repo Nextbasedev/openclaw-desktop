@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import { invoke } from "@/lib/ipc"
 import { Header } from "@/common/Header"
 import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
-import type { SidebarNavItem, ActiveTopic } from "@/components/sidebar"
+import type { SidebarNavItem, ActiveTopic, ActiveChat } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
@@ -74,6 +74,12 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
 
+  // Standalone chat navigation state
+  const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
+  const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
+  const activeChatRef = useRef<ActiveChat | null>(null)
+  activeChatRef.current = activeChat
+
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const isResizing = useRef(false)
 
@@ -126,6 +132,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         e.preventDefault()
         setActiveTab("chat")
         setActiveTopic(null)
+        setActiveChat(null)
         setActiveSessionKey(null)
         setActiveSessionTitle(null)
         setChatKey((k) => k + 1)
@@ -169,8 +176,86 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   // Topic selected from sidebar → auto-resolve its session
   const handleTopicSelect = useCallback((topic: ActiveTopic) => {
     setActiveTopic(topic)
+    setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
+  }, [])
+
+  // Standalone chat selected from sidebar
+  const handleChatSelect = useCallback(async (chat: ActiveChat) => {
+    setActiveChat(chat)
+    setActiveTopic(null)
+    setActiveSessionKey(null)
+    setActiveSessionTitle(null)
+
+    if (chat.sessionKey) {
+      setActiveSessionKey(chat.sessionKey)
+      setActiveSessionTitle(chat.name)
+    } else {
+      try {
+        const sessionResult = await invoke<{ session: { key: string } }>(
+          "middleware_sessions_create",
+          { input: { agentId: "main", label: chat.name } },
+        )
+        await invoke("middleware_chats_attach_session", {
+          input: { chatId: chat.id, sessionKey: sessionResult.session.key },
+        })
+        setActiveSessionKey(sessionResult.session.key)
+        setActiveSessionTitle(chat.name)
+      } catch (err) {
+        console.error("Failed to create session for chat", err)
+      }
+    }
+  }, [])
+
+  const handleChatClear = useCallback(() => {
+    setActiveChat(null)
+    setActiveSessionKey(null)
+    setActiveSessionTitle(null)
+  }, [])
+
+  const handleNewChat = useCallback(async () => {
+    try {
+      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string } }>(
+        "middleware_chats_create",
+        { input: {} },
+      )
+      const sessionResult = await invoke<{ session: { key: string } }>(
+        "middleware_sessions_create",
+        { input: { agentId: "main", label: result.chat.name } },
+      )
+      await invoke("middleware_chats_attach_session", {
+        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
+      })
+      setActiveTab("chat")
+      setActiveTopic(null)
+      setActiveChat({ id: result.chat.id, name: result.chat.name, sessionKey: sessionResult.session.key })
+      setActiveSessionKey(sessionResult.session.key)
+      setActiveSessionTitle(result.chat.name)
+      setChatRefreshTrigger((n) => n + 1)
+    } catch (err) {
+      console.error("Failed to create new chat", err)
+    }
+  }, [])
+
+  // Auto-name standalone chat after first message
+  const handleFirstMessageSent = useCallback(async (text: string) => {
+    const chat = activeChatRef.current
+    if (!chat) return
+    try {
+      const { name } = await invoke<{ name: string }>(
+        "middleware_autonaming_quick",
+        { input: { text } },
+      )
+      await invoke("middleware_chats_rename", {
+        input: { chatId: chat.id, name },
+      })
+      setActiveChat((prev) => prev ? { ...prev, name } : prev)
+      setActiveSessionTitle(name)
+      setChatRefreshTrigger((n) => n + 1)
+    } catch (err) {
+      console.error("Auto-naming chat failed", err)
+    }
   }, [])
 
   // Called by useTopicSession when session is found/created
@@ -198,6 +283,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab)
     setActiveTopic(null)
+    setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     if (!sidebarOpen) setSidebarOpen(true)
@@ -206,7 +292,9 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   // Compute the center label for the header
   const centerLabel = activeTopic
     ? { project: activeTopic.projectName, topic: activeTopic.name }
-    : null
+    : activeChat
+      ? { project: "Chat", topic: activeChat.name }
+      : null
 
   const handleSignOut = useCallback(async () => {
     await signOut()
@@ -243,6 +331,11 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
           onTopicClear={() => { setActiveTopic(null); setActiveSessionKey(null); setActiveSessionTitle(null) }}
+          activeChat={activeChat}
+          onChatSelect={handleChatSelect}
+          onChatClear={handleChatClear}
+          onNewChat={handleNewChat}
+          chatRefreshTrigger={chatRefreshTrigger}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -252,6 +345,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               chatKey={chatKey}
               pendingPrompt={pendingPrompt}
               activeTopic={activeTopic}
+              activeChat={activeChat}
               activeSessionKey={activeSessionKey}
               activeSessionTitle={activeSessionTitle}
               onSignOut={handleSignOut}
@@ -263,6 +357,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               sessionResolving={sessionResolving}
               sessionError={sessionError}
               onSettingsBack={handleSettingsBack}
+              onFirstMessageSent={handleFirstMessageSent}
             />
           </main>
         </div>
@@ -300,6 +395,7 @@ function MainContent({
   chatKey,
   pendingPrompt,
   activeTopic,
+  activeChat,
   activeSessionKey,
   activeSessionTitle,
   onSignOut,
@@ -311,11 +407,13 @@ function MainContent({
   sessionResolving,
   sessionError,
   onSettingsBack,
+  onFirstMessageSent,
 }: {
   activeTab: string
   chatKey: number
   pendingPrompt?: string
   activeTopic: ActiveTopic | null
+  activeChat: ActiveChat | null
   activeSessionKey: string | null
   activeSessionTitle: string | null
   onSignOut: () => void
@@ -327,12 +425,29 @@ function MainContent({
   sessionResolving: boolean
   sessionError: string | null
   onSettingsBack: () => void
+  onFirstMessageSent: (text: string) => void
 }) {
-  // 1. Session history view (deepest level)
-  if (activeSessionKey && activeTopic) {
+  // 1. Session history view (deepest level — topic or standalone chat)
+  if (activeSessionKey && (activeTopic || activeChat)) {
     return (
       <div className="flex h-full w-full">
-        <ChatView sessionKey={activeSessionKey} sessionTitle={activeSessionTitle ?? undefined} />
+        <ChatView
+          sessionKey={activeSessionKey}
+          sessionTitle={activeSessionTitle ?? undefined}
+          onFirstMessageSent={activeChat ? onFirstMessageSent : undefined}
+        />
+      </div>
+    )
+  }
+
+  // 1b. Standalone chat selected, session resolving
+  if (activeChat && !activeSessionKey) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+          <span className="text-[13px] text-muted-foreground">Opening chat...</span>
+        </div>
       </div>
     )
   }

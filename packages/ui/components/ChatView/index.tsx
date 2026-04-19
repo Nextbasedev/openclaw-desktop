@@ -1,5 +1,6 @@
 "use client"
 
+import { useCallback, useRef } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
@@ -8,14 +9,24 @@ import { ChatBox } from "@/components/ChatBox"
 type Props = {
   sessionKey: string
   sessionTitle?: string
+  onFirstMessageSent?: (text: string) => void
 }
 
-export function ChatView({ sessionKey }: Props) {
+export function ChatView({ sessionKey, onFirstMessageSent }: Props) {
   const {
     messages, status, statusLabel, loading, loadError,
     isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort,
   } = useChatMessages(sessionKey)
+
+  const firstFiredRef = useRef(false)
+  const wrappedSend = useCallback((text: string) => {
+    if (!firstFiredRef.current && messages.length === 0 && onFirstMessageSent) {
+      firstFiredRef.current = true
+      onFirstMessageSent(text)
+    }
+    handleSend(text)
+  }, [handleSend, messages.length, onFirstMessageSent])
 
   const statusText =
     status === "thinking" ? "Thinking…"
@@ -50,7 +61,7 @@ export function ChatView({ sessionKey }: Props) {
       <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
         <AnimatedGreeting />
         <ChatBox
-          onSend={(text) => handleSend(text)}
+          onSend={(text) => wrappedSend(text)}
           disabled={false}
           isGenerating={isGenerating}
           onAbort={handleAbort}
@@ -91,7 +102,7 @@ export function ChatView({ sessionKey }: Props) {
 
       <div className="shrink-0 border-t border-border/20 bg-background/60 py-3 backdrop-blur-sm">
         <ChatBox
-          onSend={(text) => handleSend(text)}
+          onSend={(text) => wrappedSend(text)}
           disabled={false}
           isGenerating={isGenerating}
           onAbort={handleAbort}
