@@ -412,6 +412,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           terminalActive={terminalActive}
           onTerminalActiveChange={setTerminalActive}
           sessionKey={activeSessionKey}
+          projectId={activeTopic?.projectId ?? null}
         />
 
         {!inspectorOpen && (
