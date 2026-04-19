@@ -3,6 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { getDb } from "../db/connection.js"
 import { nowIso } from "../db/helpers.js"
+import { parseChangedFiles, parseRecentCommits, getAheadBehind, buildSummary } from "./git-parsers.js"
 
 function projectRepoRoot(projectId: string): string {
   const db = getDb()
@@ -36,6 +37,19 @@ function hasGitRepo(repoRoot: string): boolean {
     return fs.existsSync(gitDir)
   } catch {
     return false
+  }
+}
+
+function findNearestGitRoot(startDir: string): string | null {
+  try {
+    return execSync("git rev-parse --show-toplevel", {
+      cwd: startDir,
+      timeout: 5000,
+    })
+      .toString()
+      .trim()
+  } catch {
+    return null
   }
 }
 
@@ -133,55 +147,39 @@ export function gitRemoteRemove(input: {
   return { ok: true, remoteName: input.remoteName }
 }
 
-export function gitContext(input: { projectId: string; topicId?: string }) {
-  const repoRoot = projectRepoRoot(input.projectId)
-  const isGit = hasGitRepo(repoRoot)
+export function gitContext(input: { projectId?: string; topicId?: string }) {
+  let repoRoot = input.projectId
+    ? projectRepoRoot(input.projectId)
+    : process.cwd()
+  let isGit = hasGitRepo(repoRoot)
+
+  if (!isGit) {
+    const fallback = findNearestGitRoot(process.cwd())
+    if (fallback) {
+      repoRoot = fallback
+      isGit = true
+    }
+  }
+
   if (!isGit) {
     return {
       hasGit: false,
       currentBranch: null,
-      uncommittedChanges: [],
+      aheadBehind: { ahead: 0, behind: 0 },
+      summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 },
+      changedFiles: [],
       recentCommits: [],
       trackedBranches: [],
     }
   }
 
   const currentBranch = detectCurrentBranch(repoRoot)
+  const aheadBehind = getAheadBehind(repoRoot)
+  const changedFiles = parseChangedFiles(repoRoot)
+  const summary = buildSummary(changedFiles)
+  const recentCommits = parseRecentCommits(repoRoot, 10)
 
-  let uncommittedChanges: string[] = []
-  try {
-    const status = execSync("git status --porcelain", {
-      cwd: repoRoot,
-      timeout: 5000,
-    })
-      .toString()
-      .trim()
-    if (status) {
-      uncommittedChanges = status.split("\n")
-    }
-  } catch {
-    /* ignore */
-  }
-
-  let recentCommits: string[] = []
-  try {
-    const log = execSync("git log --oneline -10", {
-      cwd: repoRoot,
-      timeout: 5000,
-    })
-      .toString()
-      .trim()
-    if (log) {
-      recentCommits = log.split("\n")
-    }
-  } catch {
-    /* ignore */
-  }
-
-  let trackedBranches: Array<{
-    branchName: string
-    detectedAt: string
-  }> = []
+  let trackedBranches: Array<{ branchName: string; detectedAt: string }> = []
   if (input.topicId) {
     const db = getDb()
     const rows = db
@@ -201,7 +199,9 @@ export function gitContext(input: { projectId: string; topicId?: string }) {
   return {
     hasGit: true,
     currentBranch,
-    uncommittedChanges,
+    aheadBehind,
+    summary,
+    changedFiles,
     recentCommits,
     trackedBranches,
   }

@@ -80,11 +80,15 @@ export type DialogActions = {
 export function useProjectsData(
   onTopicSelect: (topic: ActiveTopic) => void,
   activeTopic: ActiveTopic | null,
-  onTopicClear: () => void,
+  onTopicClear: () => void
 ) {
   const [projects, setProjects] = useState<Project[]>([])
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
-  const [projectTopics, setProjectTopics] = useState<Record<string, FullTopic[]>>({})
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
+    new Set()
+  )
+  const [projectTopics, setProjectTopics] = useState<
+    Record<string, FullTopic[]>
+  >({})
   const [loadingProject, setLoadingProject] = useState<string | null>(null)
   const [projectOrder, setProjectOrder] = useState<string[]>([])
   const [topicOrder, setTopicOrder] = useState<Record<string, string[]>>({})
@@ -99,43 +103,57 @@ export function useProjectsData(
   const projectNameRef = useRef<HTMLInputElement>(null)
 
   const [createTopicOpen, setCreateTopicOpen] = useState(false)
-  const [createTopicForProject, setCreateTopicForProject] = useState<Project | null>(null)
+  const [createTopicForProject, setCreateTopicForProject] =
+    useState<Project | null>(null)
   const [newTopicName, setNewTopicName] = useState("")
   const [creatingTopic, setCreatingTopic] = useState(false)
   const [topicError, setTopicError] = useState("")
   const topicNameRef = useRef<HTMLInputElement>(null)
 
   const [renameProjectOpen, setRenameProjectOpen] = useState(false)
-  const [renameProjectTarget, setRenameProjectTarget] = useState<Project | null>(null)
+  const [renameProjectTarget, setRenameProjectTarget] =
+    useState<Project | null>(null)
   const [renameProjectName, setRenameProjectName] = useState("")
   const renameProjectRef = useRef<HTMLInputElement>(null)
 
   const [renameTopicOpen, setRenameTopicOpen] = useState(false)
-  const [renameTopicTarget, setRenameTopicTarget] = useState<FullTopic | null>(null)
+  const [renameTopicTarget, setRenameTopicTarget] = useState<FullTopic | null>(
+    null
+  )
   const [renameTopicName, setRenameTopicName] = useState("")
   const renameTopicRef = useRef<HTMLInputElement>(null)
 
   const [deleteProjectOpen, setDeleteProjectOpen] = useState(false)
-  const [deleteProjectTarget, setDeleteProjectTarget] = useState<Project | null>(null)
+  const [deleteProjectTarget, setDeleteProjectTarget] =
+    useState<Project | null>(null)
   const [deletingProject, setDeletingProject] = useState(false)
 
   const [deleteTopicOpen, setDeleteTopicOpen] = useState(false)
-  const [deleteTopicTarget, setDeleteTopicTarget] = useState<FullTopic | null>(null)
+  const [deleteTopicTarget, setDeleteTopicTarget] = useState<FullTopic | null>(
+    null
+  )
   const [deletingTopic, setDeletingTopic] = useState(false)
 
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
 
-  const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
-    setNewProjectPath(repo.path)
-    setRepoPickerOpen(false)
-    try {
-      await invoke("middleware_repos_select", { input: { path: repo.path, name: repo.name } })
-    } catch {}
-  }, [])
+  const handleRepoSelect = useCallback(
+    async (repo: { name: string; path: string }) => {
+      setNewProjectPath(repo.path)
+      setRepoPickerOpen(false)
+      try {
+        await invoke("middleware_repos_select", {
+          input: { path: repo.path, name: repo.name },
+        })
+      } catch {}
+    },
+    []
+  )
 
   const loadProjects = useCallback(async () => {
     try {
-      const result = await invoke<{ projects: Project[] }>("middleware_projects_list")
+      const result = await invoke<{ projects: Project[] }>(
+        "middleware_projects_list"
+      )
       const active = (result.projects || []).filter((p) => !p.archived)
       setProjects(active)
     } catch (e) {
@@ -143,60 +161,89 @@ export function useProjectsData(
     }
   }, [])
 
-  useEffect(() => { loadProjects() }, [loadProjects])
+  useEffect(() => {
+    loadProjects()
+  }, [loadProjects])
 
   const refreshTopicsRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     setProjectOrder((prev) => {
       const existing = prev.filter((id) => projects.some((p) => p.id === id))
-      const newOnes = projects.filter((p) => !prev.includes(p.id)).map((p) => p.id)
+      const newOnes = projects
+        .filter((p) => !prev.includes(p.id))
+        .map((p) => p.id)
       return [...existing, ...newOnes]
     })
   }, [projects])
 
-  useEffect(() => { if (createProjectOpen) setTimeout(() => projectNameRef.current?.focus(), 50) }, [createProjectOpen])
-  useEffect(() => { if (createTopicOpen) setTimeout(() => topicNameRef.current?.focus(), 50) }, [createTopicOpen])
-  useEffect(() => { if (renameProjectOpen) setTimeout(() => renameProjectRef.current?.focus(), 50) }, [renameProjectOpen])
-  useEffect(() => { if (renameTopicOpen) setTimeout(() => renameTopicRef.current?.focus(), 50) }, [renameTopicOpen])
+  useEffect(() => {
+    if (createProjectOpen) setTimeout(() => projectNameRef.current?.focus(), 50)
+  }, [createProjectOpen])
+  useEffect(() => {
+    if (createTopicOpen) setTimeout(() => topicNameRef.current?.focus(), 50)
+  }, [createTopicOpen])
+  useEffect(() => {
+    if (renameProjectOpen)
+      setTimeout(() => renameProjectRef.current?.focus(), 50)
+  }, [renameProjectOpen])
+  useEffect(() => {
+    if (renameTopicOpen) setTimeout(() => renameTopicRef.current?.focus(), 50)
+  }, [renameTopicOpen])
 
-  const loadProjectTopics = useCallback(async (projectId: string, force = false) => {
-    if (projectTopics[projectId] && !force) return
-    setLoadingProject(projectId)
-    try {
-      const result = await invoke<{ topics: FullTopic[] }>("middleware_topics_list", { input: { projectId } })
-      const active = (result.topics || []).filter((t) => !t.archived)
-      setProjectTopics((prev) => ({ ...prev, [projectId]: active }))
-      setTopicOrder((prev) => {
-        const existing = (prev[projectId] || []).filter((id) => active.some((t) => t.id === id))
-        const newOnes = active.filter((t) => !existing.includes(t.id)).map((t) => t.id)
-        return { ...prev, [projectId]: [...existing, ...newOnes] }
-      })
-    } catch (e) {
-      console.error("[ProjectsSection] load topics failed", e)
-    } finally {
-      setLoadingProject(null)
+  const loadProjectTopics = useCallback(
+    async (projectId: string, force = false) => {
+      if (projectTopics[projectId] && !force) return
+      setLoadingProject(projectId)
+      try {
+        const result = await invoke<{ topics: FullTopic[] }>(
+          "middleware_topics_list",
+          { input: { projectId } }
+        )
+        const active = (result.topics || []).filter((t) => !t.archived)
+        setProjectTopics((prev) => ({ ...prev, [projectId]: active }))
+        setTopicOrder((prev) => {
+          const existing = (prev[projectId] || []).filter((id) =>
+            active.some((t) => t.id === id)
+          )
+          const newOnes = active
+            .filter((t) => !existing.includes(t.id))
+            .map((t) => t.id)
+          return { ...prev, [projectId]: [...existing, ...newOnes] }
+        })
+      } catch (e) {
+        console.error("[ProjectsSection] load topics failed", e)
+      } finally {
+        setLoadingProject(null)
+      }
+    },
+    [projectTopics]
+  )
+
+  useEffect(() => {
+    function onArchiveRestored() {
+      loadProjects()
+      for (const id of Object.keys(projectTopics)) {
+        loadProjectTopics(id, true)
+      }
     }
-  }, [projectTopics])
+    window.addEventListener("archive-restored", onArchiveRestored)
+    return () =>
+      window.removeEventListener("archive-restored", onArchiveRestored)
+  }, [loadProjects, loadProjectTopics, projectTopics])
 
-  refreshTopicsRef.current = () => {
-    for (const pid of expandedProjects) loadProjectTopics(pid, true)
-  }
-
-  useEffect(() => on("sidebar:refresh", () => {
-    loadProjects()
-    refreshTopicsRef.current()
-  }), [loadProjects])
-
-  const handleProjectClick = useCallback((project: Project) => {
-    setExpandedProjects((prev) => {
-      const next = new Set(prev)
-      if (next.has(project.id)) next.delete(project.id)
-      else next.add(project.id)
-      return next
-    })
-    if (!projectTopics[project.id]) loadProjectTopics(project.id)
-  }, [projectTopics, loadProjectTopics])
+  const handleProjectClick = useCallback(
+    (project: Project) => {
+      setExpandedProjects((prev) => {
+        const next = new Set(prev)
+        if (next.has(project.id)) next.delete(project.id)
+        else next.add(project.id)
+        return next
+      })
+      if (!projectTopics[project.id]) loadProjectTopics(project.id)
+    },
+    [projectTopics, loadProjectTopics]
+  )
 
   const togglePinProject = useCallback((projectId: string) => {
     setPinnedProjects((prev) => {
@@ -205,7 +252,10 @@ export function useProjectsData(
         next.delete(projectId)
       } else {
         next.add(projectId)
-        setProjectOrder((o) => [projectId, ...o.filter((id) => id !== projectId)])
+        setProjectOrder((o) => [
+          projectId,
+          ...o.filter((id) => id !== projectId),
+        ])
       }
       return next
     })
@@ -220,7 +270,10 @@ export function useProjectsData(
         next.add(topicId)
         setTopicOrder((o) => ({
           ...o,
-          [projectId]: [topicId, ...(o[projectId] || []).filter((id) => id !== topicId)],
+          [projectId]: [
+            topicId,
+            ...(o[projectId] || []).filter((id) => id !== topicId),
+          ],
         }))
       }
       return next
@@ -241,19 +294,32 @@ export function useProjectsData(
     try {
       let profileId = "prof_local_main"
       try {
-        const r = await invoke<{ profiles: Array<{ id: string }> }>("middleware_profiles_list")
+        const r = await invoke<{ profiles: Array<{ id: string }> }>(
+          "middleware_profiles_list"
+        )
         if (r?.profiles?.length > 0) profileId = r.profiles[0].id
       } catch {}
 
-      const result = await invoke<{ project: { id: string; name: string } }>("middleware_projects_create", {
-        input: { name: newProjectName.trim(), profileId, workspaceRoot: newProjectPath || "~", repoRoot: newProjectPath || "~" },
-      })
+      const result = await invoke<{ project: { id: string; name: string } }>(
+        "middleware_projects_create",
+        {
+          input: {
+            name: newProjectName.trim(),
+            profileId,
+            workspaceRoot: newProjectPath || "~",
+            repoRoot: newProjectPath || "~",
+          },
+        }
+      )
       const projectId = result.project.id
       const projectName = result.project.name
 
-      const topicResult = await invoke<{ topic: { id: string; name: string } }>("middleware_topics_create", {
-        input: { projectId, name: "General" },
-      })
+      const topicResult = await invoke<{ topic: { id: string; name: string } }>(
+        "middleware_topics_create",
+        {
+          input: { projectId, name: "General" },
+        }
+      )
 
       setNewProjectName("")
       setNewProjectPath("")
@@ -263,14 +329,29 @@ export function useProjectsData(
       setExpandedProjects((prev) => new Set([...prev, projectId]))
       setProjectTopics((prev) => ({
         ...prev,
-        [projectId]: [{
-          id: topicResult.topic.id, name: topicResult.topic.name, projectId,
-          archived: false, unreadCount: 0, sortOrder: 0,
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        }],
+        [projectId]: [
+          {
+            id: topicResult.topic.id,
+            name: topicResult.topic.name,
+            projectId,
+            archived: false,
+            unreadCount: 0,
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
       }))
-      setTopicOrder((prev) => ({ ...prev, [projectId]: [topicResult.topic.id] }))
-      onTopicSelect({ id: topicResult.topic.id, name: topicResult.topic.name, projectId, projectName })
+      setTopicOrder((prev) => ({
+        ...prev,
+        [projectId]: [topicResult.topic.id],
+      }))
+      onTopicSelect({
+        id: topicResult.topic.id,
+        name: topicResult.topic.name,
+        projectId,
+        projectName,
+      })
     } catch (e) {
       setProjectError(String(e))
     } finally {
@@ -290,13 +371,24 @@ export function useProjectsData(
     setCreatingTopic(true)
     setTopicError("")
     try {
-      const result = await invoke<{ topic: { id: string; name: string } }>("middleware_topics_create", {
-        input: { projectId: createTopicForProject.id, name: newTopicName.trim() },
-      })
+      const result = await invoke<{ topic: { id: string; name: string } }>(
+        "middleware_topics_create",
+        {
+          input: {
+            projectId: createTopicForProject.id,
+            name: newTopicName.trim(),
+          },
+        }
+      )
       setNewTopicName("")
       setCreateTopicOpen(false)
       await loadProjectTopics(createTopicForProject.id, true)
-      onTopicSelect({ id: result.topic.id, name: result.topic.name, projectId: createTopicForProject.id, projectName: createTopicForProject.name })
+      onTopicSelect({
+        id: result.topic.id,
+        name: result.topic.name,
+        projectId: createTopicForProject.id,
+        projectName: createTopicForProject.name,
+      })
     } catch (e) {
       setTopicError(String(e))
     } finally {
@@ -313,10 +405,17 @@ export function useProjectsData(
   const handleRenameProject = useCallback(async () => {
     if (!renameProjectTarget || !renameProjectName.trim()) return
     try {
-      await invoke("middleware_projects_update", { input: { projectId: renameProjectTarget.id, name: renameProjectName.trim() } })
+      await invoke("middleware_projects_update", {
+        input: {
+          projectId: renameProjectTarget.id,
+          name: renameProjectName.trim(),
+        },
+      })
       setRenameProjectOpen(false)
       await loadProjects()
-    } catch (e) { console.error("rename project failed", e) }
+    } catch (e) {
+      console.error("rename project failed", e)
+    }
   }, [renameProjectTarget, renameProjectName, loadProjects])
 
   const openRenameTopic = useCallback((topic: FullTopic) => {
@@ -328,10 +427,14 @@ export function useProjectsData(
   const handleRenameTopicSave = useCallback(async () => {
     if (!renameTopicTarget || !renameTopicName.trim()) return
     try {
-      await invoke("middleware_topics_update", { input: { topicId: renameTopicTarget.id, name: renameTopicName.trim() } })
+      await invoke("middleware_topics_update", {
+        input: { topicId: renameTopicTarget.id, name: renameTopicName.trim() },
+      })
       setRenameTopicOpen(false)
       await loadProjectTopics(renameTopicTarget.projectId, true)
-    } catch (e) { console.error("rename topic failed", e) }
+    } catch (e) {
+      console.error("rename topic failed", e)
+    }
   }, [renameTopicTarget, renameTopicName, loadProjectTopics])
 
   const openDeleteProject = useCallback((project: Project) => {
@@ -343,13 +446,22 @@ export function useProjectsData(
     if (!deleteProjectTarget) return
     setDeletingProject(true)
     try {
-      await invoke("middleware_projects_delete", { input: { projectId: deleteProjectTarget.id } })
+      await invoke("middleware_projects_delete", {
+        input: { projectId: deleteProjectTarget.id },
+      })
       setDeleteProjectOpen(false)
-      setExpandedProjects((prev) => { const next = new Set(prev); next.delete(deleteProjectTarget.id); return next })
+      setExpandedProjects((prev) => {
+        const next = new Set(prev)
+        next.delete(deleteProjectTarget.id)
+        return next
+      })
       if (activeTopic?.projectId === deleteProjectTarget.id) onTopicClear()
       await loadProjects()
-    } catch (e) { console.error("delete project failed", e) }
-    finally { setDeletingProject(false) }
+    } catch (e) {
+      console.error("delete project failed", e)
+    } finally {
+      setDeletingProject(false)
+    }
   }, [deleteProjectTarget, loadProjects, activeTopic, onTopicClear])
 
   const openDeleteTopic = useCallback((topic: FullTopic) => {
@@ -361,63 +473,137 @@ export function useProjectsData(
     if (!deleteTopicTarget) return
     setDeletingTopic(true)
     try {
-      await invoke("middleware_topics_delete", { input: { topicId: deleteTopicTarget.id } })
+      await invoke("middleware_topics_delete", {
+        input: { topicId: deleteTopicTarget.id },
+      })
       setDeleteTopicOpen(false)
       if (activeTopic?.id === deleteTopicTarget.id) onTopicClear()
       await loadProjectTopics(deleteTopicTarget.projectId, true)
-    } catch (e) { console.error("delete topic failed", e) }
-    finally { setDeletingTopic(false) }
+    } catch (e) {
+      console.error("delete topic failed", e)
+    } finally {
+      setDeletingTopic(false)
+    }
   }, [deleteTopicTarget, loadProjectTopics, activeTopic, onTopicClear])
 
-  const handleArchiveProject = useCallback(async (projectId: string) => {
-    try {
-      await invoke("middleware_projects_archive", { input: { projectId } })
-      setExpandedProjects((prev) => { const next = new Set(prev); next.delete(projectId); return next })
-      await loadProjects()
-      emit("archive:changed")
-    } catch (e) { console.error("archive project failed", e) }
-  }, [loadProjects])
+  const handleArchiveProject = useCallback(
+    async (projectId: string) => {
+      try {
+        await invoke("middleware_projects_archive", { input: { projectId } })
+        setExpandedProjects((prev) => {
+          const next = new Set(prev)
+          next.delete(projectId)
+          return next
+        })
+        await loadProjects()
+        emit("archive:changed")
+      } catch (e) {
+        console.error("archive project failed", e)
+      }
+    },
+    [loadProjects]
+  )
 
-  const handleArchiveTopic = useCallback(async (topic: FullTopic) => {
-    try {
-      await invoke("middleware_topics_archive", { input: { topicId: topic.id } })
-      await loadProjectTopics(topic.projectId, true)
-      emit("archive:changed")
-    } catch (e) { console.error("archive topic failed", e) }
-  }, [loadProjectTopics])
+  const handleArchiveTopic = useCallback(
+    async (topic: FullTopic) => {
+      try {
+        await invoke("middleware_topics_archive", {
+          input: { topicId: topic.id },
+        })
+        await loadProjectTopics(topic.projectId, true)
+        emit("archive:changed")
+      } catch (e) {
+        console.error("archive topic failed", e)
+      }
+    },
+    [loadProjectTopics]
+  )
 
   const sortedProjectIds = useMemo(() => {
     const pinned = projectOrder.filter((id) => pinnedProjects.has(id))
     const unpinned = projectOrder.filter((id) => !pinnedProjects.has(id))
-    return [...pinned, ...unpinned].filter((id) => projects.some((p) => p.id === id))
+    return [...pinned, ...unpinned].filter((id) =>
+      projects.some((p) => p.id === id)
+    )
   }, [projectOrder, pinnedProjects, projects])
 
   const dialogState: DialogState = {
-    createProjectOpen, newProjectName, newProjectPath, creatingProject, projectError, projectNameRef,
-    createTopicOpen, createTopicForProject, newTopicName, creatingTopic, topicError, topicNameRef,
-    renameProjectOpen, renameProjectTarget, renameProjectName, renameProjectRef,
-    renameTopicOpen, renameTopicTarget, renameTopicName, renameTopicRef,
-    deleteProjectOpen, deleteProjectTarget, deletingProject,
-    deleteTopicOpen, deleteTopicTarget, deletingTopic,
+    createProjectOpen,
+    newProjectName,
+    newProjectPath,
+    creatingProject,
+    projectError,
+    projectNameRef,
+    createTopicOpen,
+    createTopicForProject,
+    newTopicName,
+    creatingTopic,
+    topicError,
+    topicNameRef,
+    renameProjectOpen,
+    renameProjectTarget,
+    renameProjectName,
+    renameProjectRef,
+    renameTopicOpen,
+    renameTopicTarget,
+    renameTopicName,
+    renameTopicRef,
+    deleteProjectOpen,
+    deleteProjectTarget,
+    deletingProject,
+    deleteTopicOpen,
+    deleteTopicTarget,
+    deletingTopic,
     repoPickerOpen,
   }
 
   const dialogActions: DialogActions = {
-    setCreateProjectOpen, setNewProjectName, setNewProjectPath, openCreateProject, handleCreateProject,
-    setCreateTopicOpen, setNewTopicName, openCreateTopic, handleCreateTopic,
-    setRenameProjectOpen, setRenameProjectName, openRenameProject, handleRenameProject,
-    setRenameTopicOpen, setRenameTopicName, openRenameTopic, handleRenameTopicSave,
-    setDeleteProjectOpen, openDeleteProject, handleDeleteProject,
-    setDeleteTopicOpen, openDeleteTopic, handleDeleteTopic,
-    setRepoPickerOpen, handleRepoSelect,
+    setCreateProjectOpen,
+    setNewProjectName,
+    setNewProjectPath,
+    openCreateProject,
+    handleCreateProject,
+    setCreateTopicOpen,
+    setNewTopicName,
+    openCreateTopic,
+    handleCreateTopic,
+    setRenameProjectOpen,
+    setRenameProjectName,
+    openRenameProject,
+    handleRenameProject,
+    setRenameTopicOpen,
+    setRenameTopicName,
+    openRenameTopic,
+    handleRenameTopicSave,
+    setDeleteProjectOpen,
+    openDeleteProject,
+    handleDeleteProject,
+    setDeleteTopicOpen,
+    openDeleteTopic,
+    handleDeleteTopic,
+    setRepoPickerOpen,
+    handleRepoSelect,
   }
 
   return {
-    projects, expandedProjects, projectTopics, loadingProject,
-    projectOrder, setProjectOrder, topicOrder, setTopicOrder,
-    pinnedProjects, pinnedTopics, sortedProjectIds,
-    handleProjectClick, togglePinProject, togglePinTopic,
-    handleArchiveProject, handleArchiveTopic,
-    dialogState, dialogActions,
+    projects,
+    expandedProjects,
+    projectTopics,
+    loadingProject,
+    projectOrder,
+    setProjectOrder,
+    topicOrder,
+    setTopicOrder,
+    pinnedProjects,
+    pinnedTopics,
+    sortedProjectIds,
+    handleProjectClick,
+    togglePinProject,
+    togglePinTopic,
+    handleArchiveProject,
+    handleArchiveTopic,
+    handleDeleteTopic,
+    dialogState,
+    dialogActions,
   }
 }
