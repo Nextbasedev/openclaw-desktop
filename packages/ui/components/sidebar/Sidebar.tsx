@@ -5,6 +5,7 @@ import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { cn } from "@/lib/utils"
 import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
+import { ModelSelector } from "./ModelSelector"
 import { Icons } from "../icons"
 
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
@@ -131,6 +132,12 @@ export function Sidebar({
           </div>
         )}
       </nav>
+
+      {!collapsed && (
+        <div className="relative z-10 border-t border-border/10 px-2 py-2">
+          <ModelSelector />
+        </div>
+      )}
 
       {!collapsed && (
         <button
