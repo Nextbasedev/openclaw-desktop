@@ -2,11 +2,11 @@
 
 import * as React from "react"
 import { Icons } from "@/components/icons"
-import { VersionUpdatesTab } from "./tabs/VersionUpdatesTab"
 import { CronJobsTab } from "./tabs/CronJobsTab"
+import { ActivityTab } from "./tabs/ActivityTab"
 import { cn } from "@/lib/utils"
 
-type NotificationSection = "version-updates" | "cron-jobs"
+type NotificationSection = "cron-jobs" | "activity"
 
 type SidebarItem = {
   id: NotificationSection
@@ -16,7 +16,7 @@ type SidebarItem = {
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: "cron-jobs", label: "Cron Jobs", icon: Icons.Cron },
-  { id: "version-updates", label: "Version Updates", icon: Icons.Notification },
+  { id: "activity", label: "Activity", icon: Icons.Automations },
 ]
 
 type NotificationDashboardProps = {
@@ -80,7 +80,7 @@ export function NotificationDashboard({
 
       <div className="my-2 w-full max-w-xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
         {activeSection === "cron-jobs" && <CronJobsTab />}
-        {activeSection === "version-updates" && <VersionUpdatesTab />}
+        {activeSection === "activity" && <ActivityTab />}
       </div>
     </div>
   )
