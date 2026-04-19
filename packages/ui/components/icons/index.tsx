@@ -46,6 +46,8 @@ import {
     PinIcon,
     PinOffIcon,
     MoreVerticalIcon,
+    Delete02Icon,
+    Archive02Icon,
 } from "@hugeicons/core-free-icons"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
@@ -148,6 +150,8 @@ export const Icons = {
     Pin: wrapHugeicon(PinIcon),
     PinOff: wrapHugeicon(PinOffIcon),
     MoreVertical: wrapHugeicon(MoreVerticalIcon),
+    Trash: wrapHugeicon(Delete02Icon),
+    Archive: wrapHugeicon(Archive02Icon),
 }
 
 /**

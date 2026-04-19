@@ -13,9 +13,10 @@ type Props = {
   collapsed: boolean
   activeTopic: ActiveTopic | null
   onTopicSelect: (topic: ActiveTopic) => void
+  onTopicClear: () => void
 }
 
-export function ProjectsSection({ collapsed, activeTopic, onTopicSelect }: Props) {
+export function ProjectsSection({ collapsed, activeTopic, onTopicSelect, onTopicClear }: Props) {
   const {
     projects, expandedProjects, projectTopics, loadingProject,
     setProjectOrder, topicOrder, setTopicOrder,
@@ -23,7 +24,7 @@ export function ProjectsSection({ collapsed, activeTopic, onTopicSelect }: Props
     handleProjectClick, togglePinProject, togglePinTopic,
     handleArchiveProject, handleArchiveTopic,
     dialogState, dialogActions,
-  } = useProjectsData(onTopicSelect)
+  } = useProjectsData(onTopicSelect, activeTopic, onTopicClear)
 
   if (collapsed) {
     return (
@@ -89,10 +90,12 @@ export function ProjectsSection({ collapsed, activeTopic, onTopicSelect }: Props
                   onOpenAddTopic={() => dialogActions.openCreateTopic(project)}
                   onRenameProject={() => dialogActions.openRenameProject(project)}
                   onArchiveProject={() => handleArchiveProject(projectId)}
+                  onDeleteProject={() => dialogActions.openDeleteProject(project)}
                   onTopicSelect={(t) => onTopicSelect({ id: t.id, name: t.name, projectId, projectName: project.name })}
                   onPinTopic={(topicId) => togglePinTopic(topicId, projectId)}
                   onRenameTopic={(t) => dialogActions.openRenameTopic(t)}
                   onArchiveTopic={handleArchiveTopic}
+                  onDeleteTopic={(t) => dialogActions.openDeleteTopic(t)}
                   onTopicReorder={(newOrder) => setTopicOrder((prev) => ({ ...prev, [projectId]: newOrder }))}
                 />
               )

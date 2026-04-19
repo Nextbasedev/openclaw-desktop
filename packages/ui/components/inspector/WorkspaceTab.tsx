@@ -26,17 +26,25 @@ import {
   Delete02Icon,
   FloppyDiskIcon,
   Tick02Icon,
+  MoreVerticalIcon,
 } from "@hugeicons/core-free-icons"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { invoke } from "@/lib/ipc"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
+import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 
 /* ── Types ── */
 
@@ -400,10 +408,12 @@ function FilePreviewPane({
   filePath,
   fileName,
   workspaceRoot,
+  compact,
 }: {
   filePath: string
   fileName: string
   workspaceRoot: string
+  compact: boolean
 }) {
   const ext = getExt(fileName)
   const isMd = ext === "md"
@@ -418,6 +428,7 @@ function FilePreviewPane({
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [mode, setMode] = useState<"preview" | "edit">(isMd ? "preview" : "edit")
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const hasChanges = useMemo(() => content !== originalContent, [content, originalContent])
 
@@ -564,7 +575,7 @@ function FilePreviewPane({
           </>
         )}
 
-        {!isRenaming && (
+        {!isRenaming && !compact && (
           <div className="flex shrink-0 items-center gap-0.5">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -628,6 +639,53 @@ function FilePreviewPane({
               </TooltipContent>
             </Tooltip>
           </div>
+        )}
+
+        {!isRenaming && compact && (
+          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded transition-all duration-100",
+                  menuOpen
+                    ? "text-foreground/80 opacity-100"
+                    : "text-foreground/60 hover:text-foreground",
+                )}
+              >
+                <HugeiconsIcon icon={MoreVerticalIcon} size={14} strokeWidth={1.5} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="bottom"
+              align="end"
+              sideOffset={4}
+              className={cn("w-40 gap-0 p-1", GLASS_POPOVER)}
+            >
+              <MenuAction
+                label="Rename"
+                icon={<HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.5} />}
+                onClick={() => { setMenuOpen(false); setRenameValue(displayName); setIsRenaming(true) }}
+              />
+              <MenuAction
+                label="Download"
+                icon={<HugeiconsIcon icon={Download02Icon} size={14} strokeWidth={1.5} />}
+                onClick={() => { setMenuOpen(false); handleDownload() }}
+              />
+              <MenuAction
+                label={saving ? "Saving..." : saved ? "Saved" : "Save"}
+                icon={<HugeiconsIcon icon={saved ? Tick02Icon : FloppyDiskIcon} size={14} strokeWidth={1.5} />}
+                onClick={handleSave}
+              />
+              <div className="my-0.5 h-px bg-border/20" />
+              <MenuAction
+                label="Delete"
+                icon={<HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={1.5} />}
+                onClick={() => { setMenuOpen(false); handleDelete() }}
+                danger
+              />
+            </PopoverContent>
+          </Popover>
         )}
       </div>
 
@@ -700,6 +758,18 @@ export function WorkspaceTab() {
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const [newItemType, setNewItemType] = useState<"file" | "folder" | null>(null)
   const [newItemName, setNewItemName] = useState("")
+  const previewPaneRef = useRef<HTMLDivElement>(null)
+  const [previewCompact, setPreviewCompact] = useState(false)
+
+  useEffect(() => {
+    const el = previewPaneRef.current
+    if (!el) return
+    const obs = new ResizeObserver(() => {
+      setPreviewCompact(el.offsetWidth < 280)
+    })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
 
   const expandedIdsRef = useRef(expandedIds)
   expandedIdsRef.current = expandedIds
@@ -848,7 +918,7 @@ export function WorkspaceTab() {
                   if (e.key === "Escape") setNewItemType(null)
                 }}
                 placeholder={newItemType === "folder" ? "Enter folder name..." : "Enter file name..."}
-                className="h-8 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-[12px] text-foreground placeholder-muted-foreground/40 outline-none transition-colors focus:border-white/20 focus:bg-white/8"
+                className="h-8 w-full rounded-lg border-none bg-white/5 px-3 text-[12px] text-foreground placeholder-muted-foreground/40 outline-none transition-colors focus:bg-white/8"
                 autoFocus
               />
             </div>
@@ -856,7 +926,7 @@ export function WorkspaceTab() {
               <button
                 type="button"
                 onClick={() => setNewItemType(null)}
-                className="h-7 cursor-pointer rounded-lg px-4 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                className="h-7 cursor-pointer rounded-lg bg-white/10 px-4 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/15 hover:text-foreground"
               >
                 Cancel
               </button>
@@ -864,7 +934,7 @@ export function WorkspaceTab() {
                 type="button"
                 onClick={handleNewItem}
                 disabled={!newItemName.trim()}
-                className="h-7 cursor-pointer rounded-lg bg-white/10 px-4 text-[11px] font-medium text-foreground transition-colors hover:bg-white/20 disabled:cursor-default disabled:opacity-30"
+                className="h-7 cursor-pointer rounded-lg bg-white px-4 text-[11px] font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-default disabled:bg-white/50"
               >
                 Create
               </button>
@@ -968,12 +1038,13 @@ export function WorkspaceTab() {
       />
 
       {/* Right: preview pane */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div ref={previewPaneRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {selectedNode && selectedNode.type === "file" && workspaceRoot ? (
           <FilePreviewPane
             filePath={selectedId!}
             fileName={selectedNode.name}
             workspaceRoot={workspaceRoot}
+            compact={previewCompact}
           />
         ) : (
           <EmptyPreview />

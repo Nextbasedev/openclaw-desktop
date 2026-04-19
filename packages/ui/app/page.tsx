@@ -204,11 +204,9 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   }, [sidebarOpen])
 
   // Compute the center label for the header
-  const centerLabel = activeSessionKey && activeSessionTitle && activeTopic
-    ? `${activeTopic.projectName} › ${activeTopic.name} › ${activeSessionTitle}`
-    : activeTopic
-      ? `${activeTopic.projectName} › ${activeTopic.name}`
-      : null
+  const centerLabel = activeTopic
+    ? { project: activeTopic.projectName, topic: activeTopic.name }
+    : null
 
   const handleSignOut = useCallback(async () => {
     await signOut()
@@ -244,6 +242,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           onItemsChange={setSidebarItems}
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
+          onTopicClear={() => { setActiveTopic(null); setActiveSessionKey(null); setActiveSessionTitle(null) }}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -273,6 +272,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           onClose={toggleInspector}
           terminalActive={terminalActive}
           onTerminalActiveChange={setTerminalActive}
+          sessionKey={activeSessionKey}
         />
       </div>
 
