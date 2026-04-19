@@ -15,11 +15,19 @@ type RawMessage = {
   model?: string
 }
 
-export function useChatMessages(sessionKey: string) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [status, setStatus] = useState<StreamStatus>("idle")
+export function useChatMessages(
+  sessionKey: string,
+  initialMessages?: ChatMessage[],
+) {
+  const hasInitial = initialMessages && initialMessages.length > 0
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    hasInitial ? initialMessages : [],
+  )
+  const [status, setStatus] = useState<StreamStatus>(
+    hasInitial ? "thinking" : "idle",
+  )
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!hasInitial)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
 
@@ -54,11 +62,21 @@ export function useChatMessages(sessionKey: string) {
     (payload: StreamEventPayload) => {
       const ev = payload.event
       switch (ev.type) {
-        case "chat.status":
-          setStatus((ev.state as StreamStatus) || "idle")
+        case "chat.status": {
+          const incoming = (ev.state as StreamStatus) || "idle"
+          setStatus((prev) => {
+            if (
+              prev === "thinking" &&
+              (incoming === "connected" || incoming === "idle")
+            ) {
+              return prev
+            }
+            return incoming
+          })
           setStatusLabel(ev.label || ev.name || null)
           scrollToBottom(true)
           break
+        }
         case "chat.message": {
           if (ev.role !== "assistant") break
           const id = ev.messageId || crypto.randomUUID()
@@ -70,10 +88,31 @@ export function useChatMessages(sessionKey: string) {
             )
           } else {
             seenIds.current.add(id)
-            setMessages((prev) => [
-              ...prev.filter((m) => m.messageId !== id),
-              { messageId: id, role: "assistant", text, createdAt: ev.createdAt, model: ev.model },
-            ])
+            setMessages((prev) => {
+              const lastAssistant = [...prev]
+                .reverse()
+                .find((m) => m.role === "assistant")
+              if (
+                lastAssistant &&
+                (lastAssistant.text === text ||
+                  text.startsWith(lastAssistant.text) ||
+                  lastAssistant.text.startsWith(text))
+              ) {
+                const longer =
+                  text.length >= lastAssistant.text.length
+                    ? text
+                    : lastAssistant.text
+                return prev.map((m) =>
+                  m.messageId === lastAssistant.messageId
+                    ? { ...m, text: longer, messageId: id }
+                    : m,
+                )
+              }
+              return [
+                ...prev.filter((m) => m.messageId !== id),
+                { messageId: id, role: "assistant", text, createdAt: ev.createdAt, model: ev.model },
+              ]
+            })
           }
           scrollToBottom(true)
           break
@@ -88,10 +127,12 @@ export function useChatMessages(sessionKey: string) {
   )
 
   useEffect(() => {
-    setLoading(true)
+    if (!initialMessages || initialMessages.length === 0) {
+      setLoading(true)
+      setMessages([])
+      setStatus("idle")
+    }
     setLoadError(null)
-    setMessages([])
-    setStatus("idle")
     seenIds.current.clear()
     isAtBottomRef.current = true
     let cancelled = false
@@ -117,7 +158,14 @@ export function useChatMessages(sessionKey: string) {
           })
           .filter((m: ChatMessage) => m.text.length > 0)
 
-        setMessages(histMsgs)
+        setMessages((prev) => {
+          if (prev.length === 0) return histMsgs
+          const histIds = new Set(histMsgs.map((m) => m.messageId))
+          const kept = prev.filter(
+            (m) => m.isOptimistic && !histIds.has(m.messageId),
+          )
+          return [...histMsgs, ...kept]
+        })
         setLoading(false)
         requestAnimationFrame(() => {
           bottomRef.current?.scrollIntoView({ behavior: "instant" })
