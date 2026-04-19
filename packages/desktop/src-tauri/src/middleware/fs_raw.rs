@@ -36,6 +36,39 @@ pub async fn middleware_fs_read_file(input: FsReadFileInput) -> Result<Value, St
 }
 
 #[tauri::command]
+pub async fn middleware_fs_prepare_attachment(input: FsReadFileInput) -> Result<Value, String> {
+  const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+  let path = PathBuf::from(&input.path);
+  let file_name = path.file_name()
+    .map(|n| n.to_string_lossy().to_string())
+    .unwrap_or_else(|| "unnamed".to_string());
+  let metadata = tokio::fs::metadata(&input.path).await
+    .map_err(|e| format!("Failed to read file metadata: {e}"))?;
+  if metadata.len() > MAX_FILE_SIZE {
+    return Err(format!("File too large ({} bytes, max {})", metadata.len(), MAX_FILE_SIZE));
+  }
+  let content = tokio::fs::read(&input.path).await
+    .map_err(|e| format!("Failed to read file: {e}"))?;
+  let mime_type = mime_from_extension(&file_name);
+  match String::from_utf8(content.clone()) {
+    Ok(text) => Ok(json!({
+      "name": file_name,
+      "mimeType": mime_type,
+      "content": text,
+      "encoding": "utf-8",
+      "size": metadata.len(),
+    })),
+    Err(_) => Ok(json!({
+      "name": file_name,
+      "mimeType": mime_type,
+      "content": URL_SAFE_NO_PAD.encode(&content),
+      "encoding": "base64",
+      "size": metadata.len(),
+    })),
+  }
+}
+
+#[tauri::command]
 pub async fn middleware_fs_write_file(input: FsWriteFileInput) -> Result<Value, String> {
   if let Some(parent) = PathBuf::from(&input.path).parent() {
     tokio::fs::create_dir_all(parent).await.map_err(|e| format!("Failed to create parent directory: {e}"))?;

@@ -69,9 +69,11 @@ pub fn run() {
       middleware::middleware_fs_rename,
       middleware::middleware_fs_metadata,
       middleware::middleware_fs_search,
+      middleware::middleware_fs_prepare_attachment,
       // File operations (files_ naming)
       middleware::middleware_files_tree,
       middleware::middleware_files_read,
+      middleware::middleware_files_prepare_attachment,
       middleware::middleware_files_write,
       middleware::middleware_files_mkdir,
       middleware::middleware_files_rename,
@@ -91,6 +93,7 @@ pub fn run() {
       middleware::middleware_topics_create,
       middleware::middleware_topics_update,
       middleware::middleware_topics_archive,
+      middleware::middleware_topics_delete,
       middleware::middleware_topics_attach_session,
       middleware::middleware_topics_detach_session,
       // Sessions

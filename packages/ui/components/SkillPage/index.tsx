@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { invoke } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import {
@@ -68,25 +69,19 @@ export function SkillPage() {
       setLoading(true)
       setError(null)
 
-      if (typeof window === "undefined" || !window.__TAURI_INTERNALS__) {
-        setSkills([])
-        setMeta(null)
-        setError("Desktop runtime not detected, so middleware_skills_discover is unavailable.")
-        setLoading(false)
-        return
-      }
-
       try {
-        const { invoke } = await import("@tauri-apps/api/core")
-        const response = await invoke<SkillDiscoverResponse>("middleware_skills_discover", {
-          input: {
-            query: "",
-            limit: 20,
-            includeLocal: true,
-            includeClawHub: true,
-            includeGithubProbe: true,
+        const response = await invoke<SkillDiscoverResponse>(
+          "middleware_skills_discover",
+          {
+            input: {
+              query: "",
+              limit: 20,
+              includeLocal: true,
+              includeClawHub: true,
+              includeGithubProbe: true,
+            },
           },
-        })
+        )
 
         if (cancelled) return
 
