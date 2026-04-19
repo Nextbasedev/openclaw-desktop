@@ -8,6 +8,7 @@ import {
   type Project,
 } from "@/lib/api/projects"
 import { fetchTopics, archiveTopic, type Topic } from "@/lib/api/topics"
+import { emit, on } from "@/lib/events"
 
 type ArchivedTopic = Topic & { projectName: string }
 

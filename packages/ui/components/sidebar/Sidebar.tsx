@@ -1,10 +1,10 @@
 import { useState, useCallback, useMemo, useEffect } from "react"
 import { Reorder } from "framer-motion"
-import { VersionUpdateModal } from "./VersionUpdateModal"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { cn } from "@/lib/utils"
 import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
+import { ModelSelector } from "./ModelSelector"
 import { Icons } from "../icons"
 
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
@@ -51,7 +51,6 @@ export function Sidebar({
   chatRefreshTrigger = 0,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
-  const [versionModalOpen, setVersionModalOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -133,6 +132,12 @@ export function Sidebar({
       </nav>
 
       {!collapsed && (
+        <div className="relative z-10 border-t border-border/10 px-2 py-2">
+          <ModelSelector />
+        </div>
+      )}
+
+      {!collapsed && (
         <button
           type="button"
           aria-label="Resize sidebar"
@@ -143,8 +148,6 @@ export function Sidebar({
           )}
         />
       )}
-
-      <VersionUpdateModal open={versionModalOpen} onOpenChange={setVersionModalOpen} />
     </aside>
   )
 }
