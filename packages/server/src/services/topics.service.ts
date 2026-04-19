@@ -86,6 +86,16 @@ export function topicsAttachSession(input: { topicId: string; sessionKey: string
   return { ok: true, topicId: input.topicId, sessionKey: input.sessionKey }
 }
 
+export function topicsRename(input: { topicId: string; name: string }) {
+  if (!input.name.trim()) throw new Error("Name cannot be empty")
+  const db = getDb()
+  const changes = db.prepare(
+    "UPDATE topics SET name = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+  ).run(input.name.trim(), nowIso(), input.topicId)
+  if (changes.changes === 0) throw new Error(`Topic not found: ${input.topicId}`)
+  return { topic: fetchTopic(input.topicId) }
+}
+
 export function topicsDetachSession(input: { topicId: string; sessionKey: string }) {
   const db = getDb()
   const changes = db.prepare("UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 1 WHERE session_key = ?").run(nowIso(), input.sessionKey)

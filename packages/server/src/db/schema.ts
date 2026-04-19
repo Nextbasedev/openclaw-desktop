@@ -98,6 +98,19 @@ export function initDb(db: Database.Database): void {
       UNIQUE(topic_id, branch_name)
     );
 
+    CREATE TABLE IF NOT EXISTS chats (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT 'New Chat',
+      session_key TEXT,
+      agent_id TEXT NOT NULL DEFAULT 'main',
+      archived INTEGER NOT NULL DEFAULT 0,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      last_active_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sync_dirty INTEGER NOT NULL DEFAULT 1
+    );
+
     CREATE TABLE IF NOT EXISTS sync_tombstones (
       entity_type TEXT NOT NULL,
       entity_id TEXT NOT NULL,

@@ -30,6 +30,9 @@ export const MODELS: Model[] = [
 
 type ActionBarProps = {
   hasInput: boolean
+  onSend?: () => void
+  isGenerating?: boolean
+  onAbort?: () => void
   planEnabled: boolean
   onPlanToggle: () => void
   webSearchEnabled: boolean
@@ -45,6 +48,9 @@ type ActionBarProps = {
 
 export function ActionBar({
   hasInput,
+  onSend,
+  isGenerating,
+  onAbort,
   planEnabled,
   onPlanToggle,
   webSearchEnabled,
@@ -165,20 +171,32 @@ export function ActionBar({
           <VoiceIcon className="size-[26px]" />
         </button>
 
-        {/* Send button */}
-        <button
-          type="button"
-          disabled={!hasInput}
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full shadow-sm transition-all",
-            hasInput
-              ? "cursor-pointer bg-foreground text-background"
-              : "bg-foreground/50 text-background"
-          )}
-          aria-label="Send message"
-        >
-          <SendArrowIcon className="size-4" />
-        </button>
+        {/* Send / Stop button */}
+        {isGenerating ? (
+          <button
+            type="button"
+            onClick={onAbort}
+            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/10 text-foreground shadow-sm transition-all hover:bg-foreground/20"
+            aria-label="Stop generating"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={14} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={!hasInput}
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-full shadow-sm transition-all",
+              hasInput
+                ? "cursor-pointer bg-foreground text-background"
+                : "bg-foreground/50 text-background"
+            )}
+            aria-label="Send message"
+          >
+            <SendArrowIcon className="size-4" />
+          </button>
+        )}
       </div>
     </div>
   )

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react"
 import { createPortal } from "react-dom"
+import { Reorder, useDragControls } from "framer-motion"
 import { Icons } from "@/components/icons"
-import { useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import { useLongPressDrag } from "@/hooks/useLongPressDrag"
 import { cn } from "@/lib/utils"
 
 export type SidebarNavItem = {
@@ -16,41 +16,26 @@ type SidebarItemProps = {
   isActive: boolean
   onClick: () => void
   collapsed?: boolean
+  draggable?: boolean
 }
 
-export function SidebarItem({ item, isActive, onClick, collapsed = false }: SidebarItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: item.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
+export function SidebarItem({ item, isActive, onClick, collapsed = false, draggable = false }: SidebarItemProps) {
+  const controls = useDragControls()
+  const longPress = useLongPressDrag(controls)
 
   const btn = (
     <button
-      ref={setNodeRef}
       type="button"
-      style={style}
       onClick={onClick}
       className={cn(
         "group flex w-full min-w-0 items-center rounded-md font-normal",
         collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1 text-left text-[13px]",
-        "transition-[background-color,color,text-decoration-color,fill,stroke,opacity,box-shadow,transform] duration-150 ease-in-out",
-        "cursor-pointer active:cursor-grabbing",
-        isDragging && "z-50 scale-[1.02] shadow-lg shadow-black/20 ring-1 ring-primary/20 cursor-grabbing",
+        "transition-[background-color,color,opacity] duration-150 ease-in-out",
+        "cursor-pointer",
         isActive
           ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
           : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
       )}
-      {...attributes}
-      {...listeners}
     >
       <NavIcon type={item.icon} />
       {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
@@ -61,7 +46,25 @@ export function SidebarItem({ item, isActive, onClick, collapsed = false }: Side
     return <GlassTooltip label={item.label}>{btn}</GlassTooltip>
   }
 
-  return btn
+  if (!draggable) {
+    return btn
+  }
+
+  return (
+    <Reorder.Item
+      value={item.id}
+      dragListener={false}
+      dragControls={controls}
+      as="div"
+      layout="position"
+      transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
+      style={{ position: "relative", boxShadow: "none" }}
+      whileDrag={{ boxShadow: "none" }}
+      {...longPress}
+    >
+      {btn}
+    </Reorder.Item>
+  )
 }
 
 export function GlassTooltip({ label, children }: { label: string; children: React.ReactNode }) {
@@ -105,7 +108,7 @@ export function GlassTooltip({ label, children }: { label: string; children: Rea
                 "border border-white/[0.08] bg-card/90 backdrop-blur-xl",
                 "text-[12px] font-medium text-foreground",
                 "shadow-[0_4px_16px_rgba(0,0,0,0.3)]",
-                "animate-in fade-in-0 slide-in-from-left-1 duration-150",
+                "slide-in-from-left-1 duration-150",
               )}
             >
               {label}

@@ -9,6 +9,9 @@ import * as fsRaw from "../services/fs.service.js"
 import * as git from "../services/git.service.js"
 import * as memory from "../services/memory.service.js"
 import * as skills from "../services/skills.service.js"
+import * as chats from "../services/chats.service.js"
+import * as autonaming from "../services/autonaming.service.js"
+import * as recent from "../services/recent.service.js"
 import * as chat from "../services/chat.service.js"
 import * as cron from "../services/cron.service.js"
 import * as sync from "../services/sync.service.js"
@@ -60,6 +63,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_topics_archive: (i) => topics.topicsArchive(i as { topicId: string; archived?: boolean }),
   middleware_topics_delete: (i) => topics.topicsDelete(i as { topicId: string }),
   middleware_topics_attach_session: (i) => topics.topicsAttachSession(i as { topicId: string; sessionKey: string }),
+  middleware_topics_rename: (i) => topics.topicsRename(i as { topicId: string; name: string }),
   middleware_topics_detach_session: (i) => topics.topicsDetachSession(i as { topicId: string; sessionKey: string }),
 
   // Sessions
@@ -118,6 +122,28 @@ export const commandRegistry: Record<string, Handler> = {
   // Skills
   middleware_skills_discover: (i) => skills.skillsDiscover(i as Parameters<typeof skills.skillsDiscover>[0]),
   middleware_skills_install: (i) => skills.skillsInstall(i as Parameters<typeof skills.skillsInstall>[0]),
+  middleware_skills_installed: (i) => skills.skillsInstalled(i as Parameters<typeof skills.skillsInstalled>[0]),
+  middleware_skills_search_hub: (i) => skills.skillsSearchHub(i as Parameters<typeof skills.skillsSearchHub>[0]),
+  middleware_commands_list: (i) => skills.commandsList(i as Parameters<typeof skills.commandsList>[0]),
+  middleware_tools_catalog: (i) => skills.toolsCatalog(i as Parameters<typeof skills.toolsCatalog>[0]),
+
+  // Standalone Chats
+  middleware_chats_list: (i) => chats.chatsList(i as { archived?: boolean } | undefined),
+  middleware_chats_create: (i) => chats.chatsCreate(i as Parameters<typeof chats.chatsCreate>[0]),
+  middleware_chats_get: (i) => chats.chatsGet(i as { chatId: string }),
+  middleware_chats_update: (i) => chats.chatsUpdate(i as Parameters<typeof chats.chatsUpdate>[0]),
+  middleware_chats_rename: (i) => chats.chatsRename(i as { chatId: string; name: string }),
+  middleware_chats_archive: (i) => chats.chatsArchive(i as { chatId: string; archived?: boolean }),
+  middleware_chats_delete: (i) => chats.chatsDelete(i as { chatId: string }),
+  middleware_chats_attach_session: (i) => chats.chatsAttachSession(i as { chatId: string; sessionKey: string }),
+  middleware_chats_update_activity: (i) => chats.chatsUpdateActivity(i as { chatId: string }),
+
+  // Auto-naming
+  middleware_autonaming_generate: (i) => autonaming.generateConversationName(i as { sessionKey: string; firstMessage: string }),
+  middleware_autonaming_quick: (i) => autonaming.quickName(i as { text: string }),
+
+  // Recent feed
+  middleware_recent_list: (i) => recent.recentList(i as { limit?: number; includeArchived?: boolean } | undefined),
 
   // Chat (Gateway-dependent)
   middleware_chat_create_session: (i) => chat.chatCreateSession(i as Parameters<typeof chat.chatCreateSession>[0]),

@@ -1,7 +1,5 @@
-import { EventEmitter } from "node:events"
 import type { Request, Response } from "express"
-
-export const chatEvents = new EventEmitter()
+import { chatEvents } from "../services/chat.service.js"
 
 export function chatStreamHandler(req: Request, res: Response): void {
   const sessionKey = req.params.sessionKey

@@ -16,10 +16,10 @@ import {
 } from "@/components/ui/card"
 
 type ConnectionStatus = {
-  configured: boolean
-  url?: string
-  port?: number
-  reachable?: boolean
+  gatewayConfigured: boolean
+  gatewayUrl?: string | null
+  hasIdentity: boolean
+  status: string
 }
 
 type ConnectResult = {
@@ -44,11 +44,11 @@ export default function ConnectPage() {
 
   const checkStatus = useCallback(async () => {
     try {
-      const s = await invoke<ConnectionStatus>("middleware_gateway_connect_status", {
+      const s = await invoke<ConnectionStatus>("middleware_connect_status", {
         input: {},
       })
       setStatus(s)
-      if (s.url) setUrl(s.url)
+      if (s.gatewayUrl) setUrl(s.gatewayUrl)
     } catch {
       setStatus(null)
     } finally {
@@ -71,8 +71,8 @@ export default function ConnectPage() {
     setConnectResult(null)
 
     try {
-      const result = await invoke<ConnectResult>("middleware_gateway_connect", {
-        input: { url: url.trim(), token: token.trim() },
+      const result = await invoke<ConnectResult>("middleware_connect_test", {
+        input: {},
       })
       setConnectResult(result)
     } catch (err) {
@@ -92,8 +92,8 @@ export default function ConnectPage() {
     setError(null)
 
     try {
-      await invoke("middleware_gateway_connect_save", {
-        input: { url: url.trim(), token: token.trim() },
+      await invoke("middleware_onboarding_save_gateway_config", {
+        input: { gatewayUrl: url.trim() },
       })
       await checkStatus()
     } catch (err) {
@@ -119,16 +119,16 @@ export default function ConnectPage() {
         {/* Status badge */}
         {!loadingStatus && status && (
           <div className="flex items-center gap-2">
-            {status.configured && status.reachable ? (
-              <Badge variant="default">Connected</Badge>
-            ) : status.configured ? (
-              <Badge variant="outline">Configured &middot; Unreachable</Badge>
+            {status.gatewayConfigured && status.hasIdentity ? (
+              <Badge variant="default">Ready</Badge>
+            ) : status.gatewayConfigured ? (
+              <Badge variant="outline">Configured &middot; No Identity</Badge>
             ) : (
               <Badge variant="secondary">Not configured</Badge>
             )}
-            {status.url && (
+            {status.gatewayUrl && (
               <span className="font-mono text-xs text-muted-foreground">
-                {status.url}
+                {status.gatewayUrl}
               </span>
             )}
           </div>
