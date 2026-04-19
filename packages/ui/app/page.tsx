@@ -56,7 +56,7 @@ export default function Page() {
 }
 
 function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
-  const [inspectorOpen, setInspectorOpen] = useState(true)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
@@ -81,10 +81,16 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [initialMessages, setInitialMessages] = useState<OptimisticMsg[] | undefined>()
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [focusActivityTrigger, setFocusActivityTrigger] = useState(0)
   const isResizing = useRef(false)
 
   const { flowState, signOut, deleteAccount } = useOnboardingFlow()
   const { resolvedTheme, setTheme } = useTheme()
+
+  const handleSelectTool = useCallback((_toolCallId: string) => {
+    if (!inspectorOpen) setInspectorOpen(true)
+    setFocusActivityTrigger((n) => n + 1)
+  }, [inspectorOpen])
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => {
@@ -218,6 +224,39 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 
   const handleNewChat = useCallback(async () => {
     try {
+      const listResult = await invoke<{ chats: { id: string; name: string; sessionKey?: string; archived: boolean }[] }>(
+        "middleware_chats_list",
+        { input: {} },
+      )
+      const blankChat = (listResult.chats || []).find(
+        (c) => !c.archived && c.name === "New Chat",
+      )
+
+      if (blankChat) {
+        if (activeChatRef.current?.id === blankChat.id) return
+        setInitialMessages(undefined)
+        setActiveTab("chat")
+        setActiveTopic(null)
+
+        if (blankChat.sessionKey) {
+          setActiveChat({ id: blankChat.id, name: blankChat.name, sessionKey: blankChat.sessionKey })
+          setActiveSessionKey(blankChat.sessionKey)
+          setActiveSessionTitle(blankChat.name)
+        } else {
+          const sessionResult = await invoke<{ session: { key: string } }>(
+            "middleware_sessions_create",
+            { input: { agentId: "main", label: blankChat.name } },
+          )
+          await invoke("middleware_chats_attach_session", {
+            input: { chatId: blankChat.id, sessionKey: sessionResult.session.key },
+          })
+          setActiveChat({ id: blankChat.id, name: blankChat.name, sessionKey: sessionResult.session.key })
+          setActiveSessionKey(sessionResult.session.key)
+          setActiveSessionTitle(blankChat.name)
+        }
+        return
+      }
+
       const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string } }>(
         "middleware_chats_create",
         { input: {} },
@@ -402,6 +441,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               onQuickSend={handleQuickSend}
               quickSending={quickSending}
               initialMessages={initialMessages}
+              onSelectTool={handleSelectTool}
             />
           </main>
         </div>
@@ -412,18 +452,8 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           terminalActive={terminalActive}
           onTerminalActiveChange={setTerminalActive}
           sessionKey={activeSessionKey}
+          focusActivityTrigger={focusActivityTrigger}
         />
-
-        {!inspectorOpen && (
-          <button
-            type="button"
-            aria-label="Open inspector"
-            onClick={toggleInspector}
-            className="fixed right-3 top-1/2 z-30 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg border border-border/50 bg-card text-muted-foreground shadow-md transition-colors hover:text-foreground"
-          >
-            <VscLayoutSidebarRightOff className="size-4" />
-          </button>
-        )}
       </div>
 
       <Footer
@@ -461,6 +491,7 @@ function MainContent({
   onQuickSend,
   quickSending,
   initialMessages,
+  onSelectTool,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -477,6 +508,7 @@ function MainContent({
   onQuickSend: (text: string) => void
   quickSending: boolean
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
+  onSelectTool?: (toolCallId: string) => void
 }) {
   // 1. Session history view (deepest level — topic or standalone chat)
   if (activeSessionKey && (activeTopic || activeChat)) {
@@ -487,6 +519,7 @@ function MainContent({
           sessionTitle={activeSessionTitle ?? undefined}
           onFirstMessageSent={activeChat ? onFirstMessageSent : undefined}
           initialMessages={activeChat ? initialMessages : undefined}
+          onSelectTool={onSelectTool}
         />
       </div>
     )
@@ -563,7 +596,7 @@ function MainContent({
   if (activeSessionKey && activeTopic) {
     return (
       <div className="flex h-full w-full">
-        <ChatView sessionKey={activeSessionKey} sessionTitle={activeSessionTitle ?? undefined} />
+        <ChatView sessionKey={activeSessionKey} sessionTitle={activeSessionTitle ?? undefined} onSelectTool={onSelectTool} />
       </div>
     )
   }

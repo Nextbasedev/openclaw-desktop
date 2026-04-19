@@ -500,6 +500,17 @@ export async function deleteChatSession(sessionKey: string) {
   }
 }
 
+export async function resetChatSession(sessionKey: string) {
+  const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals"] })
+  try {
+    const response = await gateway.request("sessions.reset", { key: sessionKey, reason: "reset" })
+    if (!response.ok) throw new Error(response.error?.message ?? "sessions.reset failed")
+    return { reset: true, sessionKey }
+  } finally {
+    gateway.close()
+  }
+}
+
 export async function getChatHistory(sessionKey: string) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals"] })
   try {
