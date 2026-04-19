@@ -1,6 +1,6 @@
 "use client"
 
-import { openExternalUrl } from "@/lib/tauri"
+import { openExternalUrl } from "@/lib/ipc"
 import { LuBookOpen, LuUsers, LuGithub, LuKeyboard, LuExternalLink } from "react-icons/lu"
 
 type HelpLink = {

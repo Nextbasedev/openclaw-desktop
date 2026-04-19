@@ -1,21 +1,18 @@
 import { useRef, useCallback } from "react"
 import type { Terminal } from "@xterm/xterm"
-import { tauriInvoke, tauriListen } from "@/lib/tauri"
+import { invoke, openEventStream } from "@/lib/ipc"
 
-type PtyEvent = {
+type PtyEventPayload = {
+  type: "pty.data" | "pty.exit" | "pty.error"
   ptyId: string
-  event: {
-    type: "pty.data" | "pty.exit" | "pty.error"
-    ptyId: string
-    data?: string
-    message?: string
-  }
+  data?: string
+  message?: string
 }
 
 type SpawnResult = { ptyId: string; cwd: string }
 
 function handleEvent(
-  evt: PtyEvent["event"],
+  evt: PtyEventPayload,
   termRef: React.RefObject<Terminal | null>,
 ) {
   if (evt.type === "pty.data" && evt.data) {
@@ -29,15 +26,15 @@ function handleEvent(
 
 export function usePty(termRef: React.RefObject<Terminal | null>) {
   const ptyIdRef = useRef<string | null>(null)
-  const unlistenRef = useRef<(() => void) | null>(null)
+  const closeStreamRef = useRef<(() => void) | null>(null)
 
   const cleanup = useCallback(() => {
-    unlistenRef.current?.()
-    unlistenRef.current = null
+    closeStreamRef.current?.()
+    closeStreamRef.current = null
     if (ptyIdRef.current) {
       const id = ptyIdRef.current
       ptyIdRef.current = null
-      tauriInvoke("middleware_pty_kill", { input: { ptyId: id } }).catch(() => {})
+      invoke("middleware_pty_kill", { input: { ptyId: id } }).catch(() => {})
     }
   }, [])
 
@@ -45,46 +42,31 @@ export function usePty(termRef: React.RefObject<Terminal | null>) {
     async (rows: number, cols: number, signal: { aborted: boolean }) => {
       cleanup()
 
-      const earlyEvents: PtyEvent[] = []
-      let myPtyId: string | null = null
+      if (signal.aborted) return { ptyId: "", cwd: "" } as SpawnResult
 
-      unlistenRef.current = await tauriListen<PtyEvent>(
-        "middleware://pty-event",
-        (payload) => {
-          if (myPtyId) {
-            if (payload.ptyId !== myPtyId) return
-            handleEvent(payload.event, termRef)
-          } else {
-            earlyEvents.push(payload)
-          }
-        },
-      )
-
-      if (signal.aborted) {
-        unlistenRef.current?.()
-        unlistenRef.current = null
-        return { ptyId: "", cwd: "" } as SpawnResult
-      }
-
-      const result = await tauriInvoke<SpawnResult>("middleware_pty_spawn", {
+      const result = await invoke<SpawnResult>("middleware_pty_spawn", {
         input: { rows, cols },
       })
 
       if (signal.aborted) {
-        unlistenRef.current?.()
-        unlistenRef.current = null
-        tauriInvoke("middleware_pty_kill", { input: { ptyId: result.ptyId } }).catch(() => {})
+        invoke("middleware_pty_kill", { input: { ptyId: result.ptyId } }).catch(() => {})
         return result
       }
 
-      myPtyId = result.ptyId
       ptyIdRef.current = result.ptyId
 
-      for (const evt of earlyEvents) {
-        if (evt.ptyId === myPtyId) {
-          handleEvent(evt.event, termRef)
-        }
-      }
+      closeStreamRef.current = openEventStream(
+        `/api/stream/pty/${result.ptyId}`,
+        (event) => {
+          try {
+            const data = JSON.parse(event.data) as PtyEventPayload | { event: PtyEventPayload }
+            const evt = "event" in data ? data.event : data
+            handleEvent(evt, termRef)
+          } catch {
+            // ignore malformed events
+          }
+        },
+      )
 
       return result
     },
@@ -93,14 +75,14 @@ export function usePty(termRef: React.RefObject<Terminal | null>) {
 
   const write = useCallback(async (data: string) => {
     if (!ptyIdRef.current) return
-    await tauriInvoke("middleware_pty_write", {
+    await invoke("middleware_pty_write", {
       input: { ptyId: ptyIdRef.current, data },
     })
   }, [])
 
   const resize = useCallback(async (rows: number, cols: number) => {
     if (!ptyIdRef.current) return
-    await tauriInvoke("middleware_pty_resize", {
+    await invoke("middleware_pty_resize", {
       input: { ptyId: ptyIdRef.current, rows, cols },
     })
   }, [])

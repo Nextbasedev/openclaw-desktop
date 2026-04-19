@@ -1,4 +1,4 @@
-import { tauriInvoke } from "@/lib/tauri"
+import { invoke } from "@/lib/ipc"
 
 export type CostUsageTotals = {
   input: number
@@ -61,7 +61,7 @@ export async function fetchUsageSummary(
   startDate?: string,
   endDate?: string,
 ): Promise<UsageSummaryResponse> {
-  return tauriInvoke<UsageSummaryResponse>("middleware_usage_summary", {
+  return invoke<UsageSummaryResponse>("middleware_usage_summary", {
     input: { startDate, endDate },
   })
 }
@@ -72,7 +72,7 @@ export async function fetchUsageByProject(
   startDate?: string,
   endDate?: string,
 ): Promise<UsageByProjectResponse> {
-  return tauriInvoke<UsageByProjectResponse>("middleware_usage_by_project", {
+  return invoke<UsageByProjectResponse>("middleware_usage_by_project", {
     input: { profileId, projectId, startDate, endDate },
   })
 }
@@ -80,7 +80,7 @@ export async function fetchUsageByProject(
 export async function fetchUsageSession(
   sessionKey: string,
 ): Promise<{ session: SessionUsageEntry }> {
-  return tauriInvoke<{ session: SessionUsageEntry }>("middleware_usage_session", {
+  return invoke<{ session: SessionUsageEntry }>("middleware_usage_session", {
     input: { sessionKey },
   })
 }

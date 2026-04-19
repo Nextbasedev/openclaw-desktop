@@ -51,13 +51,18 @@ export default function Page() {
 }
 
 function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
-  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1280 : false
+  )
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : true
+  )
   const [terminalActive, setTerminalActive] = useState(false)
   const [activeTab, setActiveTab] = useState("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
+  const [pendingPrompt, setPendingPrompt] = useState<string | undefined>()
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const isResizing = useRef(false)
 
@@ -80,6 +85,18 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
   }, [resolvedTheme, setTheme])
+
+  useEffect(() => {
+    function onResize() {
+      const w = window.innerWidth
+      if (w < 1024) {
+        setSidebarOpen(false)
+        setInspectorOpen(false)
+      }
+    }
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
 
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
@@ -174,6 +191,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
             <MainContent
               activeTab={activeTab}
               chatKey={chatKey}
+              pendingPrompt={pendingPrompt}
               onTabChange={handleTabChange}
               onSignOut={handleSignOut}
               onDeleteAccount={handleDeleteAccount}
@@ -198,7 +216,8 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onNavigateChat={() => { setActiveTab("chat") }}
-        onNewChat={() => { setActiveTab("chat"); setChatKey((k) => k + 1) }}
+        onNewChat={() => { setActiveTab("chat"); setPendingPrompt(undefined); setChatKey((k) => k + 1) }}
+        onSendPrompt={(prompt) => { setActiveTab("chat"); setPendingPrompt(prompt); setChatKey((k) => k + 1) }}
         onOpenSettings={openSettings}
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
@@ -210,6 +229,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 function MainContent({
   activeTab,
   chatKey,
+  pendingPrompt,
   onTabChange,
   onSignOut,
   onDeleteAccount,
@@ -217,6 +237,7 @@ function MainContent({
 }: {
   activeTab: string
   chatKey: number
+  pendingPrompt?: string
   onTabChange: (tab: string) => void
   onSignOut: () => void
   onDeleteAccount: () => void
@@ -246,7 +267,7 @@ function MainContent({
   return (
     <div key={`${activeTab}-${chatKey}`} className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
       <AnimatedGreeting />
-      <ChatBox />
+      <ChatBox initialPrompt={pendingPrompt} />
     </div>
   )
 }

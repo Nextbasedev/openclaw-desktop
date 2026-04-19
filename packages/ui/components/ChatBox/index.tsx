@@ -5,8 +5,12 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import { ActionBar, MODELS } from "./ActionBar"
 
-export function ChatBox() {
-  const [input, setInput] = React.useState("")
+type ChatBoxProps = {
+  initialPrompt?: string
+}
+
+export function ChatBox({ initialPrompt }: ChatBoxProps) {
+  const [input, setInput] = React.useState(initialPrompt ?? "")
   const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [selectedModel, setSelectedModel] = React.useState(MODELS[0])
@@ -14,6 +18,14 @@ export function ChatBox() {
   const [modelOpen, setModelOpen] = React.useState(false)
   const [isFocused, setIsFocused] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+
+  React.useEffect(() => {
+    if (initialPrompt && textareaRef.current) {
+      textareaRef.current.focus()
+      textareaRef.current.setSelectionRange(initialPrompt.length, initialPrompt.length)
+      autoResize()
+    }
+  }, [])
 
   const hasInput = input.trim().length > 0
 
@@ -31,7 +43,7 @@ export function ChatBox() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4">
+    <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
       <div
         className={cn(
           "relative flex flex-col rounded-2xl border bg-card transition-all",
