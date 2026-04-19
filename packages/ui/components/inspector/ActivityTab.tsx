@@ -4,24 +4,22 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { invoke } from "@/lib/ipc"
 import { VscPulse } from "react-icons/vsc"
-import type {
-  ToolCall,
-  ToolCallStatus,
-  RawHistoryMessage,
-} from "./activity-types"
+import type { ToolCall, RawHistoryMessage } from "./activity-types"
 import { parseHistoryToolCalls, buildTree } from "./activity-types"
 import { AgentNodeBlock } from "./ActivityNodes"
 
 function EmptyActivity() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-      <VscPulse className="size-10 text-muted-foreground/20" />
-      <div>
-        <p className="text-[12px] font-medium text-muted-foreground/50">
+    <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
+      <div className="flex size-12 items-center justify-center rounded-2xl bg-secondary/30 ring-1 ring-border/20">
+        <VscPulse className="size-5 text-muted-foreground/50" />
+      </div>
+      <div className="space-y-1">
+        <p className="text-[12px] font-medium text-muted-foreground">
           No activity yet
         </p>
-        <p className="mt-1 text-[11px] text-muted-foreground/30">
-          Tool calls will appear here when a message is sent
+        <p className="text-[11px] leading-relaxed text-muted-foreground/60">
+          Tool calls and agent actions will appear here
         </p>
       </div>
     </div>
@@ -49,57 +47,33 @@ export function ActivityTab({
       const name = data.name as string | null
       const phase = data.phase as string | null
       if (!toolCallId || !name) return
-
       const map = callMapRef.current
       const existing = map.get(toolCallId)
+      const fallback: ToolCall = { id: toolCallId, tool: name, status: "running" }
 
       if (phase === "calling") {
         map.set(toolCallId, {
-          id: toolCallId,
-          tool: name,
-          status: "running",
+          ...fallback,
           input: data.args as Record<string, unknown> | undefined,
           startedAt: Date.now(),
         })
-      } else if (phase === "result") {
-        const call = existing ?? {
-          id: toolCallId,
-          tool: name,
-          status: "running" as ToolCallStatus,
-        }
+      } else if (phase === "result" || phase === "error") {
+        const call = existing ?? fallback
         const duration = call.startedAt
           ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
           : undefined
         const result = data.result
-        const output =
-          typeof result === "string"
-            ? result
-            : result != null
-              ? JSON.stringify(result, null, 2)
-              : undefined
+        const output = phase === "error"
+          ? ((data.error as string) ?? "Unknown error")
+          : typeof result === "string" ? result
+            : result != null ? JSON.stringify(result, null, 2) : undefined
         map.set(toolCallId, {
           ...call,
-          status: "success",
+          status: phase === "error" ? "error" : "success",
           duration,
           output,
         })
-      } else if (phase === "error") {
-        const call = existing ?? {
-          id: toolCallId,
-          tool: name,
-          status: "running" as ToolCallStatus,
-        }
-        const duration = call.startedAt
-          ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-          : undefined
-        map.set(toolCallId, {
-          ...call,
-          status: "error",
-          duration,
-          output: (data.error as string) ?? "Unknown error",
-        })
       }
-
       syncState()
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -116,24 +90,18 @@ export function ActivityTab({
       setHistoryLoaded(false)
       return
     }
-
     callMapRef.current.clear()
     setToolCalls([])
     setHistoryLoaded(false)
-
     let cancelled = false
 
     async function loadHistory() {
       try {
-        const history = await invoke<{
-          messages: RawHistoryMessage[]
-        }>("middleware_chat_history", { input: { sessionKey } })
-        if (cancelled) return
-
-        const historyCalls = parseHistoryToolCalls(
-          history.messages ?? [],
+        const history = await invoke<{ messages: RawHistoryMessage[] }>(
+          "middleware_chat_history", { input: { sessionKey } },
         )
-        for (const call of historyCalls) {
+        if (cancelled) return
+        for (const call of parseHistoryToolCalls(history.messages ?? [])) {
           callMapRef.current.set(call.id, call)
         }
         syncState()
@@ -144,40 +112,25 @@ export function ActivityTab({
     }
 
     loadHistory()
-
-    const serverUrl =
-      process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
-    const source = new EventSource(
-      `${serverUrl}/api/stream/chat/${sessionKey}`,
-    )
+    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
+    const source = new EventSource(`${serverUrl}/api/stream/chat/${sessionKey}`)
 
     const handleTool = (evt: MessageEvent) => {
       if (cancelled) return
-      try {
-        processToolEvent(JSON.parse(evt.data))
-      } catch {}
+      try { processToolEvent(JSON.parse(evt.data)) } catch {}
     }
-
     const handleStatus = (evt: MessageEvent) => {
       if (cancelled) return
-      try {
-        setStreamStatus(
-          (JSON.parse(evt.data).state as string) ?? null,
-        )
-      } catch {}
+      try { setStreamStatus((JSON.parse(evt.data).state as string) ?? null) } catch {}
     }
 
     source.addEventListener("chat.tool", handleTool)
     source.addEventListener("chat.status", handleStatus)
-
-    return () => {
-      cancelled = true
-      source.close()
-    }
+    return () => { cancelled = true; source.close() }
   }, [sessionKey, processToolEvent, syncState])
 
   const tree = buildTree(toolCalls, streamStatus)
-  const totalCalls = toolCalls.length
+  const total = toolCalls.length
   const isLive =
     streamStatus === "thinking" ||
     streamStatus === "tool_running" ||
@@ -187,44 +140,54 @@ export function ActivityTab({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2.5">
-        <VscPulse
-          className={cn(
-            "size-3.5",
-            isLive
-              ? "text-emerald-400 animate-pulse"
-              : "text-muted-foreground/50",
-          )}
-        />
-        <span
-          className={cn(
-            "text-[11px] font-medium",
-            isLive ? "text-emerald-400" : "text-muted-foreground",
-          )}
-        >
-          {isLive ? "Live" : "Idle"}
-        </span>
-        <span className="ml-auto rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          {totalCalls} tool call{totalCalls !== 1 ? "s" : ""}
-        </span>
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex size-2">
+            {isLive && (
+              <span className="absolute inset-0 animate-ping rounded-full bg-blue-400/60" />
+            )}
+            <span
+              className={cn(
+                "relative size-2 rounded-full transition-colors duration-300",
+                isLive ? "bg-blue-400" : "bg-muted-foreground/40",
+              )}
+            />
+          </span>
+          <span
+            className={cn(
+              "text-[11px] font-medium transition-colors duration-300",
+              isLive ? "text-blue-400" : "text-muted-foreground",
+            )}
+          >
+            {isLive ? "Live" : "Idle"}
+          </span>
+          <span className="ml-auto rounded-md bg-secondary/50 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {total} tool call{total !== 1 ? "s" : ""}
+          </span>
+        </div>
+
+        {isLive && (
+          <div className="mt-2.5 h-[2px] overflow-hidden rounded-full bg-secondary/40">
+            <div className="activity-shimmer h-full w-full rounded-full" />
+          </div>
+        )}
       </div>
 
       <div className="h-px bg-border/30" />
 
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto p-2">
         {!historyLoaded ? (
-          <div className="px-4 py-8 text-center">
-            <div className="mx-auto mb-2 h-4 w-4 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-            <p className="text-[11px] text-muted-foreground/50">
+          <div className="flex flex-col items-center gap-3 py-12">
+            <div className="size-5 animate-spin rounded-full border-2 border-border/30 border-t-foreground/50" />
+            <p className="text-[11px] text-muted-foreground">
               Loading activity…
             </p>
           </div>
         ) : tree.length === 0 ? (
-          <div className="px-4 py-8 text-center">
-            <p className="text-[11px] text-muted-foreground/50">
-              {isLive
-                ? "Waiting for tool calls…"
-                : "No tool calls in this session"}
+          <div className="flex flex-col items-center gap-2 py-12">
+            <VscPulse className="size-5 text-muted-foreground/40" />
+            <p className="text-[11px] text-muted-foreground">
+              {isLive ? "Waiting for tool calls…" : "No tool calls yet"}
             </p>
           </div>
         ) : (
