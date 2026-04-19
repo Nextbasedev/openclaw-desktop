@@ -44,7 +44,7 @@ export function ProjectDialogs({ dialog, actions }: Props) {
         </div>
       </GlassDialog>
 
-      <GlassDialog open={createTopicOpen} onClose={() => setCreateTopicOpen(false)} title="New Topic" description={createTopicForProject ? `Add a topic to "${createTopicForProject.name}"` : undefined}>
+      <GlassDialog open={createTopicOpen} onClose={() => setCreateTopicOpen(false)} title="New Topic" description={createTopicForProject ? `Add a topic to ${createTopicForProject.name}` : undefined}>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-[12px] font-medium text-muted-foreground">Topic name</label>

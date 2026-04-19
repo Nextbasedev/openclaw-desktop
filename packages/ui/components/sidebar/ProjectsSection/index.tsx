@@ -18,7 +18,7 @@ type Props = {
 export function ProjectsSection({ collapsed, activeTopic, onTopicSelect }: Props) {
   const {
     projects, expandedProjects, projectTopics, loadingProject,
-    projectOrder, setProjectOrder, topicOrder, setTopicOrder,
+    setProjectOrder, topicOrder, setTopicOrder,
     pinnedProjects, pinnedTopics, sortedProjectIds,
     handleProjectClick, togglePinProject, togglePinTopic,
     handleArchiveProject, handleArchiveTopic,
@@ -41,7 +41,7 @@ export function ProjectsSection({ collapsed, activeTopic, onTopicSelect }: Props
 
   return (
     <>
-      <div className="mt-3 border-t border-border/10 pt-2">
+      <div>
         <div className="mb-1.5 flex items-center justify-between px-2.5">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground">Projects</span>
           <button

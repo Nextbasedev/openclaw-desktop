@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { invoke } from "@/lib/ipc"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
