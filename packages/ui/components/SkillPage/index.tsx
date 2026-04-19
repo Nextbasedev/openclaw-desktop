@@ -16,6 +16,7 @@ import {
   SkillExcelIcon,
   SkillSlidesIcon,
 } from "./icons"
+import { LuPackageOpen, LuSearchX, LuWifiOff } from "react-icons/lu"
 
 type SkillCategory = "All" | "Recommended" | "System" | "Personal"
 
@@ -93,7 +94,7 @@ export function SkillPage() {
         console.error("middleware_skills_discover failed", err)
         setSkills([])
         setMeta(null)
-        setError("Failed to load skills from middleware_skills_discover.")
+        setError("Unable to load skills. Please check your connection and try again.")
         setLoading(false)
       }
     }
@@ -154,7 +155,7 @@ export function SkillPage() {
         <CategoryDropdown category={category} setCategory={setCategory} />
       </div>
 
-      {meta && (
+      {!loading && meta && (
         <div className="mb-5 flex items-center justify-between text-[14px] text-muted-foreground">
           <span>{meta.results.length} skill{meta.results.length === 1 ? "" : "s"} discovered</span>
           <span>Sources: {meta.sources.join(", ")}</span>
@@ -162,11 +163,31 @@ export function SkillPage() {
       )}
 
       {loading ? (
-        <StatePanel text="Loading skills from middleware..." />
+        <SkillPageSkeleton />
       ) : error ? (
-        <StatePanel text={error} tone="error" />
+        <EmptyState
+          icon={<LuWifiOff size={28} />}
+          title="Could not load skills"
+          description={error}
+        />
       ) : filteredSections.length === 0 ? (
-        <StatePanel text="No skills found from middleware_skills_discover for your current filters." />
+        query.trim() ? (
+          <EmptyState
+            icon={<LuSearchX size={28} />}
+            title="No matching skills"
+            description={`No skills match "${query}". Try a different search term.`}
+          />
+        ) : (
+          <EmptyState
+            icon={<LuPackageOpen size={28} />}
+            title={category === "Personal" ? "No personal skills yet" : "No skills found"}
+            description={
+              category === "Personal"
+                ? "Personal skills you create or install locally will appear here."
+                : "No skills are available for the selected category."
+            }
+          />
+        )
       ) : (
         <div className="space-y-8">
           {filteredSections.map((section) => (
@@ -218,7 +239,7 @@ function CategoryDropdown({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex h-9 items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 pr-8",
-          "text-[13px] text-foreground outline-none transition-colors hover:border-foreground/20",
+          "text-[13px] text-foreground outline-none transition-colors",
         )}
       >
         {category}
@@ -328,20 +349,74 @@ function SkillTileIcon({ iconKey }: { iconKey: string }) {
   }
 }
 
-function StatePanel({ text, tone = "default" }: { text: string; tone?: "default" | "error" }) {
+function EmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+}) {
   return (
-    <div className={cn(
-      "rounded-xl border px-5 py-8 text-center",
-      tone === "error"
-        ? "border-destructive/20 bg-destructive/5"
-        : "border-border/50 bg-card",
-    )}>
-      <p className={cn(
-        "text-[13px]",
-        tone === "error" ? "text-destructive" : "text-muted-foreground",
-      )}>
-        {text}
-      </p>
+    <div className="rounded-xl border border-border/50 bg-card px-5 py-12 text-center">
+      <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-muted/30 text-muted-foreground/60">
+        {icon}
+      </div>
+      <p className="text-[14px] font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground/70">{description}</p>
+    </div>
+  )
+}
+
+function SkillCardSkeleton() {
+  return (
+    <div className="flex items-center gap-3.5 border-b border-border/30 py-4.5">
+      <div className="size-12 shrink-0 animate-pulse rounded-md bg-muted/30" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="h-3.5 w-24 animate-pulse rounded bg-muted/30" />
+          <div className="h-3 w-10 animate-pulse rounded bg-muted/20" />
+        </div>
+        <div className="h-3 w-48 animate-pulse rounded bg-muted/20" />
+      </div>
+      <div className="size-8 shrink-0 animate-pulse rounded-full bg-muted/20" />
+    </div>
+  )
+}
+
+function SkillPageSkeleton() {
+  return (
+    <div className="space-y-8">
+      <div className="mb-5 flex items-center justify-between">
+        <div className="h-3.5 w-28 animate-pulse rounded bg-muted/25" />
+        <div className="h-3.5 w-32 animate-pulse rounded bg-muted/25" />
+      </div>
+
+      <section>
+        <div className="mb-3 h-4 w-28 animate-pulse rounded bg-muted/25" />
+        <div className="border-t border-border/40">
+          <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-3 h-4 w-16 animate-pulse rounded bg-muted/25" />
+        <div className="border-t border-border/40">
+          <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

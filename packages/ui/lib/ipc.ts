@@ -3,7 +3,6 @@ export async function invoke<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  // Try Tauri first
   if (
     typeof window !== "undefined" &&
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
@@ -12,9 +11,7 @@ export async function invoke<T>(
     return tauriInvoke<T>(command, args)
   }
 
-  // Fallback to HTTP
-  const serverUrl =
-    process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
+  const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ""
   const res = await fetch(`${serverUrl}/api/ipc/${command}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -29,32 +26,93 @@ export async function invoke<T>(
   return res.json() as Promise<T>
 }
 
-// SSE helper for streaming
+// SSE helper for streaming — works in both Tauri and browser
 export function openEventStream(
   path: string,
   onEvent: (event: MessageEvent) => void,
 ): () => void {
-  const serverUrl =
-    process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
-
-  // In Tauri, use Tauri events
   if (
     typeof window !== "undefined" &&
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
   ) {
-    const { listen } = require("@tauri-apps/api/event")
-    let unlisten: (() => void) | null = null
-    listen(path, (e: unknown) => onEvent(e as MessageEvent))
-      .then((fn: () => void) => {
-        unlisten = fn
-      })
-    return () => {
-      unlisten?.()
-    }
+    return openTauriStream(path, onEvent)
   }
 
-  // In browser, use SSE
+  const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ""
   const source = new EventSource(`${serverUrl}${path}`)
   source.onmessage = onEvent
   return () => source.close()
+}
+
+function openTauriStream(
+  path: string,
+  onEvent: (event: MessageEvent) => void,
+): () => void {
+  let unlisten: (() => void) | null = null
+
+  const ptyMatch = path.match(/\/api\/stream\/pty\/(.+)/)
+  const chatMatch = path.match(/\/api\/stream\/chat\/(.+)/)
+  const termMatch = path.match(/\/api\/stream\/terminal\/(.+)/)
+
+  if (ptyMatch) {
+    const targetId = ptyMatch[1]
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("middleware://pty-event", (e: { payload: unknown }) => {
+        const p = e.payload as { ptyId?: string }
+        if (p.ptyId === targetId) {
+          onEvent({ data: JSON.stringify(e.payload) } as MessageEvent)
+        }
+      }).then((fn) => {
+        unlisten = fn
+      })
+    })
+  } else if (chatMatch) {
+    const targetKey = chatMatch[1]
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("middleware://chat-event", (e: { payload: unknown }) => {
+        const p = e.payload as { sessionKey?: string }
+        if (!p.sessionKey || p.sessionKey === targetKey) {
+          onEvent({ data: JSON.stringify(e.payload) } as MessageEvent)
+        }
+      }).then((fn) => {
+        unlisten = fn
+      })
+    })
+  } else if (termMatch) {
+    const targetId = termMatch[1]
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("middleware://terminal-event", (e: { payload: unknown }) => {
+        const p = e.payload as { sessionId?: string }
+        if (p.sessionId === targetId) {
+          onEvent({ data: JSON.stringify(e.payload) } as MessageEvent)
+        }
+      }).then((fn) => {
+        unlisten = fn
+      })
+    })
+  } else {
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen(path, (e: { payload: unknown }) => {
+        onEvent({ data: JSON.stringify(e.payload) } as MessageEvent)
+      }).then((fn) => {
+        unlisten = fn
+      })
+    })
+  }
+
+  return () => {
+    unlisten?.()
+  }
+}
+
+// Open external URL — works in both Tauri and browser
+export async function openExternalUrl(url: string): Promise<void> {
+  if (
+    typeof window !== "undefined" &&
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+  ) {
+    await invoke("middleware_open_url", { input: { url } })
+  } else {
+    window.open(url, "_blank")
+  }
 }

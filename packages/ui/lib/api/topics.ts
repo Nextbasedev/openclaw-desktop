@@ -1,4 +1,4 @@
-import { tauriInvoke } from "@/lib/tauri"
+import { invoke } from "@/lib/ipc"
 
 export type Topic = {
   id: string
@@ -20,7 +20,7 @@ export type TopicResponse = {
 }
 
 export async function fetchTopics(projectId: string): Promise<TopicListResponse> {
-  return tauriInvoke<TopicListResponse>("middleware_topics_list", {
+  return invoke<TopicListResponse>("middleware_topics_list", {
     input: { projectId },
   })
 }
@@ -29,7 +29,7 @@ export async function archiveTopic(
   topicId: string,
   archived = true,
 ): Promise<{ ok: boolean; topicId: string; archived: boolean }> {
-  return tauriInvoke("middleware_topics_archive", {
+  return invoke("middleware_topics_archive", {
     input: { topicId, archived },
   })
 }
