@@ -126,7 +126,7 @@ export function XTerminal({ visible }: XTerminalProps) {
     ptyRef.current.spawn(rows, cols, signal).catch((err) => {
       if (signal.aborted) return
       term.writeln(`\x1b[31mFailed to spawn shell: ${String(err)}\x1b[0m`)
-      term.writeln("\x1b[90mMake sure you are running inside Tauri (pnpm dev:tauri)\x1b[0m")
+      term.writeln("\x1b[90mMake sure the backend server is running (pnpm --filter server dev)\x1b[0m")
     })
 
     const ro = new ResizeObserver(() => {
