@@ -38,9 +38,10 @@ interface InspectorPanelProps {
   terminalActive?: boolean
   onTerminalActiveChange?: (active: boolean) => void
   sessionKey?: string | null
+  projectId?: string | null
 }
 
-export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey }: InspectorPanelProps) {
+export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, projectId }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
   const responsiveRef = useRef(getResponsiveDefaults())
   const [width, setWidth] = useState(responsiveRef.current.default)
@@ -186,7 +187,7 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
         <div className="min-h-0 flex-1 overflow-clip">
           {activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} />}
           {activeTab === "workspace" && <WorkspaceTab />}
-          {activeTab === "git" && <GitTab />}
+          {activeTab === "git" && <GitTab projectId={projectId ?? null} />}
           {activeTab === "terminal" && (
             <div className="flex h-full flex-col overflow-hidden">
               {/* Terminal session tabs */}
