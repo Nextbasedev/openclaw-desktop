@@ -179,7 +179,7 @@ export function useChatMessages(sessionKey: string) {
     } finally {
       setIsSending(false)
     }
-  }, [isSending, isGenerating, sessionKey, forceScrollToBottom])
+  }, [isSending, isGenerating, sessionKey, forceScrollToBottom, messages.length])
 
   const handleAbort = useCallback(async () => {
     try {

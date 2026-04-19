@@ -1,3 +1,4 @@
+import crypto from "node:crypto"
 import { getDb } from "../db/connection.js"
 import {
   nowIso,
@@ -41,15 +42,16 @@ export function sessionsCreate(input: {
   topicId?: string
   agentId: string
   label: string
-  sessionKey: string
+  sessionKey?: string
 }) {
   const db = getDb()
   const now = nowIso()
+  const sessionKey = input.sessionKey ?? `sess_${crypto.randomUUID().replace(/-/g, "")}`
   db.prepare(
     `INSERT OR REPLACE INTO session_mappings (session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, NULL, ?, ?, ?, ?, 'idle', ?, ?, 0, 0, 'jarvis')`,
-  ).run(input.sessionKey, input.projectId, input.topicId ?? null, input.agentId, input.label, now, now)
+  ).run(sessionKey, input.projectId, input.topicId ?? null, input.agentId, input.label, now, now)
 
-  const row = db.prepare(`SELECT ${SESSION_COLUMNS} FROM session_mappings WHERE session_key = ?`).get(input.sessionKey) as SessionRow
+  const row = db.prepare(`SELECT ${SESSION_COLUMNS} FROM session_mappings WHERE session_key = ?`).get(sessionKey) as SessionRow
   return { session: sessionRowToJson(row) }
 }
 

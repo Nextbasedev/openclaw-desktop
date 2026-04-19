@@ -1,4 +1,4 @@
-import { useState, useCallback, Fragment } from "react"
+import { useState, useCallback, useRef, Fragment } from "react"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { Header } from "@/common/Header"
@@ -184,8 +184,41 @@ export function OnboardingWizard({ onComplete }: Props) {
           </div>
         </div>
 
+        <SkipOnboarding onSkip={onComplete} />
+
         <div className="h-10 shrink-0" />
       </div>
+    </div>
+  )
+}
+
+function SkipOnboarding({ onSkip }: { onSkip: () => void }) {
+  const [confirm, setConfirm] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(null)
+
+  const handleFirstClick = useCallback(() => {
+    setConfirm(true)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setConfirm(false), 4000)
+  }, [])
+
+  return (
+    <div className="mt-4 flex justify-center">
+      {!confirm ? (
+        <button
+          onClick={handleFirstClick}
+          className="text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+        >
+          Skip onboarding
+        </button>
+      ) : (
+        <button
+          onClick={onSkip}
+          className="text-xs font-medium text-destructive transition-colors hover:text-destructive/80"
+        >
+          Skip anyway? Some features may not work.
+        </button>
+      )}
     </div>
   )
 }

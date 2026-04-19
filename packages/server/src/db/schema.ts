@@ -1,3 +1,4 @@
+import crypto from "node:crypto"
 import type Database from "better-sqlite3"
 
 export function initDb(db: Database.Database): void {
@@ -139,5 +140,22 @@ export function initDb(db: Database.Database): void {
         throw new Error(`Failed to migrate ${m.table}.${m.column}: ${msg}`)
       }
     }
+  }
+
+  repairNullSessionKeys(db)
+}
+
+function repairNullSessionKeys(db: Database.Database): void {
+  const rows = db
+    .prepare(
+      "SELECT rowid, project_id, topic_id FROM session_mappings WHERE session_key IS NULL",
+    )
+    .all() as Array<{ rowid: number; project_id: string; topic_id: string }>
+
+  for (const row of rows) {
+    const key = `sess_${crypto.randomUUID().replace(/-/g, "")}`
+    db.prepare(
+      "UPDATE session_mappings SET session_key = ? WHERE rowid = ?",
+    ).run(key, row.rowid)
   }
 }
