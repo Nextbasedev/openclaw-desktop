@@ -1,4 +1,10 @@
-export type ContentBlock = { type: string; text?: string }
+export type ContentBlock = {
+  type: string
+  text?: string
+  id?: string
+  name?: string
+  input?: unknown
+}
 
 export type ChatMessage = {
   messageId: string

@@ -12,7 +12,6 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
 
   return (
     <div className={cn("flex w-full gap-2", isUser ? "flex-row-reverse" : "flex-row")}>
-      {/* Avatar dot */}
       <div className={cn(
         "mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
         isUser
