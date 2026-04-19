@@ -1,7 +1,5 @@
-import { EventEmitter } from "node:events"
 import type { Request, Response } from "express"
-
-export const ptyEvents = new EventEmitter()
+import { ptyEvents } from "../services/pty.service.js"
 
 export function ptyStreamHandler(req: Request, res: Response): void {
   const ptyId = req.params.ptyId
@@ -13,16 +11,26 @@ export function ptyStreamHandler(req: Request, res: Response): void {
   })
   res.write("\n")
 
-  const handler = (event: unknown) => {
-    const typed = event as { type?: string }
+  const onData = (event: unknown) => {
     res.write(
-      `event: ${typed.type ?? "message"}\ndata: ${JSON.stringify(event)}\n\n`,
+      `event: data\ndata: ${JSON.stringify(event)}\n\n`,
     )
   }
 
-  ptyEvents.on(`pty:event:${ptyId}`, handler)
+  const onExit = (event: unknown) => {
+    res.write(
+      `event: exit\ndata: ${JSON.stringify(event)}\n\n`,
+    )
+    cleanup()
+  }
 
-  req.on("close", () => {
-    ptyEvents.off(`pty:event:${ptyId}`, handler)
-  })
+  ptyEvents.on(`pty:data:${ptyId}`, onData)
+  ptyEvents.on(`pty:exit:${ptyId}`, onExit)
+
+  function cleanup() {
+    ptyEvents.off(`pty:data:${ptyId}`, onData)
+    ptyEvents.off(`pty:exit:${ptyId}`, onExit)
+  }
+
+  req.on("close", cleanup)
 }

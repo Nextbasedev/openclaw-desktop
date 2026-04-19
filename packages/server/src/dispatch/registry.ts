@@ -118,6 +118,10 @@ export const commandRegistry: Record<string, Handler> = {
   // Skills
   middleware_skills_discover: (i) => skills.skillsDiscover(i as Parameters<typeof skills.skillsDiscover>[0]),
   middleware_skills_install: (i) => skills.skillsInstall(i as Parameters<typeof skills.skillsInstall>[0]),
+  middleware_skills_installed: (i) => skills.skillsInstalled(i as Parameters<typeof skills.skillsInstalled>[0]),
+  middleware_skills_search_hub: (i) => skills.skillsSearchHub(i as Parameters<typeof skills.skillsSearchHub>[0]),
+  middleware_commands_list: (i) => skills.commandsList(i as Parameters<typeof skills.commandsList>[0]),
+  middleware_tools_catalog: (i) => skills.toolsCatalog(i as Parameters<typeof skills.toolsCatalog>[0]),
 
   // Chat (Gateway-dependent)
   middleware_chat_create_session: (i) => chat.chatCreateSession(i as Parameters<typeof chat.chatCreateSession>[0]),
