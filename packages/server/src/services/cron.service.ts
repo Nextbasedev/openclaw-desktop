@@ -1,31 +1,47 @@
 import { ensureGatewayClient } from "../gateway/client.js"
 
-export function parseCronSchedule(schedule: string) {
+export function parseSchedule(schedule: string, type?: string) {
   const trimmed = schedule.trim()
-  if (!trimmed) throw new Error("Cron schedule cannot be empty")
+  if (!trimmed) throw new Error("Schedule cannot be empty")
+
+  if (type === "at" || type === "every") return trimmed
+
   const parts = trimmed.split(/\s+/)
   if (parts.length < 5 || parts.length > 6) {
     throw new Error(
       `Invalid cron expression: expected 5-6 fields, got ${parts.length}`,
     )
   }
-  return { kind: "cron", expr: trimmed }
+  return trimmed
 }
 
-type CronJob = {
+export type CronScheduleType = "at" | "every" | "cron"
+export type CronSessionTarget = "main" | "isolated" | "current" | string
+
+export type CronJob = {
   jobId: string
   name: string
   schedule: string
+  scheduleType: CronScheduleType
+  timezone: string | null
+  session: CronSessionTarget
   task: string
+  message: string | null
+  model: string | null
+  thinking: string | null
   enabled: boolean
   paused: boolean
+  deleteAfterRun: boolean
+  deliveryMode: string | null
+  deliveryChannel: string | null
+  deliveryTo: string | null
   params: unknown
   metadata: unknown
   createdAt: string
   updatedAt: string
 }
 
-type CronRun = {
+export type CronRun = {
   runId: string
   jobId: string
   status: string
@@ -36,18 +52,66 @@ type CronRun = {
 }
 
 function normalizeJob(raw: Record<string, unknown>): CronJob {
+  const params = (raw.params ?? {}) as Record<string, unknown>
+  const payload = (raw.payload ?? {}) as Record<string, unknown>
+  const delivery = (raw.delivery ?? {}) as Record<string, unknown>
+
+  const scheduleRaw = raw.schedule
+  const scheduleObj = (typeof scheduleRaw === "object" && scheduleRaw !== null
+    ? scheduleRaw : {}) as Record<string, unknown>
+  const scheduleStr = typeof scheduleRaw === "string" ? scheduleRaw : ""
+
+  const kind = String(scheduleObj.kind ?? "")
+  let scheduleDisplay = scheduleStr
+  if (kind === "every" && scheduleObj.everyMs) {
+    scheduleDisplay = formatMs(Number(scheduleObj.everyMs))
+  } else if (kind === "at" && scheduleObj.at) {
+    scheduleDisplay = String(scheduleObj.at)
+  } else if (kind === "cron" && scheduleObj.expr) {
+    scheduleDisplay = String(scheduleObj.expr)
+  }
+
+  const scheduleType: CronScheduleType = kind === "at" || kind === "every" || kind === "cron"
+    ? kind : inferScheduleType(scheduleDisplay)
+
   return {
     jobId: String(raw.jobId ?? raw.id ?? ""),
     name: String(raw.name ?? ""),
-    schedule: String(raw.schedule ?? ""),
-    task: String(raw.task ?? ""),
+    schedule: scheduleDisplay,
+    scheduleType,
+    timezone: scheduleObj.timezone ? String(scheduleObj.timezone) : raw.timezone ? String(raw.timezone) : null,
+    session: String(raw.sessionTarget ?? payload.session ?? params.session ?? "isolated"),
+    task: String(payload.task ?? raw.task ?? ""),
+    message: payload.message ? String(payload.message) : params.message ? String(params.message) : null,
+    model: payload.model ? String(payload.model) : null,
+    thinking: payload.thinking ? String(payload.thinking) : null,
     enabled: Boolean(raw.enabled ?? true),
     paused: Boolean(raw.paused ?? false),
+    deleteAfterRun: Boolean(raw.deleteAfterRun ?? false),
+    deliveryMode: delivery.mode ? String(delivery.mode) : null,
+    deliveryChannel: delivery.channel ? String(delivery.channel) : null,
+    deliveryTo: delivery.to ? String(delivery.to) : null,
     params: raw.params ?? null,
     metadata: raw.metadata ?? null,
     createdAt: String(raw.createdAt ?? ""),
     updatedAt: String(raw.updatedAt ?? raw.createdAt ?? ""),
   }
+}
+
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${ms / 1000}s`
+  if (ms < 3_600_000) return `${ms / 60_000}m`
+  if (ms < 86_400_000) return `${ms / 3_600_000}h`
+  return `${ms / 86_400_000}d`
+}
+
+function inferScheduleType(schedule: string): CronScheduleType {
+  if (!schedule) return "cron"
+  if (/^\d{4}-\d{2}/.test(schedule) || /^\d+[smhd]$/.test(schedule)) {
+    return /^\d+[smhd]$/.test(schedule) ? "every" : "at"
+  }
+  return "cron"
 }
 
 function normalizeRun(raw: Record<string, unknown>): CronRun {
@@ -60,6 +124,30 @@ function normalizeRun(raw: Record<string, unknown>): CronRun {
     result: raw.result ?? null,
     error: raw.error ? String(raw.error) : null,
   }
+}
+
+export type CreateCronJobInput = {
+  name: string
+  schedule: string
+  scheduleType?: CronScheduleType
+  timezone?: string
+  session?: CronSessionTarget
+  message?: string
+  model?: string
+  thinking?: string
+  enabled?: boolean
+  deleteAfterRun?: boolean
+  wake?: "now" | "next-heartbeat"
+  lightContext?: boolean
+  tools?: string[]
+  systemEvent?: string
+  agentId?: string
+  deliveryMode?: "announce" | "webhook" | "none"
+  deliveryChannel?: string
+  deliveryTo?: string
+  task?: string
+  params?: unknown
+  metadata?: unknown
 }
 
 export async function cronListJobs() {
@@ -75,34 +163,72 @@ export async function cronListJobs() {
 export async function cronGetJob(input: { jobId: string }) {
   const gw = await ensureGatewayClient()
   const res = await gw.request<Record<string, unknown>>(
-    "cron.get",
+    "cron.status",
     { jobId: input.jobId },
   )
-  if (!res.ok) throw new Error(res.error?.message ?? "cron.get failed")
+  if (!res.ok) throw new Error(res.error?.message ?? "cron.status failed")
   return { job: normalizeJob(res.payload ?? {}) }
 }
 
-export async function cronCreateJob(input: {
-  name: string
-  schedule: string
-  task: string
-  params?: unknown
-  enabled?: boolean
-  metadata?: unknown
-}) {
-  parseCronSchedule(input.schedule)
+function buildScheduleParam(schedule: string, type: CronScheduleType, timezone?: string): Record<string, unknown> {
+  const obj: Record<string, unknown> = { kind: type }
+  if (type === "at") {
+    obj.at = schedule
+  } else if (type === "every") {
+    obj.everyMs = parseIntervalToMs(schedule)
+  } else {
+    obj.expr = schedule
+  }
+  if (timezone) obj.timezone = timezone
+  return obj
+}
+
+function parseIntervalToMs(interval: string): number {
+  const match = interval.match(/^(\d+)\s*(ms|s|m|h|d)$/i)
+  if (!match) return parseInt(interval, 10) || 60_000
+  const value = parseInt(match[1], 10)
+  const unit = match[2].toLowerCase()
+  const multipliers: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
+  return value * (multipliers[unit] ?? 1000)
+}
+
+export async function cronCreateJob(input: CreateCronJobInput) {
+  const type = input.scheduleType ?? "cron"
+  parseSchedule(input.schedule, type)
+
+  const payload: Record<string, unknown> = {}
+  if (input.message) payload.message = input.message
+  if (input.model) payload.model = input.model
+  if (input.thinking) payload.thinking = input.thinking
+  if (input.lightContext) payload.lightContext = true
+  if (input.tools) payload.tools = input.tools
+  if (input.agentId) payload.agentId = input.agentId
+  if (input.systemEvent) payload.systemEvent = input.systemEvent
+  if (input.wake) payload.wake = input.wake
+  if (input.task) payload.task = input.task
+
+  const gwParams: Record<string, unknown> = {
+    name: input.name,
+    schedule: buildScheduleParam(input.schedule, type, input.timezone),
+    sessionTarget: input.session ?? "isolated",
+    payload,
+    enabled: input.enabled ?? true,
+  }
+
+  if (input.deleteAfterRun) gwParams.deleteAfterRun = true
+  if (input.params) gwParams.params = input.params
+  if (input.metadata) gwParams.metadata = input.metadata
+
+  if (input.deliveryMode && input.deliveryMode !== "none") {
+    gwParams.delivery = {
+      mode: input.deliveryMode,
+      ...(input.deliveryChannel && { channel: input.deliveryChannel }),
+      ...(input.deliveryTo && { to: input.deliveryTo }),
+    }
+  }
+
   const gw = await ensureGatewayClient()
-  const res = await gw.request<Record<string, unknown>>(
-    "cron.add",
-    {
-      name: input.name,
-      schedule: input.schedule,
-      task: input.task,
-      params: input.params ?? null,
-      enabled: input.enabled ?? true,
-      metadata: input.metadata ?? null,
-    },
-  )
+  const res = await gw.request<Record<string, unknown>>("cron.add", gwParams)
   if (!res.ok) throw new Error(res.error?.message ?? "cron.add failed")
   return { job: normalizeJob(res.payload ?? {}) }
 }
@@ -111,39 +237,66 @@ export async function cronUpdateJob(input: {
   jobId: string
   name?: string
   schedule?: string
+  scheduleType?: CronScheduleType
+  timezone?: string
+  session?: CronSessionTarget
+  message?: string
+  model?: string
+  thinking?: string
   task?: string
   params?: unknown
   enabled?: boolean
   metadata?: unknown
+  deleteAfterRun?: boolean
+  deliveryMode?: string
+  deliveryChannel?: string
+  deliveryTo?: string
 }) {
-  if (input.schedule) parseCronSchedule(input.schedule)
-  const gw = await ensureGatewayClient()
-  const params: Record<string, unknown> = { jobId: input.jobId }
-  if (input.name !== undefined) params.name = input.name
-  if (input.schedule !== undefined) params.schedule = input.schedule
-  if (input.task !== undefined) params.task = input.task
-  if (input.params !== undefined) params.params = input.params
-  if (input.enabled !== undefined) params.enabled = input.enabled
-  if (input.metadata !== undefined) params.metadata = input.metadata
+  if (input.schedule) parseSchedule(input.schedule, input.scheduleType)
 
-  const res = await gw.request<Record<string, unknown>>(
-    "cron.update",
-    params,
-  )
-  if (!res.ok) {
-    throw new Error(res.error?.message ?? "cron.update failed")
+  const patch: Record<string, unknown> = {}
+  if (input.name !== undefined) patch.name = input.name
+  if (input.enabled !== undefined) patch.enabled = input.enabled
+  if (input.params !== undefined) patch.params = input.params
+  if (input.metadata !== undefined) patch.metadata = input.metadata
+  if (input.deleteAfterRun !== undefined) patch.deleteAfterRun = input.deleteAfterRun
+
+  if (input.schedule !== undefined) {
+    const type = input.scheduleType ?? "cron"
+    patch.schedule = buildScheduleParam(input.schedule, type, input.timezone)
   }
+
+  if (input.session !== undefined) patch.sessionTarget = input.session
+
+  const hasPayloadChanges = input.message !== undefined || input.model !== undefined ||
+    input.thinking !== undefined || input.task !== undefined
+  if (hasPayloadChanges) {
+    const payload: Record<string, unknown> = {}
+    if (input.message !== undefined) payload.message = input.message
+    if (input.model !== undefined) payload.model = input.model
+    if (input.thinking !== undefined) payload.thinking = input.thinking
+    if (input.task !== undefined) payload.task = input.task
+    patch.payload = payload
+  }
+
+  if (input.deliveryMode !== undefined) {
+    patch.delivery = {
+      mode: input.deliveryMode,
+      ...(input.deliveryChannel !== undefined && { channel: input.deliveryChannel }),
+      ...(input.deliveryTo !== undefined && { to: input.deliveryTo }),
+    }
+  }
+
+  const gw = await ensureGatewayClient()
+  const res = await gw.request<Record<string, unknown>>("cron.update", { id: input.jobId, patch })
+  if (!res.ok) throw new Error(res.error?.message ?? "cron.update failed")
   return { job: normalizeJob(res.payload ?? {}) }
 }
 
 export async function cronDeleteJob(input: { jobId: string }) {
   const gw = await ensureGatewayClient()
-  const res = await gw.request("cron.remove", {
-    jobId: input.jobId,
-  })
-  if (!res.ok) {
-    throw new Error(res.error?.message ?? "cron.remove failed")
-  }
+  const res = await gw.request("cron.remove", { id: input.jobId })
+  if (!res.ok) throw new Error(res.error?.message ?? "cron.remove failed")
   return { deleted: true, jobId: input.jobId }
 }
 
@@ -152,24 +305,19 @@ export async function cronRunJob(input: {
   params?: unknown
 }) {
   const gw = await ensureGatewayClient()
-  const res = await gw.request<Record<string, unknown>>(
-    "cron.run",
-    {
-      jobId: input.jobId,
-      params: input.params ?? null,
-    },
-  )
+  const gwParams: Record<string, unknown> = { jobId: input.jobId }
+  if (input.params) gwParams.params = input.params
+  const res = await gw.request<Record<string, unknown>>("cron.run", gwParams)
   if (!res.ok) throw new Error(res.error?.message ?? "cron.run failed")
   return { run: normalizeRun(res.payload ?? {}) }
 }
 
 export async function cronJobStatus(input: { jobId: string }) {
   const gw = await ensureGatewayClient()
-  const res = await gw.request<Record<string, unknown>>(
-    "cron.get",
-    { jobId: input.jobId },
-  )
-  if (!res.ok) throw new Error(res.error?.message ?? "cron.get failed")
+  const res = await gw.request<Record<string, unknown>>("cron.status", {
+    jobId: input.jobId,
+  })
+  if (!res.ok) throw new Error(res.error?.message ?? "cron.status failed")
   const job = normalizeJob(res.payload ?? {})
   return {
     jobId: job.jobId,
@@ -205,13 +353,11 @@ export async function cronGetRun(input: {
   runId: string
 }) {
   const gw = await ensureGatewayClient()
-  const res = await gw.request<Record<string, unknown>>(
-    "cron.run.get",
-    { jobId: input.jobId, runId: input.runId },
-  )
-  if (!res.ok) {
-    throw new Error(res.error?.message ?? "cron.run.get failed")
-  }
+  const res = await gw.request<Record<string, unknown>>("cron.run.get", {
+    jobId: input.jobId,
+    runId: input.runId,
+  })
+  if (!res.ok) throw new Error(res.error?.message ?? "cron.run.get failed")
   return { run: normalizeRun(res.payload ?? {}) }
 }
 
@@ -220,17 +366,12 @@ export async function cronPauseJob(input: {
   paused: boolean
 }) {
   const gw = await ensureGatewayClient()
-  const res = await gw.request<Record<string, unknown>>(
-    "cron.update",
-    { jobId: input.jobId, paused: input.paused },
-  )
-  if (!res.ok) {
-    throw new Error(res.error?.message ?? "cron.update failed")
-  }
-  return {
-    jobId: input.jobId,
-    paused: input.paused,
-  }
+  const res = await gw.request<Record<string, unknown>>("cron.update", {
+    id: input.jobId,
+    patch: { enabled: !input.paused },
+  })
+  if (!res.ok) throw new Error(res.error?.message ?? "cron.update failed")
+  return { jobId: input.jobId, paused: input.paused }
 }
 
 export async function cronPollRunCompletion(input: {
@@ -254,7 +395,6 @@ export async function cronPollRunCompletion(input: {
       (r) => r.status === "completed" || r.status === "failed",
     )
     if (completed) return { run: completed }
-
     await new Promise((resolve) => setTimeout(resolve, interval))
   }
 
@@ -269,15 +409,13 @@ export async function cronCreateNotificationJob(input: {
   notificationMessage: string
   sessionKey: string
 }) {
-  parseCronSchedule(input.schedule)
   return cronCreateJob({
     name: input.name,
     schedule: input.schedule,
-    task: "notification",
-    params: {
-      message: input.notificationMessage,
-      sessionKey: input.sessionKey,
-    },
+    session: "main",
+    systemEvent: input.notificationMessage,
+    wake: "now",
+    deleteAfterRun: false,
     enabled: true,
   })
 }

@@ -12,10 +12,10 @@ const SCOPES = [
 ] as const
 
 const CLIENT_IDENTITY = {
-  id: "jarvis-server",
-  displayName: "Jarvis Server",
+  id: "openclaw-control-ui",
+  displayName: "Jarvis Middleware",
   version: "0.0.1",
-  platform: "server",
+  platform: "desktop",
   mode: "webchat",
 }
 
