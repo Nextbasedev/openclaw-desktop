@@ -1,10 +1,8 @@
-import { EventEmitter } from "node:events"
 import type { Request, Response } from "express"
-
-export const terminalEvents = new EventEmitter()
+import { terminalEvents } from "../services/terminal.service.js"
 
 export function terminalStreamHandler(req: Request, res: Response): void {
-  const sessionKey = req.params.sessionKey
+  const sessionId = req.params.sessionKey
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -13,16 +11,26 @@ export function terminalStreamHandler(req: Request, res: Response): void {
   })
   res.write("\n")
 
-  const handler = (event: unknown) => {
-    const typed = event as { type?: string }
+  const onOutput = (event: unknown) => {
     res.write(
-      `event: ${typed.type ?? "message"}\ndata: ${JSON.stringify(event)}\n\n`,
+      `event: output\ndata: ${JSON.stringify(event)}\n\n`,
     )
   }
 
-  terminalEvents.on(`terminal:event:${sessionKey}`, handler)
+  const onExit = (event: unknown) => {
+    res.write(
+      `event: exit\ndata: ${JSON.stringify(event)}\n\n`,
+    )
+    cleanup()
+  }
 
-  req.on("close", () => {
-    terminalEvents.off(`terminal:event:${sessionKey}`, handler)
-  })
+  terminalEvents.on(`terminal:output:${sessionId}`, onOutput)
+  terminalEvents.on(`terminal:exit:${sessionId}`, onExit)
+
+  function cleanup() {
+    terminalEvents.off(`terminal:output:${sessionId}`, onOutput)
+    terminalEvents.off(`terminal:exit:${sessionId}`, onExit)
+  }
+
+  req.on("close", cleanup)
 }
