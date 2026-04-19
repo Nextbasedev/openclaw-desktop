@@ -220,6 +220,7 @@ pub async fn middleware_branch_from_edit(
     session_key: branch_session_key,
     text: new_message,
     timeout_ms: Some(60_000),
+    attachments: None,
   }).await?;
 
   Ok(result)

@@ -37,6 +37,7 @@ async fn openclaw_chat_session_roundtrip_works() {
     session_key: session_key.clone(),
     text: "Reply with the word pong".to_string(),
     timeout_ms: Some(30_000),
+    attachments: None,
   })
   .await
   .expect("send should succeed");

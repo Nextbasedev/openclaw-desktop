@@ -31,10 +31,19 @@ export const chatHistoryResponseSchema = z.object({
   verboseLevel: z.string().nullable().optional(),
 })
 
+export const chatAttachmentSchema = z.object({
+  name: z.string().min(1),
+  mimeType: z.string().min(1),
+  content: z.string().optional(),
+  encoding: z.enum(["utf-8", "base64"]).default("utf-8"),
+  size: z.number().int().nonnegative().optional(),
+})
+
 export const chatSendRequestSchema = z.object({
   sessionKey: sessionKeySchema,
   text: nonEmptyStringSchema,
   timeoutMs: z.number().optional(),
+  attachments: z.array(chatAttachmentSchema).optional(),
 })
 export const chatSendResponseSchema = z.object({
   accepted: z.boolean(),
@@ -128,4 +137,5 @@ export type ChatSendResponse = z.infer<typeof chatSendResponseSchema>
 export type ChatAbortRequest = z.infer<typeof chatAbortRequestSchema>
 export type ChatAbortResponse = z.infer<typeof chatAbortResponseSchema>
 export type ChatStreamRequest = z.infer<typeof chatStreamRequestSchema>
+export type ChatAttachment = z.infer<typeof chatAttachmentSchema>
 export type ChatStreamEvent = z.infer<typeof chatStreamEventSchema>
