@@ -26,19 +26,16 @@ export function useChatMessages(sessionKey: string) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
-  // true = user is at (or near) bottom → auto-scroll on new content
   const isAtBottomRef = useRef(true)
 
   const isGenerating = status === "thinking" || status === "tool_running" || status === "streaming"
 
-  // Called by scroll container's onScroll to track position
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }, [])
 
-  // Scroll only when user is already pinned to bottom (respects manual scroll-up)
   const scrollToBottom = useCallback((smooth = false) => {
     if (!isAtBottomRef.current) return
     requestAnimationFrame(() => {
@@ -46,7 +43,6 @@ export function useChatMessages(sessionKey: string) {
     })
   }, [])
 
-  // Always scroll — used when user actively sends a message
   const forceScrollToBottom = useCallback((smooth = false) => {
     isAtBottomRef.current = true
     requestAnimationFrame(() => {
@@ -69,7 +65,6 @@ export function useChatMessages(sessionKey: string) {
           const text = ev.text || extractText(ev.content)
           if (!text) break
           if (seenIds.current.has(id)) {
-            // Streaming update: same messageId with growing text — update in place
             setMessages((prev) =>
               prev.map((m) => (m.messageId === id ? { ...m, text } : m))
             )

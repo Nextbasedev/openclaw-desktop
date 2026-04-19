@@ -416,7 +416,9 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
 export type OpenClawContentBlock = {
   type?: string
   text?: string
+  id?: string
   name?: string
+  input?: unknown
   content?: string
   mimeType?: string
 }
@@ -434,6 +436,29 @@ export function contentBlocksToText(content: unknown) {
     })
     .filter(Boolean)
     .join("\n")
+}
+
+export function extractToolCallBlocks(content: unknown): Array<{
+  toolCallId: string
+  name: string
+  args: unknown
+  phase: string
+}> | undefined {
+  if (!Array.isArray(content)) return undefined
+  const calls = content
+    .filter(
+      (b) =>
+        b &&
+        typeof b === "object" &&
+        (b.type === "tool_use" || b.type === "toolCall"),
+    )
+    .map((b: OpenClawContentBlock) => ({
+      toolCallId: b.id ?? crypto.randomUUID(),
+      name: b.name ?? "unknown",
+      args: b.input ?? null,
+      phase: "start",
+    }))
+  return calls.length > 0 ? calls : undefined
 }
 
 export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibility {
@@ -492,6 +517,7 @@ export async function getChatHistory(sessionKey: string) {
         text: contentBlocksToText(message.content),
         createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : new Date().toISOString()),
         model: message.model ?? null,
+        toolCalls: extractToolCallBlocks(message.content),
       })),
     }
   } finally {

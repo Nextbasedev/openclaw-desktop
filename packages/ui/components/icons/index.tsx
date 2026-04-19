@@ -150,7 +150,7 @@ export const Icons = {
     Pin: wrapHugeicon(PinIcon),
     PinOff: wrapHugeicon(PinOffIcon),
     MoreVertical: wrapHugeicon(MoreVerticalIcon),
-    Delete: wrapHugeicon(Delete02Icon),
+    Trash: wrapHugeicon(Delete02Icon),
     Archive: wrapHugeicon(Archive02Icon),
 }
 

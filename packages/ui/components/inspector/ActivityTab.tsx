@@ -1,245 +1,203 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { cn } from "@/lib/utils"
-import {
-  VscChevronRight,
-  VscChevronDown,
-  VscCircleFilled,
-  VscPulse,
-} from "react-icons/vsc"
+import { invoke } from "@/lib/ipc"
+import { VscPulse } from "react-icons/vsc"
+import type { ToolCall, RawHistoryMessage } from "./activity-types"
+import { parseHistoryToolCalls, buildTree } from "./activity-types"
+import { AgentNodeBlock } from "./ActivityNodes"
 
-/* ── Types ── */
-
-type ToolCallStatus = "running" | "success" | "error"
-
-interface ToolCall {
-  id: string
-  tool: string
-  status: ToolCallStatus
-  duration?: string
-  input?: Record<string, unknown>
-  output?: string
-}
-
-interface AgentNode {
-  id: string
-  label: string
-  model?: string
-  status: ToolCallStatus
-  calls: ToolCall[]
-  children?: AgentNode[]
-}
-
-/* ── Mock data ── */
-
-const MOCK_TREE: AgentNode[] = [
-  {
-    id: "root",
-    label: "main",
-    model: "claude-opus-4-6",
-    status: "success",
-    calls: [
-      {
-        id: "c1",
-        tool: "web_search",
-        status: "success",
-        duration: "1.2s",
-        input: { query: "next.js 15 new features" },
-        output: 'Search results: 12 results found for "next.js 15 new features"...',
-      },
-      {
-        id: "c2",
-        tool: "Read",
-        status: "success",
-        duration: "0.1s",
-        input: { path: "/root/workspace/README.md" },
-        output: "# OpenClaw Desktop\n\nA modern desktop app...",
-      },
-      {
-        id: "c3",
-        tool: "exec",
-        status: "error",
-        duration: "3.4s",
-        input: { command: "pnpm build" },
-        output: "Error: Module not found 'missing-package'",
-      },
-    ],
-    children: [
-      {
-        id: "sub1",
-        label: "subagent:inspector-build",
-        model: "claude-sonnet-4-6",
-        status: "running",
-        calls: [
-          {
-            id: "s1",
-            tool: "Read",
-            status: "success",
-            duration: "0.1s",
-            input: { path: "/packages/ui/app/page.tsx" },
-            output: '"use client"\nimport { Header }...',
-          },
-          {
-            id: "s2",
-            tool: "Write",
-            status: "running",
-            input: { path: "/components/inspector/InspectorPanel.tsx" },
-          },
-        ],
-      },
-    ],
-  },
-]
-
-/* ── Status indicator ── */
-
-function StatusIndicator({ status }: { status: ToolCallStatus }) {
+function EmptyActivity() {
   return (
-    <span
-      className={cn(
-        "relative flex size-[7px] shrink-0",
-        status === "running" && "animate-pulse",
-      )}
-    >
-      <VscCircleFilled
-        className={cn("size-[7px]", {
-          "text-amber-400": status === "running",
-          "text-emerald-400": status === "success",
-          "text-red-400": status === "error",
-        })}
-      />
-    </span>
-  )
-}
-
-/* ── Tool call row ── */
-
-function ToolCallRow({ call }: { call: ToolCall }) {
-  const [expanded, setExpanded] = useState(false)
-
-  return (
-    <div className="group/row">
-      <button
-        type="button"
-        onClick={() => setExpanded((p) => !p)}
-        className={cn(
-          "flex w-full items-center gap-2.5 px-4 py-[7px] text-left transition-colors",
-          "hover:bg-secondary/30",
-          expanded && "bg-secondary/20",
-        )}
-      >
-        <span className="flex size-3.5 items-center justify-center text-muted-foreground/70">
-          {expanded ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
-        </span>
-        <StatusIndicator status={call.status} />
-        <code className="flex-1 truncate text-[12px] text-foreground/90">{call.tool}</code>
-        {call.duration && (
-          <span className="tabular-nums text-[11px] text-muted-foreground/70">{call.duration}</span>
-        )}
-      </button>
-
-      {expanded && (
-        <div className="mx-4 mb-2 overflow-hidden rounded-lg border border-border/40 bg-background/60">
-          {call.input && (
-            <div className="border-b border-border/30 px-3 py-2.5">
-              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
-                Input
-              </p>
-              <pre className="whitespace-pre-wrap break-all text-[11px] leading-[1.5] text-sky-300/90">
-                {JSON.stringify(call.input, null, 2)}
-              </pre>
-            </div>
-          )}
-          {call.output && (
-            <div className="px-3 py-2.5">
-              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
-                Output
-              </p>
-              <pre
-                className={cn("whitespace-pre-wrap break-all text-[11px] leading-[1.5]", {
-                  "text-emerald-300/90": call.status === "success",
-                  "text-red-300/90": call.status === "error",
-                  "text-amber-300/90": call.status === "running",
-                })}
-              >
-                {call.output}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
+    <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
+      <div className="flex size-12 items-center justify-center rounded-2xl bg-secondary/30 ring-1 ring-border/20">
+        <VscPulse className="size-5 text-muted-foreground/50" />
+      </div>
+      <div className="space-y-1">
+        <p className="text-[12px] font-medium text-muted-foreground">
+          No activity yet
+        </p>
+        <p className="text-[11px] leading-relaxed text-muted-foreground/60">
+          Tool calls and agent actions will appear here
+        </p>
+      </div>
     </div>
   )
 }
 
-/* ── Agent node (recursive) ── */
+export function ActivityTab({
+  sessionKey,
+}: {
+  sessionKey: string | null
+}) {
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
+  const [streamStatus, setStreamStatus] = useState<string | null>(null)
+  const [historyLoaded, setHistoryLoaded] = useState(false)
+  const callMapRef = useRef<Map<string, ToolCall>>(new Map())
+  const bottomRef = useRef<HTMLDivElement>(null)
 
-function AgentNodeBlock({ node, depth = 0 }: { node: AgentNode; depth?: number }) {
-  const [expanded, setExpanded] = useState(true)
+  const syncState = useCallback(() => {
+    setToolCalls(Array.from(callMapRef.current.values()))
+  }, [])
 
-  return (
-    <div className={cn(depth > 0 && "ml-2.5 border-l border-border/30")}>
-      {/* Agent header */}
-      <button
-        type="button"
-        onClick={() => setExpanded((p) => !p)}
-        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-secondary/30"
-      >
-        <span className="flex size-3.5 items-center justify-center text-muted-foreground/70">
-          {expanded ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
-        </span>
-        <StatusIndicator status={node.status} />
-        <div className="flex flex-1 flex-col gap-0.5 min-w-0">
-          <span className="text-[12px] font-medium text-foreground truncate">{node.label}</span>
-          {node.model && (
-            <span className="text-[10px] text-muted-foreground/70">{node.model}</span>
-          )}
-        </div>
-        <span className="rounded-md bg-secondary/50 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          {node.calls.length}
-        </span>
-      </button>
+  const processToolEvent = useCallback(
+    (data: Record<string, unknown>) => {
+      const toolCallId = data.toolCallId as string | null
+      const name = data.name as string | null
+      const phase = data.phase as string | null
+      if (!toolCallId || !name) return
+      const map = callMapRef.current
+      const existing = map.get(toolCallId)
+      const fallback: ToolCall = { id: toolCallId, tool: name, status: "running" }
 
-      {expanded && (
-        <div>
-          {node.calls.map((call) => (
-            <ToolCallRow key={call.id} call={call} />
-          ))}
-          {node.children?.map((child) => (
-            <AgentNodeBlock key={child.id} node={child} depth={depth + 1} />
-          ))}
-        </div>
-      )}
-    </div>
+      if (phase === "calling") {
+        map.set(toolCallId, {
+          ...fallback,
+          input: data.args as Record<string, unknown> | undefined,
+          startedAt: Date.now(),
+        })
+      } else if (phase === "result" || phase === "error") {
+        const call = existing ?? fallback
+        const duration = call.startedAt
+          ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+          : undefined
+        const result = data.result
+        const output = phase === "error"
+          ? ((data.error as string) ?? "Unknown error")
+          : typeof result === "string" ? result
+            : result != null ? JSON.stringify(result, null, 2) : undefined
+        map.set(toolCallId, {
+          ...call,
+          status: phase === "error" ? "error" : "success",
+          duration,
+          output,
+        })
+      }
+      syncState()
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+      })
+    },
+    [syncState],
   )
-}
 
-/* ── Activity tab ── */
+  useEffect(() => {
+    if (!sessionKey) {
+      callMapRef.current.clear()
+      setToolCalls([])
+      setStreamStatus(null)
+      setHistoryLoaded(false)
+      return
+    }
+    callMapRef.current.clear()
+    setToolCalls([])
+    setHistoryLoaded(false)
+    let cancelled = false
 
-export function ActivityTab() {
+    async function loadHistory() {
+      try {
+        const history = await invoke<{ messages: RawHistoryMessage[] }>(
+          "middleware_chat_history", { input: { sessionKey } },
+        )
+        if (cancelled) return
+        for (const call of parseHistoryToolCalls(history.messages ?? [])) {
+          callMapRef.current.set(call.id, call)
+        }
+        syncState()
+        setHistoryLoaded(true)
+      } catch {
+        if (!cancelled) setHistoryLoaded(true)
+      }
+    }
+
+    loadHistory()
+    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
+    const source = new EventSource(`${serverUrl}/api/stream/chat/${sessionKey}`)
+
+    const handleTool = (evt: MessageEvent) => {
+      if (cancelled) return
+      try { processToolEvent(JSON.parse(evt.data)) } catch {}
+    }
+    const handleStatus = (evt: MessageEvent) => {
+      if (cancelled) return
+      try { setStreamStatus((JSON.parse(evt.data).state as string) ?? null) } catch {}
+    }
+
+    source.addEventListener("chat.tool", handleTool)
+    source.addEventListener("chat.status", handleStatus)
+    return () => { cancelled = true; source.close() }
+  }, [sessionKey, processToolEvent, syncState])
+
+  const tree = buildTree(toolCalls, streamStatus)
+  const total = toolCalls.length
+  const isLive =
+    streamStatus === "thinking" ||
+    streamStatus === "tool_running" ||
+    streamStatus === "streaming"
+
+  if (!sessionKey) return <EmptyActivity />
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Live indicator bar */}
-      <div className="flex items-center gap-2 px-4 py-2.5">
-        <VscPulse className="size-3.5 text-emerald-400" />
-        <span className="text-[11px] font-medium text-muted-foreground">Live</span>
-        <span className="ml-auto rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          {MOCK_TREE.reduce(
-            (sum, node) => sum + node.calls.length + (node.children?.reduce((s, c) => s + c.calls.length, 0) ?? 0),
-            0,
-          )}{" "}
-          tool calls
-        </span>
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex size-2">
+            {isLive && (
+              <span className="absolute inset-0 animate-ping rounded-full bg-blue-400/60" />
+            )}
+            <span
+              className={cn(
+                "relative size-2 rounded-full transition-colors duration-300",
+                isLive ? "bg-blue-400" : "bg-muted-foreground/40",
+              )}
+            />
+          </span>
+          <span
+            className={cn(
+              "text-[11px] font-medium transition-colors duration-300",
+              isLive ? "text-blue-400" : "text-muted-foreground",
+            )}
+          >
+            {isLive ? "Live" : "Idle"}
+          </span>
+          <span className="ml-auto rounded-md bg-secondary/50 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {total} tool call{total !== 1 ? "s" : ""}
+          </span>
+        </div>
+
+        {isLive && (
+          <div className="mt-2.5 h-[2px] overflow-hidden rounded-full bg-secondary/40">
+            <div className="activity-shimmer h-full w-full rounded-full" />
+          </div>
+        )}
       </div>
 
       <div className="h-px bg-border/30" />
 
-      {/* Scrollable tree */}
-      <div className="flex-1 overflow-y-auto py-1">
-        {MOCK_TREE.map((node) => (
-          <AgentNodeBlock key={node.id} node={node} />
-        ))}
+      <div className="flex-1 overflow-y-auto p-2">
+        {!historyLoaded ? (
+          <div className="flex flex-col items-center gap-3 py-12">
+            <div className="size-5 animate-spin rounded-full border-2 border-border/30 border-t-foreground/50" />
+            <p className="text-[11px] text-muted-foreground">
+              Loading activity…
+            </p>
+          </div>
+        ) : tree.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-12">
+            <VscPulse className="size-5 text-muted-foreground/40" />
+            <p className="text-[11px] text-muted-foreground">
+              {isLive ? "Waiting for tool calls…" : "No tool calls yet"}
+            </p>
+          </div>
+        ) : (
+          <>
+            {tree.map((node) => (
+              <AgentNodeBlock key={node.id} node={node} />
+            ))}
+            <div ref={bottomRef} className="h-px" />
+          </>
+        )}
       </div>
     </div>
   )
