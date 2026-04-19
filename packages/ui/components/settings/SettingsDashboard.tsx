@@ -143,7 +143,7 @@ export function SettingsDashboard({ onSignOut, onDeleteAccount, accountData, onB
         </div>
       </nav>
 
-      <div ref={scrollRef} className="w-full max-w-xl overflow-y-auto scrollbar-hide my-10 md:my-14 lg:my-18">
+      <div ref={scrollRef} className="w-full max-w-xl overflow-y-auto scrollbar-hide my-2 md:my-4 lg:my-6">
         {/* {activeView === "usage" && <UsagePage />} */}
         {activeView === "usage" && (
           <div className="flex flex-col gap-6">

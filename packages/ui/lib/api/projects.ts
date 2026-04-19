@@ -1,4 +1,4 @@
-import { tauriInvoke } from "@/lib/tauri"
+import { invoke } from "@/lib/ipc"
 
 export type Project = {
   id: string
@@ -19,7 +19,7 @@ export type ProjectListResponse = {
 }
 
 export async function fetchProjects(): Promise<ProjectListResponse> {
-  return tauriInvoke<ProjectListResponse>("middleware_projects_list", {
+  return invoke<ProjectListResponse>("middleware_projects_list", {
     input: {},
   })
 }

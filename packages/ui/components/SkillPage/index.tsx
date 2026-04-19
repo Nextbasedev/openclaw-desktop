@@ -16,6 +16,7 @@ import {
   SkillExcelIcon,
   SkillSlidesIcon,
 } from "./icons"
+import { LuPackageOpen, LuSearchX, LuWifiOff } from "react-icons/lu"
 
 type SkillCategory = "All" | "Recommended" | "System" | "Personal"
 
@@ -25,7 +26,7 @@ type DiscoveredSkill = {
   name: string
   summary: string | null
   description: string | null
-  source: "clawhub" | "local" | "github"
+  source: "clawhub" | "local" | "github" | "builtin"
   version: string | null
   installed: boolean
   installSource: "clawhub" | "github" | "local"
@@ -42,6 +43,14 @@ type SkillDiscoverResponse = {
   sources: Array<"clawhub" | "local" | "github">
 }
 
+type SkillInstallResponse = {
+  status: string
+  skill: Record<string, unknown>
+  location: string
+  actions: string[]
+  warnings: string[]
+}
+
 type SkillItem = {
   id: string
   name: string
@@ -52,6 +61,9 @@ type SkillItem = {
   installed?: boolean
   source?: string
   version?: string | null
+  slug?: string
+  localPath?: string | null
+  repoUrl?: string | null
 }
 
 export function SkillPage() {
@@ -61,6 +73,61 @@ export function SkillPage() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [meta, setMeta] = React.useState<SkillDiscoverResponse | null>(null)
+  const [installingId, setInstallingId] = React.useState<string | null>(null)
+  const [installError, setInstallError] = React.useState<string | null>(null)
+
+  const refreshSkills = React.useCallback(async () => {
+    try {
+      const response = await invoke<SkillDiscoverResponse>(
+        "middleware_skills_discover",
+        {
+          input: {
+            query: "",
+            limit: 20,
+            includeLocal: true,
+            includeClawHub: true,
+            includeGithubProbe: true,
+          },
+        },
+      )
+      setMeta(response)
+      setSkills(response.results.map(mapBackendSkillToItem))
+    } catch {
+      // silent refresh failure
+    }
+  }, [])
+
+  const handleInstall = React.useCallback(async (item: SkillItem) => {
+    setInstallingId(item.id)
+    setInstallError(null)
+
+    try {
+      await invoke<SkillInstallResponse>(
+        "middleware_skills_install",
+        {
+          input: {
+            source: item.source ?? "clawhub",
+            slug: item.slug ?? item.id,
+            version: item.version ?? undefined,
+            repoUrl: item.repoUrl ?? undefined,
+            localPath: item.localPath ?? undefined,
+            scope: "user",
+          },
+        },
+      )
+
+      setSkills((prev) =>
+        prev.map((s) => s.id === item.id ? { ...s, installed: true } : s),
+      )
+      await refreshSkills()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Install failed"
+      setInstallError(msg)
+      setTimeout(() => setInstallError(null), 4000)
+    } finally {
+      setInstallingId(null)
+    }
+  }, [refreshSkills])
 
   React.useEffect(() => {
     let cancelled = false
@@ -93,7 +160,7 @@ export function SkillPage() {
         console.error("middleware_skills_discover failed", err)
         setSkills([])
         setMeta(null)
-        setError("Failed to load skills from middleware_skills_discover.")
+        setError("Unable to load skills. Please check your connection and try again.")
         setLoading(false)
       }
     }
@@ -154,7 +221,13 @@ export function SkillPage() {
         <CategoryDropdown category={category} setCategory={setCategory} />
       </div>
 
-      {meta && (
+      {installError && (
+        <div className="mb-4 rounded-lg border border-red-400/20 bg-red-400/5 px-4 py-2.5 text-center text-[13px] text-red-400">
+          {installError}
+        </div>
+      )}
+
+      {!loading && meta && (
         <div className="mb-5 flex items-center justify-between text-[14px] text-muted-foreground">
           <span>{meta.results.length} skill{meta.results.length === 1 ? "" : "s"} discovered</span>
           <span>Sources: {meta.sources.join(", ")}</span>
@@ -162,11 +235,31 @@ export function SkillPage() {
       )}
 
       {loading ? (
-        <StatePanel text="Loading skills from middleware..." />
+        <SkillPageSkeleton />
       ) : error ? (
-        <StatePanel text={error} tone="error" />
+        <EmptyState
+          icon={<LuWifiOff size={28} />}
+          title="Could not load skills"
+          description={error}
+        />
       ) : filteredSections.length === 0 ? (
-        <StatePanel text="No skills found from middleware_skills_discover for your current filters." />
+        query.trim() ? (
+          <EmptyState
+            icon={<LuSearchX size={28} />}
+            title="No matching skills"
+            description={`No skills match "${query}". Try a different search term.`}
+          />
+        ) : (
+          <EmptyState
+            icon={<LuPackageOpen size={28} />}
+            title={category === "Personal" ? "No personal skills yet" : "No skills found"}
+            description={
+              category === "Personal"
+                ? "Personal skills you create or install locally will appear here."
+                : "No skills are available for the selected category."
+            }
+          />
+        )
       ) : (
         <div className="space-y-8">
           {filteredSections.map((section) => (
@@ -178,7 +271,12 @@ export function SkillPage() {
               <div className="border-t border-border/40">
                 <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
                   {section.items.map((item) => (
-                    <SkillCard key={item.id} item={item} />
+                    <SkillCard
+                      key={item.id}
+                      item={item}
+                      installing={installingId === item.id}
+                      onInstall={handleInstall}
+                    />
                   ))}
                 </div>
               </div>
@@ -218,7 +316,7 @@ function CategoryDropdown({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex h-9 items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 pr-8",
-          "text-[13px] text-foreground outline-none transition-colors hover:border-foreground/20",
+          "text-[13px] text-foreground outline-none transition-colors",
         )}
       >
         {category}
@@ -269,7 +367,15 @@ function CategoryDropdown({
   )
 }
 
-function SkillCard({ item }: { item: SkillItem }) {
+function SkillCard({
+  item,
+  installing,
+  onInstall,
+}: {
+  item: SkillItem
+  installing: boolean
+  onInstall: (item: SkillItem) => void
+}) {
   return (
     <div className="flex items-center gap-3.5 border-b border-border/30 py-4.5">
       <div className={cn("flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md", item.iconBg)}>
@@ -294,9 +400,14 @@ function SkillCard({ item }: { item: SkillItem }) {
             <path d="m4.5 10 3.5 3.5L15.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
+      ) : installing ? (
+        <div className="flex size-8 shrink-0 items-center justify-center">
+          <div className="size-4 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+        </div>
       ) : (
         <button
           type="button"
+          onClick={() => onInstall(item)}
           className={cn(
             "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full",
             "bg-secondary/50 text-foreground transition-colors hover:bg-secondary",
@@ -328,27 +439,81 @@ function SkillTileIcon({ iconKey }: { iconKey: string }) {
   }
 }
 
-function StatePanel({ text, tone = "default" }: { text: string; tone?: "default" | "error" }) {
+function EmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+}) {
   return (
-    <div className={cn(
-      "rounded-xl border px-5 py-8 text-center",
-      tone === "error"
-        ? "border-destructive/20 bg-destructive/5"
-        : "border-border/50 bg-card",
-    )}>
-      <p className={cn(
-        "text-[13px]",
-        tone === "error" ? "text-destructive" : "text-muted-foreground",
-      )}>
-        {text}
-      </p>
+    <div className="rounded-xl border border-border/50 bg-card px-5 py-12 text-center">
+      <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-muted/30 text-muted-foreground/60">
+        {icon}
+      </div>
+      <p className="text-[14px] font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground/70">{description}</p>
     </div>
   )
 }
 
-function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
+function SkillCardSkeleton() {
+  return (
+    <div className="flex items-center gap-3.5 border-b border-border/30 py-4.5">
+      <div className="size-12 shrink-0 animate-pulse rounded-md bg-muted/30" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="h-3.5 w-24 animate-pulse rounded bg-muted/30" />
+          <div className="h-3 w-10 animate-pulse rounded bg-muted/20" />
+        </div>
+        <div className="h-3 w-48 animate-pulse rounded bg-muted/20" />
+      </div>
+      <div className="size-8 shrink-0 animate-pulse rounded-full bg-muted/20" />
+    </div>
+  )
+}
+
+function SkillPageSkeleton() {
+  return (
+    <div className="space-y-8">
+      <div className="mb-5 flex items-center justify-between">
+        <div className="h-3.5 w-28 animate-pulse rounded bg-muted/25" />
+        <div className="h-3.5 w-32 animate-pulse rounded bg-muted/25" />
+      </div>
+
+      <section>
+        <div className="mb-3 h-4 w-28 animate-pulse rounded bg-muted/25" />
+        <div className="border-t border-border/40">
+          <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-3 h-4 w-16 animate-pulse rounded bg-muted/25" />
+        <div className="border-t border-border/40">
+          <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+            <SkillCardSkeleton />
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function mapBackendSkillToItem(skill: DiscoveredSkill, index: number): SkillItem {
   return {
-    id: skill.id,
+    id: skill.id ?? `${skill.slug ?? skill.name ?? index}`,
     name: skill.name,
     description: skill.summary || skill.description || "No description available.",
     category: mapDiscoveredSkillCategory(skill),
@@ -357,20 +522,24 @@ function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
     installed: skill.installed,
     source: skill.source,
     version: skill.version,
+    slug: skill.slug,
+    localPath: skill.localPath,
+    repoUrl: skill.repoUrl,
   }
 }
 
 function mapDiscoveredSkillCategory(skill: DiscoveredSkill): "Recommended" | "System" | "Personal" {
   if (skill.source === "local") return "Personal"
+  if (skill.source === "builtin") return "System"
 
-  const tags = skill.tags.map((tag) => tag.toLowerCase())
+  const tags = (skill.tags ?? []).map((tag) => tag.toLowerCase())
   if (tags.includes("system") || skill.installed) return "System"
 
   return "Recommended"
 }
 
 function getSkillIconKey(skill: DiscoveredSkill) {
-  const slug = skill.slug.toLowerCase()
+  const slug = (skill.slug ?? "").toLowerCase()
   if (slug.includes("pdf")) return "pdf"
   if (slug.includes("doc")) return "doc"
   if (slug.includes("image")) return "image"
@@ -386,7 +555,7 @@ function getSkillIconKey(skill: DiscoveredSkill) {
 function getSkillBackground(skill: DiscoveredSkill) {
   if (skill.installed) return "bg-[#1D1D1D]"
   if (skill.source === "local") return "bg-[#1F3B1E]"
-  if (skill.slug.toLowerCase().includes("pdf")) return "bg-white"
-  if (skill.slug.toLowerCase().includes("docs")) return "bg-[#FFF4EA]"
+  if ((skill.slug ?? "").toLowerCase().includes("pdf")) return "bg-white"
+  if ((skill.slug ?? "").toLowerCase().includes("docs")) return "bg-[#FFF4EA]"
   return "bg-[#F0F0F0] dark:bg-[#202020]"
 }
