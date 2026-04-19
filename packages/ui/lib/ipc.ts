@@ -6,14 +6,10 @@ export async function invoke<T>(
   // Try Tauri first
   if (
     typeof window !== "undefined" &&
-    (window as unknown as Record<string, unknown>).__TAURI__
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
   ) {
-    const tauri = (window as unknown as Record<string, unknown>).__TAURI__ as {
-      core?: { invoke: <R>(cmd: string, a?: Record<string, unknown>) => Promise<R> }
-    }
-    if (tauri.core?.invoke) {
-      return tauri.core.invoke<T>(command, args)
-    }
+    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
+    return tauriInvoke<T>(command, args)
   }
 
   // Fallback to HTTP
@@ -44,21 +40,16 @@ export function openEventStream(
   // In Tauri, use Tauri events
   if (
     typeof window !== "undefined" &&
-    (window as unknown as Record<string, unknown>).__TAURI__
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
   ) {
-    const tauri = (window as unknown as Record<string, unknown>).__TAURI__ as {
-      event?: { listen: (name: string, cb: (e: unknown) => void) => Promise<() => void> }
-    }
-    if (tauri.event?.listen) {
-      let unlisten: (() => void) | null = null
-      tauri.event
-        .listen(path, (e: unknown) => onEvent(e as MessageEvent))
-        .then((fn: () => void) => {
-          unlisten = fn
-        })
-      return () => {
-        unlisten?.()
-      }
+    const { listen } = require("@tauri-apps/api/event")
+    let unlisten: (() => void) | null = null
+    listen(path, (e: unknown) => onEvent(e as MessageEvent))
+      .then((fn: () => void) => {
+        unlisten = fn
+      })
+    return () => {
+      unlisten?.()
     }
   }
 

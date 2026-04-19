@@ -295,4 +295,11 @@
   ::-webkit-scrollbar-thumb:hover {
     background: oklch(var(--muted-foreground) / 0.3);
   }
+
+  .scrollbar-hide {
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }

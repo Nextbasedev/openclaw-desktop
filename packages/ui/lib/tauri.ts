@@ -6,6 +6,10 @@ export async function tauriInvoke<T = unknown>(
   return invoke<T>(cmd, args)
 }
 
+export async function openExternalUrl(url: string): Promise<void> {
+  await tauriInvoke("middleware_open_url", { input: { url } })
+}
+
 export async function tauriListen<T = unknown>(
   event: string,
   handler: (payload: T) => void,

@@ -108,7 +108,7 @@ export function VersionUpdateModal({
                 type="button"
                 onClick={() => onOpenChange(false)}
                 className={cn(
-                  "flex size-7 items-center justify-center rounded-md",
+                  "flex size-7 items-center justify-center rounded-md cursor-pointer",
                   "text-muted-foreground transition-colors",
                   "hover:bg-secondary/60 hover:text-foreground",
                 )}
@@ -190,7 +190,7 @@ export function VersionUpdateModal({
                 type="button"
                 onClick={() => onOpenChange(false)}
                 className={cn(
-                  "w-full rounded-lg py-2 text-[13px] font-medium",
+                  "w-full rounded-lg py-2 text-[13px] font-medium cursor-pointer",
                   "bg-accent text-accent-foreground transition-all",
                   "hover:brightness-110 active:brightness-95",
                 )}

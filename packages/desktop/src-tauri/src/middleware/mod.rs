@@ -1583,3 +1583,40 @@ mod skills_tests;
 // SYNC: Tauri commands
 // ============================================================================
 
+
+// ============================================================================
+// UTILS: Open external URL
+// ============================================================================
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenUrlInput {
+    pub url: String,
+}
+
+#[tauri::command]
+pub async fn middleware_open_url(input: OpenUrlInput) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &input.url])
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&input.url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&input.url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {e}"))?;
+    }
+    Ok(serde_json::json!({ "ok": true }))
+}
+
