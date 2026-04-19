@@ -8,9 +8,41 @@ import {
   type ChatStreamEvent,
 } from "middleware"
 import { prependSkillContext, clearSessionTracking } from "./skill-runtime.service.js"
+import { getDb } from "../db/connection.js"
+import { getAppSetting } from "../db/helpers.js"
 
 export const chatEvents = new EventEmitter()
 chatEvents.setMaxListeners(100)
+
+const localToGatewayKey = new Map<string, string>()
+
+function persistGatewayKey(localKey: string, gwKey: string) {
+  localToGatewayKey.set(localKey, gwKey)
+  try {
+    getDb()
+      .prepare(
+        "UPDATE session_mappings SET session_id = ? WHERE session_key = ?",
+      )
+      .run(gwKey, localKey)
+  } catch {}
+}
+
+function loadGatewayKey(localKey: string): string | undefined {
+  const cached = localToGatewayKey.get(localKey)
+  if (cached) return cached
+  try {
+    const row = getDb()
+      .prepare(
+        "SELECT session_id FROM session_mappings WHERE session_key = ?",
+      )
+      .get(localKey) as { session_id: string | null } | undefined
+    if (row?.session_id) {
+      localToGatewayKey.set(localKey, row.session_id)
+      return row.session_id
+    }
+  } catch {}
+  return undefined
+}
 
 function wrapGatewayError(error: unknown): never {
   if (error instanceof Error) {
@@ -107,16 +139,42 @@ export async function chatCreateSession(input: {
 export async function chatDeleteSession(input: {
   sessionKey: string
 }) {
-  const existing = activeStreams.get(input.sessionKey)
+  const gwKey = resolveGatewayKey(input.sessionKey)
+  const existing = activeStreams.get(gwKey)
   if (existing) {
     existing.close()
-    activeStreams.delete(input.sessionKey)
+    activeStreams.delete(gwKey)
   }
   clearSessionTracking(input.sessionKey)
   try {
-    return await deleteChatSession(input.sessionKey)
+    const result = await deleteChatSession(gwKey)
+    localToGatewayKey.delete(input.sessionKey)
+    return result
   } catch (error) {
     wrapGatewayError(error)
+  }
+}
+
+function resolveGatewayKey(localKey: string): string {
+  return loadGatewayKey(localKey) ?? localKey
+}
+
+async function ensureGatewaySession(localKey: string): Promise<string> {
+  const existing = loadGatewayKey(localKey)
+  if (existing) return existing
+
+  const model = getAppSetting(getDb(), "onboarding.model.ref") ?? undefined
+  try {
+    const created = await createChatSession({
+      agentId: "main",
+      label: localKey,
+      model,
+    })
+    persistGatewayKey(localKey, created.sessionKey)
+    return created.sessionKey
+  } catch {
+    persistGatewayKey(localKey, localKey)
+    return localKey
   }
 }
 
@@ -127,13 +185,13 @@ export async function chatSend(input: {
   attachments?: unknown[]
 }) {
   const validatedAttachments = validateAttachments(input.attachments)
-  const messageText = prependSkillContext(input.text, input.sessionKey)
+  const gwKey = await ensureGatewaySession(input.sessionKey)
 
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
     result = await sendChatMessage({
-      sessionKey: input.sessionKey,
-      text: messageText,
+      sessionKey: gwKey,
+      text: input.text,
       timeoutMs: input.timeoutMs,
       attachments: validatedAttachments,
     })
@@ -141,16 +199,17 @@ export async function chatSend(input: {
     wrapGatewayError(error)
   }
 
-  startEventStream(input.sessionKey)
+  startEventStream(gwKey, input.sessionKey)
 
   return result
 }
 
 export async function chatStop(input: { sessionKey: string }) {
-  const stream = activeStreams.get(input.sessionKey)
+  const gwKey = resolveGatewayKey(input.sessionKey)
+  const stream = activeStreams.get(gwKey)
   if (stream) {
     stream.close()
-    activeStreams.delete(input.sessionKey)
+    activeStreams.delete(gwKey)
   }
   chatEvents.emit(`chat:event:${input.sessionKey}`, {
     type: "chat.status",
@@ -162,8 +221,9 @@ export async function chatStop(input: { sessionKey: string }) {
 }
 
 export async function chatHistory(input: { sessionKey: string }) {
+  const gwKey = resolveGatewayKey(input.sessionKey)
   try {
-    return await getChatHistory(input.sessionKey)
+    return await getChatHistory(gwKey)
   } catch (error) {
     wrapGatewayError(error)
   }
@@ -174,17 +234,18 @@ export async function chatEditAndResend(input: {
   messageId: string
   text: string
 }) {
+  const gwKey = resolveGatewayKey(input.sessionKey)
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
     result = await sendChatMessage({
-      sessionKey: input.sessionKey,
+      sessionKey: gwKey,
       text: input.text,
     })
   } catch (error) {
     wrapGatewayError(error)
   }
 
-  startEventStream(input.sessionKey)
+  startEventStream(gwKey, input.sessionKey)
 
   return {
     ...result,
@@ -197,17 +258,18 @@ export async function chatRegenerate(input: {
   sessionKey: string
   messageId: string
 }) {
+  const gwKey = resolveGatewayKey(input.sessionKey)
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
     result = await sendChatMessage({
-      sessionKey: input.sessionKey,
+      sessionKey: gwKey,
       text: "",
     })
   } catch (error) {
     wrapGatewayError(error)
   }
 
-  startEventStream(input.sessionKey)
+  startEventStream(gwKey, input.sessionKey)
 
   return {
     ...result,
@@ -216,37 +278,37 @@ export async function chatRegenerate(input: {
   }
 }
 
-function startEventStream(sessionKey: string) {
-  const existing = activeStreams.get(sessionKey)
+function startEventStream(gwKey: string, localKey: string) {
+  const existing = activeStreams.get(gwKey)
   if (existing) {
     existing.close()
-    activeStreams.delete(sessionKey)
+    activeStreams.delete(gwKey)
   }
 
   openChatEventStream({
-    sessionKey,
+    sessionKey: gwKey,
     onEvent(event: ChatStreamEvent) {
-      chatEvents.emit(`chat:event:${sessionKey}`, event)
+      chatEvents.emit(`chat:event:${localKey}`, event)
 
       if (
         event.type === "chat.status" &&
         (event.state === "done" || event.state === "error")
       ) {
-        const stream = activeStreams.get(sessionKey)
+        const stream = activeStreams.get(gwKey)
         if (stream) {
           stream.close()
-          activeStreams.delete(sessionKey)
+          activeStreams.delete(gwKey)
         }
       }
     },
   })
     .then((stream) => {
-      activeStreams.set(sessionKey, stream)
+      activeStreams.set(gwKey, stream)
     })
     .catch((error) => {
-      chatEvents.emit(`chat:event:${sessionKey}`, {
+      chatEvents.emit(`chat:event:${localKey}`, {
         type: "chat.error",
-        sessionKey,
+        sessionKey: localKey,
         message:
           error instanceof Error
             ? error.message

@@ -82,6 +82,7 @@ type DeviceIdentity = {
 }
 
 type GatewayConfig = {
+  gateway_url?: string
   gateway?: {
     port?: number
     auth?: {
@@ -225,10 +226,15 @@ async function readGatewayConfig() {
   return JSON.parse(raw) as GatewayConfig
 }
 
-async function readDeviceIdentity() {
+async function readDeviceIdentity(): Promise<DeviceIdentity> {
   const identityPath = path.join(os.homedir(), ".openclaw", "state", "identity", "device.json")
   const raw = await fs.readFile(identityPath, "utf8")
-  return JSON.parse(raw) as DeviceIdentity
+  const parsed = JSON.parse(raw) as Record<string, unknown>
+  return {
+    deviceId: (parsed.deviceId ?? parsed.device_id) as string,
+    publicKeyPem: parsed.publicKeyPem as string,
+    privateKeyPem: parsed.privateKeyPem as string,
+  }
 }
 
 async function waitForOpen(ws: WebSocket) {
@@ -283,7 +289,7 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
   const config = await readGatewayConfig()
   const token = config.gateway?.auth?.token
   const port = config.gateway?.port ?? 18789
-  const gatewayUrl = `ws://127.0.0.1:${port}`
+  const gatewayUrl = config.gateway_url ?? `ws://127.0.0.1:${port}`
 
   if (!token) throw new Error("OpenClaw gateway token is missing from local config")
 
@@ -561,12 +567,15 @@ export async function openChatEventStream(input: {
     })
     input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "connected" })
 
+    const matchesSession = (eventKey: string | undefined) =>
+      eventKey === input.sessionKey || (eventKey?.endsWith(input.sessionKey) ?? false)
+
     unsubscribe = gateway.addMessageListener((message) => {
       if (message.type !== "event") return
 
       if (message.event === "session.message") {
         const payload = message.payload as SessionMessagePayload | undefined
-        if (payload?.sessionKey !== input.sessionKey || !payload.message) return
+        if (!matchesSession(payload?.sessionKey) || !payload?.message) return
 
         const messageId = payload.message.id ?? payload.messageId ?? null
         if (messageId && seenMessageIds.has(messageId)) return
@@ -601,9 +610,43 @@ export async function openChatEventStream(input: {
         return
       }
 
+      if (message.event === "chat") {
+        const payload = message.payload as Record<string, unknown> | undefined
+        if (!matchesSession(payload?.sessionKey as string | undefined)) return
+
+        const state = payload?.state as string | undefined
+        const msgContent = payload?.message as Record<string, unknown> | undefined
+        if (state === "final" || state === "delta") {
+          const content = msgContent?.content as Array<{ type?: string; text?: string }> | undefined
+          const text = content
+            ?.filter((b) => b.type === "text" && b.text)
+            .map((b) => b.text!)
+            .join("") ?? ""
+          if (text) {
+            const messageId = (payload?.runId as string) ?? crypto.randomUUID()
+            input.onEvent({
+              type: "chat.message",
+              sessionKey: input.sessionKey,
+              messageId,
+              role: "assistant",
+              content: content ?? "",
+              text,
+              createdAt: null,
+              model: (msgContent?.model as string) ?? null,
+            })
+          }
+          if (state === "final") {
+            input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "done" })
+          }
+        } else if (state === "error" || state === "aborted") {
+          input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: state === "error" ? "error" : "done" })
+        }
+        return
+      }
+
       if (message.event === "session.tool") {
         const payload = message.payload as SessionToolPayload | undefined
-        if (payload?.sessionKey !== input.sessionKey) return
+        if (!matchesSession(payload?.sessionKey)) return
 
         const key = `${payload.runId ?? "run"}:${payload.seq ?? payload.data?.toolCallId ?? "tool"}:${payload.data?.phase ?? "phase"}`
         if (seenToolEvents.has(key)) return
