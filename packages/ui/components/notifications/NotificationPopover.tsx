@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { invoke } from "@/lib/ipc"
+import { openEventStream } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 
@@ -10,13 +11,23 @@ type CronJob = {
   jobId: string
   name: string
   schedule: string
+  scheduleType: string
+  session: string
   task: string
   enabled: boolean
   paused: boolean
-  params: unknown
-  metadata: unknown
   createdAt: string
   updatedAt: string
+}
+
+type CronRunEvent = {
+  type: "cron.run.started" | "cron.run.completed" | "cron.run.failed"
+  jobId: string
+  runId?: string
+  name?: string
+  status: string
+  timestamp: string
+  error?: string | null
 }
 
 type NotificationPopoverProps = {
@@ -30,13 +41,71 @@ const spring = {
   mass: 0.8,
 }
 
+function requestNotificationPermission() {
+  if (typeof window === "undefined") return
+  if (!("Notification" in window)) return
+  if (Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {})
+  }
+}
+
+function showBrowserNotification(event: CronRunEvent) {
+  if (typeof window === "undefined") return
+  if (!("Notification" in window)) return
+  if (Notification.permission !== "granted") return
+
+  const title = event.name ?? `Cron Job ${event.jobId.slice(0, 8)}`
+  const isError = event.type === "cron.run.failed"
+  const body = isError
+    ? `Failed: ${event.error ?? "Unknown error"}`
+    : event.type === "cron.run.completed"
+      ? "Completed successfully"
+      : "Started running"
+
+  new Notification(title, {
+    body,
+    icon: isError ? undefined : undefined,
+    silent: false,
+  })
+}
+
 export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
   const [open, setOpen] = useState(false)
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [badgeCount, setBadgeCount] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    requestNotificationPermission()
+  }, [])
+
+  useEffect(() => {
+    const cleanup = openEventStream(
+      "/api/stream/cron",
+      (evt: MessageEvent) => {
+        try {
+          const event = JSON.parse(evt.data) as CronRunEvent
+          if (
+            event.type === "cron.run.completed" ||
+            event.type === "cron.run.failed"
+          ) {
+            setBadgeCount((c) => c + 1)
+            showBrowserNotification(event)
+          }
+        } catch {
+          // ignore malformed events
+        }
+      },
+    )
+    return cleanup
+  }, [])
+
+  useEffect(() => {
+    if (open) setBadgeCount(0)
+  }, [open])
 
   const fetchJobs = useCallback(async () => {
     setLoading(true)
@@ -46,10 +115,9 @@ export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
         "middleware_cron_list_jobs",
       )
       setJobs(result.jobs.slice(0, 3))
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load",
-      )
+    } catch {
+      setJobs([])
+      setError("disconnected")
     } finally {
       setLoading(false)
     }
@@ -96,7 +164,7 @@ export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
         title="Notifications"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex size-7 items-center justify-center rounded-md",
+          "relative flex size-7 items-center justify-center rounded-md",
           "cursor-pointer transition-colors group/icon",
           open
             ? "text-foreground"
@@ -104,6 +172,18 @@ export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
         )}
       >
         <Icons.Notification size={16} strokeWidth={1.5} className="size-4" />
+        {badgeCount > 0 && (
+          <span
+            className={cn(
+              "absolute -right-0.5 -top-0.5 flex items-center justify-center",
+              "min-w-[14px] rounded-full bg-destructive px-[3px] py-[1px]",
+              "text-[8px] font-bold leading-none text-destructive-foreground",
+              "pointer-events-none",
+            )}
+          >
+            {badgeCount > 99 ? "99+" : badgeCount}
+          </span>
+        )}
       </button>
 
       <AnimatePresence>

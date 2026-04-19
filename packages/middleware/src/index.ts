@@ -602,7 +602,7 @@ export async function openChatEventStream(input: {
 
       if (message.event === "session.message") {
         const payload = message.payload as SessionMessagePayload | undefined
-        if (!matchesSession(payload?.sessionKey) || !payload?.message) return
+        if (!payload || !matchesSession(payload.sessionKey) || !payload.message) return
 
         const messageId = payload.message.id ?? payload.messageId ?? null
         if (messageId && seenMessageIds.has(messageId)) return
@@ -639,10 +639,10 @@ export async function openChatEventStream(input: {
 
       if (message.event === "chat") {
         const payload = message.payload as Record<string, unknown> | undefined
-        if (!matchesSession(payload?.sessionKey as string | undefined)) return
+        if (!payload || !matchesSession(payload.sessionKey as string | undefined)) return
 
-        const state = payload?.state as string | undefined
-        const msgContent = payload?.message as Record<string, unknown> | undefined
+        const state = payload.state as string | undefined
+        const msgContent = payload.message as Record<string, unknown> | undefined
         if (state === "final" || state === "delta") {
           const content = msgContent?.content as Array<{ type?: string; text?: string }> | undefined
           const text = content
@@ -650,7 +650,7 @@ export async function openChatEventStream(input: {
             .map((b) => b.text!)
             .join("") ?? ""
           if (text) {
-            const messageId = (payload?.runId as string) ?? crypto.randomUUID()
+            const messageId = (payload.runId as string) ?? crypto.randomUUID()
             input.onEvent({
               type: "chat.message",
               sessionKey: input.sessionKey,
@@ -673,7 +673,7 @@ export async function openChatEventStream(input: {
 
       if (message.event === "session.tool") {
         const payload = message.payload as SessionToolPayload | undefined
-        if (!matchesSession(payload?.sessionKey)) return
+        if (!payload || !matchesSession(payload.sessionKey)) return
 
         const key = `${payload.runId ?? "run"}:${payload.seq ?? payload.data?.toolCallId ?? "tool"}:${payload.data?.phase ?? "phase"}`
         if (seenToolEvents.has(key)) return
