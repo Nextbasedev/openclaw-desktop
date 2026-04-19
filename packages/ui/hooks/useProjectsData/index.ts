@@ -30,6 +30,14 @@ export type DialogState = {
   renameTopicTarget: FullTopic | null
   renameTopicName: string
   renameTopicRef: React.RefObject<HTMLInputElement | null>
+
+  deleteProjectOpen: boolean
+  deleteProjectTarget: Project | null
+  deletingProject: boolean
+
+  deleteTopicOpen: boolean
+  deleteTopicTarget: FullTopic | null
+  deletingTopic: boolean
 }
 
 export type DialogActions = {
@@ -53,9 +61,21 @@ export type DialogActions = {
   setRenameTopicName: (v: string) => void
   openRenameTopic: (topic: FullTopic) => void
   handleRenameTopicSave: () => Promise<void>
+
+  setDeleteProjectOpen: (v: boolean) => void
+  openDeleteProject: (project: Project) => void
+  handleDeleteProject: () => Promise<void>
+
+  setDeleteTopicOpen: (v: boolean) => void
+  openDeleteTopic: (topic: FullTopic) => void
+  handleDeleteTopic: () => Promise<void>
 }
 
-export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
+export function useProjectsData(
+  onTopicSelect: (topic: ActiveTopic) => void,
+  activeTopic: ActiveTopic | null,
+  onTopicClear: () => void,
+) {
   const [projects, setProjects] = useState<Project[]>([])
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [projectTopics, setProjectTopics] = useState<Record<string, FullTopic[]>>({})
@@ -88,6 +108,14 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
   const [renameTopicTarget, setRenameTopicTarget] = useState<FullTopic | null>(null)
   const [renameTopicName, setRenameTopicName] = useState("")
   const renameTopicRef = useRef<HTMLInputElement>(null)
+
+  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false)
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<Project | null>(null)
+  const [deletingProject, setDeletingProject] = useState(false)
+
+  const [deleteTopicOpen, setDeleteTopicOpen] = useState(false)
+  const [deleteTopicTarget, setDeleteTopicTarget] = useState<FullTopic | null>(null)
+  const [deletingTopic, setDeletingTopic] = useState(false)
 
   const loadProjects = useCallback(async () => {
     try {
@@ -191,7 +219,7 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
   }, [])
 
   const handleCreateProject = useCallback(async () => {
-    if (!newProjectName.trim() || !newProjectPath.trim()) return
+    if (!newProjectName.trim()) return
     setCreatingProject(true)
     setProjectError("")
     try {
@@ -202,7 +230,7 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
       } catch {}
 
       const result = await invoke<{ project: { id: string; name: string } }>("middleware_projects_create", {
-        input: { name: newProjectName.trim(), profileId, workspaceRoot: newProjectPath.trim(), repoRoot: newProjectPath.trim() },
+        input: { name: newProjectName.trim(), profileId, workspaceRoot: "~", repoRoot: "~" },
       })
       const projectId = result.project.id
       const projectName = result.project.name
@@ -290,6 +318,41 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
     } catch (e) { console.error("rename topic failed", e) }
   }, [renameTopicTarget, renameTopicName, loadProjectTopics])
 
+  const openDeleteProject = useCallback((project: Project) => {
+    setDeleteProjectTarget(project)
+    setDeleteProjectOpen(true)
+  }, [])
+
+  const handleDeleteProject = useCallback(async () => {
+    if (!deleteProjectTarget) return
+    setDeletingProject(true)
+    try {
+      await invoke("middleware_projects_delete", { input: { projectId: deleteProjectTarget.id } })
+      setDeleteProjectOpen(false)
+      setExpandedProjects((prev) => { const next = new Set(prev); next.delete(deleteProjectTarget.id); return next })
+      if (activeTopic?.projectId === deleteProjectTarget.id) onTopicClear()
+      await loadProjects()
+    } catch (e) { console.error("delete project failed", e) }
+    finally { setDeletingProject(false) }
+  }, [deleteProjectTarget, loadProjects, activeTopic, onTopicClear])
+
+  const openDeleteTopic = useCallback((topic: FullTopic) => {
+    setDeleteTopicTarget(topic)
+    setDeleteTopicOpen(true)
+  }, [])
+
+  const handleDeleteTopic = useCallback(async () => {
+    if (!deleteTopicTarget) return
+    setDeletingTopic(true)
+    try {
+      await invoke("middleware_topics_delete", { input: { topicId: deleteTopicTarget.id } })
+      setDeleteTopicOpen(false)
+      if (activeTopic?.id === deleteTopicTarget.id) onTopicClear()
+      await loadProjectTopics(deleteTopicTarget.projectId, true)
+    } catch (e) { console.error("delete topic failed", e) }
+    finally { setDeletingTopic(false) }
+  }, [deleteTopicTarget, loadProjectTopics, activeTopic, onTopicClear])
+
   const handleArchiveProject = useCallback(async (projectId: string) => {
     try {
       await invoke("middleware_projects_archive", { input: { projectId } })
@@ -305,13 +368,6 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
     } catch (e) { console.error("archive topic failed", e) }
   }, [loadProjectTopics])
 
-  const handleDeleteTopic = useCallback(async (topic: FullTopic) => {
-    try {
-      await invoke("middleware_topics_delete", { input: { topicId: topic.id } })
-      await loadProjectTopics(topic.projectId, true)
-    } catch (e) { console.error("delete topic failed", e) }
-  }, [loadProjectTopics])
-
   const sortedProjectIds = useMemo(() => {
     const pinned = projectOrder.filter((id) => pinnedProjects.has(id))
     const unpinned = projectOrder.filter((id) => !pinnedProjects.has(id))
@@ -323,6 +379,8 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
     createTopicOpen, createTopicForProject, newTopicName, creatingTopic, topicError, topicNameRef,
     renameProjectOpen, renameProjectTarget, renameProjectName, renameProjectRef,
     renameTopicOpen, renameTopicTarget, renameTopicName, renameTopicRef,
+    deleteProjectOpen, deleteProjectTarget, deletingProject,
+    deleteTopicOpen, deleteTopicTarget, deletingTopic,
   }
 
   const dialogActions: DialogActions = {
@@ -330,6 +388,8 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
     setCreateTopicOpen, setNewTopicName, openCreateTopic, handleCreateTopic,
     setRenameProjectOpen, setRenameProjectName, openRenameProject, handleRenameProject,
     setRenameTopicOpen, setRenameTopicName, openRenameTopic, handleRenameTopicSave,
+    setDeleteProjectOpen, openDeleteProject, handleDeleteProject,
+    setDeleteTopicOpen, openDeleteTopic, handleDeleteTopic,
   }
 
   return {

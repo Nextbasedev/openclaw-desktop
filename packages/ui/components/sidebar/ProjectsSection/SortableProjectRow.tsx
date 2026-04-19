@@ -27,6 +27,7 @@ type Props = {
   onOpenAddTopic: () => void
   onRenameProject: () => void
   onArchiveProject: () => void
+  onDeleteProject: () => void
   onTopicSelect: (topic: FullTopic) => void
   onPinTopic: (topicId: string) => void
   onRenameTopic: (topic: FullTopic) => void
@@ -39,7 +40,7 @@ export function SortableProjectRow({
   projectId, projects, isExpanded, hasActiveTopic, isPinned,
   activeTopic, topics, topicOrderForProject, pinnedTopics, loadingProject,
   onProjectClick, onTogglePinProject, onOpenAddTopic, onRenameProject,
-  onArchiveProject, onTopicSelect, onPinTopic, onRenameTopic, onArchiveTopic, onDeleteTopic, onTopicReorder,
+  onArchiveProject, onDeleteProject, onTopicSelect, onPinTopic, onRenameTopic, onArchiveTopic, onDeleteTopic, onTopicReorder,
 }: Props) {
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
@@ -98,7 +99,8 @@ export function SortableProjectRow({
             <MenuAction label="Rename" icon={<Icons.Edit size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onRenameProject() }} />
             <MenuAction label={isPinned ? "Unpin" : "Pin"} icon={<Icons.Pin size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onTogglePinProject() }} />
             <div className="my-0.5 h-px bg-border/20" />
-            <MenuAction label="Archive" icon={<Icons.Minus size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onArchiveProject() }} danger />
+            <MenuAction label="Archive" icon={<Icons.Archive size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onArchiveProject() }} />
+            <MenuAction label="Delete" icon={<Icons.Trash size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onDeleteProject() }} danger />
           </PopoverContent>
         </Popover>
       </div>

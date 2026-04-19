@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from "react"
 import { Reorder } from "framer-motion"
 import { VersionUpdateModal } from "./VersionUpdateModal"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
+import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { cn } from "@/lib/utils"
 import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
 import { Icons } from "../icons"
@@ -23,6 +24,12 @@ type SidebarProps = {
   onItemsChange: (items: SidebarNavItem[]) => void
   activeTopic: ActiveTopic | null
   onTopicSelect: (topic: ActiveTopic) => void
+  onTopicClear: () => void
+  activeChat: ActiveChat | null
+  onChatSelect: (chat: ActiveChat) => void
+  onChatClear: () => void
+  onNewChat: () => void
+  chatRefreshTrigger?: number
 }
 
 export function Sidebar({
@@ -36,6 +43,12 @@ export function Sidebar({
   onItemsChange,
   activeTopic,
   onTopicSelect,
+  onTopicClear,
+  activeChat,
+  onChatSelect,
+  onChatClear,
+  onNewChat,
+  chatRefreshTrigger = 0,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [versionModalOpen, setVersionModalOpen] = useState(false)
@@ -82,7 +95,26 @@ export function Sidebar({
 
         {!collapsed && (
           <div className="mt-3 border-t border-border/10 pt-3">
-            <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} />
+            <ChatsSection collapsed={collapsed} activeChat={activeChat} onChatSelect={onChatSelect} onChatClear={onChatClear} onNewChat={onNewChat} refreshTrigger={chatRefreshTrigger} />
+          </div>
+        )}
+        {collapsed && (
+          <div className="mt-3 border-t border-border/10 pt-1">
+            <GlassTooltip label="Chats">
+              <button
+                type="button"
+                onClick={onNewChat}
+                className="flex w-full min-w-0 cursor-pointer items-center justify-center rounded-md px-0 py-2 text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              >
+                <Icons.BubbleChat size={16} strokeWidth={1.5} className="shrink-0" />
+              </button>
+            </GlassTooltip>
+          </div>
+        )}
+
+        {!collapsed && (
+          <div className="mt-3 border-t border-border/10 pt-3">
+            <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} onTopicClear={onTopicClear} />
           </div>
         )}
         {collapsed && (

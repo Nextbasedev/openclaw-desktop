@@ -19,7 +19,7 @@ type HeaderProps = {
     onToggleTerminal?: () => void
     sidebarOpen?: boolean
     onToggleSidebar?: () => void
-    centerLabel?: string | null
+    centerLabel?: { project: string; topic: string } | null
     onOpenSettings?: () => void
     onOpenNotifications?: () => void
 }
@@ -62,9 +62,13 @@ export function Header({
 
             {/* ── Center label (active project › topic) ── */}
             {centerLabel && (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                    <span className="max-w-[40%] truncate text-center text-[12px] font-medium text-foreground/55 tracking-tight">
-                        {centerLabel}
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-1">
+                    <span className="truncate text-[11.5px] text-foreground/35">
+                        {centerLabel.project}
+                    </span>
+                    <span className="text-[11px] text-foreground/20">/</span>
+                    <span className="truncate text-[11.5px] font-medium text-foreground/60">
+                        {centerLabel.topic}
                     </span>
                 </div>
             )}

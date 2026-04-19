@@ -92,9 +92,9 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
           </PopoverTrigger>
           <PopoverContent align="start" side="right" sideOffset={4} className={cn("w-36 p-1 gap-0", GLASS_POPOVER)}>
             <MenuAction label="Rename" icon={<Icons.Edit size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onRename() }} />
-            <MenuAction label="Archive" icon={<Icons.Archive size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onArchive() }} success />
             <div className="my-0.5 h-px bg-border/20" />
-            <MenuAction label="Delete" icon={<Icons.Delete size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onDelete() }} danger />
+            <MenuAction label="Archive" icon={<Icons.Archive size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onArchive() }} />
+            <MenuAction label="Delete" icon={<Icons.Trash size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onDelete() }} danger />
           </PopoverContent>
         </Popover>
       </div>
