@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { cn } from "@/lib/utils"
 import {
   VscChevronRight,
@@ -20,6 +20,7 @@ interface ToolCall {
   duration?: string
   input?: Record<string, unknown>
   output?: string
+  startedAt?: number
 }
 
 interface AgentNode {
@@ -31,66 +32,27 @@ interface AgentNode {
   children?: AgentNode[]
 }
 
-/* ── Mock data ── */
+/* ── Build agent tree from flat tool events ── */
 
-const MOCK_TREE: AgentNode[] = [
-  {
-    id: "root",
-    label: "main",
-    model: "claude-opus-4-6",
-    status: "success",
-    calls: [
-      {
-        id: "c1",
-        tool: "web_search",
-        status: "success",
-        duration: "1.2s",
-        input: { query: "next.js 15 new features" },
-        output: 'Search results: 12 results found for "next.js 15 new features"...',
-      },
-      {
-        id: "c2",
-        tool: "Read",
-        status: "success",
-        duration: "0.1s",
-        input: { path: "/root/workspace/README.md" },
-        output: "# OpenClaw Desktop\n\nA modern desktop app...",
-      },
-      {
-        id: "c3",
-        tool: "exec",
-        status: "error",
-        duration: "3.4s",
-        input: { command: "pnpm build" },
-        output: "Error: Module not found 'missing-package'",
-      },
-    ],
-    children: [
-      {
-        id: "sub1",
-        label: "subagent:inspector-build",
-        model: "claude-sonnet-4-6",
-        status: "running",
-        calls: [
-          {
-            id: "s1",
-            tool: "Read",
-            status: "success",
-            duration: "0.1s",
-            input: { path: "/packages/ui/app/page.tsx" },
-            output: '"use client"\nimport { Header }...',
-          },
-          {
-            id: "s2",
-            tool: "Write",
-            status: "running",
-            input: { path: "/components/inspector/InspectorPanel.tsx" },
-          },
-        ],
-      },
-    ],
-  },
-]
+function buildTree(calls: ToolCall[], status: string | null): AgentNode[] {
+  if (calls.length === 0) return []
+
+  const agentStatus: ToolCallStatus =
+    status === "tool_running" || status === "thinking" || status === "streaming"
+      ? "running"
+      : calls.some((c) => c.status === "error")
+        ? "error"
+        : "success"
+
+  return [
+    {
+      id: "root",
+      label: "main",
+      status: agentStatus,
+      calls,
+    },
+  ]
+}
 
 /* ── Status indicator ── */
 
@@ -180,7 +142,6 @@ function AgentNodeBlock({ node, depth = 0 }: { node: AgentNode; depth?: number }
 
   return (
     <div className={cn(depth > 0 && "ml-2.5 border-l border-border/30")}>
-      {/* Agent header */}
       <button
         type="button"
         onClick={() => setExpanded((p) => !p)}
@@ -190,8 +151,8 @@ function AgentNodeBlock({ node, depth = 0 }: { node: AgentNode; depth?: number }
           {expanded ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
         </span>
         <StatusIndicator status={node.status} />
-        <div className="flex flex-1 flex-col gap-0.5 min-w-0">
-          <span className="text-[12px] font-medium text-foreground truncate">{node.label}</span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-[12px] font-medium text-foreground">{node.label}</span>
           {node.model && (
             <span className="text-[10px] text-muted-foreground/70">{node.model}</span>
           )}
@@ -215,21 +176,122 @@ function AgentNodeBlock({ node, depth = 0 }: { node: AgentNode; depth?: number }
   )
 }
 
+/* ── Empty state ── */
+
+function EmptyActivity() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+      <VscPulse className="size-10 text-muted-foreground/20" />
+      <div>
+        <p className="text-[12px] font-medium text-muted-foreground/50">No activity yet</p>
+        <p className="mt-1 text-[11px] text-muted-foreground/30">
+          Tool calls will appear here when a message is sent
+        </p>
+      </div>
+    </div>
+  )
+}
+
 /* ── Activity tab ── */
 
-export function ActivityTab() {
+export function ActivityTab({ sessionKey }: { sessionKey: string | null }) {
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
+  const [streamStatus, setStreamStatus] = useState<string | null>(null)
+  const callMapRef = useRef<Map<string, ToolCall>>(new Map())
+
+  const processToolEvent = useCallback((data: Record<string, unknown>) => {
+    const toolCallId = data.toolCallId as string | null
+    const name = data.name as string | null
+    const phase = data.phase as string | null
+    if (!toolCallId || !name) return
+
+    const map = callMapRef.current
+    const existing = map.get(toolCallId)
+
+    if (phase === "calling") {
+      const call: ToolCall = {
+        id: toolCallId,
+        tool: name,
+        status: "running",
+        input: data.args as Record<string, unknown> | undefined,
+        startedAt: Date.now(),
+      }
+      map.set(toolCallId, call)
+    } else if (phase === "result") {
+      const call = existing ?? { id: toolCallId, tool: name, status: "running" as ToolCallStatus }
+      const duration = call.startedAt
+        ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+        : undefined
+      const result = data.result
+      const output = typeof result === "string"
+        ? result
+        : result != null
+          ? JSON.stringify(result, null, 2)
+          : undefined
+      map.set(toolCallId, { ...call, status: "success", duration, output })
+    } else if (phase === "error") {
+      const call = existing ?? { id: toolCallId, tool: name, status: "running" as ToolCallStatus }
+      const duration = call.startedAt
+        ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+        : undefined
+      map.set(toolCallId, {
+        ...call,
+        status: "error",
+        duration,
+        output: (data.error as string) ?? "Unknown error",
+      })
+    }
+
+    setToolCalls(Array.from(map.values()))
+  }, [])
+
+  useEffect(() => {
+    if (!sessionKey) {
+      callMapRef.current.clear()
+      setToolCalls([])
+      setStreamStatus(null)
+      return
+    }
+
+    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
+    const source = new EventSource(`${serverUrl}/api/stream/chat/${sessionKey}`)
+
+    const handleTool = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data)
+        processToolEvent(data)
+      } catch {}
+    }
+
+    const handleStatus = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data)
+        setStreamStatus((data.state as string) ?? null)
+      } catch {}
+    }
+
+    source.addEventListener("chat.tool", handleTool)
+    source.addEventListener("chat.status", handleStatus)
+
+    return () => source.close()
+  }, [sessionKey, processToolEvent])
+
+  const tree = buildTree(toolCalls, streamStatus)
+  const totalCalls = toolCalls.length
+  const isLive = streamStatus === "thinking" || streamStatus === "tool_running" || streamStatus === "streaming"
+
+  if (!sessionKey) return <EmptyActivity />
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Live indicator bar */}
       <div className="flex items-center gap-2 px-4 py-2.5">
-        <VscPulse className="size-3.5 text-emerald-400" />
-        <span className="text-[11px] font-medium text-muted-foreground">Live</span>
+        <VscPulse className={cn("size-3.5", isLive ? "text-emerald-400 animate-pulse" : "text-muted-foreground/50")} />
+        <span className={cn("text-[11px] font-medium", isLive ? "text-emerald-400" : "text-muted-foreground")}>
+          {isLive ? "Live" : "Idle"}
+        </span>
         <span className="ml-auto rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          {MOCK_TREE.reduce(
-            (sum, node) => sum + node.calls.length + (node.children?.reduce((s, c) => s + c.calls.length, 0) ?? 0),
-            0,
-          )}{" "}
-          tool calls
+          {totalCalls} tool call{totalCalls !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -237,9 +299,17 @@ export function ActivityTab() {
 
       {/* Scrollable tree */}
       <div className="flex-1 overflow-y-auto py-1">
-        {MOCK_TREE.map((node) => (
-          <AgentNodeBlock key={node.id} node={node} />
-        ))}
+        {tree.length === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <p className="text-[11px] text-muted-foreground/50">
+              {isLive ? "Waiting for tool calls..." : "No tool calls in this session"}
+            </p>
+          </div>
+        ) : (
+          tree.map((node) => (
+            <AgentNodeBlock key={node.id} node={node} />
+          ))
+        )}
       </div>
     </div>
   )

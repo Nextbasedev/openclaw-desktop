@@ -23,6 +23,7 @@ type SidebarProps = {
   onItemsChange: (items: SidebarNavItem[]) => void
   activeTopic: ActiveTopic | null
   onTopicSelect: (topic: ActiveTopic) => void
+  onTopicClear: () => void
 }
 
 export function Sidebar({
@@ -36,6 +37,7 @@ export function Sidebar({
   onItemsChange,
   activeTopic,
   onTopicSelect,
+  onTopicClear,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [versionModalOpen, setVersionModalOpen] = useState(false)
@@ -82,7 +84,7 @@ export function Sidebar({
 
         {!collapsed && (
           <div className="mt-3 border-t border-border/10 pt-3">
-            <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} />
+            <ProjectsSection collapsed={collapsed} activeTopic={activeTopic} onTopicSelect={onTopicSelect} onTopicClear={onTopicClear} />
           </div>
         )}
         {collapsed && (

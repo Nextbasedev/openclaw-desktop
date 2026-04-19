@@ -44,9 +44,9 @@ export function GlassDialog({ open, onClose, title, description, children, class
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="mb-6 flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-0.5">
-            <h2 className="text-[15px] font-semibold leading-tight text-foreground">{title}</h2>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-0">
+            <h2 className="text-[18px] font-semibold leading-tight text-foreground">{title}</h2>
             {description && (
               <p className="text-[12px] text-muted-foreground">{description}</p>
             )}
