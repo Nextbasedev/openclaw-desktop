@@ -13,7 +13,6 @@ import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
-import { useQuickChat } from "@/hooks/useQuickChat"
 import { useTopicSession } from "@/hooks/useTopicSession"
 import ConnectPage from "@/app/connect/page"
 import { ChatView } from "@/components/ChatView"
@@ -66,8 +65,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [activeTab, setActiveTab] = useState("chat")
   const prevTabRef = useRef("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
-  const [chatKey, setChatKey] = useState(0)
-  const [pendingPrompt, setPendingPrompt] = useState<string | undefined>()
 
   // Project / topic / session navigation state
   const [activeTopic, setActiveTopic] = useState<ActiveTopic | null>(null)
@@ -79,6 +76,9 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
   const activeChatRef = useRef<ActiveChat | null>(null)
   activeChatRef.current = activeChat
+
+  type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true }
+  const [initialMessages, setInitialMessages] = useState<OptimisticMsg[] | undefined>()
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const isResizing = useRef(false)
@@ -130,12 +130,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault()
-        setActiveTab("chat")
-        setActiveTopic(null)
-        setActiveChat(null)
-        setActiveSessionKey(null)
-        setActiveSessionTitle(null)
-        setChatKey((k) => k + 1)
+        handleNewChat()
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault()
@@ -187,6 +182,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     setActiveTopic(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
+    setInitialMessages(undefined)
 
     if (chat.sessionKey) {
       setActiveSessionKey(chat.sessionKey)
@@ -212,6 +208,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
+    setInitialMessages(undefined)
   }, [])
 
   const handleNewChat = useCallback(async () => {
@@ -227,6 +224,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       await invoke("middleware_chats_attach_session", {
         input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
       })
+      setInitialMessages(undefined)
       setActiveTab("chat")
       setActiveTopic(null)
       setActiveChat({ id: result.chat.id, name: result.chat.name, sessionKey: sessionResult.session.key })
@@ -264,30 +262,72 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     setActiveSessionTitle(title)
   }, [])
 
-  // Navigate directly to a chat (topic + session set atomically)
-  const navigateToChat = useCallback((topic: ActiveTopic, sessionKey: string, title: string) => {
-    setActiveTopic(topic)
-    setActiveSessionKey(sessionKey)
-    setActiveSessionTitle(title)
-  }, [])
-
   const { resolving: sessionResolving, error: sessionError } = useTopicSession(
     activeTopic, activeSessionKey, handleSessionResolved,
   )
 
-  const { handleQuickChat, sending: quickChatSending, error: quickChatError } = useQuickChat({
-    navigateToChat,
-  })
+  const [quickSending, setQuickSending] = useState(false)
+
+  const handleQuickSend = useCallback(async (text: string) => {
+    if (quickSending || !text.trim()) return
+    setQuickSending(true)
+    try {
+      const result = await invoke<{ chat: { id: string; name: string } }>(
+        "middleware_chats_create",
+        { input: {} },
+      )
+      const sessionResult = await invoke<{ session: { key: string } }>(
+        "middleware_sessions_create",
+        { input: { agentId: "main", label: result.chat.name } },
+      )
+      await invoke("middleware_chats_attach_session", {
+        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
+      })
+      await invoke("middleware_chat_send", {
+        input: { sessionKey: sessionResult.session.key, text: text.trim() },
+      })
+
+      const { name } = await invoke<{ name: string }>(
+        "middleware_autonaming_quick",
+        { input: { text: text.trim() } },
+      )
+      await invoke("middleware_chats_rename", {
+        input: { chatId: result.chat.id, name },
+      })
+
+      setInitialMessages([{
+        messageId: crypto.randomUUID(),
+        role: "user",
+        text: text.trim(),
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+      }])
+      setActiveTopic(null)
+      setActiveChat({ id: result.chat.id, name, sessionKey: sessionResult.session.key })
+      setActiveSessionKey(sessionResult.session.key)
+      setActiveSessionTitle(name)
+      setChatRefreshTrigger((n) => n + 1)
+    } catch (err) {
+      console.error("Quick send failed", err)
+    } finally {
+      setQuickSending(false)
+    }
+  }, [quickSending])
 
   // Nav tab change → clear project context
   const handleTabChange = useCallback((tab: string) => {
+    if (tab === "chat") {
+      handleNewChat()
+      if (!sidebarOpen) setSidebarOpen(true)
+      return
+    }
     setActiveTab(tab)
     setActiveTopic(null)
     setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     if (!sidebarOpen) setSidebarOpen(true)
-  }, [sidebarOpen])
+  }, [sidebarOpen, handleNewChat])
 
   // Compute the center label for the header
   const centerLabel = activeTopic
@@ -342,8 +382,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           <main className="flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
             <MainContent
               activeTab={activeTab}
-              chatKey={chatKey}
-              pendingPrompt={pendingPrompt}
               activeTopic={activeTopic}
               activeChat={activeChat}
               activeSessionKey={activeSessionKey}
@@ -351,13 +389,13 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               onSignOut={handleSignOut}
               onDeleteAccount={handleDeleteAccount}
               flowState={flowState}
-              onQuickChat={handleQuickChat}
-              quickChatSending={quickChatSending}
-              quickChatError={quickChatError}
               sessionResolving={sessionResolving}
               sessionError={sessionError}
               onSettingsBack={handleSettingsBack}
               onFirstMessageSent={handleFirstMessageSent}
+              onQuickSend={handleQuickSend}
+              quickSending={quickSending}
+              initialMessages={initialMessages}
             />
           </main>
         </div>
@@ -379,9 +417,9 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
-        onNavigateChat={() => { setActiveTab("chat") }}
-        onNewChat={() => { setActiveTab("chat"); setPendingPrompt(undefined); setChatKey((k) => k + 1) }}
-        onSendPrompt={(prompt) => { setActiveTab("chat"); setPendingPrompt(prompt); setChatKey((k) => k + 1) }}
+        onNavigateChat={() => { handleNewChat() }}
+        onNewChat={() => { handleNewChat() }}
+        onSendPrompt={() => { handleNewChat() }}
         onOpenSettings={openSettings}
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
@@ -392,8 +430,6 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 
 function MainContent({
   activeTab,
-  chatKey,
-  pendingPrompt,
   activeTopic,
   activeChat,
   activeSessionKey,
@@ -401,17 +437,15 @@ function MainContent({
   onSignOut,
   onDeleteAccount,
   flowState,
-  onQuickChat,
-  quickChatSending,
-  quickChatError,
   sessionResolving,
   sessionError,
   onSettingsBack,
   onFirstMessageSent,
+  onQuickSend,
+  quickSending,
+  initialMessages,
 }: {
   activeTab: string
-  chatKey: number
-  pendingPrompt?: string
   activeTopic: ActiveTopic | null
   activeChat: ActiveChat | null
   activeSessionKey: string | null
@@ -419,13 +453,13 @@ function MainContent({
   onSignOut: () => void
   onDeleteAccount: () => void
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
-  onQuickChat: (text: string) => void
-  quickChatSending: boolean
-  quickChatError: string | null
   sessionResolving: boolean
   sessionError: string | null
   onSettingsBack: () => void
   onFirstMessageSent: (text: string) => void
+  onQuickSend: (text: string) => void
+  quickSending: boolean
+  initialMessages?: import("@/components/ChatView/types").ChatMessage[]
 }) {
   // 1. Session history view (deepest level — topic or standalone chat)
   if (activeSessionKey && (activeTopic || activeChat)) {
@@ -435,6 +469,7 @@ function MainContent({
           sessionKey={activeSessionKey}
           sessionTitle={activeSessionTitle ?? undefined}
           onFirstMessageSent={activeChat ? onFirstMessageSent : undefined}
+          initialMessages={activeChat ? initialMessages : undefined}
         />
       </div>
     )
@@ -510,21 +545,11 @@ function MainContent({
     )
   }
 
-  // 4. Default: chat / greeting
+  // 4. Default: ready for new chat
   return (
-    <div
-      key={`${activeTab}-${chatKey}`}
-      className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10"
-    >
+    <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
       <AnimatedGreeting />
-      <ChatBox initialPrompt={pendingPrompt} onSend={onQuickChat} disabled={quickChatSending} />
-      {quickChatError && (
-        <div className="mx-auto w-full max-w-3xl px-4">
-          <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-center">
-            <p className="text-sm text-red-400">{quickChatError}</p>
-          </div>
-        </div>
-      )}
+      <ChatBox onSend={onQuickSend} disabled={quickSending} />
     </div>
   )
 }

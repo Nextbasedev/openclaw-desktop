@@ -10,14 +10,15 @@ type Props = {
   sessionKey: string
   sessionTitle?: string
   onFirstMessageSent?: (text: string) => void
+  initialMessages?: import("./types").ChatMessage[]
 }
 
-export function ChatView({ sessionKey, onFirstMessageSent }: Props) {
+export function ChatView({ sessionKey, onFirstMessageSent, initialMessages }: Props) {
   const {
     messages, status, statusLabel, loading, loadError,
     isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort,
-  } = useChatMessages(sessionKey)
+  } = useChatMessages(sessionKey, initialMessages)
 
   const firstFiredRef = useRef(false)
   const wrappedSend = useCallback((text: string) => {
