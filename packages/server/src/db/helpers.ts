@@ -191,6 +191,32 @@ export function branchRowToJson(row: BranchRow) {
   }
 }
 
+export interface ChatRow {
+  id: string
+  name: string
+  session_key: string | null
+  agent_id: string
+  archived: number
+  pinned: number
+  last_active_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function chatRowToJson(row: ChatRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    sessionKey: row.session_key ?? undefined,
+    agentId: row.agent_id,
+    archived: sqlToBool(row.archived),
+    pinned: sqlToBool(row.pinned),
+    lastActiveAt: row.last_active_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 export function getAppSetting(db: import("better-sqlite3").Database, key: string): string | null {
   const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as { value: string | null } | undefined
   return row?.value ?? null
