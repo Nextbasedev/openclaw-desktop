@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
+import { on, emit } from "@/lib/events"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
@@ -129,6 +130,8 @@ export function useProjectsData(
 
   useEffect(() => { loadProjects() }, [loadProjects])
 
+  const refreshTopicsRef = useRef<() => void>(() => {})
+
   useEffect(() => {
     setProjectOrder((prev) => {
       const existing = prev.filter((id) => projects.some((p) => p.id === id))
@@ -160,6 +163,15 @@ export function useProjectsData(
       setLoadingProject(null)
     }
   }, [projectTopics])
+
+  refreshTopicsRef.current = () => {
+    for (const pid of expandedProjects) loadProjectTopics(pid, true)
+  }
+
+  useEffect(() => on("sidebar:refresh", () => {
+    loadProjects()
+    refreshTopicsRef.current()
+  }), [loadProjects])
 
   const handleProjectClick = useCallback((project: Project) => {
     setExpandedProjects((prev) => {
@@ -347,6 +359,7 @@ export function useProjectsData(
       await invoke("middleware_projects_archive", { input: { projectId } })
       setExpandedProjects((prev) => { const next = new Set(prev); next.delete(projectId); return next })
       await loadProjects()
+      emit("archive:changed")
     } catch (e) { console.error("archive project failed", e) }
   }, [loadProjects])
 
@@ -354,6 +367,7 @@ export function useProjectsData(
     try {
       await invoke("middleware_topics_archive", { input: { topicId: topic.id } })
       await loadProjectTopics(topic.projectId, true)
+      emit("archive:changed")
     } catch (e) { console.error("archive topic failed", e) }
   }, [loadProjectTopics])
 

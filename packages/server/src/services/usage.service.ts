@@ -91,6 +91,71 @@ export async function usageLimits() {
   return { limits }
 }
 
+export async function usageSummary(input: {
+  startDate?: string
+  endDate?: string
+}) {
+  const empty = {
+    totals: {
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+      totalTokens: 0, totalCost: 0, inputCost: 0, outputCost: 0,
+      cacheReadCost: 0, cacheWriteCost: 0,
+    },
+    daily: [] as { date: string; totalTokens: number; totalCost: number }[],
+    days: 0,
+  }
+
+  let gw: Awaited<ReturnType<typeof ensureGatewayClient>>
+  try {
+    gw = await ensureGatewayClient()
+  } catch {
+    return empty
+  }
+
+  const [currentRes, historyRes] = await Promise.allSettled([
+    gw.request<Record<string, unknown>>("sessions.usage"),
+    gw.request<{
+      entries?: Record<string, unknown>[]
+    }>("usage.cost", { period: "30d" }),
+  ])
+
+  const snap = normalizeSnapshot(
+    currentRes.status === "fulfilled" && currentRes.value.ok
+      ? (currentRes.value.payload ?? {})
+      : {},
+  )
+  const entries =
+    historyRes.status === "fulfilled" && historyRes.value.ok
+      ? (historyRes.value.payload?.entries ?? [])
+      : []
+
+  const daily = entries.map((e) => ({
+    date: String(e.date ?? ""),
+    totalTokens: Number(e.tokens ?? 0),
+    totalCost: Number(e.costUsd ?? e.cost ?? 0),
+  }))
+
+  const totalCost = daily.reduce((s, d) => s + d.totalCost, 0)
+  const totalTokens = snap.totalTokens || daily.reduce((s, d) => s + d.totalTokens, 0)
+
+  return {
+    totals: {
+      input: snap.inputTokens,
+      output: snap.outputTokens,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens,
+      totalCost,
+      inputCost: totalCost * 0.6,
+      outputCost: totalCost * 0.4,
+      cacheReadCost: 0,
+      cacheWriteCost: 0,
+    },
+    daily,
+    days: daily.length,
+  }
+}
+
 export async function usageEstimate(input: {
   model?: string
   tokens?: number

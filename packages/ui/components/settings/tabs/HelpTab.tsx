@@ -1,7 +1,7 @@
 "use client"
 
 import { openExternalUrl } from "@/lib/ipc"
-import { LuBookOpen, LuUsers, LuGithub, LuKeyboard, LuExternalLink } from "react-icons/lu"
+import { LuGithub, LuKeyboard, LuExternalLink } from "react-icons/lu"
 
 type HelpLink = {
   label: string
@@ -11,8 +11,6 @@ type HelpLink = {
 }
 
 const HELP_LINKS: HelpLink[] = [
-  { label: "Documentation", description: "Read the official OpenClaw docs", url: "https://docs.openclaw.ai", icon: LuBookOpen },
-  { label: "Community Discord", description: "Join the community", url: "https://discord.com/invite/clawd", icon: LuUsers },
   { label: "GitHub", description: "Report issues and view source", url: "https://github.com/nextbaseparadox-star/openclaw-desktop", icon: LuGithub },
   { label: "Keyboard Shortcuts", description: "View all shortcuts", url: "#", icon: LuKeyboard },
 ]

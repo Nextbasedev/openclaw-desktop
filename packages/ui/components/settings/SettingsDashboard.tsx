@@ -2,19 +2,15 @@
 
 import * as React from "react"
 import { Icons } from "@/components/icons"
-import { AccountTab } from "./tabs/AccountTab"
 import { AppearanceTab } from "./tabs/AppearanceTab"
-import { DataControlTab } from "./tabs/DataControlTab"
-import { MaintenanceTab } from "./tabs/MaintenanceTab"
 import { HelpTab } from "./tabs/HelpTab"
 import { KeyboardShortcutsTab } from "./tabs/KeyboardShortcutsTab"
 import { ArchiveTab } from "./tabs/ArchiveTab"
+import { MemoryTab } from "./tabs/MemoryTab"
 // import { UsagePage } from "@/components/UsagePage"
 import { cn } from "@/lib/utils"
 
-type SettingSection = "usage" | "memory" | "archive" | "account" | "appearance" | "data" | "maintenance" | "help" | "shortcuts"
-
-const SYSTEM_IDS: SettingSection[] = ["account", "appearance", "data", "maintenance"]
+type SettingSection = "memory" | "archive" | "appearance" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -25,7 +21,7 @@ const SECTION_GROUPS: SectionGroup[] = [
   {
     label: "Personal",
     items: [
-      { id: "usage", label: "Usage", icon: Icons.Automations },
+      // { id: "usage", label: "Usage", icon: Icons.Automations },
       { id: "memory", label: "Memory", icon: Icons.Memory },
       { id: "archive", label: "Archive", icon: Icons.File },
     ],
@@ -33,10 +29,7 @@ const SECTION_GROUPS: SectionGroup[] = [
   {
     label: "System",
     items: [
-      { id: "account", label: "Account", icon: Icons.UserAccount },
       { id: "appearance", label: "Appearance", icon: Icons.Settings },
-      { id: "data", label: "Data Control", icon: Icons.Files },
-      { id: "maintenance", label: "Maintenance", icon: Icons.Wrench },
     ],
   },
 ]
@@ -46,58 +39,16 @@ const FOOTER_ITEMS: Array<{ id: SettingSection; label: string; icon: React.Eleme
 ]
 
 type SettingsDashboardProps = {
-  onSignOut?: () => void
-  onDeleteAccount?: () => void
-  accountData?: { botName: string; provider: string; model: string }
   onBack?: () => void
 }
 
-export function SettingsDashboard({ onSignOut, onDeleteAccount, accountData, onBack }: SettingsDashboardProps) {
-  const [activeSection, setActiveSection] = React.useState<SettingSection>("usage")
+export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
+  const [activeSection, setActiveSection] = React.useState<SettingSection>("memory")
   const scrollRef = React.useRef<HTMLDivElement>(null)
-  const sectionRefs = React.useRef<Record<string, HTMLElement | null>>({})
-  const isClickScroll = React.useRef(false)
-
-  const activeView = SYSTEM_IDS.includes(activeSection) ? "system" : activeSection
-
-  React.useEffect(() => {
-    const container = scrollRef.current
-    if (!container || activeView !== "system") return
-
-    function onScroll() {
-      if (isClickScroll.current) return
-      const top = container!.getBoundingClientRect().top
-      let closest: SettingSection = "account"
-      let closestDist = Infinity
-      for (const id of SYSTEM_IDS) {
-        const el = sectionRefs.current[id]
-        if (!el) continue
-        const dist = Math.abs(el.getBoundingClientRect().top - top)
-        if (dist < closestDist) {
-          closestDist = dist
-          closest = id
-        }
-      }
-      setActiveSection(closest)
-    }
-
-    container.addEventListener("scroll", onScroll, { passive: true })
-    return () => container.removeEventListener("scroll", onScroll)
-  }, [activeView])
 
   function handleSidebarClick(id: SettingSection) {
-    if (SYSTEM_IDS.includes(id) && activeView === "system") {
-      const el = sectionRefs.current[id]
-      if (el) {
-        isClickScroll.current = true
-        el.scrollIntoView({ behavior: "smooth", block: "start" })
-        setActiveSection(id)
-        setTimeout(() => { isClickScroll.current = false }, 600)
-      }
-    } else {
-      setActiveSection(id)
-      if (scrollRef.current) scrollRef.current.scrollTop = 0
-    }
+    setActiveSection(id)
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
   }
 
   return (
@@ -144,59 +95,17 @@ export function SettingsDashboard({ onSignOut, onDeleteAccount, accountData, onB
       </nav>
 
       <div ref={scrollRef} className="w-full max-w-xl overflow-y-auto scrollbar-hide my-2 md:my-4 lg:my-6">
-        {/* {activeView === "usage" && <UsagePage />} */}
-        {activeView === "usage" && (
-          <div className="flex flex-col gap-6">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Usage</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Track your token consumption and costs.
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/50 bg-card px-5 py-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                Usage data will appear here once you have an active subscription connected.
-              </p>
-            </div>
-          </div>
-        )}
+        {/* {activeSection === "usage" && <UsagePage />} */}
 
-        {activeView === "memory" && (
-          <div className="flex flex-col gap-6">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Memory</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                View and manage your agent&apos;s stored memory and context.
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/50 bg-card p-5 text-sm text-muted-foreground italic">
-              Memory system is loading...
-            </div>
-          </div>
-        )}
+        {activeSection === "memory" && <MemoryTab />}
 
-        {activeView === "archive" && <ArchiveTab />}
+        {activeSection === "archive" && <ArchiveTab />}
 
-        {activeView === "system" && (
-          <div className="flex flex-col gap-12">
-            <div ref={(el) => { sectionRefs.current.account = el }}>
-              <AccountTab data={accountData} />
-            </div>
-            <div ref={(el) => { sectionRefs.current.appearance = el }}>
-              <AppearanceTab />
-            </div>
-            <div ref={(el) => { sectionRefs.current.data = el }}>
-              <DataControlTab />
-            </div>
-            <div ref={(el) => { sectionRefs.current.maintenance = el }}>
-              <MaintenanceTab onSignOut={onSignOut} onDeleteAccount={onDeleteAccount} />
-            </div>
-          </div>
-        )}
+        {activeSection === "appearance" && <AppearanceTab />}
 
-        {activeView === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+        {activeSection === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
 
-        {activeView === "shortcuts" && <KeyboardShortcutsTab onBack={() => { setActiveSection("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+        {activeSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { setActiveSection("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
       </div>
     </div>
   )

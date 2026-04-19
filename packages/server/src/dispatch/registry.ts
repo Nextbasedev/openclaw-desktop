@@ -183,6 +183,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_sync_set_device_id: (i) => sync.syncSetDeviceId(i as { deviceId: string }),
 
   // Usage (Gateway-dependent)
+  middleware_usage_summary: (i) => usage.usageSummary(i as { startDate?: string; endDate?: string }),
   middleware_usage_current: () => usage.usageCurrent(),
   middleware_usage_history: (i) => usage.usageHistory(i as { period?: string }),
   middleware_usage_limits: () => usage.usageLimits(),
