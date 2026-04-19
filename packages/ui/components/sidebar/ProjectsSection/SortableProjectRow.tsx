@@ -55,17 +55,16 @@ export function SortableProjectRow({
       dragControls={controls}
       as="div"
       layout="position"
-      transition={{ layout: { duration: 0.12, ease: "easeOut" } }}
+      transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
       className="flex flex-col"
-      style={{ position: "relative" }}
-      animate={{ opacity: 1 }}
-      whileDrag={{ scale: 1.01 }}
+      style={{ position: "relative", boxShadow: "none" }}
+      whileDrag={{ boxShadow: "none" }}
       {...longPress}
     >
       <div className="group/row group/project relative flex items-center">
         <button
           onClick={onProjectClick}
-          className="flex flex-1 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all duration-150 text-foreground/90 hover:bg-foreground/4 hover:text-foreground"
+          className="flex flex-1 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 text-foreground/90 hover:bg-foreground/4 hover:text-foreground"
         >
           {isPinned && (
             <span onClick={(e) => { e.stopPropagation(); onTogglePinProject() }} title="Unpin" className="flex shrink-0 cursor-pointer items-center justify-center">

@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { useState, useEffect, useCallback } from "react"
+import { invoke } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatBox } from "@/components/ChatBox"
 import { cn } from "@/lib/utils"
 
 type SessionMapping = {
-  sessionKey: string
+  key: string
   label: string
   status: string
   createdAt: string
@@ -48,6 +48,8 @@ function formatRelativeTime(dateStr: string): string {
 export function TopicView({ topicId, projectId, topicName, projectName, onSessionSelect }: Props) {
   const [sessions, setSessions] = useState<SessionMapping[]>([])
   const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -61,6 +63,44 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
       })
       .catch(() => setLoading(false))
   }, [topicId, projectId])
+
+  const handleFirstMessage = useCallback(async (text: string) => {
+    if (sending) return
+    setSending(true)
+    setSendError(null)
+    try {
+      const status = await invoke<{ gatewayConfigured: boolean; hasIdentity: boolean; status: string }>(
+        "middleware_connect_status",
+        { input: {} },
+      )
+      if (!status.gatewayConfigured) {
+        setSendError("Gateway not configured. Go to Connect in the sidebar to set up your gateway.")
+        return
+      }
+      if (!status.hasIdentity) {
+        setSendError("Device identity not set up. Complete onboarding first.")
+        return
+      }
+
+      const label = text.slice(0, 50) || "New Chat"
+      const result = await invoke<{ session: { key: string } }>(
+        "middleware_sessions_create",
+        { input: { projectId, topicId, agentId: "main", label } },
+      )
+      const sessionKey = result.session.key
+      await invoke("middleware_chat_send", { input: { sessionKey, text } })
+      onSessionSelect(sessionKey, label)
+    } catch (err) {
+      const msg = String(err)
+      if (msg.includes("pairing required")) {
+        setSendError("Device not paired. Go to Connect in the sidebar and click 'Save & Connect'.")
+      } else {
+        setSendError(msg)
+      }
+    } finally {
+      setSending(false)
+    }
+  }, [sending, projectId, topicId, onSessionSelect])
 
   if (loading) {
     return (
@@ -77,7 +117,14 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
     return (
       <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
         <AnimatedGreeting />
-        <ChatBox />
+        <ChatBox onSend={handleFirstMessage} disabled={sending} />
+        {sendError && (
+          <div className="mx-auto w-full max-w-3xl px-4">
+            <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-center">
+              <p className="text-sm text-red-400">{sendError}</p>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -106,9 +153,9 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
         <div className="flex flex-col gap-3">
           {sessions.map((session) => (
             <SessionCard
-              key={session.sessionKey}
+              key={session.key}
               session={session}
-              onClick={() => onSessionSelect(session.sessionKey, session.label || "Untitled")}
+              onClick={() => onSessionSelect(session.key, session.label || "Untitled")}
             />
           ))}
         </div>

@@ -12,9 +12,10 @@ import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
+import { useQuickChat } from "@/hooks/useQuickChat"
+import { useTopicSession } from "@/hooks/useTopicSession"
 import ConnectPage from "@/app/connect/page"
 import { ChatView } from "@/components/ChatView"
-import { TopicView } from "@/components/TopicView"
 import { OnboardingWizard, useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { useTheme } from "next-themes"
@@ -139,18 +140,34 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     }
   }, [])
 
-  // Topic selected from sidebar → show TopicView, clear active session
+  // Topic selected from sidebar → auto-resolve its session
   const handleTopicSelect = useCallback((topic: ActiveTopic) => {
     setActiveTopic(topic)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
   }, [])
 
-  // Session selected from TopicView → show ChatView
-  const handleSessionSelect = useCallback((sessionKey: string, title: string) => {
+  // Called by useTopicSession when session is found/created
+  const handleSessionResolved = useCallback((key: string, title: string) => {
+    setActiveSessionKey(key)
+    setActiveSessionTitle(title)
+  }, [])
+
+  // Navigate directly to a chat (topic + session set atomically)
+  const navigateToChat = useCallback((topic: ActiveTopic, sessionKey: string, title: string) => {
+    setActiveTopic(topic)
     setActiveSessionKey(sessionKey)
     setActiveSessionTitle(title)
   }, [])
+
+  // Auto-resolve session when topic is selected without a session
+  const { resolving: sessionResolving, error: sessionError } = useTopicSession(
+    activeTopic, activeSessionKey, handleSessionResolved,
+  )
+
+  const { handleQuickChat, sending: quickChatSending, error: quickChatError } = useQuickChat({
+    navigateToChat,
+  })
 
   // Nav tab change → clear project context
   const handleTabChange = useCallback((tab: string) => {
@@ -212,10 +229,14 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               activeTopic={activeTopic}
               activeSessionKey={activeSessionKey}
               activeSessionTitle={activeSessionTitle}
-              onSessionSelect={handleSessionSelect}
               onSignOut={handleSignOut}
               onDeleteAccount={handleDeleteAccount}
               flowState={flowState}
+              onQuickChat={handleQuickChat}
+              quickChatSending={quickChatSending}
+              quickChatError={quickChatError}
+              sessionResolving={sessionResolving}
+              sessionError={sessionError}
             />
           </main>
         </div>
@@ -252,20 +273,28 @@ function MainContent({
   activeTopic,
   activeSessionKey,
   activeSessionTitle,
-  onSessionSelect,
   onSignOut,
   onDeleteAccount,
   flowState,
+  onQuickChat,
+  quickChatSending,
+  quickChatError,
+  sessionResolving,
+  sessionError,
 }: {
   activeTab: string
   chatKey: number
   activeTopic: ActiveTopic | null
   activeSessionKey: string | null
   activeSessionTitle: string | null
-  onSessionSelect: (sessionKey: string, title: string) => void
   onSignOut: () => void
   onDeleteAccount: () => void
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
+  onQuickChat: (text: string) => void
+  quickChatSending: boolean
+  quickChatError: string | null
+  sessionResolving: boolean
+  sessionError: string | null
 }) {
   // 1. Session history view (deepest level)
   if (activeSessionKey && activeTopic) {
@@ -276,22 +305,43 @@ function MainContent({
     )
   }
 
-  // 2. Topic view — list of sessions
-  if (activeTopic) {
+  // 2. Topic selected, session resolving → loading
+  if (activeTopic && sessionResolving) {
     return (
-      <div className="flex h-full w-full">
-        <TopicView
-          topicId={activeTopic.id}
-          projectId={activeTopic.projectId}
-          topicName={activeTopic.name}
-          projectName={activeTopic.projectName}
-          onSessionSelect={onSessionSelect}
-        />
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
+        </div>
       </div>
     )
   }
 
-  // 3. Tab views
+  // 3. Topic selected, session failed → error
+  if (activeTopic && sessionError) {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-8">
+        <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
+          <p className="text-sm font-medium text-red-400">Failed to open conversation</p>
+          <p className="mt-1 text-xs text-muted-foreground">{sessionError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 4. Topic selected, waiting for effect to start → show loading
+  if (activeTopic && !activeSessionKey) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // 5. Normal tab views
   if (activeTab === "skill") return <SkillPage />
   if (activeTab === "connect") return <ConnectPage />
   if (activeTab === "settings") {
@@ -319,7 +369,14 @@ function MainContent({
       className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10"
     >
       <AnimatedGreeting />
-      <ChatBox />
+      <ChatBox onSend={onQuickChat} disabled={quickChatSending} />
+      {quickChatError && (
+        <div className="mx-auto w-full max-w-3xl px-4">
+          <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-center">
+            <p className="text-sm text-red-400">{quickChatError}</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

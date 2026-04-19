@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(openclaw gateway *)",
-      "Bash(cmd /C \"mklink /J \\\\\"C:\\\\Users\\\\ASUS\\\\OneDrive\\\\Desktop\\\\Projects\\\\openclaw-desktop\\\\.openclaw-src\\\\extensions\\\\\" \\\\\"C:\\\\Users\\\\ASUS\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\extensions\\\\\"\")"
+      "Bash(cmd /C \"mklink /J \\\\\"C:\\\\Users\\\\ASUS\\\\OneDrive\\\\Desktop\\\\Projects\\\\openclaw-desktop\\\\.openclaw-src\\\\extensions\\\\\" \\\\\"C:\\\\Users\\\\ASUS\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\extensions\\\\\"\")",
+      "Bash(openclaw status *)",
+      "Bash(cargo check *)"
     ]
   }
 }

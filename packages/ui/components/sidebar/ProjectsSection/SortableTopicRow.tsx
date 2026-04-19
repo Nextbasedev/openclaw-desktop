@@ -38,18 +38,17 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
       dragControls={controls}
       as="div"
       layout="position"
-      transition={{ layout: { duration: 0.12, ease: "easeOut" } }}
+      transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
       className="group/row relative flex items-center rounded-md"
-      style={{ position: "relative" }}
-      animate={{ opacity: 1 }}
-      whileDrag={{ scale: 1.01 }}
+      style={{ position: "relative", boxShadow: "none" }}
+      whileDrag={{ boxShadow: "none" }}
       {...longPress}
     >
       <button
         onClick={onClick}
         style={isActive ? { color: "#ffffff" } : undefined}
         className={cn(
-          "flex flex-1 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-left transition-all duration-150",
+          "flex flex-1 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors duration-150",
           isActive ? "bg-foreground/7" : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
         )}
       >
