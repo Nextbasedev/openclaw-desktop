@@ -23,7 +23,7 @@ export type Model = {
 
 export const MODELS: Model[] = [
   { id: "gpt-5.2", label: "GPT-5.2" },
-  { id: "claude-opus", label: "Claude Opus" },
+  { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { id: "claude-sonnet", label: "Claude Sonnet" },
   { id: "gemini-2", label: "Gemini 2" },
 ]
