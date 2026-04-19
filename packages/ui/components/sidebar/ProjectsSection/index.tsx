@@ -21,7 +21,7 @@ export function ProjectsSection({ collapsed, activeTopic, onTopicSelect }: Props
     setProjectOrder, topicOrder, setTopicOrder,
     pinnedProjects, pinnedTopics, sortedProjectIds,
     handleProjectClick, togglePinProject, togglePinTopic,
-    handleArchiveProject, handleArchiveTopic,
+    handleArchiveProject, handleArchiveTopic, handleDeleteTopic,
     dialogState, dialogActions,
   } = useProjectsData(onTopicSelect)
 
@@ -93,6 +93,7 @@ export function ProjectsSection({ collapsed, activeTopic, onTopicSelect }: Props
                   onPinTopic={(topicId) => togglePinTopic(topicId, projectId)}
                   onRenameTopic={(t) => dialogActions.openRenameTopic(t)}
                   onArchiveTopic={handleArchiveTopic}
+                  onDeleteTopic={handleDeleteTopic}
                   onTopicReorder={(newOrder) => setTopicOrder((prev) => ({ ...prev, [projectId]: newOrder }))}
                 />
               )

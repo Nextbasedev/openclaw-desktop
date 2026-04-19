@@ -31,6 +31,7 @@ type Props = {
   onPinTopic: (topicId: string) => void
   onRenameTopic: (topic: FullTopic) => void
   onArchiveTopic: (topic: FullTopic) => void
+  onDeleteTopic: (topic: FullTopic) => void
   onTopicReorder: (newOrder: string[]) => void
 }
 
@@ -38,7 +39,7 @@ export function SortableProjectRow({
   projectId, projects, isExpanded, hasActiveTopic, isPinned,
   activeTopic, topics, topicOrderForProject, pinnedTopics, loadingProject,
   onProjectClick, onTogglePinProject, onOpenAddTopic, onRenameProject,
-  onArchiveProject, onTopicSelect, onPinTopic, onRenameTopic, onArchiveTopic, onTopicReorder,
+  onArchiveProject, onTopicSelect, onPinTopic, onRenameTopic, onArchiveTopic, onDeleteTopic, onTopicReorder,
 }: Props) {
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
@@ -130,6 +131,7 @@ export function SortableProjectRow({
                     onPin={() => onPinTopic(topicId)}
                     onRename={() => { const t = topics.find((x) => x.id === topicId); if (t) onRenameTopic(t) }}
                     onArchive={() => { const t = topics.find((x) => x.id === topicId); if (t) onArchiveTopic(t) }}
+                    onDelete={() => { const t = topics.find((x) => x.id === topicId); if (t) onDeleteTopic(t) }}
                   />
                 ))}
               </Reorder.Group>

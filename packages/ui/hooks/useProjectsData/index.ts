@@ -133,6 +133,17 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
     }
   }, [projectTopics])
 
+  useEffect(() => {
+    function onArchiveRestored() {
+      loadProjects()
+      for (const id of Object.keys(projectTopics)) {
+        loadProjectTopics(id, true)
+      }
+    }
+    window.addEventListener("archive-restored", onArchiveRestored)
+    return () => window.removeEventListener("archive-restored", onArchiveRestored)
+  }, [loadProjects, loadProjectTopics, projectTopics])
+
   const handleProjectClick = useCallback((project: Project) => {
     setExpandedProjects((prev) => {
       const next = new Set(prev)
@@ -294,6 +305,13 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
     } catch (e) { console.error("archive topic failed", e) }
   }, [loadProjectTopics])
 
+  const handleDeleteTopic = useCallback(async (topic: FullTopic) => {
+    try {
+      await invoke("middleware_topics_delete", { input: { topicId: topic.id } })
+      await loadProjectTopics(topic.projectId, true)
+    } catch (e) { console.error("delete topic failed", e) }
+  }, [loadProjectTopics])
+
   const sortedProjectIds = useMemo(() => {
     const pinned = projectOrder.filter((id) => pinnedProjects.has(id))
     const unpinned = projectOrder.filter((id) => !pinnedProjects.has(id))
@@ -319,7 +337,7 @@ export function useProjectsData(onTopicSelect: (topic: ActiveTopic) => void) {
     projectOrder, setProjectOrder, topicOrder, setTopicOrder,
     pinnedProjects, pinnedTopics, sortedProjectIds,
     handleProjectClick, togglePinProject, togglePinTopic,
-    handleArchiveProject, handleArchiveTopic,
+    handleArchiveProject, handleArchiveTopic, handleDeleteTopic,
     dialogState, dialogActions,
   }
 }

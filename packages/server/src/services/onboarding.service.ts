@@ -94,6 +94,7 @@ function commandVersion(
   try {
     const output = execFileSync(binary, [versionArg], {
       timeout: 5000,
+      shell: true,
     })
       .toString()
       .trim()
@@ -1101,6 +1102,7 @@ export function onboardingCore(input: {
       try {
         execFileSync("npm", ["i", "-g", "openclaw"], {
           timeout: 60000,
+          shell: true,
         })
         actionsRun.push("npm i -g openclaw")
       } catch (e: unknown) {
@@ -1117,7 +1119,7 @@ export function onboardingCore(input: {
         execFileSync(
           "openclaw",
           ["gateway", "start"],
-          { timeout: 15000 },
+          { timeout: 15000, shell: true },
         )
         actionsRun.push("openclaw gateway start")
       } catch (e: unknown) {

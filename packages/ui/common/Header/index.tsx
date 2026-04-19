@@ -7,10 +7,12 @@ import { TrafficLights } from "@/components/TrafficLights"
 import { WindowControls } from "@/components/WindowControls"
 import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
+import { NotificationPopover } from "@/components/notifications/NotificationPopover"
 
 type HeaderProps = {
     user?: HeaderUser
     className?: string
+    minimal?: boolean
     inspectorOpen?: boolean
     onToggleInspector?: () => void
     terminalOpen?: boolean
@@ -19,6 +21,7 @@ type HeaderProps = {
     onToggleSidebar?: () => void
     centerLabel?: string | null
     onOpenSettings?: () => void
+    onOpenNotifications?: () => void
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -29,6 +32,7 @@ const DEFAULT_USER: HeaderUser = {
 export function Header({
     user = DEFAULT_USER,
     className,
+    minimal = false,
     inspectorOpen = false,
     onToggleInspector,
     terminalOpen = false,
@@ -37,6 +41,7 @@ export function Header({
     onToggleSidebar,
     centerLabel,
     onOpenSettings,
+    onOpenNotifications,
 }: HeaderProps) {
     const platform = usePlatform()
 
@@ -77,73 +82,74 @@ export function Header({
             </div>
 
             <div className="relative z-10 flex items-center gap-0">
-                <button
-                    type="button"
-                    aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-                    title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-                    onClick={onToggleSidebar}
-                    className={cn(
-                        "flex size-7 items-center justify-center rounded-md",
-                        "transition-colors cursor-pointer",
-                        sidebarOpen
-                            ? "text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                    )}
-                >
-                    {sidebarOpen ? (
-                        <VscLayoutSidebarLeft className="size-4" />
-                    ) : (
-                        <VscLayoutSidebarLeftOff className="size-4" />
-                    )}
-                </button>
+                {!minimal && (
+                    <>
+                        <button
+                            type="button"
+                            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+                            title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+                            onClick={onToggleSidebar}
+                            className={cn(
+                                "flex size-7 items-center justify-center rounded-md",
+                                "transition-colors cursor-pointer",
+                                sidebarOpen
+                                    ? "text-foreground"
+                                    : "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            {sidebarOpen ? (
+                                <VscLayoutSidebarLeft className="size-4" />
+                            ) : (
+                                <VscLayoutSidebarLeftOff className="size-4" />
+                            )}
+                        </button>
 
-                <button
-                    type="button"
-                    aria-label="Toggle inspector panel"
-                    title="Toggle inspector panel"
-                    onClick={onToggleInspector}
-                    className={cn(
-                        "flex size-7 items-center justify-center rounded-md",
-                        "transition-colors cursor-pointer",
-                        inspectorOpen
-                            ? "text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                    )}
-                >
-                    {inspectorOpen ? (
-                        <VscLayoutSidebarRight className="size-4" />
-                    ) : (
-                        <VscLayoutSidebarRightOff className="size-4" />
-                    )}
-                </button>
+                        <button
+                            type="button"
+                            aria-label="Toggle inspector panel"
+                            title="Toggle inspector panel"
+                            onClick={onToggleInspector}
+                            className={cn(
+                                "flex size-7 items-center justify-center rounded-md",
+                                "transition-colors cursor-pointer",
+                                inspectorOpen
+                                    ? "text-foreground"
+                                    : "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            {inspectorOpen ? (
+                                <VscLayoutSidebarRight className="size-4" />
+                            ) : (
+                                <VscLayoutSidebarRightOff className="size-4" />
+                            )}
+                        </button>
 
-                <button
-                    type="button"
-                    aria-label="Toggle terminal"
-                    title="Toggle terminal"
-                    onClick={onToggleTerminal}
-                    className={cn(
-                        "flex size-7 items-center justify-center rounded-md",
-                        "transition-colors cursor-pointer",
-                        terminalOpen
-                            ? "text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                    )}
-                >
-                    <VscTerminal className="size-4" />
-                </button>
+                        <button
+                            type="button"
+                            aria-label="Toggle terminal"
+                            title="Toggle terminal"
+                            onClick={onToggleTerminal}
+                            className={cn(
+                                "flex size-7 items-center justify-center rounded-md",
+                                "transition-colors cursor-pointer",
+                                terminalOpen
+                                    ? "text-foreground"
+                                    : "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            <VscTerminal className="size-4" />
+                        </button>
 
-                <HeaderIconButton
-                    icon={Icons.Notification}
-                    label="Notifications"
-                />
-                <HeaderIconButton
-                    icon={Icons.Settings}
-                    label="Settings"
-                    onClick={onOpenSettings}
-                />
+                        <NotificationPopover onViewAll={onOpenNotifications} />
+                        <HeaderIconButton
+                            icon={Icons.Settings}
+                            label="Settings"
+                            onClick={onOpenSettings}
+                        />
+                    </>
+                )}
 
-                {isWindows && <WindowControls className="ml-2" />}
+                {isWindows && <WindowControls className={minimal ? "" : "ml-2"} />}
             </div>
         </header>
     )

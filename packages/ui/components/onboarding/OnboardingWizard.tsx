@@ -50,7 +50,7 @@ export function OnboardingWizard({ onComplete }: Props) {
   if (loading && !flowState) {
     return (
       <div className="flex h-svh flex-col bg-background">
-        <Header />
+        <Header minimal />
         <div className="flex flex-1 items-center justify-center">
           <div className="flex items-center gap-3">
             <Icons.Refresh size={18} className="animate-spin text-muted-foreground" />
@@ -64,7 +64,7 @@ export function OnboardingWizard({ onComplete }: Props) {
   if (error && !flowState) {
     return (
       <div className="flex h-svh flex-col bg-background">
-        <Header />
+        <Header minimal />
         <div className="flex flex-1 items-center justify-center">
           <div className="max-w-md space-y-4 text-center">
             <p className="text-sm text-destructive">{error}</p>
@@ -85,7 +85,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   return (
     <div className="flex h-svh flex-col bg-background">
-      <Header />
+      <Header minimal />
 
       <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto overflow-x-hidden px-6">
         {activeStep !== "complete" && (

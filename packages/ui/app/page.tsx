@@ -11,6 +11,7 @@ import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
+import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import { useQuickChat } from "@/hooks/useQuickChat"
@@ -20,6 +21,7 @@ import { ChatView } from "@/components/ChatView"
 import { OnboardingWizard, useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { useTheme } from "next-themes"
+import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -55,9 +57,7 @@ export default function Page() {
 }
 
 function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
-  const [inspectorOpen, setInspectorOpen] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth >= 1280 : false
-  )
+  const [inspectorOpen, setInspectorOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
@@ -95,6 +95,11 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const openSettings = useCallback(() => {
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setActiveTab("settings")
+  }, [activeTab])
+
+  const openNotifications = useCallback(() => {
+    prevTabRef.current = activeTab === "notifications" ? "chat" : activeTab
+    setActiveTab("notifications")
   }, [activeTab])
 
   const handleSettingsBack = useCallback(() => {
@@ -231,6 +236,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         onToggleSidebar={toggleSidebar}
         centerLabel={centerLabel}
         onOpenSettings={openSettings}
+        onOpenNotifications={openNotifications}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -271,9 +277,21 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         <InspectorPanel
           open={inspectorOpen}
           onClose={toggleInspector}
+          projectId={activeTopic?.projectId ?? null}
           terminalActive={terminalActive}
           onTerminalActiveChange={setTerminalActive}
         />
+
+        {!inspectorOpen && (
+          <button
+            type="button"
+            aria-label="Open inspector"
+            onClick={toggleInspector}
+            className="fixed right-3 top-1/2 z-30 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg border border-border/50 bg-card text-muted-foreground shadow-md transition-colors hover:text-foreground"
+          >
+            <VscLayoutSidebarRightOff className="size-4" />
+          </button>
+        )}
       </div>
 
       <Footer
@@ -328,54 +346,7 @@ function MainContent({
   sessionError: string | null
   onSettingsBack: () => void
 }) {
-  // 1. Session history view (deepest level)
-  if (activeSessionKey && activeTopic) {
-    return (
-      <div className="flex h-full w-full">
-        <ChatView sessionKey={activeSessionKey} sessionTitle={activeSessionTitle ?? undefined} />
-      </div>
-    )
-  }
-
-  // 2. Topic selected, session resolving → loading
-  if (activeTopic && sessionResolving) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
-        </div>
-      </div>
-    )
-  }
-
-  // 3. Topic selected, session failed → error
-  if (activeTopic && sessionError) {
-    return (
-      <div className="flex h-full w-full items-center justify-center px-8">
-        <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
-          <p className="text-sm font-medium text-red-400">Failed to open conversation</p>
-          <p className="mt-1 text-xs text-muted-foreground">{sessionError}</p>
-        </div>
-      </div>
-    )
-  }
-
-  // 4. Topic selected, waiting for effect to start → show loading
-  if (activeTopic && !activeSessionKey) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
-        </div>
-      </div>
-    )
-  }
-
-  // 5. Normal tab views
-  if (activeTab === "skill") return <SkillPage />
-  if (activeTab === "connect") return <ConnectPage />
+  // 1. Settings and notifications take priority over active chat
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
@@ -395,7 +366,64 @@ function MainContent({
     )
   }
 
-  // 4. Default: chat / greeting
+  if (activeTab === "notifications") {
+    return (
+      <div className="flex h-full w-full">
+        <NotificationDashboard onBack={onSettingsBack} />
+      </div>
+    )
+  }
+
+  // 2. Session history view
+  if (activeSessionKey && activeTopic) {
+    return (
+      <div className="flex h-full w-full">
+        <ChatView sessionKey={activeSessionKey} sessionTitle={activeSessionTitle ?? undefined} />
+      </div>
+    )
+  }
+
+  // 3. Topic selected, session resolving → loading
+  if (activeTopic && sessionResolving) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // 4. Topic selected, session failed → error
+  if (activeTopic && sessionError) {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-8">
+        <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
+          <p className="text-sm font-medium text-red-400">Failed to open conversation</p>
+          <p className="mt-1 text-xs text-muted-foreground">{sessionError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 5. Topic selected, waiting for effect to start
+  if (activeTopic && !activeSessionKey) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // 6. Other tab views
+  if (activeTab === "skill") return <SkillPage />
+  if (activeTab === "connect") return <ConnectPage />
+
+  // Default: chat / greeting
   return (
     <div
       key={`${activeTab}-${chatKey}`}

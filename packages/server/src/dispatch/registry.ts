@@ -107,7 +107,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_git_remote_add: (i) => git.gitRemoteAdd(i as Parameters<typeof git.gitRemoteAdd>[0]),
   middleware_git_remote_list: (i) => git.gitRemoteList(i as { projectId: string }),
   middleware_git_remote_remove: (i) => git.gitRemoteRemove(i as Parameters<typeof git.gitRemoteRemove>[0]),
-  middleware_git_context: (i) => git.gitContext(i as { projectId: string; topicId?: string }),
+  middleware_git_context: (i) => git.gitContext(i as { projectId?: string; topicId?: string }),
   middleware_git_switch_branch: (i) => git.gitSwitchBranch(i as Parameters<typeof git.gitSwitchBranch>[0]),
   middleware_git_branches: (i) => git.gitBranches(i as { projectId: string }),
 
