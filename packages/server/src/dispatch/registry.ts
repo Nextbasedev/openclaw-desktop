@@ -9,6 +9,7 @@ import * as fsRaw from "../services/fs.service.js"
 import * as git from "../services/git.service.js"
 import * as memory from "../services/memory.service.js"
 import * as skills from "../services/skills.service.js"
+import * as skillRuntime from "../services/skill-runtime.service.js"
 import * as chats from "../services/chats.service.js"
 import * as autonaming from "../services/autonaming.service.js"
 import * as recent from "../services/recent.service.js"
@@ -124,6 +125,12 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_skills_install: (i) => skills.skillsInstall(i as Parameters<typeof skills.skillsInstall>[0]),
   middleware_skills_installed: (i) => skills.skillsInstalled(i as Parameters<typeof skills.skillsInstalled>[0]),
   middleware_skills_search_hub: (i) => skills.skillsSearchHub(i as Parameters<typeof skills.skillsSearchHub>[0]),
+  middleware_skills_catalog: () => skills.getSkillCatalog(),
+  middleware_skills_catalog_add: (i) => skills.addSkillToCatalog(i as Parameters<typeof skills.addSkillToCatalog>[0]),
+  middleware_skills_catalog_remove: (i) => skills.removeSkillFromCatalog((i as { slug: string }).slug),
+  middleware_skills_active: () => skillRuntime.getInstalledSkills(),
+  middleware_skills_toggle: (i) => skillRuntime.setSkillEnabled((i as { slug: string; enabled: boolean }).slug, (i as { slug: string; enabled: boolean }).enabled),
+  middleware_skills_enabled_map: () => skillRuntime.getSkillEnabledMap(),
   middleware_commands_list: (i) => skills.commandsList(i as Parameters<typeof skills.commandsList>[0]),
   middleware_tools_catalog: (i) => skills.toolsCatalog(i as Parameters<typeof skills.toolsCatalog>[0]),
 

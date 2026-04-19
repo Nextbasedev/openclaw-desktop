@@ -7,6 +7,7 @@ import {
   openChatEventStream,
   type ChatStreamEvent,
 } from "middleware"
+import { prependSkillContext, clearSessionTracking } from "./skill-runtime.service.js"
 
 export const chatEvents = new EventEmitter()
 chatEvents.setMaxListeners(100)
@@ -111,6 +112,7 @@ export async function chatDeleteSession(input: {
     existing.close()
     activeStreams.delete(input.sessionKey)
   }
+  clearSessionTracking(input.sessionKey)
   try {
     return await deleteChatSession(input.sessionKey)
   } catch (error) {
@@ -125,12 +127,13 @@ export async function chatSend(input: {
   attachments?: unknown[]
 }) {
   const validatedAttachments = validateAttachments(input.attachments)
+  const messageText = prependSkillContext(input.text, input.sessionKey)
 
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
     result = await sendChatMessage({
       sessionKey: input.sessionKey,
-      text: input.text,
+      text: messageText,
       timeoutMs: input.timeoutMs,
       attachments: validatedAttachments,
     })
