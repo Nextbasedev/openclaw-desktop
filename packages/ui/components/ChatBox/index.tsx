@@ -3,8 +3,10 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
-import { ActionBar, MODELS } from "./ActionBar"
-
+import { ActionBar } from "./ActionBar"
+import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
+import { useSlashCommands } from "@/hooks/useSlashCommands"
+import { useModels } from "@/hooks/useModels"
 
   type Props = {
   initialPrompt?: string
@@ -18,11 +20,15 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
   const [input, setInput] = React.useState("")
   const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
-  const [selectedModel, setSelectedModel] = React.useState(MODELS[0])
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [isFocused, setIsFocused] = React.useState(false)
+  const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
+  const [slashFilter, setSlashFilter] = React.useState("")
+  const [slashSelectedIndex, setSlashSelectedIndex] = React.useState(0)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const { commands } = useSlashCommands()
+  const { models, currentModel } = useModels()
 
   React.useEffect(() => {
     if (initialPrompt && textareaRef.current) {
@@ -34,11 +40,29 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
 
   const hasInput = input.trim().length > 0
 
+  function updateSlashMenu(value: string) {
+    const match = value.match(/^\/(\S*)$/)
+    if (match) {
+      setSlashMenuOpen(true)
+      setSlashFilter(match[1])
+      setSlashSelectedIndex(0)
+    } else {
+      setSlashMenuOpen(false)
+    }
+  }
+
+  function handleSlashSelect(cmd: import("@/hooks/useSlashCommands").SlashCommand) {
+    setInput(`/${cmd.name} `)
+    setSlashMenuOpen(false)
+    textareaRef.current?.focus()
+  }
+
   function handleSend() {
     const text = input.trim()
     if (!text || disabled) return
     onSend?.(text)
     setInput("")
+    setSlashMenuOpen(false)
     if (textareaRef.current) textareaRef.current.style.height = "auto"
   }
 
@@ -65,17 +89,51 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             : "border-border/50"
         )}
       >
+        {slashMenuOpen && commands.length > 0 && (
+          <SlashCommandMenu
+            commands={commands}
+            filter={slashFilter}
+            selectedIndex={slashSelectedIndex}
+            onSelect={handleSlashSelect}
+          />
+        )}
         <div className="flex w-full flex-col pt-3">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => {
               setInput(e.target.value)
+              updateSlashMenu(e.target.value)
               autoResize()
             }}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             onKeyDown={(e) => {
+              if (slashMenuOpen) {
+                const filtered = getFilteredCommands(commands, slashFilter)
+                if (e.key === "ArrowDown") {
+                  e.preventDefault()
+                  setSlashSelectedIndex((i) => Math.min(i + 1, filtered.length - 1))
+                  return
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault()
+                  setSlashSelectedIndex((i) => Math.max(i - 1, 0))
+                  return
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  if (filtered[slashSelectedIndex]) {
+                    e.preventDefault()
+                    handleSlashSelect(filtered[slashSelectedIndex])
+                    return
+                  }
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault()
+                  setSlashMenuOpen(false)
+                  return
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() }
             }}
             placeholder="Message... (type / for commands)"
@@ -100,9 +158,11 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             onPlusOpenChange={setPlusOpen}
             modelOpen={modelOpen}
             onModelOpenChange={setModelOpen}
-            selectedModel={selectedModel}
+            models={models}
+            currentModelId={currentModel}
             onModelSelect={(model) => {
-              setSelectedModel(model)
+              const modelId = `${model.provider}/${model.id}`
+              onSend?.(`/model ${modelId}`)
               setModelOpen(false)
             }}
           />

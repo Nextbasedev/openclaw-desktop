@@ -154,9 +154,8 @@ export function useChatMessages(
           } else {
             seenIds.current.add(id)
             setMessages((prev) => {
-              const lastAssistant = [...prev]
-                .reverse()
-                .find((m) => m.role === "assistant")
+              const lastMsg = prev[prev.length - 1]
+              const lastAssistant = lastMsg?.role === "assistant" ? lastMsg : null
               if (
                 lastAssistant &&
                 (lastAssistant.text === text ||
