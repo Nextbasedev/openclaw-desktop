@@ -134,15 +134,23 @@ export function skillsDiscover(input?: {
     source: string
     version?: string
     location?: string
+    installed?: boolean
   }> = []
 
-  results.push(...BUILTIN_SKILLS)
+  const userSkillRoot = path.join(openclawUserRoot(), "skills")
+  results.push(
+    ...BUILTIN_SKILLS.map((s) => ({
+      ...s,
+      installed: fs.existsSync(path.join(userSkillRoot, s.slug, "SKILL.md")),
+    })),
+  )
   sources.push("builtin")
 
   if (includeLocal) {
+    const builtinSlugs = new Set(BUILTIN_SKILLS.map((s) => s.slug))
     const userSkills = scanLocalSkills(
       path.join(openclawUserRoot(), "skills"),
-    )
+    ).filter((s) => !builtinSlugs.has(s.slug))
     const workspaceSkills = scanLocalSkills(
       path.join(openclawUserRoot(), "workspace", "skills"),
     )
@@ -231,6 +239,50 @@ export function skillsInstall(input: {
       },
       location: targetDir,
       actions: [],
+      warnings: [],
+    }
+  }
+
+  if (input.source === "builtin") {
+    const builtin = BUILTIN_SKILLS.find((s) => s.slug === input.slug)
+    if (!builtin) {
+      throw new Error(`Unknown builtin skill: ${input.slug}`)
+    }
+
+    const targetRoot = openclawSkillRootForScope(scope)
+    const targetDir = path.join(targetRoot, builtin.slug)
+
+    if (fs.existsSync(path.join(targetDir, "SKILL.md")) && !input.force) {
+      return {
+        status: "already-installed",
+        skill: { ...builtin, installed: true },
+        location: targetDir,
+        actions: [],
+        warnings: [],
+      }
+    }
+
+    fs.mkdirSync(targetDir, { recursive: true })
+    const skillMd = [
+      "---",
+      `name: ${builtin.name}`,
+      `description: ${builtin.description}`,
+      `version: ${builtin.version}`,
+      `source: builtin`,
+      "---",
+      "",
+      `# ${builtin.name}`,
+      "",
+      builtin.description,
+      "",
+    ].join("\n")
+    fs.writeFileSync(path.join(targetDir, "SKILL.md"), skillMd, "utf-8")
+
+    return {
+      status: "installed",
+      skill: { ...builtin, installed: true },
+      location: targetDir,
+      actions: ["created SKILL.md"],
       warnings: [],
     }
   }

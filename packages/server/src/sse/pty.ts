@@ -12,14 +12,16 @@ export function ptyStreamHandler(req: Request, res: Response): void {
   res.write("\n")
 
   const onData = (event: unknown) => {
+    const payload = { ...(event as Record<string, unknown>), type: "pty.data" }
     res.write(
-      `event: data\ndata: ${JSON.stringify(event)}\n\n`,
+      `event: data\ndata: ${JSON.stringify(payload)}\n\n`,
     )
   }
 
   const onExit = (event: unknown) => {
+    const payload = { ...(event as Record<string, unknown>), type: "pty.exit" }
     res.write(
-      `event: exit\ndata: ${JSON.stringify(event)}\n\n`,
+      `event: exit\ndata: ${JSON.stringify(payload)}\n\n`,
     )
     cleanup()
   }

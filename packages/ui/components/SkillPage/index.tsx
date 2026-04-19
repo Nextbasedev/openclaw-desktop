@@ -26,7 +26,7 @@ type DiscoveredSkill = {
   name: string
   summary: string | null
   description: string | null
-  source: "clawhub" | "local" | "github"
+  source: "clawhub" | "local" | "github" | "builtin"
   version: string | null
   installed: boolean
   installSource: "clawhub" | "github" | "local"
@@ -43,6 +43,14 @@ type SkillDiscoverResponse = {
   sources: Array<"clawhub" | "local" | "github">
 }
 
+type SkillInstallResponse = {
+  status: string
+  skill: Record<string, unknown>
+  location: string
+  actions: string[]
+  warnings: string[]
+}
+
 type SkillItem = {
   id: string
   name: string
@@ -53,6 +61,9 @@ type SkillItem = {
   installed?: boolean
   source?: string
   version?: string | null
+  slug?: string
+  localPath?: string | null
+  repoUrl?: string | null
 }
 
 export function SkillPage() {
@@ -62,6 +73,61 @@ export function SkillPage() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [meta, setMeta] = React.useState<SkillDiscoverResponse | null>(null)
+  const [installingId, setInstallingId] = React.useState<string | null>(null)
+  const [installError, setInstallError] = React.useState<string | null>(null)
+
+  const refreshSkills = React.useCallback(async () => {
+    try {
+      const response = await invoke<SkillDiscoverResponse>(
+        "middleware_skills_discover",
+        {
+          input: {
+            query: "",
+            limit: 20,
+            includeLocal: true,
+            includeClawHub: true,
+            includeGithubProbe: true,
+          },
+        },
+      )
+      setMeta(response)
+      setSkills(response.results.map(mapBackendSkillToItem))
+    } catch {
+      // silent refresh failure
+    }
+  }, [])
+
+  const handleInstall = React.useCallback(async (item: SkillItem) => {
+    setInstallingId(item.id)
+    setInstallError(null)
+
+    try {
+      await invoke<SkillInstallResponse>(
+        "middleware_skills_install",
+        {
+          input: {
+            source: item.source ?? "clawhub",
+            slug: item.slug ?? item.id,
+            version: item.version ?? undefined,
+            repoUrl: item.repoUrl ?? undefined,
+            localPath: item.localPath ?? undefined,
+            scope: "user",
+          },
+        },
+      )
+
+      setSkills((prev) =>
+        prev.map((s) => s.id === item.id ? { ...s, installed: true } : s),
+      )
+      await refreshSkills()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Install failed"
+      setInstallError(msg)
+      setTimeout(() => setInstallError(null), 4000)
+    } finally {
+      setInstallingId(null)
+    }
+  }, [refreshSkills])
 
   React.useEffect(() => {
     let cancelled = false
@@ -155,6 +221,12 @@ export function SkillPage() {
         <CategoryDropdown category={category} setCategory={setCategory} />
       </div>
 
+      {installError && (
+        <div className="mb-4 rounded-lg border border-red-400/20 bg-red-400/5 px-4 py-2.5 text-center text-[13px] text-red-400">
+          {installError}
+        </div>
+      )}
+
       {!loading && meta && (
         <div className="mb-5 flex items-center justify-between text-[14px] text-muted-foreground">
           <span>{meta.results.length} skill{meta.results.length === 1 ? "" : "s"} discovered</span>
@@ -199,7 +271,12 @@ export function SkillPage() {
               <div className="border-t border-border/40">
                 <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
                   {section.items.map((item) => (
-                    <SkillCard key={item.id} item={item} />
+                    <SkillCard
+                      key={item.id}
+                      item={item}
+                      installing={installingId === item.id}
+                      onInstall={handleInstall}
+                    />
                   ))}
                 </div>
               </div>
@@ -290,7 +367,15 @@ function CategoryDropdown({
   )
 }
 
-function SkillCard({ item }: { item: SkillItem }) {
+function SkillCard({
+  item,
+  installing,
+  onInstall,
+}: {
+  item: SkillItem
+  installing: boolean
+  onInstall: (item: SkillItem) => void
+}) {
   return (
     <div className="flex items-center gap-3.5 border-b border-border/30 py-4.5">
       <div className={cn("flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md", item.iconBg)}>
@@ -315,9 +400,14 @@ function SkillCard({ item }: { item: SkillItem }) {
             <path d="m4.5 10 3.5 3.5L15.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
+      ) : installing ? (
+        <div className="flex size-8 shrink-0 items-center justify-center">
+          <div className="size-4 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+        </div>
       ) : (
         <button
           type="button"
+          onClick={() => onInstall(item)}
           className={cn(
             "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full",
             "bg-secondary/50 text-foreground transition-colors hover:bg-secondary",
@@ -421,9 +511,9 @@ function SkillPageSkeleton() {
   )
 }
 
-function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
+function mapBackendSkillToItem(skill: DiscoveredSkill, index: number): SkillItem {
   return {
-    id: skill.id,
+    id: skill.id ?? `${skill.slug ?? skill.name ?? index}`,
     name: skill.name,
     description: skill.summary || skill.description || "No description available.",
     category: mapDiscoveredSkillCategory(skill),
@@ -432,20 +522,24 @@ function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
     installed: skill.installed,
     source: skill.source,
     version: skill.version,
+    slug: skill.slug,
+    localPath: skill.localPath,
+    repoUrl: skill.repoUrl,
   }
 }
 
 function mapDiscoveredSkillCategory(skill: DiscoveredSkill): "Recommended" | "System" | "Personal" {
   if (skill.source === "local") return "Personal"
+  if (skill.source === "builtin") return "System"
 
-  const tags = skill.tags.map((tag) => tag.toLowerCase())
+  const tags = (skill.tags ?? []).map((tag) => tag.toLowerCase())
   if (tags.includes("system") || skill.installed) return "System"
 
   return "Recommended"
 }
 
 function getSkillIconKey(skill: DiscoveredSkill) {
-  const slug = skill.slug.toLowerCase()
+  const slug = (skill.slug ?? "").toLowerCase()
   if (slug.includes("pdf")) return "pdf"
   if (slug.includes("doc")) return "doc"
   if (slug.includes("image")) return "image"
@@ -461,7 +555,7 @@ function getSkillIconKey(skill: DiscoveredSkill) {
 function getSkillBackground(skill: DiscoveredSkill) {
   if (skill.installed) return "bg-[#1D1D1D]"
   if (skill.source === "local") return "bg-[#1F3B1E]"
-  if (skill.slug.toLowerCase().includes("pdf")) return "bg-white"
-  if (skill.slug.toLowerCase().includes("docs")) return "bg-[#FFF4EA]"
+  if ((skill.slug ?? "").toLowerCase().includes("pdf")) return "bg-white"
+  if ((skill.slug ?? "").toLowerCase().includes("docs")) return "bg-[#FFF4EA]"
   return "bg-[#F0F0F0] dark:bg-[#202020]"
 }

@@ -1,0 +1,99 @@
+'vswhere.exe' is not recognized as an internal or external command,
+operable program or batch file.
+**********************************************************************
+** Visual Studio 2022 Developer Command Prompt v17.0
+** Copyright (c) 2025 Microsoft Corporation
+**********************************************************************
+[vcvarsall.bat] Environment initialized for: 'x64'
+gyp info it worked if it ends with ok
+gyp info using node-gyp@12.2.0
+gyp info using node@25.2.1 | win32 | x64
+gyp info find Python using Python version 3.14.2 found at "C:\Python314\python.exe"
+
+gyp info find VS using VS2022 (17.0) found at:
+gyp info find VS "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+gyp info find VS run with --verbose for detailed information
+gyp info spawn C:\Python314\python.exe
+gyp info spawn args [
+gyp info spawn args 'C:\\Users\\pc\\AppData\\Local\\npm-cache\\_npx\\c463d28440264a05\\node_modules\\node-gyp\\gyp\\gyp_main.py',
+gyp info spawn args 'binding.gyp',
+gyp info spawn args '-f',
+gyp info spawn args 'msvs',
+gyp info spawn args '-I',
+gyp info spawn args 'D:\\Nextbase\\openclaw-desktop\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\build\\config.gypi',
+gyp info spawn args '-I',
+gyp info spawn args 'C:\\Users\\pc\\AppData\\Local\\npm-cache\\_npx\\c463d28440264a05\\node_modules\\node-gyp\\addon.gypi',
+gyp info spawn args '-I',
+gyp info spawn args 'C:\\Users\\pc\\AppData\\Local\\node-gyp\\Cache\\25.2.1\\include\\node\\common.gypi',
+gyp info spawn args '-Dlibrary=shared_library',
+gyp info spawn args '-Dvisibility=default',
+gyp info spawn args '-Dnode_root_dir=C:\\Users\\pc\\AppData\\Local\\node-gyp\\Cache\\25.2.1',
+gyp info spawn args '-Dnode_gyp_dir=C:\\Users\\pc\\AppData\\Local\\npm-cache\\_npx\\c463d28440264a05\\node_modules\\node-gyp',
+gyp info spawn args '-Dnode_lib_file=C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\node-gyp\\\\Cache\\\\25.2.1\\\\<(target_arch)\\\\node.lib',
+gyp info spawn args '-Dmodule_root_dir=D:\\Nextbase\\openclaw-desktop\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3',
+gyp info spawn args '-Dnode_engine=v8',
+gyp info spawn args '--depth=.',
+gyp info spawn args '--no-parallel',
+gyp info spawn args '--generator-output',
+gyp info spawn args 'D:\\Nextbase\\openclaw-desktop\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\build',
+gyp info spawn args '-Goutput_dir=.'
+gyp info spawn args ]
+gyp info spawn C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe
+gyp info spawn args [
+gyp info spawn args 'build/binding.sln',
+gyp info spawn args '/clp:Verbosity=minimal',
+gyp info spawn args '/nologo',
+gyp info spawn args '/nodeReuse:false',
+gyp info spawn args '/p:Configuration=Release;Platform=x64'
+gyp info spawn args ]
+
+  copy_builtin_sqlite3
+  sqlite3.c
+  win_delay_load_hook.cc
+  sqlite3.vcxproj -> D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\\sqlite3.lib
+  better_sqlite3.cpp
+C:\Users\pc\AppData\Local\node-gyp\Cache\25.2.1\include\node\v8-object.h(863,45): warning C4996: 'v8::Object::GetIsolate': Use Isolate::GetCurrent() instead, which is guaranteed to return the same isolate since https://crrev.com/c/6458560. [D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\better_sqlite3.vcxproj]
+  (compiling source file '../src/better_sqlite3.cpp')
+  
+D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\src\util\binder.lzz(40,37): warning C4996: 'v8::Object::GetPrototype': V8 will stop providing access to hidden prototype (i.e. JSGlobalObject). Use GetPrototypeV2() instead. See http://crbug.com/333672197. [D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\better_sqlite3.vcxproj]
+  (compiling source file '../src/better_sqlite3.cpp')
+  
+D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\src\util\binder.lzz(49,62): warning C4996: 'v8::Object::GetPrototype': V8 will stop providing access to hidden prototype (i.e. JSGlobalObject). Use GetPrototypeV2() instead. See http://crbug.com/333672197. [D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\better_sqlite3.vcxproj]
+  (compiling source file '../src/better_sqlite3.cpp')
+  
+D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\src\better_sqlite3.lzz(68,34): warning C4996: 'v8::Context::GetIsolate': Use Isolate::GetCurrent() instead, which is guaranteed to return the same isolate since https://crrev.com/c/6458560. [D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\better_sqlite3.vcxproj]
+  (compiling source file '../src/better_sqlite3.cpp')
+  
+C:\Users\pc\AppData\Local\node-gyp\Cache\25.2.1\include\node\v8-internal.h(174,18): warning C4018: '<=': signed/unsigned mismatch [D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\better_sqlite3.vcxproj]
+  (compiling source file '../src/better_sqlite3.cpp')
+      C:\Users\pc\AppData\Local\node-gyp\Cache\25.2.1\include\node\v8-internal.h(174,18):
+      the template instantiation context (the oldest one first) is
+          C:\Users\pc\AppData\Local\node-gyp\Cache\25.2.1\include\node\v8-function-callback.h(479,48):
+          see reference to function template instantiation 'std::optional<v8::internal::Address> v8::internal::Internals::TryIntegralToSmi<uint32_t,0x0>(T)' being compiled
+          with
+          [
+              T=uint32_t
+          ]
+          C:\Users\pc\AppData\Local\node-gyp\Cache\25.2.1\include\node\v8-internal.h(1145,9):
+          see reference to function template instantiation 'bool v8::internal::SmiTagging<8>::IsValidSmi<T,0x0>(T)' being compiled
+          with
+          [
+              T=uint32_t
+          ]
+  
+  win_delay_load_hook.cc
+     Creating library D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\better_sqlite3.lib and object D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\better_sqlite3.exp
+  Generating code
+  Previous IPDB not found, fall back to full compilation.
+  All 4887 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  better_sqlite3.vcxproj -> D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\\better_sqlite3.node
+  test_extension.c
+  win_delay_load_hook.cc
+     Creating library D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\test_extension.lib and object D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\test_extension.exp
+  Generating code
+  Previous IPDB not found, fall back to full compilation.
+  All 3 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  test_extension.vcxproj -> D:\Nextbase\openclaw-desktop\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\\test_extension.node
+gyp info ok 
