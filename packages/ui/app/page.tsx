@@ -14,6 +14,8 @@ import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import ConnectPage from "@/app/connect/page"
 import { OnboardingWizard, useOnboardingFlow } from "@/components/onboarding"
+import { CommandPalette } from "@/components/CommandPalette"
+import { useTheme } from "next-themes"
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -22,13 +24,16 @@ const SIDEBAR_COLLAPSED = 56
 
 export default function Page() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
-  const { flowState, loading: onboardingLoading } = useOnboardingFlow()
+  const { flowState, loading: onboardingLoading, error: onboardingError } = useOnboardingFlow()
 
   useEffect(() => {
-    if (!onboardingLoading && flowState) {
+    if (onboardingLoading) return
+    if (flowState) {
       setOnboardingDone(flowState.flow.completed)
+    } else if (onboardingError) {
+      setOnboardingDone(false)
     }
-  }, [onboardingLoading, flowState])
+  }, [onboardingLoading, flowState, onboardingError])
 
   if (onboardingDone === null) {
     return (
@@ -53,9 +58,11 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [activeTab, setActiveTab] = useState("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const [chatKey, setChatKey] = useState(0)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const isResizing = useRef(false)
 
   const { flowState, signOut, deleteAccount } = useOnboardingFlow()
+  const { resolvedTheme, setTheme } = useTheme()
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const toggleTerminal = useCallback(() => {
@@ -70,6 +77,9 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
 
   const openSettings = useCallback(() => setActiveTab("settings"), [])
+  const toggleTheme = useCallback(() => {
+    setTheme(resolvedTheme === "dark" ? "light" : "dark")
+  }, [resolvedTheme, setTheme])
 
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
@@ -80,6 +90,10 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         e.preventDefault()
         setActiveTab("chat")
         setChatKey((k) => k + 1)
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setCommandPaletteOpen((prev) => !prev)
       }
     }
 
@@ -178,6 +192,16 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 
       <Footer
         onToggleTerminal={toggleTerminal}
+      />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onNavigateChat={() => { setActiveTab("chat") }}
+        onNewChat={() => { setActiveTab("chat"); setChatKey((k) => k + 1) }}
+        onOpenSettings={openSettings}
+        onToggleTerminal={toggleTerminal}
+        onToggleTheme={toggleTheme}
       />
     </div>
   )
