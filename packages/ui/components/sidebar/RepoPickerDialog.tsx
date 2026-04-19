@@ -76,15 +76,15 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
     .filter(filterFn)
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className={cn(
-        "relative w-full max-w-lg mx-4",
-        "rounded-2xl border border-border/50 bg-card/95 backdrop-blur-xl",
-        "shadow-2xl shadow-black/30",
-        "animate-in fade-in-0 zoom-in-95 duration-150",
-        "flex flex-col max-h-[80vh]",
-      )}>
+    <div className="glass-overlay" onClick={onClose}>
+      <div
+        className={cn(
+          "glass-dialog",
+          "!max-w-lg !w-[92vw] !p-0",
+          "flex flex-col max-h-[80vh]",
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div>
             <h2 className="text-[15px] font-semibold text-foreground">

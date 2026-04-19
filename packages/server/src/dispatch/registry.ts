@@ -23,6 +23,7 @@ import * as terminal from "../services/terminal.service.js"
 import * as ptyService from "../services/pty.service.js"
 import * as models from "../services/models.service.js"
 import * as repos from "../services/repos.service.js"
+import * as version from "../services/version.service.js"
 
 type Handler = (input: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -243,4 +244,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_repos_scan: (i) => repos.reposScan(i as { extraPaths?: string[] } | undefined),
   middleware_repos_recent: (i) => repos.reposRecent(i as { limit?: number } | undefined),
   middleware_repos_select: (i) => repos.reposSelect(i as { path: string; name: string }),
+
+  // Version
+  middleware_version_info: () => version.versionInfo(),
 }

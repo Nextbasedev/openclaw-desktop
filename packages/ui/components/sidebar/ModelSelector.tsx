@@ -107,26 +107,30 @@ export function ModelSelector() {
       </button>
 
       {open && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className={cn(
-            "relative w-full max-w-md mx-4",
-            "rounded-2xl border border-border/50 bg-card/95 backdrop-blur-xl",
-            "shadow-2xl shadow-black/30",
-            "animate-in fade-in-0 zoom-in-95 duration-150",
-          )}>
-            <div className="flex items-center justify-between px-5 pt-5 pb-3">
-              <h2 className="text-[15px] font-semibold text-foreground">Select Model</h2>
+        <div
+          className="glass-overlay"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="glass-dialog w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-[18px] font-semibold leading-tight text-foreground">Select Model</h2>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+                className={cn(
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                  "text-muted-foreground transition-colors",
+                  "hover:bg-foreground/8 hover:text-foreground",
+                )}
               >
-                <LuX size={15} />
+                <LuX size={14} strokeWidth={2} />
               </button>
             </div>
 
-            <div className="px-5 pb-3">
+            <div className="mb-3">
               <div className="relative">
                 <LuSearch size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -135,7 +139,8 @@ export function ModelSelector() {
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search models..."
                   className={cn(
-                    "h-9 w-full rounded-lg border border-border/50 bg-secondary/30 pl-9 pr-3",
+                    "h-9 w-full rounded-lg border pl-9 pr-3",
+                    "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
                     "text-[13px] text-foreground outline-none",
                     "placeholder:text-muted-foreground/50 focus:border-foreground/20",
                   )}
@@ -143,7 +148,7 @@ export function ModelSelector() {
               </div>
             </div>
 
-            <div className="max-h-[320px] overflow-y-auto px-2 pb-4">
+            <div className="-mx-2 max-h-[320px] overflow-y-auto">
               {Object.entries(grouped).map(([provider, providerModels]) => (
                 <div key={provider} className="mb-1">
                   <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">

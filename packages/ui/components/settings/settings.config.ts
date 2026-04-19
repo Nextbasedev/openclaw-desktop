@@ -41,5 +41,4 @@ export type ExportItem = {
 
 export type HeaderUser = {
   name: string
-  version: string
 }
