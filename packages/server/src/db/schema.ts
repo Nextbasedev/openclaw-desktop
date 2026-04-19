@@ -120,6 +120,13 @@ export function initDb(db: Database.Database): void {
       expires_at TEXT NOT NULL,
       PRIMARY KEY (entity_type, entity_id)
     );
+
+    CREATE TABLE IF NOT EXISTS recent_repos (
+      path TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      selected_at TEXT NOT NULL,
+      use_count INTEGER NOT NULL DEFAULT 1
+    );
   `)
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
+import { on, emit } from "@/lib/events"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
@@ -38,6 +39,8 @@ export type DialogState = {
   deleteTopicOpen: boolean
   deleteTopicTarget: FullTopic | null
   deletingTopic: boolean
+
+  repoPickerOpen: boolean
 }
 
 export type DialogActions = {
@@ -69,6 +72,9 @@ export type DialogActions = {
   setDeleteTopicOpen: (v: boolean) => void
   openDeleteTopic: (topic: FullTopic) => void
   handleDeleteTopic: () => Promise<void>
+
+  setRepoPickerOpen: (v: boolean) => void
+  handleRepoSelect: (repo: { name: string; path: string }) => void
 }
 
 export function useProjectsData(
@@ -117,6 +123,16 @@ export function useProjectsData(
   const [deleteTopicTarget, setDeleteTopicTarget] = useState<FullTopic | null>(null)
   const [deletingTopic, setDeletingTopic] = useState(false)
 
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+
+  const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
+    setNewProjectPath(repo.path)
+    setRepoPickerOpen(false)
+    try {
+      await invoke("middleware_repos_select", { input: { path: repo.path, name: repo.name } })
+    } catch {}
+  }, [])
+
   const loadProjects = useCallback(async () => {
     try {
       const result = await invoke<{ projects: Project[] }>("middleware_projects_list")
@@ -128,6 +144,8 @@ export function useProjectsData(
   }, [])
 
   useEffect(() => { loadProjects() }, [loadProjects])
+
+  const refreshTopicsRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     setProjectOrder((prev) => {
@@ -160,6 +178,15 @@ export function useProjectsData(
       setLoadingProject(null)
     }
   }, [projectTopics])
+
+  refreshTopicsRef.current = () => {
+    for (const pid of expandedProjects) loadProjectTopics(pid, true)
+  }
+
+  useEffect(() => on("sidebar:refresh", () => {
+    loadProjects()
+    refreshTopicsRef.current()
+  }), [loadProjects])
 
   const handleProjectClick = useCallback((project: Project) => {
     setExpandedProjects((prev) => {
@@ -219,7 +246,7 @@ export function useProjectsData(
       } catch {}
 
       const result = await invoke<{ project: { id: string; name: string } }>("middleware_projects_create", {
-        input: { name: newProjectName.trim(), profileId, workspaceRoot: "~", repoRoot: "~" },
+        input: { name: newProjectName.trim(), profileId, workspaceRoot: newProjectPath || "~", repoRoot: newProjectPath || "~" },
       })
       const projectId = result.project.id
       const projectName = result.project.name
@@ -347,6 +374,7 @@ export function useProjectsData(
       await invoke("middleware_projects_archive", { input: { projectId } })
       setExpandedProjects((prev) => { const next = new Set(prev); next.delete(projectId); return next })
       await loadProjects()
+      emit("archive:changed")
     } catch (e) { console.error("archive project failed", e) }
   }, [loadProjects])
 
@@ -354,6 +382,7 @@ export function useProjectsData(
     try {
       await invoke("middleware_topics_archive", { input: { topicId: topic.id } })
       await loadProjectTopics(topic.projectId, true)
+      emit("archive:changed")
     } catch (e) { console.error("archive topic failed", e) }
   }, [loadProjectTopics])
 
@@ -370,6 +399,7 @@ export function useProjectsData(
     renameTopicOpen, renameTopicTarget, renameTopicName, renameTopicRef,
     deleteProjectOpen, deleteProjectTarget, deletingProject,
     deleteTopicOpen, deleteTopicTarget, deletingTopic,
+    repoPickerOpen,
   }
 
   const dialogActions: DialogActions = {
@@ -379,6 +409,7 @@ export function useProjectsData(
     setRenameTopicOpen, setRenameTopicName, openRenameTopic, handleRenameTopicSave,
     setDeleteProjectOpen, openDeleteProject, handleDeleteProject,
     setDeleteTopicOpen, openDeleteTopic, handleDeleteTopic,
+    setRepoPickerOpen, handleRepoSelect,
   }
 
   return {

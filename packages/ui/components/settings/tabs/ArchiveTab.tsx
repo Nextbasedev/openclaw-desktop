@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { LuArchive, LuRotateCcw } from "react-icons/lu"
 import { fetchProjects } from "@/lib/api/projects"
 import { fetchTopics, archiveTopic, type Topic } from "@/lib/api/topics"
+import { emit, on } from "@/lib/events"
 
 type ArchivedItem = Topic & { projectName: string }
 
@@ -39,10 +40,13 @@ export function ArchiveTab() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => on("archive:changed", load), [load])
+
   async function handleRestore(topicId: string) {
     try {
       await archiveTopic(topicId, false)
       setItems((prev) => prev.filter((item) => item.id !== topicId))
+      emit("sidebar:refresh")
     } catch (err) {
       setError(String(err))
     }
