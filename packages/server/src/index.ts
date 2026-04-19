@@ -3,6 +3,7 @@ import { handleCommand } from "./dispatch/handler.js"
 import { chatStreamHandler } from "./sse/chat.js"
 import { terminalStreamHandler } from "./sse/terminal.js"
 import { ptyStreamHandler } from "./sse/pty.js"
+import { connectGateway } from "./gateway/client.js"
 
 const app = express()
 const PORT = parseInt(process.env.JARVIS_SERVER_PORT ?? "3001", 10)
@@ -33,6 +34,12 @@ app.get("/health", (_req, res) => {
 if (process.env.NODE_ENV !== "test") {
   app.listen(PORT, "127.0.0.1", () => {
     console.log(`Jarvis server listening on http://127.0.0.1:${PORT}`)
+    connectGateway().then(() => {
+      console.log("Gateway connected successfully")
+    }).catch((err) => {
+      console.log("Gateway not available at startup:", err?.message ?? err)
+      console.log("Will reconnect automatically")
+    })
   })
 }
 
