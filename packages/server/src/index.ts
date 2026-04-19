@@ -9,10 +9,14 @@ const PORT = parseInt(process.env.JARVIS_SERVER_PORT ?? "3001", 10)
 
 app.use(express.json({ limit: "100mb" }))
 
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*")
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
   res.header("Access-Control-Allow-Headers", "Content-Type")
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204)
+    return
+  }
   next()
 })
 
