@@ -97,6 +97,7 @@ export function connectStatus() {
     gatewayConfigured: !!gatewayUrl,
     gatewayUrl,
     hasIdentity,
+    isLocal: gatewayUrl ? isLocalGateway(gatewayUrl) : true,
     status:
       gatewayUrl && hasIdentity ? "ready" : "not_configured",
   }

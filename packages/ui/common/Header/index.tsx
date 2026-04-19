@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscTerminal } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -8,6 +9,7 @@ import { WindowControls } from "@/components/WindowControls"
 import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
+import { invoke } from "@/lib/ipc"
 
 type HeaderProps = {
     user?: HeaderUser
@@ -26,7 +28,6 @@ type HeaderProps = {
 
 const DEFAULT_USER: HeaderUser = {
     name: "John Doe",
-    version: "V2.03",
 }
 
 export function Header({
@@ -44,6 +45,13 @@ export function Header({
     onOpenNotifications,
 }: HeaderProps) {
     const platform = usePlatform()
+    const [appVersion, setAppVersion] = useState<string | null>(null)
+
+    useEffect(() => {
+        invoke<{ version: string }>("middleware_version_info")
+            .then((res) => setAppVersion(res.version))
+            .catch(() => {})
+    }, [])
 
     const isMac = platform === "macos"
     const isWindows = platform === "windows" || platform === "linux"
@@ -80,9 +88,11 @@ export function Header({
                     {user.name}
                 </span>
 
-                <span className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner">
-                    {user.version}
-                </span>
+                {appVersion && (
+                    <span className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner">
+                        v{appVersion}
+                    </span>
+                )}
             </div>
 
             <div className="relative z-10 flex items-center gap-0">
