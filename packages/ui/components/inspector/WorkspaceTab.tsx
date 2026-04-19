@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/tooltip"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 
 /* ── Types ── */
 
@@ -250,59 +252,57 @@ function TreeNode({
 
 function CodeEditor({
   content,
-  onChange,
   ext,
 }: {
   content: string
   onChange: (v: string) => void
   ext: string
 }) {
-  const lines = content.split("\n")
-  const lineCount = lines.length
-  const gutterWidth = Math.max(2, String(lineCount).length)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const lineNumRef = useRef<HTMLDivElement>(null)
-
-  function handleScroll() {
-    if (textareaRef.current && lineNumRef.current) {
-      lineNumRef.current.scrollTop = textareaRef.current.scrollTop
-    }
-  }
+  const language =
+    ext === "json"
+      ? "json"
+      : ext === "md"
+        ? "markdown"
+        : ext === "ts" || ext === "tsx"
+          ? "typescript"
+          : ext === "js" || ext === "jsx"
+            ? "javascript"
+            : "text"
 
   return (
-    <div className="flex h-full overflow-hidden bg-background/50">
-      {/* Line numbers gutter */}
-      <div
-        ref={lineNumRef}
-        className="shrink-0 overflow-hidden border-r border-border/20 bg-background/30 py-2 pr-2 text-right select-none"
-        style={{ width: `${gutterWidth + 2}ch`, paddingLeft: "0.5ch" }}
-      >
-        {lines.map((_, i) => (
-          <div
-            key={i}
-            className="font-mono text-[11px] leading-5 text-muted-foreground/40"
-          >
-            {i + 1}
-          </div>
-        ))}
-      </div>
-
-      {/* Code area — no word wrap, scrollable both directions */}
-      <div className="flex-1 overflow-auto">
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={(e) => onChange(e.target.value)}
-          onScroll={handleScroll}
-          spellCheck={false}
-          className={cn(
-            "block min-h-full min-w-full resize-none whitespace-pre bg-transparent py-2 pl-3 pr-4 font-mono text-[11px] leading-5 outline-none",
-            ext === "json" && "text-amber-300/80",
-            ext === "md" && "text-foreground/80",
-            !["json", "md"].includes(ext) && "text-foreground/85",
-          )}
-          style={{ tabSize: 2, width: "max-content" }}
-        />
+    <div className="h-full overflow-auto bg-[#121212]">
+      <div className="min-w-max">
+        <SyntaxHighlighter
+          language={language}
+          style={vscDarkPlus}
+          showLineNumbers
+          wrapLines={false}
+          wrapLongLines={false}
+          customStyle={{
+            margin: 0,
+            minHeight: "100%",
+            background: "#121212",
+            fontSize: "11px",
+            lineHeight: "20px",
+            padding: "12px",
+            overflow: "visible",
+          }}
+          lineNumberStyle={{
+            minWidth: "2.5em",
+            paddingRight: "1em",
+            color: "rgba(138, 138, 138, 1)",
+            borderRight: "1px solid #333333",
+            marginRight: "12px",
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily:
+                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+            },
+          }}
+        >
+          {content}
+        </SyntaxHighlighter>
       </div>
     </div>
   )
@@ -499,7 +499,7 @@ export function WorkspaceTab() {
     <div className="flex h-full overflow-hidden">
       {/* Left: file tree sidebar */}
       <div
-        className="flex shrink-0 flex-col border-r border-border/30"
+        className="flex shrink-0 flex-col"
         style={{ width: sidebarWidth }}
       >
         {/* File sidebar header */}
@@ -532,7 +532,7 @@ export function WorkspaceTab() {
       {/* Resize handle */}
       <div
         onMouseDown={handleDragStart}
-        className="w-[3px] shrink-0 cursor-col-resize bg-transparent hover:bg-ring/30 transition-colors"
+        className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
       />
 
       {/* Right: preview pane */}

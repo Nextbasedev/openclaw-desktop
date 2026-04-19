@@ -5,12 +5,17 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import { ActionBar, MODELS } from "./ActionBar"
 
-type ChatBoxProps = {
+
+  type Props = {
   initialPrompt?: string
+  onSend?: (text: string) => void
+  disabled?: boolean
+  isGenerating?: boolean
+  onAbort?: () => void
 }
 
-export function ChatBox({ initialPrompt }: ChatBoxProps) {
-  const [input, setInput] = React.useState(initialPrompt ?? "")
+export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt }: Props) {
+  const [input, setInput] = React.useState("")
   const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [selectedModel, setSelectedModel] = React.useState(MODELS[0])
@@ -28,6 +33,14 @@ export function ChatBox({ initialPrompt }: ChatBoxProps) {
   }, [])
 
   const hasInput = input.trim().length > 0
+
+  function handleSend() {
+    const text = input.trim()
+    if (!text || disabled) return
+    onSend?.(text)
+    setInput("")
+    if (textareaRef.current) textareaRef.current.style.height = "auto"
+  }
 
   function handleWebSearchToggle() {
     setWebSearchEnabled((prev) => !prev)
@@ -62,8 +75,12 @@ export function ChatBox({ initialPrompt }: ChatBoxProps) {
             }}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() }
+            }}
             placeholder="Message... (type / for commands)"
             rows={1}
+            disabled={disabled}
             className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
@@ -71,6 +88,9 @@ export function ChatBox({ initialPrompt }: ChatBoxProps) {
 
           <ActionBar
             hasInput={hasInput}
+            onSend={handleSend}
+            isGenerating={isGenerating}
+            onAbort={onAbort}
             planEnabled={planEnabled}
             onPlanToggle={() => setPlanEnabled((prev) => !prev)}
             webSearchEnabled={webSearchEnabled}

@@ -9,6 +9,7 @@ import { VersionUpdateModal } from "./sidebar/VersionUpdateModal"
 
 type FooterProps = {
   className?: string
+  terminalOpen?: boolean
   onToggleTerminal?: () => void
 }
 

@@ -271,3 +271,116 @@ describe("skillsInstall", () => {
     ).toThrow("Unsupported skill source")
   })
 })
+
+describe("skillsInstalled (Gateway)", () => {
+  it("returns installed skills from gateway", async () => {
+    const result = await skills.skillsInstalled({})
+    expect(result).toBeDefined()
+  })
+
+  it("accepts optional agentId", async () => {
+    const result = await skills.skillsInstalled({
+      agentId: "main",
+    })
+    expect(result).toBeDefined()
+  })
+
+  it("works with no args", async () => {
+    const result = await skills.skillsInstalled()
+    expect(result).toBeDefined()
+  })
+})
+
+describe("skillsSearchHub (Gateway)", () => {
+  it("searches ClawHub skills", async () => {
+    const result = await skills.skillsSearchHub({
+      query: "code",
+    })
+    expect(result).toBeDefined()
+    expect(result).toHaveProperty("results")
+  })
+
+  it("respects limit parameter", async () => {
+    const result = await skills.skillsSearchHub({
+      query: "test",
+      limit: 5,
+    })
+    expect(result).toBeDefined()
+  })
+
+  it("works with no args", async () => {
+    const result = await skills.skillsSearchHub()
+    expect(result).toBeDefined()
+  })
+})
+
+describe("commandsList (Gateway)", () => {
+  it("lists all available commands", async () => {
+    const result = await skills.commandsList({})
+    expect(result).toBeDefined()
+    expect(result).toHaveProperty("commands")
+    expect(Array.isArray(result!.commands)).toBe(true)
+  })
+
+  it("includes command metadata", async () => {
+    const result = await skills.commandsList({
+      includeArgs: true,
+    })
+    expect(result).toBeDefined()
+    if (result!.commands.length > 0) {
+      const cmd = result!.commands[0]
+      expect(cmd).toHaveProperty("name")
+      expect(cmd).toHaveProperty("description")
+      expect(cmd).toHaveProperty("source")
+    }
+  })
+
+  it("filters by scope", async () => {
+    const result = await skills.commandsList({
+      scope: "native",
+    })
+    expect(result).toBeDefined()
+  })
+
+  it("filters by agentId", async () => {
+    const result = await skills.commandsList({
+      agentId: "main",
+    })
+    expect(result).toBeDefined()
+  })
+})
+
+describe("toolsCatalog (Gateway)", () => {
+  it("returns tool catalog grouped by category", async () => {
+    const result = await skills.toolsCatalog({})
+    expect(result).toBeDefined()
+    expect(result).toHaveProperty("groups")
+    expect(result).toHaveProperty("profiles")
+    expect(Array.isArray(result!.groups)).toBe(true)
+  })
+
+  it("includes tool details in groups", async () => {
+    const result = await skills.toolsCatalog({})
+    expect(result).toBeDefined()
+    if (result!.groups.length > 0) {
+      const group = result!.groups[0]
+      expect(group).toHaveProperty("id")
+      expect(group).toHaveProperty("label")
+      expect(group).toHaveProperty("tools")
+    }
+  })
+
+  it("filters by agentId", async () => {
+    const result = await skills.toolsCatalog({
+      agentId: "main",
+    })
+    expect(result).toBeDefined()
+  })
+
+  it("can exclude plugins", async () => {
+    const result = await skills.toolsCatalog({
+      includePlugins: false,
+    })
+    expect(result).toBeDefined()
+  })
+})
