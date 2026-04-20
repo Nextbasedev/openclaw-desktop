@@ -166,7 +166,7 @@ export function CronJobsTab() {
       )}
 
       {!loading && jobs.length === 0 && (
-        <div className="rounded-xl border border-border/50 bg-card px-5 py-8 text-center">
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-8 text-center backdrop-blur-xl">
           <Icons.Cron
             size={32}
             className="mx-auto mb-3 text-muted-foreground/40"
@@ -264,9 +264,10 @@ function CronJobRow({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-xl",
-        "border border-border/50 bg-card",
-        "transition-colors",
+        "flex flex-col rounded-2xl",
+        "border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl",
+        "transition-all duration-200",
+        "hover:border-white/[0.15] hover:bg-white/[0.07]",
         !job.enabled && "opacity-60",
       )}
     >
@@ -337,7 +338,7 @@ function CronJobRow({
         </button>
       </div>
 
-      <div className="flex items-center gap-1 border-t border-border/30 px-4 py-1.5">
+      <div className="flex items-center gap-1 border-t border-white/[0.06] px-4 py-1.5">
         <ActionButton
           icon={Icons.Play}
           label="Run now"
@@ -397,7 +398,7 @@ function CronJobRow({
       </div>
 
       {expanded && (
-        <div className="border-t border-border/30 px-4 py-2">
+        <div className="border-t border-white/[0.06] px-4 py-2">
           {runsLoading && (
             <div className="flex items-center justify-center py-3">
               <div className="size-3.5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />

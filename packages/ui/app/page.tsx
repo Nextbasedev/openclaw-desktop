@@ -115,6 +115,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const [initialMessages, setInitialMessages] = useState<OptimisticMsg[] | undefined>()
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
   const [focusActivityTrigger, setFocusActivityTrigger] = useState(0)
   const isResizing = useRef(false)
 
@@ -233,6 +234,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 
   // Topic selected from sidebar → auto-resolve its session
   const handleTopicSelect = useCallback((topic: ActiveTopic) => {
+    setActiveTab("chat")
     setActiveTopic(topic)
     setActiveChat(null)
     setActiveSessionKey(null)
@@ -243,6 +245,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
 
   // Standalone chat selected from sidebar
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
+    setActiveTab("chat")
     setActiveChat(chat)
     setActiveTopic(null)
     setActiveSessionKey(null)
@@ -513,6 +516,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               quickSending={quickSending}
               initialMessages={initialMessages}
               onSelectTool={handleSelectTool}
+              pendingPrompt={pendingPrompt}
             />
           </main>
         </div>
@@ -535,9 +539,9 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
-        onNavigateChat={() => { handleNewChat() }}
-        onNewChat={() => { handleNewChat() }}
-        onSendPrompt={() => { handleNewChat() }}
+        onNavigateChat={() => { setPendingPrompt(null); handleNewChat() }}
+        onNewChat={() => { setPendingPrompt(null); handleNewChat() }}
+        onSendPrompt={(prompt) => { setPendingPrompt(prompt); handleNewChat() }}
         onOpenSettings={openSettings}
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
@@ -563,6 +567,7 @@ function MainContent({
   quickSending,
   initialMessages,
   onSelectTool,
+  pendingPrompt,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -580,6 +585,7 @@ function MainContent({
   quickSending: boolean
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
+  pendingPrompt?: string | null
 }) {
   // 0. Settings and notifications always take priority
   if (activeTab === "settings") {
@@ -608,6 +614,7 @@ function MainContent({
           onFirstMessageSent={activeChat ? onFirstMessageSent : undefined}
           initialMessages={activeChat ? initialMessages : undefined}
           onSelectTool={onSelectTool}
+          initialPrompt={pendingPrompt ?? undefined}
         />
       </div>
     )
