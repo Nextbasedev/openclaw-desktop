@@ -221,15 +221,19 @@ function GridSkeleton() {
       {Array.from({ length: 9 }).map((_, i) => (
         <div
           key={i}
-          className="rounded-xl border border-border/40 bg-card/50 p-4"
+          className="min-h-[140px] rounded-2xl border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl"
         >
           <div className="flex items-start gap-3.5">
-            <div className="size-10 animate-pulse rounded-lg bg-muted/30" />
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-28 animate-pulse rounded bg-muted/30" />
-              <div className="h-3 w-full animate-pulse rounded bg-muted/20" />
-              <div className="h-3 w-20 animate-pulse rounded bg-muted/15" />
+            <div className="size-10 animate-pulse rounded-lg bg-white/[0.08]" />
+            <div className="flex-1 space-y-2.5">
+              <div className="h-4 w-32 animate-pulse rounded-md bg-white/[0.08]" />
+              <div className="h-3 w-full animate-pulse rounded-md bg-white/[0.06]" />
+              <div className="h-3 w-3/4 animate-pulse rounded-md bg-white/[0.05]" />
             </div>
+            <div className="size-8 animate-pulse rounded-full bg-white/[0.06]" />
+          </div>
+          <div className="mt-auto flex items-center gap-2 pt-6">
+            <div className="h-5 w-16 animate-pulse rounded-full bg-white/[0.06]" />
           </div>
         </div>
       ))}
