@@ -1,9 +1,11 @@
+import crypto from "node:crypto"
 import { EventEmitter } from "node:events"
 import {
   createChatSession,
   deleteChatSession,
   sendChatMessage,
   getChatHistory,
+
   openChatEventStream,
   type ChatStreamEvent,
 } from "middleware"
@@ -222,11 +224,58 @@ export async function chatStop(input: { sessionKey: string }) {
 
 export async function chatHistory(input: { sessionKey: string }) {
   const gwKey = resolveGatewayKey(input.sessionKey)
+  let history: Awaited<ReturnType<typeof getChatHistory>>
   try {
-    return await getChatHistory(gwKey)
+    history = await getChatHistory(gwKey)
   } catch (error) {
     wrapGatewayError(error)
   }
+
+  const db = getDb()
+  const edits = db
+    .prepare(
+      "SELECT source_message_id, created_at FROM branches WHERE source_session_key = ? AND branch_reason = 'edit' ORDER BY created_at ASC",
+    )
+    .all(input.sessionKey) as Array<{
+    source_message_id: string
+    created_at: string
+  }>
+
+  if (edits.length === 0) return history
+
+  type HistMsg = {
+    id?: string
+    role?: string
+    text?: string
+    createdAt?: string
+    [key: string]: unknown
+  }
+  let msgs = (history.messages ?? []) as HistMsg[]
+
+  for (const edit of edits) {
+    const sourceIdx = msgs.findIndex(
+      (m) => m.id === edit.source_message_id,
+    )
+    if (sourceIdx === -1) continue
+
+    let editIdx = -1
+    for (let i = sourceIdx + 1; i < msgs.length; i++) {
+      const m = msgs[i]
+      if (
+        m.role === "user" &&
+        m.createdAt &&
+        m.createdAt >= edit.created_at
+      ) {
+        editIdx = i
+        break
+      }
+    }
+    if (editIdx === -1) continue
+
+    msgs = [...msgs.slice(0, sourceIdx), ...msgs.slice(editIdx)]
+  }
+
+  return { ...history, messages: msgs }
 }
 
 export async function chatEditAndResend(input: {
@@ -234,7 +283,17 @@ export async function chatEditAndResend(input: {
   messageId: string
   text: string
 }) {
-  const gwKey = resolveGatewayKey(input.sessionKey)
+  const gwKey = await ensureGatewaySession(input.sessionKey)
+
+  const db = getDb()
+  const editId = `edit_${crypto.randomUUID().replace(/-/g, "")}`
+  const now = new Date().toISOString()
+  try {
+    db.prepare(
+      "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_reason, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(editId, input.sessionKey, input.messageId, editId, "edit", now, null)
+  } catch {}
+
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
     result = await sendChatMessage({

@@ -293,31 +293,6 @@
     @apply font-sans;
   }
 
-  /* ── Custom Premium Scrollbar ── */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: oklch(var(--muted-foreground) / 0.2) transparent;
-  }
-
-  ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: oklch(var(--muted-foreground) / 0.1);
-    border-radius: 20px;
-    transition: background 0.2s ease;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: oklch(var(--muted-foreground) / 0.3);
-  }
-
   .scrollbar-hide {
     scrollbar-width: none;
   }
@@ -329,6 +304,52 @@
   .group\/sidebar * {
     box-shadow: none !important;
   }
+}
+
+/* ── Custom Scrollbar (outside @layer for full specificity) ── */
+*,
+html,
+body {
+  scrollbar-width: auto !important;
+}
+
+*::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+}
+
+*::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-radius: 999px !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-radius: 999px !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35) !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.45) !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
 }
 
 @keyframes marquee-scroll {

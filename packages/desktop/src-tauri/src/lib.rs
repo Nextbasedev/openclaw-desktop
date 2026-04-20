@@ -1,5 +1,11 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  #[cfg(target_os = "windows")]
+  std::env::set_var(
+    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+    "--enable-features=OverlayScrollbar,OverlayScrollbarFlashAfterAnyScrollUpdate",
+  );
+
   tauri::Builder::default()
     .setup(|app| {
       if cfg!(debug_assertions) {

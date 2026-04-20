@@ -38,10 +38,11 @@ interface InspectorPanelProps {
   terminalActive?: boolean
   onTerminalActiveChange?: (active: boolean) => void
   sessionKey?: string | null
+  focusActivityTrigger?: number
   projectId?: string | null
 }
 
-export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, projectId }: InspectorPanelProps) {
+export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusActivityTrigger, projectId }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
   const responsiveRef = useRef(getResponsiveDefaults())
   const [width, setWidth] = useState(responsiveRef.current.default)
@@ -64,6 +65,12 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
   ])
   const [activeTermId, setActiveTermId] = useState("term-1")
   const termScrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (focusActivityTrigger && focusActivityTrigger > 0) {
+      setActiveTab("activity")
+    }
+  }, [focusActivityTrigger])
 
   useEffect(() => {
     if (terminalActive && open) {

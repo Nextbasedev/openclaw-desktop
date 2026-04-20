@@ -3,6 +3,7 @@
 import { useCallback, useRef } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { MessageBubble, TypingDots } from "./MessageBubble"
+import { ToolCallSteps } from "./ToolCallSteps"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatBox } from "@/components/ChatBox"
 
@@ -11,13 +12,19 @@ type Props = {
   sessionTitle?: string
   onFirstMessageSent?: (text: string) => void
   initialMessages?: import("./types").ChatMessage[]
+  onSelectTool?: (toolCallId: string) => void
 }
 
-export function ChatView({ sessionKey, onFirstMessageSent, initialMessages }: Props) {
+export function ChatView({
+  sessionKey,
+  onFirstMessageSent,
+  initialMessages,
+  onSelectTool,
+}: Props) {
   const {
     messages, status, statusLabel, loading, loadError,
     isGenerating, bottomRef, scrollContainerRef, onScroll,
-    handleSend, handleAbort,
+    handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
   } = useChatMessages(sessionKey, initialMessages)
 
   const firstFiredRef = useRef(false)
@@ -30,9 +37,9 @@ export function ChatView({ sessionKey, onFirstMessageSent, initialMessages }: Pr
   }, [handleSend, messages.length, onFirstMessageSent])
 
   const statusText =
-    status === "thinking" ? "Thinking…"
-    : status === "tool_running" ? `Running${statusLabel ? ` · ${statusLabel}` : " tool"}…`
-    : status === "streaming" ? "Responding…"
+    status === "thinking" ? "Thinking..."
+    : status === "tool_running" ? `Running${statusLabel ? ` · ${statusLabel}` : " tool"}...`
+    : status === "streaming" ? "Responding..."
     : null
 
   if (loading) {
@@ -40,7 +47,7 @@ export function ChatView({ sessionKey, onFirstMessageSent, initialMessages }: Pr
       <div className="flex h-full w-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Loading conversation…</span>
+          <span className="text-[13px] text-muted-foreground">Loading conversation...</span>
         </div>
       </div>
     )
@@ -76,6 +83,13 @@ export function ChatView({ sessionKey, onFirstMessageSent, initialMessages }: Pr
     )
   }
 
+  const lastTwoAssistantIds = new Set(
+    messages
+      .filter((m) => m.role === "assistant")
+      .slice(-2)
+      .map((m) => m.messageId),
+  )
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <div
@@ -84,10 +98,59 @@ export function ChatView({ sessionKey, onFirstMessageSent, initialMessages }: Pr
         className="flex-1 overflow-y-auto"
       >
         <div className="mx-auto max-w-3xl px-4 py-8">
-          <div className="flex flex-col gap-4">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.messageId} message={msg} />
-            ))}
+          <div className="flex flex-col gap-5">
+            {messages.map((msg, i) => {
+              const isLast = i === messages.length - 1
+              const showPending =
+                isLast &&
+                isGenerating &&
+                pendingTools.length > 0 &&
+                msg.role === "user"
+
+              return (
+                <div key={msg.messageId}>
+                  {msg.role === "assistant" &&
+                    msg.toolCalls &&
+                    msg.toolCalls.length > 0 && (
+                      <div className="mb-2 max-w-[85%]">
+                        <ToolCallSteps
+                          tools={msg.toolCalls}
+                          defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+                          onSelectTool={onSelectTool}
+                        />
+                      </div>
+                    )}
+                  <MessageBubble
+                    message={msg}
+                    onEdit={handleEdit}
+                    onSwitchBranch={switchBranch}
+                    isGenerating={isGenerating}
+                  />
+                  {showPending && (
+                    <div className="mt-4 max-w-[85%]">
+                      <ToolCallSteps
+                        tools={pendingTools}
+                        defaultOpen
+                        onSelectTool={onSelectTool}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {isGenerating &&
+              pendingTools.length > 0 &&
+              messages.length > 0 &&
+              messages[messages.length - 1].role === "assistant" && (
+                <div className="max-w-[85%]">
+                  <ToolCallSteps
+                    tools={pendingTools}
+                    defaultOpen
+                    onSelectTool={onSelectTool}
+                  />
+                </div>
+              )}
           </div>
 
           {statusText && (
@@ -101,7 +164,7 @@ export function ChatView({ sessionKey, onFirstMessageSent, initialMessages }: Pr
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border/20 bg-background/60 py-3 backdrop-blur-sm">
+      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <ChatBox
           onSend={(text) => wrappedSend(text)}
           disabled={false}
