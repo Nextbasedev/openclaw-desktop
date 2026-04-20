@@ -3,7 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { getDb } from "../db/connection.js"
 import { nowIso } from "../db/helpers.js"
-import { parseChangedFiles, parseRecentCommits, getAheadBehind, buildSummary } from "./git-parsers.js"
+import { parseChangedFiles, parseRecentCommits, getAheadBehind, buildSummary, gitHelper } from "./git-parsers.js"
 
 function projectRepoRoot(projectId: string): string {
   const db = getDb()
@@ -14,6 +14,15 @@ function projectRepoRoot(projectId: string): string {
     | undefined
   if (!row) throw new Error(`Project not found: ${projectId}`)
   return row.repo_root || row.workspace_root
+}
+
+function getEffectiveRepoRoot(projectId: string | null | undefined): string {
+  let root = projectId ? projectRepoRoot(projectId) : process.cwd()
+  if (!hasGitRepo(root)) {
+    const fallback = findNearestGitRoot(process.cwd())
+    if (fallback) root = fallback
+  }
+  return root
 }
 
 function detectCurrentBranch(repoRoot: string): string | null {
@@ -53,6 +62,21 @@ function findNearestGitRoot(startDir: string): string | null {
   }
 }
 
+function parseRemoteOutput(
+  raw: string,
+): Array<{ name: string; url: string; type: string }> {
+  if (!raw) return []
+  const lines = raw.split("\n").filter(Boolean)
+  const remotes: Array<{ name: string; url: string; type: string }> = []
+  for (const line of lines) {
+    const match = line.match(/^(\S+)\s+(\S+)\s+\((\w+)\)$/)
+    if (match) {
+      remotes.push({ name: match[1], url: match[2], type: match[3] })
+    }
+  }
+  return remotes
+}
+
 export function gitRemoteAdd(input: {
   projectId: string
   remoteName: string
@@ -69,11 +93,8 @@ export function gitRemoteAdd(input: {
     )
   }
 
-  const repoRoot = projectRepoRoot(input.projectId)
-  execFileSync("git", ["remote", "add", input.remoteName, input.remoteUrl], {
-    cwd: repoRoot,
-    timeout: 10000,
-  })
+  const repoRoot = getEffectiveRepoRoot(input.projectId)
+  gitHelper(["remote", "add", input.remoteName, input.remoteUrl], repoRoot)
 
   const db = getDb()
   const remotesRaw = execSync("git remote -v", {
@@ -94,7 +115,7 @@ export function gitRemoteAdd(input: {
 }
 
 export function gitRemoteList(input: { projectId: string }) {
-  const repoRoot = projectRepoRoot(input.projectId)
+  const repoRoot = getEffectiveRepoRoot(input.projectId)
   try {
     const raw = execSync("git remote -v", {
       cwd: repoRoot,
@@ -108,30 +129,12 @@ export function gitRemoteList(input: { projectId: string }) {
   }
 }
 
-function parseRemoteOutput(
-  raw: string,
-): Array<{ name: string; url: string; type: string }> {
-  if (!raw) return []
-  const lines = raw.split("\n").filter(Boolean)
-  const remotes: Array<{ name: string; url: string; type: string }> = []
-  for (const line of lines) {
-    const match = line.match(/^(\S+)\s+(\S+)\s+\((\w+)\)$/)
-    if (match) {
-      remotes.push({ name: match[1], url: match[2], type: match[3] })
-    }
-  }
-  return remotes
-}
-
 export function gitRemoteRemove(input: {
   projectId: string
   remoteName: string
 }) {
-  const repoRoot = projectRepoRoot(input.projectId)
-  execFileSync("git", ["remote", "remove", input.remoteName], {
-    cwd: repoRoot,
-    timeout: 10000,
-  })
+  const repoRoot = getEffectiveRepoRoot(input.projectId)
+  gitHelper(["remote", "remove", input.remoteName], repoRoot)
 
   const db = getDb()
   const remotesRaw = execSync("git remote -v", {
@@ -148,18 +151,8 @@ export function gitRemoteRemove(input: {
 }
 
 export function gitContext(input: { projectId?: string; topicId?: string }) {
-  let repoRoot = input.projectId
-    ? projectRepoRoot(input.projectId)
-    : process.cwd()
-  let isGit = hasGitRepo(repoRoot)
-
-  if (!isGit) {
-    const fallback = findNearestGitRoot(process.cwd())
-    if (fallback) {
-      repoRoot = fallback
-      isGit = true
-    }
-  }
+  const repoRoot = getEffectiveRepoRoot(input.projectId)
+  const isGit = hasGitRepo(repoRoot)
 
   if (!isGit) {
     return {
@@ -216,19 +209,18 @@ export function gitSwitchBranch(input: {
     throw new Error("Branch name must not start with '-'")
   }
 
-  const repoRoot = projectRepoRoot(input.projectId)
-  const createFlag = input.create ? "-c" : ""
+  const repoRoot = getEffectiveRepoRoot(input.projectId)
 
   try {
     const args = input.create
       ? ["switch", "-c", input.branchName]
       : ["switch", input.branchName]
-    execFileSync("git", args, { cwd: repoRoot, timeout: 10000 })
+    gitHelper(args, repoRoot)
   } catch {
     const fallbackArgs = input.create
       ? ["checkout", "-b", input.branchName]
       : ["checkout", input.branchName]
-    execFileSync("git", fallbackArgs, { cwd: repoRoot, timeout: 10000 })
+    gitHelper(fallbackArgs, repoRoot)
   }
 
   const currentBranch = detectCurrentBranch(repoRoot)
@@ -236,16 +228,11 @@ export function gitSwitchBranch(input: {
 }
 
 export function gitBranches(input: { projectId: string }) {
-  const repoRoot = projectRepoRoot(input.projectId)
+  const repoRoot = getEffectiveRepoRoot(input.projectId)
 
   let local: string[] = []
   try {
-    const raw = execFileSync("git", ["branch", "--format=%(refname:short)"], {
-      cwd: repoRoot,
-      timeout: 5000,
-    })
-      .toString()
-      .trim()
+    const raw = gitHelper(["branch", "--format=%(refname:short)"], repoRoot)
     if (raw) {
       local = raw.split("\n").filter(Boolean)
     }
@@ -255,12 +242,7 @@ export function gitBranches(input: { projectId: string }) {
 
   let remote: string[] = []
   try {
-    const raw = execFileSync("git", ["branch", "-r", "--format=%(refname:short)"], {
-      cwd: repoRoot,
-      timeout: 5000,
-    })
-      .toString()
-      .trim()
+    const raw = gitHelper(["branch", "-r", "--format=%(refname:short)"], repoRoot)
     if (raw) {
       remote = raw.split("\n").filter(Boolean)
     }
@@ -271,4 +253,15 @@ export function gitBranches(input: { projectId: string }) {
   const current = detectCurrentBranch(repoRoot)
 
   return { local, remote, current }
+}
+
+export function gitCommitDetails(input: { projectId: string; hash: string }) {
+  const repoRoot = getEffectiveRepoRoot(input.projectId)
+  try {
+    const hash = String(input.hash).trim()
+    const diff = gitHelper(["show", "--pretty=format:", hash], repoRoot)
+    return { ok: true, diff }
+  } catch (err) {
+    throw new Error(`Failed to get commit diff: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }

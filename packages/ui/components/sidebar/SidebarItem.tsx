@@ -33,7 +33,7 @@ export function SidebarItem({ item, isActive, onClick, collapsed = false, dragga
         "transition-[background-color,color,opacity] duration-150 ease-in-out",
         "cursor-pointer",
         isActive
-          ? "bg-foreground/5 text-foreground shadow-sm backdrop-blur-md"
+          ? "text-foreground"
           : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
       )}
     >

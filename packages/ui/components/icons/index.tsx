@@ -50,6 +50,7 @@ import {
     Archive02Icon,
 } from "@hugeicons/core-free-icons"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
+import { LuPuzzle } from "react-icons/lu"
 
 /**
  * Global Icons System
@@ -106,7 +107,7 @@ export const Icons = {
 
     // Sidebar Specific
     NewChat: wrapHugeicon(PencilEdit02Icon),
-    Plugins: wrapHugeicon(GridIcon),
+    Plugins: wrapReactIcon(LuPuzzle),
     Automations: wrapHugeicon(Clock01Icon),
     Project: wrapHugeicon(FolderAddIcon),
 

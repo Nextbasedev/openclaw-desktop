@@ -15,11 +15,12 @@ import { NotificationDashboard } from "@/components/notifications/NotificationDa
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
 import { useTopicSession } from "@/hooks/useTopicSession"
-import ConnectPage from "@/app/connect/page"
+import ConnectPage from "@/components/ConnectPage"
 import { ChatView } from "@/components/ChatView"
-import { OnboardingWizard, useOnboardingFlow } from "@/components/onboarding"
+import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { useTheme } from "next-themes"
+import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
 type SlugSegments = { primary: string; secondary?: string }
@@ -42,32 +43,35 @@ const SIDEBAR_COLLAPSED = 56
 export default function Page() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
   const { flowState, loading: onboardingLoading, error: onboardingError } = useOnboardingFlow()
+  const [hasToken, setHasToken] = useState<boolean | null>(null)
 
   useEffect(() => {
-    if (onboardingLoading) return
-    if (flowState) {
-      const steps = flowState.flow.steps
-      const essentialsDone = steps
-        .filter((s) => s.id !== "core")
-        .every((s) => s.complete)
-      setOnboardingDone(flowState.flow.completed || essentialsDone)
-    } else if (onboardingError) {
-      setOnboardingDone(false)
+    async function checkToken() {
+      try {
+        const s = await invoke<{ gatewayToken?: string }>("middleware_connect_status", { input: {} })
+        setHasToken(!!s.gatewayToken)
+      } catch {
+        setHasToken(false)
+      }
     }
-  }, [onboardingLoading, flowState, onboardingError])
+    checkToken()
+  }, [])
+
+  useEffect(() => {
+    if (onboardingLoading || hasToken === null) return
+    // Skip onboarding wizard entirely and move to AppShell
+    setOnboardingDone(true)
+  }, [onboardingLoading, hasToken])
 
   if (onboardingDone === null) {
     return <AppLoadingSkeleton />
   }
 
-  if (!onboardingDone) {
-    return <OnboardingWizard onComplete={() => setOnboardingDone(true)} />
-  }
-
-  return <AppShell onResetOnboarding={() => setOnboardingDone(false)} />
+  // Redirect to connect if token is missing
+  return <AppShell onResetOnboarding={() => setOnboardingDone(false)} initialConnect={!hasToken} />
 }
 
-function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
+function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: () => void; initialConnect?: boolean }) {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -81,6 +85,8 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
     if (p.startsWith("/connect")) return "connect"
     if (p.startsWith("/settings")) return "settings"
     if (p.startsWith("/notifications")) return "notifications"
+    // If it's the first time and we're at root, default to connect
+    if (initialConnect && p === "/") return "connect"
     return "chat"
   })
 
@@ -163,6 +169,12 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
   }, [resolvedTheme, setTheme])
+
+  useEffect(() => {
+    if (initialConnect && activeTab === "connect" && typeof window !== "undefined" && window.location.pathname === "/") {
+      window.history.replaceState(null, "", "/connect")
+    }
+  }, [initialConnect, activeTab])
 
   useEffect(() => {
     function onResize() {
@@ -297,6 +309,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
         setInitialMessages(undefined)
         setActiveTab("chat")
         setActiveTopic(null)
+        setProjectSlug(null)
 
         if (blankChat.sessionKey) {
           setActiveChat({ id: blankChat.id, name: blankChat.name, sessionKey: blankChat.sessionKey })
@@ -314,6 +327,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           setActiveSessionKey(sessionResult.session.key)
           setActiveSessionTitle(blankChat.name)
         }
+        window.history.pushState(null, "", "/")
         return
       }
 
@@ -517,6 +531,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
               initialMessages={initialMessages}
               onSelectTool={handleSelectTool}
               pendingPrompt={pendingPrompt}
+              onNavigateToChat={handleChatSelect}
             />
           </main>
         </div>
@@ -528,6 +543,7 @@ function AppShell({ onResetOnboarding }: { onResetOnboarding: () => void }) {
           onTerminalActiveChange={setTerminalActive}
           sessionKey={activeSessionKey}
           focusActivityTrigger={focusActivityTrigger}
+          projectId={activeTopic?.projectId ?? null}
         />
       </div>
 
@@ -568,6 +584,7 @@ function MainContent({
   initialMessages,
   onSelectTool,
   pendingPrompt,
+  onNavigateToChat,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -586,6 +603,7 @@ function MainContent({
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   pendingPrompt?: string | null
+  onNavigateToChat?: (chat: ActiveChat) => void
 }) {
   // 0. Settings and notifications always take priority
   if (activeTab === "settings") {
@@ -599,7 +617,10 @@ function MainContent({
   if (activeTab === "notifications") {
     return (
       <div className="flex h-full w-full">
-        <NotificationDashboard onBack={onSettingsBack} />
+        <NotificationDashboard
+          onBack={onSettingsBack}
+          onNavigateToChat={onNavigateToChat}
+        />
       </div>
     )
   }
@@ -672,51 +693,6 @@ function MainContent({
   if (activeTab === "skill") return <SkillPage />
   if (activeTab === "connect") return <ConnectPage />
 
-  // 2. Session history view
-  if (activeSessionKey && activeTopic) {
-    return (
-      <div className="flex h-full w-full">
-        <ChatView sessionKey={activeSessionKey} sessionTitle={activeSessionTitle ?? undefined} onSelectTool={onSelectTool} />
-      </div>
-    )
-  }
-
-  // 3. Topic selected, session resolving → loading
-  if (activeTopic && sessionResolving) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
-        </div>
-      </div>
-    )
-  }
-
-  // 4. Topic selected, session failed → error
-  if (activeTopic && sessionError) {
-    return (
-      <div className="flex h-full w-full items-center justify-center px-8">
-        <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
-          <p className="text-sm font-medium text-red-400">Failed to open conversation</p>
-          <p className="mt-1 text-xs text-muted-foreground">{sessionError}</p>
-        </div>
-      </div>
-    )
-  }
-
-  // 5. Topic selected, waiting for effect to start
-  if (activeTopic && !activeSessionKey) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
-        </div>
-      </div>
-    )
-  }
-
   // Default: chat / greeting
   return (
     <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
@@ -726,53 +702,4 @@ function MainContent({
   )
 }
 
-function AppLoadingSkeleton() {
-  return (
-    <div className="flex h-svh flex-col bg-background">
-      {/* Header skeleton */}
-      <div className="flex h-12 items-center border-b border-border/40 px-4">
-        <div className="h-4 w-20 animate-pulse rounded bg-muted/25" />
-        <div className="flex-1" />
-        <div className="flex items-center gap-3">
-          <div className="size-5 animate-pulse rounded bg-muted/20" />
-          <div className="size-5 animate-pulse rounded bg-muted/20" />
-        </div>
-      </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar skeleton */}
-        <div className="flex w-[220px] shrink-0 flex-col border-r border-border/40 px-3 py-4">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-              <div className="size-4 animate-pulse rounded bg-muted/30" />
-              <div className="h-3.5 w-12 animate-pulse rounded bg-muted/30" />
-            </div>
-            <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-              <div className="size-4 animate-pulse rounded bg-muted/20" />
-              <div className="h-3.5 w-10 animate-pulse rounded bg-muted/20" />
-            </div>
-            <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-              <div className="size-4 animate-pulse rounded bg-muted/20" />
-              <div className="h-3.5 w-16 animate-pulse rounded bg-muted/20" />
-            </div>
-          </div>
-          <div className="mt-8 px-2">
-            <div className="mb-3 h-3 w-16 animate-pulse rounded bg-muted/20" />
-            <div className="flex items-center gap-2.5 py-2">
-              <div className="size-4 animate-pulse rounded bg-muted/20" />
-              <div className="h-3.5 w-14 animate-pulse rounded bg-muted/20" />
-            </div>
-          </div>
-        </div>
-
-        {/* Main content skeleton */}
-        <div className="flex flex-1 flex-col items-center justify-center gap-8">
-          <div className="h-9 w-80 animate-pulse rounded-lg bg-muted/20" />
-          <div className="w-full max-w-2xl px-8">
-            <div className="h-28 w-full animate-pulse rounded-2xl border border-border/30 bg-muted/10" />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}

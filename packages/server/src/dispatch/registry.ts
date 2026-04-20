@@ -113,6 +113,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_git_context: (i) => git.gitContext(i as { projectId?: string; topicId?: string }),
   middleware_git_switch_branch: (i) => git.gitSwitchBranch(i as Parameters<typeof git.gitSwitchBranch>[0]),
   middleware_git_branches: (i) => git.gitBranches(i as { projectId: string }),
+  middleware_git_commit_details: (i) => git.gitCommitDetails(i as { projectId: string; hash: string }),
 
   // Memory
   middleware_memory_list: (i) => memory.memoryList(i as { projectId?: string }),

@@ -5,12 +5,31 @@ export interface GitFile {
   state: FileState
 }
 
+export interface DiffLine {
+  type: "addition" | "deletion" | "normal" | "hunk"
+  content: string
+  oldLineNumber?: number
+  newLineNumber?: number
+}
+
+export interface FileDiff {
+  path: string
+  additions: number
+  deletions: number
+  lines: DiffLine[]
+}
+
 export interface GitContextResponse {
   hasGit: boolean
   currentBranch: string | null
   uncommittedChanges: string[]
-  recentCommits: string[]
+  recentCommits: any[]
   trackedBranches: Array<{ branchName: string; detectedAt: string }>
+  summary?: {
+    totalFiles: number
+    totalAdditions: number
+    totalDeletions: number
+  }
 }
 
 export interface BranchesResponse {
@@ -28,7 +47,7 @@ export const STATE_CONFIG: Record<FileState, { letter: string; color: string }> 
 }
 
 export function parseStatusLine(line: string): GitFile | null {
-  if (line.length < 4) return null
+  if (typeof line !== "string" || line.length < 4) return null
   const xy = line.substring(0, 2)
   const filePath = line.substring(3)
   let state: FileState = "modified"
@@ -39,8 +58,103 @@ export function parseStatusLine(line: string): GitFile | null {
   return { path: filePath, state }
 }
 
-export function parseCommitLine(line: string) {
+export function parseCommitLine(line: any) {
+  if (typeof line === "object" && line !== null) {
+    return {
+      hash: String(line.hash || line.id || line.commit || "empty"),
+      message: String(line.message || line.subject || line.text || ""),
+      additions: Number(line.additions || 0),
+      deletions: Number(line.deletions || 0),
+      shortHash: String(line.shortHash || (line.hash && String(line.hash).substring(0, 7)) || ""),
+      date: String(line.date || ""),
+    }
+  }
+  if (typeof line !== "string") return { hash: String(line || "empty"), message: "", additions: 0, deletions: 0, shortHash: "", date: "" }
   const spaceIdx = line.indexOf(" ")
-  if (spaceIdx === -1) return { hash: line, message: "" }
-  return { hash: line.substring(0, spaceIdx), message: line.substring(spaceIdx + 1) }
+  if (spaceIdx === -1) return { hash: line, message: "", additions: 0, deletions: 0, shortHash: line.substring(0, 7), date: "" }
+  return { 
+    hash: line.substring(0, spaceIdx), 
+    message: line.substring(spaceIdx + 1),
+    additions: 0,
+    deletions: 0,
+    shortHash: line.substring(0, 7),
+    date: ""
+  }
+}
+
+export function parseGitShow(raw: string): FileDiff[] {
+  if (!raw || !raw.trim()) return []
+  
+  const files: FileDiff[] = []
+  const lines = raw.split("\n")
+  let currentFile: FileDiff | null = null
+  
+  let oldLine = 0
+  let newLine = 0
+
+  for (let line of lines) {
+    if (line.startsWith("diff --git")) {
+      if (currentFile) files.push(currentFile)
+      
+      const parts = line.split(" ")
+      let path = "unknown"
+      if (parts.length >= 4) {
+        path = parts[3].substring(2)
+      }
+      
+      currentFile = {
+        path,
+        additions: 0,
+        deletions: 0,
+        lines: [],
+      }
+      oldLine = 0
+      newLine = 0
+      continue
+    }
+
+    if (!currentFile) continue
+
+    if (line.startsWith("---") || line.startsWith("index ")) continue
+    
+    if (line.startsWith("+++")) {
+      if (line.startsWith("+++ b/")) {
+        currentFile.path = line.substring(6)
+      }
+      continue
+    }
+
+    if (line.startsWith("@@")) {
+      const match = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/)
+      if (match) {
+        oldLine = parseInt(match[1], 10)
+        newLine = parseInt(match[2], 10)
+      }
+      currentFile.lines.push({ type: "hunk", content: line })
+    } else if (line.startsWith("+")) {
+      currentFile.additions++
+      currentFile.lines.push({ 
+        type: "addition", 
+        content: line.substring(1),
+        newLineNumber: newLine++
+      })
+    } else if (line.startsWith("-")) {
+      currentFile.deletions++
+      currentFile.lines.push({ 
+        type: "deletion", 
+        content: line.substring(1),
+        oldLineNumber: oldLine++
+      })
+    } else {
+      currentFile.lines.push({ 
+        type: "normal", 
+        content: line.startsWith(" ") ? line.substring(1) : line,
+        oldLineNumber: oldLine++,
+        newLineNumber: newLine++
+      })
+    }
+  }
+
+  if (currentFile) files.push(currentFile)
+  return files
 }

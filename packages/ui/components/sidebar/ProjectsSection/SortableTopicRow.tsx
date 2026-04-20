@@ -47,10 +47,9 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
     >
       <button
         onClick={onClick}
-        style={isActive ? { color: "#ffffff" } : undefined}
         className={cn(
           "flex flex-1 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors duration-150",
-          isActive ? "bg-foreground/7" : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
+          isActive ? "bg-foreground/7 text-foreground" : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
         )}
       >
         <span
@@ -59,7 +58,7 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
           className={cn(
             "flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all duration-150",
             isPinned
-              ? isActive ? "text-white" : "text-foreground/70"
+              ? isActive ? "text-foreground" : "text-foreground/70"
               : "opacity-0 group-hover/row:opacity-100 text-muted-foreground/40 hover:text-foreground",
           )}
         >
