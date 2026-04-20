@@ -1,5 +1,8 @@
 import { getDb } from "../db/connection.js"
 import { nowIso, getAppSetting, setAppSetting, recordSyncTombstone } from "../db/helpers.js"
+import { pullOnce } from "../sync/pull.js"
+import { forceBackfill } from "../sync/backfill.js"
+import { kickSyncEngine } from "../sync/engine.js"
 
 export function syncStatus() {
   const db = getDb()
@@ -47,4 +50,43 @@ export function syncSetDeviceId(input: { deviceId: string }) {
   const db = getDb()
   setAppSetting(db, "sync.device_id", input.deviceId)
   return { ok: true, deviceId: input.deviceId }
+}
+
+export function syncBackfillNow() {
+  const result = forceBackfill()
+  kickSyncEngine()
+  return { ok: true, enqueued: result.enqueued }
+}
+
+export async function syncPullNow() {
+  const result = await pullOnce()
+  const db = getDb()
+  const projects = db
+    .prepare(
+      "SELECT id, name, profile_id, workspace_root, repo_root, archived, pinned, updated_at FROM projects WHERE deleted_at IS NULL ORDER BY pinned DESC, updated_at DESC",
+    )
+    .all()
+  const topics = db
+    .prepare(
+      "SELECT id, project_id, name, archived, sort_order_key, updated_at FROM topics WHERE deleted_at IS NULL ORDER BY project_id, sort_order_key, updated_at DESC",
+    )
+    .all()
+  const chats = db
+    .prepare(
+      `SELECT c.id, c.name, c.session_key, c.agent_id, c.archived, c.pinned,
+              c.last_active_at, c.updated_at, sm.project_id, sm.topic_id
+       FROM chats c
+       LEFT JOIN session_mappings sm ON sm.session_key = c.session_key
+       WHERE c.deleted_at IS NULL
+       ORDER BY c.pinned DESC, c.updated_at DESC`,
+    )
+    .all()
+  return {
+    pulledAt: nowIso(),
+    seen: result.seen,
+    applied: result.applied,
+    projects,
+    topics,
+    chats,
+  }
 }
