@@ -8,7 +8,7 @@ import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
 import { useSlashCommands } from "@/hooks/useSlashCommands"
 import { useModels } from "@/hooks/useModels"
 
-  type Props = {
+type Props = {
   initialPrompt?: string
   onSend?: (text: string) => void
   disabled?: boolean
@@ -17,7 +17,7 @@ import { useModels } from "@/hooks/useModels"
 }
 
 export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt }: Props) {
-  const [input, setInput] = React.useState("")
+  const [input, setInput] = React.useState(initialPrompt ?? "")
   const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [plusOpen, setPlusOpen] = React.useState(false)

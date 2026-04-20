@@ -105,9 +105,15 @@ export function CommandPalette({
 
     invoke<{ sessions: Session[] }>("middleware_sessions_list", { input: {} })
       .then(({ sessions }) => {
+        const seen = new Set<string>()
         const sorted = sessions
           .filter((s) => !s.label?.startsWith("__"))
           .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+          .filter((s) => {
+            if (seen.has(s.sessionKey)) return false
+            seen.add(s.sessionKey)
+            return true
+          })
           .slice(0, 5)
         setRecentSessions(sorted)
       })

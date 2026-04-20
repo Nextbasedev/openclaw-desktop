@@ -13,6 +13,7 @@ type Props = {
   onFirstMessageSent?: (text: string) => void
   initialMessages?: import("./types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
+  initialPrompt?: string
 }
 
 export function ChatView({
@@ -20,6 +21,7 @@ export function ChatView({
   onFirstMessageSent,
   initialMessages,
   onSelectTool,
+  initialPrompt,
 }: Props) {
   const {
     messages, status, statusLabel, loading, loadError,
@@ -73,6 +75,7 @@ export function ChatView({
           disabled={false}
           isGenerating={isGenerating}
           onAbort={handleAbort}
+          initialPrompt={initialPrompt}
         />
         {status === "error" && (
           <p className="mt-2 text-center text-[11px] text-red-400/70">
