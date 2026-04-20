@@ -10,6 +10,7 @@ import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
 import { invoke } from "@/lib/ipc"
+import type { ActiveChat } from "@/types/chat"
 
 type HeaderProps = {
     user?: HeaderUser
@@ -24,10 +25,11 @@ type HeaderProps = {
     centerLabel?: { project: string; topic: string } | null
     onOpenSettings?: () => void
     onOpenNotifications?: () => void
+    onNavigateToChat?: (chat: ActiveChat) => void
 }
 
 const DEFAULT_USER: HeaderUser = {
-    name: "John Doe",
+    name: "Jarvis",
 }
 
 export function Header({
@@ -43,6 +45,7 @@ export function Header({
     centerLabel,
     onOpenSettings,
     onOpenNotifications,
+    onNavigateToChat,
 }: HeaderProps) {
     const platform = usePlatform()
     const [appVersion, setAppVersion] = useState<string | null>(null)
@@ -154,7 +157,7 @@ export function Header({
                             <VscTerminal className="size-4" />
                         </button>
 
-                        <NotificationPopover onViewAll={onOpenNotifications} />
+                        <NotificationPopover onViewAll={onOpenNotifications} onNavigateToChat={onNavigateToChat} />
                         <HeaderIconButton
                             icon={Icons.Settings}
                             label="Settings"

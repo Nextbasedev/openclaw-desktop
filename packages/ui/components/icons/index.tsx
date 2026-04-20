@@ -50,7 +50,7 @@ import {
     Archive02Icon,
 } from "@hugeicons/core-free-icons"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
-import { LuPuzzle } from "react-icons/lu"
+import { LuPuzzle, LuZap } from "react-icons/lu"
 
 /**
  * Global Icons System
@@ -153,6 +153,7 @@ export const Icons = {
     MoreVertical: wrapHugeicon(MoreVerticalIcon),
     Trash: wrapHugeicon(Delete02Icon),
     Archive: wrapHugeicon(Archive02Icon),
+    Model: wrapReactIcon(LuZap),
 }
 
 /**

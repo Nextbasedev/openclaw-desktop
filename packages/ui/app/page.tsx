@@ -23,16 +23,24 @@ import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
-type SlugSegments = { primary: string; secondary?: string }
+const TABS = new Set(["skill", "connect", "settings", "notifications"])
 
-function toSlug(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
+type ParsedRoute =
+  | { kind: "chat"; chatId: string }
+  | { kind: "topic"; projectId: string; topicId: string }
+  | { kind: "tab"; tab: string }
+  | { kind: "home" }
+
+function parseRoute(pathname: string): ParsedRoute {
+  const segments = pathname.split("/").filter(Boolean)
+  if (segments.length === 1 && segments[0]) {
+    if (TABS.has(segments[0])) return { kind: "tab", tab: segments[0] }
+    return { kind: "chat", chatId: segments[0] }
+  }
+  if (segments.length === 2 && segments[0] && segments[1]) {
+    return { kind: "topic", projectId: segments[0], topicId: segments[1] }
+  }
+  return { kind: "home" }
 }
 
 const SIDEBAR_MIN = 160
@@ -59,7 +67,6 @@ export default function Page() {
 
   useEffect(() => {
     if (onboardingLoading || hasToken === null) return
-    // Skip onboarding wizard entirely and move to AppShell
     setOnboardingDone(true)
   }, [onboardingLoading, hasToken])
 
@@ -67,7 +74,6 @@ export default function Page() {
     return <AppLoadingSkeleton />
   }
 
-  // Redirect to connect if token is missing
   return <AppShell onResetOnboarding={() => setOnboardingDone(false)} initialConnect={!hasToken} />
 }
 
@@ -80,38 +86,19 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [terminalActive, setTerminalActive] = useState(false)
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window === "undefined") return "chat"
-    const p = window.location.pathname
-    if (p.startsWith("/skill")) return "skill"
-    if (p.startsWith("/connect")) return "connect"
-    if (p.startsWith("/settings")) return "settings"
-    if (p.startsWith("/notifications")) return "notifications"
-    // If it's the first time and we're at root, default to connect
-    if (initialConnect && p === "/") return "connect"
+    const route = parseRoute(window.location.pathname)
+    if (route.kind === "tab") return route.tab
+    if (initialConnect && route.kind === "home") return "connect"
     return "chat"
-  })
-
-  const [projectSlug, setProjectSlug] = useState<SlugSegments | null>(() => {
-    if (typeof window === "undefined") return null
-    const p = window.location.pathname
-    const segments = p.split("/").filter(Boolean)
-    if (segments.length === 2) {
-      return {
-        primary: decodeURIComponent(segments[0]),
-        secondary: decodeURIComponent(segments[1]),
-      }
-    }
-    return null
   })
 
   const prevTabRef = useRef("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
 
-  // Project / topic / session navigation state
   const [activeTopic, setActiveTopic] = useState<ActiveTopic | null>(null)
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
 
-  // Standalone chat navigation state
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
   const activeChatRef = useRef<ActiveChat | null>(null)
@@ -124,9 +111,158 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
   const [focusActivityTrigger, setFocusActivityTrigger] = useState(0)
   const isResizing = useRef(false)
+  const restoredRef = useRef(false)
 
   const { flowState, signOut, deleteAccount } = useOnboardingFlow()
   const { resolvedTheme, setTheme } = useTheme()
+
+  // Restore state from URL on mount
+  useEffect(() => {
+    if (restoredRef.current) return
+    restoredRef.current = true
+
+    const route = parseRoute(window.location.pathname)
+
+    if (route.kind === "chat") {
+      ;(async () => {
+        try {
+          const listResult = await invoke<{
+            chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
+          }>("middleware_chats_list", { input: {} })
+          const found = (listResult.chats || []).find(
+            (c) => c.id === route.chatId && !c.archived,
+          )
+          if (!found) return
+
+          setActiveTab("chat")
+          setActiveChat({ id: found.id, name: found.name, sessionKey: found.sessionKey })
+          if (found.sessionKey) {
+            setActiveSessionKey(found.sessionKey)
+            setActiveSessionTitle(found.name)
+          }
+        } catch {
+          // silently fail — show greeting
+        }
+      })()
+    }
+
+    if (route.kind === "topic") {
+      ;(async () => {
+        try {
+          const projectResult = await invoke<{
+            projects: { id: string; name: string; archived: boolean }[]
+          }>("middleware_projects_list", { input: {} })
+          const project = (projectResult.projects || []).find(
+            (p) => p.id === route.projectId && !p.archived,
+          )
+          if (!project) return
+
+          const topicResult = await invoke<{
+            topics: { id: string; name: string; projectId: string; archived: boolean }[]
+          }>("middleware_topics_list", {
+            input: { projectId: route.projectId },
+          })
+          const topic = (topicResult.topics || []).find(
+            (t) => t.id === route.topicId && !t.archived,
+          )
+          if (!topic) return
+
+          setActiveTab("chat")
+          setActiveTopic({
+            id: topic.id,
+            name: topic.name,
+            projectId: project.id,
+            projectName: project.name,
+          })
+        } catch {
+          // silently fail — show greeting
+        }
+      })()
+    }
+  }, [])
+
+  // Handle browser back/forward
+  useEffect(() => {
+    function onPopState() {
+      const route = parseRoute(window.location.pathname)
+
+      if (route.kind === "tab") {
+        setActiveTab(route.tab)
+        setActiveTopic(null)
+        setActiveChat(null)
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
+        return
+      }
+
+      if (route.kind === "home") {
+        setActiveTab("chat")
+        setActiveTopic(null)
+        setActiveChat(null)
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
+        return
+      }
+
+      if (route.kind === "chat") {
+        ;(async () => {
+          try {
+            const listResult = await invoke<{
+              chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
+            }>("middleware_chats_list", { input: {} })
+            const found = (listResult.chats || []).find(
+              (c) => c.id === route.chatId && !c.archived,
+            )
+            if (!found) return
+            setActiveTab("chat")
+            setActiveTopic(null)
+            setActiveChat({ id: found.id, name: found.name, sessionKey: found.sessionKey })
+            setActiveSessionKey(found.sessionKey ?? null)
+            setActiveSessionTitle(found.name)
+          } catch {}
+        })()
+        return
+      }
+
+      if (route.kind === "topic") {
+        ;(async () => {
+          try {
+            const projectResult = await invoke<{
+              projects: { id: string; name: string; archived: boolean }[]
+            }>("middleware_projects_list", { input: {} })
+            const project = (projectResult.projects || []).find(
+              (p) => p.id === route.projectId && !p.archived,
+            )
+            if (!project) return
+
+            const topicResult = await invoke<{
+              topics: { id: string; name: string; projectId: string; archived: boolean }[]
+            }>("middleware_topics_list", {
+              input: { projectId: route.projectId },
+            })
+            const topic = (topicResult.topics || []).find(
+              (t) => t.id === route.topicId && !t.archived,
+            )
+            if (!topic) return
+
+            setActiveTab("chat")
+            setActiveChat(null)
+            setActiveSessionKey(null)
+            setActiveSessionTitle(null)
+            setActiveTopic({
+              id: topic.id,
+              name: topic.name,
+              projectId: project.id,
+              projectName: project.name,
+            })
+          } catch {}
+        })()
+      }
+    }
+
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
 
   const handleSelectTool = useCallback((_toolCallId: string) => {
     if (!inspectorOpen) setInspectorOpen(true)
@@ -191,7 +327,6 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   useTerminalShortcut(toggleTerminal)
   useAppShortcuts()
 
-  // Ctrl/Cmd+N → new chat, clear project context
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
@@ -234,28 +369,15 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
   }, [])
 
-  const pushSlugUrl = useCallback(
-    (prefix: string, primary: string, secondary?: string) => {
-      const path = secondary
-        ? `/${prefix}/${toSlug(primary)}/${toSlug(secondary)}`
-        : `/${prefix}/${toSlug(primary)}`
-      window.history.pushState(null, "", path)
-    },
-    [],
-  )
-
-  // Topic selected from sidebar → auto-resolve its session
   const handleTopicSelect = useCallback((topic: ActiveTopic) => {
     setActiveTab("chat")
     setActiveTopic(topic)
     setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
-    pushSlugUrl(toSlug(topic.projectName), topic.name)
-    setProjectSlug({ primary: topic.projectName, secondary: topic.name })
-  }, [pushSlugUrl])
+    window.history.pushState(null, "", `/${topic.projectId}/${topic.id}`)
+  }, [])
 
-  // Standalone chat selected from sidebar
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
     setActiveTab("chat")
     setActiveChat(chat)
@@ -263,8 +385,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
-    setProjectSlug(null)
-    window.history.pushState(null, "", `/${toSlug(chat.name)}`)
+    window.history.pushState(null, "", `/${chat.id}`)
 
     if (chat.sessionKey) {
       setActiveSessionKey(chat.sessionKey)
@@ -285,6 +406,45 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       }
     }
   }, [])
+
+  const handleCronJobNavigate = useCallback(async (cronJob: ActiveChat) => {
+    try {
+      const listResult = await invoke<{ chats: { id: string; name: string; sessionKey?: string; archived: boolean }[] }>(
+        "middleware_chats_list",
+        { input: {} },
+      )
+      const existing = (listResult.chats || []).find(
+        (c) => !c.archived && c.name === cronJob.name,
+      )
+
+      if (existing) {
+        handleChatSelect(existing)
+        return
+      }
+
+      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string } }>(
+        "middleware_chats_create",
+        { input: { name: cronJob.name } },
+      )
+      const sessionResult = await invoke<{ session: { key: string } }>(
+        "middleware_sessions_create",
+        { input: { agentId: "main", label: cronJob.name } },
+      )
+      await invoke("middleware_chats_attach_session", {
+        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
+      })
+      setInitialMessages(undefined)
+      setActiveTab("chat")
+      setActiveTopic(null)
+      setActiveChat({ id: result.chat.id, name: cronJob.name, sessionKey: sessionResult.session.key })
+      setActiveSessionKey(sessionResult.session.key)
+      setActiveSessionTitle(cronJob.name)
+      setChatRefreshTrigger((n) => n + 1)
+      window.history.pushState(null, "", `/${result.chat.id}`)
+    } catch (err) {
+      console.error("Failed to navigate to cron job chat", err)
+    }
+  }, [handleChatSelect])
 
   const handleChatClear = useCallback(() => {
     setActiveChat(null)
@@ -309,7 +469,6 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         setInitialMessages(undefined)
         setActiveTab("chat")
         setActiveTopic(null)
-        setProjectSlug(null)
 
         if (blankChat.sessionKey) {
           setActiveChat({ id: blankChat.id, name: blankChat.name, sessionKey: blankChat.sessionKey })
@@ -345,7 +504,6 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       setInitialMessages(undefined)
       setActiveTab("chat")
       setActiveTopic(null)
-      setProjectSlug(null)
       setActiveChat({ id: result.chat.id, name: result.chat.name, sessionKey: sessionResult.session.key })
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(result.chat.name)
@@ -356,7 +514,6 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
   }, [])
 
-  // Auto-name standalone chat after first message
   const handleFirstMessageSent = useCallback(async (text: string) => {
     const chat = activeChatRef.current
     if (!chat) return
@@ -371,13 +528,12 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       setActiveChat((prev) => prev ? { ...prev, name } : prev)
       setActiveSessionTitle(name)
       setChatRefreshTrigger((n) => n + 1)
-      window.history.pushState(null, "", `/${toSlug(name)}`)
+      window.history.replaceState(null, "", `/${chat.id}`)
     } catch (err) {
       console.error("Auto-naming chat failed", err)
     }
   }, [])
 
-  // Called by useTopicSession when session is found/created
   const handleSessionResolved = useCallback((key: string, title: string) => {
     setActiveSessionKey(key)
     setActiveSessionTitle(title)
@@ -424,12 +580,11 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         isOptimistic: true,
       }])
       setActiveTopic(null)
-      setProjectSlug(null)
       setActiveChat({ id: result.chat.id, name, sessionKey: sessionResult.session.key })
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(name)
       setChatRefreshTrigger((n) => n + 1)
-      window.history.pushState(null, "", `/${toSlug(name)}`)
+      window.history.pushState(null, "", `/${result.chat.id}`)
     } catch (err) {
       console.error("Quick send failed", err)
     } finally {
@@ -437,11 +592,9 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
   }, [quickSending])
 
-  // Nav tab change → clear project context + sync URL
   const handleTabChange = useCallback((tab: string) => {
     if (tab === "chat") {
       handleNewChat()
-      if (!sidebarOpen) setSidebarOpen(true)
       return
     }
     setActiveTab(tab)
@@ -457,11 +610,8 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
-    setProjectSlug(null)
-    if (!sidebarOpen) setSidebarOpen(true)
-  }, [sidebarOpen, handleNewChat])
+  }, [handleNewChat])
 
-  // Compute the center label for the header
   const centerLabel = activeTopic
     ? { project: activeTopic.projectName, topic: activeTopic.name }
     : activeChat
@@ -490,6 +640,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         centerLabel={centerLabel}
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
+        onNavigateToChat={handleCronJobNavigate}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -503,7 +654,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           onItemsChange={setSidebarItems}
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
-          onTopicClear={() => { setActiveTopic(null); setActiveSessionKey(null); setActiveSessionTitle(null); setProjectSlug(null); window.history.pushState(null, "", "/") }}
+          onTopicClear={() => { setActiveTopic(null); setActiveSessionKey(null); setActiveSessionTitle(null); window.history.pushState(null, "", "/") }}
           activeChat={activeChat}
           onChatSelect={handleChatSelect}
           onChatClear={handleChatClear}
@@ -531,7 +682,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
               initialMessages={initialMessages}
               onSelectTool={handleSelectTool}
               pendingPrompt={pendingPrompt}
-              onNavigateToChat={handleChatSelect}
+              onNavigateToChat={handleCronJobNavigate}
             />
           </main>
         </div>
@@ -605,7 +756,6 @@ function MainContent({
   pendingPrompt?: string | null
   onNavigateToChat?: (chat: ActiveChat) => void
 }) {
-  // 0. Settings and notifications always take priority
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
@@ -625,7 +775,6 @@ function MainContent({
     )
   }
 
-  // 1. Session history view (deepest level — topic or standalone chat)
   if (activeSessionKey && (activeTopic || activeChat)) {
     return (
       <div className="flex h-full w-full">
@@ -641,7 +790,6 @@ function MainContent({
     )
   }
 
-  // 1b. Standalone chat selected, session resolving
   if (activeChat && !activeSessionKey) {
     return (
       <div className="flex h-full w-full items-center justify-center">
@@ -653,7 +801,6 @@ function MainContent({
     )
   }
 
-  // 2. Topic selected, session resolving → loading
   if (activeTopic && sessionResolving) {
     return (
       <div className="flex h-full w-full items-center justify-center">
@@ -665,7 +812,6 @@ function MainContent({
     )
   }
 
-  // 3. Topic selected, session failed → error
   if (activeTopic && sessionError) {
     return (
       <div className="flex h-full w-full items-center justify-center px-8">
@@ -677,7 +823,6 @@ function MainContent({
     )
   }
 
-  // 4. Topic selected, waiting for effect to start → show loading
   if (activeTopic && !activeSessionKey) {
     return (
       <div className="flex h-full w-full items-center justify-center">
@@ -689,11 +834,9 @@ function MainContent({
     )
   }
 
-  // 5. Normal tab views
   if (activeTab === "skill") return <SkillPage />
   if (activeTab === "connect") return <ConnectPage />
 
-  // Default: chat / greeting
   return (
     <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
       <AnimatedGreeting />
@@ -701,5 +844,3 @@ function MainContent({
     </div>
   )
 }
-
-

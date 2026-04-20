@@ -6,12 +6,14 @@ import { invoke } from "@/lib/ipc"
 import { openEventStream } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import type { ActiveChat } from "@/types/chat"
 
 type CronJob = {
   jobId: string
   name: string
   schedule: string
   enabled: boolean
+  session?: string
 }
 
 type CronRunEvent = {
@@ -27,6 +29,7 @@ type CronRunEvent = {
 
 type NotificationPopoverProps = {
   onViewAll?: () => void
+  onNavigateToChat?: (chat: ActiveChat) => void
 }
 
 const spring = {
@@ -77,7 +80,7 @@ function timeAgo(timestamp: string): string {
   return `${Math.floor(diff / 3_600_000)}h ago`
 }
 
-export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
+export function NotificationPopover({ onViewAll, onNavigateToChat }: NotificationPopoverProps) {
   const [open, setOpen] = useState(false)
   const [events, setEvents] = useState<CronRunEvent[]>([])
   const [jobs, setJobs] = useState<CronJob[]>([])
@@ -248,7 +251,20 @@ export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
                   </p>
                   <div className="flex flex-col gap-0.5">
                     {events.map((event, idx) => (
-                      <EventRow key={`${event.jobId}-${event.timestamp}-${idx}`} event={event} idx={idx} />
+                      <EventRow
+                        key={`${event.jobId}-${event.timestamp}-${idx}`}
+                        event={event}
+                        idx={idx}
+                        onClick={() => {
+                          if (!onNavigateToChat) return
+                          setOpen(false)
+                          onNavigateToChat({
+                            id: event.jobId,
+                            name: event.name ?? event.jobId.slice(0, 8),
+                            sessionKey: event.runId,
+                          })
+                        }}
+                      />
                     ))}
                   </div>
                 </>
@@ -274,9 +290,19 @@ export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
                           duration: 0.25,
                           ease: [0.25, 0.46, 0.45, 0.94],
                         }}
+                        onClick={() => {
+                          if (!onNavigateToChat || !job.session) return
+                          setOpen(false)
+                          onNavigateToChat({
+                            id: job.jobId,
+                            name: job.name,
+                            sessionKey: job.session,
+                          })
+                        }}
                         className={cn(
                           "flex items-center gap-2.5 rounded-md px-2 py-1.5",
                           "transition-colors hover:bg-secondary/50",
+                          onNavigateToChat && job.session && "cursor-pointer",
                         )}
                       >
                         <Icons.Cron
@@ -331,7 +357,7 @@ export function NotificationPopover({ onViewAll }: NotificationPopoverProps) {
   )
 }
 
-function EventRow({ event, idx }: { event: CronRunEvent; idx: number }) {
+function EventRow({ event, idx, onClick }: { event: CronRunEvent; idx: number; onClick?: () => void }) {
   const status = statusIcon(event.type)
   return (
     <motion.div
@@ -342,9 +368,11 @@ function EventRow({ event, idx }: { event: CronRunEvent; idx: number }) {
         duration: 0.25,
         ease: [0.25, 0.46, 0.45, 0.94],
       }}
+      onClick={onClick}
       className={cn(
         "flex items-center gap-2.5 rounded-md px-2 py-1.5",
         "transition-colors hover:bg-secondary/50",
+        onClick && "cursor-pointer",
       )}
     >
       <span

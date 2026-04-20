@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 import { Icons } from "@/components/icons"
+import type { ActiveChat } from "@/types/chat"
 
 type CronJob = {
   jobId: string
@@ -33,7 +34,11 @@ type CronRun = {
   error: string | null
 }
 
-export function CronJobsTab() {
+type CronJobsTabProps = {
+  onNavigateToChat?: (chat: ActiveChat) => void
+}
+
+export function CronJobsTab({ onNavigateToChat }: CronJobsTabProps) {
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [loading, setLoading] = useState(true)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
@@ -191,6 +196,11 @@ export function CronJobsTab() {
               onTogglePaused={() => togglePaused(job)}
               onDelete={() => deleteJob(job)}
               onRun={() => runJob(job)}
+              onOpenChat={onNavigateToChat ? () => onNavigateToChat({
+                id: job.jobId,
+                name: job.name,
+                sessionKey: job.session,
+              }) : undefined}
             />
           ))}
         </div>
@@ -229,6 +239,7 @@ function CronJobRow({
   onTogglePaused,
   onDelete,
   onRun,
+  onOpenChat,
 }: {
   job: CronJob
   busy: boolean
@@ -236,6 +247,7 @@ function CronJobRow({
   onTogglePaused: () => void
   onDelete: () => void
   onRun: () => void
+  onOpenChat?: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -351,6 +363,13 @@ function CronJobRow({
           disabled={busy || !job.enabled}
           onClick={onTogglePaused}
         />
+        {onOpenChat && (
+          <ActionButton
+            icon={Icons.Chat}
+            label="Open chat"
+            onClick={onOpenChat}
+          />
+        )}
         <ActionButton
           icon={Icons.Automations}
           label={expanded ? "Hide runs" : "Runs"}

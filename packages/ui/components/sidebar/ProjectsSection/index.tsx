@@ -26,20 +26,6 @@ export function ProjectsSection({ collapsed, activeTopic, onTopicSelect, onTopic
     dialogState, dialogActions,
   } = useProjectsData(onTopicSelect, activeTopic, onTopicClear)
 
-  if (collapsed) {
-    return (
-      <div className="mt-3 flex justify-center border-t border-border/10 pt-2">
-        <button
-          title="Projects"
-          onClick={dialogActions.openCreateProject}
-          className="cursor-pointer rounded-md py-2 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <Icons.Files size={16} strokeWidth={1.5} />
-        </button>
-      </div>
-    )
-  }
-
   return (
     <>
       <div>

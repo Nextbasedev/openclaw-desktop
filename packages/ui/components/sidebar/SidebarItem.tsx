@@ -29,7 +29,8 @@ export function SidebarItem({ item, isActive, onClick, collapsed = false, dragga
       onClick={onClick}
       className={cn(
         "group flex w-full min-w-0 items-center rounded-md font-normal",
-        collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-2.5 py-1 text-left text-[13px]",
+        "gap-2.5 text-left text-[13px]",
+        collapsed ? "px-2.5 py-2" : "px-2.5 py-1.5",
         "transition-[background-color,color,opacity] duration-150 ease-in-out",
         "cursor-pointer",
         isActive
@@ -67,7 +68,7 @@ export function SidebarItem({ item, isActive, onClick, collapsed = false, dragga
   )
 }
 
-export function GlassTooltip({ label, children }: { label: string; children: React.ReactNode }) {
+export function GlassTooltip({ label, children, disabled }: { label: string; children: React.ReactNode; disabled?: boolean }) {
   const [show, setShow] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
@@ -78,6 +79,7 @@ export function GlassTooltip({ label, children }: { label: string; children: Rea
   }, [])
 
   function handleEnter() {
+    if (disabled) return
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect()
       setPos({
@@ -96,6 +98,7 @@ export function GlassTooltip({ label, children }: { label: string; children: Rea
     >
       {children}
       {show &&
+        !disabled &&
         mounted &&
         createPortal(
           <div
