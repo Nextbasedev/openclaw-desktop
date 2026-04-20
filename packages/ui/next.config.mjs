@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: process.env.NEXT_OUTPUT === "export" ? "export" : undefined,
+  allowedDevOrigins: [
+    "localhost",
+    "127.0.0.1",
+    "*.loca.lt",
+    "fancy-baths-talk.loca.lt",
+  ],
+  turbopack: {
+    root: new URL("../../", import.meta.url).pathname,
+  },
   images: {
     unoptimized: true,
   },

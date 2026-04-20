@@ -19,12 +19,12 @@ const TABS: Array<{ id: TabId; label: string }> = [
 ]
 
 function getResponsiveDefaults() {
-  if (typeof window === "undefined") return { min: 400, max: 700, default: 500 }
+  if (typeof window === "undefined") return { min: 480, max: 860, default: 680 }
   const vw = window.innerWidth
-  if (vw < 768) return { min: 240, max: Math.min(vw * 0.7, 360), default: Math.min(vw * 0.6, 300) }
-  if (vw < 1024) return { min: 260, max: 380, default: 300 }
-  if (vw < 1440) return { min: 320, max: 500, default: 380 }
-  return { min: 400, max: 700, default: 500 }
+  if (vw < 768) return { min: 260, max: Math.min(vw * 0.82, 420), default: Math.min(vw * 0.72, 360) }
+  if (vw < 1024) return { min: 320, max: 520, default: 420 }
+  if (vw < 1440) return { min: 480, max: 760, default: 620 }
+  return { min: 520, max: 860, default: 680 }
 }
 
 type TerminalTab = {
@@ -41,9 +41,10 @@ interface InspectorPanelProps {
   focusActivityTrigger?: number
   projectId?: string | null
   activeAgentId?: string | null
+  onAgentSelect?: (id: string) => void
 }
 
-export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusActivityTrigger, projectId, activeAgentId }: InspectorPanelProps) {
+export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusActivityTrigger, projectId, activeAgentId, onAgentSelect }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
   const responsiveRef = useRef(getResponsiveDefaults())
   const [width, setWidth] = useState(responsiveRef.current.default)
@@ -204,7 +205,7 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-clip">
-          {activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} />}
+          {activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} />}
           {activeTab === "workspace" && <WorkspaceTab />}
           {activeTab === "git" && <GitTab projectId={projectId ?? null} />}
           {activeTab === "terminal" && (

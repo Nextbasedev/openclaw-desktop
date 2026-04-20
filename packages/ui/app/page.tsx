@@ -9,7 +9,6 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
-import { AgentStrip } from "@/components/inspector/AgentStrip"
 import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
@@ -689,12 +688,6 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           </main>
         </div>
 
-        <AgentStrip
-          sessionKey={activeSessionKey}
-          activeAgentId={activeAgentId}
-          onAgentSelect={setActiveAgentId}
-        />
-
         <InspectorPanel
           open={inspectorOpen}
           onClose={toggleInspector}
@@ -704,6 +697,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           focusActivityTrigger={focusActivityTrigger}
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
+          onAgentSelect={setActiveAgentId}
         />
       </div>
 
