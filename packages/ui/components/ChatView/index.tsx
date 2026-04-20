@@ -109,6 +109,11 @@ export function ChatView({
                 isGenerating &&
                 pendingTools.length > 0 &&
                 msg.role === "user"
+              const isActivelyStreaming =
+                isLast && isGenerating && msg.role === "assistant"
+
+              const showPendingAbove =
+                isActivelyStreaming && pendingTools.length > 0
 
               return (
                 <div key={msg.messageId}>
@@ -123,11 +128,21 @@ export function ChatView({
                         />
                       </div>
                     )}
+                  {showPendingAbove && (
+                    <div className="mb-2 max-w-[85%]">
+                      <ToolCallSteps
+                        tools={pendingTools}
+                        defaultOpen
+                        onSelectTool={onSelectTool}
+                      />
+                    </div>
+                  )}
                   <MessageBubble
                     message={msg}
                     onEdit={handleEdit}
                     onSwitchBranch={switchBranch}
                     isGenerating={isGenerating}
+                    isActivelyStreaming={isActivelyStreaming}
                   />
                   {showPending && (
                     <div className="mt-4 max-w-[85%]">
@@ -141,19 +156,6 @@ export function ChatView({
                 </div>
               )
             })}
-
-            {isGenerating &&
-              pendingTools.length > 0 &&
-              messages.length > 0 &&
-              messages[messages.length - 1].role === "assistant" && (
-                <div className="max-w-[85%]">
-                  <ToolCallSteps
-                    tools={pendingTools}
-                    defaultOpen
-                    onSelectTool={onSelectTool}
-                  />
-                </div>
-              )}
           </div>
 
           {statusText && (
