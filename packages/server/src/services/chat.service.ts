@@ -8,6 +8,8 @@ import {
 
   openChatEventStream,
   type ChatStreamEvent,
+  type ChatStatusEvent,
+  type ChatToolEvent,
 } from "middleware"
 import { prependSkillContext, clearSessionTracking } from "./skill-runtime.service.js"
 import { getDb } from "../db/connection.js"
@@ -344,27 +346,29 @@ function startEventStream(gwKey: string, localKey: string) {
     activeStreams.delete(gwKey)
   }
 
+  let doneCount = 0
+
   openChatEventStream({
     sessionKey: gwKey,
     onEvent(event: ChatStreamEvent) {
+      console.log(`[stream:${localKey.slice(-8)}] ${event.type}`, event.type === "chat.status" ? (event as ChatStatusEvent).state : event.type === "chat.tool" ? `${(event as ChatToolEvent).name}:${(event as ChatToolEvent).phase}` : "")
       chatEvents.emit(`chat:event:${localKey}`, event)
 
       if (
         event.type === "chat.status" &&
         (event.state === "done" || event.state === "error")
       ) {
-        const stream = activeStreams.get(gwKey)
-        if (stream) {
-          stream.close()
-          activeStreams.delete(gwKey)
-        }
+        doneCount++
+        console.log(`[stream:${localKey.slice(-8)}] done #${doneCount} — keeping stream open for sub-agents`)
       }
     },
   })
     .then((stream) => {
       activeStreams.set(gwKey, stream)
+      console.log(`[stream:${localKey.slice(-8)}] stream opened`)
     })
     .catch((error) => {
+      console.error(`[stream:${localKey.slice(-8)}] stream error:`, error)
       chatEvents.emit(`chat:event:${localKey}`, {
         type: "chat.error",
         sessionKey: localKey,
@@ -374,4 +378,11 @@ function startEventStream(gwKey: string, localKey: string) {
             : "Failed to open event stream",
       } satisfies ChatStreamEvent)
     })
+}
+
+export function chatStartSubagentStream(input: { sessionKey: string }) {
+  const gwKey = input.sessionKey
+  if (activeStreams.has(gwKey)) return { started: false, reason: "already_active" }
+  startEventStream(gwKey, gwKey)
+  return { started: true, sessionKey: gwKey }
 }

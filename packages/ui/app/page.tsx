@@ -9,6 +9,7 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
+import { AgentStrip } from "@/components/inspector/AgentStrip"
 import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
@@ -110,6 +111,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
   const [focusActivityTrigger, setFocusActivityTrigger] = useState(0)
+  const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
   const isResizing = useRef(false)
   const restoredRef = useRef(false)
 
@@ -687,6 +689,12 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           </main>
         </div>
 
+        <AgentStrip
+          sessionKey={activeSessionKey}
+          activeAgentId={activeAgentId}
+          onAgentSelect={setActiveAgentId}
+        />
+
         <InspectorPanel
           open={inspectorOpen}
           onClose={toggleInspector}
@@ -695,6 +703,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           sessionKey={activeSessionKey}
           focusActivityTrigger={focusActivityTrigger}
           projectId={activeTopic?.projectId ?? null}
+          activeAgentId={activeAgentId}
         />
       </div>
 

@@ -40,6 +40,7 @@ export type ChatToolEvent = {
   partialResult: unknown | null
   result: unknown | null
   error: string | null
+  subagentOf: string | null
 }
 
 export type ChatMessageEvent = {
@@ -53,13 +54,24 @@ export type ChatMessageEvent = {
   model: string | null
 }
 
+export type ChatAgentEvent = {
+  type: "chat.agent"
+  sessionKey: string
+  runId: string | null
+  stream: string | null
+  phase: string | null
+  agentId: string | null
+  parentRunId: string | null
+  label: string | null
+}
+
 export type ChatErrorEvent = {
   type: "chat.error"
   sessionKey: string
   message: string
 }
 
-export type ChatStreamEvent = ChatReadyEvent | ChatStatusEvent | ChatToolEvent | ChatMessageEvent | ChatErrorEvent
+export type ChatStreamEvent = ChatReadyEvent | ChatStatusEvent | ChatToolEvent | ChatMessageEvent | ChatAgentEvent | ChatErrorEvent
 
 export type GatewayFailure = {
   code: string
@@ -605,11 +617,42 @@ export async function openChatEventStream(input: {
     })
     input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "connected" })
 
-    const matchesSession = (eventKey: string | undefined) =>
-      eventKey === input.sessionKey || (eventKey?.endsWith(input.sessionKey) ?? false)
+    const subagentKeys = new Set<string>()
+    const spawnQueue: string[] = []
+    const subagentToSpawn = new Map<string, string>()
+
+    const subscribeSubagent = (key: string) => {
+      if (subagentKeys.has(key)) return
+      subagentKeys.add(key)
+      const spawnId = spawnQueue.length > 0 ? spawnQueue.shift()! : null
+      if (spawnId && !subagentToSpawn.has(key)) {
+        subagentToSpawn.set(key, spawnId)
+      }
+      console.log(`[mw:stream] subscribeSubagent key=${key.slice(-12)} spawnId=${spawnId ?? "none"} queue=${spawnQueue.length}`)
+      gateway.request("sessions.messages.subscribe", { key }).catch((err) => {
+        console.error(`[mw:stream] subscribe failed for ${key.slice(-12)}:`, err)
+      })
+    }
+
+    const matchesSession = (eventKey: string | undefined) => {
+      if (!eventKey) return false
+      if (eventKey === input.sessionKey) return true
+      if (eventKey.endsWith(input.sessionKey)) return true
+      if (subagentKeys.has(eventKey)) return true
+      return false
+    }
 
     unsubscribe = gateway.addMessageListener((message) => {
       if (message.type !== "event") return
+      console.log(`[mw:event] ${message.event}`, message.event === "session.tool" ? `tool=${(message.payload as Record<string, unknown>)?.data && ((message.payload as Record<string, unknown>).data as Record<string, unknown>)?.name} phase=${((message.payload as Record<string, unknown>).data as Record<string, unknown>)?.phase} session=${((message.payload as Record<string, unknown>)?.sessionKey as string)?.slice(-12)}` : message.event === "agent" ? `session=${((message.payload as Record<string, unknown>)?.sessionKey as string)?.slice(-12)}` : "")
+
+      if (message.event === "session.created" || message.event === "sessions.update") {
+        const payload = message.payload as Record<string, unknown> | undefined
+        const key = (payload?.key as string) ?? (payload?.sessionKey as string)
+        if (key?.includes(":subagent:")) {
+          subscribeSubagent(key)
+        }
+      }
 
       if (message.event === "session.message") {
         const payload = message.payload as SessionMessagePayload | undefined
@@ -620,7 +663,15 @@ export async function openChatEventStream(input: {
         if (messageId) seenMessageIds.add(messageId)
 
         const role = payload.message.role ?? "assistant"
-        if (role === "user" || role === "tool" || role === "tool_result" || role === "toolResult") return
+        if (role === "tool" || role === "tool_result" || role === "toolResult") {
+          const resultText = contentBlocksToText(payload.message.content)
+          const childKeyMatch = resultText.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
+          if (childKeyMatch?.[1]?.includes(":subagent:")) {
+            subscribeSubagent(childKeyMatch[1])
+          }
+          return
+        }
+        if (role === "user") return
 
         const blocks = Array.isArray(payload.message.content) ? payload.message.content as Array<{ type?: string }> : []
         const blockTypes = blocks.map((block) => block?.type).filter(Boolean)
@@ -684,7 +735,18 @@ export async function openChatEventStream(input: {
 
       if (message.event === "session.tool") {
         const payload = message.payload as SessionToolPayload | undefined
+        if (payload?.sessionKey?.includes(":subagent:")) {
+          subscribeSubagent(payload.sessionKey)
+        }
         if (!payload || !matchesSession(payload.sessionKey)) return
+
+        const isSubagent = payload.sessionKey?.includes(":subagent:") ?? false
+        const spawnId = isSubagent ? (subagentToSpawn.get(payload.sessionKey!) ?? null) : null
+
+        if (payload.data?.name === "sessions_spawn" && payload.data?.phase === "start") {
+          const tcId = payload.data?.toolCallId as string | undefined
+          if (tcId) spawnQueue.push(tcId)
+        }
 
         const key = `${payload.runId ?? "run"}:${payload.seq ?? payload.data?.toolCallId ?? "tool"}:${payload.data?.phase ?? "phase"}`
         if (seenToolEvents.has(key)) return
@@ -703,12 +765,35 @@ export async function openChatEventStream(input: {
           partialResult: payload.data?.partialResult ?? null,
           result: payload.data?.result ?? null,
           error: payload.data?.error ?? null,
+          subagentOf: spawnId ? `spawn:${spawnId}` : null,
         })
         input.onEvent({
           type: "chat.status",
           sessionKey: input.sessionKey,
           state: payload.data?.phase === "error" ? "error" : payload.data?.phase === "result" ? "thinking" : "tool_running",
           label: payload.data?.name ?? null,
+        })
+      }
+
+      if (message.event === "agent") {
+        const payload = message.payload as Record<string, unknown> | undefined
+        const eventSessionKey = payload?.sessionKey as string | undefined
+        if (eventSessionKey?.includes(":subagent:")) {
+          subscribeSubagent(eventSessionKey)
+        }
+        if (!matchesSession(eventSessionKey)) return
+        const data = (payload?.data ?? {}) as Record<string, unknown>
+        const stream = (payload?.stream as string) ?? null
+        if (stream !== "lifecycle") return
+        input.onEvent({
+          type: "chat.agent",
+          sessionKey: input.sessionKey,
+          runId: (payload?.runId as string) ?? null,
+          stream,
+          phase: (data.phase as string) ?? null,
+          agentId: (data.agentId as string) ?? (data.name as string) ?? null,
+          parentRunId: (data.parentRunId as string) ?? null,
+          label: (data.label as string) ?? (data.name as string) ?? null,
         })
       }
     })

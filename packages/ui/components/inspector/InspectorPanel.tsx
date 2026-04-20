@@ -40,9 +40,10 @@ interface InspectorPanelProps {
   sessionKey?: string | null
   focusActivityTrigger?: number
   projectId?: string | null
+  activeAgentId?: string | null
 }
 
-export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusActivityTrigger, projectId }: InspectorPanelProps) {
+export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusActivityTrigger, projectId, activeAgentId }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
   const responsiveRef = useRef(getResponsiveDefaults())
   const [width, setWidth] = useState(responsiveRef.current.default)
@@ -203,7 +204,7 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-clip">
-          {activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} />}
+          {activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} />}
           {activeTab === "workspace" && <WorkspaceTab />}
           {activeTab === "git" && <GitTab projectId={projectId ?? null} />}
           {activeTab === "terminal" && (
