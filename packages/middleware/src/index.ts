@@ -501,6 +501,59 @@ export async function createChatSession(input: { agentId?: string; label?: strin
   }
 }
 
+export type GatewaySessionSummary = {
+  key: string
+  label: string | null
+  agentId: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export async function listGatewaySessions(input?: { limit?: number }): Promise<{ sessions: GatewaySessionSummary[] }> {
+  const gateway = await connectToOpenClawGateway({ scopes: ["operator.read"] })
+  try {
+    const response = await gateway.request<{ sessions?: Array<Record<string, unknown>> }>("sessions.list", {
+      limit: input?.limit ?? 500,
+    })
+    if (!response.ok) throw new Error(response.error?.message ?? "sessions.list failed")
+    const rows = response.payload?.sessions ?? []
+    return {
+      sessions: rows.map((row) => ({
+        key: String(row.key ?? ""),
+        label: typeof row.label === "string" ? row.label : null,
+        agentId: typeof row.agentId === "string" ? row.agentId : null,
+        createdAt: typeof row.createdAt === "string" ? row.createdAt : null,
+        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : null,
+      })),
+    }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function upsertGatewaySession(input: {
+  key: string
+  label: string
+  agentId?: string
+}): Promise<{ sessionKey: string; created: boolean }> {
+  const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write"] })
+  try {
+    const patch = await gateway.request("sessions.patch", { key: input.key, label: input.label })
+    if (patch.ok) return { sessionKey: input.key, created: false }
+    const create = await gateway.request<{ key?: string }>("sessions.create", {
+      key: input.key,
+      agentId: input.agentId ?? "main",
+      label: input.label,
+    })
+    if (!create.ok || !create.payload?.key) {
+      throw new Error(create.error?.message ?? "sessions.create failed")
+    }
+    return { sessionKey: create.payload.key, created: true }
+  } finally {
+    gateway.close()
+  }
+}
+
 export async function deleteChatSession(sessionKey: string) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"] })
   try {

@@ -7,6 +7,8 @@ import {
   recordSyncTombstone,
   type TopicRow,
 } from "../db/helpers.js"
+import { enqueue } from "../sync/outbox.js"
+import { kickSyncEngine } from "../sync/engine.js"
 
 const TOPIC_COLUMNS = "id, project_id, name, archived, unread_count, sort_order, created_at, updated_at"
 
@@ -36,6 +38,8 @@ export function topicsCreate(input: { projectId: string; name: string }) {
   db.prepare(
     "INSERT INTO topics (id, project_id, name, archived, unread_count, sort_order, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)",
   ).run(id, input.projectId, input.name, sortOrder, now, now)
+  enqueue("topic", id, "upsert")
+  kickSyncEngine()
   return { topic: fetchTopic(id) }
 }
 
@@ -50,6 +54,8 @@ export function topicsUpdate(input: { topicId: string; name?: string; sortOrder?
     nowIso(),
     input.topicId,
   )
+  enqueue("topic", input.topicId, "upsert")
+  kickSyncEngine()
   return { topic: fetchTopic(input.topicId) }
 }
 
@@ -58,6 +64,8 @@ export function topicsArchive(input: { topicId: string; archived?: boolean }) {
   const db = getDb()
   const changes = db.prepare("UPDATE topics SET archived = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?").run(boolToSql(archived), nowIso(), input.topicId)
   if (changes.changes === 0) throw new Error(`Topic not found: ${input.topicId}`)
+  enqueue("topic", input.topicId, "upsert")
+  kickSyncEngine()
   return { ok: true, topicId: input.topicId, archived }
 }
 
@@ -76,6 +84,8 @@ export function topicsDelete(input: { topicId: string }) {
     recordSyncTombstone(db, "topic", input.topicId)
   })
   tx()
+  enqueue("topic", input.topicId, "delete")
+  kickSyncEngine()
   return { ok: true, topicId: input.topicId }
 }
 
@@ -93,6 +103,8 @@ export function topicsRename(input: { topicId: string; name: string }) {
     "UPDATE topics SET name = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
   ).run(input.name.trim(), nowIso(), input.topicId)
   if (changes.changes === 0) throw new Error(`Topic not found: ${input.topicId}`)
+  enqueue("topic", input.topicId, "upsert")
+  kickSyncEngine()
   return { topic: fetchTopic(input.topicId) }
 }
 
