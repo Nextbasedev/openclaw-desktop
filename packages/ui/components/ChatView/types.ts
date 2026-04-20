@@ -6,6 +6,26 @@ export type ContentBlock = {
   input?: unknown
 }
 
+export type InlineToolCall = {
+  id: string
+  tool: string
+  status: "running" | "success" | "error"
+  duration?: string
+  startedAt?: number
+}
+
+export type MessageBranch = {
+  userText: string
+  userCreatedAt?: string
+  response?: {
+    messageId: string
+    text: string
+    createdAt?: string
+    model?: string
+    toolCalls?: InlineToolCall[]
+  }
+}
+
 export type ChatMessage = {
   messageId: string
   role: "user" | "assistant"
@@ -13,6 +33,9 @@ export type ChatMessage = {
   createdAt?: string
   model?: string
   isOptimistic?: boolean
+  toolCalls?: InlineToolCall[]
+  branches?: MessageBranch[]
+  activeBranch?: number
 }
 
 export type StreamStatus =

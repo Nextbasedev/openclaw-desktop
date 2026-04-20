@@ -15,18 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon } from "./Icons"
-
-export type Model = {
-  id: string
-  label: string
-}
-
-export const MODELS: Model[] = [
-  { id: "gpt-5.2", label: "GPT-5.2" },
-  { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
-  { id: "claude-sonnet", label: "Claude Sonnet" },
-  { id: "gemini-2", label: "Gemini 2" },
-]
+import type { ModelEntry } from "@/hooks/useModels"
 
 type ActionBarProps = {
   hasInput: boolean
@@ -42,8 +31,9 @@ type ActionBarProps = {
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
   onModelOpenChange: (open: boolean) => void
-  selectedModel: Model
-  onModelSelect: (model: Model) => void
+  models: ModelEntry[]
+  currentModelId: string | null
+  onModelSelect: (model: ModelEntry) => void
 }
 
 export function ActionBar({
@@ -60,9 +50,18 @@ export function ActionBar({
   onPlusOpenChange,
   modelOpen,
   onModelOpenChange,
-  selectedModel,
+  models,
+  currentModelId,
   onModelSelect,
 }: ActionBarProps) {
+  const activeModel = models.find((m) => {
+    if (!currentModelId) return false
+    const bare = currentModelId.includes("/")
+      ? currentModelId.split("/")[1]
+      : currentModelId
+    return m.id === currentModelId || m.id === bare
+  })
+  const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
@@ -139,26 +138,32 @@ export function ActionBar({
               type="button"
               className="flex h-8 cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:text-foreground"
             >
-              {selectedModel.label}
+              {modelLabel}
               <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="end" sideOffset={8} className="w-48 gap-0 p-1.5">
-            {MODELS.map((model) => (
-              <button
-                key={model.id}
-                type="button"
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
-                  selectedModel.id === model.id
-                    ? "font-medium text-popover-foreground"
-                    : "text-muted-foreground"
-                )}
-                onClick={() => onModelSelect(model)}
-              >
-                {model.label}
-              </button>
-            ))}
+          <PopoverContent side="top" align="end" sideOffset={8} className="w-56 gap-0 p-1.5">
+            {models.map((model) => {
+              const isActive = activeModel?.id === model.id
+              return (
+                <button
+                  key={`${model.provider}/${model.id}`}
+                  type="button"
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
+                    isActive
+                      ? "font-medium text-popover-foreground"
+                      : "text-muted-foreground"
+                  )}
+                  onClick={() => onModelSelect(model)}
+                >
+                  {model.name}
+                </button>
+              )
+            })}
+            {models.length === 0 && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">No models available</p>
+            )}
           </PopoverContent>
         </Popover>
 
