@@ -77,10 +77,10 @@ export function ChatDialogs({ dialog, actions }: Props) {
             </span>
             ? This cannot be undone.
           </p>
-          <div className="flex gap-2.5">
+          <div className="flex gap-2.5 mt-4">
             <button
               onClick={() => setDeleteOpen(false)}
-              className="glass-btn-secondary flex-1"
+              className="glass-btn-secondary flex-1 "
             >
               Cancel
             </button>

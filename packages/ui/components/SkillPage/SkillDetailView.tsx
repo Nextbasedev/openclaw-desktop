@@ -124,7 +124,7 @@ export function SkillDetailView({
               disabled={installing}
               onClick={handleInstall}
               className={cn(
-                "rounded-lg bg-foreground px-5 py-2 text-[13px] font-medium",
+                "rounded-md bg-foreground px-5 py-2 text-[13px] font-medium cursor-pointer",
                 "text-background transition-opacity hover:opacity-90",
                 "disabled:opacity-50",
               )}
