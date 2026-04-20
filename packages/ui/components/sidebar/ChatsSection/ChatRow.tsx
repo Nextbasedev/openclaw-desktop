@@ -67,11 +67,10 @@ export function ChatRow({
     >
       <button
         onClick={onClick}
-        style={isActive ? { color: "#ffffff" } : undefined}
         className={cn(
           "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 text-left transition-colors duration-150",
           isActive
-            ? "bg-foreground/7"
+            ? "bg-foreground/7 text-foreground"
             : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
         )}
       >
@@ -85,7 +84,7 @@ export function ChatRow({
             "flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all duration-150",
             isPinned
               ? isActive
-                ? "text-white"
+                ? "text-foreground"
                 : "text-foreground/70"
               : "text-muted-foreground/40 opacity-0 hover:text-foreground group-hover/row:opacity-100",
           )}

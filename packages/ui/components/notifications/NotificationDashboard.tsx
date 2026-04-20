@@ -5,6 +5,7 @@ import { Icons } from "@/components/icons"
 import { CronJobsTab } from "./tabs/CronJobsTab"
 import { ActivityTab } from "./tabs/ActivityTab"
 import { cn } from "@/lib/utils"
+import type { ActiveChat } from "@/types/chat"
 
 type NotificationSection = "cron-jobs" | "activity"
 
@@ -22,11 +23,13 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
 type NotificationDashboardProps = {
   onBack?: () => void
   defaultTab?: NotificationSection
+  onNavigateToChat?: (chat: ActiveChat) => void
 }
 
 export function NotificationDashboard({
   onBack,
   defaultTab = "cron-jobs",
+  onNavigateToChat,
 }: NotificationDashboardProps) {
   const [activeSection, setActiveSection] =
     React.useState<NotificationSection>(defaultTab)
@@ -79,7 +82,9 @@ export function NotificationDashboard({
       </nav>
 
       <div className="my-2 w-full max-w-xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
-        {activeSection === "cron-jobs" && <CronJobsTab />}
+        {activeSection === "cron-jobs" && (
+          <CronJobsTab onNavigateToChat={onNavigateToChat} />
+        )}
         {activeSection === "activity" && <ActivityTab />}
       </div>
     </div>

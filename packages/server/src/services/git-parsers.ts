@@ -52,11 +52,15 @@ const STATUS_MAP: Record<string, FileState> = {
   "?": "untracked",
 }
 
-function git(args: string[], cwd: string): string {
-  return execFileSync("git", args, { cwd, timeout: 10_000 })
-    .toString()
-    .replace(/\r/g, "")
-    .replace(/\n+$/, "")
+export function gitHelper(args: string[], cwd: string): string {
+  try {
+    return execFileSync("git", args, { cwd, timeout: 10_000 })
+      .toString()
+      .replace(/\r/g, "")
+      .replace(/\n+$/, "")
+  } catch (err: any) {
+    throw new Error(`spawnSync git ENOENT (cwd: ${cwd})`)
+  }
 }
 
 function splitPath(filePath: string) {
@@ -70,7 +74,7 @@ function splitPath(filePath: string) {
 export function parseChangedFiles(repoRoot: string): GitChangedFile[] {
   let statusLines: string[] = []
   try {
-    const raw = git(["status", "--porcelain", "-u"], repoRoot)
+    const raw = gitHelper(["status", "--porcelain", "-u"], repoRoot)
     if (raw) statusLines = raw.split("\n")
   } catch {
     return []
@@ -78,8 +82,8 @@ export function parseChangedFiles(repoRoot: string): GitChangedFile[] {
 
   const numstatMap = new Map<string, { add: number; del: number }>()
   try {
-    const staged = git(["diff", "--cached", "--numstat"], repoRoot)
-    const unstaged = git(["diff", "--numstat"], repoRoot)
+    const staged = gitHelper(["diff", "--cached", "--numstat"], repoRoot)
+    const unstaged = gitHelper(["diff", "--numstat"], repoRoot)
     for (const line of [...staged.split("\n"), ...unstaged.split("\n")]) {
       if (!line) continue
       const [add, del, file] = line.split("\t")
@@ -133,7 +137,7 @@ export function parseRecentCommits(
 ): GitCommitEntry[] {
   let raw: string
   try {
-    raw = git(
+    raw = gitHelper(
       [
         "log",
         `--format=${COMMIT_SEP}%H|%h|%s|%aN|%ar`,
@@ -189,7 +193,7 @@ export function parseRecentCommits(
 
 export function getAheadBehind(repoRoot: string): AheadBehind {
   try {
-    const raw = git(
+    const raw = gitHelper(
       ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
       repoRoot,
     )

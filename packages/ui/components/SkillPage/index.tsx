@@ -221,7 +221,7 @@ function GridSkeleton() {
       {Array.from({ length: 9 }).map((_, i) => (
         <div
           key={i}
-          className="min-h-[140px] rounded-2xl border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl"
+          className="min-h-[140px] rounded-md border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl"
         >
           <div className="flex items-start gap-3.5">
             <div className="size-10 animate-pulse rounded-lg bg-white/[0.08]" />
