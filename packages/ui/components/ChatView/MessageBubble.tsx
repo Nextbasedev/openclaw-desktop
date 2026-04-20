@@ -137,11 +137,13 @@ export function MessageBubble({
   onEdit,
   onSwitchBranch,
   isGenerating,
+  isActivelyStreaming,
 }: {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
   onSwitchBranch?: (messageId: string, branchIndex: number) => void
   isGenerating?: boolean
+  isActivelyStreaming?: boolean
 }) {
   const isUser = message.role === "user"
   const [editing, setEditing] = useState(false)
@@ -450,14 +452,16 @@ export function MessageBubble({
             )}
           </div>
         ) : (
-          <div className="mt-1 flex items-center gap-2">
-            {formatTime(message.createdAt) && (
-              <span className="text-[10px] text-muted-foreground/40">
-                {formatTime(message.createdAt)}
-              </span>
-            )}
-            <CopyButton text={message.text} />
-          </div>
+          !isActivelyStreaming && (
+            <div className="mt-1 flex items-center gap-2">
+              {formatTime(message.createdAt) && (
+                <span className="text-[10px] text-muted-foreground/40">
+                  {formatTime(message.createdAt)}
+                </span>
+              )}
+              <CopyButton text={message.text} />
+            </div>
+          )
         )}
       </div>
     </div>

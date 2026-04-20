@@ -106,6 +106,15 @@ export function useChatMessages(
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
             setPendingTools([])
+            setMessages((prev) => {
+              const last = prev[prev.length - 1]
+              if (last?.role === "assistant" && !last.createdAt) {
+                const updated = [...prev]
+                updated[prev.length - 1] = { ...last, createdAt: new Date().toISOString() }
+                return updated
+              }
+              return prev
+            })
           }
           scrollToBottom(true)
           break
@@ -147,9 +156,10 @@ export function useChatMessages(
           const id = ev.messageId || crypto.randomUUID()
           const text = ev.text || extractText(ev.content)
           if (!text) break
+          const timestamp = ev.createdAt || new Date().toISOString()
           if (seenIds.current.has(id)) {
             setMessages((prev) =>
-              prev.map((m) => (m.messageId === id ? { ...m, text } : m))
+              prev.map((m) => (m.messageId === id ? { ...m, text, createdAt: m.createdAt || timestamp } : m))
             )
           } else {
             seenIds.current.add(id)
@@ -168,13 +178,13 @@ export function useChatMessages(
                     : lastAssistant.text
                 return prev.map((m) =>
                   m.messageId === lastAssistant.messageId
-                    ? { ...m, text: longer, messageId: id }
+                    ? { ...m, text: longer, messageId: id, createdAt: m.createdAt || timestamp }
                     : m,
                 )
               }
               return [
                 ...prev.filter((m) => m.messageId !== id),
-                { messageId: id, role: "assistant", text, createdAt: ev.createdAt, model: ev.model },
+                { messageId: id, role: "assistant", text, createdAt: timestamp, model: ev.model },
               ]
             })
           }
