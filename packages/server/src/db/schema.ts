@@ -127,6 +127,34 @@ export function initDb(db: Database.Database): void {
       selected_at TEXT NOT NULL,
       use_count INTEGER NOT NULL DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS sync_outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      op TEXT NOT NULL,
+      enqueued_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT NOT NULL,
+      last_error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_outbox_next ON sync_outbox(next_attempt_at);
+    CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity ON sync_outbox(entity_type, entity_id);
+
+    CREATE TABLE IF NOT EXISTS anchor_sessions (
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      session_key TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (entity_type, entity_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_local_overrides (
+      project_id TEXT PRIMARY KEY,
+      workspace_root TEXT,
+      repo_root TEXT,
+      updated_at TEXT NOT NULL
+    );
   `)
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [
@@ -136,6 +164,15 @@ export function initDb(db: Database.Database): void {
     { table: "topics", column: "sync_dirty", sql: "ALTER TABLE topics ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1" },
     { table: "session_mappings", column: "sync_dirty", sql: "ALTER TABLE session_mappings ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1" },
     { table: "branches", column: "sync_dirty", sql: "ALTER TABLE branches ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1" },
+    { table: "projects", column: "updated_by_device", sql: "ALTER TABLE projects ADD COLUMN updated_by_device TEXT" },
+    { table: "projects", column: "deleted_at", sql: "ALTER TABLE projects ADD COLUMN deleted_at TEXT" },
+    { table: "projects", column: "sort_order", sql: "ALTER TABLE projects ADD COLUMN sort_order TEXT" },
+    { table: "topics", column: "updated_by_device", sql: "ALTER TABLE topics ADD COLUMN updated_by_device TEXT" },
+    { table: "topics", column: "deleted_at", sql: "ALTER TABLE topics ADD COLUMN deleted_at TEXT" },
+    { table: "topics", column: "sort_order_key", sql: "ALTER TABLE topics ADD COLUMN sort_order_key TEXT" },
+    { table: "chats", column: "updated_by_device", sql: "ALTER TABLE chats ADD COLUMN updated_by_device TEXT" },
+    { table: "chats", column: "deleted_at", sql: "ALTER TABLE chats ADD COLUMN deleted_at TEXT" },
+    { table: "session_mappings", column: "sort_order_key", sql: "ALTER TABLE session_mappings ADD COLUMN sort_order_key TEXT" },
   ]
 
   for (const m of migrations) {

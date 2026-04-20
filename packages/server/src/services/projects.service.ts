@@ -10,10 +10,13 @@ import {
   projectRowToJson,
   topicRowToJson,
   sessionRowToJson,
+  recordSyncTombstone,
   type ProjectRow,
   type TopicRow,
   type SessionRow,
 } from "../db/helpers.js"
+import { enqueue } from "../sync/outbox.js"
+import { kickSyncEngine } from "../sync/engine.js"
 
 const PROJECT_COLUMNS = "id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned"
 
@@ -58,6 +61,8 @@ export function projectsCreate(input: {
   db.prepare(
     "INSERT INTO projects (id, name, profile_id, workspace_root, repo_root, archived, unread_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)",
   ).run(id, input.name, input.profileId, input.workspaceRoot, input.repoRoot ?? null, now, now)
+  enqueue("project", id, "upsert")
+  kickSyncEngine()
   return { project: fetchProject(id) }
 }
 
@@ -90,6 +95,8 @@ export function projectsUpdate(input: {
     nowIso(),
     input.projectId,
   )
+  enqueue("project", input.projectId, "upsert")
+  kickSyncEngine()
   return { project: fetchProject(input.projectId) }
 }
 
@@ -97,6 +104,8 @@ export function projectsArchive(input: { projectId: string; archived?: boolean }
   const archived = input.archived ?? true
   const db = getDb()
   db.prepare("UPDATE projects SET archived = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?").run(boolToSql(archived), nowIso(), input.projectId)
+  enqueue("project", input.projectId, "upsert")
+  kickSyncEngine()
   return { ok: true, projectId: input.projectId, archived }
 }
 
@@ -105,6 +114,8 @@ export function projectsPin(input: { projectId: string; pinned?: boolean }) {
   const db = getDb()
   const changes = db.prepare("UPDATE projects SET pinned = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?").run(boolToSql(pinned), nowIso(), input.projectId)
   if (changes.changes === 0) throw new Error(`Project not found: ${input.projectId}`)
+  enqueue("project", input.projectId, "upsert")
+  kickSyncEngine()
   return { ok: true, projectId: input.projectId, pinned }
 }
 
@@ -113,14 +124,32 @@ export function projectsDelete(input: { projectId: string }) {
   const exists = (db.prepare("SELECT COUNT(*) as c FROM projects WHERE id = ?").get(input.projectId) as { c: number }).c > 0
   if (!exists) throw new Error(`Project not found: ${input.projectId}`)
 
+  const topicIds = db
+    .prepare("SELECT id FROM topics WHERE project_id = ?")
+    .all(input.projectId) as Array<{ id: string }>
+  const chatIds = db
+    .prepare(
+      `SELECT c.id FROM chats c
+       JOIN session_mappings sm ON sm.session_key = c.session_key
+       WHERE sm.project_id = ?`,
+    )
+    .all(input.projectId) as Array<{ id: string }>
+
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM branches WHERE source_session_key IN (SELECT session_key FROM session_mappings WHERE project_id = ?)").run(input.projectId)
     db.prepare("DELETE FROM topic_git_context WHERE project_id = ?").run(input.projectId)
     db.prepare("DELETE FROM session_mappings WHERE project_id = ?").run(input.projectId)
     db.prepare("DELETE FROM topics WHERE project_id = ?").run(input.projectId)
     db.prepare("DELETE FROM projects WHERE id = ?").run(input.projectId)
+    recordSyncTombstone(db, "project", input.projectId)
+    for (const t of topicIds) recordSyncTombstone(db, "topic", t.id)
+    for (const c of chatIds) recordSyncTombstone(db, "chat", c.id)
   })
   tx()
+  for (const c of chatIds) enqueue("chat", c.id, "delete")
+  for (const t of topicIds) enqueue("topic", t.id, "delete")
+  enqueue("project", input.projectId, "delete")
+  kickSyncEngine()
   return { ok: true, projectId: input.projectId }
 }
 
