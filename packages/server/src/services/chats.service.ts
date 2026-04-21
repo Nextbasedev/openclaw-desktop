@@ -7,6 +7,8 @@ import {
   recordSyncTombstone,
   type ChatRow,
 } from "../db/helpers.js"
+import { enqueue } from "../sync/outbox.js"
+import { kickSyncEngine } from "../sync/engine.js"
 
 const CHAT_COLUMNS =
   "id, name, session_key, agent_id, archived, pinned, last_active_at, created_at, updated_at"
@@ -46,6 +48,8 @@ export function chatsCreate(input?: {
     `INSERT INTO chats (${CHAT_COLUMNS}) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
   ).run(id, name, input?.sessionKey ?? null, agentId, now, now, now)
 
+  enqueue("chat", id, "upsert")
+  kickSyncEngine()
   return { chat: fetchChat(id) }
 }
 
@@ -80,6 +84,8 @@ export function chatsUpdate(input: {
     nowIso(),
     input.chatId,
   )
+  enqueue("chat", input.chatId, "upsert")
+  kickSyncEngine()
   return { chat: fetchChat(input.chatId) }
 }
 
@@ -96,6 +102,8 @@ export function chatsRename(input: {
     .run(input.name.trim(), nowIso(), input.chatId)
   if (changes.changes === 0)
     throw new Error(`Chat not found: ${input.chatId}`)
+  enqueue("chat", input.chatId, "upsert")
+  kickSyncEngine()
   return { chat: fetchChat(input.chatId) }
 }
 
@@ -112,6 +120,8 @@ export function chatsArchive(input: {
     .run(boolToSql(archived), nowIso(), input.chatId)
   if (changes.changes === 0)
     throw new Error(`Chat not found: ${input.chatId}`)
+  enqueue("chat", input.chatId, "upsert")
+  kickSyncEngine()
   return { ok: true, chatId: input.chatId, archived }
 }
 
@@ -125,8 +135,10 @@ export function chatsDelete(input: { chatId: string }) {
   if (!exists)
     throw new Error(`Chat not found: ${input.chatId}`)
 
+  enqueue("chat", input.chatId, "delete")
   db.prepare("DELETE FROM chats WHERE id = ?").run(input.chatId)
   recordSyncTombstone(db, "chat", input.chatId)
+  kickSyncEngine()
   return { ok: true, chatId: input.chatId }
 }
 
@@ -142,6 +154,8 @@ export function chatsAttachSession(input: {
     .run(input.sessionKey, nowIso(), nowIso(), input.chatId)
   if (changes.changes === 0)
     throw new Error(`Chat not found: ${input.chatId}`)
+  enqueue("chat", input.chatId, "upsert")
+  kickSyncEngine()
   return {
     ok: true,
     chatId: input.chatId,
@@ -156,4 +170,6 @@ export function chatsUpdateActivity(input: {
   db.prepare(
     "UPDATE chats SET last_active_at = ?, updated_at = ? WHERE id = ?",
   ).run(nowIso(), nowIso(), input.chatId)
+  enqueue("chat", input.chatId, "upsert")
+  kickSyncEngine()
 }
