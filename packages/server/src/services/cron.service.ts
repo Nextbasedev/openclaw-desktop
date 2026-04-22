@@ -48,6 +48,7 @@ export type CronRun = {
   startedAt: string
   finishedAt: string | null
   result: unknown
+  sessionKey: string | null
   error: string | null
 }
 
@@ -114,6 +115,14 @@ function inferScheduleType(schedule: string): CronScheduleType {
   return "cron"
 }
 
+function extractSessionKey(raw: Record<string, unknown>): string | null {
+  if (typeof raw.sessionKey === "string") return raw.sessionKey
+  const result = raw.result as Record<string, unknown> | null | undefined
+  if (result && typeof result.sessionKey === "string") return result.sessionKey
+  if (result && typeof result.session === "string") return result.session
+  return null
+}
+
 function normalizeRun(raw: Record<string, unknown>): CronRun {
   return {
     runId: String(raw.runId ?? raw.id ?? ""),
@@ -122,6 +131,7 @@ function normalizeRun(raw: Record<string, unknown>): CronRun {
     startedAt: String(raw.startedAt ?? ""),
     finishedAt: raw.finishedAt ? String(raw.finishedAt) : null,
     result: raw.result ?? null,
+    sessionKey: extractSessionKey(raw),
     error: raw.error ? String(raw.error) : null,
   }
 }
@@ -418,4 +428,24 @@ export async function cronCreateNotificationJob(input: {
     deleteAfterRun: false,
     enabled: true,
   })
+}
+
+const SESSION_TARGET_KEYWORDS = new Set(["isolated", "main", "current"])
+
+export async function cronJobConversation(input: { jobId: string }) {
+  const { runs } = await cronListRuns({ jobId: input.jobId, limit: 10, sortDir: "desc" })
+  let sessionKey: string | null = null
+  for (const run of runs) {
+    if (run.sessionKey) { sessionKey = run.sessionKey; break }
+  }
+  if (!sessionKey) {
+    const { job } = await cronGetJob({ jobId: input.jobId })
+    if (job.session && !SESSION_TARGET_KEYWORDS.has(job.session)) {
+      sessionKey = job.session
+    }
+  }
+  if (!sessionKey) return { messages: [], sessionKey: null }
+  const { getChatHistory } = await import("middleware")
+  const history = await getChatHistory(sessionKey)
+  return { messages: history.messages ?? [], sessionKey }
 }

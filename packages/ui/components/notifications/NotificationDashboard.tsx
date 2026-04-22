@@ -99,7 +99,7 @@ export function NotificationDashboard({
       <div className="my-2 w-full max-w-xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
         {selectedJob ? (
           <CronJobChat
-            sessionKey={selectedJob.session}
+            jobId={selectedJob.jobId}
             jobName={selectedJob.name}
             schedule={selectedJob.schedule}
             onBack={() => setSelectedJob(null)}

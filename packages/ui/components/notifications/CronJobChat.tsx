@@ -85,12 +85,12 @@ function formatTime(iso?: string): string | null {
 }
 
 export function CronJobChat({
-  sessionKey,
+  jobId,
   jobName,
   schedule,
   onBack,
 }: {
-  sessionKey: string
+  jobId: string
   jobName: string
   schedule: string
   onBack: () => void
@@ -101,17 +101,17 @@ export function CronJobChat({
 
   const fetchHistory = useCallback(async () => {
     try {
-      const history = await invoke<{ messages: RawMsg[] }>(
-        "middleware_chat_history",
-        { input: { sessionKey } },
+      const result = await invoke<{ messages: RawMsg[] }>(
+        "middleware_cron_job_conversation",
+        { jobId },
       )
-      setMessages(parseMessages(history.messages ?? []))
+      setMessages(parseMessages(result.messages ?? []))
     } catch {
       setMessages([])
     } finally {
       setLoading(false)
     }
-  }, [sessionKey])
+  }, [jobId])
 
   useEffect(() => {
     fetchHistory()

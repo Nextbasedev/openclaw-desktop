@@ -181,6 +181,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_cron_pause_job: (i) => cron.cronPauseJob(i as { jobId: string; paused: boolean }),
   middleware_cron_poll_run_completion: (i) => cron.cronPollRunCompletion(i as Parameters<typeof cron.cronPollRunCompletion>[0]),
   middleware_cron_create_notification_job: (i) => cron.cronCreateNotificationJob(i as Parameters<typeof cron.cronCreateNotificationJob>[0]),
+  middleware_cron_job_conversation: (i) => cron.cronJobConversation(i as { jobId: string }),
 
   // Sync
   middleware_sync_status: () => sync.syncStatus(),
