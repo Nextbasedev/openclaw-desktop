@@ -178,13 +178,10 @@ export async function cronListJobs() {
 }
 
 export async function cronGetJob(input: { jobId: string }) {
-  const gw = await ensureGatewayClient()
-  const res = await gw.request<Record<string, unknown>>(
-    "cron.status",
-    { id: input.jobId },
-  )
-  if (!res.ok) throw new Error(res.error?.message ?? "cron.status failed")
-  return { job: normalizeJob(res.payload ?? {}) }
+  const { jobs } = await cronListJobs()
+  const job = jobs.find((j) => j.jobId === input.jobId)
+  if (!job) throw new Error(`Job ${input.jobId} not found`)
+  return { job }
 }
 
 function buildScheduleParam(schedule: string, type: CronScheduleType, timezone?: string): Record<string, unknown> {
@@ -330,12 +327,7 @@ export async function cronRunJob(input: {
 }
 
 export async function cronJobStatus(input: { jobId: string }) {
-  const gw = await ensureGatewayClient()
-  const res = await gw.request<Record<string, unknown>>("cron.status", {
-    id: input.jobId,
-  })
-  if (!res.ok) throw new Error(res.error?.message ?? "cron.status failed")
-  const job = normalizeJob(res.payload ?? {})
+  const { job } = await cronGetJob(input)
   return {
     jobId: job.jobId,
     enabled: job.enabled,
