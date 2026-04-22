@@ -7,9 +7,6 @@ const nextConfig = {
     "*.loca.lt",
     "fancy-baths-talk.loca.lt",
   ],
-  turbopack: {
-    root: new URL("../../", import.meta.url).pathname,
-  },
   images: {
     unoptimized: true,
   },
