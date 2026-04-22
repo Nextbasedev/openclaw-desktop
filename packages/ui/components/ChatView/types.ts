@@ -38,6 +38,14 @@ export type ChatMessage = {
   activeBranch?: number
 }
 
+export type SpawnedSubagent = {
+  id: string
+  label: string
+  sessionKey: string | null
+  status: "running" | "done" | "error"
+  toolCallId: string
+}
+
 export type StreamStatus =
   | "idle"
   | "connected"

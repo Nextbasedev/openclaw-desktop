@@ -139,12 +139,14 @@ export function useAgentActivity(sessionKey: string | null) {
           (args?.label as string) ??
           (args?.agentId as string) ??
           `sub-${toolCallId.slice(-6)}`
+        const description = (args?.task as string) ?? undefined
         const agentId = `spawn:${toolCallId}`
         if (phase === "start" || phase === "calling") {
           agentsRef.current.set(agentId, {
             runId: agentId,
             phase: "start",
             label,
+            description,
           })
           spawnQueueRef.current.push(agentId)
         } else if (phase === "result") {

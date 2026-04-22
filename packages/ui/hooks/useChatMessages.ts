@@ -9,6 +9,7 @@ import type {
   StreamEventPayload,
   InlineToolCall,
   MessageBranch,
+  SpawnedSubagent,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
 
@@ -41,12 +42,22 @@ export function useChatMessages(
   const [pendingTools, setPendingTools] = useState<InlineToolCall[]>([])
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
 
+  const [spawnedSubagents, setSpawnedSubagents] = useState<SpawnedSubagent[]>([])
+  const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
+  const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const doneAfterYieldRef = useRef(0)
+
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
 
   const isGenerating = status === "thinking" || status === "tool_running" || status === "streaming"
+
+  const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
+    spawnMapRef.current.set(spawn.toolCallId, spawn)
+    setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+  }, [])
 
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -72,17 +83,17 @@ export function useChatMessages(
     const tools = Array.from(pendingToolMapRef.current.values())
     if (tools.length === 0) return
     setMessages((prev) => {
-      const idx = prev.length - 1
-      while (idx >= 0) {
-        const m = prev[idx]
-        if (m && m.role === "assistant") {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].role === "assistant") {
           const updated = [...prev]
-          updated[idx] = { ...m, toolCalls: tools }
+          updated[i] = { ...prev[i], toolCalls: tools }
           return updated
         }
-        break
       }
-      return prev
+      return [
+        ...prev,
+        { messageId: crypto.randomUUID(), role: "assistant" as const, text: "", toolCalls: tools },
+      ]
     })
   }, [])
 
@@ -106,6 +117,12 @@ export function useChatMessages(
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
             setPendingTools([])
+            for (const [, spawn] of spawnMapRef.current) {
+              if (spawn.status === "running") {
+                upsertSpawn({ ...spawn, status: "done" })
+              }
+            }
+            doneAfterYieldRef.current = 0
             setMessages((prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant" && !last.createdAt) {
@@ -123,18 +140,70 @@ export function useChatMessages(
           const toolCallId = (ev as Record<string, unknown>).toolCallId as string | null
           const name = (ev as Record<string, unknown>).name as string | null
           const phase = (ev as Record<string, unknown>).phase as string | null
+          const subagentOf = (ev as Record<string, unknown>).subagentOf as string | null
           if (!toolCallId || !name) break
+          if (subagentOf) {
+            if (name === "sessions_yield" && (phase === "result" || phase === "error")) {
+              const spawnTcId = subagentOf.replace("spawn:", "")
+              const spawn = spawnMapRef.current.get(spawnTcId)
+              if (spawn) {
+                upsertSpawn({ ...spawn, status: phase === "error" ? "error" : "done" })
+              }
+            }
+            break
+          }
 
           const existing = pendingToolMapRef.current.get(toolCallId)
 
-          if (phase === "calling") {
-            const tc: InlineToolCall = {
-              id: toolCallId,
-              tool: name,
-              status: "running",
-              startedAt: Date.now(),
+          if (phase === "spawn_done") {
+            const prev = spawnMapRef.current.get(toolCallId)
+            if (prev && prev.status === "running") {
+              const error = (ev as Record<string, unknown>).error
+              upsertSpawn({ ...prev, status: error ? "error" : "done" })
             }
-            pendingToolMapRef.current.set(toolCallId, tc)
+            break
+          }
+
+          if (phase === "spawn_linked") {
+            const prev = spawnMapRef.current.get(toolCallId)
+            if (prev) {
+              const result = (ev as Record<string, unknown>).result
+              let childKey: string | null = null
+              if (typeof result === "string") {
+                const m = result.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
+                childKey = m?.[1] ?? null
+              } else if (result && typeof result === "object") {
+                childKey = (result as Record<string, unknown>).childSessionKey as string ?? null
+              }
+              if (childKey) {
+                upsertSpawn({ ...prev, sessionKey: childKey })
+              }
+            }
+            break
+          }
+
+          if (phase === "start" || phase === "calling") {
+            if (!pendingToolMapRef.current.has(toolCallId)) {
+              const tc: InlineToolCall = {
+                id: toolCallId,
+                tool: name,
+                status: "running",
+                startedAt: Date.now(),
+              }
+              pendingToolMapRef.current.set(toolCallId, tc)
+            }
+            if (name === "sessions_spawn" && !spawnMapRef.current.has(toolCallId)) {
+              const args = (ev as Record<string, unknown>).args as Record<string, unknown> | undefined
+              const taskStr = (args?.task as string) ?? ""
+              const label = (args?.label as string) ?? (args?.agentId as string) ?? (taskStr.length > 0 ? taskStr.slice(0, 60) + (taskStr.length > 60 ? "..." : "") : `Sub-agent ${spawnMapRef.current.size + 1}`)
+              upsertSpawn({
+                id: `spawn:${toolCallId}`,
+                label,
+                sessionKey: null,
+                status: "running",
+                toolCallId,
+              })
+            }
           } else if (phase === "result" || phase === "error") {
             const call = existing ?? { id: toolCallId, tool: name, status: "running" as const }
             const duration = call.startedAt
@@ -145,6 +214,39 @@ export function useChatMessages(
               status: phase === "error" ? "error" : "success",
               duration,
             })
+            if (name === "sessions_spawn") {
+              const prev = spawnMapRef.current.get(toolCallId)
+              if (prev) {
+                const result = (ev as Record<string, unknown>).result
+                let childKey: string | null = null
+                if (typeof result === "string") {
+                  try {
+                    const parsed = JSON.parse(result)
+                    childKey = parsed.childSessionKey ?? null
+                  } catch {
+                    const m = result.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
+                    childKey = m?.[1] ?? null
+                  }
+                } else if (result && typeof result === "object") {
+                  const r = result as Record<string, unknown>
+                  childKey = (r.childSessionKey as string) ?? null
+                  if (!childKey) {
+                    const json = JSON.stringify(result)
+                    const m = json.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
+                    childKey = m?.[1] ?? null
+                  }
+                }
+                upsertSpawn({
+                  ...prev,
+                  sessionKey: childKey,
+                  status: phase === "error" ? "error" : "running",
+                })
+              }
+            }
+          }
+
+          if (name === "sessions_yield" && !subagentOf) {
+            doneAfterYieldRef.current = 1
           }
 
           setPendingTools(Array.from(pendingToolMapRef.current.values()))
@@ -154,7 +256,9 @@ export function useChatMessages(
         case "chat.message": {
           if (ev.role !== "assistant") break
           const id = ev.messageId || crypto.randomUUID()
-          const text = ev.text || extractText(ev.content)
+          const rawText = ev.text || extractText(ev.content)
+          if (!rawText) break
+          const text = rawText.trim()
           if (!text) break
           const timestamp = ev.createdAt || new Date().toISOString()
           if (seenIds.current.has(id)) {
@@ -166,19 +270,24 @@ export function useChatMessages(
             setMessages((prev) => {
               const lastMsg = prev[prev.length - 1]
               const lastAssistant = lastMsg?.role === "assistant" ? lastMsg : null
-              if (
-                lastAssistant &&
-                (lastAssistant.text === text ||
-                  text.startsWith(lastAssistant.text) ||
-                  lastAssistant.text.startsWith(text))
-              ) {
-                const longer =
-                  text.length >= lastAssistant.text.length
-                    ? text
-                    : lastAssistant.text
+              const lastTrimmed = lastAssistant?.text.trim() ?? ""
+              if (lastAssistant && lastTrimmed.length > 0) {
+                if (
+                  lastTrimmed === text ||
+                  text.startsWith(lastTrimmed) ||
+                  lastTrimmed.startsWith(text)
+                ) {
+                  const longer = text.length >= lastTrimmed.length ? text : lastTrimmed
+                  return prev.map((m) =>
+                    m.messageId === lastAssistant.messageId
+                      ? { ...m, text: longer, messageId: id, createdAt: m.createdAt || timestamp }
+                      : m,
+                  )
+                }
+                const merged = lastTrimmed + "\n\n" + text
                 return prev.map((m) =>
                   m.messageId === lastAssistant.messageId
-                    ? { ...m, text: longer, messageId: id, createdAt: m.createdAt || timestamp }
+                    ? { ...m, text: merged, messageId: id, createdAt: m.createdAt || timestamp }
                     : m,
                 )
               }
@@ -197,7 +306,7 @@ export function useChatMessages(
           break
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant],
+    [scrollToBottom, flushToolsToLastAssistant, upsertSpawn],
   )
 
   useEffect(() => {
@@ -210,6 +319,9 @@ export function useChatMessages(
     seenIds.current.clear()
     pendingToolMapRef.current.clear()
     setPendingTools([])
+    spawnMapRef.current.clear()
+    setSpawnedSubagents([])
+    doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     let cancelled = false
     let eventSource: EventSource | null = null
@@ -228,22 +340,47 @@ export function useChatMessages(
         const raw = (history.messages as RawMessage[]) || []
         const histMsgs: ChatMessage[] = []
         let pendingToolCalls: InlineToolCall[] = []
+        let resultQueue: InlineToolCall[] = []
+        const historySpawns: Array<{ toolCallId: string; label: string; sessionKey: string | null; done: boolean }> = []
+        const seenUserLines = new Map<string, number>()
+        let autoAnnouncesToSkip = 0
 
         for (const m of raw) {
           if (m.role === "user") {
             const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || crypto.randomUUID()
             seenIds.current.add(id)
             const text = m.text || extractText(m.content)
-            if (text) {
-              histMsgs.push({
-                messageId: id,
-                role: "user",
-                text,
-                createdAt: m.createdAt,
-                model: m.model,
-              })
+            const isSubagentAnnounce = text ? /agent:main:subagent:[0-9a-f-]{36}/.test(text) : false
+
+            if (isSubagentAnnounce && text) {
+              const keyMatch = text.match(/agent:main:subagent:[0-9a-f-]{36}/)
+              if (keyMatch) {
+                const spawn = historySpawns.find((s) => s.sessionKey === keyMatch[0])
+                if (spawn) spawn.done = true
+              }
+              if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
+            } else if (autoAnnouncesToSkip > 0) {
+              autoAnnouncesToSkip--
+            } else if (text) {
+              const firstLine = text.trim().split("\n")[0].trim().slice(0, 200)
+              const prevIdx = firstLine.length > 30 ? seenUserLines.get(firstLine) : undefined
+              if (prevIdx !== undefined) {
+                if (text.length < histMsgs[prevIdx].text.length) {
+                  histMsgs[prevIdx] = { ...histMsgs[prevIdx], text }
+                }
+              } else {
+                if (firstLine.length > 30) seenUserLines.set(firstLine, histMsgs.length)
+                histMsgs.push({
+                  messageId: id,
+                  role: "user",
+                  text,
+                  createdAt: m.createdAt,
+                  model: m.model,
+                })
+              }
             }
             pendingToolCalls = []
+            resultQueue = []
           } else if (m.role === "assistant") {
             const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || crypto.randomUUID()
             seenIds.current.add(id)
@@ -253,23 +390,41 @@ export function useChatMessages(
               (b) => b.type === "toolCall" || b.type === "tool_use",
             )
             for (const b of tcBlocks) {
-              pendingToolCalls.push({
+              const call: InlineToolCall = {
                 id: b.id ?? crypto.randomUUID(),
                 tool: b.name ?? "unknown",
                 status: "success",
-              })
+              }
+              pendingToolCalls.push(call)
+              resultQueue.push(call)
+              if (b.name === "sessions_spawn") {
+                const args = (b.arguments ?? b.input ?? {}) as Record<string, unknown>
+                const histTask = (args.task as string) ?? ""
+                const label = (args.label as string) ?? (args.agentId as string) ?? (histTask.length > 0 ? histTask.slice(0, 60) + (histTask.length > 60 ? "..." : "") : `Sub-agent ${historySpawns.length + 1}`)
+                historySpawns.push({ toolCallId: call.id, label, sessionKey: null, done: false })
+              }
             }
 
-            const text = m.text || extractText(m.content)
+            const text = (m.text || extractText(m.content))?.trim()
             if (text) {
-              histMsgs.push({
-                messageId: id,
-                role: "assistant",
-                text,
-                createdAt: m.createdAt,
-                model: m.model,
-                toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
-              })
+              const lastEntry = histMsgs[histMsgs.length - 1]
+              if (lastEntry?.role === "assistant") {
+                lastEntry.text = lastEntry.text + "\n\n" + text
+                lastEntry.messageId = id
+                lastEntry.createdAt = m.createdAt || lastEntry.createdAt
+                if (pendingToolCalls.length > 0) {
+                  lastEntry.toolCalls = [...(lastEntry.toolCalls || []), ...pendingToolCalls]
+                }
+              } else {
+                histMsgs.push({
+                  messageId: id,
+                  role: "assistant",
+                  text,
+                  createdAt: m.createdAt,
+                  model: m.model,
+                  toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+                })
+              }
               pendingToolCalls = []
             }
           } else if (
@@ -277,17 +432,55 @@ export function useChatMessages(
             m.role === "tool_result" ||
             m.role === "toolResult"
           ) {
-            if (pendingToolCalls.length > 0) {
-              const last = pendingToolCalls[pendingToolCalls.length - 1]
-              const resultText = m.text || extractText(m.content)
-              if (last && resultText) {
-                const isError =
-                  resultText.includes('"status": "error"') ||
-                  resultText.includes('"status":"error"')
-                last.status = isError ? "error" : "success"
+            const resultText = m.text || extractText(m.content)
+            let matchedCall: InlineToolCall | null = null
+            if (resultQueue.length > 0) {
+              matchedCall = resultQueue.shift()!
+              if (resultText) {
+                try {
+                  const parsed = JSON.parse(resultText)
+                  matchedCall.status = parsed.status === "error" ? "error" : "success"
+                } catch {
+                  matchedCall.status = "success"
+                }
+              }
+            }
+            if (matchedCall?.tool === "sessions_spawn" && resultText) {
+              const spawn = historySpawns.find((s) => s.toolCallId === matchedCall!.id)
+              if (spawn && !spawn.sessionKey) {
+                let childKey: string | null = null
+                try {
+                  const parsed = JSON.parse(resultText)
+                  childKey = (parsed.childSessionKey as string) ?? null
+                } catch {
+                  const rm = resultText.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
+                  childKey = rm?.[1] ?? null
+                }
+                if (!childKey) {
+                  const rm = resultText.match(/agent:main:subagent:[0-9a-f-]{36}/)
+                  childKey = rm?.[0] ?? null
+                }
+                if (childKey) {
+                  spawn.sessionKey = childKey
+                  autoAnnouncesToSkip++
+                }
               }
             }
           }
+        }
+
+        for (const hs of historySpawns) {
+          const spawn: SpawnedSubagent = {
+            id: `spawn:${hs.toolCallId}`,
+            label: hs.label,
+            sessionKey: hs.sessionKey,
+            status: hs.done ? "done" : "running",
+            toolCallId: hs.toolCallId,
+          }
+          spawnMapRef.current.set(hs.toolCallId, spawn)
+        }
+        if (historySpawns.length > 0) {
+          setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
         }
 
         const edits = (branchData.branches ?? [])
@@ -363,8 +556,57 @@ export function useChatMessages(
     return () => {
       cancelled = true
       eventSource?.close()
+      if (subagentPollRef.current) {
+        clearInterval(subagentPollRef.current)
+        subagentPollRef.current = null
+      }
     }
   }, [sessionKey, handleStreamEvent])
+
+  useEffect(() => {
+    if (subagentPollRef.current) clearInterval(subagentPollRef.current)
+    const hasRunning = spawnedSubagents.some((s) => s.status === "running")
+    if (!hasRunning) return
+
+    subagentPollRef.current = setInterval(async () => {
+      for (const sub of spawnedSubagents) {
+        if (sub.status !== "running" || !sub.sessionKey) continue
+        try {
+          const hist = await invoke<{ messages: unknown[] }>(
+            "middleware_chat_history",
+            { input: { sessionKey: sub.sessionKey } },
+          )
+          const msgs = (hist.messages ?? []) as RawMessage[]
+          let isDone = false
+          for (const m of msgs) {
+            if (m.role !== "assistant") continue
+            const blocks = Array.isArray(m.content) ? m.content as Array<{ type?: string; name?: string }> : []
+            if (blocks.some((b) => (b.type === "toolCall" || b.type === "tool_use") && b.name === "sessions_yield")) {
+              isDone = true
+              break
+            }
+          }
+          if (!isDone) {
+            const lastMsg = msgs[msgs.length - 1]
+            if (lastMsg?.role === "assistant") {
+              const text = lastMsg.text || extractText(lastMsg.content)
+              if (text) isDone = true
+            }
+          }
+          if (isDone) {
+            upsertSpawn({ ...sub, status: "done" })
+          }
+        } catch {}
+      }
+    }, 2000)
+
+    return () => {
+      if (subagentPollRef.current) {
+        clearInterval(subagentPollRef.current)
+        subagentPollRef.current = null
+      }
+    }
+  }, [spawnedSubagents, upsertSpawn])
 
   const handleSend = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -373,6 +615,11 @@ export function useChatMessages(
     const optimisticId = crypto.randomUUID()
     pendingToolMapRef.current.clear()
     setPendingTools([])
+    for (const [key, spawn] of spawnMapRef.current) {
+      if (spawn.status !== "running") spawnMapRef.current.delete(key)
+    }
+    setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+    doneAfterYieldRef.current = 0
     setMessages((prev) => [
       ...prev,
       { messageId: optimisticId, role: "user", text: trimmed, createdAt: new Date().toISOString(), isOptimistic: true },
@@ -539,5 +786,6 @@ export function useChatMessages(
     messages, status, statusLabel, loading, loadError,
     isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
+    spawnedSubagents,
   }
 }

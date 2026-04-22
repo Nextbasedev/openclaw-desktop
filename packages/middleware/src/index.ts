@@ -673,15 +673,18 @@ export async function openChatEventStream(input: {
     const subagentKeys = new Set<string>()
     const spawnQueue: string[] = []
     const subagentToSpawn = new Map<string, string>()
+    const pendingSubagentKeys: string[] = []
 
     const subscribeSubagent = (key: string) => {
       if (subagentKeys.has(key)) return
       subagentKeys.add(key)
       const spawnId = spawnQueue.length > 0 ? spawnQueue.shift()! : null
-      if (spawnId && !subagentToSpawn.has(key)) {
+      if (spawnId) {
         subagentToSpawn.set(key, spawnId)
+      } else {
+        pendingSubagentKeys.push(key)
       }
-      console.log(`[mw:stream] subscribeSubagent key=${key.slice(-12)} spawnId=${spawnId ?? "none"} queue=${spawnQueue.length}`)
+      console.log(`[mw:stream] subscribeSubagent key=${key.slice(-12)} spawnId=${spawnId ?? "none"} queue=${spawnQueue.length} pending=${pendingSubagentKeys.length}`)
       gateway.request("sessions.messages.subscribe", { key }).catch((err) => {
         console.error(`[mw:stream] subscribe failed for ${key.slice(-12)}:`, err)
       })
@@ -721,10 +724,61 @@ export async function openChatEventStream(input: {
           const childKeyMatch = resultText.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
           if (childKeyMatch?.[1]?.includes(":subagent:")) {
             subscribeSubagent(childKeyMatch[1])
+            let spawnTcId = subagentToSpawn.get(childKeyMatch[1])
+            if (!spawnTcId && spawnQueue.length > 0) {
+              spawnTcId = spawnQueue.shift()!
+              subagentToSpawn.set(childKeyMatch[1], spawnTcId)
+            }
+            if (spawnTcId) {
+              input.onEvent({
+                type: "chat.tool",
+                sessionKey: input.sessionKey,
+                runId: null,
+                verboseLevel: null,
+                toolOutputVisibility: "hidden" as ToolOutputVisibility,
+                phase: "spawn_linked",
+                name: "sessions_spawn",
+                toolCallId: spawnTcId,
+                args: null,
+                partialResult: null,
+                result: resultText,
+                error: null,
+                subagentOf: null,
+              })
+            }
           }
           return
         }
-        if (role === "user") return
+        if (role === "user") {
+          const announceText = contentBlocksToText(payload.message.content)
+          if (announceText.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>")) {
+            const keyMatch = announceText.match(/session_key:\s*(agent:main:subagent:[^\s]+)/)
+            if (keyMatch) {
+              const childKey = keyMatch[1]!
+              const spawnTcId = subagentToSpawn.get(childKey)
+              const isError = /status:\s*(error|failed)/.test(announceText)
+              if (spawnTcId) {
+                input.onEvent({
+                  type: "chat.tool",
+                  sessionKey: input.sessionKey,
+                  runId: null,
+                  verboseLevel: null,
+                  toolOutputVisibility: "hidden" as ToolOutputVisibility,
+                  phase: "spawn_done",
+                  name: "sessions_spawn",
+                  toolCallId: spawnTcId,
+                  args: null,
+                  partialResult: null,
+                  result: null,
+                  error: isError ? "subagent_error" : null,
+                  subagentOf: null,
+                })
+              }
+            }
+          }
+          return
+        }
+        if (payload.sessionKey?.includes(":subagent:")) return
 
         const blocks = Array.isArray(payload.message.content) ? payload.message.content as Array<{ type?: string }> : []
         const blockTypes = blocks.map((block) => block?.type).filter(Boolean)
@@ -755,6 +809,8 @@ export async function openChatEventStream(input: {
       if (message.event === "chat") {
         const payload = message.payload as Record<string, unknown> | undefined
         if (!payload || !matchesSession(payload.sessionKey as string | undefined)) return
+        const chatSessionKey = payload.sessionKey as string | undefined
+        if (chatSessionKey?.includes(":subagent:")) return
 
         const state = payload.state as string | undefined
         const msgContent = payload.message as Record<string, unknown> | undefined
@@ -794,11 +850,33 @@ export async function openChatEventStream(input: {
         if (!payload || !matchesSession(payload.sessionKey)) return
 
         const isSubagent = payload.sessionKey?.includes(":subagent:") ?? false
-        const spawnId = isSubagent ? (subagentToSpawn.get(payload.sessionKey!) ?? null) : null
+        const spawnId = isSubagent ? (subagentToSpawn.get(payload.sessionKey!) ?? "unknown") : null
 
         if (payload.data?.name === "sessions_spawn" && payload.data?.phase === "start") {
           const tcId = payload.data?.toolCallId as string | undefined
-          if (tcId) spawnQueue.push(tcId)
+          if (tcId) {
+            if (pendingSubagentKeys.length > 0) {
+              const pendingKey = pendingSubagentKeys.shift()!
+              subagentToSpawn.set(pendingKey, tcId)
+              input.onEvent({
+                type: "chat.tool",
+                sessionKey: input.sessionKey,
+                runId: null,
+                verboseLevel: null,
+                toolOutputVisibility: "hidden" as ToolOutputVisibility,
+                phase: "spawn_linked",
+                name: "sessions_spawn",
+                toolCallId: tcId,
+                args: null,
+                partialResult: null,
+                result: JSON.stringify({ childSessionKey: pendingKey }),
+                error: null,
+                subagentOf: null,
+              })
+            } else {
+              spawnQueue.push(tcId)
+            }
+          }
         }
 
         const key = `${payload.runId ?? "run"}:${payload.seq ?? payload.data?.toolCallId ?? "tool"}:${payload.data?.phase ?? "phase"}`
@@ -820,12 +898,14 @@ export async function openChatEventStream(input: {
           error: payload.data?.error ?? null,
           subagentOf: spawnId ? `spawn:${spawnId}` : null,
         })
-        input.onEvent({
-          type: "chat.status",
-          sessionKey: input.sessionKey,
-          state: payload.data?.phase === "error" ? "error" : payload.data?.phase === "result" ? "thinking" : "tool_running",
-          label: payload.data?.name ?? null,
-        })
+        if (!isSubagent) {
+          input.onEvent({
+            type: "chat.status",
+            sessionKey: input.sessionKey,
+            state: payload.data?.phase === "error" ? "error" : payload.data?.phase === "result" ? "thinking" : "tool_running",
+            label: payload.data?.name ?? null,
+          })
+        }
       }
 
       if (message.event === "agent") {

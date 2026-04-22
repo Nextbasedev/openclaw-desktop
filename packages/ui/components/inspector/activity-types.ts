@@ -15,6 +15,7 @@ export interface ToolCall {
 export interface AgentNode {
   id: string
   label: string
+  description?: string
   model?: string
   status: ToolCallStatus
   calls: ToolCall[]
@@ -25,6 +26,7 @@ export interface AgentInfo {
   runId: string
   phase: string
   label: string
+  description?: string
 }
 
 type ContentBlock = {
@@ -111,10 +113,14 @@ export function parseHistoryToolCalls(
       msg.role === "tool_result" ||
       msg.role === "toolResult"
     ) {
-      const resultText = extractResultText(msg.content)
-      const isError =
-        resultText.includes('"status": "error"') ||
-        resultText.includes('"status":"error"')
+      const resultText = msg.text || extractResultText(msg.content)
+      let isError = false
+      try {
+        const parsed = JSON.parse(resultText)
+        isError = parsed.status === "error"
+      } catch {
+        isError = false
+      }
 
       if (pendingCalls.length > 0) {
         const matched = pendingCalls.shift()!
@@ -128,8 +134,9 @@ export function parseHistoryToolCalls(
         if (matched.name === "sessions_spawn") {
           const args = matched.args as Record<string, unknown> | null
           const label = (args?.label as string) ?? (args?.agentId as string) ?? `sub-${matched.id.slice(-6)}`
+          const task = (args?.task as string) ?? undefined
           const agentId = `spawn:${matched.id}`
-          agents.set(agentId, { runId: agentId, phase: isError ? "error" : "done", label })
+          agents.set(agentId, { runId: agentId, phase: isError ? "error" : "done", label, description: task })
           const childKeyMatch = resultText.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
           if (childKeyMatch) {
             subagentSessionKeys.set(childKeyMatch[1], agentId)
@@ -151,8 +158,9 @@ export function parseHistoryToolCalls(
     if (remaining.name === "sessions_spawn") {
       const args = remaining.args as Record<string, unknown> | null
       const label = (args?.label as string) ?? (args?.agentId as string) ?? `sub-${remaining.id.slice(-6)}`
+      const task = (args?.task as string) ?? undefined
       const agentId = `spawn:${remaining.id}`
-      agents.set(agentId, { runId: agentId, phase: "start", label })
+      agents.set(agentId, { runId: agentId, phase: "start", label, description: task })
       spawnOrder.push(agentId)
     }
   }
@@ -189,22 +197,30 @@ export function buildTree(
     nodes.push({
       id: agentId,
       label: info.label || `agent-${agentId.slice(0, 8)}`,
+      description: info.description,
       status: agentStatus(info.phase, aCalls),
       calls: aCalls,
     })
   }
 
-  const mainStatus = agentStatus(
-    status === "tool_running" || status === "thinking" || status === "streaming"
+  const mainPhase =
+    status === "tool_running" ||
+    status === "thinking" ||
+    status === "streaming"
       ? "start"
-      : null,
-    mainCalls,
-  )
+      : status === "done"
+        ? "done"
+        : status === "error"
+          ? "error"
+          : mainCalls.length > 0
+            ? "done"
+            : null
+  const mainStatus = agentStatus(mainPhase, mainCalls)
   const mainNode: AgentNode = {
     id: "root",
     label: "main",
     status: mainStatus,
-    calls: mainCalls.filter((c) => c.tool !== "sessions_spawn"),
+    calls: mainCalls.filter((c) => c.tool !== "sessions_spawn" && c.tool !== "subagents"),
     children: nodes.length > 0 ? nodes : undefined,
   }
 

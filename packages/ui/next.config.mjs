@@ -8,7 +8,7 @@ const nextConfig = {
     "fancy-baths-talk.loca.lt",
   ],
   turbopack: {
-    root: new URL("../../", import.meta.url).pathname,
+    root: new URL("../../", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
   },
   images: {
     unoptimized: true,
