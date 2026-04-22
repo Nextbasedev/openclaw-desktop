@@ -123,13 +123,20 @@ function extractSessionKey(raw: Record<string, unknown>): string | null {
   return null
 }
 
+function msToIso(val: unknown): string {
+  if (typeof val === "number" && val > 0) return new Date(val).toISOString()
+  if (typeof val === "string" && val) return val
+  return ""
+}
+
 function normalizeRun(raw: Record<string, unknown>): CronRun {
   return {
-    runId: String(raw.runId ?? raw.id ?? ""),
+    runId: String(raw.runId ?? raw.id ?? raw.sessionId ?? ""),
     jobId: String(raw.jobId ?? ""),
     status: String(raw.status ?? "unknown"),
-    startedAt: String(raw.startedAt ?? ""),
-    finishedAt: raw.finishedAt ? String(raw.finishedAt) : null,
+    startedAt: msToIso(raw.startedAt ?? raw.runAtMs ?? raw.ts),
+    finishedAt: raw.finishedAt ? String(raw.finishedAt) : raw.durationMs && raw.runAtMs
+      ? new Date(Number(raw.runAtMs) + Number(raw.durationMs)).toISOString() : null,
     result: raw.result ?? null,
     sessionKey: extractSessionKey(raw),
     error: raw.error ? String(raw.error) : null,
@@ -344,17 +351,19 @@ export async function cronListRuns(input: {
   afterTs?: number
 }) {
   const gw = await ensureGatewayClient()
-  const res = await gw.request<{ runs?: Record<string, unknown>[] }>(
+  const res = await gw.request<Record<string, unknown>>(
     "cron.runs",
     {
-      jobId: input.jobId,
+      id: input.jobId,
       limit: input.limit ?? 50,
       sortDir: input.sortDir ?? "desc",
       afterTs: input.afterTs,
     },
   )
   if (!res.ok) throw new Error(res.error?.message ?? "cron.runs failed")
-  const runs = (res.payload?.runs ?? []).map(normalizeRun)
+  const payload = res.payload as Record<string, unknown>
+  const rawRuns = (payload?.runs ?? payload?.entries ?? []) as Record<string, unknown>[]
+  const runs = rawRuns.map(normalizeRun)
   return { runs }
 }
 
