@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
   ContentBlock,
@@ -608,8 +609,8 @@ export function useChatMessages(
     }
   }, [spawnedSubagents, upsertSpawn])
 
-  const handleSend = useCallback(async (text: string) => {
-    const trimmed = text.trim()
+  const handleSend = useCallback(async (payload: ChatComposerSubmit) => {
+    const trimmed = payload.text.trim()
     if (!trimmed || isSending || isGenerating) return
     setIsSending(true)
     const optimisticId = crypto.randomUUID()
@@ -627,14 +628,21 @@ export function useChatMessages(
     setStatus("thinking")
     forceScrollToBottom(true)
     try {
-      await invoke("middleware_chat_send", { input: { sessionKey, text: trimmed } })
-    } catch {
+      await invoke("middleware_chat_send", {
+        input: {
+          sessionKey,
+          text: trimmed,
+          attachments: payload.attachments,
+        },
+      })
+    } catch (error) {
       setStatus("error")
       setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId))
+      throw error
     } finally {
       setIsSending(false)
     }
-  }, [isSending, isGenerating, sessionKey, forceScrollToBottom, messages.length])
+  }, [isSending, isGenerating, sessionKey, forceScrollToBottom])
 
   const handleAbort = useCallback(async () => {
     try {

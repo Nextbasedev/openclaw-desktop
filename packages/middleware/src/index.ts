@@ -442,6 +442,13 @@ export function contentBlocksToText(content: unknown) {
     .map((block) => {
       if (!block || typeof block !== "object") return ""
       const typedBlock = block as OpenClawContentBlock
+      if (typedBlock.type === "image") return ""
+      if (
+        typedBlock.mimeType &&
+        /^(image|video|audio)\//.test(typedBlock.mimeType)
+      ) {
+        return ""
+      }
       if (typedBlock.text) return typedBlock.text
       if (typedBlock.content) return typedBlock.content
       return ""

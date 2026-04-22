@@ -21,6 +21,7 @@ import type { ModelEntry } from "@/hooks/useModels"
 type ActionBarProps = {
   hasInput: boolean
   onSend?: () => void
+  onUploadClick?: () => void
   isGenerating?: boolean
   onAbort?: () => void
   planEnabled: boolean
@@ -38,12 +39,14 @@ type ActionBarProps = {
   isRecording?: boolean
   onVoiceToggle?: () => void
   voiceSupported?: boolean
-
+  attachmentCount?: number
+  disableUpload?: boolean
 }
 
 export function ActionBar({
   hasInput,
   onSend,
+  onUploadClick,
   isGenerating,
   onAbort,
   planEnabled,
@@ -61,6 +64,8 @@ export function ActionBar({
   isRecording,
   onVoiceToggle,
   voiceSupported = true,
+  attachmentCount = 0,
+  disableUpload = false,
 }: ActionBarProps) {
   const activeModel = models.find((m) => {
     if (!currentModelId) return false
@@ -88,10 +93,12 @@ export function ActionBar({
           <PopoverContent side="top" align="start" sideOffset={8} className="w-56 gap-0 p-1.5">
             <button
               type="button"
+              onClick={onUploadClick}
+              disabled={disableUpload}
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
             >
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
-              Upload
+              {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Upload"}
             </button>
             <div className="my-1 h-px bg-border" />
             <button

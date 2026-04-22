@@ -21,6 +21,7 @@ import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
@@ -512,8 +513,9 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
 
   const [quickSending, setQuickSending] = useState(false)
 
-  const handleQuickSend = useCallback(async (text: string) => {
-    if (quickSending || !text.trim()) return
+  const handleQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
+    const text = payload.text.trim()
+    if (quickSending || !text) return
     setQuickSending(true)
     try {
       const result = await invoke<{ chat: { id: string; name: string } }>(
@@ -528,12 +530,16 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
       })
       await invoke("middleware_chat_send", {
-        input: { sessionKey: sessionResult.session.key, text: text.trim() },
+        input: {
+          sessionKey: sessionResult.session.key,
+          text,
+          attachments: payload.attachments,
+        },
       })
 
       const { name } = await invoke<{ name: string }>(
         "middleware_autonaming_quick",
-        { input: { text: text.trim() } },
+        { input: { text } },
       )
       await invoke("middleware_chats_rename", {
         input: { chatId: result.chat.id, name },
@@ -542,7 +548,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       setInitialMessages([{
         messageId: crypto.randomUUID(),
         role: "user",
-        text: text.trim(),
+        text,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
       }])
@@ -718,7 +724,7 @@ function MainContent({
   sessionError: string | null
   onSettingsBack: () => void
   onFirstMessageSent: (text: string) => void
-  onQuickSend: (text: string) => void
+  onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
