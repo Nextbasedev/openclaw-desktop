@@ -4,6 +4,7 @@ import * as React from "react"
 import { Icons } from "@/components/icons"
 import { CronJobsTab } from "./tabs/CronJobsTab"
 import { ActivityTab } from "./tabs/ActivityTab"
+import { CronJobChat } from "./CronJobChat"
 import { cn } from "@/lib/utils"
 import type { ActiveChat } from "@/types/chat"
 
@@ -20,6 +21,13 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: "activity", label: "Activity", icon: Icons.Automations },
 ]
 
+type SelectedJob = {
+  jobId: string
+  name: string
+  session: string
+  schedule: string
+}
+
 type NotificationDashboardProps = {
   onBack?: () => void
   defaultTab?: NotificationSection
@@ -33,6 +41,13 @@ export function NotificationDashboard({
 }: NotificationDashboardProps) {
   const [activeSection, setActiveSection] =
     React.useState<NotificationSection>(defaultTab)
+  const [selectedJob, setSelectedJob] =
+    React.useState<SelectedJob | null>(null)
+
+  const handleSectionChange = (id: NotificationSection) => {
+    setActiveSection(id)
+    setSelectedJob(null)
+  }
 
   return (
     <div className="flex h-full w-full justify-center gap-15 pt-10">
@@ -61,7 +76,7 @@ export function NotificationDashboard({
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setActiveSection(item.id)}
+                onClick={() => handleSectionChange(item.id)}
                 className={cn(
                   "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[14px] transition-colors",
                   isActive
@@ -82,10 +97,24 @@ export function NotificationDashboard({
       </nav>
 
       <div className="my-2 w-full max-w-xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
-        {activeSection === "cron-jobs" && (
-          <CronJobsTab onNavigateToChat={onNavigateToChat} />
+        {selectedJob ? (
+          <CronJobChat
+            sessionKey={selectedJob.session}
+            jobName={selectedJob.name}
+            schedule={selectedJob.schedule}
+            onBack={() => setSelectedJob(null)}
+          />
+        ) : (
+          <>
+            {activeSection === "cron-jobs" && (
+              <CronJobsTab
+                onNavigateToChat={onNavigateToChat}
+                onSelectJob={setSelectedJob}
+              />
+            )}
+            {activeSection === "activity" && <ActivityTab />}
+          </>
         )}
-        {activeSection === "activity" && <ActivityTab />}
       </div>
     </div>
   )
