@@ -5,14 +5,20 @@ import { motion, AnimatePresence } from "framer-motion"
 
 import { cn } from "@/lib/utils"
 import { ActionBar } from "./ActionBar"
+import { AttachmentPreviewList } from "./AttachmentPreviewList"
 import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
 import { useSlashCommands } from "@/hooks/useSlashCommands"
+import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { useModels } from "@/hooks/useModels"
 import { useVoiceInput } from "@/hooks/useVoiceInput"
+import {
+  stripComposerAttachment,
+  type ChatComposerSubmit,
+} from "@/lib/chatAttachments"
 
 type Props = {
   initialPrompt?: string
-  onSend?: (text: string) => void
+  onSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   disabled?: boolean
   isGenerating?: boolean
   onAbort?: () => void
@@ -31,6 +37,30 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const { commands } = useSlashCommands()
   const { models, currentModel } = useModels()
+  const autoResize = React.useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = "auto"
+    const maxH = 8 * 24
+    el.style.height = Math.max(56, Math.min(el.scrollHeight, maxH)) + "px"
+  }, [])
+  const {
+    attachments,
+    attachmentError,
+    isPreparingAttachments,
+    fileInputRef,
+    clearAttachments,
+    removeAttachment,
+    setAttachmentError,
+    handleUploadClick,
+    handleFileChange,
+  } = useChatComposerAttachments({
+    disabled,
+    onFilesProcessed: () => {
+      setPlusOpen(false)
+      textareaRef.current?.focus()
+    },
+  })
   const { state: voiceState, interimTranscript, isSupported: voiceSupported, toggle: toggleVoice } = useVoiceInput({
     onTranscript: (text) => {
       setInput((prev) => {
@@ -48,7 +78,7 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
       textareaRef.current.setSelectionRange(initialPrompt.length, initialPrompt.length)
       autoResize()
     }
-  }, [])
+  }, [initialPrompt, autoResize])
 
   // Focus back to textarea after voice input stops
   React.useEffect(() => {
@@ -76,13 +106,24 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
     textareaRef.current?.focus()
   }
 
-  function handleSend() {
+  async function handleSend() {
     const text = input.trim()
-    if (!text || disabled) return
-    onSend?.(text)
-    setInput("")
-    setSlashMenuOpen(false)
-    if (textareaRef.current) textareaRef.current.style.height = "auto"
+    if (!text || disabled || isPreparingAttachments) return
+    try {
+      await onSend?.({
+        text,
+        attachments: attachments.length > 0
+          ? attachments.map(stripComposerAttachment)
+          : undefined,
+      })
+      setInput("")
+      clearAttachments()
+      setAttachmentError(null)
+      setSlashMenuOpen(false)
+      if (textareaRef.current) textareaRef.current.style.height = "auto"
+    } catch {
+      setAttachmentError("Message failed to send. Try again.")
+    }
   }
 
   function handleWebSearchToggle() {
@@ -90,16 +131,15 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
     setPlusOpen(false)
   }
 
-  function autoResize() {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = "auto"
-    const maxH = 8 * 24
-    el.style.height = Math.max(56, Math.min(el.scrollHeight, maxH)) + "px"
-  }
-
   return (
     <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileChange}
+      />
       <div
         className={cn(
           "relative flex flex-col rounded-2xl border bg-card transition-all",
@@ -108,6 +148,11 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             : "border-border/50"
         )}
       >
+        <AttachmentPreviewList
+          attachments={attachments}
+          isPreparing={isPreparingAttachments}
+          onRemove={removeAttachment}
+        />
         {slashMenuOpen && commands.length > 0 && (
           <SlashCommandMenu
             commands={commands}
@@ -153,7 +198,10 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
                   return
                 }
               }
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                void handleSend()
+              }
             }}
             placeholder="Message... (type / for commands)"
             rows={1}
@@ -162,6 +210,14 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
           />
+
+          {attachmentError && (
+            <div className="px-3 pb-1">
+              <p className="text-[12px] text-red-400/80">
+                {attachmentError}
+              </p>
+            </div>
+          )}
 
           <AnimatePresence initial={false}>
             {voiceState === "listening" && (
@@ -182,7 +238,13 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
 
           <ActionBar
             hasInput={hasInput}
-            onSend={handleSend}
+            onSend={() => {
+              void handleSend()
+            }}
+            onUploadClick={() => {
+              setPlusOpen(false)
+              handleUploadClick()
+            }}
             isGenerating={isGenerating}
             onAbort={onAbort}
             planEnabled={planEnabled}
@@ -198,12 +260,14 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             currentModelId={currentModel}
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
-              onSend?.(`/model ${modelId}`)
+              void onSend?.({ text: `/model ${modelId}` })
               setModelOpen(false)
             }}
             isRecording={voiceState === "listening"}
             onVoiceToggle={toggleVoice}
             voiceSupported={voiceSupported}
+            attachmentCount={attachments.length}
+            disableUpload={disabled || isPreparingAttachments}
           />
         </div>
       </div>
