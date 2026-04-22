@@ -88,9 +88,15 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
   const [badgeCount, setBadgeCount] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const jobNamesRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
     requestNotificationPermission()
+    invoke<{ jobs: CronJob[] }>("middleware_cron_list_jobs")
+      .then((r) => {
+        for (const j of r.jobs) jobNamesRef.current.set(j.jobId, j.name)
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -102,6 +108,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
       (evt: MessageEvent) => {
         try {
           const event = JSON.parse(evt.data) as CronRunEvent
+          if (!event.name) event.name = jobNamesRef.current.get(event.jobId)
           setEvents((prev) => {
             const isDone = event.type !== "cron.run.started"
             const deduped = prev.filter((e) => {
@@ -145,6 +152,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
       const result = await invoke<{ jobs: CronJob[] }>(
         "middleware_cron_list_jobs",
       )
+      for (const j of result.jobs) jobNamesRef.current.set(j.jobId, j.name)
       setJobs(result.jobs.slice(0, 3))
     } catch {
       setJobs([])
@@ -404,7 +412,9 @@ function EventRow({ event, idx, onClick }: { event: CronRunEvent; idx: number; o
       </span>
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-[11px] font-medium text-foreground">
-          {event.name ?? event.jobId.slice(0, 8)}
+          {event.name
+            ? `${event.jobId.slice(0, 8)} - ${event.name}`
+            : event.jobId.slice(0, 8)}
         </span>
         <span className={cn(
           "text-[10px]",
