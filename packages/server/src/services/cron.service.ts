@@ -174,7 +174,7 @@ export async function cronGetJob(input: { jobId: string }) {
   const gw = await ensureGatewayClient()
   const res = await gw.request<Record<string, unknown>>(
     "cron.status",
-    { jobId: input.jobId },
+    { id: input.jobId },
   )
   if (!res.ok) throw new Error(res.error?.message ?? "cron.status failed")
   return { job: normalizeJob(res.payload ?? {}) }
@@ -325,7 +325,7 @@ export async function cronRunJob(input: {
 export async function cronJobStatus(input: { jobId: string }) {
   const gw = await ensureGatewayClient()
   const res = await gw.request<Record<string, unknown>>("cron.status", {
-    jobId: input.jobId,
+    id: input.jobId,
   })
   if (!res.ok) throw new Error(res.error?.message ?? "cron.status failed")
   const job = normalizeJob(res.payload ?? {})
@@ -439,10 +439,12 @@ export async function cronJobConversation(input: { jobId: string }) {
     if (run.sessionKey) { sessionKey = run.sessionKey; break }
   }
   if (!sessionKey) {
-    const { job } = await cronGetJob({ jobId: input.jobId })
-    if (job.session && !SESSION_TARGET_KEYWORDS.has(job.session)) {
-      sessionKey = job.session
-    }
+    try {
+      const { job } = await cronGetJob({ jobId: input.jobId })
+      if (job.session && !SESSION_TARGET_KEYWORDS.has(job.session)) {
+        sessionKey = job.session
+      }
+    } catch {}
   }
   if (!sessionKey) return { messages: [], sessionKey: null }
   const { getChatHistory } = await import("middleware")
