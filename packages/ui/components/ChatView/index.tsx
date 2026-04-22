@@ -1,11 +1,15 @@
 "use client"
 
-import { useCallback, useRef } from "react"
+import { useCallback, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
+import { SubagentCard } from "./SubagentCard"
+import { SubagentBar } from "./SubagentBar"
+import { SubagentFullChat } from "./SubagentFullChat"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatBox } from "@/components/ChatBox"
+import type { SpawnedSubagent } from "./types"
 
 type Props = {
   sessionKey: string
@@ -14,6 +18,8 @@ type Props = {
   initialMessages?: import("./types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   initialPrompt?: string
+  activeSubagentKey?: string | null
+  onSubagentOpen?: (key: string | null) => void
 }
 
 export function ChatView({
@@ -22,12 +28,38 @@ export function ChatView({
   initialMessages,
   onSelectTool,
   initialPrompt,
+  activeSubagentKey: externalSubagentKey,
+  onSubagentOpen,
 }: Props) {
   const {
     messages, status, statusLabel, loading, loadError,
     isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
+    spawnedSubagents,
   } = useChatMessages(sessionKey, initialMessages)
+
+  const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(null)
+  const activeSubKey = externalSubagentKey ?? internalSubagentKey
+
+  const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(null)
+
+  const openSubagent = useCallback((sub: SpawnedSubagent) => {
+    setActiveSubagent(sub)
+    if (onSubagentOpen) {
+      onSubagentOpen(sub.sessionKey)
+    } else {
+      setInternalSubagentKey(sub.sessionKey)
+    }
+  }, [onSubagentOpen])
+
+  const closeSubagent = useCallback(() => {
+    setActiveSubagent(null)
+    if (onSubagentOpen) {
+      onSubagentOpen(null)
+    } else {
+      setInternalSubagentKey(null)
+    }
+  }, [onSubagentOpen])
 
   const firstFiredRef = useRef(false)
   const wrappedSend = useCallback((text: string) => {
@@ -37,6 +69,17 @@ export function ChatView({
     }
     handleSend(text)
   }, [handleSend, messages.length, onFirstMessageSent])
+
+  if (activeSubKey && activeSubagent) {
+    return (
+      <SubagentFullChat
+        sessionKey={activeSubKey}
+        label={activeSubagent.label}
+        status={activeSubagent.status}
+        onBack={closeSubagent}
+      />
+    )
+  }
 
   const statusText =
     status === "thinking" ? "Thinking..."
@@ -93,6 +136,28 @@ export function ChatView({
       .map((m) => m.messageId),
   )
 
+  const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
+    tools.filter((t) => t.tool !== "sessions_spawn" && t.tool !== "subagents" && t.tool !== "sessions_yield")
+
+  const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
+  for (const sub of spawnedSubagents) {
+    spawnsByToolCallId.set(sub.toolCallId, sub)
+  }
+
+  function getSubagentsForMessage(
+    toolCalls?: import("./types").InlineToolCall[],
+  ): SpawnedSubagent[] {
+    if (!toolCalls) return []
+    const matched: SpawnedSubagent[] = []
+    for (const tc of toolCalls) {
+      if (tc.tool === "sessions_spawn") {
+        const sub = spawnsByToolCallId.get(tc.id)
+        if (sub) matched.push(sub)
+      }
+    }
+    return matched
+  }
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <div
@@ -115,39 +180,70 @@ export function ChatView({
               const showPendingAbove =
                 isActivelyStreaming && pendingTools.length > 0
 
+              const filteredToolCalls = msg.toolCalls
+                ? toolCallsWithoutSpawn(msg.toolCalls)
+                : undefined
+              const filteredPending = toolCallsWithoutSpawn(pendingTools)
+
+              const msgSubagents = getSubagentsForMessage(msg.toolCalls)
+              const liveSubagents = (isLast && isGenerating)
+                ? getSubagentsForMessage(pendingTools)
+                : []
+              const allSubagents = msgSubagents.length > 0
+                ? msgSubagents
+                : liveSubagents
+
               return (
                 <div key={msg.messageId}>
                   {msg.role === "assistant" &&
-                    msg.toolCalls &&
-                    msg.toolCalls.length > 0 && (
+                    filteredToolCalls &&
+                    filteredToolCalls.length > 0 && (
                       <div className="mb-2 max-w-[85%]">
                         <ToolCallSteps
-                          tools={msg.toolCalls}
+                          tools={filteredToolCalls}
                           defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
                           onSelectTool={onSelectTool}
                         />
                       </div>
                     )}
-                  {showPendingAbove && (
+                  {showPendingAbove && filteredPending.length > 0 && (
                     <div className="mb-2 max-w-[85%]">
                       <ToolCallSteps
-                        tools={pendingTools}
+                        tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
                       />
                     </div>
                   )}
-                  <MessageBubble
-                    message={msg}
-                    onEdit={handleEdit}
-                    onSwitchBranch={switchBranch}
-                    isGenerating={isGenerating}
-                    isActivelyStreaming={isActivelyStreaming}
-                  />
-                  {showPending && (
+                  {msg.role === "assistant" && allSubagents.length > 0 && (
+                    <div className="mb-2">
+                      <SubagentCard
+                        subagents={allSubagents}
+                        onOpen={openSubagent}
+                      />
+                    </div>
+                  )}
+                  {(msg.role === "user" || msg.text) && (
+                    <MessageBubble
+                      message={msg}
+                      onEdit={handleEdit}
+                      onSwitchBranch={switchBranch}
+                      isGenerating={isGenerating}
+                      isActivelyStreaming={isActivelyStreaming}
+                    />
+                  )}
+                  {msg.role === "user" && allSubagents.length > 0 && (
+                    <div className="mt-3">
+                      <SubagentCard
+                        subagents={allSubagents}
+                        onOpen={openSubagent}
+                      />
+                    </div>
+                  )}
+                  {showPending && filteredPending.length > 0 && (
                     <div className="mt-4 max-w-[85%]">
                       <ToolCallSteps
-                        tools={pendingTools}
+                        tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
                       />
@@ -170,6 +266,14 @@ export function ChatView({
       </div>
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+        {spawnedSubagents.length > 0 && (
+          <div className="mb-2">
+            <SubagentBar
+              subagents={spawnedSubagents}
+              onOpen={openSubagent}
+            />
+          </div>
+        )}
         <ChatBox
           onSend={(text) => wrappedSend(text)}
           disabled={false}

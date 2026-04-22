@@ -457,40 +457,6 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
 
   const handleNewChat = useCallback(async () => {
     try {
-      const listResult = await invoke<{ chats: { id: string; name: string; sessionKey?: string; archived: boolean }[] }>(
-        "middleware_chats_list",
-        { input: {} },
-      )
-      const blankChat = (listResult.chats || []).find(
-        (c) => !c.archived && c.name === "New Chat",
-      )
-
-      if (blankChat) {
-        if (activeChatRef.current?.id === blankChat.id) return
-        setInitialMessages(undefined)
-        setActiveTab("chat")
-        setActiveTopic(null)
-
-        if (blankChat.sessionKey) {
-          setActiveChat({ id: blankChat.id, name: blankChat.name, sessionKey: blankChat.sessionKey })
-          setActiveSessionKey(blankChat.sessionKey)
-          setActiveSessionTitle(blankChat.name)
-        } else {
-          const sessionResult = await invoke<{ session: { key: string } }>(
-            "middleware_sessions_create",
-            { input: { agentId: "main", label: blankChat.name } },
-          )
-          await invoke("middleware_chats_attach_session", {
-            input: { chatId: blankChat.id, sessionKey: sessionResult.session.key },
-          })
-          setActiveChat({ id: blankChat.id, name: blankChat.name, sessionKey: sessionResult.session.key })
-          setActiveSessionKey(sessionResult.session.key)
-          setActiveSessionTitle(blankChat.name)
-        }
-        window.history.pushState(null, "", "/")
-        return
-      }
-
       const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string } }>(
         "middleware_chats_create",
         { input: {} },

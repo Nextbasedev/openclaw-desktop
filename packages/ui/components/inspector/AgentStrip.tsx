@@ -16,7 +16,7 @@ function AgentButton({
   indent?: boolean
 }) {
   const runs = node.calls.filter((c) => c.status === "running").length
-  const hasError = node.calls.some((c) => c.status === "error") || node.status === "error"
+  const hasError = node.status === "error"
   const isRunning = runs > 0 || node.status === "running"
 
   return (
