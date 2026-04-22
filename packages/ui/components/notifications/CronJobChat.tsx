@@ -29,6 +29,13 @@ type ParsedMessage = {
   createdAt?: string
 }
 
+type LastRun = {
+  status: string
+  error: string | null
+  startedAt: string
+  finishedAt: string | null
+}
+
 function extractText(content?: string | ContentBlock[]): string {
   if (!content) return ""
   if (typeof content === "string") return content
@@ -41,18 +48,15 @@ function extractText(content?: string | ContentBlock[]): string {
 
 function parseMessages(raw: RawMsg[]): ParsedMessage[] {
   const result: ParsedMessage[] = []
-
   for (const msg of raw) {
     const role = msg.role as string
     if (role !== "user" && role !== "assistant") continue
-
     const text =
       typeof msg.content === "string"
         ? msg.content
         : (msg.text ?? extractText(msg.content))
     if (!text?.trim()) continue
     if (/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) continue
-
     const last = result[result.length - 1]
     if (last?.role === role) {
       last.text = last.text + "\n\n" + text.trim()
@@ -66,7 +70,6 @@ function parseMessages(raw: RawMsg[]): ParsedMessage[] {
       })
     }
   }
-
   return result
 }
 
@@ -75,13 +78,67 @@ function formatTime(iso?: string): string | null {
   try {
     const d = new Date(iso)
     if (isNaN(d.getTime())) return null
-    return d.toLocaleTimeString([], {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  } catch {
+    return null
+  }
+}
+
+function formatDateTime(iso?: string): string | null {
+  if (!iso) return null
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return null
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     })
   } catch {
     return null
   }
+}
+
+function RunStatusBanner({ lastRun }: { lastRun: LastRun }) {
+  const isFailed = lastRun.status === "error" || lastRun.status === "failed"
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-4 py-3",
+        isFailed
+          ? "border-red-500/20 bg-red-500/5"
+          : "border-chart-1/20 bg-chart-1/5",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "size-2 rounded-full",
+            isFailed ? "bg-red-400" : "bg-chart-1",
+          )}
+        />
+        <span
+          className={cn(
+            "text-[12px] font-medium",
+            isFailed ? "text-red-400" : "text-chart-1",
+          )}
+        >
+          Last run {lastRun.status}
+        </span>
+        {lastRun.startedAt && (
+          <span className="text-[11px] text-muted-foreground/50">
+            {formatDateTime(lastRun.startedAt)}
+          </span>
+        )}
+      </div>
+      {isFailed && lastRun.error && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-red-400/80">
+          {lastRun.error}
+        </p>
+      )}
+    </div>
+  )
 }
 
 export function CronJobChat({
@@ -96,18 +153,21 @@ export function CronJobChat({
   onBack: () => void
 }) {
   const [messages, setMessages] = useState<ParsedMessage[]>([])
+  const [lastRun, setLastRun] = useState<LastRun | null>(null)
   const [loading, setLoading] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const fetchHistory = useCallback(async () => {
     try {
-      const result = await invoke<{ messages: RawMsg[] }>(
-        "middleware_cron_job_conversation",
-        { jobId },
-      )
+      const result = await invoke<{
+        messages: RawMsg[]
+        lastRun: LastRun | null
+      }>("middleware_cron_job_conversation", { jobId })
       setMessages(parseMessages(result.messages ?? []))
+      setLastRun(result.lastRun ?? null)
     } catch {
       setMessages([])
+      setLastRun(null)
     } finally {
       setLoading(false)
     }
@@ -122,6 +182,9 @@ export function CronJobChat({
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
     })
   }, [messages])
+
+  const hasError =
+    lastRun && (lastRun.status === "error" || lastRun.status === "failed")
 
   return (
     <div className="flex flex-col gap-4">
@@ -165,61 +228,65 @@ export function CronJobChat({
             </span>
           </div>
         </div>
-      ) : messages.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-12 text-center backdrop-blur-xl">
-          <Icons.Chat
-            size={28}
-            className="mx-auto mb-3 text-muted-foreground/40"
-          />
-          <p className="text-sm text-muted-foreground">
-            No conversation yet.
-          </p>
-          <p className="mt-1 text-[12px] text-muted-foreground/60">
-            This job hasn&apos;t produced any messages.
-          </p>
-        </div>
       ) : (
-        <div className="flex flex-col gap-4">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={cn(
-                "flex w-full",
-                msg.role === "user"
-                  ? "justify-end"
-                  : "justify-start",
-              )}
-            >
-              <div
-                className={cn(
-                  "max-w-[90%] text-[14px] leading-relaxed",
-                  msg.role === "user"
-                    ? "rounded-2xl rounded-tr-sm bg-foreground px-4 py-2.5 text-background"
-                    : "text-foreground",
-                )}
-              >
-                {msg.role === "user" ? (
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
-                ) : (
-                  <MarkdownContent text={msg.text} />
-                )}
-                {formatTime(msg.createdAt) && (
-                  <p
+        <>
+          {lastRun && <RunStatusBanner lastRun={lastRun} />}
+          {messages.length === 0 ? (
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-12 text-center backdrop-blur-xl">
+              <Icons.Chat
+                size={28}
+                className="mx-auto mb-3 text-muted-foreground/40"
+              />
+              <p className="text-sm text-muted-foreground">
+                {hasError
+                  ? "Run failed before producing a response."
+                  : lastRun
+                    ? "No messages in this session."
+                    : "This job hasn\u2019t run yet."}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={cn(
+                    "flex w-full",
+                    msg.role === "user" ? "justify-end" : "justify-start",
+                  )}
+                >
+                  <div
                     className={cn(
-                      "mt-1 text-[10px]",
+                      "max-w-[90%] text-[14px] leading-relaxed",
                       msg.role === "user"
-                        ? "text-background/40"
-                        : "text-muted-foreground/40",
+                        ? "rounded-2xl rounded-tr-sm bg-foreground px-4 py-2.5 text-background"
+                        : "text-foreground",
                     )}
                   >
-                    {formatTime(msg.createdAt)}
-                  </p>
-                )}
-              </div>
+                    {msg.role === "user" ? (
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    ) : (
+                      <MarkdownContent text={msg.text} />
+                    )}
+                    {formatTime(msg.createdAt) && (
+                      <p
+                        className={cn(
+                          "mt-1 text-[10px]",
+                          msg.role === "user"
+                            ? "text-background/40"
+                            : "text-muted-foreground/40",
+                        )}
+                      >
+                        {formatTime(msg.createdAt)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div ref={bottomRef} className="h-px" />
             </div>
-          ))}
-          <div ref={bottomRef} className="h-px" />
-        </div>
+          )}
+        </>
       )}
     </div>
   )

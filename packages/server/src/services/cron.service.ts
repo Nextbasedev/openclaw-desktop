@@ -443,6 +443,7 @@ const SESSION_TARGET_KEYWORDS = new Set(["isolated", "main", "current"])
 
 export async function cronJobConversation(input: { jobId: string }) {
   const { runs } = await cronListRuns({ jobId: input.jobId, limit: 10, sortDir: "desc" })
+  const latestRun = runs[0] ?? null
   let sessionKey: string | null = null
   for (const run of runs) {
     if (run.sessionKey) { sessionKey = run.sessionKey; break }
@@ -455,8 +456,14 @@ export async function cronJobConversation(input: { jobId: string }) {
       }
     } catch {}
   }
-  if (!sessionKey) return { messages: [], sessionKey: null }
+  const lastRun = latestRun ? {
+    status: latestRun.status,
+    error: latestRun.error,
+    startedAt: latestRun.startedAt,
+    finishedAt: latestRun.finishedAt,
+  } : null
+  if (!sessionKey) return { messages: [], sessionKey: null, lastRun }
   const { getChatHistory } = await import("middleware")
   const history = await getChatHistory(sessionKey)
-  return { messages: history.messages ?? [], sessionKey }
+  return { messages: history.messages ?? [], sessionKey, lastRun }
 }
