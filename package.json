@@ -11,6 +11,9 @@
     "lint": "pnpm -r lint",
     "lint:architecture": "npx tsx scripts/lint-architecture.ts",
     "test": "pnpm -r test",
+    "dev:web": "concurrently \"pnpm --filter server dev\" \"pnpm --filter ui dev\"",
+    "build:server": "pnpm --filter server build",
+    "test:server": "pnpm --filter server test",
     "typecheck": "pnpm -r typecheck",
     "sandbox:verify": "./scripts/sandbox/verify-ui.sh",
     "sandbox:check": "./scripts/sandbox/check-build.sh"

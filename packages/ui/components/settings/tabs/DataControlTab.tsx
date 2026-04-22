@@ -1,6 +1,6 @@
 "use client"
 
-import { Icons } from "@/components/icons"
+import { LuArchive, LuMessageSquare, LuBrain, LuWrench, LuDownload } from "react-icons/lu"
 
 type ExportItem = {
   id: string
@@ -14,25 +14,25 @@ const EXPORT_ITEMS: ExportItem[] = [
     id: "full-export",
     title: "Full Export",
     description: "Everything as a .tar.gz archive (max 200MB)",
-    Icon: Icons.File,
+    Icon: LuArchive,
   },
   {
     id: "conversations",
     title: "Conversations",
     description: "Chat messages (up to 50 sessions)",
-    Icon: Icons.BubbleChat,
+    Icon: LuMessageSquare,
   },
   {
     id: "memory",
     title: "Memory",
     description: "Memory files, soul, and identity",
-    Icon: Icons.Globe,
+    Icon: LuBrain,
   },
   {
     id: "config",
     title: "Config",
     description: "Gateway config, tools, agents, skills",
-    Icon: Icons.Settings,
+    Icon: LuWrench,
   },
 ]
 
@@ -56,23 +56,23 @@ export function DataControlTab({
         </p>
       </div>
 
-      <div className="flex flex-col gap-2.5">
-        {items.map((item) => {
+      <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+        {items.map((item, idx) => {
           const ItemIcon = item.Icon
           return (
             <div
               key={item.id}
-              className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4 transition-colors hover:border-border"
+              className={`flex items-center gap-4 px-5 py-4 transition-colors hover:bg-muted/20 ${idx > 0 ? "border-t border-border/30" : ""}`}
             >
-              <div className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
-                <ItemIcon size={18} strokeWidth={1.5} />
-              </div>
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+                <ItemIcon size={15} />
+              </span>
 
               <div className="flex flex-1 flex-col gap-0.5">
-                <span className="text-sm font-medium text-foreground">
+                <span className="text-[13px] font-medium text-foreground">
                   {item.title}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[11px] leading-tight text-muted-foreground">
                   {item.description}
                 </span>
               </div>
@@ -80,10 +80,10 @@ export function DataControlTab({
               <button
                 type="button"
                 onClick={() => onExport?.(item.id)}
-                className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/50"
+                className="flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/50"
                 aria-label={`Export ${item.title}`}
               >
-                <Icons.Download size={18} strokeWidth={1.5} />
+                <LuDownload size={15} />
               </button>
             </div>
           )
@@ -92,4 +92,3 @@ export function DataControlTab({
     </div>
   )
 }
-

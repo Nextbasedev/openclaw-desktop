@@ -1,143 +1,103 @@
 "use client"
 
 import * as React from "react"
-import { Icons } from "@/components/icons"
+import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import {
-  SkillGhostIcon,
-  SkillPdfIcon,
-  SkillDocIcon,
-  SkillLabIcon,
-  SkillImageIcon,
-  SkillBookIcon,
-  SkillPencilIcon,
-  SkillPuzzleIcon,
-  SkillExcelIcon,
-  SkillSlidesIcon,
-} from "./icons"
-
-type SkillCategory = "All" | "Recommended" | "System" | "Personal"
-
-type DiscoveredSkill = {
-  id: string
-  slug: string
-  name: string
-  summary: string | null
-  description: string | null
-  source: "clawhub" | "local" | "github"
-  version: string | null
-  installed: boolean
-  installSource: "clawhub" | "github" | "local"
-  repoUrl: string | null
-  homepageUrl: string | null
-  localPath: string | null
-  tags: string[]
-}
-
-type SkillDiscoverResponse = {
-  query: string
-  results: DiscoveredSkill[]
-  warnings: string[]
-  sources: Array<"clawhub" | "local" | "github">
-}
-
-type SkillItem = {
-  id: string
-  name: string
-  description: string
-  category: Exclude<SkillCategory, "All">
-  iconBg: string
-  iconKey: string
-  installed?: boolean
-  source?: string
-  version?: string | null
-}
+import { Icons } from "@/components/icons"
+import { LuPackageOpen, LuSearchX, LuWifiOff } from "react-icons/lu"
+import { useSkillsDiscovery } from "./hooks"
+import { SortDropdown } from "./SortDropdown"
+import { SkillCard } from "./SkillCard"
+import { SkillDetailView } from "./SkillDetailView"
 
 export function SkillPage() {
-  const [query, setQuery] = React.useState("")
-  const [category, setCategory] = React.useState<SkillCategory>("All")
-  const [skills, setSkills] = React.useState<SkillItem[]>([])
-  const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
-  const [meta, setMeta] = React.useState<SkillDiscoverResponse | null>(null)
+  const {
+    skills,
+    loading,
+    error,
+    sort,
+    query,
+    sources,
+    nextCursor,
+    onSortChange,
+    onQueryChange,
+    loadMore,
+    updateSkill,
+  } = useSkillsDiscovery()
 
-  React.useEffect(() => {
-    let cancelled = false
+  const [selectedSlug, setSelectedSlug] = React.useState<string | null>(null)
+  const [installingSlug, setInstallingSlug] = React.useState<string | null>(null)
+  const [actionError, setActionError] = React.useState<string | null>(null)
+  const togglingRef = React.useRef<Set<string>>(new Set())
 
-    async function loadSkills() {
-      setLoading(true)
-      setError(null)
-
-      if (typeof window === "undefined" || !window.__TAURI_INTERNALS__) {
-        setSkills([])
-        setMeta(null)
-        setError("Desktop runtime not detected, so middleware_skills_discover is unavailable.")
-        setLoading(false)
-        return
-      }
-
+  const handleInstall = React.useCallback(
+    async (slug: string) => {
+      if (installingSlug) return
+      setInstallingSlug(slug)
+      setActionError(null)
       try {
-        const { invoke } = await import("@tauri-apps/api/core")
-        const response = await invoke<SkillDiscoverResponse>("middleware_skills_discover", {
+        const skill = skills.find((s) => s.slug === slug)
+        await invoke("middleware_skills_install", {
           input: {
-            query: "",
-            limit: 20,
-            includeLocal: true,
-            includeClawHub: true,
-            includeGithubProbe: true,
+            source: skill?.source ?? "clawhub",
+            slug,
+            scope: "user",
           },
         })
-
-        if (cancelled) return
-
-        setMeta(response)
-        setSkills(response.results.map(mapBackendSkillToItem))
-        setLoading(false)
+        updateSkill(slug, { installed: true, enabled: true })
       } catch (err) {
-        if (cancelled) return
-        console.error("middleware_skills_discover failed", err)
-        setSkills([])
-        setMeta(null)
-        setError("Failed to load skills from middleware_skills_discover.")
-        setLoading(false)
+        setActionError(err instanceof Error ? err.message : "Install failed")
+        setTimeout(() => setActionError(null), 4000)
+      } finally {
+        setInstallingSlug(null)
       }
-    }
+    },
+    [installingSlug, skills, updateSkill],
+  )
 
-    loadSkills()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const handleToggle = React.useCallback(
+    async (slug: string) => {
+      if (togglingRef.current.has(slug)) return
+      togglingRef.current.add(slug)
+      const skill = skills.find((s) => s.slug === slug)
+      const newEnabled = !skill?.enabled
+      updateSkill(slug, { enabled: newEnabled })
+      try {
+        await invoke("middleware_skills_toggle", {
+          input: { slug, enabled: newEnabled },
+        })
+      } catch {
+        updateSkill(slug, { enabled: !newEnabled })
+      } finally {
+        togglingRef.current.delete(slug)
+      }
+    },
+    [skills, updateSkill],
+  )
 
-  const filteredSections = React.useMemo(() => {
-    const filtered = skills.filter((item) => {
-      const matchesCategory = category === "All" || item.category === category
-      const q = query.trim().toLowerCase()
-      const matchesQuery =
-        q.length === 0 ||
-        item.name.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q)
-
-      return matchesCategory && matchesQuery
-    })
-
-    return (["Recommended", "System", "Personal"] as const)
-      .map((title) => ({
-        title,
-        items: filtered.filter((item) => item.category === title),
-      }))
-      .filter((section) => section.items.length > 0)
-  }, [skills, query, category])
+  if (selectedSlug) {
+    return (
+      <SkillDetailView
+        slug={selectedSlug}
+        onBack={() => setSelectedSlug(null)}
+        onInstallDone={(slug) => updateSkill(slug, { installed: true, enabled: true })}
+      />
+    )
+  }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-7 py-10">
+    <div className="h-full w-full overflow-y-auto">
+    <div className="mx-auto w-full max-w-5xl px-7 py-10">
       <div className="mb-7 text-center">
         <h1 className="text-[28px] font-medium tracking-tight text-foreground">
-          Make Codex work your way
+          Discover Skills
         </h1>
+        <p className="mt-1 text-[14px] text-muted-foreground">
+          Browse and install skills from ClawHub
+        </p>
       </div>
 
-      <div className="mb-8 flex items-center gap-2.5">
+      <div className="mb-6 flex items-center gap-2.5">
         <div className="relative flex-1">
           <Icons.Search
             size={14}
@@ -146,8 +106,8 @@ export function SkillPage() {
           />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search skills"
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder="Search skills..."
             className={cn(
               "h-9 w-full rounded-lg border border-border/60 bg-card pl-10 pr-3",
               "text-[13px] text-foreground outline-none transition-colors",
@@ -155,181 +115,128 @@ export function SkillPage() {
             )}
           />
         </div>
-
-        <div className="relative">
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value as SkillCategory)}
-            className={cn(
-              "h-9 appearance-none rounded-lg border border-border/60 bg-card px-3 pr-8",
-              "text-[13px] text-foreground outline-none transition-colors focus:border-foreground/20",
-            )}
-          >
-            <option>All</option>
-            <option>Recommended</option>
-            <option>System</option>
-            <option>Personal</option>
-          </select>
-          <svg viewBox="0 0 20 20" fill="none" className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground">
-            <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
+        <SortDropdown value={sort} onChange={onSortChange} />
       </div>
 
-      {meta && (
-        <div className="mb-5 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>{meta.results.length} skill{meta.results.length === 1 ? "" : "s"} discovered</span>
-          <span>Sources: {meta.sources.join(", ")}</span>
+      {actionError && (
+        <div className="mb-4 rounded-lg border border-red-400/20 bg-red-400/5 px-4 py-2.5 text-center text-[13px] text-red-400">
+          {actionError}
+        </div>
+      )}
+
+      {!loading && skills.length > 0 && (
+        <div className="mb-5 flex items-center justify-between text-[13px] text-muted-foreground">
+          <span>
+            {skills.length} skill{skills.length === 1 ? "" : "s"}
+          </span>
+          {sources.length > 0 && (
+            <span>Sources: {sources.join(", ")}</span>
+          )}
         </div>
       )}
 
       {loading ? (
-        <StatePanel text="Loading skills from middleware..." />
+        <GridSkeleton />
       ) : error ? (
-        <StatePanel text={error} tone="error" />
-      ) : filteredSections.length === 0 ? (
-        <StatePanel text="No skills found from middleware_skills_discover for your current filters." />
+        <EmptyState
+          icon={<LuWifiOff size={28} />}
+          title="Could not load skills"
+          description={error}
+        />
+      ) : skills.length === 0 ? (
+        query.trim() ? (
+          <EmptyState
+            icon={<LuSearchX size={28} />}
+            title="No matching skills"
+            description={`No skills match "${query}".`}
+          />
+        ) : (
+          <EmptyState
+            icon={<LuPackageOpen size={28} />}
+            title="No skills found"
+            description="No skills are available right now."
+          />
+        )
       ) : (
-        <div className="space-y-8">
-          {filteredSections.map((section) => (
-            <section key={section.title}>
-              <h2 className="mb-3 text-[13px] font-medium text-foreground">
-                {section.title}
-              </h2>
+        <>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {skills.map((skill) => (
+              <SkillCard
+                key={skill.slug}
+                skill={skill}
+                installing={installingSlug === skill.slug}
+                onInstall={handleInstall}
+                onToggle={handleToggle}
+                onClick={setSelectedSlug}
+              />
+            ))}
+          </div>
 
-              <div className="border-t border-border/40">
-                <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
-                  {section.items.map((item) => (
-                    <SkillCard key={item.id} item={item} />
-                  ))}
-                </div>
-              </div>
-            </section>
-          ))}
-        </div>
+          {nextCursor && (
+            <div className="mt-6 text-center">
+              <button
+                type="button"
+                onClick={loadMore}
+                className={cn(
+                  "rounded-lg border border-border/60 bg-card px-6 py-2",
+                  "text-[13px] text-foreground transition-colors hover:bg-card/80",
+                )}
+              >
+                Load More
+              </button>
+            </div>
+          )}
+        </>
       )}
+    </div>
     </div>
   )
 }
 
-function SkillCard({ item }: { item: SkillItem }) {
+function EmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+}) {
   return (
-    <div className="flex items-center gap-3.5 border-b border-border/30 py-4.5">
-      <div className={cn("flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg", item.iconBg)}>
-        <SkillTileIcon iconKey={item.iconKey} />
+    <div className="rounded-xl border border-border/50 bg-card px-5 py-12 text-center">
+      <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-muted/30 text-muted-foreground/60">
+        {icon}
       </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-[13px] font-medium text-foreground">{item.name}</p>
-          {item.version && (
-            <span className="rounded bg-secondary/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {item.version}
-            </span>
-          )}
-        </div>
-        <p className="truncate text-[12px] text-muted-foreground">{item.description}</p>
-      </div>
-
-      {item.installed ? (
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground">
-          <svg viewBox="0 0 20 20" fill="none" className="size-3.5">
-            <path d="m4.5 10 3.5 3.5L15.5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
-      ) : (
-        <button
-          type="button"
-          className={cn(
-            "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full",
-            "bg-secondary/50 text-foreground transition-colors hover:bg-secondary",
-          )}
-          aria-label={`Install ${item.name}`}
-        >
-          <svg viewBox="0 0 20 20" fill="none" className="size-3.5">
-            <path d="M10 4.5v11M4.5 10h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      )}
-    </div>
-  )
-}
-
-function SkillTileIcon({ iconKey }: { iconKey: string }) {
-  switch (iconKey) {
-    case "ghost": return <SkillGhostIcon />
-    case "pdf": return <SkillPdfIcon />
-    case "doc": return <SkillDocIcon />
-    case "lab": return <SkillLabIcon />
-    case "image": return <SkillImageIcon />
-    case "book": return <SkillBookIcon />
-    case "pencil": return <SkillPencilIcon />
-    case "puzzle": return <SkillPuzzleIcon />
-    case "excel": return <SkillExcelIcon />
-    case "slides": return <SkillSlidesIcon />
-    default: return <SkillPuzzleIcon />
-  }
-}
-
-function StatePanel({ text, tone = "default" }: { text: string; tone?: "default" | "error" }) {
-  return (
-    <div className={cn(
-      "rounded-xl border px-5 py-8 text-center",
-      tone === "error"
-        ? "border-destructive/20 bg-destructive/5"
-        : "border-border/50 bg-card",
-    )}>
-      <p className={cn(
-        "text-[13px]",
-        tone === "error" ? "text-destructive" : "text-muted-foreground",
-      )}>
-        {text}
+      <p className="text-[14px] font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground/70">
+        {description}
       </p>
     </div>
   )
 }
 
-function mapBackendSkillToItem(skill: DiscoveredSkill): SkillItem {
-  return {
-    id: skill.id,
-    name: skill.name,
-    description: skill.summary || skill.description || "No description available.",
-    category: mapDiscoveredSkillCategory(skill),
-    iconBg: getSkillBackground(skill),
-    iconKey: getSkillIconKey(skill),
-    installed: skill.installed,
-    source: skill.source,
-    version: skill.version,
-  }
-}
-
-function mapDiscoveredSkillCategory(skill: DiscoveredSkill): "Recommended" | "System" | "Personal" {
-  if (skill.source === "local") return "Personal"
-
-  const tags = skill.tags.map((tag) => tag.toLowerCase())
-  if (tags.includes("system") || skill.installed) return "System"
-
-  return "Recommended"
-}
-
-function getSkillIconKey(skill: DiscoveredSkill) {
-  const slug = skill.slug.toLowerCase()
-  if (slug.includes("pdf")) return "pdf"
-  if (slug.includes("doc")) return "doc"
-  if (slug.includes("image")) return "image"
-  if (slug.includes("excel") || slug.includes("sheet")) return "excel"
-  if (slug.includes("powerpoint") || slug.includes("slides")) return "slides"
-  if (slug.includes("playwright") || slug.includes("browser")) return "lab"
-  if (slug.includes("creator") || slug.includes("edit")) return "pencil"
-  if (slug.includes("sora")) return "ghost"
-  if (slug.includes("docs")) return "book"
-  return "puzzle"
-}
-
-function getSkillBackground(skill: DiscoveredSkill) {
-  if (skill.installed) return "bg-[#1D1D1D]"
-  if (skill.source === "local") return "bg-[#1F3B1E]"
-  if (skill.slug.toLowerCase().includes("pdf")) return "bg-white"
-  if (skill.slug.toLowerCase().includes("docs")) return "bg-[#FFF4EA]"
-  return "bg-[#F0F0F0] dark:bg-[#202020]"
+function GridSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 9 }).map((_, i) => (
+        <div
+          key={i}
+          className="min-h-[140px] rounded-md border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl"
+        >
+          <div className="flex items-start gap-3.5">
+            <div className="size-10 animate-pulse rounded-lg bg-white/[0.08]" />
+            <div className="flex-1 space-y-2.5">
+              <div className="h-4 w-32 animate-pulse rounded-md bg-white/[0.08]" />
+              <div className="h-3 w-full animate-pulse rounded-md bg-white/[0.06]" />
+              <div className="h-3 w-3/4 animate-pulse rounded-md bg-white/[0.05]" />
+            </div>
+            <div className="size-8 animate-pulse rounded-full bg-white/[0.06]" />
+          </div>
+          <div className="mt-auto flex items-center gap-2 pt-6">
+            <div className="h-5 w-16 animate-pulse rounded-full bg-white/[0.06]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }

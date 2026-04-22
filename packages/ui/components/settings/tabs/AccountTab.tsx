@@ -1,14 +1,16 @@
 "use client"
 
-type AccountData = {
-  name: string
-  email: string
-  model?: string
+import { Icons } from "@/components/icons"
+
+export type AccountData = {
+  botName: string
+  provider: string
+  model: string
 }
 
 const DEFAULT_ACCOUNT: AccountData = {
-  name: "Not configured",
-  email: "No provider selected",
+  botName: "Not configured",
+  provider: "No provider selected",
   model: "No model selected",
 }
 
@@ -26,22 +28,33 @@ export function AccountTab({ data = DEFAULT_ACCOUNT }: AccountTabProps) {
         </p>
       </div>
 
-      <div className="flex flex-col gap-4">
-        <FormRow label="Bot Name" value={data.name} />
-        <FormRow label="Provider" value={data.email} />
-        {data.model && <FormRow label="Model" value={data.model} />}
+      <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+        <FieldRow icon={Icons.User} label="Bot Name" value={data.botName} />
+        <FieldRow icon={Icons.Globe} label="Provider" value={data.provider} border />
+        <FieldRow icon={Icons.Settings} label="Model" value={data.model} border />
       </div>
     </div>
   )
 }
 
-function FormRow({ label, value }: { label: string; value: string }) {
+function FieldRow({
+  icon: Icon,
+  label,
+  value,
+  border,
+}: {
+  icon: React.ElementType
+  label: string
+  value: string
+  border?: boolean
+}) {
   return (
-    <div className="grid grid-cols-[100px_1fr] items-center gap-4">
-      <label className="text-sm text-muted-foreground">{label}</label>
-      <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm text-foreground">
-        {value}
-      </div>
+    <div className={`flex items-center gap-4 px-5 py-3.5 ${border ? "border-t border-border/30" : ""}`}>
+      <span className="flex size-8 shrink-0 items-center justify-center  text-muted-foreground">
+        <Icon size={16} strokeWidth={1.5} />
+      </span>
+      <span className="w-[90px] shrink-0 text-[13px] text-muted-foreground">{label}</span>
+      <span className="flex-1 text-[13px] font-medium text-foreground">{value}</span>
     </div>
   )
 }

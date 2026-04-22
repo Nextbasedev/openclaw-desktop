@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef, Fragment } from "react"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { Header } from "@/common/Header"
@@ -50,7 +50,7 @@ export function OnboardingWizard({ onComplete }: Props) {
   if (loading && !flowState) {
     return (
       <div className="flex h-svh flex-col bg-background">
-        <Header />
+        <Header minimal />
         <div className="flex flex-1 items-center justify-center">
           <div className="flex items-center gap-3">
             <Icons.Refresh size={18} className="animate-spin text-muted-foreground" />
@@ -64,7 +64,7 @@ export function OnboardingWizard({ onComplete }: Props) {
   if (error && !flowState) {
     return (
       <div className="flex h-svh flex-col bg-background">
-        <Header />
+        <Header minimal />
         <div className="flex flex-1 items-center justify-center">
           <div className="max-w-md space-y-4 text-center">
             <p className="text-sm text-destructive">{error}</p>
@@ -85,89 +85,140 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   return (
     <div className="flex h-svh flex-col bg-background">
-      <Header />
-      <div className="flex items-center justify-center border-b border-border/30 px-6 py-4">
-        <div className="flex items-center gap-6">
-          {steps.map((step, i) => {
-            const stepIndex = STEP_IDS.indexOf(step.id as (typeof STEP_IDS)[number])
-            const isActive = step.id === activeStep
-            const isPast = step.complete || stepIndex < activeIndex
-            return (
-              <div key={step.id} className="flex items-center gap-3">
-                {i > 0 && (
-                  <div
-                    className={cn(
-                      "h-px w-8 transition-colors duration-300",
-                      isPast ? "bg-foreground/30" : "bg-border/50",
-                    )}
-                  />
-                )}
-                <div className="flex items-center gap-2">
-                  <div
-                    className={cn(
-                      "flex size-6 items-center justify-center rounded-full text-[11px] font-medium transition-all duration-300",
-                      isPast && !isActive
-                        ? "bg-emerald-500/15 text-emerald-500"
-                        : isActive
-                          ? "bg-foreground text-background"
-                          : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {isPast && !isActive ? (
-                      <Icons.Check size={12} strokeWidth={2.5} />
-                    ) : (
-                      i + 1
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      "hidden text-[12px] font-medium transition-colors sm:inline",
-                      isActive ? "text-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    {step.title}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
+      <Header minimal />
 
-      <main className="flex flex-1 items-start justify-center overflow-y-auto px-6 py-10">
-        <div className="w-full max-w-lg">
-          {activeStep === "core" && (
-            <CoreSetupStep checkCore={checkCore} onComplete={advanceToNext} />
+      <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto overflow-x-hidden px-6">
+        {activeStep !== "complete" && (
+          <div className="mb-8 flex items-center">
+            {steps.map((step, i) => {
+              const stepIndex = STEP_IDS.indexOf(step.id as (typeof STEP_IDS)[number])
+              const isActive = step.id === activeStep
+              const isPast = step.complete || stepIndex < activeIndex
+
+              return (
+                <Fragment key={step.id}>
+                  {i > 0 && (
+                    <div className="relative mx-1.5 h-[2px] w-12 overflow-hidden rounded-full bg-border/30 sm:w-16">
+                      <div
+                        className={cn(
+                          "absolute inset-y-0 left-0 rounded-full bg-emerald-500 transition-all duration-700 ease-out",
+                          isPast || isActive ? "w-full" : "w-0",
+                        )}
+                      />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={cn(
+                        "flex size-7 items-center justify-center rounded-full text-xs font-semibold transition-all duration-500",
+                        isPast && !isActive
+                          ? "bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.35)]"
+                          : isActive
+                            ? "bg-foreground text-background ring-[3px] ring-foreground/15"
+                            : "bg-muted/60 text-muted-foreground",
+                      )}
+                    >
+                      {isPast && !isActive ? (
+                        <Icons.Check size={13} strokeWidth={2.5} />
+                      ) : (
+                        i + 1
+                      )}
+                    </div>
+                    <span
+                      className={cn(
+                        "hidden text-[14px]  transition-colors sm:inline",
+                        isActive ? "text-foreground" : "text-muted-foreground/60",
+                      )}
+                    >
+                      {step.title}
+                    </span>
+                  </div>
+                </Fragment>
+              )
+            })}
+          </div>
+        )}
+
+        <div
+          className={cn(
+            "relative w-full rounded-xl",
+            "bg-card/40 backdrop-blur-xl",
+            activeStep === "provider" ? "max-w-2xl" : "max-w-xl",
           )}
-          {activeStep === "bot" && (
-            <BotNameStep
-              initialName={flowState?.state.bot.botName || null}
-              getBotName={getBotName}
-              setBotName={setBotName}
-              onComplete={advanceToNext}
-              onBack={goBack}
-            />
-          )}
-          {activeStep === "provider" && (
-            <ProviderStep
-              getProviders={getProviders}
-              getProviderDetails={getProviderDetails}
-              submitProvider={submitProvider}
-              onComplete={advanceToNext}
-              onBack={goBack}
-            />
-          )}
-          {activeStep === "model" && (
-            <ModelStep
-              getModelContract={getModelContract}
-              submitModel={submitModel}
-              onComplete={advanceToNext}
-              onBack={goBack}
-            />
-          )}
-          {activeStep === "complete" && <CompleteStep onEnterApp={onComplete} />}
+        >
+          <div className="pointer-events-none absolute inset-0 rounded-2xl" />
+
+          <div className="relative z-10 p-6" key={activeStep}>
+            <div className="animate-in fade-in-0 slide-in-from-bottom-3 duration-400">
+              {activeStep === "core" && (
+                <CoreSetupStep checkCore={checkCore} onComplete={advanceToNext} />
+              )}
+              {activeStep === "bot" && (
+                <BotNameStep
+                  initialName={flowState?.state.bot.botName || null}
+                  getBotName={getBotName}
+                  setBotName={setBotName}
+                  onComplete={advanceToNext}
+                  onBack={goBack}
+                />
+              )}
+              {activeStep === "provider" && (
+                <ProviderStep
+                  getProviders={getProviders}
+                  getProviderDetails={getProviderDetails}
+                  submitProvider={submitProvider}
+                  onComplete={advanceToNext}
+                  onBack={goBack}
+                />
+              )}
+              {activeStep === "model" && (
+                <ModelStep
+                  getModelContract={getModelContract}
+                  submitModel={submitModel}
+                  onComplete={advanceToNext}
+                  onBack={goBack}
+                />
+              )}
+              {activeStep === "complete" && <CompleteStep onEnterApp={onComplete} />}
+            </div>
+          </div>
         </div>
-      </main>
+
+        <SkipOnboarding onSkip={onComplete} />
+
+        <div className="h-10 shrink-0" />
+      </div>
+    </div>
+  )
+}
+
+function SkipOnboarding({ onSkip }: { onSkip: () => void }) {
+  const [confirm, setConfirm] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(null)
+
+  const handleFirstClick = useCallback(() => {
+    setConfirm(true)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setConfirm(false), 4000)
+  }, [])
+
+  return (
+    <div className="mt-4 flex justify-center">
+      {!confirm ? (
+        <button
+          onClick={handleFirstClick}
+          className="text-xs text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+        >
+          Skip onboarding
+        </button>
+      ) : (
+        <button
+          onClick={onSkip}
+          className="text-xs font-medium text-destructive transition-colors hover:text-destructive/80"
+        >
+          Skip anyway? Some features may not work.
+        </button>
+      )}
     </div>
   )
 }
