@@ -1,12 +1,14 @@
 "use client"
 
 import * as React from "react"
+import { motion, AnimatePresence } from "framer-motion"
 
 import { cn } from "@/lib/utils"
 import { ActionBar } from "./ActionBar"
 import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
 import { useSlashCommands } from "@/hooks/useSlashCommands"
 import { useModels } from "@/hooks/useModels"
+import { useVoiceInput } from "@/hooks/useVoiceInput"
 
 type Props = {
   initialPrompt?: string
@@ -29,6 +31,16 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const { commands } = useSlashCommands()
   const { models, currentModel } = useModels()
+  const { state: voiceState, interimTranscript, isSupported: voiceSupported, toggle: toggleVoice } = useVoiceInput({
+    onTranscript: (text) => {
+      setInput((prev) => {
+        const separator = prev.length > 0 && !prev.endsWith(" ") ? " " : ""
+        return prev + separator + text
+      })
+      // Auto-resize textarea as text grows
+      requestAnimationFrame(() => autoResize())
+    },
+  })
 
   React.useEffect(() => {
     if (initialPrompt && textareaRef.current) {
@@ -37,6 +49,13 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
       autoResize()
     }
   }, [])
+
+  // Focus back to textarea after voice input stops
+  React.useEffect(() => {
+    if (voiceState === "idle") {
+      textareaRef.current?.focus()
+    }
+  }, [voiceState])
 
   const hasInput = input.trim().length > 0
 
@@ -144,6 +163,23 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             autoFocus
           />
 
+          <AnimatePresence initial={false}>
+            {voiceState === "listening" && (
+              <motion.div
+                initial={{ maxHeight: 0, opacity: 0 }}
+                animate={{ maxHeight: 40, opacity: 1 }}
+                exit={{ maxHeight: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeInOut" }}
+                className="overflow-hidden"
+              >
+                <div className="px-3 pb-1 text-[13px] text-muted-foreground/60 italic">
+                  {interimTranscript || "Listening…"}
+                  <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-muted-foreground/40 align-middle" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <ActionBar
             hasInput={hasInput}
             onSend={handleSend}
@@ -165,6 +201,9 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
               onSend?.(`/model ${modelId}`)
               setModelOpen(false)
             }}
+            isRecording={voiceState === "listening"}
+            onVoiceToggle={toggleVoice}
+            voiceSupported={voiceSupported}
           />
         </div>
       </div>

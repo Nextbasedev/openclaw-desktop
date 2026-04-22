@@ -15,6 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon } from "./Icons"
+import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
 
 type ActionBarProps = {
@@ -34,6 +35,10 @@ type ActionBarProps = {
   models: ModelEntry[]
   currentModelId: string | null
   onModelSelect: (model: ModelEntry) => void
+  isRecording?: boolean
+  onVoiceToggle?: () => void
+  voiceSupported?: boolean
+
 }
 
 export function ActionBar({
@@ -53,6 +58,9 @@ export function ActionBar({
   models,
   currentModelId,
   onModelSelect,
+  isRecording,
+  onVoiceToggle,
+  voiceSupported = true,
 }: ActionBarProps) {
   const activeModel = models.find((m) => {
     if (!currentModelId) return false
@@ -170,10 +178,30 @@ export function ActionBar({
         {/* Voice button */}
         <button
           type="button"
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-all hover:text-foreground"
-          aria-label="Voice input"
+          onClick={onVoiceToggle}
+          disabled={!voiceSupported}
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full transition-all",
+            isRecording
+              ? "cursor-pointer border border-foreground/60 bg-secondary text-foreground"
+              : voiceSupported
+                ? "cursor-pointer text-muted-foreground hover:text-foreground"
+                : "cursor-not-allowed text-muted-foreground/30"
+          )}
+          aria-label={isRecording ? "Stop recording" : "Voice input"}
+          title={
+            !voiceSupported
+              ? "Voice input not supported in this browser"
+              : isRecording
+                ? "Stop recording"
+                : "Voice input"
+          }
         >
-          <VoiceIcon className="size-[26px]" />
+          {isRecording ? (
+            <VoiceWaveIcon className="size-[20px]" />
+          ) : (
+            <VoiceIcon className="size-[26px]" />
+          )}
         </button>
 
         {/* Send / Stop button */}
