@@ -18,6 +18,8 @@ export type CronRunEvent = {
   error?: string | null
 }
 
+const finishedJobs = new Set<string>()
+
 function mapCronAction(payload: Record<string, unknown>): CronRunEvent | null {
   const action = String(payload.action ?? "")
   const jobId = String(payload.jobId ?? "")
@@ -27,6 +29,7 @@ function mapCronAction(payload: Record<string, unknown>): CronRunEvent | null {
     return {
       type: "cron.run.started",
       jobId,
+      runId: payload.runId ? String(payload.runId) : payload.sessionId ? String(payload.sessionId) : undefined,
       name: payload.name ? String(payload.name) : undefined,
       status: "running",
       timestamp: new Date().toISOString(),
@@ -34,13 +37,15 @@ function mapCronAction(payload: Record<string, unknown>): CronRunEvent | null {
   }
 
   if (action === "finished") {
+    finishedJobs.add(jobId)
+    setTimeout(() => finishedJobs.delete(jobId), 30_000)
     const status = String(payload.status ?? "completed")
     const failed = status === "error" || !!payload.error
     return {
       type: failed ? "cron.run.failed" : "cron.run.completed",
       jobId,
       name: payload.name ? String(payload.name) : undefined,
-      runId: payload.runId ? String(payload.runId) : undefined,
+      runId: payload.runId ? String(payload.runId) : payload.sessionId ? String(payload.sessionId) : undefined,
       status: failed ? "failed" : "completed",
       timestamp: new Date().toISOString(),
       result: payload.result ?? null,
@@ -79,15 +84,18 @@ async function subscribe(): Promise<void> {
       const sessionKey = String(payload.sessionKey ?? "")
       const state = String(payload.state ?? "")
       if (sessionKey.includes(":cron:") && state === "final") {
-        const msg = payload.message as Record<string, unknown> | undefined
-        const content = msg?.content
+        const parts = sessionKey.split(":cron:")[1]?.split(":run:") ?? []
+        const jobId = parts[0] ?? ""
+        if (!jobId || finishedJobs.has(jobId)) return
+        finishedJobs.add(jobId)
+        setTimeout(() => finishedJobs.delete(jobId), 30_000)
         const cronEvent: CronRunEvent = {
           type: "cron.run.completed",
-          jobId: sessionKey.split(":cron:")[1] ?? "",
-          runId: payload.runId ? String(payload.runId) : undefined,
+          jobId,
+          runId: parts[1] ?? (payload.runId ? String(payload.runId) : undefined),
           status: "completed",
           timestamp: new Date().toISOString(),
-          result: content ?? null,
+          result: (payload.message as Record<string, unknown> | undefined)?.content ?? null,
         }
         cronEvents.emit("cron:event", cronEvent)
       }

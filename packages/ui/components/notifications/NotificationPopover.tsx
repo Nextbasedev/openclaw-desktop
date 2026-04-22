@@ -102,7 +102,16 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
       (evt: MessageEvent) => {
         try {
           const event = JSON.parse(evt.data) as CronRunEvent
-          setEvents((prev) => pruneExpired([event, ...prev]).slice(0, MAX_EVENTS))
+          setEvents((prev) => {
+            const isDone = event.type !== "cron.run.started"
+            const deduped = prev.filter((e) => {
+              if (isDone && e.jobId === event.jobId) return false
+              if (event.runId && e.runId === event.runId) return false
+              if (!event.runId && e.jobId === event.jobId) return false
+              return true
+            })
+            return pruneExpired([event, ...deduped]).slice(0, MAX_EVENTS)
+          })
           if (
             event.type === "cron.run.completed" ||
             event.type === "cron.run.failed"
