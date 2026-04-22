@@ -150,6 +150,7 @@ export function Sidebar({
                 <div className="max-h-[360px] overflow-y-auto p-2">
                   <ChatsSection
                     collapsed={false}
+                    collapsible={false}
                     activeChat={activeChat}
                     onChatSelect={handleChatSelectInPopover}
                     onChatClear={onChatClear}
@@ -190,6 +191,7 @@ export function Sidebar({
                 <div className="max-h-[360px] overflow-y-auto p-2">
                   <ProjectsSection
                     collapsed={false}
+                    collapsible={false}
                     activeTopic={activeTopic}
                     onTopicSelect={handleTopicSelectInPopover}
                     onTopicClear={onTopicClear}
