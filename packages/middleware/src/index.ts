@@ -40,6 +40,7 @@ export type ChatToolEvent = {
   partialResult: unknown | null
   result: unknown | null
   error: string | null
+  subagentOf: string | null
 }
 
 export type ChatMessageEvent = {
@@ -53,13 +54,24 @@ export type ChatMessageEvent = {
   model: string | null
 }
 
+export type ChatAgentEvent = {
+  type: "chat.agent"
+  sessionKey: string
+  runId: string | null
+  stream: string | null
+  phase: string | null
+  agentId: string | null
+  parentRunId: string | null
+  label: string | null
+}
+
 export type ChatErrorEvent = {
   type: "chat.error"
   sessionKey: string
   message: string
 }
 
-export type ChatStreamEvent = ChatReadyEvent | ChatStatusEvent | ChatToolEvent | ChatMessageEvent | ChatErrorEvent
+export type ChatStreamEvent = ChatReadyEvent | ChatStatusEvent | ChatToolEvent | ChatMessageEvent | ChatAgentEvent | ChatErrorEvent
 
 export type GatewayFailure = {
   code: string
@@ -82,6 +94,7 @@ type DeviceIdentity = {
 }
 
 type GatewayConfig = {
+  gateway_url?: string
   gateway?: {
     port?: number
     auth?: {
@@ -225,10 +238,15 @@ async function readGatewayConfig() {
   return JSON.parse(raw) as GatewayConfig
 }
 
-async function readDeviceIdentity() {
+async function readDeviceIdentity(): Promise<DeviceIdentity> {
   const identityPath = path.join(os.homedir(), ".openclaw", "state", "identity", "device.json")
   const raw = await fs.readFile(identityPath, "utf8")
-  return JSON.parse(raw) as DeviceIdentity
+  const parsed = JSON.parse(raw) as Record<string, unknown>
+  return {
+    deviceId: (parsed.deviceId ?? parsed.device_id) as string,
+    publicKeyPem: parsed.publicKeyPem as string,
+    privateKeyPem: parsed.privateKeyPem as string,
+  }
 }
 
 async function waitForOpen(ws: WebSocket) {
@@ -283,7 +301,7 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
   const config = await readGatewayConfig()
   const token = config.gateway?.auth?.token
   const port = config.gateway?.port ?? 18789
-  const gatewayUrl = `ws://127.0.0.1:${port}`
+  const gatewayUrl = config.gateway_url ?? `ws://127.0.0.1:${port}`
 
   if (!token) throw new Error("OpenClaw gateway token is missing from local config")
 
@@ -410,7 +428,9 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
 export type OpenClawContentBlock = {
   type?: string
   text?: string
+  id?: string
   name?: string
+  input?: unknown
   content?: string
   mimeType?: string
 }
@@ -422,12 +442,42 @@ export function contentBlocksToText(content: unknown) {
     .map((block) => {
       if (!block || typeof block !== "object") return ""
       const typedBlock = block as OpenClawContentBlock
+      if (typedBlock.type === "image") return ""
+      if (
+        typedBlock.mimeType &&
+        /^(image|video|audio)\//.test(typedBlock.mimeType)
+      ) {
+        return ""
+      }
       if (typedBlock.text) return typedBlock.text
       if (typedBlock.content) return typedBlock.content
       return ""
     })
     .filter(Boolean)
     .join("\n")
+}
+
+export function extractToolCallBlocks(content: unknown): Array<{
+  toolCallId: string
+  name: string
+  args: unknown
+  phase: string
+}> | undefined {
+  if (!Array.isArray(content)) return undefined
+  const calls = content
+    .filter(
+      (b) =>
+        b &&
+        typeof b === "object" &&
+        (b.type === "tool_use" || b.type === "toolCall"),
+    )
+    .map((b: OpenClawContentBlock) => ({
+      toolCallId: b.id ?? crypto.randomUUID(),
+      name: b.name ?? "unknown",
+      args: b.input ?? null,
+      phase: "start",
+    }))
+  return calls.length > 0 ? calls : undefined
 }
 
 export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibility {
@@ -439,11 +489,12 @@ export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibilit
 export async function createChatSession(input: { agentId?: string; label?: string; model?: string; verboseLevel?: string }) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"] })
   try {
-    const response = await gateway.request<{ key?: string }>("sessions.create", {
+    const params: Record<string, unknown> = {
       agentId: input.agentId ?? "main",
       label: input.label ?? `Jarvis middleware session ${new Date().toISOString()}`,
-      model: input.model ?? "openai-codex/gpt-5.4",
-    })
+    }
+    if (input.model) params.model = input.model
+    const response = await gateway.request<{ key?: string }>("sessions.create", params)
     if (!response.ok || !response.payload?.key) throw new Error(response.error?.message ?? "sessions.create failed")
 
     if (input.verboseLevel) {
@@ -457,12 +508,76 @@ export async function createChatSession(input: { agentId?: string; label?: strin
   }
 }
 
+export type GatewaySessionSummary = {
+  key: string
+  label: string | null
+  agentId: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export async function listGatewaySessions(input?: { limit?: number }): Promise<{ sessions: GatewaySessionSummary[] }> {
+  const gateway = await connectToOpenClawGateway({ scopes: ["operator.read"] })
+  try {
+    const response = await gateway.request<{ sessions?: Array<Record<string, unknown>> }>("sessions.list", {
+      limit: input?.limit ?? 500,
+    })
+    if (!response.ok) throw new Error(response.error?.message ?? "sessions.list failed")
+    const rows = response.payload?.sessions ?? []
+    return {
+      sessions: rows.map((row) => ({
+        key: String(row.key ?? ""),
+        label: typeof row.label === "string" ? row.label : null,
+        agentId: typeof row.agentId === "string" ? row.agentId : null,
+        createdAt: typeof row.createdAt === "string" ? row.createdAt : null,
+        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : null,
+      })),
+    }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function upsertGatewaySession(input: {
+  key: string
+  label: string
+  agentId?: string
+}): Promise<{ sessionKey: string; created: boolean }> {
+  const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write"] })
+  try {
+    const patch = await gateway.request("sessions.patch", { key: input.key, label: input.label })
+    if (patch.ok) return { sessionKey: input.key, created: false }
+    const create = await gateway.request<{ key?: string }>("sessions.create", {
+      key: input.key,
+      agentId: input.agentId ?? "main",
+      label: input.label,
+    })
+    if (!create.ok || !create.payload?.key) {
+      throw new Error(create.error?.message ?? "sessions.create failed")
+    }
+    return { sessionKey: create.payload.key, created: true }
+  } finally {
+    gateway.close()
+  }
+}
+
 export async function deleteChatSession(sessionKey: string) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"] })
   try {
     const response = await gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true })
     if (!response.ok) throw new Error(response.error?.message ?? "sessions.delete failed")
     return { deleted: true, sessionKey }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function resetChatSession(sessionKey: string) {
+  const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals"] })
+  try {
+    const response = await gateway.request("sessions.reset", { key: sessionKey, reason: "reset" })
+    if (!response.ok) throw new Error(response.error?.message ?? "sessions.reset failed")
+    return { reset: true, sessionKey }
   } finally {
     gateway.close()
   }
@@ -485,6 +600,7 @@ export async function getChatHistory(sessionKey: string) {
         text: contentBlocksToText(message.content),
         createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : new Date().toISOString()),
         model: message.model ?? null,
+        toolCalls: extractToolCallBlocks(message.content),
       })),
     }
   } finally {
@@ -561,19 +677,115 @@ export async function openChatEventStream(input: {
     })
     input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "connected" })
 
+    const subagentKeys = new Set<string>()
+    const spawnQueue: string[] = []
+    const subagentToSpawn = new Map<string, string>()
+    const pendingSubagentKeys: string[] = []
+
+    const subscribeSubagent = (key: string) => {
+      if (subagentKeys.has(key)) return
+      subagentKeys.add(key)
+      const spawnId = spawnQueue.length > 0 ? spawnQueue.shift()! : null
+      if (spawnId) {
+        subagentToSpawn.set(key, spawnId)
+      } else {
+        pendingSubagentKeys.push(key)
+      }
+      console.log(`[mw:stream] subscribeSubagent key=${key.slice(-12)} spawnId=${spawnId ?? "none"} queue=${spawnQueue.length} pending=${pendingSubagentKeys.length}`)
+      gateway.request("sessions.messages.subscribe", { key }).catch((err) => {
+        console.error(`[mw:stream] subscribe failed for ${key.slice(-12)}:`, err)
+      })
+    }
+
+    const matchesSession = (eventKey: string | undefined) => {
+      if (!eventKey) return false
+      if (eventKey === input.sessionKey) return true
+      if (eventKey.endsWith(input.sessionKey)) return true
+      if (subagentKeys.has(eventKey)) return true
+      return false
+    }
+
     unsubscribe = gateway.addMessageListener((message) => {
       if (message.type !== "event") return
+      console.log(`[mw:event] ${message.event}`, message.event === "session.tool" ? `tool=${(message.payload as Record<string, unknown>)?.data && ((message.payload as Record<string, unknown>).data as Record<string, unknown>)?.name} phase=${((message.payload as Record<string, unknown>).data as Record<string, unknown>)?.phase} session=${((message.payload as Record<string, unknown>)?.sessionKey as string)?.slice(-12)}` : message.event === "agent" ? `session=${((message.payload as Record<string, unknown>)?.sessionKey as string)?.slice(-12)}` : "")
+
+      if (message.event === "session.created" || message.event === "sessions.update") {
+        const payload = message.payload as Record<string, unknown> | undefined
+        const key = (payload?.key as string) ?? (payload?.sessionKey as string)
+        if (key?.includes(":subagent:")) {
+          subscribeSubagent(key)
+        }
+      }
 
       if (message.event === "session.message") {
         const payload = message.payload as SessionMessagePayload | undefined
-        if (payload?.sessionKey !== input.sessionKey || !payload.message) return
+        if (!payload || !matchesSession(payload.sessionKey) || !payload.message) return
 
         const messageId = payload.message.id ?? payload.messageId ?? null
         if (messageId && seenMessageIds.has(messageId)) return
         if (messageId) seenMessageIds.add(messageId)
 
         const role = payload.message.role ?? "assistant"
-        if (role === "user" || role === "tool" || role === "tool_result" || role === "toolResult") return
+        if (role === "tool" || role === "tool_result" || role === "toolResult") {
+          const resultText = contentBlocksToText(payload.message.content)
+          const childKeyMatch = resultText.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
+          if (childKeyMatch?.[1]?.includes(":subagent:")) {
+            subscribeSubagent(childKeyMatch[1])
+            let spawnTcId = subagentToSpawn.get(childKeyMatch[1])
+            if (!spawnTcId && spawnQueue.length > 0) {
+              spawnTcId = spawnQueue.shift()!
+              subagentToSpawn.set(childKeyMatch[1], spawnTcId)
+            }
+            if (spawnTcId) {
+              input.onEvent({
+                type: "chat.tool",
+                sessionKey: input.sessionKey,
+                runId: null,
+                verboseLevel: null,
+                toolOutputVisibility: "hidden" as ToolOutputVisibility,
+                phase: "spawn_linked",
+                name: "sessions_spawn",
+                toolCallId: spawnTcId,
+                args: null,
+                partialResult: null,
+                result: resultText,
+                error: null,
+                subagentOf: null,
+              })
+            }
+          }
+          return
+        }
+        if (role === "user") {
+          const announceText = contentBlocksToText(payload.message.content)
+          if (announceText.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>")) {
+            const keyMatch = announceText.match(/session_key:\s*(agent:main:subagent:[^\s]+)/)
+            if (keyMatch) {
+              const childKey = keyMatch[1]!
+              const spawnTcId = subagentToSpawn.get(childKey)
+              const isError = /status:\s*(error|failed)/.test(announceText)
+              if (spawnTcId) {
+                input.onEvent({
+                  type: "chat.tool",
+                  sessionKey: input.sessionKey,
+                  runId: null,
+                  verboseLevel: null,
+                  toolOutputVisibility: "hidden" as ToolOutputVisibility,
+                  phase: "spawn_done",
+                  name: "sessions_spawn",
+                  toolCallId: spawnTcId,
+                  args: null,
+                  partialResult: null,
+                  result: null,
+                  error: isError ? "subagent_error" : null,
+                  subagentOf: null,
+                })
+              }
+            }
+          }
+          return
+        }
+        if (payload.sessionKey?.includes(":subagent:")) return
 
         const blocks = Array.isArray(payload.message.content) ? payload.message.content as Array<{ type?: string }> : []
         const blockTypes = blocks.map((block) => block?.type).filter(Boolean)
@@ -601,9 +813,78 @@ export async function openChatEventStream(input: {
         return
       }
 
+      if (message.event === "chat") {
+        const payload = message.payload as Record<string, unknown> | undefined
+        if (!payload || !matchesSession(payload.sessionKey as string | undefined)) return
+        const chatSessionKey = payload.sessionKey as string | undefined
+        if (chatSessionKey?.includes(":subagent:")) return
+
+        const state = payload.state as string | undefined
+        const msgContent = payload.message as Record<string, unknown> | undefined
+        if (state === "final" || state === "delta") {
+          const content = msgContent?.content as Array<{ type?: string; text?: string }> | undefined
+          const text = content
+            ?.filter((b) => b.type === "text" && b.text)
+            .map((b) => b.text!)
+            .join("") ?? ""
+          if (text) {
+            const messageId = (payload.runId as string) ?? crypto.randomUUID()
+            input.onEvent({
+              type: "chat.message",
+              sessionKey: input.sessionKey,
+              messageId,
+              role: "assistant",
+              content: content ?? "",
+              text,
+              createdAt: null,
+              model: (msgContent?.model as string) ?? null,
+            })
+          }
+          if (state === "final") {
+            input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "done" })
+          }
+        } else if (state === "error" || state === "aborted") {
+          input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: state === "error" ? "error" : "done" })
+        }
+        return
+      }
+
       if (message.event === "session.tool") {
         const payload = message.payload as SessionToolPayload | undefined
-        if (payload?.sessionKey !== input.sessionKey) return
+        if (payload?.sessionKey?.includes(":subagent:")) {
+          subscribeSubagent(payload.sessionKey)
+        }
+        if (!payload || !matchesSession(payload.sessionKey)) return
+
+        const isSubagent = payload.sessionKey?.includes(":subagent:") ?? false
+        const spawnId = isSubagent ? (subagentToSpawn.get(payload.sessionKey!) ?? "unknown") : null
+
+        if (payload.data?.name === "sessions_spawn" && payload.data?.phase === "start") {
+          const tcId = payload.data?.toolCallId as string | undefined
+          if (tcId) {
+            if (pendingSubagentKeys.length > 0) {
+              const pendingKey = pendingSubagentKeys.shift()!
+              subagentToSpawn.set(pendingKey, tcId)
+              input.onEvent({
+                type: "chat.tool",
+                sessionKey: input.sessionKey,
+                runId: null,
+                verboseLevel: null,
+                toolOutputVisibility: "hidden" as ToolOutputVisibility,
+                phase: "spawn_linked",
+                name: "sessions_spawn",
+                toolCallId: tcId,
+                args: null,
+                partialResult: null,
+                result: JSON.stringify({ childSessionKey: pendingKey }),
+                error: null,
+                subagentOf: null,
+              })
+            } else {
+              spawnQueue.push(tcId)
+            }
+          }
+        }
 
         const key = `${payload.runId ?? "run"}:${payload.seq ?? payload.data?.toolCallId ?? "tool"}:${payload.data?.phase ?? "phase"}`
         if (seenToolEvents.has(key)) return
@@ -622,12 +903,37 @@ export async function openChatEventStream(input: {
           partialResult: payload.data?.partialResult ?? null,
           result: payload.data?.result ?? null,
           error: payload.data?.error ?? null,
+          subagentOf: spawnId ? `spawn:${spawnId}` : null,
         })
+        if (!isSubagent) {
+          input.onEvent({
+            type: "chat.status",
+            sessionKey: input.sessionKey,
+            state: payload.data?.phase === "error" ? "error" : payload.data?.phase === "result" ? "thinking" : "tool_running",
+            label: payload.data?.name ?? null,
+          })
+        }
+      }
+
+      if (message.event === "agent") {
+        const payload = message.payload as Record<string, unknown> | undefined
+        const eventSessionKey = payload?.sessionKey as string | undefined
+        if (eventSessionKey?.includes(":subagent:")) {
+          subscribeSubagent(eventSessionKey)
+        }
+        if (!matchesSession(eventSessionKey)) return
+        const data = (payload?.data ?? {}) as Record<string, unknown>
+        const stream = (payload?.stream as string) ?? null
+        if (stream !== "lifecycle") return
         input.onEvent({
-          type: "chat.status",
+          type: "chat.agent",
           sessionKey: input.sessionKey,
-          state: payload.data?.phase === "error" ? "error" : payload.data?.phase === "result" ? "thinking" : "tool_running",
-          label: payload.data?.name ?? null,
+          runId: (payload?.runId as string) ?? null,
+          stream,
+          phase: (data.phase as string) ?? null,
+          agentId: (data.agentId as string) ?? (data.name as string) ?? null,
+          parentRunId: (data.parentRunId as string) ?? null,
+          label: (data.label as string) ?? (data.name as string) ?? null,
         })
       }
     })

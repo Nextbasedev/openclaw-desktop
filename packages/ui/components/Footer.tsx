@@ -1,82 +1,50 @@
 "use client"
 
-import { useCallback, useEffect, useRef, } from "react"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscSearch, VscTerminal } from "react-icons/vsc"
 import { usePlatform } from "@/hooks/usePlatform"
-import { useState } from "react"
-import { VersionUpdateButton } from "./sidebar/VersionUpdateButton"
-import { VersionUpdateModal } from "./sidebar/VersionUpdateModal"
+import { Icons } from "@/components/icons"
+import { ModelSelector } from "@/components/sidebar/ModelSelector"
+import { useModels, isActiveModel } from "@/hooks/useModels"
 
 type FooterProps = {
   className?: string
+  terminalOpen?: boolean
   onToggleTerminal?: () => void
-  onDragOpenTerminal?: (height: number) => void
 }
 
-export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: FooterProps) {
-  const [versionModalOpen, setVersionModalOpen] = useState(false)
+export function Footer({ className, onToggleTerminal }: FooterProps) {
   const platform = usePlatform()
   const isMac = platform === "macos"
   const modKey = isMac ? "⌘" : "Ctrl"
-  const [isDragging, setIsDragging] = useState(false)
-  const dragRef = useRef<{ startY: number } | null>(null)
-  const footerRef = useRef<HTMLElement>(null)
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // Only respond to clicks on the top border area (top 4px of footer)
-    const rect = footerRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const offsetY = e.clientY - rect.top
-    if (offsetY > 4) return
-
-    e.preventDefault()
-    dragRef.current = { startY: e.clientY }
-    setIsDragging(true)
-  }, [])
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    function onMouseMove(e: MouseEvent) {
-      if (!dragRef.current || !onDragOpenTerminal) return
-      const delta = dragRef.current.startY - e.clientY
-      if (delta > 30) {
-        // Dragged up enough — open terminal with the dragged height
-        onDragOpenTerminal(Math.min(600, Math.max(120, delta)))
-      }
-    }
-
-    function onMouseUp() {
-      setIsDragging(false)
-      dragRef.current = null
-    }
-
-    document.addEventListener("mousemove", onMouseMove)
-    document.addEventListener("mouseup", onMouseUp)
-    return () => {
-      document.removeEventListener("mousemove", onMouseMove)
-      document.removeEventListener("mouseup", onMouseUp)
-    }
-  }, [isDragging, onDragOpenTerminal])
+  const [modelDialogOpen, setModelDialogOpen] = useState(false)
+  const { models, currentModel } = useModels()
+  const activeModel = models.find((m) => isActiveModel(currentModel, m))
+  const modelLabel = activeModel?.name ?? currentModel ?? "Select model"
 
   return (
-    <>
-      <footer
-        ref={footerRef}
-        onMouseDown={handleMouseDown}
+    <footer
+      className={cn(
+        "relative flex h-[26px] shrink-0 items-center justify-between",
+        "border-t border-border/50 bg-card px-3",
+        "select-none",
+        className,
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setModelDialogOpen(true)}
         className={cn(
-          "relative flex h-[26px] shrink-0 items-center justify-between",
-          "border-t border-border/50 bg-card px-3",
-          "select-none cursor-row-resize",
-          className,
+          "flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5",
+          "text-muted-foreground transition-colors",
+          "hover:bg-secondary/60 hover:text-foreground",
         )}
       >
-        <div>
-          <VersionUpdateButton onClick={() => setVersionModalOpen(true)} />
-        </div>
+        <Icons.Model size={12} className="shrink-0 text-amber-400" />
+        <span className="text-[11px]">{modelLabel}</span>
+      </button>
 
-      {/* Right: keyboard shortcuts */}
       <div className="flex items-center gap-3">
         <ShortcutButton
           icon={<VscSearch className="size-3.5" />}
@@ -90,19 +58,12 @@ export function Footer({ className, onToggleTerminal, onDragOpenTerminal }: Foot
           onClick={onToggleTerminal}
         />
       </div>
-      </footer>
 
-      <VersionUpdateModal
-        open={versionModalOpen}
-        onOpenChange={setVersionModalOpen}
-      />
-
-      {isDragging && <div className="fixed inset-0 z-50 cursor-row-resize" />}
-    </>
+      <ModelSelector open={modelDialogOpen} onOpenChange={setModelDialogOpen} />
+    </footer>
   )
 }
 
-/* ── Shortcut button ── */
 function ShortcutButton({
   icon,
   keys,
@@ -127,17 +88,19 @@ function ShortcutButton({
     >
       {icon}
       <div className="flex items-center gap-0.5">
-        {keys.map((key) => (
-          <kbd
-            key={key}
-            className={cn(
-              "inline-flex min-w-[18px] items-center justify-center rounded",
-              "border border-border/60 bg-secondary/40 px-1 py-px",
-              "text-[10px] font-medium text-muted-foreground",
-            )}
-          >
-            {key}
-          </kbd>
+        {keys.map((key, i) => (
+          <span key={key} className="flex items-center gap-0.5">
+            {i > 0 && <span className="text-[9px] text-muted-foreground/50">+</span>}
+            <kbd
+              className={cn(
+                "inline-flex min-w-[18px] items-center justify-center rounded",
+                "px-1 py-px",
+                "text-[10px]",
+              )}
+            >
+              {key}
+            </kbd>
+          </span>
         ))}
       </div>
     </button>

@@ -15,21 +15,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon } from "./Icons"
-
-export type Model = {
-  id: string
-  label: string
-}
-
-export const MODELS: Model[] = [
-  { id: "gpt-5.2", label: "GPT-5.2" },
-  { id: "claude-opus", label: "Claude Opus" },
-  { id: "claude-sonnet", label: "Claude Sonnet" },
-  { id: "gemini-2", label: "Gemini 2" },
-]
+import { VoiceWaveIcon } from "./VoiceWaveIcon"
+import type { ModelEntry } from "@/hooks/useModels"
 
 type ActionBarProps = {
   hasInput: boolean
+  onSend?: () => void
+  onUploadClick?: () => void
+  isGenerating?: boolean
+  onAbort?: () => void
   planEnabled: boolean
   onPlanToggle: () => void
   webSearchEnabled: boolean
@@ -39,12 +33,22 @@ type ActionBarProps = {
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
   onModelOpenChange: (open: boolean) => void
-  selectedModel: Model
-  onModelSelect: (model: Model) => void
+  models: ModelEntry[]
+  currentModelId: string | null
+  onModelSelect: (model: ModelEntry) => void
+  isRecording?: boolean
+  onVoiceToggle?: () => void
+  voiceSupported?: boolean
+  attachmentCount?: number
+  disableUpload?: boolean
 }
 
 export function ActionBar({
   hasInput,
+  onSend,
+  onUploadClick,
+  isGenerating,
+  onAbort,
   planEnabled,
   onPlanToggle,
   webSearchEnabled,
@@ -54,9 +58,23 @@ export function ActionBar({
   onPlusOpenChange,
   modelOpen,
   onModelOpenChange,
-  selectedModel,
+  models,
+  currentModelId,
   onModelSelect,
+  isRecording,
+  onVoiceToggle,
+  voiceSupported = true,
+  attachmentCount = 0,
+  disableUpload = false,
 }: ActionBarProps) {
+  const activeModel = models.find((m) => {
+    if (!currentModelId) return false
+    const bare = currentModelId.includes("/")
+      ? currentModelId.split("/")[1]
+      : currentModelId
+    return m.id === currentModelId || m.id === bare
+  })
+  const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
@@ -75,10 +93,12 @@ export function ActionBar({
           <PopoverContent side="top" align="start" sideOffset={8} className="w-56 gap-0 p-1.5">
             <button
               type="button"
+              onClick={onUploadClick}
+              disabled={disableUpload}
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
             >
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
-              Upload
+              {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Upload"}
             </button>
             <div className="my-1 h-px bg-border" />
             <button
@@ -133,52 +153,90 @@ export function ActionBar({
               type="button"
               className="flex h-8 cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-all hover:text-foreground"
             >
-              {selectedModel.label}
+              {modelLabel}
               <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="end" sideOffset={8} className="w-48 gap-0 p-1.5">
-            {MODELS.map((model) => (
-              <button
-                key={model.id}
-                type="button"
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
-                  selectedModel.id === model.id
-                    ? "font-medium text-popover-foreground"
-                    : "text-muted-foreground"
-                )}
-                onClick={() => onModelSelect(model)}
-              >
-                {model.label}
-              </button>
-            ))}
+          <PopoverContent side="top" align="end" sideOffset={8} className="w-56 gap-0 p-1.5">
+            {models.map((model) => {
+              const isActive = activeModel?.id === model.id
+              return (
+                <button
+                  key={`${model.provider}/${model.id}`}
+                  type="button"
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
+                    isActive
+                      ? "font-medium text-popover-foreground"
+                      : "text-muted-foreground"
+                  )}
+                  onClick={() => onModelSelect(model)}
+                >
+                  {model.name}
+                </button>
+              )
+            })}
+            {models.length === 0 && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">No models available</p>
+            )}
           </PopoverContent>
         </Popover>
 
         {/* Voice button */}
         <button
           type="button"
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-all hover:text-foreground"
-          aria-label="Voice input"
+          onClick={onVoiceToggle}
+          disabled={!voiceSupported}
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full transition-all",
+            isRecording
+              ? "cursor-pointer border border-foreground/60 bg-secondary text-foreground"
+              : voiceSupported
+                ? "cursor-pointer text-muted-foreground hover:text-foreground"
+                : "cursor-not-allowed text-muted-foreground/30"
+          )}
+          aria-label={isRecording ? "Stop recording" : "Voice input"}
+          title={
+            !voiceSupported
+              ? "Voice input not supported in this browser"
+              : isRecording
+                ? "Stop recording"
+                : "Voice input"
+          }
         >
-          <VoiceIcon className="size-[26px]" />
+          {isRecording ? (
+            <VoiceWaveIcon className="size-[20px]" />
+          ) : (
+            <VoiceIcon className="size-[26px]" />
+          )}
         </button>
 
-        {/* Send button */}
-        <button
-          type="button"
-          disabled={!hasInput}
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full shadow-sm transition-all",
-            hasInput
-              ? "cursor-pointer bg-foreground text-background"
-              : "bg-foreground/50 text-background"
-          )}
-          aria-label="Send message"
-        >
-          <SendArrowIcon className="size-4" />
-        </button>
+        {/* Send / Stop button */}
+        {isGenerating ? (
+          <button
+            type="button"
+            onClick={onAbort}
+            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/10 text-foreground shadow-sm transition-all hover:bg-foreground/20"
+            aria-label="Stop generating"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={14} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={!hasInput}
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-full shadow-sm transition-all",
+              hasInput
+                ? "cursor-pointer bg-foreground text-background"
+                : "bg-foreground/50 text-background"
+            )}
+            aria-label="Send message"
+          >
+            <SendArrowIcon className="size-4" />
+          </button>
+        )}
       </div>
     </div>
   )

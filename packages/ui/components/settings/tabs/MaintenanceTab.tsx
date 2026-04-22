@@ -1,8 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { Separator } from "@/components/ui/separator"
-import { Button } from "@/components/ui/button"
 
 type MaintenanceTabProps = {
   onSignOut?: () => void
@@ -22,63 +20,80 @@ export function MaintenanceTab({ onSignOut, onDeleteAccount }: MaintenanceTabPro
         </p>
       </div>
 
-      {/* Sign Out */}
-      <div>
-        <h3 className="text-sm font-medium text-foreground cursor-pointer">Sign Out</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Disconnect from the current Gateway session. You can reconnect anytime.
-        </p>
-        {confirmingSignOut ? (
-          <div className="mt-3 flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">Are you sure?</span>
-            <Button size="sm" variant="outline" onClick={() => { onSignOut?.(); setConfirmingSignOut(false) }}>
-              Confirm
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmingSignOut(false)}>
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-3"
-            onClick={() => setConfirmingSignOut(true)}
-          >
-            Sign Out
-          </Button>
-        )}
-      </div>
+      <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+        <div className="px-5 py-4">
+          <h3 className="text-[13px] font-medium text-foreground">Sign Out</h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            Disconnect from the current Gateway session. You can reconnect anytime.
+          </p>
 
-      <Separator className="bg-border/50" />
+          {confirmingSignOut ? (
+            <div className="mt-4 flex items-center justify-between rounded-lg border border-border/50 bg-muted/20 px-4 py-3">
+              <span className="text-[13px] text-muted-foreground">Are you sure you want to sign out?</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingSignOut(false)}
+                  className="cursor-pointer rounded-md px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onSignOut?.(); setConfirmingSignOut(false) }}
+                  className="cursor-pointer rounded-md border border-border/50 bg-foreground/5 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:bg-foreground/10"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingSignOut(true)}
+              className="mt-4 cursor-pointer rounded-md border border-border/50 bg-foreground/5 px-4 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:bg-foreground/10"
+            >
+              Sign Out
+            </button>
+          )}
+        </div>
 
-      {/* Delete Account */}
-      <div>
-        <h3 className="text-sm font-medium text-destructive cursor-pointer">Delete Account</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Permanently delete all local data, cached sessions, and preferences.
-          This action is <span className="text-destructive font-medium">irreversible</span>.
-        </p>
-        {confirmingDelete ? (
-          <div className="mt-3 flex items-center gap-3">
-            <span className="text-sm text-destructive">This cannot be undone.</span>
-            <Button size="sm" variant="destructive" onClick={() => { onDeleteAccount?.(); setConfirmingDelete(false) }}>
-              Delete Everything
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="destructive"
-            size="sm"
-            className="mt-3"
-            onClick={() => setConfirmingDelete(true)}
-          >
-            Delete Account
-          </Button>
-        )}
+        <div className="border-t border-border/30 px-5 py-4">
+          <h3 className="text-[13px] font-medium text-destructive">Delete Account</h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            Permanently delete all local data, cached sessions, and preferences. This action is irreversible.
+          </p>
+
+          {confirmingDelete ? (
+            <div className="mt-4 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+              <span className="text-[13px] text-destructive">This cannot be undone.</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="cursor-pointer rounded-md px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onDeleteAccount?.(); setConfirmingDelete(false) }}
+                  className="cursor-pointer rounded-md bg-destructive px-3 py-1.5 text-[12px] font-medium text-destructive-foreground transition-colors hover:bg-destructive/90"
+                >
+                  Delete Everything
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="mt-4 cursor-pointer rounded-md bg-destructive px-4 py-1.5 text-[12px] font-medium text-destructive-foreground transition-colors hover:bg-destructive/90"
+            >
+              Delete Account
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

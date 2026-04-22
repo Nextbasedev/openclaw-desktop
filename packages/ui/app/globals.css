@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@xterm/xterm/css/xterm.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -46,6 +47,165 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 }
+
+/* ─── Glassmorphism Variables ─── */
+:root {
+  --glass-bg: oklch(0.99 0 0 / 0.84);
+  --glass-border: oklch(0 0 0 / 0.07);
+  --glass-shadow: oklch(0 0 0 / 0.1);
+  --glass-input-bg: oklch(0 0 0 / 0.03);
+  --glass-input-border: oklch(0 0 0 / 0.09);
+  --glass-overlay-bg: oklch(0 0 0 / 0.28);
+  --glass-inset: oklch(1 0 0 / 0.5);
+}
+
+.dark {
+  --glass-bg: oklch(0.19 0.005 286 / 0.88);
+  --glass-border: oklch(1 0 0 / 0.1);
+  --glass-shadow: oklch(0 0 0 / 0.55);
+  --glass-input-bg: oklch(1 0 0 / 0.04);
+  --glass-input-border: oklch(1 0 0 / 0.1);
+  --glass-overlay-bg: oklch(0 0 0 / 0.52);
+  --glass-inset: oklch(1 0 0 / 0.07);
+}
+
+/* ─── Glass Overlay (backdrop) ─── */
+.glass-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: var(--glass-overlay-bg);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: glass-overlay-in 0.15s ease;
+}
+
+@keyframes glass-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Glass Dialog Panel ─── */
+.glass-dialog {
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow:
+    0 24px 64px var(--glass-shadow),
+    0 2px 12px var(--glass-shadow),
+    inset 0 1px 0 var(--glass-inset);
+  min-width: 340px;
+  max-width: 440px;
+  width: 92vw;
+  padding: 24px;
+  animation: glass-dialog-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes glass-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ─── Glass Input ─── */
+.glass-input {
+  width: 100%;
+  background: var(--glass-input-bg);
+  border: none;
+  border-radius: 10px;
+  padding: 9px 13px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--foreground);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.glass-input::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.55;
+}
+
+.glass-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ─── Glass Buttons ─── */
+.glass-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--foreground);
+  color: #000;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.glass-btn-primary:hover:not(:disabled) { opacity: 1; }
+.glass-btn-primary:active:not(:disabled) { transform: scale(0.98); }
+.glass-btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.glass-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--foreground);
+  border: none;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.glass-btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+
+.glass-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #ef4444;
+  color: #fff;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.glass-btn-danger:hover:not(:disabled) { background: #dc2626; }
+.glass-btn-danger:active:not(:disabled) { transform: scale(0.98); }
+.glass-btn-danger:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ─── Light Mode ─── */
 :root {
@@ -133,28 +293,119 @@
     @apply font-sans;
   }
 
-  /* ── Custom Premium Scrollbar ── */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: oklch(var(--muted-foreground) / 0.2) transparent;
+  .scrollbar-hide {
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 
-  ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
+  /* Kill framer-motion's default box-shadow on Reorder items inside sidebar */
+  .group\/sidebar * {
+    box-shadow: none !important;
   }
+}
 
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
+/* ── Custom Scrollbar (outside @layer for full specificity) ── */
+*,
+html,
+body {
+  scrollbar-width: auto !important;
+}
 
-  ::-webkit-scrollbar-thumb {
-    background: oklch(var(--muted-foreground) / 0.1);
-    border-radius: 20px;
-    transition: background 0.2s ease;
-  }
+*::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+}
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: oklch(var(--muted-foreground) / 0.3);
-  }
+*::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-radius: 999px !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-radius: 999px !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35) !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.45) !important;
+  border: 2px solid transparent !important;
+  background-clip: padding-box !important;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+@keyframes marquee-scroll {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}
+
+/* ─── Activity Panel ─── */
+@keyframes activity-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes activity-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.activity-item {
+  animation: activity-enter 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.activity-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(96, 165, 250, 0.15) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: activity-shimmer 1.8s ease-in-out infinite;
+}
+
+.activity-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+
+.activity-expand[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.activity-expand > div {
+  overflow: hidden;
+}
+
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.shimmer-slide {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer-text {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.animate-shimmer-text {
+  animation: shimmer-text 2.5s ease-in-out infinite;
 }
