@@ -55,6 +55,9 @@ type CronJobDraft = {
   scheduleType: CronJob["scheduleType"]
   schedule: string
   timezone: string
+  deliveryMode: string
+  deliveryChannel: string
+  deliveryTo: string
   prompt: string
 }
 
@@ -116,6 +119,9 @@ function draftFromJob(job: CronJob): CronJobDraft {
     scheduleType: job.scheduleType,
     schedule: job.schedule,
     timezone: job.timezone ?? "",
+    deliveryMode: job.deliveryMode ?? "announce",
+    deliveryChannel: job.deliveryChannel ?? "",
+    deliveryTo: job.deliveryTo ?? "",
     prompt: jobPrompt(job),
   }
 }
@@ -200,6 +206,49 @@ function CronJobEditDialog({
               className="glass-input opacity-60"
             />
           </label>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">Delivery</span>
+              <select
+                value={draft.deliveryMode}
+                onChange={(event) => setDraft((prev) => prev ? { ...prev, deliveryMode: event.target.value } : prev)}
+                className={cn(
+                  "h-9 rounded-lg border px-3 text-[13px] text-foreground outline-none",
+                  "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
+                )}
+              >
+                <option value="announce">Announce</option>
+                <option value="webhook">Webhook</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">Channel</span>
+              <input
+                value={draft.deliveryChannel}
+                onChange={(event) => setDraft((prev) => prev ? { ...prev, deliveryChannel: event.target.value } : prev)}
+                placeholder="telegram or discord"
+                className="glass-input"
+                list="cron-delivery-channels"
+              />
+              <datalist id="cron-delivery-channels">
+                <option value="telegram" />
+                <option value="discord" />
+              </datalist>
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">Target</span>
+              <input
+                value={draft.deliveryTo}
+                onChange={(event) => setDraft((prev) => prev ? { ...prev, deliveryTo: event.target.value } : prev)}
+                placeholder="optional target"
+                className="glass-input"
+              />
+            </label>
+          </div>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">Prompt</span>
@@ -365,10 +414,22 @@ export function CronJobsTab({ onSelectJob, onDraftPrompt }: CronJobsTabProps) {
             schedule: draft.schedule.trim(),
           }
         : {}
+      const deliveryChanged =
+        draft.deliveryMode !== (job.deliveryMode ?? "announce") ||
+        draft.deliveryChannel.trim() !== (job.deliveryChannel ?? "") ||
+        draft.deliveryTo.trim() !== (job.deliveryTo ?? "")
+      const deliveryPatch = deliveryChanged
+        ? {
+            deliveryMode: draft.deliveryMode,
+            deliveryChannel: draft.deliveryChannel.trim() || undefined,
+            deliveryTo: draft.deliveryTo.trim() || undefined,
+          }
+        : {}
       await invoke("middleware_cron_update_job", {
         jobId: job.jobId,
         name: draft.name.trim(),
         ...schedulePatch,
+        ...deliveryPatch,
         ...promptPatch,
       })
       setError(null)
