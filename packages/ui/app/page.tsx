@@ -19,11 +19,13 @@ import ConnectPage from "@/components/ConnectPage"
 import { ChatView } from "@/components/ChatView"
 import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
+import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
+const CRON_SESSION_TARGETS = new Set(["isolated", "main", "current"])
 
 type ParsedRoute =
   | { kind: "chat"; chatId: string }
@@ -112,158 +114,131 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [focusActivityTrigger, setFocusActivityTrigger] = useState(0)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
   const isResizing = useRef(false)
-  const restoredRef = useRef(false)
+  const routeRequestRef = useRef(0)
+  const previousContentPathRef = useRef("/")
 
   const { flowState, signOut, deleteAccount } = useOnboardingFlow()
   const { resolvedTheme, setTheme } = useTheme()
 
-  // Restore state from URL on mount
-  useEffect(() => {
-    if (restoredRef.current) return
-    restoredRef.current = true
+  const clearConversationState = useCallback(() => {
+    setActiveTopic(null)
+    setActiveChat(null)
+    setActiveSessionKey(null)
+    setActiveSessionTitle(null)
+    setInitialMessages(undefined)
+  }, [])
 
-    const route = parseRoute(window.location.pathname)
+  const activateRoute = useCallback(async (route: ParsedRoute) => {
+    const requestId = ++routeRequestRef.current
+
+    if (route.kind === "tab") {
+      setPendingPrompt(null)
+      setActiveTab(route.tab)
+      clearConversationState()
+      return
+    }
+
+    if (route.kind === "home") {
+      setPendingPrompt(null)
+      setActiveTab("chat")
+      clearConversationState()
+      return
+    }
 
     if (route.kind === "chat") {
-      ;(async () => {
-        try {
-          const listResult = await invoke<{
-            chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
-          }>("middleware_chats_list", { input: {} })
-          const found = (listResult.chats || []).find(
-            (c) => c.id === route.chatId && !c.archived,
-          )
-          if (!found) return
+      setPendingPrompt(null)
+      setActiveTab("chat")
+      setActiveTopic(null)
+      setActiveChat({ id: route.chatId, name: "Opening chat..." })
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      setInitialMessages(undefined)
 
-          setActiveTab("chat")
-          setActiveChat({ id: found.id, name: found.name, sessionKey: found.sessionKey })
-          if (found.sessionKey) {
-            setActiveSessionKey(found.sessionKey)
-            setActiveSessionTitle(found.name)
-          }
-        } catch {
-          // silently fail — show greeting
+      try {
+        const listResult = await invoke<{
+          chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
+        }>("middleware_chats_list", { input: {} })
+        if (requestId !== routeRequestRef.current) return
+
+        const found = (listResult.chats || []).find(
+          (c) => c.id === route.chatId && !c.archived,
+        )
+        if (!found) {
+          clearConversationState()
+          return
         }
-      })()
+
+        setActiveChat({ id: found.id, name: found.name, sessionKey: found.sessionKey })
+        setActiveSessionKey(found.sessionKey ?? null)
+        setActiveSessionTitle(found.name)
+      } catch {
+        if (requestId === routeRequestRef.current) clearConversationState()
+      }
+      return
     }
 
     if (route.kind === "topic") {
-      ;(async () => {
-        try {
-          const projectResult = await invoke<{
-            projects: { id: string; name: string; archived: boolean }[]
-          }>("middleware_projects_list", { input: {} })
-          const project = (projectResult.projects || []).find(
-            (p) => p.id === route.projectId && !p.archived,
-          )
-          if (!project) return
+      setPendingPrompt(null)
+      setActiveTab("chat")
+      setActiveChat(null)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      setInitialMessages(undefined)
 
-          const topicResult = await invoke<{
-            topics: { id: string; name: string; projectId: string; archived: boolean }[]
-          }>("middleware_topics_list", {
-            input: { projectId: route.projectId },
-          })
-          const topic = (topicResult.topics || []).find(
-            (t) => t.id === route.topicId && !t.archived,
-          )
-          if (!topic) return
+      try {
+        const projectResult = await invoke<{
+          projects: { id: string; name: string; archived: boolean }[]
+        }>("middleware_projects_list", { input: {} })
+        if (requestId !== routeRequestRef.current) return
 
-          setActiveTab("chat")
-          setActiveTopic({
-            id: topic.id,
-            name: topic.name,
-            projectId: project.id,
-            projectName: project.name,
-          })
-        } catch {
-          // silently fail — show greeting
+        const project = (projectResult.projects || []).find(
+          (p) => p.id === route.projectId && !p.archived,
+        )
+        if (!project) {
+          clearConversationState()
+          return
         }
-      })()
+
+        const topicResult = await invoke<{
+          topics: { id: string; name: string; projectId: string; archived: boolean }[]
+        }>("middleware_topics_list", {
+          input: { projectId: route.projectId },
+        })
+        if (requestId !== routeRequestRef.current) return
+
+        const topic = (topicResult.topics || []).find(
+          (t) => t.id === route.topicId && !t.archived,
+        )
+        if (!topic) {
+          clearConversationState()
+          return
+        }
+
+        setActiveTopic({
+          id: topic.id,
+          name: topic.name,
+          projectId: project.id,
+          projectName: project.name,
+        })
+      } catch {
+        if (requestId === routeRequestRef.current) clearConversationState()
+      }
     }
-  }, [])
+  }, [clearConversationState])
+
+  // Restore state from URL on mount
+  useEffect(() => {
+    void activateRoute(parseRoute(window.location.pathname))
+  }, [activateRoute])
 
   // Handle browser back/forward
   useEffect(() => {
     function onPopState() {
-      const route = parseRoute(window.location.pathname)
-
-      if (route.kind === "tab") {
-        setActiveTab(route.tab)
-        setActiveTopic(null)
-        setActiveChat(null)
-        setActiveSessionKey(null)
-        setActiveSessionTitle(null)
-        return
-      }
-
-      if (route.kind === "home") {
-        setActiveTab("chat")
-        setActiveTopic(null)
-        setActiveChat(null)
-        setActiveSessionKey(null)
-        setActiveSessionTitle(null)
-        return
-      }
-
-      if (route.kind === "chat") {
-        ;(async () => {
-          try {
-            const listResult = await invoke<{
-              chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
-            }>("middleware_chats_list", { input: {} })
-            const found = (listResult.chats || []).find(
-              (c) => c.id === route.chatId && !c.archived,
-            )
-            if (!found) return
-            setActiveTab("chat")
-            setActiveTopic(null)
-            setActiveChat({ id: found.id, name: found.name, sessionKey: found.sessionKey })
-            setActiveSessionKey(found.sessionKey ?? null)
-            setActiveSessionTitle(found.name)
-          } catch {}
-        })()
-        return
-      }
-
-      if (route.kind === "topic") {
-        ;(async () => {
-          try {
-            const projectResult = await invoke<{
-              projects: { id: string; name: string; archived: boolean }[]
-            }>("middleware_projects_list", { input: {} })
-            const project = (projectResult.projects || []).find(
-              (p) => p.id === route.projectId && !p.archived,
-            )
-            if (!project) return
-
-            const topicResult = await invoke<{
-              topics: { id: string; name: string; projectId: string; archived: boolean }[]
-            }>("middleware_topics_list", {
-              input: { projectId: route.projectId },
-            })
-            const topic = (topicResult.topics || []).find(
-              (t) => t.id === route.topicId && !t.archived,
-            )
-            if (!topic) return
-
-            setActiveTab("chat")
-            setActiveChat(null)
-            setActiveSessionKey(null)
-            setActiveSessionTitle(null)
-            setActiveTopic({
-              id: topic.id,
-              name: topic.name,
-              projectId: project.id,
-              projectName: project.name,
-            })
-          } catch {}
-        })()
-      }
+      void activateRoute(parseRoute(window.location.pathname))
     }
-
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
-  }, [])
+  }, [activateRoute])
 
   const handleSelectTool = useCallback((_toolCallId: string) => {
     if (!inspectorOpen) setInspectorOpen(true)
@@ -283,26 +258,28 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
 
   const openSettings = useCallback(() => {
+    routeRequestRef.current += 1
+    previousContentPathRef.current = window.location.pathname
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setActiveTab("settings")
+    clearConversationState()
     window.history.pushState(null, "", "/settings")
-  }, [activeTab])
+  }, [activeTab, clearConversationState])
 
   const openNotifications = useCallback(() => {
+    routeRequestRef.current += 1
+    previousContentPathRef.current = window.location.pathname
     prevTabRef.current = activeTab === "notifications" ? "chat" : activeTab
     setActiveTab("notifications")
+    clearConversationState()
     window.history.pushState(null, "", "/notifications")
-  }, [activeTab])
+  }, [activeTab, clearConversationState])
 
   const handleSettingsBack = useCallback(() => {
-    setActiveTab(prevTabRef.current)
-    const url = prevTabRef.current === "skill"
-      ? "/skill"
-      : prevTabRef.current === "connect"
-        ? "/connect"
-        : "/"
+    const url = previousContentPathRef.current || "/"
     window.history.pushState(null, "", url)
-  }, [])
+    void activateRoute(parseRoute(url))
+  }, [activateRoute])
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
   }, [resolvedTheme, setTheme])
@@ -371,15 +348,20 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   }, [])
 
   const handleTopicSelect = useCallback((topic: ActiveTopic) => {
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
     setActiveTab("chat")
     setActiveTopic(topic)
     setActiveChat(null)
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
+    setInitialMessages(undefined)
     window.history.pushState(null, "", `/${topic.projectId}/${topic.id}`)
   }, [])
 
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
     setActiveTab("chat")
     setActiveChat(chat)
     setActiveTopic(null)
@@ -410,93 +392,120 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
 
   const handleCronJobNavigate = useCallback(async (cronJob: ActiveChat) => {
     try {
+      const cronJobId = cronJob.cronJobId ?? cronJob.id
+      const conversation = await invoke<{
+        sessionKey: string | null
+        messages?: unknown[]
+      }>("middleware_cron_job_conversation", { input: { jobId: cronJobId } })
+      const fallbackSessionKey =
+        cronJob.sessionKey && !CRON_SESSION_TARGETS.has(cronJob.sessionKey)
+          ? cronJob.sessionKey
+          : null
+      const sessionKey = conversation.sessionKey ?? fallbackSessionKey
+
+      if (!sessionKey) {
+        console.error("Cron job has no conversation session yet", cronJob)
+        return false
+      }
+
+      if ((conversation.messages ?? []).length === 0) {
+        return false
+      }
+
       const listResult = await invoke<{ chats: { id: string; name: string; sessionKey?: string; archived: boolean }[] }>(
         "middleware_chats_list",
         { input: {} },
       )
       const existing = (listResult.chats || []).find(
-        (c) => !c.archived && c.name === cronJob.name,
+        (c) => !c.archived && (c.sessionKey === sessionKey || c.name === cronJob.name),
       )
 
       if (existing) {
-        handleChatSelect(existing)
-        return
+        if (existing.sessionKey !== sessionKey) {
+          await invoke("middleware_chats_attach_session", {
+            input: { chatId: existing.id, sessionKey },
+          })
+        }
+        handleChatSelect({ ...existing, sessionKey })
+        return true
       }
 
       const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string } }>(
         "middleware_chats_create",
-        { input: { name: cronJob.name } },
+        { input: { name: cronJob.name, sessionKey } },
       )
-      const sessionResult = await invoke<{ session: { key: string } }>(
-        "middleware_sessions_create",
-        { input: { agentId: "main", label: cronJob.name } },
-      )
-      await invoke("middleware_chats_attach_session", {
-        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
-      })
       setInitialMessages(undefined)
       setActiveTab("chat")
       setActiveTopic(null)
-      setActiveChat({ id: result.chat.id, name: cronJob.name, sessionKey: sessionResult.session.key })
-      setActiveSessionKey(sessionResult.session.key)
+      setActiveChat({ id: result.chat.id, name: cronJob.name, sessionKey })
+      setActiveSessionKey(sessionKey)
       setActiveSessionTitle(cronJob.name)
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", `/${result.chat.id}`)
+      return true
     } catch (err) {
       console.error("Failed to navigate to cron job chat", err)
+      return false
     }
   }, [handleChatSelect])
 
   const handleChatClear = useCallback(() => {
-    setActiveChat(null)
-    setActiveSessionKey(null)
-    setActiveSessionTitle(null)
-    setInitialMessages(undefined)
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    clearConversationState()
     window.history.pushState(null, "", "/")
-  }, [])
+  }, [clearConversationState])
 
-  const handleNewChat = useCallback(async () => {
-    try {
-      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string } }>(
-        "middleware_chats_create",
-        { input: {} },
-      )
-      const sessionResult = await invoke<{ session: { key: string } }>(
-        "middleware_sessions_create",
-        { input: { agentId: "main", label: result.chat.name } },
-      )
-      await invoke("middleware_chats_attach_session", {
-        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
-      })
-      setInitialMessages(undefined)
-      setActiveTab("chat")
-      setActiveTopic(null)
-      setActiveChat({ id: result.chat.id, name: result.chat.name, sessionKey: sessionResult.session.key })
-      setActiveSessionKey(sessionResult.session.key)
-      setActiveSessionTitle(result.chat.name)
-      setChatRefreshTrigger((n) => n + 1)
-      window.history.pushState(null, "", "/")
-    } catch (err) {
-      console.error("Failed to create new chat", err)
-    }
-  }, [])
+  const handleTopicClear = useCallback(() => {
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    clearConversationState()
+    window.history.pushState(null, "", "/")
+  }, [clearConversationState])
+
+  const handleNewChat = useCallback(() => {
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    setActiveTab("chat")
+    clearConversationState()
+    window.history.pushState(null, "", "/")
+  }, [clearConversationState])
+
+  const handlePromptDraft = useCallback((prompt: string) => {
+    routeRequestRef.current += 1
+    setPendingPrompt(prompt)
+    setActiveTab("chat")
+    clearConversationState()
+    window.history.pushState(null, "", "/")
+  }, [clearConversationState])
 
   const handleFirstMessageSent = useCallback(async (text: string) => {
     const chat = activeChatRef.current
     if (!chat) return
     try {
+      const fallbackName = fallbackChatNameFromText(text)
       const { name } = await invoke<{ name: string }>(
         "middleware_autonaming_quick",
         { input: { text } },
       )
+      const finalName = isWeakChatName(name) ? fallbackName : name
       await invoke("middleware_chats_rename", {
-        input: { chatId: chat.id, name },
+        input: { chatId: chat.id, name: finalName },
       })
-      setActiveChat((prev) => prev ? { ...prev, name } : prev)
-      setActiveSessionTitle(name)
+      setActiveChat((prev) => prev ? { ...prev, name: finalName } : prev)
+      setActiveSessionTitle(finalName)
       setChatRefreshTrigger((n) => n + 1)
       window.history.replaceState(null, "", `/${chat.id}`)
     } catch (err) {
+      const fallbackName = fallbackChatNameFromText(text)
+      try {
+        await invoke("middleware_chats_rename", {
+          input: { chatId: chat.id, name: fallbackName },
+        })
+        setActiveChat((prev) => prev ? { ...prev, name: fallbackName } : prev)
+        setActiveSessionTitle(fallbackName)
+        setChatRefreshTrigger((n) => n + 1)
+      } catch {}
       console.error("Auto-naming chat failed", err)
     }
   }, [])
@@ -513,45 +522,62 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [quickSending, setQuickSending] = useState(false)
 
   const handleQuickSend = useCallback(async (text: string) => {
-    if (quickSending || !text.trim()) return
+    const trimmed = text.trim()
+    if (quickSending || !trimmed) return
+    routeRequestRef.current += 1
     setQuickSending(true)
     try {
+      const fallbackName = fallbackChatNameFromText(trimmed)
       const result = await invoke<{ chat: { id: string; name: string } }>(
         "middleware_chats_create",
-        { input: {} },
+        { input: { name: fallbackName } },
       )
       const sessionResult = await invoke<{ session: { key: string } }>(
         "middleware_sessions_create",
-        { input: { agentId: "main", label: result.chat.name } },
+        { input: { agentId: "main", label: fallbackName } },
       )
       await invoke("middleware_chats_attach_session", {
         input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
       })
-      await invoke("middleware_chat_send", {
-        input: { sessionKey: sessionResult.session.key, text: text.trim() },
-      })
 
-      const { name } = await invoke<{ name: string }>(
-        "middleware_autonaming_quick",
-        { input: { text: text.trim() } },
-      )
-      await invoke("middleware_chats_rename", {
-        input: { chatId: result.chat.id, name },
-      })
-
-      setInitialMessages([{
+      const optimisticMessages: OptimisticMsg[] = [{
         messageId: crypto.randomUUID(),
         role: "user",
-        text: text.trim(),
+        text: trimmed,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
-      }])
+      }]
+      setPendingPrompt(null)
+      setInitialMessages(optimisticMessages)
+      setActiveTab("chat")
       setActiveTopic(null)
-      setActiveChat({ id: result.chat.id, name, sessionKey: sessionResult.session.key })
+      setActiveChat({ id: result.chat.id, name: fallbackName, sessionKey: sessionResult.session.key })
       setActiveSessionKey(sessionResult.session.key)
-      setActiveSessionTitle(name)
+      setActiveSessionTitle(fallbackName)
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", `/${result.chat.id}`)
+
+      await invoke("middleware_chat_send", {
+        input: { sessionKey: sessionResult.session.key, text: trimmed },
+      })
+
+      try {
+        const { name } = await invoke<{ name: string }>(
+          "middleware_autonaming_quick",
+          { input: { text: trimmed } },
+        )
+        const finalName = isWeakChatName(name) ? fallbackName : name
+        await invoke("middleware_chats_rename", {
+          input: { chatId: result.chat.id, name: finalName },
+        })
+        setActiveChat((prev) =>
+          prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
+        )
+        setActiveSessionTitle(finalName)
+        setChatRefreshTrigger((n) => n + 1)
+      } catch (err) {
+        console.error("Auto-naming chat failed", err)
+      }
     } catch (err) {
       console.error("Quick send failed", err)
     } finally {
@@ -559,11 +585,51 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
   }, [quickSending])
 
+  const handleTopicQuickSend = useCallback(async (text: string) => {
+    const trimmed = text.trim()
+    if (quickSending || !trimmed || !activeTopic) return
+    routeRequestRef.current += 1
+    setQuickSending(true)
+    try {
+      const sessionResult = await invoke<{ session: { key: string } }>(
+        "middleware_sessions_create",
+        {
+          input: {
+            projectId: activeTopic.projectId,
+            topicId: activeTopic.id,
+            agentId: "main",
+            label: activeTopic.name,
+          },
+        },
+      )
+      const optimisticMessages: OptimisticMsg[] = [{
+        messageId: crypto.randomUUID(),
+        role: "user",
+        text: trimmed,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+      }]
+      setPendingPrompt(null)
+      setInitialMessages(optimisticMessages)
+      setActiveSessionKey(sessionResult.session.key)
+      setActiveSessionTitle(activeTopic.name)
+
+      await invoke("middleware_chat_send", {
+        input: { sessionKey: sessionResult.session.key, text: trimmed },
+      })
+    } catch (err) {
+      console.error("Topic quick send failed", err)
+    } finally {
+      setQuickSending(false)
+    }
+  }, [activeTopic, quickSending])
+
   const handleTabChange = useCallback((tab: string) => {
     if (tab === "chat") {
       handleNewChat()
       return
     }
+    routeRequestRef.current += 1
     setActiveTab(tab)
     const tabUrls: Record<string, string> = {
       skill: "/skill",
@@ -573,17 +639,17 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
     const url = tabUrls[tab] ?? "/"
     window.history.pushState(null, "", url)
-    setActiveTopic(null)
-    setActiveChat(null)
-    setActiveSessionKey(null)
-    setActiveSessionTitle(null)
-  }, [handleNewChat])
+    setPendingPrompt(null)
+    clearConversationState()
+  }, [handleNewChat, clearConversationState])
 
-  const centerLabel = activeTopic
-    ? { project: activeTopic.projectName, topic: activeTopic.name }
-    : activeChat
-      ? { project: "Chat", topic: activeChat.name }
-      : null
+  const centerLabel = activeTab === "chat"
+    ? activeTopic
+      ? { project: activeTopic.projectName, topic: activeTopic.name }
+      : activeChat
+        ? { project: "Chat", topic: activeChat.name }
+        : null
+    : null
 
   const handleSignOut = useCallback(async () => {
     await signOut()
@@ -621,7 +687,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           onItemsChange={setSidebarItems}
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
-          onTopicClear={() => { setActiveTopic(null); setActiveSessionKey(null); setActiveSessionTitle(null); window.history.pushState(null, "", "/") }}
+          onTopicClear={handleTopicClear}
           activeChat={activeChat}
           onChatSelect={handleChatSelect}
           onChatClear={handleChatClear}
@@ -649,7 +715,8 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
               initialMessages={initialMessages}
               onSelectTool={handleSelectTool}
               pendingPrompt={pendingPrompt}
-              onNavigateToChat={handleCronJobNavigate}
+              onTopicQuickSend={handleTopicQuickSend}
+              onDraftPrompt={handlePromptDraft}
             />
           </main>
         </div>
@@ -677,7 +744,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         onClose={() => setCommandPaletteOpen(false)}
         onNavigateChat={() => { setPendingPrompt(null); handleNewChat() }}
         onNewChat={() => { setPendingPrompt(null); handleNewChat() }}
-        onSendPrompt={(prompt) => { setPendingPrompt(prompt); handleNewChat() }}
+        onSendPrompt={handlePromptDraft}
         onOpenSettings={openSettings}
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
@@ -704,7 +771,8 @@ function MainContent({
   initialMessages,
   onSelectTool,
   pendingPrompt,
-  onNavigateToChat,
+  onTopicQuickSend,
+  onDraftPrompt,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -723,7 +791,8 @@ function MainContent({
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   pendingPrompt?: string | null
-  onNavigateToChat?: (chat: ActiveChat) => void
+  onTopicQuickSend?: (text: string) => void
+  onDraftPrompt?: (prompt: string) => void
 }) {
   if (activeTab === "settings") {
     return (
@@ -738,7 +807,7 @@ function MainContent({
       <div className="flex h-full w-full">
         <NotificationDashboard
           onBack={onSettingsBack}
-          onNavigateToChat={onNavigateToChat}
+          onDraftPrompt={onDraftPrompt}
         />
       </div>
     )
@@ -748,10 +817,11 @@ function MainContent({
     return (
       <div className="flex h-full w-full">
         <ChatView
+          key={activeChat ? activeChat.id : activeTopic ? `${activeTopic.projectId}:${activeTopic.id}` : activeSessionKey}
           sessionKey={activeSessionKey}
           sessionTitle={activeSessionTitle ?? undefined}
           onFirstMessageSent={activeChat ? onFirstMessageSent : undefined}
-          initialMessages={activeChat ? initialMessages : undefined}
+          initialMessages={initialMessages}
           onSelectTool={onSelectTool}
           initialPrompt={pendingPrompt ?? undefined}
         />
@@ -794,11 +864,14 @@ function MainContent({
 
   if (activeTopic && !activeSessionKey) {
     return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
-        </div>
+      <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
+        <AnimatedGreeting />
+        <ChatBox
+          key={pendingPrompt ?? `${activeTopic.projectId}:${activeTopic.id}:draft`}
+          initialPrompt={pendingPrompt ?? undefined}
+          onSend={onTopicQuickSend}
+          disabled={quickSending}
+        />
       </div>
     )
   }
@@ -809,7 +882,12 @@ function MainContent({
   return (
     <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
       <AnimatedGreeting />
-      <ChatBox onSend={onQuickSend} disabled={quickSending} />
+      <ChatBox
+        key={pendingPrompt ?? "chat-draft"}
+        initialPrompt={pendingPrompt ?? undefined}
+        onSend={onQuickSend}
+        disabled={quickSending}
+      />
     </div>
   )
 }

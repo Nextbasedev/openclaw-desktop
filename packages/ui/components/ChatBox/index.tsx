@@ -31,12 +31,18 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
   const { models, currentModel } = useModels()
 
   React.useEffect(() => {
+    if (initialPrompt != null) {
+      setInput(initialPrompt)
+    }
+  }, [initialPrompt])
+
+  React.useEffect(() => {
     if (initialPrompt && textareaRef.current) {
       textareaRef.current.focus()
       textareaRef.current.setSelectionRange(initialPrompt.length, initialPrompt.length)
       autoResize()
     }
-  }, [])
+  }, [initialPrompt])
 
   const hasInput = input.trim().length > 0
 

@@ -13,6 +13,7 @@ import { useLongPressDrag } from "@/hooks/useLongPressDrag"
 import { MenuAction } from "../ProjectsSection/MenuAction"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { formatCompactTime } from "@/utils/formatCompactTime"
+import { chatDisplayName } from "@/utils/chatDisplayName"
 import type { Chat } from "@/types/chat"
 
 type Props = {
@@ -45,6 +46,7 @@ export function ChatRow({
   if (!chat) return null
 
   const timeStr = formatCompactTime(chat.updatedAt)
+  const displayName = chatDisplayName(chat)
 
   return (
     <Reorder.Item
@@ -95,7 +97,7 @@ export function ChatRow({
           />
         </span>
         <span className="flex-1 truncate text-[13px] font-light">
-          {chat.name}
+          {displayName}
         </span>
       </button>
 

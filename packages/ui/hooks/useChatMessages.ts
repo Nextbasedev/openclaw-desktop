@@ -53,6 +53,7 @@ export function useChatMessages(
   const isAtBottomRef = useRef(true)
 
   const isGenerating = status === "thinking" || status === "tool_running" || status === "streaming"
+  const initialMessageKey = initialMessages?.map((m) => m.messageId).join("|") ?? ""
 
   const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
     spawnMapRef.current.set(spawn.toolCallId, spawn)
@@ -310,13 +311,26 @@ export function useChatMessages(
   )
 
   useEffect(() => {
-    if (!initialMessages || initialMessages.length === 0) {
+    const seededMessages = initialMessages && initialMessages.length > 0
+      ? initialMessages
+      : undefined
+
+    setLoadError(null)
+    seenIds.current.clear()
+
+    if (seededMessages) {
+      for (const message of seededMessages) {
+        seenIds.current.add(message.messageId)
+      }
+      setLoading(false)
+      setMessages(seededMessages)
+      setStatus("thinking")
+    } else {
       setLoading(true)
       setMessages([])
       setStatus("idle")
     }
-    setLoadError(null)
-    seenIds.current.clear()
+
     pendingToolMapRef.current.clear()
     setPendingTools([])
     spawnMapRef.current.clear()
@@ -561,7 +575,7 @@ export function useChatMessages(
         subagentPollRef.current = null
       }
     }
-  }, [sessionKey, handleStreamEvent])
+  }, [sessionKey, handleStreamEvent, initialMessageKey, initialMessages])
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)

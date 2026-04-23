@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
-import { openEventStream } from "@/lib/ipc"
+import { invoke, openEventStream } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 import { Icons } from "@/components/icons"
 
@@ -39,23 +39,72 @@ function statusLabel(type: CronRunEvent["type"]): string {
   return "Failed"
 }
 
+function eventLabel(event: CronRunEvent): string {
+  const id = event.jobId.slice(0, 8)
+  return event.name ? `${id} - ${event.name}` : id
+}
+
+function mergeEventList(prev: CronRunEvent[], next: CronRunEvent): CronRunEvent[] {
+  const isDone = next.type !== "cron.run.started"
+  const deduped = prev.filter((event) => {
+    if (next.runId && event.runId === next.runId) return false
+    if (!next.runId && event.jobId === next.jobId && event.type === next.type) return false
+    if (isDone && event.jobId === next.jobId && event.type === "cron.run.started") return false
+    return true
+  })
+  return [next, ...deduped].slice(0, MAX_EVENTS)
+}
+
 export function ActivityTab() {
   const [events, setEvents] = useState<CronRunEvent[]>([])
+  const [loading, setLoading] = useState(true)
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
+  const jobNamesRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
+    let cancelled = false
+
+    async function hydrateActivity() {
+      setLoading(true)
+      try {
+        const activityResult = await invoke<{ events: CronRunEvent[] }>(
+          "middleware_cron_recent_activity",
+          { limit: MAX_EVENTS },
+        )
+        if (cancelled) return
+        for (const event of activityResult.events) {
+          if (event.name) jobNamesRef.current.set(event.jobId, event.name)
+        }
+        setEvents(activityResult.events.map((event) => ({
+          ...event,
+          name: event.name ?? jobNamesRef.current.get(event.jobId),
+        })))
+      } catch {
+        if (!cancelled) setEvents([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void hydrateActivity()
+
     const cleanup = openEventStream(
       "/api/stream/cron",
       (evt: MessageEvent) => {
         try {
           const event = JSON.parse(evt.data) as CronRunEvent
-          setEvents((prev) => [event, ...prev].slice(0, MAX_EVENTS))
+          if (!event.name) event.name = jobNamesRef.current.get(event.jobId)
+          if (event.name) jobNamesRef.current.set(event.jobId, event.name)
+          setEvents((prev) => mergeEventList(prev, event))
         } catch {
           // ignore
         }
       },
     )
-    return cleanup
+    return () => {
+      cancelled = true
+      cleanup()
+    }
   }, [])
 
   return (
@@ -69,7 +118,16 @@ export function ActivityTab() {
         </p>
       </div>
 
-      {events.length === 0 && (
+      {loading && events.length === 0 && (
+        <div className="rounded-xl border border-border/50 bg-card px-5 py-8 text-center">
+          <div className="mx-auto mb-3 size-6 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
+          <p className="text-sm text-muted-foreground">
+            Loading cron activity...
+          </p>
+        </div>
+      )}
+
+      {!loading && events.length === 0 && (
         <div className="rounded-xl border border-border/50 bg-card px-5 py-8 text-center">
           <Icons.Automations
             size={32}
@@ -79,7 +137,7 @@ export function ActivityTab() {
             No activity yet.
           </p>
           <p className="mt-1 text-[12px] text-muted-foreground/60">
-            Cron job runs will appear here in real-time.
+            Cron job runs will appear here after the first run.
           </p>
         </div>
       )}
@@ -103,6 +161,8 @@ export function ActivityTab() {
                   duration: 0.25,
                   ease: [0.25, 0.46, 0.45, 0.94],
                 }}
+                data-cron-activity-job-id={event.jobId}
+                data-cron-activity-job-name={event.name ?? ""}
                 className={cn(
                   "flex flex-col rounded-xl",
                   "border border-border/50 bg-card",
@@ -140,7 +200,7 @@ export function ActivityTab() {
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-[13px] font-medium text-foreground">
-                        {event.name ?? event.jobId.slice(0, 12)}
+                        {eventLabel(event)}
                       </span>
                       <span
                         className={cn(

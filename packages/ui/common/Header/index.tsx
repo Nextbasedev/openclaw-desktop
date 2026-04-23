@@ -25,7 +25,7 @@ type HeaderProps = {
     centerLabel?: { project: string; topic: string } | null
     onOpenSettings?: () => void
     onOpenNotifications?: () => void
-    onNavigateToChat?: (chat: ActiveChat) => void
+    onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
 }
 
 const DEFAULT_USER: HeaderUser = {
@@ -73,7 +73,7 @@ export function Header({
 
             {/* ── Center label (active project › topic) ── */}
             {centerLabel && (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-1">
+                <div data-center-label="true" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-1">
                     <span className="truncate text-[11.5px] text-foreground/35">
                         {centerLabel.project}
                     </span>

@@ -5,6 +5,7 @@ import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
 import { ChatRow } from "./ChatRow"
 import { ChatDialogs } from "./ChatDialogs"
+import { chatDisplayName } from "@/utils/chatDisplayName"
 import type { ActiveChat } from "@/types/chat"
 
 export type { ActiveChat }
@@ -87,7 +88,7 @@ export function ChatsSection({
                   onClick={() =>
                     onChatSelect({
                       id: chat.id,
-                      name: chat.name,
+                      name: chatDisplayName(chat),
                       sessionKey: chat.sessionKey,
                     })
                   }

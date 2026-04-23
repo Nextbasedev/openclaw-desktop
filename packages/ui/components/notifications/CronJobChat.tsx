@@ -100,41 +100,72 @@ function formatDateTime(iso?: string): string | null {
   }
 }
 
-function RunStatusBanner({ lastRun }: { lastRun: LastRun }) {
-  const isFailed = lastRun.status === "error" || lastRun.status === "failed"
+function RunStatusBanner({ lastRun }: { lastRun: LastRun | null }) {
+  const isFailed = lastRun?.status === "error" || lastRun?.status === "failed"
+  const isRunning = lastRun?.status === "running"
+  const label = !lastRun
+    ? "Never run"
+    : isRunning
+      ? "Running now"
+      : isFailed
+        ? "Last run failed"
+        : lastRun.status === "completed"
+          ? "Last run completed"
+          : `Last run ${lastRun.status}`
   return (
     <div
       className={cn(
         "rounded-xl border px-4 py-3",
         isFailed
           ? "border-red-500/20 bg-red-500/5"
-          : "border-chart-1/20 bg-chart-1/5",
+          : isRunning
+            ? "border-chart-2/20 bg-chart-2/5"
+            : lastRun
+              ? "border-chart-1/20 bg-chart-1/5"
+              : "border-white/[0.08] bg-white/[0.04]",
       )}
     >
       <div className="flex items-center gap-2">
         <span
           className={cn(
             "size-2 rounded-full",
-            isFailed ? "bg-red-400" : "bg-chart-1",
+            isFailed
+              ? "bg-red-400"
+              : isRunning
+                ? "animate-pulse bg-chart-2"
+                : lastRun
+                  ? "bg-chart-1"
+                  : "bg-muted-foreground/50",
           )}
         />
         <span
           className={cn(
             "text-[12px] font-medium",
-            isFailed ? "text-red-400" : "text-chart-1",
+            isFailed
+              ? "text-red-400"
+              : isRunning
+                ? "text-chart-2"
+                : lastRun
+                  ? "text-chart-1"
+                  : "text-muted-foreground",
           )}
         >
-          Last run {lastRun.status}
+          {label}
         </span>
-        {lastRun.startedAt && (
+        {lastRun?.startedAt && (
           <span className="text-[11px] text-muted-foreground/50">
             {formatDateTime(lastRun.startedAt)}
           </span>
         )}
       </div>
-      {isFailed && lastRun.error && (
+      {isFailed && lastRun?.error && (
         <p className="mt-1.5 text-[11px] leading-relaxed text-red-400/80">
           {lastRun.error}
+        </p>
+      )}
+      {!lastRun && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/60">
+          This job has not produced a run yet.
         </p>
       )}
     </div>
@@ -192,6 +223,7 @@ export function CronJobChat({
         <button
           type="button"
           onClick={onBack}
+          aria-label="Back to cron jobs"
           className="flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
           <Icons.Back size={16} />
@@ -230,7 +262,7 @@ export function CronJobChat({
         </div>
       ) : (
         <>
-          {lastRun && <RunStatusBanner lastRun={lastRun} />}
+          <RunStatusBanner lastRun={lastRun} />
           {messages.length === 0 ? (
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-12 text-center backdrop-blur-xl">
               <Icons.Chat

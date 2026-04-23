@@ -40,15 +40,7 @@ export function useTopicSession(
           return
         }
 
-        const uniqueLabel = `${activeTopic!.name}-${Date.now()}`
-        const created = await invoke<{ session: { key: string } }>(
-          "middleware_sessions_create",
-          { input: { projectId: activeTopic!.projectId, topicId: activeTopic!.id, agentId: "main", label: uniqueLabel } },
-        )
-        if (cancelled) return
-
-        resolvedRef.current = activeTopic!.id
-        onSessionResolved(created.session.key, activeTopic!.name)
+        resolvedRef.current = null
       } catch (err) {
         if (!cancelled) setError(String(err))
       } finally {
