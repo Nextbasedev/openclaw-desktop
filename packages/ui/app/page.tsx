@@ -100,6 +100,24 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
 
+  // Keep the previous session alive (hidden) so its SSE connection
+  // and notification logic survive when the user switches away.
+  const [backgroundSessionKey, setBackgroundSessionKey] = useState<string | null>(null)
+  const [backgroundSessionTitle, setBackgroundSessionTitle] = useState<string | null>(null)
+  const prevActiveSessionKeyRef = useRef<string | null>(null)
+  const prevActiveSessionTitleRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const prevKey = prevActiveSessionKeyRef.current
+    const prevTitle = prevActiveSessionTitleRef.current
+    if (prevKey && prevKey !== activeSessionKey) {
+      setBackgroundSessionKey(prevKey)
+      setBackgroundSessionTitle(prevTitle)
+    }
+    prevActiveSessionKeyRef.current = activeSessionKey
+    prevActiveSessionTitleRef.current = activeSessionTitle
+  }, [activeSessionKey, activeSessionTitle])
+
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
   const activeChatRef = useRef<ActiveChat | null>(null)
@@ -282,6 +300,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
   }, [inspectorOpen, terminalActive])
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   const openSettings = useCallback(() => {
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
@@ -620,6 +639,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         <Sidebar
           width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
           collapsed={!sidebarOpen}
+          onClose={closeSidebar}
           onResizeStart={handleResizeStart}
           activeTab={activeTab}
           onTabChange={handleTabChange}
@@ -636,7 +656,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <main className="flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
+          <main className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
             <MainContent
               activeTab={activeTab}
               activeTopic={activeTopic}
@@ -657,6 +677,18 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
               pendingPrompt={pendingPrompt}
               onNavigateToChat={handleCronJobNavigate}
             />
+            {/* Keep the previous session alive in the background so it can
+                finish generating and trigger a notification after the user
+                switches to another session or page. */}
+            {backgroundSessionKey && backgroundSessionKey !== activeSessionKey && (
+              <div className="hidden">
+                <ChatView
+                  sessionKey={backgroundSessionKey}
+                  sessionTitle={backgroundSessionTitle ?? undefined}
+                  isBackgroundSession
+                />
+              </div>
+            )}
           </main>
         </div>
 
