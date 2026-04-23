@@ -457,7 +457,7 @@ function CommitDetailView({
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left Side: File List (GitHub Desktop style) */}
-        <div className="w-[200px] shrink-0 border-r border-border/10 flex flex-col bg-muted/5 backdrop-blur-sm">
+        <div className="w-[200px] shrink-0 border-r border-border/10 flex flex-col bg-muted/5 backdrop-blur-sm max-md:w-[144px]">
           <div className="px-3 py-2 border-b border-border/10">
              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
                Changed Files
