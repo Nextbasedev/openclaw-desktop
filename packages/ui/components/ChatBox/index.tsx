@@ -153,14 +153,16 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
           isPreparing={isPreparingAttachments}
           onRemove={removeAttachment}
         />
-        {slashMenuOpen && commands.length > 0 && (
-          <SlashCommandMenu
-            commands={commands}
-            filter={slashFilter}
-            selectedIndex={slashSelectedIndex}
-            onSelect={handleSlashSelect}
-          />
-        )}
+        <AnimatePresence initial={false}>
+          {slashMenuOpen && commands.length > 0 && (
+            <SlashCommandMenu
+              commands={commands}
+              filter={slashFilter}
+              selectedIndex={slashSelectedIndex}
+              onSelect={handleSlashSelect}
+            />
+          )}
+        </AnimatePresence>
         <div className="flex w-full flex-col pt-3">
           <textarea
             ref={textareaRef}

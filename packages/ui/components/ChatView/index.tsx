@@ -22,6 +22,8 @@ type Props = {
   initialPrompt?: string
   activeSubagentKey?: string | null
   onSubagentOpen?: (key: string | null) => void
+  /** When true the view is mounted in a hidden div (background session). */
+  isBackgroundSession?: boolean
 }
 
 export function ChatView({
@@ -33,6 +35,7 @@ export function ChatView({
   initialPrompt,
   activeSubagentKey: externalSubagentKey,
   onSubagentOpen,
+  isBackgroundSession = false,
 }: Props) {
   const {
     messages, status, statusLabel, loading, loadError,
@@ -45,22 +48,16 @@ export function ChatView({
     .filter((m) => m.role === "assistant")
     .at(-1)?.text
 
-  useChatCompletionNotify({
-    sessionKey,
-    sessionTitle,
-    status,
-    lastAssistantText,
-  })
-
   // Keep a stable ref for handleSend so the toast listener doesn't re-attach
   const handleSendRef = useRef(handleSend)
   handleSendRef.current = handleSend
 
-  // Listen for Windows toast reply / open events
-  useEffect(() => {
-    let unlistenReply: (() => void) | null = null
-    let unlistenOpen: (() => void) | null = null
+  // Listen for Windows toast reply / open events.
+  // Use a ref for unlisten functions so Strict Mode double-mounts
+  // don't leave dangling listeners behind.
+  const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
 
+  useEffect(() => {
     const setup = async () => {
       const tauri = (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
       if (!tauri) return
@@ -68,16 +65,33 @@ export function ChatView({
         const { listen } = await import("@tauri-apps/api/event")
         const { getCurrentWindow } = await import("@tauri-apps/api/window")
 
-        unlistenReply = await listen<{ sessionKey: string; text: string }>("toast-reply", (event) => {
+        // Clean up any previous dangling listeners (React Strict Mode)
+        toastUnlistenRef.current.reply?.()
+        toastUnlistenRef.current.open?.()
+
+        toastUnlistenRef.current.reply = await listen<{ sessionKey: string; text: string }>("toast-reply", (event) => {
           if (event.payload.sessionKey === sessionKey) {
-            void getCurrentWindow().setFocus()
-            void handleSendRef.current({ text: event.payload.text }).catch(() => {})
+            void handleSendRef.current({ text: event.payload.text })
+              .then(async () => {
+                try {
+                  const win = getCurrentWindow()
+                  // Only minimize if the app wasn't already focused
+                  // (user replied from a background toast). If they're
+                  // already inside the app, keep the window open.
+                  const focused = await win.isFocused()
+                  if (!focused) await win.minimize()
+                } catch {
+                  // Ignore window API errors
+                }
+              })
+              .catch(() => {})
           }
         })
 
-        unlistenOpen = await listen<{ sessionKey: string }>("toast-open", (event) => {
+        toastUnlistenRef.current.open = await listen<{ sessionKey: string }>("toast-open", (event) => {
           if (event.payload.sessionKey === sessionKey) {
-            void getCurrentWindow().setFocus()
+            const win = getCurrentWindow()
+            void win.unminimize().then(() => win.setFocus()).catch(() => {})
           }
         })
       } catch {
@@ -86,8 +100,8 @@ export function ChatView({
     }
     setup()
     return () => {
-      unlistenReply?.()
-      unlistenOpen?.()
+      toastUnlistenRef.current.reply?.()
+      toastUnlistenRef.current.open?.()
     }
   }, [sessionKey])
 
@@ -95,6 +109,19 @@ export function ChatView({
   const activeSubKey = externalSubagentKey ?? internalSubagentKey
 
   const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(null)
+
+  // Only suppress notifications when the main chat for THIS session is visible.
+  // If a subagent is open, the user is on another page, or this is a
+  // background (hidden) session, notify normally.
+  const isMainChatVisible = !isBackgroundSession && !(activeSubKey && activeSubagent)
+
+  useChatCompletionNotify({
+    sessionKey,
+    sessionTitle,
+    status,
+    lastAssistantText,
+    isVisible: isMainChatVisible,
+  })
 
   const openSubagent = useCallback((sub: SpawnedSubagent) => {
     setActiveSubagent(sub)

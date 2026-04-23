@@ -18,7 +18,13 @@ type Props = {
   onTopicClear: () => void
 }
 
-export function ProjectsSection({ collapsed, collapsible = true, activeTopic, onTopicSelect, onTopicClear }: Props) {
+export function ProjectsSection({
+  collapsed,
+  collapsible = true,
+  activeTopic,
+  onTopicSelect,
+  onTopicClear,
+}: Props) {
   const [isOpen, setIsOpen] = useState(true)
   const showList = !collapsible || isOpen
   const {

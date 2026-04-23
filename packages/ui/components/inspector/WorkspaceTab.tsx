@@ -746,12 +746,33 @@ const FILE_SIDEBAR_MIN = 140
 const FILE_SIDEBAR_MAX = 260
 const FILE_SIDEBAR_DEFAULT = 180
 
+function getFileSidebarDefaults() {
+  if (typeof window === "undefined") {
+    return {
+      min: FILE_SIDEBAR_MIN,
+      max: FILE_SIDEBAR_MAX,
+      default: FILE_SIDEBAR_DEFAULT,
+    }
+  }
+
+  if (window.innerWidth < 768) {
+    return { min: 108, max: 168, default: 128 }
+  }
+
+  return {
+    min: FILE_SIDEBAR_MIN,
+    max: FILE_SIDEBAR_MAX,
+    default: FILE_SIDEBAR_DEFAULT,
+  }
+}
+
 export function WorkspaceTab() {
+  const fileSidebarRef = useRef(getFileSidebarDefaults())
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [tree, setTree] = useState<FileNode[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const [sidebarWidth, setSidebarWidth] = useState(FILE_SIDEBAR_DEFAULT)
+  const [sidebarWidth, setSidebarWidth] = useState(fileSidebarRef.current.default)
   const [isDragging, setIsDragging] = useState(false)
   const [treeLoading, setTreeLoading] = useState(true)
   const [treeError, setTreeError] = useState<string | null>(null)
@@ -769,6 +790,19 @@ export function WorkspaceTab() {
     })
     obs.observe(el)
     return () => obs.disconnect()
+  }, [])
+
+  useEffect(() => {
+    function onResize() {
+      const next = getFileSidebarDefaults()
+      fileSidebarRef.current = next
+      setSidebarWidth((prev) =>
+        Math.min(next.max, Math.max(next.min, prev)),
+      )
+    }
+
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
   }, [])
 
   const expandedIdsRef = useRef(expandedIds)
@@ -854,7 +888,8 @@ export function WorkspaceTab() {
     function onMouseMove(e: MouseEvent) {
       if (!dragRef.current) return
       const delta = e.clientX - dragRef.current.startX
-      const newWidth = Math.min(FILE_SIDEBAR_MAX, Math.max(FILE_SIDEBAR_MIN, dragRef.current.startWidth + delta))
+      const { min, max } = fileSidebarRef.current
+      const newWidth = Math.min(max, Math.max(min, dragRef.current.startWidth + delta))
       setSidebarWidth(newWidth)
     }
     function onMouseUp() {
