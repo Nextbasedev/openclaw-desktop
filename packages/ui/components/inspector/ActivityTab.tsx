@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
-import { VscChevronDown, VscChevronRight, VscPulse, VscSettings } from "react-icons/vsc"
+import { VscChevronDown, VscChevronRight, VscPulse } from "react-icons/vsc"
 import { ToolCallRow, StatusBadge, TREE_DOT_COLORS, COUNT_BADGE_COLORS } from "./ActivityNodes"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import type { AgentNode } from "./activity-types"
@@ -69,6 +69,38 @@ function AgentTreeItem({
   )
 }
 
+function AgentHeaderIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 1.5 14 14"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      className="h-[18px] w-[18px]"
+    >
+      <g clipPath="url(#agent-header-icon-clip)">
+        <path d="M10.5007 3.8335H3.50065C2.85632 3.8335 2.33398 4.35583 2.33398 5.00016V12.0002C2.33398 12.6445 2.85632 13.1668 3.50065 13.1668H10.5007C11.145 13.1668 11.6673 12.6445 11.6673 12.0002V5.00016C11.6673 4.35583 11.145 3.8335 10.5007 3.8335Z" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8.16667 6.75H5.83333C5.51117 6.75 5.25 7.01117 5.25 7.33333V9.66667C5.25 9.98883 5.51117 10.25 5.83333 10.25H8.16667C8.48883 10.25 8.75 9.98883 8.75 9.66667V7.33333C8.75 7.01117 8.48883 6.75 8.16667 6.75Z" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8.75 2.6665V3.83317" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8.75 13.1665V14.3332" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M1.16602 10.25H2.33268" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M1.16602 6.75H2.33268" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M11.666 10.25H12.8327" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M11.666 6.75H12.8327" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.25 2.6665V3.83317" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.25 13.1665V14.3332" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+      <defs>
+        <clipPath id="agent-header-icon-clip">
+          <rect width="14" height="14" fill="white" transform="translate(0 1.5)" />
+        </clipPath>
+      </defs>
+    </svg>
+  )
+}
+
 export function ActivityTab({
   sessionKey,
   activeAgentId,
@@ -131,13 +163,18 @@ export function ActivityTab({
 
   return (
     <div className="flex h-full overflow-hidden bg-[#0b0c0f]">
-      <aside className="flex w-[240px] shrink-0 flex-col border-r border-white/6 bg-[#0f1014]">
+      <aside className="flex w-[240px] shrink-0 flex-col border-r border-white/6 bg-[#0f1014] max-md:w-[168px]">
         <div className="border-b border-white/6 px-4 py-3.5">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7979a0]">
-            <VscSettings className="size-3.5" />
-            Agents
-            <span className="ml-auto text-[10px] font-normal tracking-normal text-foreground/45">
-              {subagentCount} subagents
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7979a0] max-md:tracking-[0.14em]">
+              <span className="flex shrink-0 items-center justify-center text-[#9a9ad2]">
+                <AgentHeaderIcon />
+              </span>
+              <span className="truncate">Agents</span>
+            </div>
+            <span className="inline-flex shrink-0 items-center rounded-full border border-white/8 bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-foreground/55 max-md:px-1.5">
+              <span className="md:hidden">{subagentCount} sub</span>
+              <span className="max-md:hidden">{subagentCount} subagents</span>
             </span>
           </div>
         </div>

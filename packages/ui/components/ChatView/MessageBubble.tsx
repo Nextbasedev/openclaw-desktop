@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
+import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { LuCopy, LuCheck, LuChevronLeft, LuChevronRight, LuX, LuPenLine } from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
@@ -94,6 +95,7 @@ export function MessageBubble({
   isActivelyStreaming?: boolean
 }) {
   const isUser = message.role === "user"
+  const shouldAnimateSend = isUser && message.isOptimistic
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -145,7 +147,18 @@ export function MessageBubble({
   )
 
   return (
-    <div className={cn("group/msg flex w-full", isUser ? "justify-end" : "justify-start")}>
+    <motion.div
+      initial={shouldAnimateSend ? { opacity: 0, y: 12, scale: 0.985 } : false}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{
+        duration: shouldAnimateSend ? 0.16 : 0.12,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      className={cn(
+        "group/msg flex w-full transform-gpu",
+        isUser ? "justify-end" : "justify-start",
+      )}
+    >
       <div className={cn("flex max-w-[85%] flex-col", isUser ? "items-end" : "items-start")}>
         {isUser && editing ? (
           <div className="flex w-full min-w-[280px] flex-col gap-2 rounded-2xl border border-border/30 bg-foreground/5 p-3">
@@ -234,7 +247,7 @@ export function MessageBubble({
           )
         )}
       </div>
-    </div>
+    </motion.div>
   )
 }
 

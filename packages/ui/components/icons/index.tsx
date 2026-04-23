@@ -154,6 +154,22 @@ export const Icons = {
     Trash: wrapHugeicon(Delete02Icon),
     Archive: wrapHugeicon(Archive02Icon),
     Model: wrapReactIcon(LuZap),
+    ChevronDown: ({ size = 20, className, ...props }: IconProps) => (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+            {...props}
+        >
+            <path d="m6 9 6 6 6-6" />
+        </svg>
+    ),
 }
 
 /**
