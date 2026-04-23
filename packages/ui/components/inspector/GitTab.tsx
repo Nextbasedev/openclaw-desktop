@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { invoke } from "@/lib/ipc"
 import { VscGitCommit, VscSourceControl, VscRefresh, VscArrowLeft, VscFile, VscMarkdown } from "react-icons/vsc"
@@ -11,6 +11,15 @@ import {
   type FileState, type GitFile, type GitContextResponse, type BranchesResponse,
   STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff,
 } from "./git-helpers"
+
+type ProjectSummary = {
+  id: string
+  name: string
+  profileId?: string
+  workspaceRoot?: string
+  repoRoot?: string | null
+  archived?: boolean
+}
 
 function StateBadge({ state }: { state: FileState }) {
   const config = STATE_CONFIG[state]
@@ -25,6 +34,7 @@ function StateBadge({ state }: { state: FileState }) {
 }
 
 export function GitTab({ projectId }: { projectId: string | null }) {
+  const [pickedProjectId, setPickedProjectId] = useState<string | null>(null)
   const [context, setContext] = useState<GitContextResponse | null>(null)
   const [branches, setBranches] = useState<BranchesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -32,63 +42,150 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   const [switching, setSwitching] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [selectedCommit, setSelectedCommit] = useState<{ hash: string; message: string } | null>(null)
+  const effectiveProjectId = projectId ?? pickedProjectId ?? null
+  const skipNextAutoLoadRef = useRef<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!projectId) return
+  const loadProject = useCallback(async (targetProjectId: string | null) => {
+    if (!targetProjectId) return
     setLoading(true)
     try {
       const [ctx, br] = await Promise.all([
-        invoke<GitContextResponse>("middleware_git_context", { input: { projectId } }),
-        invoke<BranchesResponse>("middleware_git_branches", { input: { projectId } }),
+        invoke<GitContextResponse>("middleware_git_context", {
+          input: { projectId: targetProjectId },
+        }),
+        invoke<BranchesResponse>("middleware_git_branches", {
+          input: { projectId: targetProjectId },
+        }),
       ])
       setContext(ctx)
       setBranches(br)
     } catch { /* ignore */ }
     finally { setLoading(false) }
-  }, [projectId])
+  }, [])
+
+  const load = useCallback(async () => {
+    await loadProject(effectiveProjectId)
+  }, [effectiveProjectId, loadProject])
 
   useEffect(() => {
-    setContext(null)
-    setBranches(null)
-    load()
-  }, [load])
+    if (!effectiveProjectId) {
+      setContext(null)
+      setBranches(null)
+      setLoading(false)
+      return
+    }
+
+    if (skipNextAutoLoadRef.current === effectiveProjectId) {
+      skipNextAutoLoadRef.current = null
+      return
+    }
+
+    void loadProject(effectiveProjectId)
+  }, [effectiveProjectId, loadProject])
 
   const handleSwitchBranch = useCallback(async (branchName: string) => {
-    if (!projectId || switching) return
+    if (!effectiveProjectId || switching) return
     setSwitching(true)
     setBranchDropdown(false)
     try {
       await invoke("middleware_git_switch_branch", {
-        input: { projectId, branchName },
+        input: { projectId: effectiveProjectId, branchName },
       })
       await load()
     } catch { /* ignore */ }
     finally { setSwitching(false) }
-  }, [projectId, switching, load])
+  }, [effectiveProjectId, switching, load])
 
   const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
-    if (!projectId) return
     setRepoPickerOpen(false)
     try {
+      let targetProjectId = effectiveProjectId
+
+      if (!targetProjectId) {
+        const projectList = await invoke<{ projects: ProjectSummary[] }>(
+          "middleware_projects_list",
+        )
+        const matchingProject = (projectList.projects ?? []).find((project) =>
+          !project.archived &&
+          (project.repoRoot === repo.path || project.workspaceRoot === repo.path),
+        )
+
+        if (matchingProject?.id) {
+          targetProjectId = matchingProject.id
+        } else {
+          let profileId = "prof_local_main"
+          try {
+            const profileRes = await invoke<{
+              profiles: Array<{ id: string }>
+            }>("middleware_profiles_list")
+            if (profileRes.profiles?.[0]?.id) {
+              profileId = profileRes.profiles[0].id
+            }
+          } catch {
+            // ignore
+          }
+
+          const created = await invoke<{ project: { id: string } }>(
+            "middleware_projects_create",
+            {
+              input: {
+                name: repo.name,
+                profileId,
+                workspaceRoot: repo.path,
+                repoRoot: repo.path,
+              },
+            },
+          )
+          targetProjectId = created.project.id
+        }
+
+        setLoading(true)
+        skipNextAutoLoadRef.current = targetProjectId
+        setPickedProjectId(targetProjectId)
+      }
+
+      if (!targetProjectId) return
+
       await invoke("middleware_projects_update", {
-        input: { projectId, repoRoot: repo.path, workspaceRoot: repo.path },
+        input: {
+          projectId: targetProjectId,
+          repoRoot: repo.path,
+          workspaceRoot: repo.path,
+        },
       })
       await invoke("middleware_repos_select", {
         input: { path: repo.path, name: repo.name },
       })
       setContext(null)
       setBranches(null)
-      await load()
+      await loadProject(targetProjectId)
     } catch { /* ignore */ }
-  }, [projectId, load])
+  }, [effectiveProjectId, loadProject])
 
-  if (!projectId) {
+  if (!effectiveProjectId) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-4">
         <VscSourceControl className="size-8 text-muted-foreground/20" />
-        <p className="text-center text-[12px] text-muted-foreground/60">
-          Select a topic to view git info
-        </p>
+        <div className="text-center">
+          <p className="text-[13px] font-medium text-foreground/80">
+            No project selected
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground/60">
+            Use the same repository picker to load git branches, changes, and commits.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setRepoPickerOpen(true)}
+          className="glass-btn-primary px-4 py-1.5 text-[12px]"
+        >
+          Select a Project
+        </button>
+        <RepoPickerDialog
+          open={repoPickerOpen}
+          onClose={() => setRepoPickerOpen(false)}
+          onSelect={handleRepoSelect}
+        />
       </div>
     )
   }
@@ -130,7 +227,7 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   if (selectedCommit) {
     return (
       <CommitDetailView
-        projectId={projectId}
+        projectId={effectiveProjectId}
         hash={selectedCommit.hash}
         message={selectedCommit.message}
         onBack={() => setSelectedCommit(null)}
@@ -360,7 +457,7 @@ function CommitDetailView({
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left Side: File List (GitHub Desktop style) */}
-        <div className="w-[200px] shrink-0 border-r border-border/10 flex flex-col bg-muted/5 backdrop-blur-sm">
+        <div className="w-[200px] shrink-0 border-r border-border/10 flex flex-col bg-muted/5 backdrop-blur-sm max-md:w-[144px]">
           <div className="px-3 py-2 border-b border-border/10">
              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
                Changed Files

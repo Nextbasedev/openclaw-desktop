@@ -22,6 +22,7 @@ import { CommandPalette } from "@/components/CommandPalette"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
@@ -100,6 +101,24 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [activeTopic, setActiveTopic] = useState<ActiveTopic | null>(null)
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
+
+  // Keep the previous session alive (hidden) so its SSE connection
+  // and notification logic survive when the user switches away.
+  const [backgroundSessionKey, setBackgroundSessionKey] = useState<string | null>(null)
+  const [backgroundSessionTitle, setBackgroundSessionTitle] = useState<string | null>(null)
+  const prevActiveSessionKeyRef = useRef<string | null>(null)
+  const prevActiveSessionTitleRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const prevKey = prevActiveSessionKeyRef.current
+    const prevTitle = prevActiveSessionTitleRef.current
+    if (prevKey && prevKey !== activeSessionKey) {
+      setBackgroundSessionKey(prevKey)
+      setBackgroundSessionTitle(prevTitle)
+    }
+    prevActiveSessionKeyRef.current = activeSessionKey
+    prevActiveSessionTitleRef.current = activeSessionTitle
+  }, [activeSessionKey, activeSessionTitle])
 
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
@@ -256,6 +275,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
   }, [inspectorOpen, terminalActive])
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   const openSettings = useCallback(() => {
     routeRequestRef.current += 1
@@ -521,13 +541,13 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
 
   const [quickSending, setQuickSending] = useState(false)
 
-  const handleQuickSend = useCallback(async (text: string) => {
-    const trimmed = text.trim()
-    if (quickSending || !trimmed) return
+  const handleQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
+    const text = payload.text.trim()
+    if (quickSending || !text) return
     routeRequestRef.current += 1
     setQuickSending(true)
     try {
-      const fallbackName = fallbackChatNameFromText(trimmed)
+      const fallbackName = fallbackChatNameFromText(text)
       const result = await invoke<{ chat: { id: string; name: string } }>(
         "middleware_chats_create",
         { input: { name: fallbackName } },
@@ -543,7 +563,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       const optimisticMessages: OptimisticMsg[] = [{
         messageId: crypto.randomUUID(),
         role: "user",
-        text: trimmed,
+        text,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
       }]
@@ -558,13 +578,17 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       window.history.pushState(null, "", `/${result.chat.id}`)
 
       await invoke("middleware_chat_send", {
-        input: { sessionKey: sessionResult.session.key, text: trimmed },
+        input: {
+          sessionKey: sessionResult.session.key,
+          text,
+          attachments: payload.attachments,
+        },
       })
 
       try {
         const { name } = await invoke<{ name: string }>(
           "middleware_autonaming_quick",
-          { input: { text: trimmed } },
+          { input: { text } },
         )
         const finalName = isWeakChatName(name) ? fallbackName : name
         await invoke("middleware_chats_rename", {
@@ -585,9 +609,9 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     }
   }, [quickSending])
 
-  const handleTopicQuickSend = useCallback(async (text: string) => {
-    const trimmed = text.trim()
-    if (quickSending || !trimmed || !activeTopic) return
+  const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
+    const text = payload.text.trim()
+    if (quickSending || !text || !activeTopic) return
     routeRequestRef.current += 1
     setQuickSending(true)
     try {
@@ -605,7 +629,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       const optimisticMessages: OptimisticMsg[] = [{
         messageId: crypto.randomUUID(),
         role: "user",
-        text: trimmed,
+        text,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
       }]
@@ -615,7 +639,11 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       setActiveSessionTitle(activeTopic.name)
 
       await invoke("middleware_chat_send", {
-        input: { sessionKey: sessionResult.session.key, text: trimmed },
+        input: {
+          sessionKey: sessionResult.session.key,
+          text,
+          attachments: payload.attachments,
+        },
       })
     } catch (err) {
       console.error("Topic quick send failed", err)
@@ -680,6 +708,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         <Sidebar
           width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
           collapsed={!sidebarOpen}
+          onClose={closeSidebar}
           onResizeStart={handleResizeStart}
           activeTab={activeTab}
           onTabChange={handleTabChange}
@@ -696,7 +725,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <main className="flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
+          <main className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
             <MainContent
               activeTab={activeTab}
               activeTopic={activeTopic}
@@ -718,6 +747,18 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
               onTopicQuickSend={handleTopicQuickSend}
               onDraftPrompt={handlePromptDraft}
             />
+            {/* Keep the previous session alive in the background so it can
+                finish generating and trigger a notification after the user
+                switches to another session or page. */}
+            {backgroundSessionKey && backgroundSessionKey !== activeSessionKey && (
+              <div className="hidden">
+                <ChatView
+                  sessionKey={backgroundSessionKey}
+                  sessionTitle={backgroundSessionTitle ?? undefined}
+                  isBackgroundSession
+                />
+              </div>
+            )}
           </main>
         </div>
 
@@ -786,12 +827,12 @@ function MainContent({
   sessionError: string | null
   onSettingsBack: () => void
   onFirstMessageSent: (text: string) => void
-  onQuickSend: (text: string) => void
+  onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   pendingPrompt?: string | null
-  onTopicQuickSend?: (text: string) => void
+  onTopicQuickSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   onDraftPrompt?: (prompt: string) => void
 }) {
   if (activeTab === "settings") {

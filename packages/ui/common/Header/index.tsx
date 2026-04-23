@@ -48,7 +48,12 @@ export function Header({
     onNavigateToChat,
 }: HeaderProps) {
     const platform = usePlatform()
+    const [isTauri, setIsTauri] = useState(false)
     const [appVersion, setAppVersion] = useState<string | null>(null)
+
+    useEffect(() => {
+        setIsTauri(typeof window !== "undefined" && !!window.__TAURI_INTERNALS__)
+    }, [])
 
     useEffect(() => {
         invoke<{ version: string }>("middleware_version_info")
@@ -58,6 +63,8 @@ export function Header({
 
     const isMac = platform === "macos"
     const isWindows = platform === "windows" || platform === "linux"
+    const showTrafficLights = isTauri && isMac
+    const showWindowControls = isTauri && isWindows
 
     return (
         <header
@@ -65,11 +72,11 @@ export function Header({
                 "relative flex h-9 shrink-0 items-center justify-between",
                 "border-b border-border/50 bg-card",
                 "select-none",
-                isWindows ? "pl-3 pr-0" : "px-3",
+                showWindowControls ? "pl-3 pr-0" : "px-3",
                 className,
             )}
         >
-            <div data-tauri-drag-region className="absolute inset-0 z-0" />
+            {isTauri && <div data-tauri-drag-region className="absolute inset-0 z-0" />}
 
             {/* ── Center label (active project › topic) ── */}
             {centerLabel && (
@@ -85,7 +92,7 @@ export function Header({
             )}
 
             <div className="relative z-10 flex items-center gap-3">
-                {isMac && <TrafficLights />}
+                {showTrafficLights && <TrafficLights />}
 
                 <span className="text-[13px] font-medium text-foreground">
                     {user.name}
@@ -166,7 +173,7 @@ export function Header({
                     </>
                 )}
 
-                {isWindows && <WindowControls className={minimal ? "" : "ml-2"} />}
+                {showWindowControls && <WindowControls className={minimal ? "" : "ml-2"} />}
             </div>
         </header>
     )

@@ -5,6 +5,7 @@ import { invoke } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatBox } from "@/components/ChatBox"
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { cn } from "@/lib/utils"
 
 type SessionMapping = {
@@ -64,8 +65,9 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
       .catch(() => setLoading(false))
   }, [topicId, projectId])
 
-  const handleFirstMessage = useCallback(async (text: string) => {
-    if (sending) return
+  const handleFirstMessage = useCallback(async (payload: ChatComposerSubmit) => {
+    const text = payload.text.trim()
+    if (sending || !text) return
     setSending(true)
     setSendError(null)
     try {
@@ -88,7 +90,13 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
         { input: { projectId, topicId, agentId: "main", label } },
       )
       const sessionKey = result.session.key
-      await invoke("middleware_chat_send", { input: { sessionKey, text } })
+      await invoke("middleware_chat_send", {
+        input: {
+          sessionKey,
+          text,
+          attachments: payload.attachments,
+        },
+      })
       onSessionSelect(sessionKey, label)
     } catch (err) {
       const msg = String(err)

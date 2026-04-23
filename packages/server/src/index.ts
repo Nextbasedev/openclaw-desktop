@@ -8,10 +8,11 @@ import { startCronEventListener } from "./services/cron-events.service.js"
 import { connectGateway } from "./gateway/client.js"
 import { startSyncEngine } from "./sync/engine.js"
 
-const app = express()
+const app: express.Express = express()
 const PORT = parseInt(process.env.JARVIS_SERVER_PORT ?? "3001", 10)
+const JSON_BODY_LIMIT = "150mb"
 
-app.use(express.json({ limit: "100mb" }))
+app.use(express.json({ limit: JSON_BODY_LIMIT }))
 
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*")

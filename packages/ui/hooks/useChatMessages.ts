@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
   ContentBlock,
@@ -38,6 +39,7 @@ export function useChatMessages(
   const [loading, setLoading] = useState(!hasInitial)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const sendingGuardRef = useRef(false)
 
   const [pendingTools, setPendingTools] = useState<InlineToolCall[]>([])
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
@@ -622,9 +624,13 @@ export function useChatMessages(
     }
   }, [spawnedSubagents, upsertSpawn])
 
-  const handleSend = useCallback(async (text: string) => {
-    const trimmed = text.trim()
-    if (!trimmed || isSending || isGenerating) return
+  const handleSend = useCallback(async (payload: ChatComposerSubmit) => {
+    const trimmed = payload.text.trim()
+    // Use a synchronous ref guard to prevent duplicate calls within the
+    // same tick (React state is batched, so isSending would still be false
+    // on a rapid-fire second call).
+    if (!trimmed || sendingGuardRef.current || isGenerating) return
+    sendingGuardRef.current = true
     setIsSending(true)
     const optimisticId = crypto.randomUUID()
     pendingToolMapRef.current.clear()
@@ -639,16 +645,24 @@ export function useChatMessages(
       { messageId: optimisticId, role: "user", text: trimmed, createdAt: new Date().toISOString(), isOptimistic: true },
     ])
     setStatus("thinking")
-    forceScrollToBottom(true)
+    forceScrollToBottom(false)
     try {
-      await invoke("middleware_chat_send", { input: { sessionKey, text: trimmed } })
-    } catch {
+      await invoke("middleware_chat_send", {
+        input: {
+          sessionKey,
+          text: trimmed,
+          attachments: payload.attachments,
+        },
+      })
+    } catch (error) {
       setStatus("error")
       setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId))
+      throw error
     } finally {
+      sendingGuardRef.current = false
       setIsSending(false)
     }
-  }, [isSending, isGenerating, sessionKey, forceScrollToBottom, messages.length])
+  }, [isGenerating, sessionKey, forceScrollToBottom])
 
   const handleAbort = useCallback(async () => {
     try {
@@ -717,7 +731,7 @@ export function useChatMessages(
     setPendingTools([])
     setStatus("thinking")
     setIsSending(true)
-    forceScrollToBottom(true)
+    forceScrollToBottom(false)
 
     try {
       await invoke("middleware_chat_edit_and_resend", {

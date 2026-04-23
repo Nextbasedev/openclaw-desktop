@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react"
+import { useState, useCallback, useMemo, useEffect, useRef, type CSSProperties } from "react"
 import { Reorder } from "framer-motion"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
@@ -22,6 +22,7 @@ type SidebarProps = {
   className?: string
   width?: number
   collapsed?: boolean
+  onClose?: () => void
   onResizeStart?: () => void
   activeTab: string
   onTabChange: (tab: string) => void
@@ -41,6 +42,7 @@ export function Sidebar({
   className,
   width = 220,
   collapsed = false,
+  onClose,
   onResizeStart,
   activeTab,
   onTabChange,
@@ -56,11 +58,22 @@ export function Sidebar({
   chatRefreshTrigger = 0,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [chatsPopoverOpen, setChatsPopoverOpen] = useState(false)
   const [projectsPopoverOpen, setProjectsPopoverOpen] = useState(false)
   const prevCollapsed = useRef(collapsed)
 
   useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    function syncViewport() {
+      setIsMobileViewport(window.innerWidth < 768)
+    }
+
+    syncViewport()
+    window.addEventListener("resize", syncViewport)
+    return () => window.removeEventListener("resize", syncViewport)
+  }, [])
 
   if (prevCollapsed.current !== collapsed) {
     prevCollapsed.current = collapsed
@@ -78,7 +91,14 @@ export function Sidebar({
     onItemsChange(reordered)
   }, [collapsed, items, onItemsChange])
 
-  const sidebarStyle = useMemo(() => ({ width: `${width}px` }), [width])
+  const sidebarStyle = useMemo(
+    () =>
+      ({
+        "--sidebar-width": `${width}px`,
+        "--sidebar-mobile-width": `${Math.min(width, 320)}px`,
+      }) as CSSProperties,
+    [width],
+  )
   const itemIds = useMemo(() => items.map((i) => i.id), [items])
 
   const handleChatSelectInPopover = useCallback((chat: ActiveChat) => {
@@ -91,149 +111,173 @@ export function Sidebar({
     onTopicSelect(topic)
   }, [onTopicSelect])
 
+  const showExpandedContent = !collapsed || isMobileViewport
+  const itemCollapsed = isMobileViewport ? false : collapsed
+
   return (
-    <aside
-      style={sidebarStyle}
-      className={cn(
-        "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden",
-        "border-r border-border/50 bg-card/70 backdrop-blur-xl",
-        "shadow-none transition-[width] duration-200 ease-out",
-        className,
-      )}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
-
-      <nav className={cn(
-        "relative z-10 flex-1 py-3",
-        "px-2",
-        collapsed ? "overflow-hidden" : "overflow-y-auto scroll-smooth overscroll-contain",
-      )}>
-        {mounted && !collapsed ? (
-          <Reorder.Group axis="y" values={itemIds} onReorder={handleReorder} as="div" className="flex flex-col gap-0.5">
-            {items.map((item) => (
-              <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} draggable />
-            ))}
-          </Reorder.Group>
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {items.map((item) => (
-              <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={collapsed} />
-            ))}
-
-            <Popover open={chatsPopoverOpen} onOpenChange={setChatsPopoverOpen}>
-              <PopoverTrigger asChild>
-                <div>
-                  <GlassTooltip label="Chats" disabled={chatsPopoverOpen}>
-                    <button
-                      type="button"
-                      className={cn(
-                        "group flex w-full min-w-0 cursor-pointer items-center rounded-md px-2.5 py-2 text-left text-[13px] font-normal",
-                        "transition-[background-color,color,opacity] duration-150 ease-in-out",
-                        chatsPopoverOpen
-                          ? "text-foreground"
-                          : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-                      )}
-                    >
-                      <span className="flex size-4 shrink-0 items-center justify-center">
-                        <Icons.BubbleChat size={16} strokeWidth={1.5} />
-                      </span>
-                    </button>
-                  </GlassTooltip>
-                </div>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                side="right"
-                sideOffset={8}
-                className={cn("w-[260px] p-0", GLASS_POPOVER)}
-              >
-                <div className="max-h-[360px] overflow-y-auto p-2">
-                  <ChatsSection
-                    collapsed={false}
-                    activeChat={activeChat}
-                    onChatSelect={handleChatSelectInPopover}
-                    onChatClear={onChatClear}
-                    onNewChat={() => { setChatsPopoverOpen(false); onNewChat() }}
-                    refreshTrigger={chatRefreshTrigger}
-                  />
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            <Popover open={projectsPopoverOpen} onOpenChange={setProjectsPopoverOpen}>
-              <PopoverTrigger asChild>
-                <div>
-                  <GlassTooltip label="Projects" disabled={projectsPopoverOpen}>
-                    <button
-                      type="button"
-                      className={cn(
-                        "group flex w-full min-w-0 cursor-pointer items-center rounded-md px-2.5 py-2 text-left text-[13px] font-normal",
-                        "transition-[background-color,color,opacity] duration-150 ease-in-out",
-                        projectsPopoverOpen
-                          ? "text-foreground"
-                          : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-                      )}
-                    >
-                      <span className="flex size-4 shrink-0 items-center justify-center">
-                        <Icons.Files size={16} strokeWidth={1.5} />
-                      </span>
-                    </button>
-                  </GlassTooltip>
-                </div>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                side="right"
-                sideOffset={8}
-                className={cn("w-[260px] p-0", GLASS_POPOVER)}
-              >
-                <div className="max-h-[360px] overflow-y-auto p-2">
-                  <ProjectsSection
-                    collapsed={false}
-                    activeTopic={activeTopic}
-                    onTopicSelect={handleTopicSelectInPopover}
-                    onTopicClear={onTopicClear}
-                  />
-                </div>
-              </PopoverContent>
-            </Popover>
-
-          </div>
+    <>
+      <button
+        type="button"
+        aria-label="Close sidebar"
+        onClick={onClose}
+        className={cn(
+          "fixed inset-0 z-30 bg-black/30 transition-opacity duration-200 md:hidden",
+          collapsed
+            ? "pointer-events-none opacity-0"
+            : "opacity-100",
         )}
+      />
 
-        <div className={cn("mt-2 border-t border-border/10 pt-2", collapsed && "hidden")}>
-          <ChatsSection
-            collapsed={false}
-            activeChat={activeChat}
-            onChatSelect={onChatSelect}
-            onChatClear={onChatClear}
-            onNewChat={onNewChat}
-            refreshTrigger={chatRefreshTrigger}
-          />
-        </div>
+      <aside
+        style={sidebarStyle}
+        className={cn(
+          "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden",
+          "w-[var(--sidebar-width)]",
+          "border-r border-border/50 bg-card/70 backdrop-blur-xl",
+          "shadow-none transition-[width,transform,opacity] duration-200 ease-out",
+          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",
+          collapsed
+            ? "max-md:-translate-x-full max-md:opacity-0 max-md:pointer-events-none"
+            : "max-md:translate-x-0 max-md:opacity-100",
+          className,
+        )}
+      >
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
 
-        <div className={cn("mt-2 border-t border-border/10 pt-2", collapsed && "hidden")}>
-          <ProjectsSection
-            collapsed={false}
-            activeTopic={activeTopic}
-            onTopicSelect={onTopicSelect}
-            onTopicClear={onTopicClear}
-          />
-        </div>
-      </nav>
+        <nav className={cn(
+          "relative z-10 flex-1 py-3",
+          "px-2",
+          showExpandedContent ? "overflow-y-auto scroll-smooth overscroll-contain" : "overflow-hidden",
+        )}>
+          {mounted && showExpandedContent ? (
+            <Reorder.Group axis="y" values={itemIds} onReorder={handleReorder} as="div" className="flex flex-col gap-0.5">
+              {items.map((item) => (
+                <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={itemCollapsed} draggable />
+              ))}
+            </Reorder.Group>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {items.map((item) => (
+                <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={itemCollapsed} />
+              ))}
 
-      {!collapsed && (
-        <button
-          type="button"
-          aria-label="Resize sidebar"
-          onMouseDown={onResizeStart}
-          className={cn(
-            "absolute right-0 top-0 z-20 h-full w-1 -translate-x-1/2 cursor-col-resize",
-            "bg-transparent transition-colors duration-150",
+              <Popover open={chatsPopoverOpen} onOpenChange={setChatsPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <div>
+                    <GlassTooltip label="Chats" disabled={chatsPopoverOpen}>
+                      <button
+                        type="button"
+                        className={cn(
+                          "group flex w-full min-w-0 cursor-pointer items-center rounded-md px-2.5 py-2 text-left text-[13px] font-normal",
+                          "transition-[background-color,color,opacity] duration-150 ease-in-out",
+                          chatsPopoverOpen
+                            ? "text-foreground"
+                            : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
+                        )}
+                      >
+                        <span className="flex size-4 shrink-0 items-center justify-center">
+                          <Icons.BubbleChat size={16} strokeWidth={1.5} />
+                        </span>
+                      </button>
+                    </GlassTooltip>
+                  </div>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  side="right"
+                  sideOffset={8}
+                  className={cn("w-[260px] p-0", GLASS_POPOVER)}
+                >
+                  <div className="max-h-[360px] overflow-y-auto p-2">
+                    <ChatsSection
+                      collapsed={false}
+                      collapsible={false}
+                      activeChat={activeChat}
+                      onChatSelect={handleChatSelectInPopover}
+                      onChatClear={onChatClear}
+                      onNewChat={() => { setChatsPopoverOpen(false); onNewChat() }}
+                      refreshTrigger={chatRefreshTrigger}
+                    />
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <Popover open={projectsPopoverOpen} onOpenChange={setProjectsPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <div>
+                    <GlassTooltip label="Projects" disabled={projectsPopoverOpen}>
+                      <button
+                        type="button"
+                        className={cn(
+                          "group flex w-full min-w-0 cursor-pointer items-center rounded-md px-2.5 py-2 text-left text-[13px] font-normal",
+                          "transition-[background-color,color,opacity] duration-150 ease-in-out",
+                          projectsPopoverOpen
+                            ? "text-foreground"
+                            : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
+                        )}
+                      >
+                        <span className="flex size-4 shrink-0 items-center justify-center">
+                          <Icons.Files size={16} strokeWidth={1.5} />
+                        </span>
+                      </button>
+                    </GlassTooltip>
+                  </div>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  side="right"
+                  sideOffset={8}
+                  className={cn("w-[260px] p-0", GLASS_POPOVER)}
+                >
+                  <div className="max-h-[360px] overflow-y-auto p-2">
+                    <ProjectsSection
+                      collapsed={false}
+                      collapsible={false}
+                      activeTopic={activeTopic}
+                      onTopicSelect={handleTopicSelectInPopover}
+                      onTopicClear={onTopicClear}
+                    />
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           )}
-        />
-      )}
-    </aside>
+
+          <div className={cn("mt-2 border-t border-border/10 pt-2", !showExpandedContent && "hidden")}>
+            <ChatsSection
+              collapsed={false}
+              activeChat={activeChat}
+              onChatSelect={onChatSelect}
+              onChatClear={onChatClear}
+              onNewChat={onNewChat}
+              refreshTrigger={chatRefreshTrigger}
+            />
+          </div>
+
+          <div className={cn("mt-2 border-t border-border/10 pt-2", !showExpandedContent && "hidden")}>
+            <ProjectsSection
+              collapsed={false}
+              activeTopic={activeTopic}
+              onTopicSelect={onTopicSelect}
+              onTopicClear={onTopicClear}
+            />
+          </div>
+        </nav>
+
+        {!collapsed && (
+          <button
+            type="button"
+            aria-label="Resize sidebar"
+            onMouseDown={onResizeStart}
+            className={cn(
+              "absolute right-0 top-0 z-20 h-full w-1 -translate-x-1/2 cursor-col-resize",
+              "bg-transparent transition-colors duration-150",
+              "max-md:hidden",
+            )}
+          />
+        )}
+      </aside>
+    </>
   )
 }
 

@@ -15,11 +15,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon } from "./Icons"
+import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
 
 type ActionBarProps = {
   hasInput: boolean
   onSend?: () => void
+  onUploadClick?: () => void
   isGenerating?: boolean
   onAbort?: () => void
   planEnabled: boolean
@@ -34,11 +36,17 @@ type ActionBarProps = {
   models: ModelEntry[]
   currentModelId: string | null
   onModelSelect: (model: ModelEntry) => void
+  isRecording?: boolean
+  onVoiceToggle?: () => void
+  voiceSupported?: boolean
+  attachmentCount?: number
+  disableUpload?: boolean
 }
 
 export function ActionBar({
   hasInput,
   onSend,
+  onUploadClick,
   isGenerating,
   onAbort,
   planEnabled,
@@ -53,6 +61,11 @@ export function ActionBar({
   models,
   currentModelId,
   onModelSelect,
+  isRecording,
+  onVoiceToggle,
+  voiceSupported = true,
+  attachmentCount = 0,
+  disableUpload = false,
 }: ActionBarProps) {
   const activeModel = models.find((m) => {
     if (!currentModelId) return false
@@ -80,10 +93,12 @@ export function ActionBar({
           <PopoverContent side="top" align="start" sideOffset={8} className="w-56 gap-0 p-1.5">
             <button
               type="button"
+              onClick={onUploadClick}
+              disabled={disableUpload}
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
             >
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
-              Upload
+              {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Upload"}
             </button>
             <div className="my-1 h-px bg-border" />
             <button
@@ -170,10 +185,30 @@ export function ActionBar({
         {/* Voice button */}
         <button
           type="button"
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-all hover:text-foreground"
-          aria-label="Voice input"
+          onClick={onVoiceToggle}
+          disabled={!voiceSupported}
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full transition-all",
+            isRecording
+              ? "cursor-pointer border border-foreground/60 bg-secondary text-foreground"
+              : voiceSupported
+                ? "cursor-pointer text-muted-foreground hover:text-foreground"
+                : "cursor-not-allowed text-muted-foreground/30"
+          )}
+          aria-label={isRecording ? "Stop recording" : "Voice input"}
+          title={
+            !voiceSupported
+              ? "Voice input not supported in this browser"
+              : isRecording
+                ? "Stop recording"
+                : "Voice input"
+          }
         >
-          <VoiceIcon className="size-[26px]" />
+          {isRecording ? (
+            <VoiceWaveIcon className="size-[20px]" />
+          ) : (
+            <VoiceIcon className="size-[26px]" />
+          )}
         </button>
 
         {/* Send / Stop button */}

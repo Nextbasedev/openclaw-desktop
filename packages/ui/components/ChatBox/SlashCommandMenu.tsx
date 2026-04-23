@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import type { SlashCommand } from "@/hooks/useSlashCommands"
 
@@ -31,14 +32,36 @@ export function SlashCommandMenu({
   if (filtered.length === 0) return null
 
   return (
-    <div
+    <motion.div
       ref={listRef}
-      className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
+      initial={{ opacity: 0, scaleY: 0.86, y: 6 }}
+      animate={{
+        opacity: 1,
+        scaleY: 1,
+        y: 0,
+        transition: {
+          duration: 0.22,
+          ease: [0.22, 1, 0.36, 1],
+          when: "beforeChildren",
+          staggerChildren: 0.03,
+        },
+      }}
+      exit={{
+        opacity: 0,
+        scaleY: 0.92,
+        y: 4,
+        transition: { duration: 0.16, ease: "easeInOut" },
+      }}
+      className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
     >
       {filtered.map((cmd, i) => (
-        <button
+        <motion.button
           key={cmd.name}
           type="button"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 4 }}
+          transition={{ duration: 0.16, ease: "easeOut" }}
           className={cn(
             "flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-colors",
             i === selectedIndex
@@ -58,9 +81,9 @@ export function SlashCommandMenu({
               {cmd.description}
             </span>
           )}
-        </button>
+        </motion.button>
       ))}
-    </div>
+    </motion.div>
   )
 }
 
