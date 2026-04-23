@@ -24,6 +24,7 @@ import * as ptyService from "../services/pty.service.js"
 import * as models from "../services/models.service.js"
 import * as repos from "../services/repos.service.js"
 import * as version from "../services/version.service.js"
+import * as sandbox from "../services/sandbox.service.js"
 
 type Handler = (input: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -170,6 +171,7 @@ export const commandRegistry: Record<string, Handler> = {
 
   // Cron (Gateway-dependent)
   middleware_cron_list_jobs: () => cron.cronListJobs(),
+  middleware_cron_recent_activity: (i) => cron.cronRecentActivity(i as { limit?: number } | undefined),
   middleware_cron_get_job: (i) => cron.cronGetJob(i as { jobId: string }),
   middleware_cron_create_job: (i) => cron.cronCreateJob(i as Parameters<typeof cron.cronCreateJob>[0]),
   middleware_cron_update_job: (i) => cron.cronUpdateJob(i as Parameters<typeof cron.cronUpdateJob>[0]),
@@ -252,4 +254,7 @@ export const commandRegistry: Record<string, Handler> = {
 
   // Version
   middleware_version_info: () => version.versionInfo(),
+
+  // Sandbox
+  middleware_sandbox_cleanup_audit_data: (i) => sandbox.sandboxCleanupAuditData(i as { dryRun?: boolean } | undefined),
 }

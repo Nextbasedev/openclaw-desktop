@@ -12,6 +12,7 @@ type CronJob = {
   enabled: boolean; paused: boolean; deleteAfterRun: boolean
   deliveryMode: string | null; params: unknown
   createdAt: string; updatedAt: string
+  lastRun: CronRun | null
 }
 
 type CronRun = {
@@ -43,15 +44,77 @@ function SessionBadge({ session }: { session: string }) {
 }
 
 function RunStatusDot({ status }: { status: string }) {
-  const color = status === "completed" ? "bg-chart-1" : status === "failed" ? "bg-red-400" : "bg-muted-foreground/50"
+  const color = status === "completed"
+    ? "bg-chart-1"
+    : status === "failed" || status === "error"
+      ? "bg-red-400"
+      : status === "running"
+        ? "bg-chart-2"
+        : "bg-muted-foreground/50"
   return <span className={cn("size-1.5 rounded-full", color)} />
 }
 
-function formatRunTime(iso: string): string {
+function formatRunTime(iso?: string | null): string {
   if (!iso) return ""
   try {
     return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
   } catch { return iso }
+}
+
+function getRunStatus(run?: CronRun | null) {
+  if (!run) {
+    return {
+      label: "Never run",
+      detail: "No run history yet",
+      className: "bg-foreground/5 text-muted-foreground",
+    }
+  }
+  if (run.status === "running") {
+    return {
+      label: "Running now",
+      detail: "Started " + formatRunTime(run.startedAt),
+      className: "bg-chart-2/15 text-chart-2",
+    }
+  }
+  if (run.status === "completed") {
+    return {
+      label: "Last run completed",
+      detail: formatRunTime(run.finishedAt ?? run.startedAt),
+      className: "bg-chart-1/15 text-chart-1",
+    }
+  }
+  if (run.status === "failed" || run.status === "error") {
+    return {
+      label: "Last run failed",
+      detail: run.error ?? formatRunTime(run.finishedAt ?? run.startedAt),
+      className: "bg-red-400/15 text-red-400",
+    }
+  }
+  return {
+    label: `Last run ${run.status}`,
+    detail: formatRunTime(run.finishedAt ?? run.startedAt),
+    className: "bg-foreground/5 text-muted-foreground",
+  }
+}
+
+function LastRunBadge({ run }: { run: CronRun | null }) {
+  const status = getRunStatus(run)
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase", status.className)}>
+        {status.label}
+      </span>
+      {status.detail && (
+        <span className="truncate text-[10px] text-muted-foreground/50">
+          {status.detail}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function isFailedRun(run: CronRun | null): run is CronRun {
+  return Boolean(run && (run.status === "failed" || run.status === "error"))
 }
 
 function ActionButton({
@@ -72,6 +135,7 @@ function ActionButton({
       type="button"
       title={label}
       aria-label={label}
+      data-action-label={label}
       disabled={disabled}
       onClick={onClick}
       className={cn(
@@ -97,8 +161,9 @@ export function CronJobRow({
   onTogglePaused,
   onDelete,
   onRun,
-  onOpenChat,
   onViewConversation,
+  onDiagnoseFailure,
+  onEdit,
 }: {
   job: CronJob
   busy: boolean
@@ -106,13 +171,15 @@ export function CronJobRow({
   onTogglePaused: () => void
   onDelete: () => void
   onRun: () => void
-  onOpenChat?: () => void
   onViewConversation?: () => void
+  onDiagnoseFailure?: () => void
+  onEdit?: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [runs, setRuns] = useState<CronRun[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
+  const failedLastRun = isFailedRun(job.lastRun) ? job.lastRun : null
 
   const fetchRuns = useCallback(async () => {
     setRunsLoading(true)
@@ -135,6 +202,8 @@ export function CronJobRow({
 
   return (
     <div
+      data-cron-job-id={job.jobId}
+      data-cron-job-name={job.name}
       className={cn(
         "flex flex-col rounded-2xl",
         "border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl",
@@ -161,6 +230,7 @@ export function CronJobRow({
                 One-time
               </span>
             )}
+            <LastRunBadge run={job.lastRun} />
           </div>
           <div className="flex items-center gap-2 pl-[22px]">
             <span className="text-[11px] font-mono text-muted-foreground">{job.schedule}</span>
@@ -177,10 +247,27 @@ export function CronJobRow({
               {job.message}
             </p>
           )}
+          {failedLastRun?.error && (
+            <div
+              data-cron-failure-detail={job.jobId}
+              className="ml-[22px] mt-1 rounded-lg border border-red-500/15 bg-red-500/[0.04] px-3 py-2"
+            >
+              <div className="mb-1 flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-red-400" />
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-red-400">
+                  Failure detail
+                </span>
+              </div>
+              <p className="line-clamp-2 text-[11px] leading-relaxed text-red-400/80">
+                {failedLastRun.error}
+              </p>
+            </div>
+          )}
         </div>
 
         <button
           type="button"
+          data-action-label={job.enabled ? "Disable job" : "Enable job"}
           onClick={onToggleEnabled}
           disabled={busy}
           aria-label={job.enabled ? "Disable job" : "Enable job"}
@@ -206,14 +293,17 @@ export function CronJobRow({
         <ActionButton
           icon={job.paused ? Icons.Play : Icons.Pause}
           label={job.paused ? "Resume" : "Pause"}
-          disabled={busy || !job.enabled}
+          disabled={busy}
           onClick={onTogglePaused}
         />
         {onViewConversation && (
           <ActionButton icon={Icons.Chat} label="Conversation" onClick={onViewConversation} />
         )}
-        {onOpenChat && (
-          <ActionButton icon={Icons.Chat} label="Open chat" onClick={onOpenChat} />
+        {failedLastRun && onDiagnoseFailure && (
+          <ActionButton icon={Icons.Wrench} label="Diagnose" onClick={onDiagnoseFailure} />
+        )}
+        {onEdit && (
+          <ActionButton icon={Icons.Edit} label="Edit" onClick={onEdit} />
         )}
         <ActionButton
           icon={Icons.Automations}
@@ -232,6 +322,7 @@ export function CronJobRow({
           <div className="flex items-center gap-1">
             <button
               type="button"
+              data-action-label="Confirm"
               onClick={() => { setConfirmDelete(false); onDelete() }}
               disabled={busy}
               className={cn(
@@ -245,6 +336,7 @@ export function CronJobRow({
             </button>
             <button
               type="button"
+              data-action-label="Cancel"
               onClick={() => setConfirmDelete(false)}
               className={cn(
                 "rounded-md px-2 py-1 text-[11px] font-medium",
@@ -271,14 +363,27 @@ export function CronJobRow({
           {!runsLoading && runs.length > 0 && (
             <div className="flex flex-col gap-1">
               {runs.map((run) => (
-                <div key={run.runId} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-[11px]">
-                  <div className="flex items-center gap-2">
-                    <RunStatusDot status={run.status} />
-                    <span className="text-muted-foreground">{formatRunTime(run.startedAt)}</span>
+                <div key={run.runId} className="flex flex-col gap-1 rounded-md px-2 py-1.5 text-[11px]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <RunStatusDot status={run.status} />
+                      <span className="text-muted-foreground">{formatRunTime(run.startedAt)}</span>
+                    </div>
+                    <span className={cn(
+                      "font-medium",
+                      run.status === "completed" && "text-chart-1",
+                      run.status === "failed" || run.status === "error" ? "text-red-400" : "",
+                      run.status === "running" && "text-chart-2",
+                      !["completed", "failed", "error", "running"].includes(run.status) && "text-muted-foreground",
+                    )}>
+                      {run.status}
+                    </span>
                   </div>
-                  <span className={cn("font-medium", run.status === "completed" ? "text-chart-1" : run.status === "failed" ? "text-red-400" : "text-muted-foreground")}>
-                    {run.status}
-                  </span>
+                  {run.error && (
+                    <p className="pl-3.5 text-[10px] leading-relaxed text-red-400/75">
+                      {run.error}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

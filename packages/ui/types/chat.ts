@@ -14,4 +14,5 @@ export type ActiveChat = {
   id: string
   name: string
   sessionKey?: string
+  cronJobId?: string
 }

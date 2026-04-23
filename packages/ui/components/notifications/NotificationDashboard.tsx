@@ -6,7 +6,6 @@ import { CronJobsTab } from "./tabs/CronJobsTab"
 import { ActivityTab } from "./tabs/ActivityTab"
 import { CronJobChat } from "./CronJobChat"
 import { cn } from "@/lib/utils"
-import type { ActiveChat } from "@/types/chat"
 
 type NotificationSection = "cron-jobs" | "activity"
 
@@ -31,13 +30,13 @@ type SelectedJob = {
 type NotificationDashboardProps = {
   onBack?: () => void
   defaultTab?: NotificationSection
-  onNavigateToChat?: (chat: ActiveChat) => void
+  onDraftPrompt?: (prompt: string) => void
 }
 
 export function NotificationDashboard({
   onBack,
   defaultTab = "cron-jobs",
-  onNavigateToChat,
+  onDraftPrompt,
 }: NotificationDashboardProps) {
   const [activeSection, setActiveSection] =
     React.useState<NotificationSection>(defaultTab)
@@ -108,8 +107,8 @@ export function NotificationDashboard({
           <>
             {activeSection === "cron-jobs" && (
               <CronJobsTab
-                onNavigateToChat={onNavigateToChat}
                 onSelectJob={setSelectedJob}
+                onDraftPrompt={onDraftPrompt}
               />
             )}
             {activeSection === "activity" && <ActivityTab />}

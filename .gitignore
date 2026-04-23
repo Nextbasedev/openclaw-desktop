@@ -24,6 +24,7 @@ Thumbs.db
 # Sandbox
 .sandbox/screenshots/*.png
 !.sandbox/screenshots/.gitkeep
+.sandbox/runs/
 
 # Environment
 .env
