@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect, type CSSProperties } from "react"
 import { cn } from "@/lib/utils"
 import { VscClose, VscAdd } from "react-icons/vsc"
 import { ActivityTab } from "./ActivityTab"
@@ -19,12 +19,12 @@ const TABS: Array<{ id: TabId; label: string }> = [
 ]
 
 function getResponsiveDefaults() {
-  if (typeof window === "undefined") return { min: 480, max: 860, default: 680 }
+  if (typeof window === "undefined") return { min: 480, max: 860, default: 480 }
   const vw = window.innerWidth
-  if (vw < 768) return { min: 260, max: Math.min(vw * 0.82, 420), default: Math.min(vw * 0.72, 360) }
-  if (vw < 1024) return { min: 320, max: 520, default: 420 }
-  if (vw < 1440) return { min: 480, max: 760, default: 620 }
-  return { min: 520, max: 860, default: 680 }
+  if (vw < 768) return { min: 260, max: Math.min(vw * 0.82, 420), default: 260 }
+  if (vw < 1024) return { min: 320, max: 520, default: 320 }
+  if (vw < 1440) return { min: 480, max: 760, default: 480 }
+  return { min: 520, max: 860, default: 520 }
 }
 
 type TerminalTab = {
@@ -67,6 +67,9 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
   ])
   const [activeTermId, setActiveTermId] = useState("term-1")
   const termScrollRef = useRef<HTMLDivElement>(null)
+  const panelStyle = {
+    "--inspector-width": `${width}px`,
+  } as CSSProperties
 
   useEffect(() => {
     if (focusActivityTrigger && focusActivityTrigger > 0) {
@@ -150,14 +153,16 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
 
   return (
     <aside
+      style={panelStyle}
       className={cn(
         "shrink-0 overflow-clip border-l border-border/50 bg-card",
         !isDragging && "transition-[width,opacity] duration-300 ease-in-out",
-        open ? "opacity-100" : "w-0 opacity-0",
+        open
+          ? "w-[var(--inspector-width)] opacity-100 max-md:w-screen"
+          : "w-0 opacity-0 max-md:pointer-events-none",
         "max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:border-l max-md:shadow-xl",
         "md:relative",
       )}
-      style={{ width: open ? width : 0 }}
       aria-hidden={!open}
     >
       {/* Drag handle — left edge */}
@@ -166,7 +171,9 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
         className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize"
       />
 
-      <div className="flex h-full min-w-0 flex-col" style={{ width, maxWidth: width }}>
+      <div
+        className="flex h-full min-w-0 flex-col w-[var(--inspector-width)] max-w-[var(--inspector-width)] max-md:w-screen max-md:max-w-screen"
+      >
         {/* Main tabs */}
         <div className="flex h-9 shrink-0 items-center border-b border-border/50 px-1">
           {TABS.map((tab) => {
