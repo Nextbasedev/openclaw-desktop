@@ -1,22 +1,47 @@
 const SERVER_URL =
   process.env.NEXT_PUBLIC_SERVER_URL || "http://127.0.0.1:3001"
+const STARTUP_RETRY_ATTEMPTS = 10
+const STARTUP_RETRY_DELAY_MS = 300
+
+function shouldRetryBackendBoot(error: unknown): boolean {
+  return (
+    SERVER_URL.includes("127.0.0.1:3001") &&
+    error instanceof TypeError
+  )
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms))
+}
 
 async function invokeHttp<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(`${SERVER_URL}/api/ipc/${command}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args ?? {}),
-  })
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(
-      (error as { error?: string }).error || `IPC call failed: ${res.status}`,
-    )
+  for (let attempt = 0; attempt < STARTUP_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(`${SERVER_URL}/api/ipc/${command}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args ?? {}),
+      })
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: res.statusText }))
+        throw new Error(
+          (error as { error?: string }).error || `IPC call failed: ${res.status}`,
+        )
+      }
+      return res.json() as Promise<T>
+    } catch (error) {
+      const isLastAttempt = attempt === STARTUP_RETRY_ATTEMPTS - 1
+      if (isLastAttempt || !shouldRetryBackendBoot(error)) {
+        throw error
+      }
+      await sleep(STARTUP_RETRY_DELAY_MS)
+    }
   }
-  return res.json() as Promise<T>
+
+  throw new Error("IPC call failed before the backend became ready")
 }
 
 // All middleware_* commands are handled by the Node.js server, not Rust.
