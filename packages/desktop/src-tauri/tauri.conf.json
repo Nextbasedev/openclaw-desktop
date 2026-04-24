@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../../ui/out",
     "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "pnpm --filter ui dev",
-    "beforeBuildCommand": "pnpm --filter ui build"
+    "beforeDevCommand": "pnpm --dir ../.. dev:web",
+    "beforeBuildCommand": "node ../../scripts/prepare-tauri-bundle.cjs"
   },
   "app": {
     "windows": [
@@ -31,6 +31,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "bundled/server/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
