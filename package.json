@@ -11,7 +11,7 @@
     "lint": "pnpm -r lint",
     "lint:architecture": "npx tsx scripts/lint-architecture.ts",
     "test": "pnpm -r test",
-    "dev:web": "concurrently \"pnpm --filter server dev\" \"pnpm --filter ui dev\"",
+    "dev:web": "node scripts/run-web-dev.cjs",
     "build:server": "pnpm --filter server build",
     "test:server": "pnpm --filter server test",
     "typecheck": "pnpm -r typecheck",
