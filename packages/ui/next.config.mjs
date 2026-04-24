@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: process.env.NEXT_OUTPUT === "export" ? "export" : undefined,
+  output: "export",
   allowedDevOrigins: [
     "localhost",
     "127.0.0.1",
@@ -12,7 +12,6 @@ const nextConfig = {
     unoptimized: true,
   },
   async rewrites() {
-    if (process.env.NEXT_OUTPUT === "export") return []
     return [
       {
         source: "/api/ipc/:path*",
