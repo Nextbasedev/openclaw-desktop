@@ -22,5 +22,5 @@ serde_json = "1.0"
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
-windows = { version = "0.61", features = ["Foundation", "Foundation_Collections", "Data_Xml_Dom", "UI_Notifications"] }
+windows = { version = "0.61", features = ["Foundation", "Foundation_Collections", "Data_Xml_Dom", "UI_Notifications", "Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
 quick-xml = "0.37"

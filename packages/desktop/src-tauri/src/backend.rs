@@ -1,21 +1,62 @@
 use std::{
+  fs::{self, OpenOptions},
   io::{Read, Write},
   net::{SocketAddr, TcpStream},
+  path::{Path, PathBuf},
   process::{Child, Command, Stdio},
   sync::Mutex,
   thread,
-  time::{Duration, Instant},
+  time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use tauri::{AppHandle, Manager};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::{io::AsRawHandle, process::CommandExt};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::{
+  Foundation::{CloseHandle, HANDLE},
+  System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+  },
+};
+
 const SERVER_PORT: u16 = 3001;
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 const HEALTHCHECK_TIMEOUT: Duration = Duration::from_millis(500);
+const BACKEND_LOG_NAME: &str = "backend.log";
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Default)]
 pub struct BackendState {
   child: Mutex<Option<Child>>,
+  #[cfg(target_os = "windows")]
+  job: Mutex<Option<WindowsJobObject>>,
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsJobObject {
+  handle: HANDLE,
+}
+
+#[cfg(target_os = "windows")]
+unsafe impl Send for WindowsJobObject {}
+
+#[cfg(target_os = "windows")]
+unsafe impl Sync for WindowsJobObject {}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsJobObject {
+  fn drop(&mut self) {
+    unsafe {
+      let _ = CloseHandle(self.handle);
+    }
+  }
 }
 
 pub fn ensure_backend(app: &AppHandle) -> Result<(), String> {
@@ -23,67 +64,111 @@ pub fn ensure_backend(app: &AppHandle) -> Result<(), String> {
     return Ok(());
   }
 
-  let server_dir = app
-    .path()
-    .resource_dir()
-    .map_err(|err| format!("Unable to resolve app resources: {err}"))?
-    .join("bundled")
-    .join("server");
+  let log_path = resolve_log_path(app);
+  append_backend_log(
+    &log_path,
+    "Backend healthcheck failed, attempting bundled startup",
+  );
 
+  let server_dir = resolve_server_dir(app, &log_path)?;
   let node_path = server_dir.join("bin").join(node_binary_name());
   let entry_path = server_dir.join("dist").join("index.js");
 
+  append_backend_log(
+    &log_path,
+    &format!("Using bundled server directory {}", server_dir.display()),
+  );
+
   if !node_path.exists() {
     return Err(format!(
-      "Bundled Node runtime not found at {}",
-      node_path.display()
+      "Bundled Node runtime not found at {}. See {}",
+      node_path.display(),
+      log_path.display()
     ));
   }
 
   if !entry_path.exists() {
     return Err(format!(
-      "Bundled backend entrypoint not found at {}",
-      entry_path.display()
+      "Bundled backend entrypoint not found at {}. See {}",
+      entry_path.display(),
+      log_path.display()
     ));
   }
 
-  let mut child = Command::new(&node_path)
+  let stdout = open_log_stdio(&log_path)?;
+  let stderr = open_log_stdio(&log_path)?;
+  let mut command = Command::new(&node_path);
+
+  command
     .arg(&entry_path)
     .current_dir(&server_dir)
     .env("NODE_ENV", "production")
     .env("JARVIS_SERVER_PORT", SERVER_PORT.to_string())
     .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
+    .stdout(stdout)
+    .stderr(stderr);
+
+  #[cfg(target_os = "windows")]
+  command.creation_flags(CREATE_NO_WINDOW);
+
+  let mut child = command
     .spawn()
     .map_err(|err| format!("Failed to start bundled backend: {err}"))?;
 
-  if let Err(err) = wait_for_backend() {
+  #[cfg(target_os = "windows")]
+  let job = create_kill_on_close_job_object(&mut child, &log_path)?;
+
+  append_backend_log(
+    &log_path,
+    &format!("Spawned bundled backend process with pid {}", child.id()),
+  );
+
+  if let Err(err) = wait_for_backend(&mut child, &log_path) {
     let _ = child.kill();
     let _ = child.wait();
+    append_backend_log(&log_path, &format!("Backend startup failed: {err}"));
     return Err(err);
   }
 
   let state = app.state::<BackendState>();
-  let mut guard = state.child.lock().unwrap();
+  let mut guard = state.inner().child.lock().unwrap();
   *guard = Some(child);
+
+  #[cfg(target_os = "windows")]
+  {
+    let mut job_guard = state.inner().job.lock().unwrap();
+    *job_guard = Some(job);
+  }
+
+  append_backend_log(&log_path, "Bundled backend reported healthy");
 
   Ok(())
 }
 
 pub fn stop_backend(app: &AppHandle) {
+  let log_path = resolve_log_path(app);
   let state = app.state::<BackendState>();
-  let mut guard = state.child.lock().unwrap();
+  let mut guard = state.inner().child.lock().unwrap();
 
   if let Some(child) = guard.as_mut() {
+    append_backend_log(
+      &log_path,
+      &format!("Stopping bundled backend process {}", child.id()),
+    );
     let _ = child.kill();
     let _ = child.wait();
   }
 
   *guard = None;
+
+  #[cfg(target_os = "windows")]
+  {
+    let mut job_guard = state.inner().job.lock().unwrap();
+    *job_guard = None;
+  }
 }
 
-fn wait_for_backend() -> Result<(), String> {
+fn wait_for_backend(child: &mut Child, log_path: &Path) -> Result<(), String> {
   let started_at = Instant::now();
 
   while started_at.elapsed() < STARTUP_TIMEOUT {
@@ -91,12 +176,171 @@ fn wait_for_backend() -> Result<(), String> {
       return Ok(());
     }
 
+    match child.try_wait() {
+      Ok(Some(status)) => {
+        return Err(format!(
+          "Bundled backend exited early with status {status}. See {}",
+          log_path.display()
+        ));
+      }
+      Ok(None) => {}
+      Err(err) => {
+        return Err(format!(
+          "Failed to inspect bundled backend status: {err}. See {}",
+          log_path.display()
+        ));
+      }
+    }
+
     thread::sleep(Duration::from_millis(250));
   }
 
   Err(format!(
-    "Bundled backend did not become healthy on http://127.0.0.1:{SERVER_PORT}"
+    "Bundled backend did not become healthy on http://127.0.0.1:{SERVER_PORT}. See {}",
+    log_path.display()
   ))
+}
+
+fn resolve_server_dir(app: &AppHandle, log_path: &Path) -> Result<PathBuf, String> {
+  let mut candidates = Vec::new();
+
+  if let Ok(resource_dir) = app.path().resource_dir() {
+    let resource_dir = normalize_path(resource_dir);
+    candidates.push(resource_dir.join("bundled").join("server"));
+    candidates.push(resource_dir.join("server"));
+  }
+
+  if let Ok(executable_dir) = app.path().executable_dir() {
+    let executable_dir = normalize_path(executable_dir);
+    candidates.push(executable_dir.join("bundled").join("server"));
+    candidates.push(executable_dir.join("resources").join("bundled").join("server"));
+    candidates.push(
+      executable_dir
+        .join("..")
+        .join("Resources")
+        .join("bundled")
+        .join("server"),
+    );
+  }
+
+  for candidate in &candidates {
+    append_backend_log(
+      log_path,
+      &format!("Checking bundled server candidate {}", candidate.display()),
+    );
+
+    if candidate.exists() {
+      return Ok(candidate.clone());
+    }
+  }
+
+  Err(format!(
+    "Unable to locate the bundled backend resources. Checked {}. See {}",
+    candidates
+      .iter()
+      .map(|candidate| candidate.display().to_string())
+      .collect::<Vec<_>>()
+      .join(", "),
+    log_path.display()
+  ))
+}
+
+fn resolve_log_path(app: &AppHandle) -> PathBuf {
+  if let Ok(log_dir) = app.path().app_log_dir() {
+    let _ = fs::create_dir_all(&log_dir);
+    return log_dir.join(BACKEND_LOG_NAME);
+  }
+
+  std::env::temp_dir().join(format!("jarvis-{BACKEND_LOG_NAME}"))
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_path(path: PathBuf) -> PathBuf {
+  let raw = path.to_string_lossy();
+
+  if let Some(stripped) = raw.strip_prefix(r"\\?\UNC\") {
+    return PathBuf::from(format!(r"\\{stripped}"));
+  }
+
+  if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+    return PathBuf::from(stripped);
+  }
+
+  path
+}
+
+#[cfg(not(target_os = "windows"))]
+fn normalize_path(path: PathBuf) -> PathBuf {
+  path
+}
+
+fn open_log_stdio(log_path: &Path) -> Result<Stdio, String> {
+  if let Some(parent) = log_path.parent() {
+    fs::create_dir_all(parent)
+      .map_err(|err| format!("Failed to create backend log directory: {err}"))?;
+  }
+
+  let file = OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(log_path)
+    .map_err(|err| format!("Failed to open backend log file {}: {err}", log_path.display()))?;
+
+  Ok(Stdio::from(file))
+}
+
+#[cfg(target_os = "windows")]
+fn create_kill_on_close_job_object(
+  child: &mut Child,
+  log_path: &Path,
+) -> Result<WindowsJobObject, String> {
+  unsafe {
+    let job = CreateJobObjectW(None, None)
+      .map_err(|err| format!("Failed to create backend job object: {err}"))?;
+    let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+    SetInformationJobObject(
+      job,
+      JobObjectExtendedLimitInformation,
+      &info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION as *const _,
+      std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+    )
+    .map_err(|err| {
+      let _ = CloseHandle(job);
+      format!("Failed to configure backend job object: {err}")
+    })?;
+
+    let process_handle = HANDLE(child.as_raw_handle() as _);
+    AssignProcessToJobObject(job, process_handle).map_err(|err| {
+      let _ = CloseHandle(job);
+      format!("Failed to attach bundled backend to job object: {err}")
+    })?;
+
+    append_backend_log(
+      log_path,
+      &format!("Attached bundled backend process {} to Windows job object", child.id()),
+    );
+
+    Ok(WindowsJobObject { handle: job })
+  }
+}
+
+fn append_backend_log(log_path: &Path, message: &str) {
+  if let Some(parent) = log_path.parent() {
+    let _ = fs::create_dir_all(parent);
+  }
+
+  if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+    let _ = writeln!(file, "[{}] {message}", unix_timestamp_seconds());
+  }
+}
+
+fn unix_timestamp_seconds() -> u64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_secs()
 }
 
 fn is_backend_healthy() -> bool {
