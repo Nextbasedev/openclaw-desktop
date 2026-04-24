@@ -1,3 +1,4 @@
+mod backend;
 mod windows_toast;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -8,7 +9,8 @@ pub fn run() {
     "--enable-features=OverlayScrollbar,OverlayScrollbarFlashAfterAnyScrollUpdate",
   );
 
-  tauri::Builder::default()
+  let app = tauri::Builder::default()
+    .manage(backend::BackendState::default())
     .plugin(tauri_plugin_notification::init())
     .invoke_handler(tauri::generate_handler![windows_toast::show_reply_notification])
     .setup(|app| {
@@ -19,8 +21,18 @@ pub fn run() {
             .build(),
         )?;
       }
+      backend::ensure_backend(&app.handle())
+        .map_err(|err| -> Box<dyn std::error::Error> {
+          std::io::Error::other(err).into()
+        })?;
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application");
+
+  app.run(|app_handle, event| {
+    if let tauri::RunEvent::Exit = event {
+      backend::stop_backend(app_handle);
+    }
+  });
 }
