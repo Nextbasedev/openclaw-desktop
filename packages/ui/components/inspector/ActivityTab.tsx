@@ -36,8 +36,10 @@ function AgentTreeItem({
       type="button"
       onClick={() => onSelect(node.id)}
       className={cn(
-        "flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-all cursor-pointer",
-        isActive ? "bg-white/[0.06]" : "hover:bg-white/[0.03]",
+        "flex w-full items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-all cursor-pointer",
+        isActive
+          ? "border-white/[0.14] bg-white/5"
+          : "border-transparent hover:bg-white/3",
       )}
     >
       <span
@@ -177,8 +179,8 @@ export function ActivityTab({
       <aside className="flex w-[240px] shrink-0 flex-col border-r border-white/6 bg-[#0f1014] max-md:w-[168px]">
         <div className="border-b border-white/6 px-4 py-3.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7979a0] max-md:tracking-[0.14em]">
-              <span className="flex shrink-0 items-center justify-center text-[#9a9ad2]">
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white max-md:tracking-[0.14em]">
+              <span className="flex shrink-0 items-center justify-center text-white">
                 <AgentHeaderIcon />
               </span>
               <span className="truncate">Agents</span>
@@ -233,18 +235,47 @@ export function ActivityTab({
                 )}
               </button>
 
-              {mainExpanded && mainNode.children && (
-                <div className="ml-2 mt-1 space-y-0.5 border-l border-white/6 pl-1">
-                  {mainNode.children.map((child) => (
-                    <AgentTreeItem
-                      key={child.id}
-                      node={child}
-                      isActive={selectedId === child.id}
-                      onSelect={(id) => onAgentSelect?.(id)}
-                    />
-                  ))}
-                </div>
-              )}
+              {mainExpanded &&
+                mainNode.children &&
+                mainNode.children.length > 0 && (
+                  <div className="ml-3.75 mt-1">
+                    {mainNode.children.map((child, index, arr) => {
+                      const isLast = index === arr.length - 1
+                      return (
+                        <div
+                          key={child.id}
+                          className={cn(
+                            "relative pl-3",
+                            !isLast && "pb-1",
+                          )}
+                        >
+                          {isLast ? (
+                            <span
+                              aria-hidden
+                              className="pointer-events-none absolute left-0 top-0 h-4.5 w-3 rounded-bl-sm border-b border-l border-white/10"
+                            />
+                          ) : (
+                            <>
+                              <span
+                                aria-hidden
+                                className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-white/10"
+                              />
+                              <span
+                                aria-hidden
+                                className="pointer-events-none absolute left-0 top-4.5 h-px w-3 bg-white/10"
+                              />
+                            </>
+                          )}
+                          <AgentTreeItem
+                            node={child}
+                            isActive={selectedId === child.id}
+                            onSelect={(id) => onAgentSelect?.(id)}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
             </div>
           )}
         </div>

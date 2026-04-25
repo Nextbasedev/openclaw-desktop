@@ -19,6 +19,8 @@ import ConnectPage from "@/components/ConnectPage"
 import { ChatView } from "@/components/ChatView"
 import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
+import { LogsDialog } from "@/components/logs/LogsDialog"
+import { initClientLogs } from "@/lib/clientLogs"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
   ensureChatSession,
@@ -113,6 +115,7 @@ function AppShell({
   onDeleteAccount,
 }: AppShellProps) {
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [logsOpen, setLogsOpen] = useState(false)
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -131,6 +134,13 @@ function AppShell({
 
   const prevTabRef = useRef("chat")
   const sidebarItems: SidebarNavItem[] = DEFAULT_DRAGGABLE_ITEMS
+
+  useEffect(() => {
+    initClientLogs()
+  }, [])
+
+  const openLogs = useCallback(() => setLogsOpen(true), [])
+  const closeLogs = useCallback(() => setLogsOpen(false), [])
 
   const [activeTopic, setActiveTopic] = useState<ActiveTopic | null>(null)
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
@@ -877,6 +887,7 @@ function AppShell({
         centerLabel={centerLabel}
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
+        onOpenLogs={openLogs}
         onNavigateToChat={handleCronJobNavigate}
       />
 
@@ -967,6 +978,8 @@ function AppShell({
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
       />
+
+      <LogsDialog open={logsOpen} onClose={closeLogs} />
     </div>
   )
 }
