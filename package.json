@@ -17,6 +17,7 @@
     "typecheck": "pnpm -r typecheck",
     "sandbox:verify": "node scripts/sandbox/verify-ui.mjs",
     "sandbox:routes": "node scripts/sandbox/verify-routes.mjs",
+    "sandbox:notifications": "node scripts/sandbox/verify-notifications-fast.mjs",
     "sandbox:audit": "node scripts/sandbox/audit-ui.mjs",
     "sandbox:cleanup": "node scripts/sandbox/cleanup-audit-data.mjs",
     "sandbox:check": "./scripts/sandbox/check-build.sh"

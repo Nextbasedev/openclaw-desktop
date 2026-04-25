@@ -1,3 +1,5 @@
+import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
+
 export type ContentBlock = {
   type: string
   text?: string
@@ -36,13 +38,26 @@ export type ChatMessage = {
   toolCalls?: InlineToolCall[]
   branches?: MessageBranch[]
   activeBranch?: number
+  attachments?: Array<{
+    name: string
+    mimeType: string
+    content?: string
+    url?: string
+    size?: number
+  }>
+  voice?: {
+    url: string
+    duration?: number
+    transcript?: string
+  }
 }
 
 export type SpawnedSubagent = {
   id: string
   label: string
+  task?: string
   sessionKey: string | null
-  status: "running" | "done" | "error"
+  status: SubagentLifecycleStatus
   toolCallId: string
 }
 
@@ -52,6 +67,8 @@ export type StreamStatus =
   | "thinking"
   | "tool_running"
   | "streaming"
+  | "stopping"
+  | "restarting"
   | "done"
   | "error"
 

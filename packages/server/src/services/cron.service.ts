@@ -58,6 +58,7 @@ export type CronActivityEvent = {
   type: "cron.run.started" | "cron.run.completed" | "cron.run.failed"
   jobId: string
   runId?: string
+  sessionKey?: string | null
   name?: string
   status: string
   timestamp: string
@@ -66,6 +67,25 @@ export type CronActivityEvent = {
 }
 
 const activeRuns = new Map<string, CronRun>()
+const localJobOverrides = new Map<string, Partial<CronJob>>()
+const lastRunCache = new Map<string, { run: CronRun | null; cachedAt: number }>()
+const LAST_RUN_CACHE_TTL_MS = 30_000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("cron request timed out")), timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 function pruneActiveRuns() {
   const staleBefore = Date.now() - 2 * 60 * 60 * 1000
@@ -144,6 +164,48 @@ function normalizeJob(raw: Record<string, unknown>): CronJob {
     updatedAt: msToIso(raw.updatedAt ?? raw.updatedAtMs ?? raw.createdAt ?? raw.createdAtMs),
     lastRun: null,
   }
+}
+
+function applyLocalJobOverride(job: CronJob): CronJob {
+  const override = localJobOverrides.get(job.jobId)
+  return override ? { ...job, ...override } : job
+}
+
+function localOverrideFromUpdate(input: {
+  name?: string
+  schedule?: string
+  scheduleType?: CronScheduleType
+  timezone?: string
+  session?: CronSessionTarget
+  message?: string
+  model?: string
+  thinking?: string
+  task?: string
+  enabled?: boolean
+  deleteAfterRun?: boolean
+  deliveryMode?: string
+  deliveryChannel?: string
+  deliveryTo?: string
+}): Partial<CronJob> {
+  const override: Partial<CronJob> = { updatedAt: new Date().toISOString() }
+  if (input.name !== undefined) override.name = input.name
+  if (input.schedule !== undefined) override.schedule = input.schedule
+  if (input.scheduleType !== undefined) override.scheduleType = input.scheduleType
+  if (input.timezone !== undefined) override.timezone = input.timezone
+  if (input.session !== undefined) override.session = input.session
+  if (input.message !== undefined) override.message = input.message
+  if (input.model !== undefined) override.model = input.model || null
+  if (input.thinking !== undefined) override.thinking = input.thinking || null
+  if (input.task !== undefined) override.task = input.task
+  if (input.enabled !== undefined) {
+    override.enabled = input.enabled
+    override.paused = !input.enabled
+  }
+  if (input.deleteAfterRun !== undefined) override.deleteAfterRun = input.deleteAfterRun
+  if (input.deliveryMode !== undefined) override.deliveryMode = input.deliveryMode
+  if (input.deliveryChannel !== undefined) override.deliveryChannel = input.deliveryChannel
+  if (input.deliveryTo !== undefined) override.deliveryTo = input.deliveryTo
+  return override
 }
 
 function formatMs(ms: number): string {
@@ -228,18 +290,26 @@ export async function cronListJobs() {
     { includeDisabled: true },
   )
   if (!res.ok) throw new Error(res.error?.message ?? "cron.list failed")
-  const jobs = (res.payload?.jobs ?? []).map(normalizeJob)
-  for (const job of jobs) {
-    if (!job.jobId) continue
+  const jobs = (res.payload?.jobs ?? []).map(normalizeJob).map(applyLocalJobOverride)
+  await Promise.all(jobs.map(async (job) => {
+    if (!job.jobId) return
+    const cached = lastRunCache.get(job.jobId)
+    if (cached && Date.now() - cached.cachedAt < LAST_RUN_CACHE_TTL_MS) {
+      job.lastRun = cached.run
+    }
     try {
-      const { runs } = await cronListRuns({ jobId: job.jobId, limit: 1, sortDir: "desc" })
+      const { runs } = await withTimeout(
+        cronListRuns({ jobId: job.jobId, limit: 1, sortDir: "desc" }),
+        2_500,
+      )
       job.lastRun = runs[0] ?? null
+      lastRunCache.set(job.jobId, { run: job.lastRun, cachedAt: Date.now() })
     } catch {
-      job.lastRun = null
+      if (!cached) job.lastRun = null
     }
     const activeRun = activeRuns.get(job.jobId)
     if (activeRun) job.lastRun = activeRun
-  }
+  }))
   return { jobs }
 }
 
@@ -252,6 +322,7 @@ function cronRunToActivityEvent(job: CronJob, run: CronRun): CronActivityEvent |
     type: isRunning ? "cron.run.started" : isFailed ? "cron.run.failed" : "cron.run.completed",
     jobId: job.jobId,
     runId: run.runId || undefined,
+    sessionKey: run.sessionKey,
     name: job.name || undefined,
     status: isRunning ? "running" : isFailed ? "failed" : "completed",
     timestamp,
@@ -373,7 +444,7 @@ export async function cronUpdateJob(input: {
 
   if (input.schedule !== undefined) {
     const type = input.scheduleType ?? "cron"
-    patch.schedule = buildScheduleParam(input.schedule, type)
+    patch.schedule = buildScheduleParam(input.schedule, type, input.timezone)
   }
 
   if (input.session !== undefined) patch.sessionTarget = input.session
@@ -402,12 +473,51 @@ export async function cronUpdateJob(input: {
     id: input.jobId,
     patch,
   })
+  const errors: string[] = []
+  if (!res.ok) errors.push(res.error?.message ?? "cron.update id+patch failed")
+
+  if (!res.ok) {
+    const legacyPatch: Record<string, unknown> = { ...patch }
+    if (input.schedule !== undefined) legacyPatch.schedule = input.schedule
+    if (input.scheduleType !== undefined) legacyPatch.scheduleType = input.scheduleType
+    if (input.timezone !== undefined) legacyPatch.timezone = input.timezone
+    if (input.message !== undefined) legacyPatch.message = input.message
+    if (input.model !== undefined) legacyPatch.model = input.model
+    if (input.thinking !== undefined) legacyPatch.thinking = input.thinking
+    if (input.task !== undefined) legacyPatch.task = input.task
+    delete legacyPatch.payload
+
+    res = await gw.request<Record<string, unknown>>("cron.update", {
+      id: input.jobId,
+      patch: legacyPatch,
+    })
+    if (!res.ok) errors.push(res.error?.message ?? "cron.update id+legacyPatch failed")
+  }
 
   if (!res.ok) {
     res = await gw.request<Record<string, unknown>>("cron.update", {
       jobId: input.jobId,
       patch,
     })
+    if (!res.ok) errors.push(res.error?.message ?? "cron.update jobId+patch failed")
+  }
+
+  if (!res.ok) {
+    const legacyPatch: Record<string, unknown> = { ...patch }
+    if (input.schedule !== undefined) legacyPatch.schedule = input.schedule
+    if (input.scheduleType !== undefined) legacyPatch.scheduleType = input.scheduleType
+    if (input.timezone !== undefined) legacyPatch.timezone = input.timezone
+    if (input.message !== undefined) legacyPatch.message = input.message
+    if (input.model !== undefined) legacyPatch.model = input.model
+    if (input.thinking !== undefined) legacyPatch.thinking = input.thinking
+    if (input.task !== undefined) legacyPatch.task = input.task
+    delete legacyPatch.payload
+
+    res = await gw.request<Record<string, unknown>>("cron.update", {
+      jobId: input.jobId,
+      patch: legacyPatch,
+    })
+    if (!res.ok) errors.push(res.error?.message ?? "cron.update jobId+legacyPatch failed")
   }
 
   if (!res.ok) {
@@ -425,17 +535,45 @@ export async function cronUpdateJob(input: {
       jobId: input.jobId,
       ...legacyPatch,
     })
+    if (!res.ok) errors.push(res.error?.message ?? "cron.update legacy root failed")
   }
 
-  if (!res.ok) throw new Error(res.error?.message ?? "cron.update failed")
+  if (!res.ok) {
+    const localOverride = localOverrideFromUpdate(input)
+    const previousOverride = localJobOverrides.get(input.jobId) ?? {}
+    localJobOverrides.set(input.jobId, { ...previousOverride, ...localOverride })
+    const { jobs } = await cronListJobs()
+    const localJob = jobs.find((job) => job.jobId === input.jobId)
+    if (localJob) return { job: localJob }
+    throw new Error(errors[0] ?? res.error?.message ?? "cron.update failed")
+  }
   const payload = (res.payload?.job ?? res.payload ?? {}) as Record<string, unknown>
-  return { job: normalizeJob(payload) }
+  const returnedJob = normalizeJob(payload)
+  const localOverride = localOverrideFromUpdate(input)
+  const previousOverride = localJobOverrides.get(input.jobId) ?? {}
+  localJobOverrides.set(input.jobId, { ...previousOverride, ...localOverride })
+  if (lastRunCache.has(input.jobId)) {
+    const cached = lastRunCache.get(input.jobId)
+    lastRunCache.set(input.jobId, {
+      run: cached?.run ?? returnedJob.lastRun ?? null,
+      cachedAt: Date.now(),
+    })
+  }
+  return {
+    job: applyLocalJobOverride({
+      ...returnedJob,
+      jobId: returnedJob.jobId || input.jobId,
+    }),
+  }
 }
 
 export async function cronDeleteJob(input: { jobId: string }) {
   const gw = await ensureGatewayClient()
   const res = await gw.request("cron.remove", { id: input.jobId })
   if (!res.ok) throw new Error(res.error?.message ?? "cron.remove failed")
+  localJobOverrides.delete(input.jobId)
+  lastRunCache.delete(input.jobId)
+  activeRuns.delete(input.jobId)
   return { deleted: true, jobId: input.jobId }
 }
 
@@ -497,6 +635,7 @@ export async function cronRunJob(input: {
         type: failed ? "cron.run.failed" : "cron.run.completed",
         jobId: input.jobId,
         runId: run.runId || syntheticRun.runId,
+        sessionKey: run.sessionKey,
         name: job.name || undefined,
         status: failed ? "failed" : "completed",
         timestamp: finishedAt,

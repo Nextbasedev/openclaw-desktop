@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { invoke } from "@/lib/ipc"
 
 export type SlashCommand = {
@@ -42,7 +42,7 @@ export function useSlashCommands() {
   const [loading, setLoading] = useState(!cachedCommands)
   const fetched = useRef(false)
 
-  useEffect(() => {
+  const ensureLoaded = () => {
     if (fetched.current || cachedCommands) return
     fetched.current = true
 
@@ -59,7 +59,7 @@ export function useSlashCommands() {
         cachedCommands = FALLBACK_COMMANDS
       })
       .finally(() => setLoading(false))
-  }, [])
+  }
 
-  return { commands, loading }
+  return { commands, loading, ensureLoaded }
 }

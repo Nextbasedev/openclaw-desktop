@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscPulse } from "react-icons/vsc"
 import { ToolCallRow, StatusBadge, TREE_DOT_COLORS, COUNT_BADGE_COLORS } from "./ActivityNodes"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
+import { SubagentChatView } from "./SubagentChatView"
 import type { AgentNode } from "./activity-types"
 
 function findNode(
@@ -113,10 +114,16 @@ export function ActivityTab({
   const bottomRef = useRef<HTMLDivElement>(null)
   const [mainExpanded, setMainExpanded] = useState(true)
   const [filter, setFilter] = useState<"all" | "success">("all")
-  const { historyLoaded, tree, isLive } = useAgentActivity(sessionKey)
+  const { historyLoaded, tree, isLive, agentToSessionKey } =
+    useAgentActivity(sessionKey)
 
   const selectedId = activeAgentId ?? "root"
   const selectedNode = findNode(tree, selectedId) ?? tree[0] ?? null
+  const selectedSubagentSessionKey =
+    selectedNode && selectedNode.id !== "root"
+      ? agentToSessionKey.get(selectedNode.id) ?? null
+      : null
+  const selectedIsSubagent = Boolean(selectedNode && selectedNode.id !== "root")
   const mainNode = tree[0] ?? null
   const childCount = mainNode?.children?.length ?? 0
 
@@ -149,6 +156,10 @@ export function ActivityTab({
     selectedNode?.calls.filter((c) => c.status === "running")
       .length ?? 0
   const totalCount = selectedNode?.calls.length ?? 0
+  const totalLabel =
+    selectedIsSubagent && selectedSubagentSessionKey && totalCount === 0
+      ? "Loading"
+      : String(totalCount)
 
   if (!sessionKey) {
     return (
@@ -275,7 +286,7 @@ export function ActivityTab({
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Total{" "}
                   <span className="text-foreground/70">
-                    {totalCount}
+                    {totalLabel}
                   </span>
                 </span>
                 {runningCount > 0 && (
@@ -305,9 +316,26 @@ export function ActivityTab({
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+              {selectedSubagentSessionKey && (
+                <div className="mb-3 overflow-hidden rounded-xl border border-white/8 bg-[#0d0e12]">
+                  <SubagentChatView
+                    sessionKey={selectedSubagentSessionKey}
+                    isLive={selectedNode.status === "running"}
+                  />
+                </div>
+              )}
               {filteredCalls.map((call) => (
                 <ToolCallRow key={call.id} call={call} />
               ))}
+              {filteredCalls.length === 0 && !selectedSubagentSessionKey && (
+                <div className="flex min-h-28 items-center justify-center rounded-xl border border-white/6 bg-white/[0.02]">
+                  <p className="text-[11px] text-muted-foreground">
+                    {selectedIsSubagent
+                      ? "Waiting for sub-agent activity..."
+                      : "No tool activity for this agent yet"}
+                  </p>
+                </div>
+              )}
               <div ref={bottomRef} className="h-px" />
             </div>
           </>

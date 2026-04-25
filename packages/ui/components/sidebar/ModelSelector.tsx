@@ -14,7 +14,13 @@ type Props = {
 }
 
 export function ModelSelector({ open, onOpenChange }: Props) {
-  const { models, currentModel: current, reload } = useModels()
+  const {
+    models,
+    currentModel: current,
+    loading,
+    reload,
+    ensureLoaded,
+  } = useModels()
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
   const searchRef = useRef<HTMLInputElement>(null)
@@ -22,9 +28,10 @@ export function ModelSelector({ open, onOpenChange }: Props) {
   useEffect(() => {
     if (open) {
       setQuery("")
+      ensureLoaded()
       setTimeout(() => searchRef.current?.focus(), 50)
     }
-  }, [open])
+  }, [ensureLoaded, open])
 
   async function handleSelect(modelId: string) {
     setSaving(true)
@@ -88,7 +95,12 @@ export function ModelSelector({ open, onOpenChange }: Props) {
       </div>
 
       <div className="max-h-[320px] overflow-y-auto">
-        {Object.entries(grouped).map(([provider, providerModels]) => (
+        {loading && models.length === 0 && (
+          <p className="px-2.5 py-4 text-center text-[12px] text-muted-foreground">
+            Loading models...
+          </p>
+        )}
+        {!loading && Object.entries(grouped).map(([provider, providerModels]) => (
           <div key={provider}>
             <p className="px-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/40">
               {provider}
@@ -133,7 +145,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
             })}
           </div>
         ))}
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <p className="px-2.5 py-4 text-center text-[12px] text-muted-foreground">
             No models match &ldquo;{query}&rdquo;
           </p>

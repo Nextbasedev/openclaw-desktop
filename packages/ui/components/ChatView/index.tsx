@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -11,6 +11,15 @@ import { SubagentFullChat } from "./SubagentFullChat"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatBox } from "@/components/ChatBox"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
+import { isSubagentSessionKey } from "@/lib/subagentSession"
+import {
+  exportMessagesMarkdown,
+  initialMessageActionState,
+  messageActionReducer,
+  pinnedMessages,
+  quotePrefix,
+  visibleMessages,
+} from "@/lib/messageActions"
 import type { SpawnedSubagent } from "./types"
 
 type Props = {
@@ -24,6 +33,20 @@ type Props = {
   onSubagentOpen?: (key: string | null) => void
   /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
+}
+
+function cleanSubagentReply(text: string) {
+  return text
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim()
+      if (trimmed === "Done.") return false
+      if (/^I spawned a subagent\b/i.test(trimmed)) return false
+      return true
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }
 
 export function ChatView({
@@ -106,9 +129,13 @@ export function ChatView({
   }, [sessionKey])
 
   const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(null)
-  const activeSubKey = externalSubagentKey ?? internalSubagentKey
-
   const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(null)
+  const [messageActionState, dispatchMessageAction] = useState(
+    initialMessageActionState,
+  )
+  const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
+  const activeSubKey =
+    externalSubagentKey ?? internalSubagentKey ?? activeSubagent?.sessionKey ?? null
 
   // Only suppress notifications when the main chat for THIS session is visible.
   // If a subagent is open, the user is on another page, or this is a
@@ -123,32 +150,110 @@ export function ChatView({
     isVisible: isMainChatVisible,
   })
 
+  useEffect(() => {
+    setComposerSeed(initialPrompt ?? "")
+  }, [initialPrompt])
+
   const openSubagent = useCallback((sub: SpawnedSubagent) => {
-    setActiveSubagent(sub)
-    if (onSubagentOpen) {
-      onSubagentOpen(sub.sessionKey)
-    } else {
-      setInternalSubagentKey(sub.sessionKey)
-    }
-  }, [onSubagentOpen])
+    if (!sub.sessionKey || sub.sessionKey === sessionKey) return
+    setActiveSubagent({ ...sub, sessionKey: sub.sessionKey })
+    setInternalSubagentKey(sub.sessionKey)
+    onSubagentOpen?.(sub.sessionKey)
+  }, [onSubagentOpen, sessionKey])
 
   const closeSubagent = useCallback(() => {
     setActiveSubagent(null)
-    if (onSubagentOpen) {
-      onSubagentOpen(null)
-    } else {
-      setInternalSubagentKey(null)
-    }
+    setInternalSubagentKey(null)
+    onSubagentOpen?.(null)
   }, [onSubagentOpen])
+
+  const activeSubagentFallbackText = useMemo(() => {
+    if (!activeSubagent || !isSubagentSessionKey(activeSubagent.sessionKey)) {
+      return ""
+    }
+    const assistantMessages = messages.filter(
+      (message) => message.role === "assistant" && message.text.trim(),
+    )
+    const resultMessage =
+      [...assistantMessages]
+      .reverse()
+      .find((message) =>
+        /\bI spawned a subagent\b/i.test(message.text) ||
+        /\bDone\./i.test(message.text),
+      ) ?? assistantMessages.at(-1)
+    return cleanSubagentReply(resultMessage?.text ?? "")
+  }, [activeSubagent, messages])
+
+  const activeSubagentFallbackPrompt =
+    activeSubagent?.task?.trim() || "Run the delegated sub-agent task."
 
   const firstFiredRef = useRef(false)
   const wrappedSend = useCallback(async (payload: ChatComposerSubmit) => {
-    if (!firstFiredRef.current && messages.length === 0 && onFirstMessageSent) {
+    const shouldNotifyFirstSend =
+      !firstFiredRef.current &&
+      messages.length === 0 &&
+      Boolean(onFirstMessageSent)
+    await handleSend(payload)
+    if (shouldNotifyFirstSend && onFirstMessageSent) {
       firstFiredRef.current = true
       onFirstMessageSent(payload.text)
     }
-    await handleSend(payload)
+    dispatchMessageAction((prev) =>
+      messageActionReducer(prev, { type: "clear_reply" }),
+    )
+    setComposerSeed("")
   }, [handleSend, messages.length, onFirstMessageSent])
+
+  const renderedMessages = useMemo(
+    () => visibleMessages(messages, messageActionState),
+    [messages, messageActionState],
+  )
+  const pinned = useMemo(
+    () => pinnedMessages(messages, messageActionState),
+    [messages, messageActionState],
+  )
+
+  const replyToMessage = useCallback((messageId: string) => {
+    const target = messages.find((message) => message.messageId === messageId)
+    if (!target) return
+    dispatchMessageAction((prev) =>
+      messageActionReducer(prev, { type: "reply", messageId }),
+    )
+    setComposerSeed(`${quotePrefix(target.text)}\n\n`)
+  }, [messages])
+
+  const togglePin = useCallback((messageId: string) => {
+    dispatchMessageAction((prev) =>
+      messageActionReducer(prev, {
+        type: prev.pinnedIds.includes(messageId) ? "unpin" : "pin",
+        messageId,
+      }),
+    )
+  }, [])
+
+  const deleteMessage = useCallback((messageId: string) => {
+    dispatchMessageAction((prev) =>
+      messageActionReducer(prev, { type: "delete", messageId }),
+    )
+  }, [])
+
+  const reactToMessage = useCallback((messageId: string, reaction: "up" | "down") => {
+    dispatchMessageAction((prev) =>
+      messageActionReducer(prev, { type: "react", messageId, reaction }),
+    )
+  }, [])
+
+  const regenerateFromMessage = useCallback((messageId: string) => {
+    const target = messages.find((message) => message.messageId === messageId)
+    if (!target) return
+    setComposerSeed(`/regenerate ${quotePrefix(target.text)}\n\n`)
+  }, [messages])
+
+  const exportOneMessage = useCallback((messageId: string) => {
+    const target = messages.find((message) => message.messageId === messageId)
+    if (!target) return
+    void navigator.clipboard.writeText(exportMessagesMarkdown([target]))
+  }, [messages])
 
   if (activeSubKey && activeSubagent) {
     return (
@@ -156,6 +261,8 @@ export function ChatView({
         sessionKey={activeSubKey}
         label={activeSubagent.label}
         status={activeSubagent.status}
+        fallbackPrompt={activeSubagentFallbackPrompt}
+        fallbackText={activeSubagentFallbackText}
         onBack={closeSubagent}
       />
     )
@@ -165,6 +272,8 @@ export function ChatView({
     status === "thinking" ? "Thinking..."
     : status === "tool_running" ? `Running${statusLabel ? ` · ${statusLabel}` : " tool"}...`
     : status === "streaming" ? "Responding..."
+    : status === "stopping" ? "Stopping..."
+    : status === "restarting" ? "Restarting..."
     : null
 
   if (loading) {
@@ -198,7 +307,7 @@ export function ChatView({
           disabled={false}
           isGenerating={isGenerating}
           onAbort={handleAbort}
-          initialPrompt={initialPrompt}
+          initialPrompt={composerSeed}
         />
         {status === "error" && (
           <p className="mt-2 text-center text-[11px] text-red-400/70">
@@ -247,8 +356,28 @@ export function ChatView({
       >
         <div className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
-            {messages.map((msg, i) => {
-              const isLast = i === messages.length - 1
+            {pinned.length > 0 && (
+              <div className="sticky top-2 z-10 mb-3 rounded-xl border border-border/20 bg-background/80 p-2 backdrop-blur">
+                <div className="flex gap-2 overflow-x-auto">
+                  {pinned.map((message) => (
+                    <button
+                      key={message.messageId}
+                      type="button"
+                      onClick={() => {
+                        document
+                          .getElementById(`message-${message.messageId}`)
+                          ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                      }}
+                      className="max-w-52 shrink-0 truncate rounded-lg bg-card px-3 py-1.5 text-left text-[11px] text-foreground/70 hover:bg-foreground/5"
+                    >
+                      {message.text}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {renderedMessages.map((msg, i) => {
+              const isLast = i === renderedMessages.length - 1
               const showPending =
                 isLast &&
                 isGenerating &&
@@ -274,7 +403,7 @@ export function ChatView({
                 : liveSubagents
 
               return (
-                <div key={msg.messageId}>
+                <div key={msg.messageId} id={`message-${msg.messageId}`}>
                   {msg.role === "assistant" &&
                     filteredToolCalls &&
                     filteredToolCalls.length > 0 && (
@@ -308,6 +437,14 @@ export function ChatView({
                       message={msg}
                       onEdit={handleEdit}
                       onSwitchBranch={switchBranch}
+                      onReply={replyToMessage}
+                      onPin={togglePin}
+                      onDelete={deleteMessage}
+                      onRegenerate={msg.role === "assistant" ? regenerateFromMessage : undefined}
+                      onReact={msg.role === "assistant" ? reactToMessage : undefined}
+                      onExport={exportOneMessage}
+                      isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
+                      reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
                       isActivelyStreaming={isActivelyStreaming}
                     />
@@ -359,6 +496,7 @@ export function ChatView({
           disabled={false}
           isGenerating={isGenerating}
           onAbort={handleAbort}
+          initialPrompt={composerSeed}
         />
         {status === "error" && (
           <p className="mt-2 text-center text-[11px] text-red-400/70">

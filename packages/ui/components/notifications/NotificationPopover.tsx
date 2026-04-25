@@ -7,30 +7,41 @@ import { openEventStream } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import type { ActiveChat } from "@/types/chat"
+import {
+  applyCronEventToJobs,
+  formatCronRunTime,
+  getCronStatusMeta,
+  mergeCronRunEvents,
+  sortCronJobsByStatus,
+  type CronJobLike,
+  type CronRunEventLike,
+  type CronRunLike,
+} from "./cron-status"
 
-type CronJob = {
+type CronJob = CronJobLike<CronRun> & {
   jobId: string
   name: string
   schedule: string
   enabled: boolean
   paused?: boolean
   session?: string
-  lastRun?: CronRun | null
 }
 
-type CronRun = {
+type CronRun = CronRunLike & {
   runId: string
   jobId: string
   status: string
   startedAt: string
   finishedAt: string | null
+  sessionKey: string | null
   error: string | null
 }
 
-type CronRunEvent = {
+type CronRunEvent = CronRunEventLike & {
   type: "cron.run.started" | "cron.run.completed" | "cron.run.failed"
   jobId: string
   runId?: string
+  sessionKey?: string | null
   name?: string
   status: string
   timestamp: string
@@ -51,13 +62,24 @@ const spring = {
 }
 
 const MAX_EVENTS = 3
+const POPOVER_FETCH_TIMEOUT_MS = 4_000
 
-function requestNotificationPermission() {
-  if (typeof window === "undefined") return
-  if (!("Notification" in window)) return
-  if (Notification.permission === "default") {
-    Notification.requestPermission().catch(() => {})
-  }
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error("Request timed out."))
+    }, timeoutMs)
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        window.clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }
 
 function showBrowserNotification(event: CronRunEvent) {
@@ -82,92 +104,51 @@ function statusIcon(type: CronRunEvent["type"]) {
   return "failed"
 }
 
+function resolveEventName(
+  event: CronRunEvent,
+  jobNames: Map<string, string>,
+): string | undefined {
+  return event.name?.trim() || jobNames.get(event.jobId)
+}
+
+function eventFromRunningJob(job: CronJob): CronRunEvent | null {
+  const status = getCronStatusMeta(job, { variant: "popover" })
+  if (status.phase !== "running" || !status.run) return null
+  return {
+    type: "cron.run.started",
+    jobId: job.jobId,
+    runId: status.run.runId,
+    sessionKey: status.run.sessionKey,
+    name: job.name,
+    status: "running",
+    timestamp: status.run.startedAt,
+  }
+}
+
+function reconcileActivityWithJobs(
+  jobs: CronJob[],
+  events: CronRunEvent[],
+): CronRunEvent[] {
+  const runningEvents = jobs
+    .map(eventFromRunningJob)
+    .filter((event): event is CronRunEvent => Boolean(event))
+  if (runningEvents.length === 0) return events.slice(0, MAX_EVENTS)
+
+  const runningJobIds = new Set(runningEvents.map((event) => event.jobId))
+  const nonRunningEvents = events.filter(
+    (event) => !runningJobIds.has(event.jobId),
+  )
+  return [...runningEvents, ...nonRunningEvents]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, MAX_EVENTS)
+}
+
 function timeAgo(timestamp: string): string {
   const diff = Date.now() - new Date(timestamp).getTime()
   if (diff < 5000) return "just now"
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
   return `${Math.floor(diff / 3_600_000)}h ago`
-}
-
-function formatRunTime(iso?: string | null): string {
-  if (!iso) return ""
-  try {
-    return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-  } catch {
-    return iso
-  }
-}
-
-function latestRunStatus(job: CronJob) {
-  if (!job.enabled || job.paused) {
-    return {
-      label: job.paused ? "Paused" : "Off",
-      detail: job.lastRun ? `Last run ${job.lastRun.status}` : "Not scheduled",
-      className: "bg-secondary text-muted-foreground",
-    }
-  }
-  const run = job.lastRun
-  if (!run) {
-    return {
-      label: "Never run",
-      detail: "No run history",
-      className: "bg-foreground/5 text-muted-foreground",
-    }
-  }
-  if (run.status === "running") {
-    return {
-      label: "Running now",
-      detail: formatRunTime(run.startedAt),
-      className: "bg-chart-2/15 text-chart-2",
-    }
-  }
-  if (run.status === "completed") {
-    return {
-      label: "Completed",
-      detail: formatRunTime(run.finishedAt ?? run.startedAt),
-      className: "bg-chart-1/15 text-chart-1",
-    }
-  }
-  if (run.status === "failed" || run.status === "error") {
-    return {
-      label: "Failed",
-      detail: run.error ?? formatRunTime(run.finishedAt ?? run.startedAt),
-      className: "bg-red-400/15 text-red-400",
-    }
-  }
-  return {
-    label: run.status,
-    detail: formatRunTime(run.finishedAt ?? run.startedAt),
-    className: "bg-foreground/5 text-muted-foreground",
-  }
-}
-
-function runTimeMs(run?: CronRun | null): number {
-  if (!run) return 0
-  const raw = run.finishedAt ?? run.startedAt
-  const time = raw ? new Date(raw).getTime() : 0
-  return Number.isFinite(time) ? time : 0
-}
-
-function sortPopoverJobs(nextJobs: CronJob[]): CronJob[] {
-  return [...nextJobs].sort((a, b) => {
-    const aRunning = a.lastRun?.status === "running" ? 1 : 0
-    const bRunning = b.lastRun?.status === "running" ? 1 : 0
-    if (aRunning !== bRunning) return bRunning - aRunning
-    return runTimeMs(b.lastRun) - runTimeMs(a.lastRun)
-  })
-}
-
-function mergeEventList(prev: CronRunEvent[], next: CronRunEvent): CronRunEvent[] {
-  const isDone = next.type !== "cron.run.started"
-  const deduped = prev.filter((event) => {
-    if (next.runId && event.runId === next.runId) return false
-    if (!next.runId && event.jobId === next.jobId && event.type === next.type) return false
-    if (isDone && event.jobId === next.jobId && event.type === "cron.run.started") return false
-    return true
-  })
-  return [next, ...deduped].slice(0, MAX_EVENTS)
 }
 
 export function NotificationPopover({ onViewAll, onNavigateToChat }: NotificationPopoverProps) {
@@ -180,24 +161,12 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const jobNamesRef = useRef<Map<string, string>>(new Map())
+  const openRef = useRef(false)
+  const fetchJobsRef = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
-    requestNotificationPermission()
-    Promise.all([
-      invoke<{ jobs: CronJob[] }>("middleware_cron_list_jobs"),
-      invoke<{ events: CronRunEvent[] }>("middleware_cron_recent_activity", { limit: MAX_EVENTS }),
-    ])
-      .then(([jobsResult, activityResult]) => {
-        for (const job of jobsResult.jobs) {
-          if (job.name) jobNamesRef.current.set(job.jobId, job.name)
-        }
-        setEvents(activityResult.events.map((event) => ({
-          ...event,
-          name: event.name ?? jobNamesRef.current.get(event.jobId),
-        })).slice(0, MAX_EVENTS))
-      })
-      .catch(() => {})
-  }, [])
+    openRef.current = open
+  }, [open])
 
   useEffect(() => {
     const cleanup = openEventStream(
@@ -205,9 +174,11 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
       (evt: MessageEvent) => {
         try {
           const event = JSON.parse(evt.data) as CronRunEvent
-          if (!event.name) event.name = jobNamesRef.current.get(event.jobId)
+          event.name = resolveEventName(event, jobNamesRef.current)
           if (event.name) jobNamesRef.current.set(event.jobId, event.name)
-          setEvents((prev) => mergeEventList(prev, event))
+          setEvents((prev) => mergeCronRunEvents(prev, event, MAX_EVENTS))
+          setJobs((prev) => sortCronJobsByStatus(applyCronEventToJobs(prev, event)).slice(0, 3))
+          if (openRef.current) void fetchJobsRef.current()
           if (
             event.type === "cron.run.completed" ||
             event.type === "cron.run.failed"
@@ -233,24 +204,65 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
   const fetchJobs = useCallback(async () => {
     setLoading(true)
     try {
-      const [jobsResult, activityResult] = await Promise.all([
+      setError(null)
+      const jobsPromise = withTimeout(
         invoke<{ jobs: CronJob[] }>("middleware_cron_list_jobs"),
+        POPOVER_FETCH_TIMEOUT_MS,
+      )
+      const activityPromise = withTimeout(
         invoke<{ events: CronRunEvent[] }>("middleware_cron_recent_activity", { limit: MAX_EVENTS }),
-      ])
-      for (const job of jobsResult.jobs) {
+        POPOVER_FETCH_TIMEOUT_MS,
+      )
+
+      const activityResult = await activityPromise
+        .then((value) => ({ status: "fulfilled" as const, value }))
+        .catch((reason) => ({ status: "rejected" as const, reason }))
+      if (activityResult.status === "fulfilled") {
+        setEvents(activityResult.value.events.map((event) => ({
+          ...event,
+          name: resolveEventName(event, jobNamesRef.current),
+        })))
+      }
+
+      const jobsResult = await jobsPromise
+        .then((value) => ({ status: "fulfilled" as const, value }))
+        .catch((reason) => ({ status: "rejected" as const, reason }))
+
+      const jobs = jobsResult.status === "fulfilled" ? jobsResult.value.jobs : []
+      const events = activityResult.status === "fulfilled" ? activityResult.value.events : []
+      const latestEvents = new Map<string, CronRunEvent>()
+
+      for (const job of jobs) {
         if (job.name) jobNamesRef.current.set(job.jobId, job.name)
       }
-      setJobs(sortPopoverJobs(jobsResult.jobs).slice(0, 3))
-      setEvents(activityResult.events.map((event) => ({
+      const hydratedEvents = reconcileActivityWithJobs(jobs, events.map((event) => ({
         ...event,
-        name: event.name ?? jobNamesRef.current.get(event.jobId),
-      })).slice(0, MAX_EVENTS))
+        name: resolveEventName(event, jobNamesRef.current),
+      })))
+      for (const event of hydratedEvents) {
+        latestEvents.set(event.jobId, event)
+      }
+      setJobs(sortCronJobsByStatus(jobs, latestEvents).slice(0, 3))
+      setEvents(hydratedEvents)
+      if (jobsResult.status === "rejected" && activityResult.status === "rejected") {
+        setError("Failed to load notifications.")
+      } else if (jobsResult.status === "rejected") {
+        setError("Failed to load active jobs.")
+      } else if (activityResult.status === "rejected") {
+        setError("Failed to load recent activity.")
+      }
     } catch {
       setJobs([])
+      setEvents([])
+      setError("Failed to load notifications.")
     } finally {
       setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    fetchJobsRef.current = fetchJobs
+  }, [fetchJobs])
 
   useEffect(() => {
     if (!open) return
@@ -308,6 +320,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
       <button
         ref={triggerRef}
         type="button"
+        data-testid="notifications-trigger"
         aria-label="Notifications"
         title="Notifications"
         onClick={() => setOpen((v) => !v)}
@@ -338,6 +351,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
         {open && (
           <motion.div
             ref={panelRef}
+            data-testid="notifications-popover"
             initial={{ opacity: 0, scale: 0.92, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -4 }}
@@ -389,7 +403,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
                           await handleNavigateToChat({
                             id: event.jobId,
                             name: event.name ?? event.jobId.slice(0, 8),
-                            sessionKey: event.runId,
+                            sessionKey: event.sessionKey ?? undefined,
                             cronJobId: event.jobId,
                           })
                         })()}
@@ -441,6 +455,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
             <div className="border-t border-white/[0.06] px-2 py-1.5">
               <button
                 type="button"
+                data-testid="notifications-view-more"
                 onClick={handleViewAll}
                 className={cn(
                   "flex w-full items-center justify-center gap-1.5 rounded-md py-1.5",
@@ -470,7 +485,7 @@ function PopoverJobRow({
   canNavigate: boolean
   onClick: () => void
 }) {
-  const status = latestRunStatus(job)
+  const status = getCronStatusMeta(job, { variant: "popover" })
   return (
     <motion.div
       initial={{ opacity: 0, x: -8 }}
@@ -481,7 +496,10 @@ function PopoverJobRow({
         ease: [0.25, 0.46, 0.45, 0.94],
       }}
       data-cron-popover-job-id={job.jobId}
+      data-testid={`cron-popover-job-${job.jobId}`}
       data-cron-popover-job-name={job.name}
+      data-cron-popover-job-status={status.phase}
+      data-cron-popover-run-id={status.run?.runId ?? ""}
       onClick={onClick}
       className={cn(
         "flex items-center gap-2.5 rounded-md px-2 py-1.5",
@@ -527,7 +545,9 @@ function EventRow({ event, idx, onClick }: { event: CronRunEvent; idx: number; o
       }}
       onClick={onClick}
       data-cron-popover-event-id={event.jobId}
+      data-testid={`cron-popover-event-${event.jobId}`}
       data-cron-popover-event-name={event.name ?? ""}
+      data-cron-popover-event-status={status}
       className={cn(
         "flex items-center gap-2.5 rounded-md px-2 py-1.5",
         "transition-colors hover:bg-secondary/50",

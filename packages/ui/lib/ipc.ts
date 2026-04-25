@@ -14,13 +14,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms))
 }
 
+function shouldUseSameOriginProxy(): boolean {
+  if (typeof window === "undefined") return false
+  const { protocol, port } = window.location
+  return protocol.startsWith("http") && port === "3000"
+}
+
+function ipcUrl(command: string): string {
+  if (shouldUseSameOriginProxy()) return `/api/ipc/${command}`
+  return `${SERVER_URL}/api/ipc/${command}`
+}
+
+export function streamUrl(path: string): string {
+  if (shouldUseSameOriginProxy()) return path
+  return `${SERVER_URL}${path}`
+}
+
 async function invokeHttp<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
   for (let attempt = 0; attempt < STARTUP_RETRY_ATTEMPTS; attempt += 1) {
     try {
-      const res = await fetch(`${SERVER_URL}/api/ipc/${command}`, {
+      const res = await fetch(ipcUrl(command), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(args ?? {}),
@@ -74,9 +90,7 @@ export function openEventStream(
   path: string,
   onEvent: (event: MessageEvent) => void,
 ): () => void {
-  const serverUrl =
-    process.env.NEXT_PUBLIC_SERVER_URL || "http://127.0.0.1:3001"
-  const source = new EventSource(`${serverUrl}${path}`)
+  const source = new EventSource(streamUrl(path))
 
   const handler = (evt: MessageEvent) => onEvent(evt)
   source.addEventListener("data", handler)

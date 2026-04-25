@@ -212,10 +212,10 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-clip">
-          {activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} />}
-          {activeTab === "workspace" && <WorkspaceTab />}
-          {activeTab === "git" && <GitTab projectId={projectId ?? null} />}
-          {activeTab === "terminal" && (
+          {open && activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} />}
+          {open && activeTab === "workspace" && <WorkspaceTab />}
+          {open && activeTab === "git" && <GitTab projectId={projectId ?? null} />}
+          {open && activeTab === "terminal" && (
             <div className="flex h-full flex-col overflow-hidden">
               {/* Terminal session tabs */}
               <div

@@ -5,6 +5,11 @@ import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 import { Icons } from "@/components/icons"
 import { MarkdownContent } from "@/components/ChatView/MarkdownContent"
+import {
+  getCronStatusMeta,
+  type CronJobLike,
+  type CronRunLike,
+} from "./cron-status"
 
 type ContentBlock = {
   type?: string
@@ -29,7 +34,7 @@ type ParsedMessage = {
   createdAt?: string
 }
 
-type LastRun = {
+type LastRun = CronRunLike & {
   status: string
   error: string | null
   startedAt: string
@@ -101,19 +106,20 @@ function formatDateTime(iso?: string): string | null {
 }
 
 function RunStatusBanner({ lastRun }: { lastRun: LastRun | null }) {
-  const isFailed = lastRun?.status === "error" || lastRun?.status === "failed"
-  const isRunning = lastRun?.status === "running"
-  const label = !lastRun
-    ? "Never run"
-    : isRunning
-      ? "Running now"
-      : isFailed
-        ? "Last run failed"
-        : lastRun.status === "completed"
-          ? "Last run completed"
-          : `Last run ${lastRun.status}`
+  const status = getCronStatusMeta(
+    {
+      jobId: lastRun?.jobId ?? "cron-job-chat",
+      enabled: true,
+      paused: false,
+      lastRun,
+    } satisfies CronJobLike<LastRun>,
+    { variant: "banner" },
+  )
+  const isFailed = status.phase === "failed"
+  const isRunning = status.phase === "running"
   return (
     <div
+      data-testid="cron-job-run-status"
       className={cn(
         "rounded-xl border px-4 py-3",
         isFailed
@@ -150,7 +156,7 @@ function RunStatusBanner({ lastRun }: { lastRun: LastRun | null }) {
                   : "text-muted-foreground",
           )}
         >
-          {label}
+          {status.label}
         </span>
         {lastRun?.startedAt && (
           <span className="text-[11px] text-muted-foreground/50">
@@ -176,11 +182,13 @@ export function CronJobChat({
   jobId,
   jobName,
   schedule,
+  prompt,
   onBack,
 }: {
   jobId: string
   jobName: string
   schedule: string
+  prompt?: string
   onBack: () => void
 }) {
   const [messages, setMessages] = useState<ParsedMessage[]>([])
@@ -222,6 +230,7 @@ export function CronJobChat({
       <div className="flex items-center gap-3">
         <button
           type="button"
+          data-testid="cron-job-chat-back"
           onClick={onBack}
           aria-label="Back to cron jobs"
           className="flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
@@ -238,6 +247,7 @@ export function CronJobChat({
         </div>
         <button
           type="button"
+          data-testid="cron-job-chat-refresh"
           onClick={fetchHistory}
           className={cn(
             "flex items-center gap-1.5 rounded-md px-3 py-1.5",
@@ -269,6 +279,16 @@ export function CronJobChat({
                 size={28}
                 className="mx-auto mb-3 text-muted-foreground/40"
               />
+              {prompt?.trim() && (
+                <div className="mx-auto mb-4 max-w-lg rounded-xl border border-white/[0.08] bg-background/40 px-4 py-3 text-left">
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                    Configured prompt
+                  </p>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                    {prompt.trim()}
+                  </p>
+                </div>
+              )}
               <p className="text-sm text-muted-foreground">
                 {hasError
                   ? "Run failed before producing a response."

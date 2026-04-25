@@ -10,6 +10,7 @@ type CronRunEvent = {
   type: "cron.run.started" | "cron.run.completed" | "cron.run.failed"
   jobId: string
   runId?: string
+  sessionKey?: string | null
   name?: string
   status: string
   timestamp: string
@@ -18,6 +19,15 @@ type CronRunEvent = {
 }
 
 const MAX_EVENTS = 50
+
+type ActivityTabProps = {
+  onNavigateToChat?: (chat: {
+    id: string
+    name: string
+    sessionKey?: string
+    cronJobId?: string
+  }) => void | boolean | Promise<void | boolean>
+}
 
 function formatTime(timestamp: string): string {
   try {
@@ -44,20 +54,56 @@ function eventLabel(event: CronRunEvent): string {
   return event.name ? `${id} - ${event.name}` : id
 }
 
+function resolveEventName(
+  event: CronRunEvent,
+  jobNames: Map<string, string>,
+): string | undefined {
+  return event.name?.trim() || jobNames.get(event.jobId)
+}
+
 function mergeEventList(prev: CronRunEvent[], next: CronRunEvent): CronRunEvent[] {
   const isDone = next.type !== "cron.run.started"
   const deduped = prev.filter((event) => {
     if (next.runId && event.runId === next.runId) return false
     if (!next.runId && event.jobId === next.jobId && event.type === next.type) return false
+    if (next.type === "cron.run.started" && event.jobId === next.jobId) return false
     if (isDone && event.jobId === next.jobId && event.type === "cron.run.started") return false
     return true
   })
   return [next, ...deduped].slice(0, MAX_EVENTS)
 }
 
-export function ActivityTab() {
+function visibleActivityEvents(events: CronRunEvent[]): CronRunEvent[] {
+  const latestByJob = new Map<string, CronRunEvent>()
+  for (const event of events) {
+    const current = latestByJob.get(event.jobId)
+    if (!current) {
+      latestByJob.set(event.jobId, event)
+      continue
+    }
+    const currentMs = new Date(current.timestamp).getTime()
+    const nextMs = new Date(event.timestamp).getTime()
+    if (Number.isFinite(nextMs) && (!Number.isFinite(currentMs) || nextMs > currentMs)) {
+      latestByJob.set(event.jobId, event)
+      continue
+    }
+    if (
+      nextMs === currentMs &&
+      current.type === "cron.run.started" &&
+      event.type !== "cron.run.started"
+    ) {
+      latestByJob.set(event.jobId, event)
+    }
+  }
+  return [...latestByJob.values()]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, MAX_EVENTS)
+}
+
+export function ActivityTab({ onNavigateToChat }: ActivityTabProps) {
   const [events, setEvents] = useState<CronRunEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
   const jobNamesRef = useRef<Map<string, string>>(new Map())
 
@@ -67,35 +113,50 @@ export function ActivityTab() {
     async function hydrateActivity() {
       setLoading(true)
       try {
-        const activityResult = await invoke<{ events: CronRunEvent[] }>(
-          "middleware_cron_recent_activity",
-          { limit: MAX_EVENTS },
-        )
+        setError(null)
+        const [jobsResult, activityResult] = await Promise.all([
+          invoke<{ jobs: Array<{ jobId: string; name: string }> }>(
+            "middleware_cron_list_jobs",
+          ).catch(() => ({ jobs: [] })),
+          invoke<{ events: CronRunEvent[] }>(
+            "middleware_cron_recent_activity",
+            { limit: MAX_EVENTS },
+          ),
+        ])
         if (cancelled) return
+        for (const job of jobsResult.jobs) {
+          if (job.name) jobNamesRef.current.set(job.jobId, job.name)
+        }
         for (const event of activityResult.events) {
           if (event.name) jobNamesRef.current.set(event.jobId, event.name)
         }
-        setEvents(activityResult.events.map((event) => ({
+        setEvents(visibleActivityEvents(activityResult.events.map((event) => ({
           ...event,
-          name: event.name ?? jobNamesRef.current.get(event.jobId),
-        })))
+          name: resolveEventName(event, jobNamesRef.current),
+        }))))
       } catch {
-        if (!cancelled) setEvents([])
+        if (!cancelled) {
+          setEvents([])
+          setError("Failed to load cron activity.")
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
 
     void hydrateActivity()
+    const refreshTimer = window.setInterval(() => {
+      void hydrateActivity()
+    }, 1_000)
 
     const cleanup = openEventStream(
       "/api/stream/cron",
       (evt: MessageEvent) => {
         try {
           const event = JSON.parse(evt.data) as CronRunEvent
-          if (!event.name) event.name = jobNamesRef.current.get(event.jobId)
+          event.name = resolveEventName(event, jobNamesRef.current)
           if (event.name) jobNamesRef.current.set(event.jobId, event.name)
-          setEvents((prev) => mergeEventList(prev, event))
+          setEvents((prev) => visibleActivityEvents(mergeEventList(prev, event)))
         } catch {
           // ignore
         }
@@ -103,6 +164,7 @@ export function ActivityTab() {
     )
     return () => {
       cancelled = true
+      window.clearInterval(refreshTimer)
       cleanup()
     }
   }, [])
@@ -124,6 +186,15 @@ export function ActivityTab() {
           <p className="text-sm text-muted-foreground">
             Loading cron activity...
           </p>
+        </div>
+      )}
+
+      {error && (
+        <div
+          data-testid="cron-activity-error"
+          className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-[12px] text-red-400"
+        >
+          {error}
         </div>
       )}
 
@@ -151,6 +222,7 @@ export function ActivityTab() {
             const isFailed = event.type === "cron.run.failed"
             const isExpanded = expandedIdx === idx
             const hasDetail = event.result || event.error
+            const canNavigate = Boolean(onNavigateToChat)
 
             return (
               <motion.div
@@ -162,7 +234,9 @@ export function ActivityTab() {
                   ease: [0.25, 0.46, 0.45, 0.94],
                 }}
                 data-cron-activity-job-id={event.jobId}
+                data-testid={`cron-activity-${event.jobId}-${event.runId ?? idx}`}
                 data-cron-activity-job-name={event.name ?? ""}
+                data-cron-activity-status={status.toLowerCase()}
                 className={cn(
                   "flex flex-col rounded-xl",
                   "border border-border/50 bg-card",
@@ -171,11 +245,23 @@ export function ActivityTab() {
               >
                 <button
                   type="button"
-                  onClick={() => hasDetail ? setExpandedIdx(isExpanded ? null : idx) : undefined}
+                  onClick={() => {
+                    if (!onNavigateToChat) {
+                      if (hasDetail) setExpandedIdx(isExpanded ? null : idx)
+                      return
+                    }
+                    void onNavigateToChat({
+                      id: event.jobId,
+                      name: event.name ?? event.jobId.slice(0, 8),
+                      sessionKey: event.sessionKey ?? undefined,
+                      cronJobId: event.jobId,
+                    })
+                  }}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 text-left",
-                    hasDetail && "cursor-pointer hover:bg-secondary/30",
-                    !hasDetail && "cursor-default",
+                    canNavigate || hasDetail
+                      ? "cursor-pointer hover:bg-secondary/30"
+                      : "cursor-default",
                   )}
                 >
                   <span
@@ -218,7 +304,7 @@ export function ActivityTab() {
                     </span>
                   </div>
 
-                  {hasDetail && (
+                  {hasDetail && !canNavigate && (
                     <Icons.Forward
                       size={12}
                       className={cn(
@@ -228,6 +314,16 @@ export function ActivityTab() {
                     />
                   )}
                 </button>
+
+                {hasDetail && canNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                    className="border-t border-border/30 px-4 py-2 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/20 hover:text-foreground"
+                  >
+                    {isExpanded ? "Hide run details" : "Show run details"}
+                  </button>
+                )}
 
                 {isExpanded && hasDetail && (
                   <div className="border-t border-border/30 px-4 py-3">

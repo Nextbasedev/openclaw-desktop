@@ -20,6 +20,10 @@ import { ChatView } from "@/components/ChatView"
 import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
+import {
+  ensureChatSession,
+  resolveSessionNavigationTarget,
+} from "@/lib/sessionNavigation"
 import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
@@ -53,7 +57,12 @@ const SIDEBAR_COLLAPSED = 56
 
 export default function Page() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
-  const { flowState, loading: onboardingLoading, error: onboardingError } = useOnboardingFlow()
+  const {
+    flowState,
+    loading: onboardingLoading,
+    signOut,
+    deleteAccount,
+  } = useOnboardingFlow()
   const [hasToken, setHasToken] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -77,26 +86,51 @@ export default function Page() {
     return <AppLoadingSkeleton />
   }
 
-  return <AppShell onResetOnboarding={() => setOnboardingDone(false)} initialConnect={!hasToken} />
+  return (
+    <AppShell
+      onResetOnboarding={() => setOnboardingDone(false)}
+      initialConnect={!hasToken}
+      flowState={flowState}
+      onSignOut={signOut}
+      onDeleteAccount={deleteAccount}
+    />
+  )
 }
 
-function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: () => void; initialConnect?: boolean }) {
+type AppShellProps = {
+  onResetOnboarding: () => void
+  initialConnect?: boolean
+  flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
+  onSignOut: () => Promise<unknown>
+  onDeleteAccount: () => Promise<unknown>
+}
+
+function AppShell({
+  onResetOnboarding,
+  initialConnect,
+  flowState,
+  onSignOut,
+  onDeleteAccount,
+}: AppShellProps) {
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   )
   const [terminalActive, setTerminalActive] = useState(false)
+  const [connectAutoOpenEnabled, setConnectAutoOpenEnabled] = useState(() =>
+    Boolean(initialConnect),
+  )
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window === "undefined") return "chat"
     const route = parseRoute(window.location.pathname)
     if (route.kind === "tab") return route.tab
-    if (initialConnect && route.kind === "home") return "connect"
     return "chat"
   })
 
   const prevTabRef = useRef("chat")
-  const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
+  const sidebarItems: SidebarNavItem[] = DEFAULT_DRAGGABLE_ITEMS
 
   const [activeTopic, setActiveTopic] = useState<ActiveTopic | null>(null)
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
@@ -108,6 +142,8 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [backgroundSessionTitle, setBackgroundSessionTitle] = useState<string | null>(null)
   const prevActiveSessionKeyRef = useRef<string | null>(null)
   const prevActiveSessionTitleRef = useRef<string | null>(null)
+  const initialRouteAppliedRef = useRef(false)
+  const initialConnectRedirectAppliedRef = useRef(false)
 
   useEffect(() => {
     const prevKey = prevActiveSessionKeyRef.current
@@ -123,6 +159,10 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
   const activeChatRef = useRef<ActiveChat | null>(null)
+  const resolvedChatCacheRef = useRef(new Map<
+    string,
+    { chat: ActiveChat; sessionKey: string; title: string }
+  >())
   activeChatRef.current = activeChat
 
   type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true }
@@ -130,13 +170,13 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
+  const [composerError, setComposerError] = useState<string | null>(null)
   const [focusActivityTrigger, setFocusActivityTrigger] = useState(0)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
   const isResizing = useRef(false)
   const routeRequestRef = useRef(0)
   const previousContentPathRef = useRef("/")
 
-  const { flowState, signOut, deleteAccount } = useOnboardingFlow()
   const { resolvedTheme, setTheme } = useTheme()
 
   const clearConversationState = useCallback(() => {
@@ -148,10 +188,11 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   }, [])
 
   const activateRoute = useCallback(async (route: ParsedRoute) => {
-    const requestId = ++routeRequestRef.current
+    routeRequestRef.current += 1
 
     if (route.kind === "tab") {
       setPendingPrompt(null)
+      setComposerError(null)
       setActiveTab(route.tab)
       clearConversationState()
       return
@@ -159,45 +200,61 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
 
     if (route.kind === "home") {
       setPendingPrompt(null)
+      setComposerError(null)
       setActiveTab("chat")
       clearConversationState()
       return
     }
 
     if (route.kind === "chat") {
+      const expectedPath = `/${route.chatId}`
+      const isCurrentPath = () => window.location.pathname === expectedPath
+      const cached = resolvedChatCacheRef.current.get(route.chatId)
       setPendingPrompt(null)
+      setComposerError(null)
       setActiveTab("chat")
       setActiveTopic(null)
-      setActiveChat({ id: route.chatId, name: "Opening chat..." })
-      setActiveSessionKey(null)
-      setActiveSessionTitle(null)
+      setActiveChat(cached?.chat ?? { id: route.chatId, name: "Opening chat..." })
+      setActiveSessionKey(cached?.sessionKey ?? null)
+      setActiveSessionTitle(cached?.title ?? null)
       setInitialMessages(undefined)
 
       try {
-        const listResult = await invoke<{
+        const chatResult = await invoke<{
           chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
         }>("middleware_chats_list", { input: {} })
-        if (requestId !== routeRequestRef.current) return
+        if (!isCurrentPath()) return
 
-        const found = (listResult.chats || []).find(
-          (c) => c.id === route.chatId && !c.archived,
+        const found = (chatResult.chats || []).find(
+          (chat) => chat.id === route.chatId,
         )
-        if (!found) {
+        if (!found || found.archived) {
           clearConversationState()
           return
         }
 
-        setActiveChat({ id: found.id, name: found.name, sessionKey: found.sessionKey })
-        setActiveSessionKey(found.sessionKey ?? null)
-        setActiveSessionTitle(found.name)
+        const resolved = await ensureChatSession({
+          id: found.id,
+          name: found.name,
+          sessionKey: found.sessionKey,
+        })
+        if (!isCurrentPath()) return
+
+        resolvedChatCacheRef.current.set(found.id, resolved)
+        setActiveChat(resolved.chat)
+        setActiveSessionKey(resolved.sessionKey)
+        setActiveSessionTitle(resolved.title)
       } catch {
-        if (requestId === routeRequestRef.current) clearConversationState()
+        if (isCurrentPath()) clearConversationState()
       }
       return
     }
 
     if (route.kind === "topic") {
+      const expectedPath = `/${route.projectId}/${route.topicId}`
+      const isCurrentPath = () => window.location.pathname === expectedPath
       setPendingPrompt(null)
+      setComposerError(null)
       setActiveTab("chat")
       setActiveChat(null)
       setActiveSessionKey(null)
@@ -208,7 +265,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         const projectResult = await invoke<{
           projects: { id: string; name: string; archived: boolean }[]
         }>("middleware_projects_list", { input: {} })
-        if (requestId !== routeRequestRef.current) return
+        if (!isCurrentPath()) return
 
         const project = (projectResult.projects || []).find(
           (p) => p.id === route.projectId && !p.archived,
@@ -223,7 +280,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         }>("middleware_topics_list", {
           input: { projectId: route.projectId },
         })
-        if (requestId !== routeRequestRef.current) return
+        if (!isCurrentPath()) return
 
         const topic = (topicResult.topics || []).find(
           (t) => t.id === route.topicId && !t.archived,
@@ -240,13 +297,15 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           projectName: project.name,
         })
       } catch {
-        if (requestId === routeRequestRef.current) clearConversationState()
+        if (isCurrentPath()) clearConversationState()
       }
     }
   }, [clearConversationState])
 
   // Restore state from URL on mount
   useEffect(() => {
+    if (initialRouteAppliedRef.current) return
+    initialRouteAppliedRef.current = true
     void activateRoute(parseRoute(window.location.pathname))
   }, [activateRoute])
 
@@ -265,6 +324,13 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   }, [inspectorOpen])
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
+  const setChatModePersisted = useCallback((mode: "simple" | "mission") => {
+    setChatMode(mode)
+    setInspectorOpen(mode === "mission")
+    try {
+      window.localStorage.setItem("jarvis.chatMode", mode)
+    } catch {}
+  }, [])
   const toggleTerminal = useCallback(() => {
     if (inspectorOpen && terminalActive) {
       setInspectorOpen(false)
@@ -278,18 +344,22 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   const openSettings = useCallback(() => {
+    setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     previousContentPathRef.current = window.location.pathname
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
+    setComposerError(null)
     setActiveTab("settings")
     clearConversationState()
     window.history.pushState(null, "", "/settings")
   }, [activeTab, clearConversationState])
 
   const openNotifications = useCallback(() => {
+    setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     previousContentPathRef.current = window.location.pathname
     prevTabRef.current = activeTab === "notifications" ? "chat" : activeTab
+    setComposerError(null)
     setActiveTab("notifications")
     clearConversationState()
     window.history.pushState(null, "", "/notifications")
@@ -305,10 +375,28 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   }, [resolvedTheme, setTheme])
 
   useEffect(() => {
-    if (initialConnect && activeTab === "connect" && typeof window !== "undefined" && window.location.pathname === "/") {
-      window.history.replaceState(null, "", "/connect")
+    try {
+      const saved = window.localStorage.getItem("jarvis.chatMode")
+      if (saved === "mission") {
+        setChatMode("mission")
+        setInspectorOpen(true)
+      }
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (
+      initialConnectRedirectAppliedRef.current ||
+      !connectAutoOpenEnabled ||
+      typeof window === "undefined" ||
+      window.location.pathname !== "/"
+    ) {
+      return
     }
-  }, [initialConnect, activeTab])
+    initialConnectRedirectAppliedRef.current = true
+    window.history.replaceState(null, "", "/connect")
+    void activateRoute({ kind: "tab", tab: "connect" })
+  }, [activateRoute, connectAutoOpenEnabled])
 
   useEffect(() => {
     function onResize() {
@@ -368,8 +456,10 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   }, [])
 
   const handleTopicSelect = useCallback((topic: ActiveTopic) => {
+    setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     setPendingPrompt(null)
+    setComposerError(null)
     setActiveTab("chat")
     setActiveTopic(topic)
     setActiveChat(null)
@@ -380,33 +470,27 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   }, [])
 
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
+    setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     setPendingPrompt(null)
+    setComposerError(null)
     setActiveTab("chat")
-    setActiveChat(chat)
     setActiveTopic(null)
-    setActiveSessionKey(null)
-    setActiveSessionTitle(null)
     setInitialMessages(undefined)
-    window.history.pushState(null, "", `/${chat.id}`)
 
-    if (chat.sessionKey) {
-      setActiveSessionKey(chat.sessionKey)
-      setActiveSessionTitle(chat.name)
-    } else {
-      try {
-        const sessionResult = await invoke<{ session: { key: string } }>(
-          "middleware_sessions_create",
-          { input: { agentId: "main", label: chat.name } },
-        )
-        await invoke("middleware_chats_attach_session", {
-          input: { chatId: chat.id, sessionKey: sessionResult.session.key },
-        })
-        setActiveSessionKey(sessionResult.session.key)
-        setActiveSessionTitle(chat.name)
-      } catch (err) {
-        console.error("Failed to create session for chat", err)
-      }
+    try {
+      const resolved = await ensureChatSession(chat)
+      resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
+      setActiveChat(resolved.chat)
+      setActiveSessionKey(resolved.sessionKey)
+      setActiveSessionTitle(resolved.title)
+      window.history.pushState(null, "", `/${resolved.chat.id}`)
+    } catch (err) {
+      console.error("Failed to open chat session", err)
+      setActiveChat(chat)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      window.history.pushState(null, "", `/${chat.id}`)
     }
   }, [])
 
@@ -425,10 +509,6 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
 
       if (!sessionKey) {
         console.error("Cron job has no conversation session yet", cronJob)
-        return false
-      }
-
-      if ((conversation.messages ?? []).length === 0) {
         return false
       }
 
@@ -460,6 +540,11 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       setActiveChat({ id: result.chat.id, name: cronJob.name, sessionKey })
       setActiveSessionKey(sessionKey)
       setActiveSessionTitle(cronJob.name)
+      resolvedChatCacheRef.current.set(result.chat.id, {
+        chat: { id: result.chat.id, name: cronJob.name, sessionKey },
+        sessionKey,
+        title: cronJob.name,
+      })
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", `/${result.chat.id}`)
       return true
@@ -472,6 +557,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const handleChatClear = useCallback(() => {
     routeRequestRef.current += 1
     setPendingPrompt(null)
+    setComposerError(null)
     clearConversationState()
     window.history.pushState(null, "", "/")
   }, [clearConversationState])
@@ -479,21 +565,75 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
   const handleTopicClear = useCallback(() => {
     routeRequestRef.current += 1
     setPendingPrompt(null)
+    setComposerError(null)
     clearConversationState()
     window.history.pushState(null, "", "/")
   }, [clearConversationState])
 
   const handleNewChat = useCallback(() => {
+    setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     setPendingPrompt(null)
+    setComposerError(null)
     setActiveTab("chat")
     clearConversationState()
     window.history.pushState(null, "", "/")
   }, [clearConversationState])
 
+  const handleSessionNavigate = useCallback(async (sessionKey?: string) => {
+    setConnectAutoOpenEnabled(false)
+    if (!sessionKey) {
+      handleNewChat()
+      return
+    }
+
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    setComposerError(null)
+    setInitialMessages(undefined)
+    setActiveTab("chat")
+
+    try {
+      const target = await resolveSessionNavigationTarget(sessionKey)
+      if (!target) {
+        handleNewChat()
+        return
+      }
+
+      if (target.kind === "topic") {
+        setActiveChat(null)
+        setActiveTopic(target.topic)
+        setActiveSessionKey(target.sessionKey)
+        setActiveSessionTitle(target.title)
+        window.history.pushState(
+          null,
+          "",
+          `/${target.topic.projectId}/${target.topic.id}`,
+        )
+        return
+      }
+
+      setActiveTopic(null)
+      setActiveChat(target.chat)
+      setActiveSessionKey(target.sessionKey)
+      setActiveSessionTitle(target.title)
+      resolvedChatCacheRef.current.set(target.chat.id, {
+        chat: target.chat,
+        sessionKey: target.sessionKey,
+        title: target.title,
+      })
+      window.history.pushState(null, "", `/${target.chat.id}`)
+    } catch (err) {
+      console.error("Failed to navigate to session", err)
+      handleNewChat()
+    }
+  }, [handleNewChat])
+
   const handlePromptDraft = useCallback((prompt: string) => {
+    setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     setPendingPrompt(prompt)
+    setComposerError(null)
     setActiveTab("chat")
     clearConversationState()
     window.history.pushState(null, "", "/")
@@ -514,6 +654,13 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       })
       setActiveChat((prev) => prev ? { ...prev, name: finalName } : prev)
       setActiveSessionTitle(finalName)
+      if (chat.sessionKey) {
+        resolvedChatCacheRef.current.set(chat.id, {
+          chat: { ...chat, name: finalName },
+          sessionKey: chat.sessionKey,
+          title: finalName,
+        })
+      }
       setChatRefreshTrigger((n) => n + 1)
       window.history.replaceState(null, "", `/${chat.id}`)
     } catch (err) {
@@ -545,6 +692,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     const text = payload.text.trim()
     if (quickSending || !text) return
     routeRequestRef.current += 1
+    setComposerError(null)
     setQuickSending(true)
     try {
       const fallbackName = fallbackChatNameFromText(text)
@@ -604,15 +752,23 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       }
     } catch (err) {
       console.error("Quick send failed", err)
+      setPendingPrompt(text)
+      setInitialMessages(undefined)
+      setActiveTab("chat")
+      clearConversationState()
+      setComposerError("Message failed to send. Try again.")
+      window.history.replaceState(null, "", "/")
+      throw err
     } finally {
       setQuickSending(false)
     }
-  }, [quickSending])
+  }, [clearConversationState, quickSending])
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
     if (quickSending || !text || !activeTopic) return
     routeRequestRef.current += 1
+    setComposerError(null)
     setQuickSending(true)
     try {
       const sessionResult = await invoke<{ session: { key: string } }>(
@@ -647,18 +803,28 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       })
     } catch (err) {
       console.error("Topic quick send failed", err)
+      setPendingPrompt(text)
+      setInitialMessages(undefined)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      setComposerError("Message failed to send. Try again.")
+      throw err
     } finally {
       setQuickSending(false)
     }
   }, [activeTopic, quickSending])
 
   const handleTabChange = useCallback((tab: string) => {
+    if (tab !== "connect") {
+      setConnectAutoOpenEnabled(false)
+    }
     if (tab === "chat") {
       handleNewChat()
       return
     }
     routeRequestRef.current += 1
     setActiveTab(tab)
+    setComposerError(null)
     const tabUrls: Record<string, string> = {
       skill: "/skill",
       connect: "/connect",
@@ -671,7 +837,15 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     clearConversationState()
   }, [handleNewChat, clearConversationState])
 
-  const centerLabel = activeTab === "chat"
+  const effectiveActiveTab =
+    activeTab === "connect" &&
+    !connectAutoOpenEnabled &&
+    typeof window !== "undefined" &&
+    window.location.pathname === "/"
+      ? "chat"
+      : activeTab
+
+  const centerLabel = effectiveActiveTab === "chat"
     ? activeTopic
       ? { project: activeTopic.projectName, topic: activeTopic.name }
       : activeChat
@@ -680,14 +854,14 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
     : null
 
   const handleSignOut = useCallback(async () => {
-    await signOut()
+    await onSignOut()
     onResetOnboarding()
-  }, [signOut, onResetOnboarding])
+  }, [onResetOnboarding, onSignOut])
 
   const handleDeleteAccount = useCallback(async () => {
-    await deleteAccount()
+    await onDeleteAccount()
     onResetOnboarding()
-  }, [deleteAccount, onResetOnboarding])
+  }, [onDeleteAccount, onResetOnboarding])
 
   return (
     <div className="flex h-svh flex-col bg-background">
@@ -698,6 +872,8 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         onToggleTerminal={toggleTerminal}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
+        chatMode={chatMode}
+        onChatModeChange={setChatModePersisted}
         centerLabel={centerLabel}
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
@@ -710,10 +886,9 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
           collapsed={!sidebarOpen}
           onClose={closeSidebar}
           onResizeStart={handleResizeStart}
-          activeTab={activeTab}
+          activeTab={effectiveActiveTab}
           onTabChange={handleTabChange}
           items={sidebarItems}
-          onItemsChange={setSidebarItems}
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
           onTopicClear={handleTopicClear}
@@ -727,7 +902,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
         <div className="flex flex-1 flex-col overflow-hidden">
           <main className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
             <MainContent
-              activeTab={activeTab}
+              activeTab={effectiveActiveTab}
               activeTopic={activeTopic}
               activeChat={activeChat}
               activeSessionKey={activeSessionKey}
@@ -744,8 +919,10 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
               initialMessages={initialMessages}
               onSelectTool={handleSelectTool}
               pendingPrompt={pendingPrompt}
+              composerError={composerError}
               onTopicQuickSend={handleTopicQuickSend}
               onDraftPrompt={handlePromptDraft}
+              onNavigateToChat={handleCronJobNavigate}
             />
             {/* Keep the previous session alive in the background so it can
                 finish generating and trigger a notification after the user
@@ -783,7 +960,7 @@ function AppShell({ onResetOnboarding, initialConnect }: { onResetOnboarding: ()
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
-        onNavigateChat={() => { setPendingPrompt(null); handleNewChat() }}
+        onNavigateChat={handleSessionNavigate}
         onNewChat={() => { setPendingPrompt(null); handleNewChat() }}
         onSendPrompt={handlePromptDraft}
         onOpenSettings={openSettings}
@@ -812,8 +989,10 @@ function MainContent({
   initialMessages,
   onSelectTool,
   pendingPrompt,
+  composerError,
   onTopicQuickSend,
   onDraftPrompt,
+  onNavigateToChat,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -832,8 +1011,10 @@ function MainContent({
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   pendingPrompt?: string | null
+  composerError?: string | null
   onTopicQuickSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   onDraftPrompt?: (prompt: string) => void
+  onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
 }) {
   if (activeTab === "settings") {
     return (
@@ -849,6 +1030,7 @@ function MainContent({
         <NotificationDashboard
           onBack={onSettingsBack}
           onDraftPrompt={onDraftPrompt}
+          onNavigateToChat={onNavigateToChat}
         />
       </div>
     )
@@ -858,7 +1040,11 @@ function MainContent({
     return (
       <div className="flex h-full w-full">
         <ChatView
-          key={activeChat ? activeChat.id : activeTopic ? `${activeTopic.projectId}:${activeTopic.id}` : activeSessionKey}
+          key={activeChat
+            ? `${activeChat.id}:${activeSessionKey ?? "pending"}`
+            : activeTopic
+              ? `${activeTopic.projectId}:${activeTopic.id}:${activeSessionKey ?? "draft"}`
+              : activeSessionKey}
           sessionKey={activeSessionKey}
           sessionTitle={activeSessionTitle ?? undefined}
           onFirstMessageSent={activeChat ? onFirstMessageSent : undefined}
@@ -910,6 +1096,7 @@ function MainContent({
         <ChatBox
           key={pendingPrompt ?? `${activeTopic.projectId}:${activeTopic.id}:draft`}
           initialPrompt={pendingPrompt ?? undefined}
+          errorMessage={composerError}
           onSend={onTopicQuickSend}
           disabled={quickSending}
         />
@@ -926,6 +1113,7 @@ function MainContent({
       <ChatBox
         key={pendingPrompt ?? "chat-draft"}
         initialPrompt={pendingPrompt ?? undefined}
+        errorMessage={composerError}
         onSend={onQuickSend}
         disabled={quickSending}
       />
