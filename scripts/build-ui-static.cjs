@@ -5,9 +5,29 @@ const { spawnSync } = require("node:child_process")
 const uiDir = path.resolve(__dirname, "..", "packages", "ui")
 const apiDir = path.join(uiDir, "app", "api")
 const stashDir = path.join(uiDir, ".api-stash")
+const nextDir = path.join(uiDir, ".next")
 
 const apiExists = fs.existsSync(apiDir)
 let stashed = false
+
+function quoteWindowsArg(arg) {
+  if (!/[ \t"]/u.test(arg)) return arg
+  return `"${arg.replace(/"/g, '\\"')}"`
+}
+
+function runPnpm(args) {
+  return process.platform === "win32"
+    ? spawnSync(
+        "cmd.exe",
+        ["/d", "/s", "/c", ["pnpm", ...args].map(quoteWindowsArg).join(" ")],
+        { cwd: uiDir, stdio: "inherit", shell: false },
+      )
+    : spawnSync("pnpm", args, {
+        cwd: uiDir,
+        stdio: "inherit",
+        shell: false,
+      })
+}
 
 function restore() {
   if (stashed && fs.existsSync(stashDir)) {
@@ -27,17 +47,15 @@ process.on("SIGTERM", () => {
 })
 
 try {
+  fs.rmSync(nextDir, { recursive: true, force: true })
+
   if (apiExists) {
     fs.rmSync(stashDir, { recursive: true, force: true })
     fs.renameSync(apiDir, stashDir)
     stashed = true
   }
 
-  const result = spawnSync("pnpm", ["exec", "next", "build"], {
-    cwd: uiDir,
-    stdio: "inherit",
-    shell: false,
-  })
+  const result = runPnpm(["exec", "next", "build"])
 
   if (result.error) throw result.error
   if (result.status !== 0) process.exitCode = result.status ?? 1
