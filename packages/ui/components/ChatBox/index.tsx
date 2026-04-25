@@ -15,28 +15,59 @@ import {
   stripComposerAttachment,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
+import {
+  composeBatch,
+  composerReducer,
+  initialComposerState,
+} from "@/lib/composerState"
+import { clampCommandIndex } from "@/lib/slashCommandFilter"
 
 type Props = {
   initialPrompt?: string
+  errorMessage?: string | null
   onSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   disabled?: boolean
   isGenerating?: boolean
   onAbort?: () => void
 }
 
-export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt }: Props) {
+export function ChatBox({
+  onSend,
+  disabled,
+  isGenerating,
+  onAbort,
+  initialPrompt,
+  errorMessage,
+}: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
+  const [autonomyMode, setAutonomyMode] = React.useState<
+    "full" | "supervised" | "manual"
+  >("full")
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
   const [slashFilter, setSlashFilter] = React.useState("")
+  const [commandPrefix, setCommandPrefix] = React.useState<"/" | "@">("/")
   const [slashSelectedIndex, setSlashSelectedIndex] = React.useState(0)
+  const [composerState, dispatchComposer] = React.useReducer(
+    composerReducer,
+    initialComposerState,
+  )
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
-  const { commands } = useSlashCommands()
-  const { models, currentModel } = useModels()
+  const batchRef = React.useRef<ChatComposerSubmit[]>([])
+  const batchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { commands, ensureLoaded: ensureSlashCommandsLoaded } = useSlashCommands()
+  const {
+    models,
+    currentModel,
+    loading: modelsLoading,
+    error: modelsError,
+    reload: reloadModels,
+    ensureLoaded: ensureModelsLoaded,
+  } = useModels()
   const autoResize = React.useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -79,6 +110,12 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
   }, [initialPrompt])
 
   React.useEffect(() => {
+    if (errorMessage) {
+      setAttachmentError(errorMessage)
+    }
+  }, [errorMessage, setAttachmentError])
+
+  React.useEffect(() => {
     if (initialPrompt && textareaRef.current) {
       textareaRef.current.focus()
       textareaRef.current.setSelectionRange(initialPrompt.length, initialPrompt.length)
@@ -95,11 +132,19 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
 
   const hasInput = input.trim().length > 0
 
+  React.useEffect(() => {
+    return () => {
+      if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
+    }
+  }, [])
+
   function updateSlashMenu(value: string) {
-    const match = value.match(/^\/(\S*)$/)
+    const match = value.match(/^([/@])(\S*)$/)
     if (match) {
+      ensureSlashCommandsLoaded()
       setSlashMenuOpen(true)
-      setSlashFilter(match[1])
+      setCommandPrefix(match[1] as "/" | "@")
+      setSlashFilter(match[2])
       setSlashSelectedIndex(0)
     } else {
       setSlashMenuOpen(false)
@@ -107,35 +152,93 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
   }
 
   function handleSlashSelect(cmd: import("@/hooks/useSlashCommands").SlashCommand) {
-    setInput(`/${cmd.name} `)
+    setInput(`${commandPrefix}${cmd.name} `)
     setSlashMenuOpen(false)
     textareaRef.current?.focus()
   }
 
-  async function handleSend() {
-    const text = input.trim()
-    if (!text || disabled || isPreparingAttachments) return
+  async function flushBatch() {
+    const payload = composeBatch(batchRef.current)
+    if (!payload.text.trim()) return
+    batchRef.current = []
+    dispatchComposer({ type: "batch_flush" })
     try {
-      await onSend?.({
-        text,
-        attachments: attachments.length > 0
-          ? attachments.map(stripComposerAttachment)
-          : undefined,
-      })
-      setInput("")
+      await onSend?.(payload)
+      dispatchComposer({ type: "send_success" })
       clearAttachments()
       setAttachmentError(null)
       setSlashMenuOpen(false)
       if (textareaRef.current) textareaRef.current.style.height = "auto"
     } catch {
+      setInput(payload.text)
+      dispatchComposer({
+        type: "send_failed",
+        error: "Message failed to send. Try again.",
+      })
       setAttachmentError("Message failed to send. Try again.")
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        autoResize()
+      })
     }
+  }
+
+  function queueSend(payload: ChatComposerSubmit) {
+    batchRef.current = [...batchRef.current, payload]
+    dispatchComposer({ type: "batch_add", payload })
+    if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
+    batchTimerRef.current = setTimeout(() => {
+      batchTimerRef.current = null
+      void flushBatch()
+    }, 500)
+  }
+
+  async function handleSend() {
+    const text = input.trim()
+    if (!text || disabled || isPreparingAttachments) return
+    const payload = {
+      text,
+      attachments: attachments.length > 0
+        ? attachments.map(stripComposerAttachment)
+        : undefined,
+    }
+    setInput("")
+    if (textareaRef.current) textareaRef.current.style.height = "auto"
+    if (isGenerating) {
+      dispatchComposer({ type: "restart_start", payload })
+      try {
+        await onSend?.(payload)
+        dispatchComposer({ type: "send_success" })
+        clearAttachments()
+        setAttachmentError(null)
+        setSlashMenuOpen(false)
+      } catch {
+        setInput(payload.text)
+        dispatchComposer({
+          type: "send_failed",
+          error: "Message failed to send. Try again.",
+        })
+        setAttachmentError("Message failed to send. Try again.")
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus()
+          autoResize()
+        })
+      }
+      return
+    }
+    queueSend(payload)
   }
 
   function handleWebSearchToggle() {
     setWebSearchEnabled((prev) => !prev)
     setPlusOpen(false)
   }
+
+  React.useEffect(() => {
+    if (modelOpen) {
+      void ensureModelsLoaded()
+    }
+  }, [ensureModelsLoaded, modelOpen])
 
   return (
     <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
@@ -162,10 +265,15 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
         <AnimatePresence initial={false}>
           {slashMenuOpen && commands.length > 0 && (
             <SlashCommandMenu
-              commands={commands}
+              commands={
+                commandPrefix === "@"
+                  ? commands.filter((cmd) => cmd.source === "skill")
+                  : commands
+              }
               filter={slashFilter}
               selectedIndex={slashSelectedIndex}
               onSelect={handleSlashSelect}
+              prefix={commandPrefix}
             />
           )}
         </AnimatePresence>
@@ -175,6 +283,7 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             value={input}
             onChange={(e) => {
               setInput(e.target.value)
+              if (attachmentError) setAttachmentError(null)
               updateSlashMenu(e.target.value)
               autoResize()
             }}
@@ -185,12 +294,16 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
                 const filtered = getFilteredCommands(commands, slashFilter)
                 if (e.key === "ArrowDown") {
                   e.preventDefault()
-                  setSlashSelectedIndex((i) => Math.min(i + 1, filtered.length - 1))
+                  setSlashSelectedIndex((i) =>
+                    clampCommandIndex(i + 1, filtered),
+                  )
                   return
                 }
                 if (e.key === "ArrowUp") {
                   e.preventDefault()
-                  setSlashSelectedIndex((i) => Math.max(i - 1, 0))
+                  setSlashSelectedIndex((i) =>
+                    clampCommandIndex(i - 1, filtered),
+                  )
                   return
                 }
                 if (e.key === "Enter" || e.key === "Tab") {
@@ -223,6 +336,14 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             <div className="px-3 pb-1">
               <p className="text-[12px] text-red-400/80">
                 {attachmentError}
+              </p>
+            </div>
+          )}
+
+          {composerState.interrupted && (
+            <div className="px-3 pb-1">
+              <p className="text-[12px] text-blue-300/80">
+                Interrupted — regenerating with your update...
               </p>
             </div>
           )}
@@ -260,12 +381,23 @@ export function ChatBox({ onSend, disabled, isGenerating, onAbort, initialPrompt
             webSearchEnabled={webSearchEnabled}
             onWebSearchToggle={handleWebSearchToggle}
             onWebSearchDisable={() => setWebSearchEnabled(false)}
+            autonomyMode={autonomyMode}
+            onAutonomyModeChange={setAutonomyMode}
+            onPauseResume={() => {
+              void onSend?.({ text: isGenerating ? "/pause" : "/resume" })
+              setPlusOpen(false)
+            }}
             plusOpen={plusOpen}
             onPlusOpenChange={setPlusOpen}
             modelOpen={modelOpen}
             onModelOpenChange={setModelOpen}
             models={models}
             currentModelId={currentModel}
+            modelLoading={modelsLoading}
+            modelError={modelsError}
+            onModelRefresh={() => {
+              void reloadModels()
+            }}
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
               void onSend?.({ text: `/model ${modelId}` })

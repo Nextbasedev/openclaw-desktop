@@ -99,7 +99,20 @@ export function SubagentChatView({
     )
   }
 
-  if (messages.length === 0) return null
+  if (messages.length === 0) {
+    return (
+      <div className="mb-2">
+        <div className="mx-1 flex items-center gap-2 rounded-xl border border-border/20 bg-secondary/20 px-3 py-4">
+          {isLive && (
+            <div className="size-3.5 animate-spin rounded-full border border-border/30 border-t-blue-400/50" />
+          )}
+          <span className="text-[11px] text-muted-foreground">
+            Waiting for sub-agent activity...
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mb-2">

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { invoke } from "@/lib/ipc"
+import { invoke, streamUrl } from "@/lib/ipc"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
@@ -13,6 +13,11 @@ import type {
   SpawnedSubagent,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
+import {
+  extractSubagentSessionKey,
+} from "@/lib/subagentSession"
+import { isActiveSubagent } from "@/lib/subagentLifecycle"
+import { parseChatHistory } from "@/lib/chatHistoryParser"
 
 type RawMessage = {
   id?: string
@@ -22,6 +27,62 @@ type RawMessage = {
   content?: string | ContentBlock[]
   createdAt?: string
   model?: string
+}
+
+type BranchSummary = {
+  sourceMessageId: string
+  createdAt: string
+  branchReason: string
+}
+
+type ChatBootstrapData = {
+  history: { messages: unknown[] }
+  branchData: { branches: BranchSummary[] }
+}
+
+const CHAT_BOOTSTRAP_TTL_MS = 5000
+const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
+const chatBootstrapCache = new Map<
+  string,
+  { expiresAt: number; value: ChatBootstrapData | Promise<ChatBootstrapData> }
+>()
+
+async function loadChatBootstrap(
+  sessionKey: string,
+): Promise<ChatBootstrapData> {
+  const now = Date.now()
+  const cached = chatBootstrapCache.get(sessionKey)
+  if (cached && cached.expiresAt > now) {
+    return cached.value instanceof Promise
+      ? await cached.value
+      : cached.value
+  }
+
+  const value = Promise.all([
+    invoke<{ messages: unknown[] }>("middleware_chat_history", {
+      input: { sessionKey },
+    }),
+    invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
+      input: { sourceSessionKey: sessionKey },
+    }).catch(() => ({ branches: [] })),
+  ]).then(([history, branchData]) => ({ history, branchData }))
+
+  chatBootstrapCache.set(sessionKey, {
+    expiresAt: now + CHAT_BOOTSTRAP_TTL_MS,
+    value,
+  })
+
+  try {
+    const resolved = await value
+    chatBootstrapCache.set(sessionKey, {
+      expiresAt: Date.now() + CHAT_BOOTSTRAP_TTL_MS,
+      value: resolved,
+    })
+    return resolved
+  } catch (error) {
+    chatBootstrapCache.delete(sessionKey)
+    throw error
+  }
 }
 
 export function useChatMessages(
@@ -40,6 +101,9 @@ export function useChatMessages(
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
+  const restartInFlightRef = useRef(false)
+  const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : "idle")
+  const isSendingRef = useRef(false)
 
   const [pendingTools, setPendingTools] = useState<InlineToolCall[]>([])
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
@@ -54,8 +118,21 @@ export function useChatMessages(
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
 
-  const isGenerating = status === "thinking" || status === "tool_running" || status === "streaming"
+  const isGenerating =
+    status === "thinking" ||
+    status === "tool_running" ||
+    status === "streaming" ||
+    status === "stopping" ||
+    status === "restarting"
   const initialMessageKey = initialMessages?.map((m) => m.messageId).join("|") ?? ""
+
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  useEffect(() => {
+    isSendingRef.current = isSending
+  }, [isSending])
 
   const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
     spawnMapRef.current.set(spawn.toolCallId, spawn)
@@ -108,7 +185,21 @@ export function useChatMessages(
           const incoming = (ev.state as StreamStatus) || "idle"
           setStatus((prev) => {
             if (
-              prev === "thinking" &&
+              restartInFlightRef.current &&
+              incoming === "done" &&
+              (ev.label === "stopped" || ev.name === "stopped")
+            ) {
+              return prev
+            }
+            if (
+              restartInFlightRef.current &&
+              incoming !== "connected" &&
+              incoming !== "idle"
+            ) {
+              restartInFlightRef.current = false
+            }
+            if (
+              (prev === "thinking" || prev === "restarting") &&
               (incoming === "connected" || incoming === "idle")
             ) {
               return prev
@@ -120,11 +211,6 @@ export function useChatMessages(
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
             setPendingTools([])
-            for (const [, spawn] of spawnMapRef.current) {
-              if (spawn.status === "running") {
-                upsertSpawn({ ...spawn, status: "done" })
-              }
-            }
             doneAfterYieldRef.current = 0
             setMessages((prev) => {
               const last = prev[prev.length - 1]
@@ -150,7 +236,7 @@ export function useChatMessages(
               const spawnTcId = subagentOf.replace("spawn:", "")
               const spawn = spawnMapRef.current.get(spawnTcId)
               if (spawn) {
-                upsertSpawn({ ...spawn, status: phase === "error" ? "error" : "done" })
+                upsertSpawn({ ...spawn, status: phase === "error" ? "failed" : "completed" })
               }
             }
             break
@@ -160,9 +246,15 @@ export function useChatMessages(
 
           if (phase === "spawn_done") {
             const prev = spawnMapRef.current.get(toolCallId)
-            if (prev && prev.status === "running") {
+            if (prev) {
               const error = (ev as Record<string, unknown>).error
-              upsertSpawn({ ...prev, status: error ? "error" : "done" })
+              const childKey =
+                extractSubagentSessionKey(ev) ?? prev.sessionKey
+              upsertSpawn({
+                ...prev,
+                sessionKey: childKey,
+                status: error ? "failed" : childKey ? "working" : "linking",
+              })
             }
             break
           }
@@ -171,15 +263,11 @@ export function useChatMessages(
             const prev = spawnMapRef.current.get(toolCallId)
             if (prev) {
               const result = (ev as Record<string, unknown>).result
-              let childKey: string | null = null
-              if (typeof result === "string") {
-                const m = result.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
-                childKey = m?.[1] ?? null
-              } else if (result && typeof result === "object") {
-                childKey = (result as Record<string, unknown>).childSessionKey as string ?? null
-              }
+              const childKey =
+                extractSubagentSessionKey(result) ??
+                extractSubagentSessionKey(ev)
               if (childKey) {
-                upsertSpawn({ ...prev, sessionKey: childKey })
+                upsertSpawn({ ...prev, sessionKey: childKey, status: "working" })
               }
             }
             break
@@ -202,8 +290,9 @@ export function useChatMessages(
               upsertSpawn({
                 id: `spawn:${toolCallId}`,
                 label,
+                task: taskStr,
                 sessionKey: null,
-                status: "running",
+                status: "spawning",
                 toolCallId,
               })
             }
@@ -221,28 +310,18 @@ export function useChatMessages(
               const prev = spawnMapRef.current.get(toolCallId)
               if (prev) {
                 const result = (ev as Record<string, unknown>).result
-                let childKey: string | null = null
-                if (typeof result === "string") {
-                  try {
-                    const parsed = JSON.parse(result)
-                    childKey = parsed.childSessionKey ?? null
-                  } catch {
-                    const m = result.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
-                    childKey = m?.[1] ?? null
-                  }
-                } else if (result && typeof result === "object") {
-                  const r = result as Record<string, unknown>
-                  childKey = (r.childSessionKey as string) ?? null
-                  if (!childKey) {
-                    const json = JSON.stringify(result)
-                    const m = json.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
-                    childKey = m?.[1] ?? null
-                  }
-                }
+                const childKey =
+                  extractSubagentSessionKey(result) ??
+                  extractSubagentSessionKey(ev)
                 upsertSpawn({
                   ...prev,
-                  sessionKey: childKey,
-                  status: phase === "error" ? "error" : "running",
+                  sessionKey: childKey ?? prev.sessionKey,
+                  status:
+                    phase === "error"
+                      ? "failed"
+                      : childKey ?? prev.sessionKey
+                        ? "working"
+                        : "linking",
                 })
               }
             }
@@ -341,24 +420,41 @@ export function useChatMessages(
     isAtBottomRef.current = true
     let cancelled = false
     let eventSource: EventSource | null = null
+    let bootstrapSettled = false
+    let loadingTimeout: ReturnType<typeof setTimeout> | null = null
+
+    if (!seededMessages) {
+      loadingTimeout = setTimeout(() => {
+        if (cancelled || bootstrapSettled) return
+        setLoading(false)
+        setMessages([])
+        setStatus("idle")
+      }, CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS)
+    }
 
     async function init() {
       try {
-        const [history, branchData] = await Promise.all([
-          invoke<{ messages: unknown[] }>("middleware_chat_history", { input: { sessionKey } }),
-          invoke<{ branches: Array<{ sourceMessageId: string; createdAt: string; branchReason: string }> }>(
-            "middleware_branch_list",
-            { input: { sourceSessionKey: sessionKey } },
-          ).catch(() => ({ branches: [] })),
-        ])
+        const { history, branchData } = await loadChatBootstrap(sessionKey)
+        bootstrapSettled = true
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+          loadingTimeout = null
+        }
         if (cancelled) return
 
         const raw = (history.messages as RawMessage[]) || []
+        const normalizedHistory = parseChatHistory(raw)
         const histMsgs: ChatMessage[] = []
         let pendingToolCalls: InlineToolCall[] = []
         let resultQueue: InlineToolCall[] = []
-        const historySpawns: Array<{ toolCallId: string; label: string; sessionKey: string | null; done: boolean }> = []
-        const seenUserLines = new Map<string, number>()
+        const historySpawns: Array<{
+          toolCallId: string
+          label: string
+          task?: string
+          sessionKey: string | null
+          terminal: boolean
+          error: boolean
+        }> = []
         let autoAnnouncesToSkip = 0
 
         for (const m of raw) {
@@ -369,31 +465,17 @@ export function useChatMessages(
             const isSubagentAnnounce = text ? /agent:main:subagent:[0-9a-f-]{36}/.test(text) : false
 
             if (isSubagentAnnounce && text) {
-              const keyMatch = text.match(/agent:main:subagent:[0-9a-f-]{36}/)
-              if (keyMatch) {
-                const spawn = historySpawns.find((s) => s.sessionKey === keyMatch[0])
-                if (spawn) spawn.done = true
-              }
               if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
             } else if (autoAnnouncesToSkip > 0) {
               autoAnnouncesToSkip--
             } else if (text) {
-              const firstLine = text.trim().split("\n")[0].trim().slice(0, 200)
-              const prevIdx = firstLine.length > 30 ? seenUserLines.get(firstLine) : undefined
-              if (prevIdx !== undefined) {
-                if (text.length < histMsgs[prevIdx].text.length) {
-                  histMsgs[prevIdx] = { ...histMsgs[prevIdx], text }
-                }
-              } else {
-                if (firstLine.length > 30) seenUserLines.set(firstLine, histMsgs.length)
-                histMsgs.push({
-                  messageId: id,
-                  role: "user",
-                  text,
-                  createdAt: m.createdAt,
-                  model: m.model,
-                })
-              }
+              histMsgs.push({
+                messageId: id,
+                role: "user",
+                text,
+                createdAt: m.createdAt,
+                model: m.model,
+              })
             }
             pendingToolCalls = []
             resultQueue = []
@@ -417,7 +499,14 @@ export function useChatMessages(
                 const args = (b.arguments ?? b.input ?? {}) as Record<string, unknown>
                 const histTask = (args.task as string) ?? ""
                 const label = (args.label as string) ?? (args.agentId as string) ?? (histTask.length > 0 ? histTask.slice(0, 60) + (histTask.length > 60 ? "..." : "") : `Sub-agent ${historySpawns.length + 1}`)
-                historySpawns.push({ toolCallId: call.id, label, sessionKey: null, done: false })
+                historySpawns.push({
+                  toolCallId: call.id,
+                  label,
+                  task: histTask,
+                  sessionKey: null,
+                  terminal: false,
+                  error: false,
+                })
               }
             }
 
@@ -463,22 +552,23 @@ export function useChatMessages(
             }
             if (matchedCall?.tool === "sessions_spawn" && resultText) {
               const spawn = historySpawns.find((s) => s.toolCallId === matchedCall!.id)
-              if (spawn && !spawn.sessionKey) {
-                let childKey: string | null = null
-                try {
-                  const parsed = JSON.parse(resultText)
-                  childKey = (parsed.childSessionKey as string) ?? null
-                } catch {
-                  const rm = resultText.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
-                  childKey = rm?.[1] ?? null
-                }
-                if (!childKey) {
-                  const rm = resultText.match(/agent:main:subagent:[0-9a-f-]{36}/)
-                  childKey = rm?.[0] ?? null
-                }
-                if (childKey) {
+              if (spawn) {
+                if (matchedCall.status === "error") spawn.error = true
+                const childKey = extractSubagentSessionKey(resultText)
+                if (childKey && !spawn.sessionKey) {
                   spawn.sessionKey = childKey
                   autoAnnouncesToSkip++
+                }
+              }
+            } else if (matchedCall?.tool === "sessions_yield") {
+              const spawn = [...historySpawns]
+                .reverse()
+                .find((s) => !s.terminal && !s.error)
+              if (spawn) {
+                if (matchedCall.status === "error") {
+                  spawn.error = true
+                } else {
+                  spawn.terminal = true
                 }
               }
             }
@@ -489,8 +579,15 @@ export function useChatMessages(
           const spawn: SpawnedSubagent = {
             id: `spawn:${hs.toolCallId}`,
             label: hs.label,
+            task: hs.task,
             sessionKey: hs.sessionKey,
-            status: hs.done ? "done" : "running",
+            status: hs.error
+              ? "failed"
+              : hs.terminal
+                ? "completed"
+                : hs.sessionKey
+                  ? "working"
+                  : "linking",
             toolCallId: hs.toolCallId,
           }
           spawnMapRef.current.set(hs.toolCallId, spawn)
@@ -498,12 +595,18 @@ export function useChatMessages(
         if (historySpawns.length > 0) {
           setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
         }
+        if (historySpawns.length === 0 && normalizedHistory.subagents.length > 0) {
+          for (const spawn of normalizedHistory.subagents) {
+            spawnMapRef.current.set(spawn.toolCallId, spawn)
+          }
+          setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+        }
 
         const edits = (branchData.branches ?? [])
           .filter((b) => b.branchReason === "edit")
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
-        let filtered = histMsgs
+        let filtered = histMsgs.length > 0 ? histMsgs : normalizedHistory.messages
         for (const edit of edits) {
           const sourceIdx = filtered.findIndex(
             (m) => m.messageId === edit.sourceMessageId,
@@ -543,8 +646,9 @@ export function useChatMessages(
           bottomRef.current?.scrollIntoView({ behavior: "instant" })
         })
 
-        const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3001"
-        eventSource = new EventSource(`${serverUrl}/api/stream/chat/${sessionKey}`)
+        eventSource = new EventSource(
+          streamUrl(`/api/stream/chat/${sessionKey}`),
+        )
         const handleSSE = (event: MessageEvent) => {
           if (cancelled) return
           try {
@@ -560,9 +664,22 @@ export function useChatMessages(
         eventSource.addEventListener("stream.error", handleSSE)
         eventSource.addEventListener("message", handleSSE)
         eventSource.onerror = () => {
-          if (!cancelled) setStatus("error")
+          const current = statusRef.current
+          const activelyWaiting =
+            isSendingRef.current ||
+            current === "thinking" ||
+            current === "tool_running" ||
+            current === "streaming" ||
+            current === "stopping" ||
+            current === "restarting"
+          if (!cancelled && activelyWaiting) setStatus("error")
         }
       } catch (e) {
+        bootstrapSettled = true
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+          loadingTimeout = null
+        }
         if (!cancelled) { setLoadError(String(e)); setLoading(false) }
       }
     }
@@ -571,6 +688,7 @@ export function useChatMessages(
 
     return () => {
       cancelled = true
+      if (loadingTimeout) clearTimeout(loadingTimeout)
       eventSource?.close()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)
@@ -581,12 +699,12 @@ export function useChatMessages(
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
-    const hasRunning = spawnedSubagents.some((s) => s.status === "running")
+    const hasRunning = spawnedSubagents.some((s) => isActiveSubagent(s.status))
     if (!hasRunning) return
 
     subagentPollRef.current = setInterval(async () => {
       for (const sub of spawnedSubagents) {
-        if (sub.status !== "running" || !sub.sessionKey) continue
+        if (!isActiveSubagent(sub.status) || !sub.sessionKey) continue
         try {
           const hist = await invoke<{ messages: unknown[] }>(
             "middleware_chat_history",
@@ -610,7 +728,7 @@ export function useChatMessages(
             }
           }
           if (isDone) {
-            upsertSpawn({ ...sub, status: "done" })
+            upsertSpawn({ ...sub, status: "completed" })
           }
         } catch {}
       }
@@ -629,14 +747,14 @@ export function useChatMessages(
     // Use a synchronous ref guard to prevent duplicate calls within the
     // same tick (React state is batched, so isSending would still be false
     // on a rapid-fire second call).
-    if (!trimmed || sendingGuardRef.current || isGenerating) return
+    if (!trimmed || sendingGuardRef.current) return
     sendingGuardRef.current = true
     setIsSending(true)
     const optimisticId = crypto.randomUUID()
     pendingToolMapRef.current.clear()
     setPendingTools([])
     for (const [key, spawn] of spawnMapRef.current) {
-      if (spawn.status !== "running") spawnMapRef.current.delete(key)
+      if (!isActiveSubagent(spawn.status)) spawnMapRef.current.delete(key)
     }
     setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
     doneAfterYieldRef.current = 0
@@ -647,6 +765,12 @@ export function useChatMessages(
     setStatus("thinking")
     forceScrollToBottom(false)
     try {
+      if (isGenerating) {
+        restartInFlightRef.current = true
+        setStatus("restarting")
+        setStatusLabel(null)
+        await invoke("middleware_chat_stop", { input: { sessionKey } })
+      }
       await invoke("middleware_chat_send", {
         input: {
           sessionKey,
@@ -656,6 +780,7 @@ export function useChatMessages(
       })
     } catch (error) {
       setStatus("error")
+      restartInFlightRef.current = false
       setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId))
       throw error
     } finally {
@@ -665,10 +790,16 @@ export function useChatMessages(
   }, [isGenerating, sessionKey, forceScrollToBottom])
 
   const handleAbort = useCallback(async () => {
+    setStatus("stopping")
+    setStatusLabel(null)
     try {
       await invoke("middleware_chat_stop", { input: { sessionKey } })
+      pendingToolMapRef.current.clear()
+      setPendingTools([])
       setStatus("idle")
-    } catch {}
+    } catch {
+      setStatus("error")
+    }
   }, [sessionKey])
 
   const handleEdit = useCallback(async (userMessageId: string, newText: string) => {

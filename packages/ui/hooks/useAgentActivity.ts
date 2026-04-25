@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { invoke } from "@/lib/ipc"
+import { invoke, streamUrl } from "@/lib/ipc"
 import type {
   ToolCall,
   AgentInfo,
@@ -11,8 +11,57 @@ import {
   parseHistoryToolCalls,
   buildTree,
 } from "@/components/inspector/activity-types"
+import {
+  extractSubagentSessionKey,
+  extractSubagentSessionKeys,
+} from "@/lib/subagentSession"
+import {
+  isActiveSubagent,
+  type SubagentLifecycleStatus,
+} from "@/lib/subagentLifecycle"
 
-const SUBAGENT_KEY_RE = /agent:main:subagent:[0-9a-f-]{36}/g
+type ChildHistoryPhase = SubagentLifecycleStatus | null
+
+function activityPhaseFromLifecycle(status: SubagentLifecycleStatus) {
+  if (status === "failed") return "error"
+  if (status === "completed") return "done"
+  return "start"
+}
+
+function hasYieldTool(messages: RawHistoryMessage[]): boolean {
+  return messages.some((message) => {
+    if (!Array.isArray(message.content)) return false
+    return message.content.some(
+      (block) =>
+        (block.type === "toolCall" || block.type === "tool_use") &&
+        block.name === "sessions_yield",
+    )
+  })
+}
+
+function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
+  return messages.some((message) => {
+    if (message.role !== "assistant") return false
+    if (typeof message.text === "string" && message.text.trim()) return true
+    if (typeof message.content === "string" && message.content.trim()) return true
+    if (!Array.isArray(message.content)) return false
+    return message.content.some((block) => {
+      if (block.type && block.type !== "text") return false
+      const text = block.text ?? block.content ?? ""
+      return typeof text === "string" && text.trim().length > 0
+    })
+  })
+}
+
+function inferChildHistoryPhase(
+  messages: RawHistoryMessage[],
+  calls: ToolCall[],
+): ChildHistoryPhase {
+  if (calls.some((call) => call.status === "error")) return "failed"
+  if (calls.some((call) => call.status === "running")) return "working"
+  if (hasYieldTool(messages) || hasAssistantOutput(messages)) return "completed"
+  return null
+}
 
 export function useAgentActivity(sessionKey: string | null) {
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
@@ -69,8 +118,35 @@ export function useAgentActivity(sessionKey: string | null) {
             changed = true
           }
         }
+        const phase = inferChildHistoryPhase(
+          subHistory.messages ?? [],
+          subParsed.calls,
+        )
+        if (phase) {
+          const currentAgent = agentsRef.current.get(agentId)
+          agentsRef.current.set(agentId, {
+            ...(currentAgent ?? {
+              runId: agentId,
+              label: `sub-${agentId.slice(-6)}`,
+            }),
+            phase: activityPhaseFromLifecycle(phase),
+            sessionKey: subKey,
+          })
+          changed = true
+        } else {
+          const currentAgent = agentsRef.current.get(agentId)
+          if (currentAgent && currentAgent.sessionKey !== subKey) {
+            agentsRef.current.set(agentId, {
+              ...currentAgent,
+              sessionKey: subKey,
+            })
+            changed = true
+          }
+        }
         if (changed) syncState()
+        return phase
       } catch {}
+      return null
     },
     [syncState],
   )
@@ -78,7 +154,6 @@ export function useAgentActivity(sessionKey: string | null) {
   const startSubagentPoll = useCallback(
     (subKey: string, agentId: string) => {
       if (activeSubPollsRef.current.has(subKey)) return
-      console.log("[ui:poll] startSubagentPoll", subKey.slice(-12), agentId)
       subKeyToAgentRef.current.set(subKey, agentId)
 
       const poll = () => {
@@ -102,16 +177,31 @@ export function useAgentActivity(sessionKey: string | null) {
     [fetchSubagentHistory],
   )
 
+  const attachSubagentSession = useCallback((
+    agentId: string,
+    subKey: string,
+  ) => {
+    subKeyToAgentRef.current.set(subKey, agentId)
+    const currentAgent = agentsRef.current.get(agentId)
+    if (currentAgent) {
+      agentsRef.current.set(agentId, {
+        ...currentAgent,
+        phase: currentAgent.phase === "done" ? "start" : currentAgent.phase,
+        sessionKey: subKey,
+      })
+    }
+    startSubagentPoll(subKey, agentId)
+    syncState()
+  }, [startSubagentPoll, syncState])
+
   const discoverSubagentKey = useCallback(
     (subKey: string) => {
       if (subKeyToAgentRef.current.has(subKey)) return
       const agentId = spawnQueueRef.current.shift()
-      console.log("[ui:discover] subKey", subKey.slice(-12), "agentId", agentId ?? "NO_SPAWN_QUEUED", "queueLen", spawnQueueRef.current.length)
       if (!agentId) return
-      subKeyToAgentRef.current.set(subKey, agentId)
-      startSubagentPoll(subKey, agentId)
+      attachSubagentSession(agentId, subKey)
     },
-    [startSubagentPoll],
+    [attachSubagentSession],
   )
 
   const processToolEvent = useCallback(
@@ -148,13 +238,17 @@ export function useAgentActivity(sessionKey: string | null) {
             label,
             description,
           })
-          spawnQueueRef.current.push(agentId)
-        } else if (phase === "result") {
+          if (!spawnQueueRef.current.includes(agentId)) {
+            spawnQueueRef.current.push(agentId)
+          }
+        } else if (phase === "spawn_linked" || phase === "result") {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
             ...(prev ?? { runId: agentId, label }),
-            phase: "done",
+            phase: "start",
           })
+          const childSessionKey = extractSubagentSessionKey(data)
+          if (childSessionKey) attachSubagentSession(agentId, childSessionKey)
         } else if (phase === "error") {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
@@ -169,6 +263,30 @@ export function useAgentActivity(sessionKey: string | null) {
           runId: subagentOf,
           phase: "start",
           label: `sub-${subagentOf.slice(-6)}`,
+        })
+      }
+      if (subagentOf && phase === "error") {
+        const current = agentsRef.current.get(subagentOf)
+        agentsRef.current.set(subagentOf, {
+          ...(current ?? {
+            runId: subagentOf,
+            label: `sub-${subagentOf.slice(-6)}`,
+          }),
+          phase: "error",
+        })
+      }
+      if (
+        subagentOf &&
+        name === "sessions_yield" &&
+        phase === "result"
+      ) {
+        const current = agentsRef.current.get(subagentOf)
+        agentsRef.current.set(subagentOf, {
+          ...(current ?? {
+            runId: subagentOf,
+            label: `sub-${subagentOf.slice(-6)}`,
+          }),
+          phase: "done",
         })
       }
 
@@ -206,8 +324,7 @@ export function useAgentActivity(sessionKey: string | null) {
 
   const processMessage = useCallback(
     (data: Record<string, unknown>) => {
-      const text = (data.text as string) ?? ""
-      const keys = text.match(SUBAGENT_KEY_RE) ?? []
+      const keys = extractSubagentSessionKeys(data)
       for (const key of keys) {
         discoverSubagentKey(key)
       }
@@ -229,25 +346,19 @@ export function useAgentActivity(sessionKey: string | null) {
   const handleStreamDone = useCallback(() => {
     if (doneTimerRef.current) clearTimeout(doneTimerRef.current)
     doneTimerRef.current = setTimeout(() => {
-      console.log("[ui:done] final done — stopping polls, fetching last state")
       for (const [subKey, agentId] of subKeyToAgentRef.current) {
-        const agentInfo = agentsRef.current.get(agentId)
-        if (agentInfo) {
-          agentsRef.current.set(agentId, {
-            ...agentInfo,
-            phase: "done",
-          })
-        }
-        fetchSubagentHistory(subKey, agentId)
+        void fetchSubagentHistory(subKey, agentId).then((phase) => {
+          if (!phase || isActiveSubagent(phase)) {
+            startSubagentPoll(subKey, agentId)
+          }
+        })
       }
-      stopAllSubagentPolls()
       syncState()
     }, 3000)
-  }, [fetchSubagentHistory, stopAllSubagentPolls, syncState])
+  }, [fetchSubagentHistory, startSubagentPoll, syncState])
 
   const handleStreamResume = useCallback(() => {
     if (doneTimerRef.current) {
-      console.log("[ui:done] stream resumed — cancelling done timer")
       clearTimeout(doneTimerRef.current)
       doneTimerRef.current = null
     }
@@ -293,6 +404,9 @@ export function useAgentActivity(sessionKey: string | null) {
         }
         for (const [id, info] of parsed.agents) {
           agentsRef.current.set(id, info)
+          if (info.sessionKey) {
+            subKeyToAgentRef.current.set(info.sessionKey, id)
+          }
         }
         syncState()
 
@@ -302,6 +416,13 @@ export function useAgentActivity(sessionKey: string | null) {
         await Promise.all(
           subFetches.map(async ([subKey, agentId]) => {
             if (cancelledRef.current) return
+            const currentAgent = agentsRef.current.get(agentId)
+            if (currentAgent) {
+              agentsRef.current.set(agentId, {
+                ...currentAgent,
+                sessionKey: subKey,
+              })
+            }
             subKeyToAgentRef.current.set(subKey, agentId)
             await fetchSubagentHistory(subKey, agentId)
           }),
@@ -314,18 +435,14 @@ export function useAgentActivity(sessionKey: string | null) {
     }
 
     loadHistory()
-    const serverUrl =
-      process.env.NEXT_PUBLIC_SERVER_URL ||
-      "http://localhost:3001"
     const source = new EventSource(
-      `${serverUrl}/api/stream/chat/${sessionKey}`,
+      streamUrl(`/api/stream/chat/${sessionKey}`),
     )
 
     const handleTool = (evt: MessageEvent) => {
       if (cancelledRef.current) return
       try {
         const data = JSON.parse(evt.data)
-        console.log("[ui:sse] chat.tool", data.name, data.phase, data.subagentOf ?? "main")
         processToolEvent(data)
       } catch {}
     }
@@ -334,7 +451,6 @@ export function useAgentActivity(sessionKey: string | null) {
       try {
         const data = JSON.parse(evt.data)
         const state = (data.state as string) ?? null
-        console.log("[ui:sse] chat.status", state, data.label ?? "")
         setStreamStatus(state)
         if (state === "done" || state === "error") {
           handleStreamDone()
@@ -351,7 +467,6 @@ export function useAgentActivity(sessionKey: string | null) {
       if (cancelledRef.current) return
       try {
         const data = JSON.parse(evt.data)
-        console.log("[ui:sse] chat.agent", data.phase, data.agentId, data.runId)
         processAgentEvent(data)
       } catch {}
     }
@@ -359,7 +474,6 @@ export function useAgentActivity(sessionKey: string | null) {
       if (cancelledRef.current) return
       try {
         const data = JSON.parse(evt.data)
-        console.log("[ui:sse] chat.message", data.role, data.text?.slice(0, 80))
         processMessage(data)
       } catch {}
     }
@@ -399,6 +513,9 @@ export function useAgentActivity(sessionKey: string | null) {
   const agentToSessionKey = new Map<string, string>()
   for (const [subKey, agentId] of subKeyToAgentRef.current) {
     agentToSessionKey.set(agentId, subKey)
+  }
+  for (const [agentId, info] of agents) {
+    if (info.sessionKey) agentToSessionKey.set(agentId, info.sessionKey)
   }
 
   return {

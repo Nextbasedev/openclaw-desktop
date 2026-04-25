@@ -255,6 +255,7 @@ All domains are currently at grade **F** (Not started or skeleton only). See `do
 8. **Lint error messages are instructions** — read them; they tell you what to do.
 9. **Do not assume** `tests/` or `.github/` exist at root — they do not yet.
 10. **UI code lives directly under `packages/ui/`** — there is no `src/` folder inside the UI package.
+11. **Human-first desktop UX** — Jarvis Desktop is built for people, not only agents. Any create/edit flow must be easy for a human to understand and operate. Prefer friendly controls, plain-language labels, previews, and guided choices over raw protocol/backend values. Raw values such as cron expressions, IDs, JSON, model strings, or gateway parameters should remain available for advanced users and debugging, but they must not be the only way to add or edit user-facing data.
 
 ## Philosophy
 

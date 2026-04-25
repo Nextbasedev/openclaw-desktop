@@ -33,9 +33,14 @@ export function useModels() {
     cachedCurrent,
   )
   const [loading, setLoading] = useState(!cachedModels)
+  const [error, setError] = useState<string | null>(null)
   const fetched = useRef(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    if (!force && fetched.current && cachedModels) return
+    fetched.current = true
+    setError(null)
+    setLoading(true)
     try {
       const res = await invoke<ModelsResponse>("middleware_models_list", {
         input: {},
@@ -44,15 +49,14 @@ export function useModels() {
       cachedCurrent = res.currentModel ?? null
       setModels(cachedModels)
       setCurrentModel(cachedCurrent)
-    } catch {}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load models")
+    }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => {
-    if (fetched.current) return
-    fetched.current = true
-    load()
-  }, [load])
+  const ensureLoaded = useCallback(() => load(false), [load])
+  const reload = useCallback(() => load(true), [load])
 
-  return { models, currentModel, loading, reload: load }
+  return { models, currentModel, loading, error, reload, ensureLoaded }
 }

@@ -29,12 +29,18 @@ type ActionBarProps = {
   webSearchEnabled: boolean
   onWebSearchToggle: () => void
   onWebSearchDisable: () => void
+  autonomyMode: "full" | "supervised" | "manual"
+  onAutonomyModeChange: (mode: "full" | "supervised" | "manual") => void
+  onPauseResume?: () => void
   plusOpen: boolean
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
   onModelOpenChange: (open: boolean) => void
   models: ModelEntry[]
   currentModelId: string | null
+  modelLoading?: boolean
+  modelError?: string | null
+  onModelRefresh?: () => void
   onModelSelect: (model: ModelEntry) => void
   isRecording?: boolean
   onVoiceToggle?: () => void
@@ -54,12 +60,18 @@ export function ActionBar({
   webSearchEnabled,
   onWebSearchToggle,
   onWebSearchDisable,
+  autonomyMode,
+  onAutonomyModeChange,
+  onPauseResume,
   plusOpen,
   onPlusOpenChange,
   modelOpen,
   onModelOpenChange,
   models,
   currentModelId,
+  modelLoading,
+  modelError,
+  onModelRefresh,
   onModelSelect,
   isRecording,
   onVoiceToggle,
@@ -109,6 +121,33 @@ export function ActionBar({
               <WebSearchIcon className="size-[18px]" />
               Web search
             </button>
+            <button
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
+              onClick={onPauseResume}
+            >
+              Pause / resume
+            </button>
+            <div className="my-1 h-px bg-border" />
+            {([
+              ["full", "Full Auto"],
+              ["supervised", "Supervised"],
+              ["manual", "Manual Approval"],
+            ] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted",
+                  autonomyMode === mode
+                    ? "text-popover-foreground"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => onAutonomyModeChange(mode)}
+              >
+                {label}
+              </button>
+            ))}
           </PopoverContent>
         </Popover>
 
@@ -158,6 +197,23 @@ export function ActionBar({
             </button>
           </PopoverTrigger>
           <PopoverContent side="top" align="end" sideOffset={8} className="w-56 gap-0 p-1.5">
+            {modelLoading && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                Loading models...
+              </p>
+            )}
+            {modelError && (
+              <div className="px-3 py-2">
+                <p className="text-xs text-rose-400">Models unavailable</p>
+                <button
+                  type="button"
+                  onClick={onModelRefresh}
+                  className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
+                >
+                  Refresh
+                </button>
+              </div>
+            )}
             {models.map((model) => {
               const isActive = activeModel?.id === model.id
               return (
@@ -176,8 +232,19 @@ export function ActionBar({
                 </button>
               )
             })}
-            {models.length === 0 && (
-              <p className="px-3 py-2 text-xs text-muted-foreground">No models available</p>
+            {!modelLoading && !modelError && models.length === 0 && (
+              <div className="px-3 py-2">
+                <p className="text-xs text-muted-foreground">
+                  No models available
+                </p>
+                <button
+                  type="button"
+                  onClick={onModelRefresh}
+                  className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
+                >
+                  Connect or refresh
+                </button>
+              </div>
             )}
           </PopoverContent>
         </Popover>
@@ -211,8 +278,8 @@ export function ActionBar({
           )}
         </button>
 
-        {/* Send / Stop button */}
-        {isGenerating ? (
+        {/* Send / Stop controls */}
+        {isGenerating && (
           <button
             type="button"
             onClick={onAbort}
@@ -221,7 +288,8 @@ export function ActionBar({
           >
             <HugeiconsIcon icon={Cancel01Icon} size={14} />
           </button>
-        ) : (
+        )}
+        {(!isGenerating || hasInput) && (
           <button
             type="button"
             onClick={onSend}

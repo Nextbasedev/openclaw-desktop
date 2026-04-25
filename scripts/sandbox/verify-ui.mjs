@@ -16,6 +16,7 @@ function parseArgs(argv) {
     host: "127.0.0.1",
     waitFor: "",
     expectMain: "",
+    rejectMain: "",
     expectUrl: "",
     fillText: "",
     clickLabel: "",
@@ -54,6 +55,9 @@ function parseArgs(argv) {
         break;
       case "expect-main":
         options.expectMain = value;
+        break;
+      case "reject-main":
+        options.rejectMain = value;
         break;
       case "expect-url":
         options.expectUrl = value;
@@ -230,6 +234,37 @@ async function takeNamedScreenshot(client, runDir, label) {
   return filePath;
 }
 
+async function waitForMainText(client, expectedText, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastMainText = "";
+
+  while (Date.now() < deadline) {
+    const mainResult = await callTool(
+      client,
+      "evaluate_script",
+      {
+        function: `() => {
+          const main = document.querySelector("main");
+          return {
+            mainText: main?.innerText ?? "",
+          };
+        }`,
+      },
+      10_000,
+    );
+    const evaluated = parseJsonFromToolText(textFromToolResult(mainResult));
+    lastMainText = evaluated?.mainText ?? "";
+    if (lastMainText.includes(expectedText)) {
+      return evaluated;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(
+    `Expected <main> to contain "${expectedText}". Last main text: ${lastMainText.slice(0, 500)}`,
+  );
+}
+
 async function closeWithTimeout(label, closePromise, timeoutMs = 3_000) {
   let timeout;
   try {
@@ -275,8 +310,10 @@ async function run() {
     "runs",
     `${timestamp()}-${slugForRoute(options.path)}`,
   );
+  const chromeProfileDir = path.join(runDir, "chrome-profile");
 
   await mkdir(runDir, { recursive: true });
+  await mkdir(chromeProfileDir, { recursive: true });
 
   const serverReady = await checkServer(baseUrl);
   if (!serverReady) {
@@ -293,7 +330,10 @@ async function run() {
     "chrome-devtools-mcp@latest",
     "--no-usage-statistics",
     "--no-performance-crux",
-    "--isolated",
+    `--user-data-dir=${chromeProfileDir}`,
+    "--chrome-arg=--renderer-process-limit=4",
+    "--chrome-arg=--process-per-site",
+    "--chrome-arg=--disable-site-isolation-trials",
   ];
   if (options.headless) {
     mcpArgs.push("--headless");
@@ -352,7 +392,7 @@ async function run() {
     const page = await callTool(
       client,
       "new_page",
-      { url, timeout: options.timeout, isolatedContext: `jarvis-${Date.now()}` },
+      { url, timeout: options.timeout },
       options.timeout + 5_000,
     );
     pageId = getCreatedPageId(page);
@@ -367,6 +407,11 @@ async function run() {
         { text: [options.waitFor], timeout: options.timeout },
         options.timeout + 5_000,
       );
+    }
+
+    if (options.expectMain) {
+      console.log(`Waiting for <main> text: ${options.expectMain}`);
+      await waitForMainText(client, options.expectMain, options.timeout);
     }
 
     const mainResult = await callTool(
@@ -390,6 +435,9 @@ async function run() {
     const evaluatedMainText = evaluatedPage?.mainText ?? "";
     if (options.expectMain && !evaluatedMainText.includes(options.expectMain)) {
       summary.failures.push(`Expected <main> to contain "${options.expectMain}"`);
+    }
+    if (options.rejectMain && evaluatedMainText.includes(options.rejectMain)) {
+      summary.failures.push(`Expected <main> to omit "${options.rejectMain}"`);
     }
     if (options.expectUrl) {
       const actualUrl = evaluatedPage?.href ?? "";

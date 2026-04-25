@@ -1,12 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
+import {
+  isActiveSubagent,
+  subagentStatusLabel,
+} from "@/lib/subagentLifecycle"
 import { VscChevronDown, VscChevronRight, VscHubot } from "react-icons/vsc"
 import type { SpawnedSubagent } from "./types"
 
 function StatusDot({ status }: { status: SpawnedSubagent["status"] }) {
-  if (status === "running") {
+  if (status === "spawning" || status === "linking" || status === "working") {
     return (
       <span className="relative flex size-2">
         <span className="absolute inset-0 animate-ping rounded-full bg-blue-400/60" />
@@ -14,16 +18,15 @@ function StatusDot({ status }: { status: SpawnedSubagent["status"] }) {
       </span>
     )
   }
-  if (status === "error") {
+  if (status === "failed") {
     return <span className="size-2 rounded-full bg-rose-400" />
   }
   return <span className="size-2 rounded-full bg-emerald-400" />
 }
 
-function statusLabel(status: SpawnedSubagent["status"]) {
-  if (status === "running") return "running"
-  if (status === "error") return "error"
-  return "done"
+function statusLabel(sub: SpawnedSubagent) {
+  if (!sub.sessionKey && sub.status === "completed") return "linking"
+  return subagentStatusLabel(sub.status)
 }
 
 function ShimmerBar() {
@@ -41,36 +44,46 @@ export function SubagentBar({
   subagents: SpawnedSubagent[]
   onOpen: (sub: SpawnedSubagent) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
+
+  const activeCount = subagents.filter((s) => isActiveSubagent(s.status)).length
+  const hasActive = activeCount > 0
+
+  useEffect(() => {
+    if (hasActive) setExpanded(true)
+  }, [hasActive])
 
   if (subagents.length === 0) return null
 
-  const runningCount = subagents.filter((s) => s.status === "running").length
-  const hasRunning = runningCount > 0
-
   return (
-    <div className="mx-auto w-full max-w-3xl px-4">
+    <div
+      className="mx-auto w-full max-w-3xl px-4"
+      data-testid="subagent-composer-bar"
+    >
       <div
+        data-expanded={expanded ? "true" : "false"}
         className={cn(
           "relative overflow-hidden rounded-xl border transition-all duration-200",
-          hasRunning
+          hasActive
             ? "border-blue-400/20 bg-blue-400/[0.03]"
             : "border-border/20 bg-card/50",
         )}
       >
-        {hasRunning && <ShimmerBar />}
+        {hasActive && <ShimmerBar />}
 
         <button
           type="button"
+          aria-label="Background agents"
+          aria-expanded={expanded}
           onClick={() => setExpanded((p) => !p)}
           className="relative flex w-full items-center gap-2.5 px-3.5 py-2.5 cursor-pointer"
         >
-          <VscHubot className={cn("size-4 shrink-0", hasRunning ? "text-blue-400/70" : "text-muted-foreground/50")} />
+          <VscHubot className={cn("size-4 shrink-0", hasActive ? "text-blue-400/70" : "text-muted-foreground/50")} />
           <span className="flex-1 text-left text-[12px] font-medium text-foreground/80">
             {subagents.length} background agent{subagents.length !== 1 ? "s" : ""}
-            {hasRunning && (
+            {hasActive && (
               <span className="ml-1 text-muted-foreground/50">
-                ({runningCount} running)
+                ({activeCount} active)
               </span>
             )}
           </span>
@@ -92,17 +105,24 @@ export function SubagentBar({
                   key={sub.id}
                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 transition-colors hover:bg-foreground/[0.03]"
                 >
-                  <StatusDot status={sub.status} />
+                  <StatusDot
+                    status={
+                      !sub.sessionKey && sub.status === "completed"
+                        ? "linking"
+                        : sub.status
+                    }
+                  />
                   <span className="flex-1 truncate text-[12px] text-foreground/70">
-                    <span className={cn(sub.status === "error" ? "text-rose-400" : "text-foreground/80")}>
+                    <span className={cn(sub.status === "failed" ? "text-rose-400" : "text-foreground/80")}>
                       {sub.label}
                     </span>
                     <span className="ml-1.5 text-muted-foreground/40">
-                      is {statusLabel(sub.status)}
+                      is {statusLabel(sub)}
                     </span>
                   </span>
                   <button
                     type="button"
+                    aria-label={`Open ${sub.label}`}
                     disabled={!sub.sessionKey}
                     onClick={(e) => {
                       e.stopPropagation()
@@ -115,7 +135,7 @@ export function SubagentBar({
                         : "border border-border/10 text-muted-foreground/30",
                     )}
                   >
-                    Open
+                    {sub.sessionKey ? "Open" : "Linking..."}
                   </button>
                 </div>
               ))}

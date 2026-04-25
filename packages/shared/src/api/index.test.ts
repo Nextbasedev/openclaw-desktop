@@ -223,7 +223,18 @@ const representativeParsers: Record<string, RepresentativeParser> = {
   },
   memory: {
     endpoint: memoryEndpoints[3],
-    response: { hits: [{ path: "MEMORY.md", snippet: "hello", score: 0.9 }] },
+    response: {
+      hits: [
+        {
+          path: "MEMORY.md",
+          snippet: "hello",
+          score: 0.9,
+          startLine: 1,
+          endLine: 2,
+          source: "project",
+        },
+      ],
+    },
     responseAssert: (parsed: { hits: Array<{ path: string }> }) => expect(parsed.hits[0]?.path).toBe("MEMORY.md"),
   },
   settings: {

@@ -19,16 +19,25 @@ import {
 } from "react-icons/lu"
 
 type Session = {
-  sessionKey: string
+  key: string
   label: string | null
   status: string
+  updatedAt: string
+  hidden?: boolean
+}
+
+type ChatRecord = {
+  id: string
+  name: string
+  sessionKey?: string
+  archived: boolean
   updatedAt: string
 }
 
 type CommandPaletteProps = {
   open: boolean
   onClose: () => void
-  onNavigateChat: (sessionKey?: string) => void
+  onNavigateChat: (sessionKey?: string) => void | Promise<void>
   onNewChat: () => void
   onSendPrompt: (prompt: string) => void
   onOpenSettings: () => void
@@ -103,18 +112,36 @@ export function CommandPalette({
     setSelectedIndex(0)
     setTimeout(() => inputRef.current?.focus(), 50)
 
-    invoke<{ sessions: Session[] }>("middleware_sessions_list", { input: {} })
-      .then(({ sessions }) => {
+    invoke<{ sessions: Session[] }>("middleware_sessions_list", {
+      input: { includeExisting: true },
+    })
+      .then(async ({ sessions }) => {
         const seen = new Set<string>()
-        const sorted = sessions
-          .filter((s) => !s.label?.startsWith("__"))
+        let sorted = sessions
+          .filter((s) => !s.hidden && !s.label?.startsWith("__"))
           .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
           .filter((s) => {
-            if (seen.has(s.sessionKey)) return false
-            seen.add(s.sessionKey)
+            if (seen.has(s.key)) return false
+            seen.add(s.key)
             return true
           })
           .slice(0, 5)
+
+        if (sorted.length === 0) {
+          const chatResult = await invoke<{ chats: ChatRecord[] }>(
+            "middleware_chats_list",
+            { input: {} },
+          )
+          sorted = (chatResult.chats || [])
+            .filter((chat) => !chat.archived && chat.sessionKey)
+            .map((chat) => ({
+              key: chat.sessionKey as string,
+              label: chat.name,
+              status: "idle",
+              updatedAt: chat.updatedAt,
+            }))
+            .slice(0, 5)
+        }
         setRecentSessions(sorted)
       })
       .catch(() => setRecentSessions([]))
@@ -122,7 +149,7 @@ export function CommandPalette({
 
   const filteredRecent = debouncedQuery
     ? recentSessions.filter((s) =>
-      (s.label || s.sessionKey).toLowerCase().includes(debouncedQuery.toLowerCase()),
+      (s.label || s.key).toLowerCase().includes(debouncedQuery.toLowerCase()),
     )
     : recentSessions
 
@@ -131,14 +158,14 @@ export function CommandPalette({
     : QUICK_ACTIONS
 
   const allItems = useMemo<FlatItem[]>(() => [
-    ...filteredRecent.map((s) => ({ type: "recent" as const, id: s.sessionKey, session: s })),
+    ...filteredRecent.map((s) => ({ type: "recent" as const, id: s.key, session: s })),
     ...filteredActions.map((a) => ({ type: "action" as const, id: a.id, action: a })),
   ], [filteredRecent, filteredActions])
 
   const dispatchItem = useCallback((item: FlatItem) => {
     onClose()
     if (item.type === "recent") {
-      onNavigateChat(item.session.sessionKey)
+      onNavigateChat(item.session.key)
       return
     }
     switch (item.action.id) {
@@ -196,7 +223,11 @@ export function CommandPalette({
   let itemIndex = -1
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center" onClick={onClose}>
+    <div
+      data-testid="command-palette"
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      onClick={onClose}
+    >
       <div className="absolute inset-0 bg-black/20 dark:bg-black/50" />
       <div
         className={cn(
@@ -211,6 +242,7 @@ export function CommandPalette({
           <LuSearch size={18} className="shrink-0 text-muted-foreground dark:text-white/40" />
           <input
             ref={inputRef}
+            data-testid="command-palette-search"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -250,12 +282,13 @@ export function CommandPalette({
                 const idx = itemIndex
                 return (
                   <PaletteRow
-                    key={session.sessionKey}
+                    key={session.key}
                     icon={<LuClock size={14} />}
-                    label={session.label || session.sessionKey}
+                    label={session.label || session.key}
                     trailing={<LuArrowUpRight size={12} className="text-muted-foreground/50 dark:text-white/25" />}
                     selected={selectedIndex === idx}
-                    onClick={() => dispatchItem({ type: "recent", id: session.sessionKey, session })}
+                    testId={`command-recent-${session.key}`}
+                    onClick={() => dispatchItem({ type: "recent", id: session.key, session })}
                   />
                 )
               })}
@@ -282,7 +315,7 @@ export function CommandPalette({
                       keys.length > 0 ? (
                         <div className="flex items-center gap-0.5">
                           {keys.map((key, i) => (
-                            <span key={i} className="flex items-center gap-0.5">
+                            <span key={`${action.id}-${key}-${i}`} className="flex items-center gap-0.5">
                               {i > 0 && <span className="text-[8px] text-muted-foreground/50 dark:text-white/20">+</span>}
                               <kbd className="inline-flex min-w-[22px] items-center justify-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-white/40">
                                 {key}
@@ -293,6 +326,7 @@ export function CommandPalette({
                       ) : undefined
                     }
                     selected={selectedIndex === idx}
+                    testId={`command-action-${action.id}`}
                     onClick={() => dispatchItem({ type: "action", id: action.id, action })}
                   />
                 )
@@ -337,7 +371,7 @@ function PromptMarquee({
       >
         {[...suggestions, ...suggestions].map((s, i) => (
           <button
-            key={i}
+            key={`${s.chip}-${i}`}
             type="button"
             onClick={() => onSelect(s.prompt)}
             className={cn(
@@ -363,12 +397,14 @@ function PaletteRow({
   label,
   trailing,
   selected,
+  testId,
   onClick,
 }: {
   icon: React.ReactNode
   label: string
   trailing?: React.ReactNode
   selected: boolean
+  testId?: string
   onClick: () => void
 }) {
   const rowRef = useRef<HTMLButtonElement>(null)
@@ -381,6 +417,7 @@ function PaletteRow({
     <button
       ref={rowRef}
       type="button"
+      data-testid={testId}
       onClick={onClick}
       className={cn(
         "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",

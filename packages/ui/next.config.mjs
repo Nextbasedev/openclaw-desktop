@@ -14,12 +14,8 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: "/api/ipc/:path*",
-        destination: "http://127.0.0.1:3001/api/ipc/:path*",
-      },
-      {
-        source: "/api/stream/:path*",
-        destination: "http://127.0.0.1:3001/api/stream/:path*",
+        source: "/api/stream/terminal/:path*",
+        destination: "http://127.0.0.1:3001/api/stream/terminal/:path*",
       },
     ]
   },

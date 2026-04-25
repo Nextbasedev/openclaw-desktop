@@ -126,6 +126,11 @@ type ConnectOptions = {
   origin?: string
 }
 
+type GatewayServerInfo = {
+  version?: string
+  connId?: string
+}
+
 type SessionHistoryPayload = {
   thinkingLevel?: string
   verboseLevel?: string
@@ -291,6 +296,7 @@ function isGatewayResponse(message: GatewayMessage): message is GatewayResponse 
 
 export type OpenClawGatewayClient = {
   gatewayUrl: string
+  server?: GatewayServerInfo
   request<TPayload = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<GatewayResponse<TPayload>>
   addMessageListener(listener: (message: GatewayMessage) => void): () => void
   close(): void
@@ -389,8 +395,13 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
     throw new Error(connectResponse.error?.message ?? "OpenClaw connect failed")
   }
 
+  const hello = connectResponse.payload as
+    | { server?: GatewayServerInfo }
+    | undefined
+
   return {
     gatewayUrl,
+    server: hello?.server,
     socket: ws,
     request<TPayload = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 15_000) {
       const id = crypto.randomUUID()

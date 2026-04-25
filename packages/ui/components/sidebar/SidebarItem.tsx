@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
 import { Reorder, useDragControls } from "framer-motion"
 import { Icons } from "@/components/icons"
@@ -15,31 +15,60 @@ type SidebarItemProps = {
   item: SidebarNavItem
   isActive: boolean
   onClick: () => void
+  href?: string
   collapsed?: boolean
   draggable?: boolean
 }
 
-export function SidebarItem({ item, isActive, onClick, collapsed = false, draggable = false }: SidebarItemProps) {
+export function SidebarItem({
+  item,
+  isActive,
+  onClick,
+  href,
+  collapsed = false,
+  draggable = false,
+}: SidebarItemProps) {
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
 
-  const btn = (
+  const interactiveClassName = cn(
+    "group flex w-full min-w-0 items-center rounded-md font-normal",
+    "gap-2.5 text-left text-[13px]",
+    collapsed ? "px-2.5 py-2" : "px-2.5 py-1.5",
+    "transition-[background-color,color,opacity] duration-150 ease-in-out",
+    "cursor-pointer",
+    isActive
+      ? "text-foreground"
+      : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
+  )
+
+  const content = (
+    <>
+      <NavIcon type={item.icon} />
+      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+    </>
+  )
+
+  const btn = href ? (
+    <a
+      href={href}
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault()
+        onClick()
+      }}
+      data-testid={`sidebar-nav-${item.id}`}
+      className={interactiveClassName}
+    >
+      {content}
+    </a>
+  ) : (
     <button
       type="button"
       onClick={onClick}
-      className={cn(
-        "group flex w-full min-w-0 items-center rounded-md font-normal",
-        "gap-2.5 text-left text-[13px]",
-        collapsed ? "px-2.5 py-2" : "px-2.5 py-1.5",
-        "transition-[background-color,color,opacity] duration-150 ease-in-out",
-        "cursor-pointer",
-        isActive
-          ? "text-foreground"
-          : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-      )}
+      data-testid={`sidebar-nav-${item.id}`}
+      className={interactiveClassName}
     >
-      <NavIcon type={item.icon} />
-      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+      {content}
     </button>
   )
 

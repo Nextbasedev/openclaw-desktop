@@ -1,3 +1,8 @@
+import {
+  extractSubagentSessionKey,
+  extractSubagentSessionKeys,
+} from "@/lib/subagentSession"
+
 export type ToolCallStatus = "running" | "success" | "error"
 
 export interface ToolCall {
@@ -27,6 +32,7 @@ export interface AgentInfo {
   phase: string
   label: string
   description?: string
+  sessionKey?: string
 }
 
 type ContentBlock = {
@@ -63,8 +69,6 @@ export type HistoryParseResult = {
   subagentSessionKeys: Map<string, string>
 }
 
-const SUBAGENT_KEY_RE = /agent:main:subagent:[0-9a-f-]{36}/g
-
 export function parseHistoryToolCalls(
   messages: RawHistoryMessage[],
 ): HistoryParseResult {
@@ -73,13 +77,14 @@ export function parseHistoryToolCalls(
   const subagentSessionKeys = new Map<string, string>()
   let pendingCalls: Array<{ id: string; name: string; args: unknown }> = []
   const spawnOrder: string[] = []
+  let currentSubagentId: string | null = null
 
   for (const msg of messages) {
     if (msg.role === "assistant") {
       const text = typeof msg.content === "string"
         ? msg.content
         : (msg.text ?? "")
-      const keys = text.match(SUBAGENT_KEY_RE) ?? []
+      const keys = extractSubagentSessionKeys(text)
       for (const key of keys) {
         if (!subagentSessionKeys.has(key) && spawnOrder.length > 0) {
           subagentSessionKeys.set(key, spawnOrder.shift()!)
@@ -88,8 +93,7 @@ export function parseHistoryToolCalls(
 
       if (Array.isArray(msg.content)) {
         for (const b of msg.content as ContentBlock[]) {
-          const blockText = b.text ?? ""
-          const blockKeys = blockText.match(SUBAGENT_KEY_RE) ?? []
+          const blockKeys = extractSubagentSessionKeys(b)
           for (const key of blockKeys) {
             if (!subagentSessionKeys.has(key) && spawnOrder.length > 0) {
               subagentSessionKeys.set(key, spawnOrder.shift()!)
@@ -124,25 +128,43 @@ export function parseHistoryToolCalls(
 
       if (pendingCalls.length > 0) {
         const matched = pendingCalls.shift()!
-        calls.push({
+        const call: ToolCall = {
           id: matched.id,
           tool: matched.name,
           status: isError ? "error" : "success",
           input: matched.args as Record<string, unknown> | undefined,
           output: resultText || undefined,
-        })
+          subagentOf:
+            currentSubagentId &&
+            matched.name !== "sessions_spawn" &&
+            matched.name !== "sessions_yield"
+              ? currentSubagentId
+              : undefined,
+        }
+        calls.push(call)
         if (matched.name === "sessions_spawn") {
           const args = matched.args as Record<string, unknown> | null
           const label = (args?.label as string) ?? (args?.agentId as string) ?? `sub-${matched.id.slice(-6)}`
           const task = (args?.task as string) ?? undefined
           const agentId = `spawn:${matched.id}`
-          agents.set(agentId, { runId: agentId, phase: isError ? "error" : "done", label, description: task })
-          const childKeyMatch = resultText.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
-          if (childKeyMatch) {
-            subagentSessionKeys.set(childKeyMatch[1], agentId)
+          const childSessionKey = extractSubagentSessionKey(resultText)
+          agents.set(agentId, {
+            runId: agentId,
+            phase: isError ? "error" : "start",
+            label,
+            description: task,
+            sessionKey: childSessionKey ?? undefined,
+          })
+          if (childSessionKey) {
+            subagentSessionKeys.set(childSessionKey, agentId)
           } else {
             spawnOrder.push(agentId)
           }
+          currentSubagentId = agentId
+        } else if (matched.name === "sessions_yield" && currentSubagentId) {
+          const current = agents.get(currentSubagentId)
+          if (current) agents.set(currentSubagentId, { ...current, phase: "done" })
+          currentSubagentId = null
         }
       }
     }
@@ -154,6 +176,12 @@ export function parseHistoryToolCalls(
       tool: remaining.name,
       status: "running",
       input: remaining.args as Record<string, unknown> | undefined,
+      subagentOf:
+        currentSubagentId &&
+        remaining.name !== "sessions_spawn" &&
+        remaining.name !== "sessions_yield"
+          ? currentSubagentId
+          : undefined,
     })
     if (remaining.name === "sessions_spawn") {
       const args = remaining.args as Record<string, unknown> | null
@@ -162,6 +190,7 @@ export function parseHistoryToolCalls(
       const agentId = `spawn:${remaining.id}`
       agents.set(agentId, { runId: agentId, phase: "start", label, description: task })
       spawnOrder.push(agentId)
+      currentSubagentId = agentId
     }
   }
 

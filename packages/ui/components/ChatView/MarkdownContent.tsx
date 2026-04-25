@@ -39,23 +39,30 @@ const cleanStyle: Record<string, React.CSSProperties> = Object.fromEntries(
 function CodeBlock({ language, children }: { language?: string; children: string }) {
   const code = children.replace(/\n$/, "")
   return (
-    <div className="group/code relative my-2 overflow-hidden rounded-lg border border-border/20 bg-[#1a1a1e]">
+    <div className="group/code relative my-2 max-w-full min-w-0 overflow-hidden rounded-lg border border-border/20 bg-[#1a1a1e]">
       <div className="absolute right-2 top-2"><CopyBtn text={code} /></div>
       {language ? (
-        <div className="overflow-x-auto px-4 py-3">
+        <div className="w-full max-w-full overflow-x-auto px-4 py-3">
           <SyntaxHighlighter
             style={cleanStyle}
             language={language}
             PreTag="div"
-            customStyle={{ background: "transparent", margin: 0, padding: 0, fontSize: "13px" }}
+            customStyle={{
+              background: "transparent",
+              margin: 0,
+              padding: 0,
+              fontSize: "13px",
+              minWidth: 0,
+              maxWidth: "100%",
+            }}
             codeTagProps={{ style: { background: "transparent" } }}
           >
             {code}
           </SyntaxHighlighter>
         </div>
       ) : (
-        <div className="overflow-x-auto px-4 py-3">
-          <pre className="whitespace-pre font-mono text-[13px] leading-[1.6] text-foreground/80">{code}</pre>
+        <div className="w-full max-w-full overflow-x-auto px-4 py-3">
+          <pre className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6] text-foreground/80">{code}</pre>
         </div>
       )}
     </div>
@@ -99,7 +106,7 @@ const mdComponents = {
 
 export function MarkdownContent({ text, className }: { text: string; className?: string }) {
   return (
-    <div className={cn("prose-chat", className)}>
+    <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
         {text}
       </ReactMarkdown>

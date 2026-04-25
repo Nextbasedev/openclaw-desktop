@@ -12,6 +12,13 @@ import { NotificationPopover } from "@/components/notifications/NotificationPopo
 import { invoke } from "@/lib/ipc"
 import type { ActiveChat } from "@/types/chat"
 
+type VersionInfo = {
+    version: string
+    nodeVersion?: string
+    openclawVersion?: string | null
+    source?: string
+}
+
 type HeaderProps = {
     user?: HeaderUser
     className?: string
@@ -22,6 +29,8 @@ type HeaderProps = {
     onToggleTerminal?: () => void
     sidebarOpen?: boolean
     onToggleSidebar?: () => void
+    chatMode?: "simple" | "mission"
+    onChatModeChange?: (mode: "simple" | "mission") => void
     centerLabel?: { project: string; topic: string } | null
     onOpenSettings?: () => void
     onOpenNotifications?: () => void
@@ -42,6 +51,8 @@ export function Header({
     onToggleTerminal,
     sidebarOpen = true,
     onToggleSidebar,
+    chatMode = "simple",
+    onChatModeChange,
     centerLabel,
     onOpenSettings,
     onOpenNotifications,
@@ -49,15 +60,19 @@ export function Header({
 }: HeaderProps) {
     const platform = usePlatform()
     const [isTauri, setIsTauri] = useState(false)
-    const [appVersion, setAppVersion] = useState<string | null>(null)
+    const [openClawVersion, setOpenClawVersion] = useState<string | null>(null)
+    const [nodeVersion, setNodeVersion] = useState<string | null>(null)
 
     useEffect(() => {
         setIsTauri(typeof window !== "undefined" && !!window.__TAURI_INTERNALS__)
     }, [])
 
     useEffect(() => {
-        invoke<{ version: string }>("middleware_version_info")
-            .then((res) => setAppVersion(res.version))
+        invoke<VersionInfo>("middleware_version_info")
+            .then((res) => {
+                setOpenClawVersion(res.openclawVersion ?? res.version)
+                setNodeVersion(res.nodeVersion ?? null)
+            })
             .catch(() => {})
     }, [])
 
@@ -98,9 +113,12 @@ export function Header({
                     {user.name}
                 </span>
 
-                {appVersion && (
-                    <span className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner">
-                        v{appVersion}
+                {openClawVersion && (
+                    <span
+                        title={nodeVersion ? `Middleware Node ${nodeVersion}` : undefined}
+                        className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner"
+                    >
+                        v{openClawVersion}
                     </span>
                 )}
             </div>
@@ -110,6 +128,7 @@ export function Header({
                     <>
                         <button
                             type="button"
+                            data-testid="toggle-sidebar"
                             aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
                             title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
                             onClick={onToggleSidebar}
@@ -126,6 +145,34 @@ export function Header({
                             ) : (
                                 <VscLayoutSidebarLeftOff className="size-4" />
                             )}
+                        </button>
+
+                        <button
+                            type="button"
+                            aria-label={
+                                chatMode === "simple"
+                                    ? "Show what's happening"
+                                    : "Hide activity panels"
+                            }
+                            title={
+                                chatMode === "simple"
+                                    ? "Show what's happening"
+                                    : "Hide activity panels"
+                            }
+                            onClick={() =>
+                                onChatModeChange?.(
+                                    chatMode === "simple" ? "mission" : "simple",
+                                )
+                            }
+                            className={cn(
+                                "mx-1 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+                                "cursor-pointer transition-colors",
+                                chatMode === "mission"
+                                    ? "bg-foreground/10 text-foreground"
+                                    : "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            {chatMode === "simple" ? "Show activity" : "Mission"}
                         </button>
 
                         <button

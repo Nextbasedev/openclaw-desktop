@@ -2,6 +2,10 @@
 
 import { useState } from "react"
 import { cn } from "@/lib/utils"
+import {
+  isActiveSubagent,
+  subagentStatusLabel,
+} from "@/lib/subagentLifecycle"
 import { VscChevronDown } from "react-icons/vsc"
 import type { SpawnedSubagent } from "./types"
 
@@ -15,11 +19,11 @@ export function SubagentCard({
   const [open, setOpen] = useState(false)
   if (subagents.length === 0) return null
 
-  const hasRunning = subagents.some((s) => s.status === "running")
+  const hasActive = subagents.some((s) => isActiveSubagent(s.status))
   const count = subagents.length
-  const label = hasRunning
-    ? `Spawning ${count} agent${count !== 1 ? "s" : ""}`
-    : `Spawned ${count} agent${count !== 1 ? "s" : ""}`
+  const label = hasActive
+    ? `${count} background agent${count !== 1 ? "s" : ""} active`
+    : `${count} background agent${count !== 1 ? "s" : ""}`
 
   return (
     <div className="my-1">
@@ -30,7 +34,7 @@ export function SubagentCard({
       >
         <span
           className={cn(
-            hasRunning &&
+            hasActive &&
               "bg-gradient-to-r from-foreground/60 via-blue-400/80 to-foreground/60 bg-[length:200%_100%] bg-clip-text text-transparent animate-shimmer-text",
           )}
         >
@@ -49,24 +53,24 @@ export function SubagentCard({
           {subagents.map((sub) => (
             <div key={sub.id}>
               <p className="text-[13px] font-medium text-foreground/60">
-                {sub.status === "running"
-                  ? "Spawning"
-                  : sub.status === "error"
-                    ? "Error"
-                    : "Complete"}
+                {subagentStatusLabel(sub.status)}
               </p>
               <p className="text-[13px] text-muted-foreground">
                 <span className="text-muted-foreground/60">Input: </span>
                 {sub.label}
               </p>
-              {sub.status !== "running" && (
+              {sub.sessionKey ? (
                 <button
                   type="button"
                   onClick={() => onOpen(sub)}
                   className="mt-0.5 text-[12px] text-blue-400/70 hover:text-blue-400 transition-colors cursor-pointer"
                 >
-                  View output
+                  Open
                 </button>
+              ) : (
+                <p className="mt-0.5 text-[12px] text-muted-foreground/40">
+                  Linking...
+                </p>
               )}
             </div>
           ))}
