@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscTerminal } from "react-icons/vsc"
+import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscOutput, VscTerminal } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
@@ -34,6 +34,7 @@ type HeaderProps = {
     centerLabel?: { project: string; topic: string } | null
     onOpenSettings?: () => void
     onOpenNotifications?: () => void
+    onOpenLogs?: () => void
     onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
 }
 
@@ -56,6 +57,7 @@ export function Header({
     centerLabel,
     onOpenSettings,
     onOpenNotifications,
+    onOpenLogs,
     onNavigateToChat,
 }: HeaderProps) {
     const platform = usePlatform()
@@ -149,34 +151,6 @@ export function Header({
 
                         <button
                             type="button"
-                            aria-label={
-                                chatMode === "simple"
-                                    ? "Show what's happening"
-                                    : "Hide activity panels"
-                            }
-                            title={
-                                chatMode === "simple"
-                                    ? "Show what's happening"
-                                    : "Hide activity panels"
-                            }
-                            onClick={() =>
-                                onChatModeChange?.(
-                                    chatMode === "simple" ? "mission" : "simple",
-                                )
-                            }
-                            className={cn(
-                                "mx-1 rounded-md border border-border/40 px-2 py-1 text-[11px]",
-                                "cursor-pointer transition-colors",
-                                chatMode === "mission"
-                                    ? "bg-foreground/10 text-foreground"
-                                    : "text-muted-foreground hover:text-foreground",
-                            )}
-                        >
-                            {chatMode === "simple" ? "Show activity" : "Mission"}
-                        </button>
-
-                        <button
-                            type="button"
                             aria-label="Toggle inspector panel"
                             title="Toggle inspector panel"
                             onClick={onToggleInspector}
@@ -209,6 +183,21 @@ export function Header({
                             )}
                         >
                             <VscTerminal className="size-4" />
+                        </button>
+
+                        <button
+                            type="button"
+                            aria-label="Open logs"
+                            title="Open logs"
+                            onClick={onOpenLogs}
+                            className={cn(
+                                "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+                                "transition-colors cursor-pointer",
+                                "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            <VscOutput className="size-3.5" />
+                            Logs
                         </button>
 
                         <NotificationPopover onViewAll={onOpenNotifications} onNavigateToChat={onNavigateToChat} />

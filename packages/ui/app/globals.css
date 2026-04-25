@@ -381,7 +381,7 @@ body {
 .activity-expand {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.2s ease;
+  transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .activity-expand[data-open="true"] {
@@ -390,6 +390,19 @@ body {
 
 .activity-expand > div {
   overflow: hidden;
+}
+
+.activity-expand-inner {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.activity-expand[data-open="true"] .activity-expand-inner {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 @keyframes shimmer {

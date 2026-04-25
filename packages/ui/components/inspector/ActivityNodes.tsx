@@ -32,21 +32,15 @@ export const TREE_DOT_COLORS: Record<ToolCallStatus, string> = {
 }
 
 export const COUNT_BADGE_COLORS: Record<ToolCallStatus, string> = {
-  running: "text-amber-400 bg-amber-400/15",
-  success: "text-emerald-400 bg-emerald-400/15",
-  error: "text-rose-400 bg-rose-400/15",
+  running: "border border-[#FDC700]/20 bg-[#FDC700]/10 text-[#FDC700]",
+  success: "border border-[#00D492]/20 bg-[#00D492]/10 text-[#00D492]",
+  error: "border border-[#FF4D4D]/20 bg-[#FF4D4D]/10 text-[#FF4D4D]",
 }
 
 const DOT_COLORS: Record<ToolCallStatus, string> = {
-  running: "bg-blue-400",
-  success: "bg-emerald-400",
-  error: "bg-rose-400",
-}
-
-const BADGE_COLORS: Record<ToolCallStatus, string> = {
-  running: "border-blue-400/25 text-blue-300",
-  success: "border-emerald-400/20 text-foreground/80",
-  error: "border-rose-400/25 text-rose-300",
+  running: "bg-[#FDC700]",
+  success: "bg-[#00D492]",
+  error: "bg-[#FF4D4D]",
 }
 
 function formatTime(ts?: number): string {
@@ -76,27 +70,20 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(false)
   const hasDetails = call.input || call.output
   const dot = DOT_COLORS[call.status]
-  const badge = BADGE_COLORS[call.status]
+  const isError = call.status === "error"
 
   return (
-    <div className="activity-item">
+    <div className="activity-item px-1 py-1">
       <button
         type="button"
         onClick={() => hasDetails && setOpen((p) => !p)}
         className={cn(
-          "flex w-full items-center gap-3 px-2 py-2.5 text-left transition-colors",
-          hasDetails
-            ? "cursor-pointer hover:bg-white/[0.02]"
-            : "cursor-default",
+          "flex w-full items-center gap-3 rounded-md px-1.5 py-1 text-left transition-colors",
+          hasDetails ? "cursor-pointer" : "cursor-default",
         )}
       >
-        <span className={cn("size-2 shrink-0 rounded-full", dot)} />
-        <span
-          className={cn(
-            "rounded-md border px-2.5 py-[3px] text-[12px] font-medium",
-            badge,
-          )}
-        >
+        <span className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/2 px-3 py-1 text-[12px] font-medium text-foreground">
+          <span className={cn("size-1.5 rounded-full", dot)} />
           {call.tool}
         </span>
 
@@ -106,7 +93,7 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
           {hasDetails && (
             <VscChevronDown
               className={cn(
-                "size-3 transition-transform",
+                "size-3.5 transition-transform",
                 open && "rotate-180",
               )}
             />
@@ -116,7 +103,7 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
-                  className="size-[3px] animate-bounce rounded-full bg-blue-400"
+                  className="size-[3px] animate-bounce rounded-full bg-[#FDC700]"
                   style={{ animationDelay: `${i * 150}ms` }}
                 />
               ))}
@@ -125,45 +112,53 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
         </div>
       </button>
 
-      {open && (
-        <div className="mx-2 mb-3 overflow-hidden rounded-lg border border-border/15 bg-[#0e0e10]">
-          {call.input && (
-            <div className="px-4 py-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Input
-              </p>
-              <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-foreground/70">
-                {formatInput(call.input)}
-              </pre>
+      {hasDetails && (
+        <div className="activity-expand" data-open={open ? "true" : "false"}>
+          <div>
+            <div className="activity-expand-inner mt-2 mb-2 overflow-hidden rounded-lg border border-white/6 bg-[#0a0b0d]">
+              {call.input && (
+                <div>
+                  <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/55">
+                      Input
+                    </p>
+                  </div>
+                  <div className="px-5 py-4">
+                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-foreground/85">
+                      {formatInput(call.input)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+              {call.input && call.output && (
+                <div className="h-px bg-white/6" />
+              )}
+              {call.output && (
+                <div>
+                  <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
+                    <p
+                      className={cn(
+                        "text-[11px] font-semibold uppercase tracking-[0.18em]",
+                        isError ? "text-[#FF4D4D]/80" : "text-[#00D492]/80",
+                      )}
+                    >
+                      Output
+                    </p>
+                  </div>
+                  <div className="px-5 py-4">
+                    <pre
+                      className={cn(
+                        "max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed",
+                        isError ? "text-[#FF4D4D]" : "text-[#00D492]",
+                      )}
+                    >
+                      {truncateOutput(call.output)}
+                    </pre>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          {call.input && call.output && (
-            <div className="h-px bg-white/6" />
-          )}
-          {call.output && (
-            <div className="px-4 py-3">
-              <p
-                className={cn(
-                  "mb-2 text-[10px] font-semibold uppercase tracking-widest",
-                  call.status === "error"
-                    ? "text-rose-400/70"
-                    : "text-emerald-400/70",
-                )}
-              >
-                Output
-              </p>
-              <pre
-                className={cn(
-                  "max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed",
-                  call.status === "error"
-                    ? "text-rose-300/90"
-                    : "text-foreground/70",
-                )}
-              >
-                {truncateOutput(call.output)}
-              </pre>
-            </div>
-          )}
+          </div>
         </div>
       )}
     </div>

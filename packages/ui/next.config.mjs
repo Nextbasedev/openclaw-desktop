@@ -1,6 +1,8 @@
+const isProd = process.env.NODE_ENV === "production"
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: "export",
+  ...(isProd ? { output: "export" } : {}),
   allowedDevOrigins: [
     "localhost",
     "127.0.0.1",
