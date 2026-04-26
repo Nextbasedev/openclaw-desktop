@@ -6,6 +6,9 @@ const nextConfig = {
   allowedDevOrigins: [
     "localhost",
     "127.0.0.1",
+    "100.79.189.15",
+    "ubuntu-8gb-hel1-4.tail094d3a.ts.net",
+    "*.tail094d3a.ts.net",
     "*.loca.lt",
     "fancy-baths-talk.loca.lt",
   ],

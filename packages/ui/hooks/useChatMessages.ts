@@ -1,5 +1,6 @@
 "use client"
 
+import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
@@ -172,7 +173,7 @@ export function useChatMessages(
       }
       return [
         ...prev,
-        { messageId: crypto.randomUUID(), role: "assistant" as const, text: "", toolCalls: tools },
+        { messageId: randomId(), role: "assistant" as const, text: "", toolCalls: tools },
       ]
     })
   }, [])
@@ -337,7 +338,7 @@ export function useChatMessages(
         }
         case "chat.message": {
           if (ev.role !== "assistant") break
-          const id = ev.messageId || crypto.randomUUID()
+          const id = ev.messageId || randomId()
           const rawText = ev.text || extractText(ev.content)
           if (!rawText) break
           const text = rawText.trim()
@@ -459,7 +460,7 @@ export function useChatMessages(
 
         for (const m of raw) {
           if (m.role === "user") {
-            const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || crypto.randomUUID()
+            const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || randomId()
             seenIds.current.add(id)
             const text = m.text || extractText(m.content)
             const isSubagentAnnounce = text ? /agent:main:subagent:[0-9a-f-]{36}/.test(text) : false
@@ -480,7 +481,7 @@ export function useChatMessages(
             pendingToolCalls = []
             resultQueue = []
           } else if (m.role === "assistant") {
-            const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || crypto.randomUUID()
+            const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || randomId()
             seenIds.current.add(id)
 
             const blocks = Array.isArray(m.content) ? m.content as Array<{ type?: string; id?: string; name?: string; arguments?: unknown; input?: unknown }> : []
@@ -489,7 +490,7 @@ export function useChatMessages(
             )
             for (const b of tcBlocks) {
               const call: InlineToolCall = {
-                id: b.id ?? crypto.randomUUID(),
+                id: b.id ?? randomId(),
                 tool: b.name ?? "unknown",
                 status: "success",
               }
@@ -750,7 +751,7 @@ export function useChatMessages(
     if (!trimmed || sendingGuardRef.current) return
     sendingGuardRef.current = true
     setIsSending(true)
-    const optimisticId = crypto.randomUUID()
+    const optimisticId = randomId()
     pendingToolMapRef.current.clear()
     setPendingTools([])
     for (const [key, spawn] of spawnMapRef.current) {

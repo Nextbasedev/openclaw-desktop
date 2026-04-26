@@ -184,6 +184,24 @@ describe("topic session attach/detach", () => {
     expect(session.topic_id).toBe(created.topic.id)
   })
 
+  it("enqueues owning chat when attaching a session to a topic", () => {
+    const proj = createTestProject()
+    const created = topics.topicsCreate({ projectId: proj.id, name: "AttachSync" })
+    const db = connection.getDb()
+    const now = new Date().toISOString()
+    db.prepare(
+      "INSERT INTO session_mappings (session_key, project_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, ?, ?, ?, 'idle', ?, ?, 0, 0, 'jarvis')",
+    ).run("sk_attach_sync", proj.id, "main", "S", now, now)
+    db.prepare(
+      "INSERT INTO chats (id, name, session_key, agent_id, archived, pinned, last_active_at, created_at, updated_at, sync_dirty) VALUES (?, ?, ?, 'main', 0, 0, ?, ?, ?, 0)",
+    ).run("chat_attach_sync", "Chat", "sk_attach_sync", now, now, now)
+
+    topics.topicsAttachSession({ topicId: created.topic.id, sessionKey: "sk_attach_sync" })
+
+    const outbox = db.prepare("SELECT entity_type, entity_id, op FROM sync_outbox WHERE entity_type = 'chat'").get() as { entity_type: string; entity_id: string; op: string }
+    expect(outbox).toEqual({ entity_type: "chat", entity_id: "chat_attach_sync", op: "upsert" })
+  })
+
   it("attach rejects nonexistent session", () => {
     const proj = createTestProject()
     const created = topics.topicsCreate({ projectId: proj.id, name: "NoSession" })
@@ -206,6 +224,24 @@ describe("topic session attach/detach", () => {
 
     const session = db.prepare("SELECT topic_id FROM session_mappings WHERE session_key = ?").get("sk_detach") as { topic_id: string | null }
     expect(session.topic_id).toBeNull()
+  })
+
+  it("enqueues owning chat when detaching a session from a topic", () => {
+    const proj = createTestProject()
+    const created = topics.topicsCreate({ projectId: proj.id, name: "DetachSync" })
+    const db = connection.getDb()
+    const now = new Date().toISOString()
+    db.prepare(
+      "INSERT INTO session_mappings (session_key, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, ?, ?, ?, ?, 'idle', ?, ?, 0, 0, 'jarvis')",
+    ).run("sk_detach_sync", proj.id, created.topic.id, "main", "S", now, now)
+    db.prepare(
+      "INSERT INTO chats (id, name, session_key, agent_id, archived, pinned, last_active_at, created_at, updated_at, sync_dirty) VALUES (?, ?, ?, 'main', 0, 0, ?, ?, ?, 0)",
+    ).run("chat_detach_sync", "Chat", "sk_detach_sync", now, now, now)
+
+    topics.topicsDetachSession({ topicId: created.topic.id, sessionKey: "sk_detach_sync" })
+
+    const outbox = db.prepare("SELECT entity_type, entity_id, op FROM sync_outbox WHERE entity_type = 'chat'").get() as { entity_type: string; entity_id: string; op: string }
+    expect(outbox).toEqual({ entity_type: "chat", entity_id: "chat_detach_sync", op: "upsert" })
   })
 
   it("detach rejects nonexistent session", () => {

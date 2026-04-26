@@ -1,3 +1,4 @@
+import { randomId } from "@/lib/id"
 import type {
   ChatMessage,
   ContentBlock,
@@ -23,7 +24,7 @@ export type ParsedChatHistory = {
 }
 
 function messageId(raw: RawHistoryMessage) {
-  return raw.id ?? raw.messageId ?? crypto.randomUUID()
+  return raw.id ?? raw.messageId ?? randomId()
 }
 
 function toolBlocks(raw: RawHistoryMessage) {
@@ -79,7 +80,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     if (role === "assistant") {
       for (const block of toolBlocks(item)) {
         const call: InlineToolCall = {
-          id: block.id ?? crypto.randomUUID(),
+          id: block.id ?? randomId(),
           tool: block.name ?? "unknown",
           status: "success",
         }

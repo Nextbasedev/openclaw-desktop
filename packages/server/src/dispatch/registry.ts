@@ -191,6 +191,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_sync_purge_tombstones: () => sync.syncPurgeTombstones(),
   middleware_sync_set_device_id: (i) => sync.syncSetDeviceId(i as { deviceId: string }),
   middleware_sync_pull_now: () => sync.syncPullNow(),
+  middleware_sync_push_now: (i) => sync.syncPushNow(i as { limit?: number } | undefined),
   middleware_sync_backfill_now: () => sync.syncBackfillNow(),
 
   // Usage (Gateway-dependent)
