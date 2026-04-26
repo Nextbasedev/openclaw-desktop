@@ -1,5 +1,6 @@
 "use client"
 
+import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
 
@@ -62,7 +63,7 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
       if (/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) continue
       if (/agent:main:subagent:[0-9a-f-]{36}/.test(text)) continue
       result.push({
-        id: msg.id ?? crypto.randomUUID(),
+        id: msg.id ?? randomId(),
         role: "user",
         text,
       })
@@ -79,7 +80,7 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
       for (const b of tcBlocks) {
         if (HIDDEN_TOOLS.has(b.name ?? "")) continue
         const tc: SubagentToolCall = {
-          id: b.id ?? crypto.randomUUID(),
+          id: b.id ?? randomId(),
           name: b.name ?? "unknown",
           status: "success",
         }
@@ -109,7 +110,7 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
           lastEntry.id = msg.id ?? lastEntry.id
         } else {
           result.push({
-            id: msg.id ?? crypto.randomUUID(),
+            id: msg.id ?? randomId(),
             role: "assistant",
             text: text ?? "",
             toolCalls:

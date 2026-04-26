@@ -3,7 +3,7 @@ import { listGatewaySessions } from "middleware"
 import { getDb } from "../db/connection.js"
 import { boolToSql, nowIso } from "../db/helpers.js"
 import { decodeLabel, isAnchorKey, type SyncPayload } from "./encoding.js"
-import { rememberAnchor } from "./anchor.js"
+import { forgetAnchor, rememberAnchor } from "./anchor.js"
 
 function tombstoneAt(
   db: Database.Database,
@@ -33,7 +33,25 @@ function applyProject(payload: SyncPayload, sessionKey: string): void {
   rememberAnchor("project", projectId, sessionKey)
 
   if (payload.deletedAt) {
+    const topicIds = db
+      .prepare("SELECT id FROM topics WHERE project_id = ?")
+      .all(projectId) as Array<{ id: string }>
+    const chatIds = db
+      .prepare(
+        `SELECT c.id FROM chats c
+         JOIN session_mappings sm ON sm.session_key = c.session_key
+         WHERE sm.project_id = ?`,
+      )
+      .all(projectId) as Array<{ id: string }>
+    for (const chat of chatIds) forgetAnchor("chat", chat.id)
+    for (const topic of topicIds) forgetAnchor("topic", topic.id)
+    db.prepare(
+      "DELETE FROM chats WHERE session_key IN (SELECT session_key FROM session_mappings WHERE project_id = ?)",
+    ).run(projectId)
+    db.prepare("DELETE FROM session_mappings WHERE project_id = ?").run(projectId)
+    db.prepare("DELETE FROM topics WHERE project_id = ?").run(projectId)
     db.prepare("DELETE FROM projects WHERE id = ?").run(projectId)
+    forgetAnchor("project", projectId)
     return
   }
 
@@ -86,7 +104,11 @@ function applyTopic(payload: SyncPayload, sessionKey: string): void {
   rememberAnchor("topic", topicId, sessionKey)
 
   if (payload.deletedAt) {
+    db.prepare(
+      "UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 0 WHERE topic_id = ?",
+    ).run(payload.deletedAt, topicId)
     db.prepare("DELETE FROM topics WHERE id = ?").run(topicId)
+    forgetAnchor("topic", topicId)
     return
   }
 
@@ -138,6 +160,8 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
 
   if (payload.deletedAt) {
     db.prepare("DELETE FROM chats WHERE id = ?").run(chatId)
+    db.prepare("DELETE FROM session_mappings WHERE session_key = ?").run(sessionKey)
+    forgetAnchor("chat", chatId)
     return
   }
 

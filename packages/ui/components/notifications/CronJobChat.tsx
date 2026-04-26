@@ -1,5 +1,6 @@
 "use client"
 
+import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
@@ -68,7 +69,7 @@ function parseMessages(raw: RawMsg[]): ParsedMessage[] {
       last.id = msg.id ?? last.id
     } else {
       result.push({
-        id: msg.id ?? crypto.randomUUID(),
+        id: msg.id ?? randomId(),
         role: role as "user" | "assistant",
         text: text.trim(),
         createdAt: msg.createdAt,

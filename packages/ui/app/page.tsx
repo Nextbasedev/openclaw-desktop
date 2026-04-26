@@ -1,5 +1,6 @@
 "use client"
 
+import { randomId } from "@/lib/id"
 import { useState, useCallback, useRef, useEffect } from "react"
 import { invoke } from "@/lib/ipc"
 import { Header } from "@/common/Header"
@@ -719,7 +720,7 @@ function AppShell({
       })
 
       const optimisticMessages: OptimisticMsg[] = [{
-        messageId: crypto.randomUUID(),
+        messageId: randomId(),
         role: "user",
         text,
         createdAt: new Date().toISOString(),
@@ -793,7 +794,7 @@ function AppShell({
         },
       )
       const optimisticMessages: OptimisticMsg[] = [{
-        messageId: crypto.randomUUID(),
+        messageId: randomId(),
         role: "user",
         text,
         createdAt: new Date().toISOString(),

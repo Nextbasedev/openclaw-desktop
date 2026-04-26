@@ -1,3 +1,4 @@
+import { randomId } from "@/lib/id"
 import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
@@ -106,7 +107,7 @@ export function parseHistoryToolCalls(
         )
         if (tcBlocks.length > 0) {
           pendingCalls = tcBlocks.map((b) => ({
-            id: b.id ?? crypto.randomUUID(),
+            id: b.id ?? randomId(),
             name: b.name ?? "unknown",
             args: b.arguments ?? b.input ?? null,
           }))
