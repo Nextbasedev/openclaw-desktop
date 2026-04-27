@@ -6,6 +6,7 @@ import {
   ArrowDown01Icon,
   AttachmentIcon,
   Cancel01Icon,
+  PauseIcon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -286,7 +287,7 @@ export function ActionBar({
             className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/10 text-foreground shadow-sm transition-all hover:bg-foreground/20"
             aria-label="Stop generating"
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={14} />
+            <HugeiconsIcon icon={PauseIcon} size={14} />
           </button>
         )}
         {(!isGenerating || hasInput) && (

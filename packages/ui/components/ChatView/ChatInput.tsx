@@ -61,7 +61,7 @@ export function ChatInput({ input, onChange, onSend, onAbort, isSending, isGener
           title="Stop generating"
           className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/10 text-foreground transition-colors hover:bg-foreground/20"
         >
-          <Icons.Stop size={14} strokeWidth={2} />
+          <Icons.Pause size={14} strokeWidth={2} />
         </button>
       ) : (
         <button

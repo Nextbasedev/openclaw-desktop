@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
+import { checkGatewayOrRedirect } from "@/lib/toast"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
@@ -291,6 +292,7 @@ export function useProjectsData(
 
   const handleCreateProject = useCallback(async () => {
     if (!newProjectName.trim()) return
+    if (!(await checkGatewayOrRedirect())) return
     setCreatingProject(true)
     setProjectError("")
     try {
@@ -370,6 +372,7 @@ export function useProjectsData(
 
   const handleCreateTopic = useCallback(async () => {
     if (!newTopicName.trim() || !createTopicForProject) return
+    if (!(await checkGatewayOrRedirect())) return
     setCreatingTopic(true)
     setTopicError("")
     try {

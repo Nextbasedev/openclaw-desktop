@@ -2,7 +2,10 @@ import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { connectToOpenClawGateway } from "middleware"
-import { disconnectGateway } from "../gateway/client.js"
+import { connectGateway, disconnectGateway } from "../gateway/client.js"
+import { getDb } from "../db/connection.js"
+import { stopSyncEngine, startSyncEngine } from "../sync/engine.js"
+import { forceBackfill } from "../sync/backfill.js"
 
 const SCOPES = [
   "operator.read",
@@ -401,7 +404,20 @@ export async function connectTest() {
 }
 
 export function connectDisconnect() {
+  stopSyncEngine()
   disconnectGateway()
+
+  const db = getDb()
+  db.exec(`
+    DELETE FROM chats;
+    DELETE FROM session_mappings;
+    DELETE FROM topics;
+    DELETE FROM projects;
+    DELETE FROM anchor_sessions;
+    DELETE FROM sync_outbox;
+    DELETE FROM sync_tombstones;
+    DELETE FROM app_settings WHERE key LIKE 'sync.%';
+  `)
 
   const configPath = openclawConfigPath()
   const config = readConfig()
@@ -420,6 +436,17 @@ export function connectDisconnect() {
   } catch {}
 
   return { ok: true, message: "Disconnected from gateway." }
+}
+
+export async function connectBootstrap() {
+  try {
+    await connectGateway()
+  } catch {
+    // gateway may not be reachable yet; sync engine will retry
+  }
+  startSyncEngine()
+  forceBackfill()
+  return { ok: true }
 }
 
 export function connectReset() {

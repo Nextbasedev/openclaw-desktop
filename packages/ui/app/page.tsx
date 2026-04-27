@@ -23,6 +23,7 @@ import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initClientLogs } from "@/lib/clientLogs"
 import { emit } from "@/lib/events"
+import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
   ensureChatSession,
@@ -143,6 +144,9 @@ function AppShell({
 
   useEffect(() => {
     async function initialSync() {
+      try {
+        await invoke("middleware_connect_bootstrap", { input: {} })
+      } catch {}
       try {
         await invoke("middleware_sync_pull_now", { input: {} })
       } catch {}
@@ -722,6 +726,7 @@ function AppShell({
   const handleQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
     if (quickSending || !text) return
+    if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
     setComposerError(null)
     setQuickSending(true)
@@ -783,13 +788,19 @@ function AppShell({
       }
     } catch (err) {
       console.error("Quick send failed", err)
-      setPendingPrompt(text)
-      setInitialMessages(undefined)
-      setActiveTab("chat")
-      clearConversationState()
-      setComposerError("Message failed to send. Try again.")
-      window.history.replaceState(null, "", "/")
-      throw err
+      if (isGatewayError(err)) {
+        showGatewayError()
+        clearConversationState()
+        window.history.pushState(null, "", "/connect")
+        window.dispatchEvent(new PopStateEvent("popstate"))
+      } else {
+        setPendingPrompt(text)
+        setInitialMessages(undefined)
+        setActiveTab("chat")
+        clearConversationState()
+        setComposerError("Message failed to send. Try again.")
+        window.history.replaceState(null, "", "/")
+      }
     } finally {
       setQuickSending(false)
     }
@@ -798,6 +809,7 @@ function AppShell({
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
     if (quickSending || !text || !activeTopic) return
+    if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
     setComposerError(null)
     setQuickSending(true)
@@ -834,12 +846,17 @@ function AppShell({
       })
     } catch (err) {
       console.error("Topic quick send failed", err)
-      setPendingPrompt(text)
-      setInitialMessages(undefined)
-      setActiveSessionKey(null)
-      setActiveSessionTitle(null)
-      setComposerError("Message failed to send. Try again.")
-      throw err
+      if (isGatewayError(err)) {
+        showGatewayError()
+        window.history.pushState(null, "", "/connect")
+        window.dispatchEvent(new PopStateEvent("popstate"))
+      } else {
+        setPendingPrompt(text)
+        setInitialMessages(undefined)
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
+        setComposerError("Message failed to send. Try again.")
+      }
     } finally {
       setQuickSending(false)
     }

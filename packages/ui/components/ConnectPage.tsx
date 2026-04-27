@@ -110,6 +110,7 @@ export default function ConnectPage() {
       setUrl("")
       setToken("")
       await checkStatus()
+      emit("sidebar:refresh")
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -118,6 +119,9 @@ export default function ConnectPage() {
   }
 
   async function syncAfterConnect() {
+    try {
+      await invoke("middleware_connect_bootstrap", { input: {} })
+    } catch {}
     try {
       await invoke("middleware_sync_pull_now", { input: {} })
     } catch {}
