@@ -25,7 +25,7 @@ use windows::Win32::{
   },
 };
 
-const SERVER_PORT: u16 = 3001;
+const SERVER_PORT: u16 = 4000;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 const HEALTHCHECK_TIMEOUT: Duration = Duration::from_millis(500);
 #[cfg(debug_assertions)]

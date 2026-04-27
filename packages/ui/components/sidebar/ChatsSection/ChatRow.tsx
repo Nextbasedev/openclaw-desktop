@@ -116,6 +116,7 @@ export function ChatRow({
           <PopoverTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               title="Chat options"
               className={cn(
                 "absolute flex h-5 w-5 cursor-pointer items-center justify-center rounded transition-all duration-100",
