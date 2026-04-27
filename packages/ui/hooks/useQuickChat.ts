@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import type { ActiveTopic } from "@/types/project"
 
 type Props = {
@@ -17,18 +18,7 @@ export function useQuickChat({ navigateToChat }: Props) {
     setSending(true)
     setError(null)
     try {
-      const status = await invoke<{ gatewayConfigured: boolean; hasIdentity: boolean; status: string }>(
-        "middleware_connect_status",
-        { input: {} },
-      )
-      if (!status.gatewayConfigured) {
-        setError("Gateway not configured. Go to Connect in the sidebar.")
-        return
-      }
-      if (!status.hasIdentity) {
-        setError("Device identity not set up. Complete onboarding first.")
-        return
-      }
+      if (!(await checkGatewayOrRedirect())) return
 
       let profileId = "prof_local_main"
       try {
@@ -71,11 +61,12 @@ export function useQuickChat({ navigateToChat }: Props) {
         topicLabel,
       )
     } catch (err) {
-      const msg = String(err)
-      if (msg.includes("pairing required")) {
-        setError("Device not paired. Go to Connect and click 'Save & Connect'.")
+      if (isGatewayError(err)) {
+        showGatewayError()
+        window.history.pushState(null, "", "/connect")
+        window.dispatchEvent(new PopStateEvent("popstate"))
       } else {
-        setError(msg)
+        setError(String(err))
       }
     } finally {
       setSending(false)

@@ -1,3 +1,4 @@
+import crypto from "node:crypto"
 import type Database from "better-sqlite3"
 import { listGatewaySessions } from "middleware"
 import { getDb } from "../db/connection.js"
@@ -241,12 +242,82 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
   }
 }
 
+function ensureDefaultProject(db: Database.Database): string {
+  const existing = db
+    .prepare(
+      "SELECT id FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+    )
+    .get() as { id: string } | undefined
+  if (existing) return existing.id
+
+  const id = `proj_${crypto.randomUUID().replace(/-/g, "")}`
+  const now = nowIso()
+  db.prepare(
+    `INSERT INTO projects (id, name, profile_id, workspace_root, repo_root,
+     archived, unread_count, created_at, updated_at, pinned, sync_dirty)
+     VALUES (?, 'Default', 'default', '', NULL, 0, 0, ?, ?, 0, 1)`,
+  ).run(id, now, now)
+  return id
+}
+
+function formatBareSessionName(key: string): string {
+  if (key.includes(":telegram:")) return `Telegram ${key.split(":").pop() ?? "Chat"}`
+  if (key.includes(":cron:")) return `Cron ${key.split(":").pop()?.slice(0, 8) ?? "Task"}`
+  return key.split(":").pop() || "Chat"
+}
+
+function importBareSession(
+  db: Database.Database,
+  sessionKey: string,
+  label: string | null,
+  projectId: string,
+  updatedAt: string | null,
+): void {
+  const existingChat = db
+    .prepare("SELECT id FROM chats WHERE session_key = ?")
+    .get(sessionKey) as { id: string } | undefined
+  if (existingChat) return
+
+  const chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
+  const chatName = label || formatBareSessionName(sessionKey)
+  const now = updatedAt ?? nowIso()
+
+  db.prepare(
+    `INSERT INTO chats (id, name, session_key, agent_id, archived, pinned,
+     last_active_at, created_at, updated_at, sync_dirty, updated_by_device)
+     VALUES (?, ?, ?, 'main', 0, 0, ?, ?, ?, 0, '')`,
+  ).run(chatId, chatName, sessionKey, now, now, now)
+
+  db.prepare(
+    `INSERT INTO session_mappings (session_key, session_id, project_id, topic_id,
+     agent_id, label, status, created_at, updated_at, pinned, hidden, source,
+     sync_dirty, sort_order_key)
+     VALUES (?, NULL, ?, NULL, 'main', ?, 'idle', ?, ?, 0, 0, 'gateway', 0, NULL)`,
+  ).run(sessionKey, projectId, chatName, now, now)
+}
+
 export async function pullOnce(): Promise<{ seen: number; applied: number }> {
   const { sessions } = await listGatewaySessions({ limit: 500 })
+  const db = getDb()
   let applied = 0
+  const bareSessions: Array<{
+    key: string
+    label: string | null
+    updatedAt: string | null
+  }> = []
+
   for (const session of sessions) {
     const decoded = decodeLabel(session.label)
-    if (!decoded.payload) continue
+    if (!decoded.payload) {
+      if (!isAnchorKey(session.key)) {
+        bareSessions.push({
+          key: session.key,
+          label: decoded.userName || session.label,
+          updatedAt: session.updatedAt ?? null,
+        })
+      }
+      continue
+    }
     const payload = decoded.payload
     try {
       if (payload.kind === "project") applyProject(payload, session.key)
@@ -267,7 +338,19 @@ export async function pullOnce(): Promise<{ seen: number; applied: number }> {
       if (id) rememberAnchor(anchor.kind, id, session.key)
     }
   }
-  const db = getDb()
+
+  if (bareSessions.length > 0) {
+    const projectId = ensureDefaultProject(db)
+    for (const bare of bareSessions) {
+      try {
+        importBareSession(db, bare.key, bare.label, projectId, bare.updatedAt)
+        applied += 1
+      } catch {
+        // skip
+      }
+    }
+  }
+
   db.prepare(
     "INSERT INTO app_settings (key, value, updated_at) VALUES ('sync.last_sync_at', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
   ).run(nowIso(), nowIso())

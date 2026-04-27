@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { Icons } from "@/components/icons"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatBox } from "@/components/ChatBox"
@@ -71,18 +72,7 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
     setSending(true)
     setSendError(null)
     try {
-      const status = await invoke<{ gatewayConfigured: boolean; hasIdentity: boolean; status: string }>(
-        "middleware_connect_status",
-        { input: {} },
-      )
-      if (!status.gatewayConfigured) {
-        setSendError("Gateway not configured. Go to Connect in the sidebar to set up your gateway.")
-        return
-      }
-      if (!status.hasIdentity) {
-        setSendError("Device identity not set up. Complete onboarding first.")
-        return
-      }
+      if (!(await checkGatewayOrRedirect())) return
 
       const label = text.slice(0, 50) || "New Chat"
       const result = await invoke<{ session: { key: string } }>(
@@ -99,11 +89,12 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
       })
       onSessionSelect(sessionKey, label)
     } catch (err) {
-      const msg = String(err)
-      if (msg.includes("pairing required")) {
-        setSendError("Device not paired. Go to Connect in the sidebar and click 'Save & Connect'.")
+      if (isGatewayError(err)) {
+        showGatewayError()
+        window.history.pushState(null, "", "/connect")
+        window.dispatchEvent(new PopStateEvent("popstate"))
       } else {
-        setSendError(msg)
+        setSendError(String(err))
       }
     } finally {
       setSending(false)
