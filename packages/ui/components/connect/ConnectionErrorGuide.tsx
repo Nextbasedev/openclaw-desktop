@@ -34,6 +34,7 @@ type ErrorGuideConfig = {
 
 function getErrorGuide(
   result: ConnectResult,
+  gatewayUrl?: string,
 ): ErrorGuideConfig | null {
   const code = result.error
   if (!code || result.ok) return null
@@ -108,7 +109,7 @@ function getErrorGuide(
           },
           {
             label: "Ping the gateway device",
-            command: `tailscale ping ${extractHost(undefined)}`,
+            command: `tailscale ping ${extractHost(gatewayUrl)}`,
           },
         ],
         note: "Both this device and the gateway device must be logged into the same Tailscale network (tailnet). If the gateway is on another machine, ensure Tailscale is running on that machine too.",
@@ -317,6 +318,148 @@ function getErrorGuide(
         ],
       }
 
+    case "rate_limited":
+      return {
+        title: "Rate Limited",
+        variant: "warning",
+        description:
+          "The gateway is rejecting connections because too many requests have been made in a short period.",
+        steps: [
+          "Wait 30-60 seconds and try again",
+          "If this persists, check whether other clients are flooding the gateway",
+          "Review the gateway's rate limit configuration",
+        ],
+      }
+
+    case "max_connections":
+      return {
+        title: "Too Many Connections",
+        variant: "warning",
+        description:
+          "The gateway has reached its maximum number of simultaneous connections.",
+        steps: [
+          "Close other OpenClaw clients or browser tabs connected to the gateway",
+          "Wait a moment for stale connections to be cleaned up",
+          "If needed, increase the gateway's connection limit in its config",
+        ],
+        commands: [
+          {
+            label: "Check active connections",
+            command: "openclaw gateway status",
+          },
+        ],
+      }
+
+    case "server_unavailable":
+      return {
+        title: "Gateway Unavailable",
+        variant: "warning",
+        description:
+          "The gateway is temporarily unavailable — it may be shutting down, restarting, or under maintenance.",
+        steps: [
+          "Wait a moment and try again",
+          "If the gateway was intentionally stopped, restart it",
+          "Check if an update is in progress",
+        ],
+        commands: [
+          {
+            label: "Start gateway",
+            command: "openclaw gateway start",
+          },
+        ],
+      }
+
+    case "device_not_registered":
+      return {
+        title: "Device Not Registered",
+        variant: "destructive",
+        description:
+          "This device is not recognized by the gateway. The device may need to be paired or re-registered.",
+        steps: [
+          "Delete the local device identity so a new one is generated",
+          'Click "Test Connection" to create a fresh identity and register with the gateway',
+          "If the gateway requires manual device approval, check its admin panel",
+        ],
+        commands: [
+          {
+            label: "Delete identity (PowerShell)",
+            command:
+              'Remove-Item "$env:USERPROFILE\\.openclaw\\state\\identity\\device.json"',
+          },
+          {
+            label: "Delete identity (macOS/Linux)",
+            command:
+              "rm ~/.openclaw/state/identity/device.json",
+          },
+        ],
+      }
+
+    case "token_expired":
+      return {
+        title: "Token Expired",
+        variant: "destructive",
+        description:
+          "The authentication token has expired and is no longer accepted by the gateway.",
+        steps: [
+          "Generate a new token from the gateway admin panel",
+          "Paste the new token in the field above",
+          'Click "Save & Connect" to update your configuration',
+        ],
+      }
+
+    case "permission_denied":
+      return {
+        title: "File Permission Denied",
+        variant: "destructive",
+        description:
+          "The app cannot read or write its configuration files due to filesystem permissions.",
+        steps: [
+          "Check that your user account has read/write access to ~/.openclaw/",
+          "Fix permissions on the OpenClaw config directory",
+          "If on a shared machine, ensure your user owns the config files",
+        ],
+        commands: [
+          {
+            label: "Fix permissions (macOS/Linux)",
+            command: "chmod -R u+rw ~/.openclaw/",
+          },
+          {
+            label: "Check ownership (macOS/Linux)",
+            command: "ls -la ~/.openclaw/",
+          },
+        ],
+      }
+
+    case "config_corrupt":
+      return {
+        title: "Configuration File Corrupt",
+        variant: "destructive",
+        description:
+          "The configuration file at ~/.openclaw/openclaw.json contains invalid JSON and could not be parsed.",
+        steps: [
+          "Open the config file and fix the JSON syntax error",
+          "Or delete the file and re-enter your settings here — a fresh config will be created",
+          "If you have a backup, restore it",
+        ],
+        commands: [
+          {
+            label: "Config file location",
+            command: "~/.openclaw/openclaw.json",
+          },
+          {
+            label:
+              "Delete and recreate (PowerShell)",
+            command:
+              'Remove-Item "$env:USERPROFILE\\.openclaw\\openclaw.json"',
+          },
+          {
+            label:
+              "Delete and recreate (macOS/Linux)",
+            command: "rm ~/.openclaw/openclaw.json",
+          },
+        ],
+      }
+
     case "config_not_ready":
       return {
         title: "Configuration Incomplete",
@@ -410,6 +553,96 @@ function getErrorGuide(
   }
 }
 
+function classifyRawError(
+  msg: string,
+): ErrorGuideConfig {
+  const lower = msg.toLowerCase()
+
+  if (lower.includes("backend became ready") || lower.includes("failed to fetch")) {
+    return {
+      title: "App Backend Not Running",
+      variant: "destructive",
+      description:
+        "The Jarvis middleware server did not start in time. This is the local backend that bridges the UI to the gateway.",
+      steps: [
+        "Restart the app completely",
+        "If running in development, ensure the server is running (pnpm dev starts both UI and server)",
+        "Check that port 3001 is not blocked by another process",
+      ],
+      commands: [
+        {
+          label: "Check if server is running",
+          command: "curl http://127.0.0.1:3001/health",
+        },
+      ],
+    }
+  }
+
+  if (lower.includes("ipc call failed")) {
+    return {
+      title: "Internal Communication Error",
+      variant: "destructive",
+      description:
+        "The UI could not communicate with the app's backend server. It may have crashed or become unresponsive.",
+      steps: [
+        "Restart the app",
+        "If the issue persists, check for errors in the server logs",
+        "Ensure no firewall is blocking localhost connections",
+      ],
+    }
+  }
+
+  if (
+    lower.includes("eperm") ||
+    lower.includes("eacces") ||
+    lower.includes("permission denied")
+  ) {
+    return {
+      title: "File Permission Denied",
+      variant: "destructive",
+      description:
+        "The app cannot write to its configuration directory due to filesystem permissions.",
+      steps: [
+        "Check that your user has read/write access to ~/.openclaw/",
+        "Fix permissions on the OpenClaw config directory",
+      ],
+      commands: [
+        {
+          label: "Fix permissions (macOS/Linux)",
+          command: "chmod -R u+rw ~/.openclaw/",
+        },
+      ],
+    }
+  }
+
+  if (
+    lower.includes("unexpected token") ||
+    (lower.includes("json") && lower.includes("parse"))
+  ) {
+    return {
+      title: "Configuration File Corrupt",
+      variant: "destructive",
+      description:
+        "A configuration file contains invalid JSON. Delete it and re-enter your settings.",
+      steps: [
+        "Delete ~/.openclaw/openclaw.json",
+        "Re-enter your gateway URL and token above",
+        'Click "Save & Connect" to create a fresh config',
+      ],
+    }
+  }
+
+  return {
+    title: "Unexpected Error",
+    variant: "destructive",
+    description: msg,
+    steps: [
+      "Restart the app and try again",
+      "If the issue persists, check the app and gateway logs",
+    ],
+  }
+}
+
 function extractHost(
   url: string | undefined,
 ): string {
@@ -436,12 +669,64 @@ export default function ConnectionErrorGuide({
   gatewayUrl?: string
 }) {
   if (rawError && !result) {
+    const guide = classifyRawError(rawError)
+    const isWarning = guide.variant === "warning"
+    const borderClass = isWarning
+      ? "border-yellow-500/30 bg-yellow-500/5"
+      : "border-destructive/30 bg-destructive/5"
+    const titleClass = isWarning
+      ? "text-yellow-700 dark:text-yellow-400"
+      : "text-destructive"
+
     return (
-      <Card className="border-destructive/30 bg-destructive/5">
-        <CardContent>
-          <p className="text-sm text-destructive">
-            {rawError}
+      <Card className={borderClass}>
+        <CardHeader className="pb-2">
+          <CardTitle className={titleClass}>
+            {guide.title}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {guide.description}
           </p>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium">
+              How to fix:
+            </p>
+            <ol className="list-inside list-decimal space-y-1 text-sm">
+              {guide.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          </div>
+          {guide.commands &&
+            guide.commands.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium">
+                  Commands:
+                </p>
+                <div className="space-y-1">
+                  {guide.commands.map((cmd) => (
+                    <div key={cmd.label}>
+                      <p className="text-xs text-muted-foreground">
+                        {cmd.label}:
+                      </p>
+                      <pre className="overflow-x-auto rounded bg-muted px-3 py-1.5 font-mono text-xs">
+                        {cmd.command}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              Raw error details
+            </summary>
+            <pre className="mt-1 overflow-x-auto rounded bg-muted px-3 py-1.5 font-mono">
+              {rawError}
+            </pre>
+          </details>
         </CardContent>
       </Card>
     )
@@ -449,7 +734,7 @@ export default function ConnectionErrorGuide({
 
   if (!result || result.ok) return null
 
-  const guide = getErrorGuide(result)
+  const guide = getErrorGuide(result, gatewayUrl)
   if (!guide) return null
 
   const isWarning = guide.variant === "warning"

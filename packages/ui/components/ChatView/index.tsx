@@ -61,7 +61,7 @@ export function ChatView({
   isBackgroundSession = false,
 }: Props) {
   const {
-    messages, status, statusLabel, loading, loadError,
+    messages, status, statusLabel, loading, loadError, errorMessage,
     isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
     spawnedSubagents,
@@ -310,9 +310,11 @@ export function ChatView({
           initialPrompt={composerSeed}
         />
         {status === "error" && (
-          <p className="mt-2 text-center text-[11px] text-red-400/70">
-            Something went wrong. Try again.
-          </p>
+          <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
+            <p className="text-sm text-red-400">
+              {errorMessage || "Something went wrong. Try again."}
+            </p>
+          </div>
         )}
       </div>
     )
@@ -478,6 +480,14 @@ export function ChatView({
             </div>
           )}
 
+          {status === "error" && (
+            <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
+              <p className="text-sm text-red-400">
+                {errorMessage || "Something went wrong. Try again."}
+              </p>
+            </div>
+          )}
+
           <div ref={bottomRef} className="h-px" />
         </div>
       </div>
@@ -498,11 +508,6 @@ export function ChatView({
           onAbort={handleAbort}
           initialPrompt={composerSeed}
         />
-        {status === "error" && (
-          <p className="mt-2 text-center text-[11px] text-red-400/70">
-            Something went wrong. Try again.
-          </p>
-        )}
       </div>
     </div>
   )

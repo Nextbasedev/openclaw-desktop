@@ -22,6 +22,7 @@ import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initClientLogs } from "@/lib/clientLogs"
+import { emit } from "@/lib/events"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
   ensureChatSession,
@@ -138,6 +139,16 @@ function AppShell({
 
   useEffect(() => {
     initClientLogs()
+  }, [])
+
+  useEffect(() => {
+    async function initialSync() {
+      try {
+        await invoke("middleware_sync_pull_now", { input: {} })
+      } catch {}
+      emit("sidebar:refresh")
+    }
+    initialSync()
   }, [])
 
   const openLogs = useCallback(() => setLogsOpen(true), [])

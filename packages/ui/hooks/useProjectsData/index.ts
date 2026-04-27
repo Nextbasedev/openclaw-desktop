@@ -165,6 +165,8 @@ export function useProjectsData(
     loadProjects()
   }, [loadProjects])
 
+  useEffect(() => on("sidebar:refresh", loadProjects), [loadProjects])
+
   const refreshTopicsRef = useRef<() => void>(() => {})
 
   useEffect(() => {
