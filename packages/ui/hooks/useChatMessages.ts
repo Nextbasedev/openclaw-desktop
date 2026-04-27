@@ -106,6 +106,8 @@ export function useChatMessages(
   const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : "idle")
   const isSendingRef = useRef(false)
 
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
   const [pendingTools, setPendingTools] = useState<InlineToolCall[]>([])
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
 
@@ -208,6 +210,9 @@ export function useChatMessages(
             return incoming
           })
           setStatusLabel(ev.label || ev.name || null)
+          if (incoming === "error") {
+            setErrorMessage(ev.message || ev.error || ev.label || null)
+          }
           if (incoming === "done") {
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
@@ -384,9 +389,12 @@ export function useChatMessages(
           break
         }
         case "chat.error":
-        case "stream.error":
+        case "stream.error": {
+          const errText = ev.message || ev.error || null
+          setErrorMessage(errText)
           setStatus("error")
           break
+        }
       }
     },
     [scrollToBottom, flushToolsToLastAssistant, upsertSpawn],
@@ -398,6 +406,7 @@ export function useChatMessages(
       : undefined
 
     setLoadError(null)
+    setErrorMessage(null)
     seenIds.current.clear()
 
     if (seededMessages) {
@@ -673,7 +682,10 @@ export function useChatMessages(
             current === "streaming" ||
             current === "stopping" ||
             current === "restarting"
-          if (!cancelled && activelyWaiting) setStatus("error")
+          if (!cancelled && activelyWaiting) {
+            setErrorMessage("Connection to server lost")
+            setStatus("error")
+          }
         }
       } catch (e) {
         bootstrapSettled = true
@@ -751,6 +763,7 @@ export function useChatMessages(
     if (!trimmed || sendingGuardRef.current) return
     sendingGuardRef.current = true
     setIsSending(true)
+    setErrorMessage(null)
     const optimisticId = randomId()
     pendingToolMapRef.current.clear()
     setPendingTools([])
@@ -780,6 +793,7 @@ export function useChatMessages(
         },
       })
     } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
       restartInFlightRef.current = false
       setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId))
@@ -798,7 +812,8 @@ export function useChatMessages(
       pendingToolMapRef.current.clear()
       setPendingTools([])
       setStatus("idle")
-    } catch {
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
     }
   }, [sessionKey])
@@ -869,7 +884,8 @@ export function useChatMessages(
       await invoke("middleware_chat_edit_and_resend", {
         input: { sessionKey, messageId: userMessageId, text: trimmed },
       })
-    } catch {
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
     } finally {
       setIsSending(false)
@@ -943,7 +959,7 @@ export function useChatMessages(
   }, [isGenerating])
 
   return {
-    messages, status, statusLabel, loading, loadError,
+    messages, status, statusLabel, loading, loadError, errorMessage,
     isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
     spawnedSubagents,

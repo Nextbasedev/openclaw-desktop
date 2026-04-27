@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { invoke } from "@/lib/ipc"
+import { emit } from "@/lib/events"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -50,6 +51,7 @@ export default function ConnectPage() {
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
   const [loadingStatus, setLoadingStatus] = useState(true)
 
   const checkStatus = useCallback(async () => {
@@ -91,11 +93,35 @@ export default function ConnectPage() {
       })
       setConnectResult(result)
       await checkStatus()
+      if (result.ok) await syncAfterConnect()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setTesting(false)
     }
+  }
+
+  async function handleDisconnect() {
+    setDisconnecting(true)
+    setError(null)
+    setConnectResult(null)
+    try {
+      await invoke("middleware_connect_disconnect", { input: {} })
+      setUrl("")
+      setToken("")
+      await checkStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
+  async function syncAfterConnect() {
+    try {
+      await invoke("middleware_sync_pull_now", { input: {} })
+    } catch {}
+    emit("sidebar:refresh")
   }
 
   async function handleSave() {
@@ -113,6 +139,7 @@ export default function ConnectPage() {
       })
       await invoke("middleware_onboarding_generate_identity", { input: {} })
       await checkStatus()
+      await syncAfterConnect()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -217,17 +244,26 @@ export default function ConnectPage() {
           <CardFooter className="flex gap-2">
             <Button
               onClick={handleTest}
-              disabled={testing || saving || !url.trim() || !token.trim()}
+              disabled={testing || saving || disconnecting || !url.trim() || !token.trim()}
               variant="outline"
             >
               {testing ? "Testing..." : "Test Connection"}
             </Button>
             <Button
               onClick={handleSave}
-              disabled={saving || testing || !url.trim() || !token.trim()}
+              disabled={saving || testing || disconnecting || !url.trim() || !token.trim()}
             >
               {saving ? "Saving..." : "Save & Connect"}
             </Button>
+            {status?.gatewayConfigured && status.hasIdentity && (
+              <Button
+                onClick={handleDisconnect}
+                disabled={disconnecting || testing || saving}
+                variant="destructive"
+              >
+                {disconnecting ? "Disconnecting..." : "Disconnect"}
+              </Button>
+            )}
           </CardFooter>
         </Card>
 

@@ -2,6 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { connectToOpenClawGateway } from "middleware"
+import { disconnectGateway } from "../gateway/client.js"
 
 const SCOPES = [
   "operator.read",
@@ -179,6 +180,69 @@ function classifyError(
       code: "scope_denied",
       title: "Insufficient Permissions",
     }
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("rate_limit") ||
+    lower.includes("too many requests") ||
+    lower.includes("429")
+  )
+    return {
+      code: "rate_limited",
+      title: "Rate Limited",
+    }
+  if (
+    lower.includes("max connections") ||
+    lower.includes("too many connections") ||
+    lower.includes("connection limit")
+  )
+    return {
+      code: "max_connections",
+      title: "Too Many Connections",
+    }
+  if (
+    lower.includes("shutting down") ||
+    lower.includes("unavailable") ||
+    lower.includes("maintenance")
+  )
+    return {
+      code: "server_unavailable",
+      title: "Gateway Unavailable",
+    }
+  if (
+    lower.includes("unknown device") ||
+    lower.includes("device not registered") ||
+    lower.includes("device not found") ||
+    lower.includes("not paired")
+  )
+    return {
+      code: "device_not_registered",
+      title: "Device Not Registered",
+    }
+  if (
+    lower.includes("token expired") ||
+    lower.includes("token has expired")
+  )
+    return {
+      code: "token_expired",
+      title: "Token Expired",
+    }
+  if (
+    lower.includes("eperm") ||
+    lower.includes("eacces") ||
+    lower.includes("permission denied")
+  )
+    return {
+      code: "permission_denied",
+      title: "File Permission Denied",
+    }
+  if (
+    lower.includes("unexpected token") ||
+    (lower.includes("json") && lower.includes("parse"))
+  )
+    return {
+      code: "config_corrupt",
+      title: "Configuration File Corrupt",
+    }
   return { code: "unknown", title: "Connection Failed" }
 }
 
@@ -209,9 +273,24 @@ function addAllowedOrigins(gatewayUrl: string) {
   return merged
 }
 
+function resolveGatewayUrl(config: Record<string, unknown>): string | null {
+  const explicit = config.gateway_url as string | undefined
+  if (explicit) return explicit
+
+  const gw = (config.gateway as Record<string, unknown>) ?? {}
+  const port = gw.port as number | undefined
+  if (port) {
+    const mode = (gw.mode as string) ?? "local"
+    const host = mode === "local" ? "127.0.0.1" : "0.0.0.0"
+    return `ws://${host}:${port}`
+  }
+
+  return null
+}
+
 export function connectStatus() {
   const config = readConfig()
-  const gatewayUrl = (config.gateway_url as string) ?? null
+  const gatewayUrl = resolveGatewayUrl(config)
   const gw = (config.gateway as Record<string, unknown>) ?? {}
   const auth = (gw.auth as Record<string, unknown>) ?? {}
   const token = (auth.token as string) ?? null
@@ -319,6 +398,28 @@ export async function connectTest() {
       isTailscale: isTailscaleIp(gatewayUrl),
     }
   }
+}
+
+export function connectDisconnect() {
+  disconnectGateway()
+
+  const configPath = openclawConfigPath()
+  const config = readConfig()
+  const gw = (config.gateway as Record<string, unknown>) ?? {}
+  const auth = (gw.auth as Record<string, unknown>) ?? {}
+  delete auth.token
+  gw.auth = auth
+  delete gw.port
+  delete gw.mode
+  delete gw.bind
+  config.gateway = gw
+  delete config.gateway_url
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
+  } catch {}
+
+  return { ok: true, message: "Disconnected from gateway." }
 }
 
 export function connectReset() {

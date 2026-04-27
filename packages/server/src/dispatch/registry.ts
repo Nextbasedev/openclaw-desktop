@@ -228,6 +228,7 @@ export const commandRegistry: Record<string, Handler> = {
   // Connect
   middleware_connect_status: () => connect.connectStatus(),
   middleware_connect_test: () => connect.connectTest(),
+  middleware_connect_disconnect: () => connect.connectDisconnect(),
   middleware_connect_reset: () => connect.connectReset(),
 
   // Terminal
