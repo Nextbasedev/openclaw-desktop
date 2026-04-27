@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import ConnectionErrorGuide from "@/components/connect/ConnectionErrorGuide"
 
 type ConnectionStatus = {
   gatewayConfigured: boolean
@@ -28,7 +29,9 @@ type ConnectResult = {
   url?: string
   message?: string
   error?: string
+  errorTitle?: string
   isLocal?: boolean
+  isTailscale?: boolean
   addedOrigins?: string[]
   fix?: {
     description: string
@@ -228,75 +231,11 @@ export default function ConnectPage() {
           </CardFooter>
         </Card>
 
-        {/* Error */}
-        {error && (
-          <Card className="border-destructive/30 bg-destructive/5">
-            <CardContent>
-              <p className="text-sm text-destructive">{error}</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Origin auto-fixed (local gateway) */}
-        {connectResult && connectResult.error === "origin_fixed_restart" && (
-          <Card className="border-yellow-500/30 bg-yellow-500/5">
-            <CardHeader>
-              <CardTitle className="text-yellow-700 dark:text-yellow-400">
-                Origins Configured — Restart Required
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p className="text-sm">{connectResult.message}</p>
-              <p className="text-xs text-muted-foreground">
-                Run{" "}
-                <code className="rounded bg-muted px-1 py-0.5">
-                  openclaw gateway restart
-                </code>{" "}
-                then click Test Connection again.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Origin error (remote gateway) */}
-        {connectResult && connectResult.error === "origin_not_allowed" && (
-          <Card className="border-destructive/30 bg-destructive/5">
-            <CardHeader>
-              <CardTitle className="text-destructive">
-                Origin Not Allowed
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm">{connectResult.message}</p>
-              {connectResult.fix && (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    {connectResult.fix.description}:
-                  </p>
-                  <pre className="overflow-x-auto rounded bg-muted p-3 font-mono text-xs">
-                    {JSON.stringify(connectResult.fix.example, null, 2)}
-                  </pre>
-                  <p className="text-xs text-muted-foreground">
-                    After updating, restart the gateway and try again.
-                  </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Other connection errors */}
-        {connectResult && !connectResult.ok &&
-          connectResult.error !== "origin_fixed_restart" &&
-          connectResult.error !== "origin_not_allowed" && (
-            <Card className="border-destructive/30 bg-destructive/5">
-              <CardContent>
-                <p className="text-sm text-destructive">
-                  {connectResult.error ?? connectResult.message}
-                </p>
-              </CardContent>
-            </Card>
-          )}
+        <ConnectionErrorGuide
+          result={connectResult}
+          rawError={error}
+          gatewayUrl={url}
+        />
 
         {/* Success result */}
         {connectResult && connectResult.ok && (

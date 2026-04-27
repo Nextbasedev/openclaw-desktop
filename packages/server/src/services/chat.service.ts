@@ -71,6 +71,14 @@ const activeStreams = new Map<
   { close: () => void }
 >()
 
+const lastSessionStatus = new Map<string, ChatStatusEvent>()
+
+export function getLastSessionStatus(
+  sessionKey: string,
+): ChatStatusEvent | undefined {
+  return lastSessionStatus.get(sessionKey)
+}
+
 const MAX_ATTACHMENTS = 10
 const MAX_SINGLE_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const MAX_TOTAL_ATTACHMENT_BYTES = 100 * 1024 * 1024
@@ -215,12 +223,14 @@ export async function chatStop(input: { sessionKey: string }) {
     stream.close()
     activeStreams.delete(gwKey)
   }
-  chatEvents.emit(`chat:event:${input.sessionKey}`, {
+  const stoppedStatus: ChatStatusEvent = {
     type: "chat.status",
     sessionKey: input.sessionKey,
     state: "done",
     label: "stopped",
-  } satisfies ChatStreamEvent)
+  }
+  lastSessionStatus.set(input.sessionKey, stoppedStatus)
+  chatEvents.emit(`chat:event:${input.sessionKey}`, stoppedStatus)
   return { stopped: true, sessionKey: input.sessionKey }
 }
 
@@ -354,12 +364,12 @@ function startEventStream(gwKey: string, localKey: string) {
       console.log(`[stream:${localKey.slice(-8)}] ${event.type}`, event.type === "chat.status" ? (event as ChatStatusEvent).state : event.type === "chat.tool" ? `${(event as ChatToolEvent).name}:${(event as ChatToolEvent).phase}` : "")
       chatEvents.emit(`chat:event:${localKey}`, event)
 
-      if (
-        event.type === "chat.status" &&
-        (event.state === "done" || event.state === "error")
-      ) {
-        doneCount++
-        console.log(`[stream:${localKey.slice(-8)}] done #${doneCount} — keeping stream open for sub-agents`)
+      if (event.type === "chat.status") {
+        lastSessionStatus.set(localKey, event as ChatStatusEvent)
+        if (event.state === "done" || event.state === "error") {
+          doneCount++
+          console.log(`[stream:${localKey.slice(-8)}] done #${doneCount} — keeping stream open for sub-agents`)
+        }
       }
     },
   })
