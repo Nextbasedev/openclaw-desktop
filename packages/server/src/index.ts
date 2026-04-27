@@ -9,7 +9,7 @@ import { connectGateway } from "./gateway/client.js"
 import { startSyncEngine } from "./sync/engine.js"
 
 const app: express.Express = express()
-const PORT = parseInt(process.env.JARVIS_SERVER_PORT ?? "3001", 10)
+const PORT = parseInt(process.env.JARVIS_SERVER_PORT ?? "4000", 10)
 const JSON_BODY_LIMIT = "150mb"
 
 app.use(express.json({ limit: JSON_BODY_LIMIT }))

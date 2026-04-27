@@ -83,6 +83,7 @@ export function SortableProjectRow({
           <PopoverTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               title="Project options"
               className={cn(
                 "absolute right-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded transition-colors",
