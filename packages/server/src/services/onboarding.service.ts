@@ -1019,7 +1019,6 @@ export function onboardingGenerateIdentity() {
       }
     }
   }
-  const deviceId = `device_${crypto.randomUUID().replace(/-/g, "")}`
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519")
   const publicKeyPem = publicKey
     .export({ type: "spki", format: "pem" })
@@ -1027,14 +1026,21 @@ export function onboardingGenerateIdentity() {
   const privateKeyPem = privateKey
     .export({ type: "pkcs8", format: "pem" })
     .toString()
+
+  // Device ID must be SHA-256 of raw public key bytes (gateway derives it the same way)
+  const spkiDer = publicKey.export({ type: "spki", format: "der" })
+  const rawKey = spkiDer.subarray(12) // strip 12-byte SPKI header for Ed25519
+  const deviceId = crypto.createHash("sha256").update(rawKey).digest("hex")
+
   fs.writeFileSync(
     identityPath,
     JSON.stringify(
       {
-        device_id: deviceId,
-        created_at: new Date().toISOString(),
+        version: 1,
+        deviceId,
         publicKeyPem,
         privateKeyPem,
+        createdAtMs: Date.now(),
       },
       null,
       2,
