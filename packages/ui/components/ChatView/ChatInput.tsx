@@ -2,6 +2,7 @@
 
 import { useRef, useCallback, useEffect } from "react"
 import { Icons } from "@/components/icons"
+import { StopSquareIcon } from "@/components/ChatBox/Icons"
 import { cn } from "@/lib/utils"
 
 type Props = {
@@ -59,9 +60,9 @@ export function ChatInput({ input, onChange, onSend, onAbort, isSending, isGener
         <button
           onClick={onAbort}
           title="Stop generating"
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/10 text-foreground transition-colors hover:bg-foreground/20"
+          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90"
         >
-          <Icons.Pause size={14} strokeWidth={2} />
+          <StopSquareIcon className="size-6" />
         </button>
       ) : (
         <button
