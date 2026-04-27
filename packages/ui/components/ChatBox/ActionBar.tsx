@@ -6,7 +6,6 @@ import {
   ArrowDown01Icon,
   AttachmentIcon,
   Cancel01Icon,
-  PauseIcon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -15,7 +14,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon } from "./Icons"
+import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
 
@@ -284,10 +283,10 @@ export function ActionBar({
           <button
             type="button"
             onClick={onAbort}
-            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/10 text-foreground shadow-sm transition-all hover:bg-foreground/20"
+            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-all hover:bg-foreground/90"
             aria-label="Stop generating"
           >
-            <HugeiconsIcon icon={PauseIcon} size={14} />
+            <StopSquareIcon className="size-6" />
           </button>
         )}
         {(!isGenerating || hasInput) && (
