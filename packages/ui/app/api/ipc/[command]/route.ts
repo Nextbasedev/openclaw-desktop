@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { cronFixtureResponse } from "./fixtures"
 
 const SERVER_URL =
-  process.env.NEXT_PUBLIC_SERVER_URL || "http://127.0.0.1:3001"
+  process.env.JARVIS_SERVER_URL ||
+  process.env.NEXT_PUBLIC_SERVER_URL ||
+  "http://127.0.0.1:3001"
 
 type RouteContext = {
   params: Promise<{ command: string }>
@@ -58,7 +60,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   return NextResponse.json(
-    { error: `IPC upstream unavailable: ${command}` },
+    {
+      error: `IPC upstream unavailable: ${command}. Browser clients should call /api/ipc/${command} on the Jarvis UI origin, not http://127.0.0.1:3001 directly. Start the middleware server on port 3001 or set JARVIS_SERVER_URL/NEXT_PUBLIC_SERVER_URL to the backend origin.`,
+      backendUrl: SERVER_URL,
+    },
     { status: 502 },
   )
 }

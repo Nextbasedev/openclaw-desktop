@@ -172,8 +172,9 @@ function detectEmbeddedError(text: string): string | null {
 
 function instrumentFetch() {
   if (typeof window === "undefined" || !window.fetch) return
-  const originalFetch = window.fetch.bind(window)
-  window.fetch = async (
+  const originalWindowFetch = window.fetch
+  const originalFetch = originalWindowFetch.bind(window)
+  const wrappedFetch = async (
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
@@ -269,6 +270,9 @@ function instrumentFetch() {
       throw err
     }
   }
+
+  Object.assign(wrappedFetch, originalWindowFetch)
+  window.fetch = wrappedFetch as typeof window.fetch
 }
 
 function instrumentEventSource() {

@@ -560,18 +560,23 @@ function classifyRawError(
 
   if (lower.includes("backend became ready") || lower.includes("failed to fetch")) {
     return {
-      title: "App Backend Not Running",
+      title: "Jarvis Backend URL Misconfigured or Not Running",
       variant: "destructive",
       description:
-        "The Jarvis middleware server did not start in time. This is the local backend that bridges the UI to the gateway.",
+        "The UI could not reach the Jarvis middleware backend. In browser/Funnel mode, the UI must call the same-origin Next proxy (/api/ipc/* and /api/stream/*), not http://127.0.0.1:3001 directly from the browser.",
       steps: [
         "Restart the app completely",
-        "If running in development, ensure the server is running (pnpm dev starts both UI and server)",
+        "If running in development, ensure both services are running: UI on port 3000 and middleware backend on port 3001",
+        "For browser/Funnel deployments, change client calls to use relative URLs like /api/ipc/<command>; keep 127.0.0.1:3001 only on the server side or set JARVIS_SERVER_URL/NEXT_PUBLIC_SERVER_URL to the backend origin",
         "Check that port 3001 is not blocked by another process",
       ],
       commands: [
         {
-          label: "Check if server is running",
+          label: "Check backend through the UI proxy",
+          command: "curl http://127.0.0.1:3000/api/health",
+        },
+        {
+          label: "Check middleware backend directly on the server",
           command: "curl http://127.0.0.1:3001/health",
         },
       ],

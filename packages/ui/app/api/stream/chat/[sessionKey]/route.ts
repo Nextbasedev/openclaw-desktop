@@ -3,7 +3,9 @@ import { NextRequest } from "next/server"
 export const dynamic = "force-dynamic"
 
 const SERVER_URL =
-  process.env.NEXT_PUBLIC_SERVER_URL || "http://127.0.0.1:3001"
+  process.env.JARVIS_SERVER_URL ||
+  process.env.NEXT_PUBLIC_SERVER_URL ||
+  "http://127.0.0.1:3001"
 
 type RouteContext = {
   params: Promise<{ sessionKey: string }>

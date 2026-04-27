@@ -1,4 +1,8 @@
 const isProd = process.env.NODE_ENV === "production"
+const serverUrl =
+  process.env.JARVIS_SERVER_URL ||
+  process.env.NEXT_PUBLIC_SERVER_URL ||
+  "http://127.0.0.1:3001"
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -20,7 +24,7 @@ const nextConfig = {
     return [
       {
         source: "/api/stream/terminal/:path*",
-        destination: "http://127.0.0.1:3001/api/stream/terminal/:path*",
+        destination: `${serverUrl}/api/stream/terminal/:path*`,
       },
     ]
   },

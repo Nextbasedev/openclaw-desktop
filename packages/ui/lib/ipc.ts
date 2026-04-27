@@ -1,23 +1,44 @@
-const SERVER_URL =
-  process.env.NEXT_PUBLIC_SERVER_URL || "http://127.0.0.1:3001"
+const DEFAULT_SERVER_URL = "http://127.0.0.1:3001"
+const CONFIGURED_SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL?.trim()
+const SERVER_URL = CONFIGURED_SERVER_URL || DEFAULT_SERVER_URL
 const STARTUP_RETRY_ATTEMPTS = 10
 const STARTUP_RETRY_DELAY_MS = 300
 
-function shouldRetryBackendBoot(error: unknown): boolean {
+function isTauriRuntime(): boolean {
   return (
-    SERVER_URL.includes("127.0.0.1:3001") &&
-    error instanceof TypeError
+    typeof window !== "undefined" &&
+    Boolean((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__)
   )
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => globalThis.setTimeout(resolve, ms))
+function isLoopbackServerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(parsed.hostname)
+  } catch {
+    return false
+  }
 }
 
 function shouldUseSameOriginProxy(): boolean {
   if (typeof window === "undefined") return false
-  const { protocol, port } = window.location
-  return protocol.startsWith("http") && port === "3000"
+  if (isTauriRuntime()) return false
+
+  const { protocol } = window.location
+  if (!protocol.startsWith("http")) return false
+
+  // Browser-hosted Jarvis must not call 127.0.0.1:3001 directly: on a
+  // Funnel/remote URL that points at the user's laptop, not this server.
+  // Use the Next same-origin API proxy instead (/api/ipc, /api/stream, etc.).
+  return !CONFIGURED_SERVER_URL || isLoopbackServerUrl(CONFIGURED_SERVER_URL)
+}
+
+function shouldRetryBackendBoot(error: unknown): boolean {
+  return error instanceof TypeError
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms))
 }
 
 function ipcUrl(command: string): string {
@@ -70,10 +91,7 @@ export async function invoke<T>(
     return invokeHttp<T>(command, args)
   }
 
-  if (
-    typeof window !== "undefined" &&
-    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
-  ) {
+  if (isTauriRuntime()) {
     try {
       const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
       return await tauriInvoke<T>(command, args)
@@ -103,10 +121,7 @@ export function openEventStream(
 
 // Open external URL — works in both Tauri and browser
 export async function openExternalUrl(url: string): Promise<void> {
-  if (
-    typeof window !== "undefined" &&
-    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
-  ) {
+  if (isTauriRuntime()) {
     await invoke("middleware_open_url", { input: { url } })
   } else {
     window.open(url, "_blank")
