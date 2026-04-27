@@ -21,6 +21,8 @@ type Props = {
   refreshTrigger?: number
 }
 
+const CHAT_INITIAL_LIMIT = 5
+
 export function ChatsSection({
   collapsed,
   collapsible = true,
@@ -31,6 +33,7 @@ export function ChatsSection({
   refreshTrigger = 0,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
+  const [showAllChats, setShowAllChats] = useState(false)
   const showList = !collapsible || isOpen
   const {
     chats,
@@ -97,12 +100,12 @@ export function ChatsSection({
 
                 <Reorder.Group
                   axis="y"
-                  values={sortedChatIds}
+                  values={showAllChats ? sortedChatIds : sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)}
                   onReorder={setChatOrder}
                   as="div"
                   className="flex flex-col gap-0.5"
                 >
-                  {sortedChatIds.map((chatId) => {
+                  {(showAllChats ? sortedChatIds : sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)).map((chatId) => {
                     const chat = chats.find(
                       (c) => c.id === chatId,
                     )
@@ -136,6 +139,23 @@ export function ChatsSection({
                     )
                   })}
                 </Reorder.Group>
+                {sortedChatIds.length > CHAT_INITIAL_LIMIT && (
+                  <button
+                    onClick={() => setShowAllChats((prev) => !prev)}
+                    className="mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                  >
+                    <motion.span
+                      animate={{ rotate: showAllChats ? 180 : 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="inline-flex items-center justify-center"
+                    >
+                      <Icons.ChevronDown size={11} />
+                    </motion.span>
+                    {showAllChats
+                      ? "Show less"
+                      : `${sortedChatIds.length - CHAT_INITIAL_LIMIT} more`}
+                  </button>
+                )}
               </div>
             </motion.div>
           )}

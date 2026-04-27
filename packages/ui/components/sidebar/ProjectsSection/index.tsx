@@ -18,6 +18,8 @@ type Props = {
   onTopicClear: () => void
 }
 
+const PROJECT_INITIAL_LIMIT = 5
+
 export function ProjectsSection({
   collapsed,
   collapsible = true,
@@ -26,6 +28,7 @@ export function ProjectsSection({
   onTopicClear,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
+  const [showAllProjects, setShowAllProjects] = useState(false)
   const showList = !collapsible || isOpen
   const {
     projects, expandedProjects, projectTopics, loadingProject,
@@ -88,8 +91,8 @@ export function ProjectsSection({
                   </button>
                 )}
 
-                <Reorder.Group axis="y" values={sortedProjectIds} onReorder={setProjectOrder} as="div" className="flex flex-col gap-0.5">
-                  {sortedProjectIds.map((projectId) => {
+                <Reorder.Group axis="y" values={showAllProjects ? sortedProjectIds : sortedProjectIds.slice(0, PROJECT_INITIAL_LIMIT)} onReorder={setProjectOrder} as="div" className="flex flex-col gap-0.5">
+                  {(showAllProjects ? sortedProjectIds : sortedProjectIds.slice(0, PROJECT_INITIAL_LIMIT)).map((projectId) => {
                     const project = projects.find((p) => p.id === projectId)
                     if (!project) return null
                     const topicList = projectTopics[projectId] || []
@@ -124,6 +127,23 @@ export function ProjectsSection({
                     )
                   })}
                 </Reorder.Group>
+                {sortedProjectIds.length > PROJECT_INITIAL_LIMIT && (
+                  <button
+                    onClick={() => setShowAllProjects((prev) => !prev)}
+                    className="mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                  >
+                    <motion.span
+                      animate={{ rotate: showAllProjects ? 180 : 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="inline-flex items-center justify-center"
+                    >
+                      <Icons.ChevronDown size={11} />
+                    </motion.span>
+                    {showAllProjects
+                      ? "Show less"
+                      : `${sortedProjectIds.length - PROJECT_INITIAL_LIMIT} more`}
+                  </button>
+                )}
               </div>
             </motion.div>
           )}
