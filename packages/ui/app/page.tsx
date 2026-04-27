@@ -241,6 +241,7 @@ function AppShell({
         )
         if (!found || found.archived) {
           clearConversationState()
+          window.history.replaceState(null, "", "/")
           return
         }
 
@@ -256,7 +257,10 @@ function AppShell({
         setActiveSessionKey(resolved.sessionKey)
         setActiveSessionTitle(resolved.title)
       } catch {
-        if (isCurrentPath()) clearConversationState()
+        if (isCurrentPath()) {
+          clearConversationState()
+          window.history.replaceState(null, "", "/")
+        }
       }
       return
     }
@@ -283,6 +287,7 @@ function AppShell({
         )
         if (!project) {
           clearConversationState()
+          window.history.replaceState(null, "", "/")
           return
         }
 
@@ -298,6 +303,7 @@ function AppShell({
         )
         if (!topic) {
           clearConversationState()
+          window.history.replaceState(null, "", "/")
           return
         }
 
@@ -308,7 +314,10 @@ function AppShell({
           projectName: project.name,
         })
       } catch {
-        if (isCurrentPath()) clearConversationState()
+        if (isCurrentPath()) {
+          clearConversationState()
+          window.history.replaceState(null, "", "/")
+        }
       }
     }
   }, [clearConversationState])

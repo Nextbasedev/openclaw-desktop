@@ -43,6 +43,145 @@ function isLocalGateway(gatewayUrl: string): boolean {
   }
 }
 
+function isTailscaleIp(gatewayUrl: string): boolean {
+  try {
+    const url = new URL(
+      gatewayUrl
+        .replace("ws://", "http://")
+        .replace("wss://", "https://"),
+    )
+    const parts = url.hostname.split(".")
+    if (parts.length !== 4) return false
+    const first = Number(parts[0])
+    const second = Number(parts[1])
+    return first === 100 && second >= 64 && second <= 127
+  } catch {
+    return false
+  }
+}
+
+function classifyError(
+  msg: string,
+  gatewayUrl: string,
+): { code: string; title: string } {
+  const lower = msg.toLowerCase()
+
+  if (lower.includes("origin not allowed"))
+    return {
+      code: "origin_not_allowed",
+      title: "Origin Not Allowed",
+    }
+  if (
+    lower.includes("device identity mismatch") ||
+    lower.includes("identity mismatch")
+  )
+    return {
+      code: "identity_mismatch",
+      title: "Device Identity Mismatch",
+    }
+  if (lower.includes("token is missing"))
+    return {
+      code: "token_missing",
+      title: "Authentication Token Missing",
+    }
+  if (
+    lower.includes("invalid token") ||
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden") ||
+    lower.includes("auth failed") ||
+    lower.includes("authentication failed") ||
+    lower.includes("invalid credentials")
+  )
+    return {
+      code: "token_invalid",
+      title: "Authentication Failed",
+    }
+  if (lower.includes("econnrefused"))
+    return {
+      code: "gateway_not_running",
+      title: "Gateway Not Running",
+    }
+  if (
+    lower.includes("enotfound") ||
+    lower.includes("getaddrinfo")
+  ) {
+    if (isTailscaleIp(gatewayUrl))
+      return {
+        code: "tailscale_unreachable",
+        title: "Tailscale Network Unreachable",
+      }
+    return { code: "dns_failed", title: "Host Not Found" }
+  }
+  if (
+    lower.includes("etimedout") ||
+    lower.includes("ehostunreach") ||
+    lower.includes("enetunreach")
+  ) {
+    if (isTailscaleIp(gatewayUrl))
+      return {
+        code: "tailscale_unreachable",
+        title: "Tailscale Network Unreachable",
+      }
+    return {
+      code: "network_timeout",
+      title: "Network Unreachable",
+    }
+  }
+  if (
+    lower.includes("websocket open timeout") ||
+    lower.includes("websocket failed")
+  )
+    return {
+      code: "gateway_not_responding",
+      title: "Gateway Not Responding",
+    }
+  if (lower.includes("timeout waiting for connect.challenge"))
+    return {
+      code: "protocol_error",
+      title: "Gateway Protocol Error",
+    }
+  if (lower.includes("timeout waiting for connect response"))
+    return {
+      code: "connect_timeout",
+      title: "Connection Timeout",
+    }
+  if (
+    lower.includes("protocol") &&
+    lower.includes("version")
+  )
+    return {
+      code: "protocol_mismatch",
+      title: "Protocol Version Mismatch",
+    }
+  if (
+    lower.includes("econnreset") ||
+    lower.includes("socket hang up")
+  )
+    return {
+      code: "connection_reset",
+      title: "Connection Reset by Gateway",
+    }
+  if (
+    lower.includes("self-signed") ||
+    lower.includes("certificate") ||
+    lower.includes("ssl") ||
+    lower.includes("cert_")
+  )
+    return {
+      code: "tls_error",
+      title: "TLS/SSL Certificate Error",
+    }
+  if (
+    lower.includes("scope") &&
+    (lower.includes("denied") || lower.includes("insufficient"))
+  )
+    return {
+      code: "scope_denied",
+      title: "Insufficient Permissions",
+    }
+  return { code: "unknown", title: "Connection Failed" }
+}
+
 function addAllowedOrigins(gatewayUrl: string) {
   const config = readConfig()
   const gw = (config.gateway as Record<string, unknown>) ?? {}
@@ -102,7 +241,9 @@ export async function connectTest() {
   if (status.status !== "ready") {
     return {
       ok: false,
-      error:
+      error: "config_not_ready",
+      errorTitle: "Configuration Incomplete",
+      message:
         "Gateway not configured or identity missing",
       ...status,
     }
@@ -168,7 +309,15 @@ export async function connectTest() {
       }
     }
 
-    return { ok: false, error: msg, isLocal: local }
+    const classified = classifyError(msg, gatewayUrl)
+    return {
+      ok: false,
+      error: classified.code,
+      errorTitle: classified.title,
+      message: msg,
+      isLocal: local,
+      isTailscale: isTailscaleIp(gatewayUrl),
+    }
   }
 }
 
