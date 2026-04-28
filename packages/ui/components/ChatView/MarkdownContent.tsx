@@ -65,8 +65,8 @@ function CodeBlock({ language, children }: { language?: string; children: string
   const code = children.replace(/\n$/, "")
   const displayLang = langDisplayName(language)
   return (
-    <div className="group/code relative my-2 min-w-0 overflow-hidden rounded-xl border border-border/20 bg-[#1a1a1e]">
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/15 bg-[#252529] px-4 py-2 rounded-t-xl">
+    <div className="group/code relative my-2 min-w-0 overflow-clip rounded-xl border border-border/20 bg-[#1a1a1e]">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/15 bg-[#252529] px-4 py-2">
         <span className="flex items-center gap-2 text-[12px] font-medium text-foreground/60">
           <span className="text-foreground/40">&lt;/&gt;</span>
           {displayLang}
@@ -74,7 +74,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
         <CopyBtn text={code} />
       </div>
       {language ? (
-        <div className="w-full overflow-x-auto px-4 py-4">
+        <div className="w-full overflow-x-auto rounded-b-xl px-4 py-4">
           <SyntaxHighlighter
             style={cleanStyle}
             language={language}
@@ -92,7 +92,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
           </SyntaxHighlighter>
         </div>
       ) : (
-        <div className="w-full overflow-x-auto px-4 py-4">
+        <div className="w-full overflow-x-auto rounded-b-xl px-4 py-4">
           <pre className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6] text-foreground/80">{code}</pre>
         </div>
       )}
@@ -208,7 +208,7 @@ export function MarkdownContent({ text, className, embeds }: { text: string; cla
   const parts = splitTextAndEmbeds(text, embeds)
 
   return (
-    <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden", className)}>
+    <div className={cn("prose-chat max-w-full min-w-0", className)}>
       {parts.map((part, i) =>
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />

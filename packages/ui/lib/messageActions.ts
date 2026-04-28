@@ -52,10 +52,14 @@ export function messageActionReducer(
     }
   }
   if (action.type === "react") {
-    return {
-      ...state,
-      reactions: { ...state.reactions, [action.messageId]: action.reaction },
+    const current = state.reactions[action.messageId]
+    const reactions = { ...state.reactions }
+    if (current === action.reaction) {
+      delete reactions[action.messageId]
+    } else {
+      reactions[action.messageId] = action.reaction
     }
+    return { ...state, reactions }
   }
   if (action.type === "reply") {
     return { ...state, replyToId: action.messageId, selectedQuote: null }

@@ -17,9 +17,15 @@ const subscribers = new Set<(entries: LogEntry[]) => void>()
 let initialized = false
 let counter = 0
 
+let notifyScheduled = false
 function notify() {
-  const snapshot = buffer.slice()
-  subscribers.forEach((fn) => fn(snapshot))
+  if (notifyScheduled) return
+  notifyScheduled = true
+  requestAnimationFrame(() => {
+    notifyScheduled = false
+    const snapshot = buffer.slice()
+    subscribers.forEach((fn) => fn(snapshot))
+  })
 }
 
 function pushFrontend(level: LogLevel, message: string) {
