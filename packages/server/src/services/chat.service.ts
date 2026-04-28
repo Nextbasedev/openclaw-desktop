@@ -1,4 +1,7 @@
 import crypto from "node:crypto"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { EventEmitter } from "node:events"
 import {
   createChatSession,
@@ -10,6 +13,8 @@ import {
   type ChatStreamEvent,
   type ChatStatusEvent,
   type ChatToolEvent,
+  type ChatAgentEvent,
+  type ChatMessageEvent,
 } from "middleware"
 import { prependSkillContext, clearSessionTracking } from "./skill-runtime.service.js"
 import { getDb } from "../db/connection.js"
@@ -171,11 +176,26 @@ function resolveGatewayKey(localKey: string): string {
   return loadGatewayKey(localKey) ?? localKey
 }
 
+function readPrimaryModel(): string | undefined {
+  try {
+    const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json")
+    const raw = fs.readFileSync(configPath, "utf-8")
+    const config = JSON.parse(raw) as Record<string, unknown>
+    const agents = config.agents as Record<string, unknown> | undefined
+    const defaults = agents?.defaults as Record<string, unknown> | undefined
+    const model = defaults?.model as Record<string, unknown> | undefined
+    const primary = model?.primary
+    return typeof primary === "string" && primary.length > 0 ? primary : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function ensureGatewaySession(localKey: string): Promise<string> {
   const existing = loadGatewayKey(localKey)
   if (existing) return existing
 
-  const model = getAppSetting(getDb(), "onboarding.model.ref") ?? undefined
+  const model = readPrimaryModel() ?? getAppSetting(getDb(), "onboarding.model.ref") ?? undefined
   try {
     const created = await createChatSession({
       agentId: "main",
@@ -357,11 +377,52 @@ function startEventStream(gwKey: string, localKey: string) {
   }
 
   let doneCount = 0
+  let consecutiveAgentErrors = 0
+  let lastModelName: string | null = null
+  const MAX_AGENT_RETRIES = 2
 
   openChatEventStream({
     sessionKey: gwKey,
     onEvent(event: ChatStreamEvent) {
-      console.log(`[stream:${localKey.slice(-8)}] ${event.type}`, event.type === "chat.status" ? (event as ChatStatusEvent).state : event.type === "chat.tool" ? `${(event as ChatToolEvent).name}:${(event as ChatToolEvent).phase}` : "")
+      console.log(`[stream:${localKey.slice(-8)}] ${event.type}`, event.type === "chat.status" ? (event as ChatStatusEvent).state : event.type === "chat.tool" ? `${(event as ChatToolEvent).name}:${(event as ChatToolEvent).phase}` : event.type === "chat.agent" ? `phase=${(event as ChatAgentEvent).phase}` : "")
+
+      if (event.type === "chat.message" && (event as ChatMessageEvent).model) {
+        lastModelName = (event as ChatMessageEvent).model
+      }
+
+      if (event.type === "chat.agent") {
+        const agent = event as ChatAgentEvent
+        if (agent.phase === "error") {
+          consecutiveAgentErrors++
+          if (consecutiveAgentErrors >= MAX_AGENT_RETRIES) {
+            const modelHint = lastModelName ? ` (model: ${lastModelName})` : ""
+            console.error(`[stream:${localKey.slice(-8)}] agent failed ${consecutiveAgentErrors} times${modelHint} — surfacing error`)
+            chatEvents.emit(`chat:event:${localKey}`, {
+              type: "chat.error",
+              sessionKey: localKey,
+              message: `The model${modelHint} failed to respond. Check your API key and model provider configuration.`,
+            } satisfies ChatStreamEvent)
+            const errorStatus: ChatStatusEvent = {
+              type: "chat.status",
+              sessionKey: localKey,
+              state: "error",
+              label: "model_error",
+            }
+            lastSessionStatus.set(localKey, errorStatus)
+            chatEvents.emit(`chat:event:${localKey}`, errorStatus)
+            return
+          }
+        }
+      }
+
+      if (event.type === "chat.message" || event.type === "chat.status") {
+        const msg = event.type === "chat.message" ? event : null
+        const status = event.type === "chat.status" ? event as ChatStatusEvent : null
+        if ((msg && "text" in msg && typeof msg.text === "string" && msg.text.length > 0) || (status && status.state === "done")) {
+          consecutiveAgentErrors = 0
+        }
+      }
+
       chatEvents.emit(`chat:event:${localKey}`, event)
 
       if (event.type === "chat.status") {

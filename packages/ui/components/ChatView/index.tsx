@@ -9,6 +9,7 @@ import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
+import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
@@ -277,14 +278,7 @@ export function ChatView({
     : null
 
   if (loading) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Loading conversation...</span>
-        </div>
-      </div>
-    )
+    return <ChatLoadingSkeleton />
   }
 
   if (loadError) {
