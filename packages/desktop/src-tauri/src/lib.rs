@@ -12,7 +12,8 @@ pub fn run() {
 
   let builder = tauri::Builder::default()
     .manage(backend::BackendState::default())
-    .plugin(tauri_plugin_notification::init());
+    .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_dialog::init());
 
   #[cfg(not(target_os = "windows"))]
   let builder = builder.invoke_handler(tauri::generate_handler![

@@ -31,6 +31,7 @@ import {
 } from "@/lib/sessionNavigation"
 import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
+import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
@@ -1108,25 +1109,11 @@ function MainContent({
   }
 
   if (activeChat && !activeSessionKey) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Opening chat...</span>
-        </div>
-      </div>
-    )
+    return <ChatLoadingSkeleton />
   }
 
   if (activeTopic && sessionResolving) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-foreground/50" />
-          <span className="text-[13px] text-muted-foreground">Opening conversation...</span>
-        </div>
-      </div>
-    )
+    return <ChatLoadingSkeleton />
   }
 
   if (activeTopic && sessionError) {

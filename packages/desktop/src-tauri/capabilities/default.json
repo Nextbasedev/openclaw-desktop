@@ -19,6 +19,7 @@
     "core:window:allow-is-minimized",
     "core:window:allow-is-fullscreen",
     "core:window:allow-start-dragging",
-    "notification:default"
+    "notification:default",
+    "dialog:default"
   ]
 }
