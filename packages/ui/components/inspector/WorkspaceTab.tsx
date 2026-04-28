@@ -282,22 +282,60 @@ function CodeEditor({
   onChange: (v: string) => void
   ext: string
 }) {
-  const language =
-    ext === "json"
-      ? "json"
-      : ext === "md"
-        ? "markdown"
-        : ext === "ts" || ext === "tsx"
-          ? "typescript"
-          : ext === "js" || ext === "jsx"
-            ? "javascript"
-            : ext === "py"
-              ? "python"
-              : ext === "rs"
-                ? "rust"
-                : ext === "go"
-                  ? "go"
-                  : "text"
+  const extToLang: Record<string, string> = {
+    json: "json",
+    md: "markdown",
+    ts: "typescript",
+    tsx: "tsx",
+    js: "javascript",
+    jsx: "jsx",
+    py: "python",
+    rs: "rust",
+    go: "go",
+    html: "html",
+    htm: "html",
+    css: "css",
+    scss: "scss",
+    sass: "sass",
+    less: "less",
+    xml: "xml",
+    svg: "xml",
+    yaml: "yaml",
+    yml: "yaml",
+    toml: "toml",
+    sql: "sql",
+    sh: "bash",
+    bash: "bash",
+    zsh: "bash",
+    ps1: "powershell",
+    bat: "batch",
+    cmd: "batch",
+    rb: "ruby",
+    java: "java",
+    kt: "kotlin",
+    kts: "kotlin",
+    swift: "swift",
+    c: "c",
+    h: "c",
+    cpp: "cpp",
+    cxx: "cpp",
+    hpp: "cpp",
+    cs: "csharp",
+    php: "php",
+    lua: "lua",
+    r: "r",
+    dart: "dart",
+    graphql: "graphql",
+    gql: "graphql",
+    dockerfile: "docker",
+    makefile: "makefile",
+    ini: "ini",
+    env: "bash",
+    conf: "ini",
+    cfg: "ini",
+    txt: "text",
+  }
+  const language = extToLang[ext] ?? "text"
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
@@ -409,11 +447,13 @@ function FilePreviewPane({
   fileName,
   workspaceRoot,
   compact,
+  onDelete,
 }: {
   filePath: string
   fileName: string
   workspaceRoot: string
   compact: boolean
+  onDelete?: () => void
 }) {
   const ext = getExt(fileName)
   const isMd = ext === "md"
@@ -471,15 +511,49 @@ function FilePreviewPane({
     }
   }, [filePath, content])
 
-  function handleDownload() {
+  const [downloaded, setDownloaded] = useState(false)
+
+  const handleDownload = useCallback(async () => {
+    const isTauri =
+      typeof window !== "undefined" &&
+      Boolean(
+        (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__,
+      )
+
+    if (isTauri) {
+      try {
+        const { save } = await import("@tauri-apps/plugin-dialog")
+        const { downloadDir } = await import("@tauri-apps/api/path")
+        const downloads = await downloadDir()
+
+        const chosen = await save({
+          defaultPath: `${downloads}/${displayName}`,
+          title: "Save file",
+        })
+        if (!chosen) return
+
+        await invoke("middleware_fs_write_file", {
+          path: chosen,
+          content,
+        })
+        setDownloaded(true)
+        setTimeout(() => setDownloaded(false), 2000)
+        return
+      } catch {
+        /* fall through to blob download */
+      }
+    }
+
     const blob = new Blob([content], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
     a.download = displayName
+    document.body.appendChild(a)
     a.click()
+    document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }
+  }, [content, displayName])
 
   const handleRename = useCallback(async () => {
     const trimmed = renameValue.trim()
@@ -502,10 +576,11 @@ function FilePreviewPane({
   const handleDelete = useCallback(async () => {
     try {
       await invoke("middleware_fs_remove", { path: filePath })
+      onDelete?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed")
     }
-  }, [filePath])
+  }, [filePath, onDelete])
 
   if (loading) {
     return (
@@ -597,12 +672,19 @@ function FilePreviewPane({
                 <button
                   type="button"
                   onClick={handleDownload}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+                  className={cn(
+                    "flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
+                    downloaded
+                      ? "text-emerald-400"
+                      : "text-muted-foreground hover:bg-white/8 hover:text-foreground",
+                  )}
                 >
-                  <HugeiconsIcon icon={Download02Icon} size={14} strokeWidth={1.5} />
+                  <HugeiconsIcon icon={downloaded ? Tick02Icon : Download02Icon} size={14} strokeWidth={1.5} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Download</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs">
+                {downloaded ? "Downloaded" : "Download"}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -668,8 +750,8 @@ function FilePreviewPane({
                 onClick={() => { setMenuOpen(false); setRenameValue(displayName); setIsRenaming(true) }}
               />
               <MenuAction
-                label="Download"
-                icon={<HugeiconsIcon icon={Download02Icon} size={14} strokeWidth={1.5} />}
+                label={downloaded ? "Downloaded" : "Download"}
+                icon={<HugeiconsIcon icon={downloaded ? Tick02Icon : Download02Icon} size={14} strokeWidth={1.5} />}
                 onClick={() => { setMenuOpen(false); handleDownload() }}
               />
               <MenuAction
@@ -1080,6 +1162,10 @@ export function WorkspaceTab() {
             fileName={selectedNode.name}
             workspaceRoot={workspaceRoot}
             compact={previewCompact}
+            onDelete={() => {
+              setSelectedId(null)
+              loadRoot(workspaceRoot)
+            }}
           />
         ) : (
           <EmptyPreview />
