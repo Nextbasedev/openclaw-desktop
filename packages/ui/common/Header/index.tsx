@@ -86,7 +86,7 @@ export function Header({
     return (
         <header
             className={cn(
-                "relative flex h-9 shrink-0 items-center justify-between",
+                "relative z-50 flex h-9 shrink-0 items-center justify-between",
                 "border-b border-border/50 bg-card",
                 "select-none",
                 showWindowControls ? "pl-3 pr-0" : "px-3",

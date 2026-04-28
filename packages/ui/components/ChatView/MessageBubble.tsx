@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import {
   LuCheck,
@@ -112,6 +112,8 @@ export function MessageBubble({
   reaction,
   isGenerating,
   isActivelyStreaming,
+  popoverOpen,
+  onPopoverOpenChange,
 }: {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
@@ -126,6 +128,8 @@ export function MessageBubble({
   reaction?: "up" | "down"
   isGenerating?: boolean
   isActivelyStreaming?: boolean
+  popoverOpen?: boolean
+  onPopoverOpenChange?: (open: boolean) => void
 }) {
   const isUser = message.role === "user"
   const shouldAnimateSend = isUser && message.isOptimistic
@@ -288,38 +292,66 @@ export function MessageBubble({
               )}
               <div className="flex items-center gap-0.5">
                 {onReact && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onReact(message.messageId, "up")}
-                      className={cn(
-                        "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-                        reaction === "up"
-                          ? "text-emerald-400"
-                          : "text-foreground/30 hover:text-foreground/60",
+                  <div className="flex items-center gap-0.5">
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      {(reaction === "up" || !reaction) && (
+                        <motion.button
+                          key="up"
+                          layout
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          type="button"
+                          onClick={() => onReact(message.messageId, "up")}
+                          className={cn(
+                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
+                            reaction === "up"
+                              ? "text-white"
+                              : "text-foreground/30 hover:text-foreground/60"
+                          )}
+                          aria-label="Helpful"
+                        >
+                          {reaction === "up" ? (
+                            <LuThumbsUp className="size-3.5 fill-white" />
+                          ) : (
+                            <LuThumbsUp className="size-3.5" />
+                          )}
+                        </motion.button>
                       )}
-                      aria-label="Helpful"
-                    >
-                      <LuThumbsUp className="size-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onReact(message.messageId, "down")}
-                      className={cn(
-                        "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-                        reaction === "down"
-                          ? "text-rose-400"
-                          : "text-foreground/30 hover:text-foreground/60",
+
+                      {(reaction === "down" || !reaction) && (
+                        <motion.button
+                          key="down"
+                          layout
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          type="button"
+                          onClick={() => onReact(message.messageId, "down")}
+                          className={cn(
+                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
+                            reaction === "down"
+                              ? "text-white"
+                              : "text-foreground/30 hover:text-foreground/60"
+                          )}
+                          aria-label="Not helpful"
+                        >
+                          {reaction === "down" ? (
+                            <LuThumbsDown className="size-3.5 fill-white" />
+                          ) : (
+                            <LuThumbsDown className="size-3.5" />
+                          )}
+                        </motion.button>
                       )}
-                      aria-label="Not helpful"
-                    >
-                      <LuThumbsDown className="size-3.5" />
-                    </button>
-                  </>
+                    </AnimatePresence>
+                  </div>
                 )}
                 <CopyButton text={message.text} />
                 {(onPin || onReply || onRegenerate) && (
-                  <Popover>
+                  <Popover
+                    open={popoverOpen}
+                    onOpenChange={onPopoverOpenChange}
+                  >
                     <PopoverTrigger asChild>
                       <button
                         type="button"
@@ -339,21 +371,30 @@ export function MessageBubble({
                         <MenuAction
                           label={isPinned ? "Unpin" : "Pin"}
                           icon={<LuPin className="size-3.5" />}
-                          onClick={() => onPin(message.messageId)}
+                          onClick={() => {
+                            onPin(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
                         />
                       )}
                       {onReply && (
                         <MenuAction
                           label="Reply"
                           icon={<LuReply className="size-3.5" />}
-                          onClick={() => onReply(message.messageId)}
+                          onClick={() => {
+                            onReply(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
                         />
                       )}
                       {onRegenerate && (
                         <MenuAction
                           label="Regenerate"
                           icon={<LuRefreshCw className="size-3.5" />}
-                          onClick={() => onRegenerate(message.messageId)}
+                          onClick={() => {
+                            onRegenerate(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
                         />
                       )}
                     </PopoverContent>

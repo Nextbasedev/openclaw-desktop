@@ -21,16 +21,7 @@ function isLoopbackServerUrl(url: string): boolean {
 }
 
 function shouldUseSameOriginProxy(): boolean {
-  if (typeof window === "undefined") return false
-  if (isTauriRuntime()) return false
-
-  const { protocol } = window.location
-  if (!protocol.startsWith("http")) return false
-
-  // Browser-hosted Jarvis must not call 127.0.0.1:3001 directly: on a
-  // Funnel/remote URL that points at the user's laptop, not this server.
-  // Use the Next same-origin API proxy instead (/api/ipc, /api/stream, etc.).
-  return !CONFIGURED_SERVER_URL || isLoopbackServerUrl(CONFIGURED_SERVER_URL)
+  return false
 }
 
 function shouldRetryBackendBoot(error: unknown): boolean {

@@ -8,6 +8,8 @@ import { ToolCallSteps } from "./ToolCallSteps"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
+import { PinnedMessagesPopover } from "./PinnedMessagesPopover"
+import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatBox } from "@/components/ChatBox"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
@@ -21,6 +23,9 @@ import {
   visibleMessages,
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
+import { motion, AnimatePresence } from "framer-motion"
+import { Icons } from "@/components/icons"
+import { cn } from "@/lib/utils"
 import type { SpawnedSubagent } from "./types"
 
 type Props = {
@@ -108,14 +113,14 @@ export function ChatView({
                   // Ignore window API errors
                 }
               })
-              .catch(() => {})
+              .catch(() => { })
           }
         })
 
         toastUnlistenRef.current.open = await listen<{ sessionKey: string }>("toast-open", (event) => {
           if (event.payload.sessionKey === sessionKey) {
             const win = getCurrentWindow()
-            void win.unminimize().then(() => win.setFocus()).catch(() => {})
+            void win.unminimize().then(() => win.setFocus()).catch(() => { })
           }
         })
       } catch {
@@ -135,34 +140,51 @@ export function ChatView({
     initialMessageActionState,
   )
   const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
+  const [pinnedPopoverOpen, setPinnedPopoverOpen] = useState(false)
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
+  const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
+  const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
+  const lastFeedbackTimesRef = useRef<Record<string, number>>({})
 
-  const pinnedDbRef = useRef<Array<{ messageId: string; messageText: string }>>([])
+  const [dbPins, setDbPins] = useState<{
+    pins: Array<{ messageId: string; messageText: string }>
+    loaded: boolean
+  }>({ pins: [], loaded: false })
 
   useEffect(() => {
+    // Reset everything when the session changes
     dispatchMessageAction(initialMessageActionState)
-    pinnedDbRef.current = []
+    setDbPins({ pins: [], loaded: false })
+
     invoke<{ pins: Array<{ messageId: string; messageText: string }> }>("middleware_pins_list", {
       sessionKey,
     })
       .then(({ pins }) => {
-        pinnedDbRef.current = pins
+        setDbPins({ pins, loaded: true })
+        // Apply fetched pins immediately. If IDs match exactly, they'll show up.
+        // If IDs mismatch, the reconciliation effect will fix them.
         dispatchMessageAction((prev) => ({
           ...prev,
           pinnedIds: pins.map((p) => p.messageId),
         }))
       })
-      .catch(() => {})
+      .catch(() => {
+        setDbPins({ pins: [], loaded: true })
+      })
   }, [sessionKey])
 
+  // Reconcile DB pins against the loaded messages.
+  // This handles the case where messageIds stored in the DB differ from the
+  // ones the Gateway returns (e.g. after a sync or regeneration), by falling
+  // back to a text snippet match.
   useEffect(() => {
-    const dbPins = pinnedDbRef.current
-    if (dbPins.length === 0 || messages.length === 0) return
+    if (!dbPins.loaded || messages.length === 0) return
+
     const currentIds = new Set(messages.map((m) => m.messageId))
-    const hasUnmatched = dbPins.some((p) => !currentIds.has(p.messageId))
-    if (!hasUnmatched) return
     const seen = new Set<string>()
     const resolved: string[] = []
-    for (const pin of dbPins) {
+
+    for (const pin of dbPins.pins) {
       let id: string | undefined
       if (currentIds.has(pin.messageId)) {
         id = pin.messageId
@@ -171,16 +193,26 @@ export function ChatView({
         const match = messages.find((m) => m.text.includes(snippet))
         if (match) id = match.messageId
       }
+
       if (id && !seen.has(id)) {
         seen.add(id)
         resolved.push(id)
       }
     }
-    dispatchMessageAction((prev) => ({
-      ...prev,
-      pinnedIds: resolved,
-    }))
-  }, [messages])
+
+    // Only update if the resolved set differs from current pinnedIds.
+    // We compare arrays to avoid infinite update loops.
+    const currentPinnedSet = new Set(messageActionState.pinnedIds)
+    const setsMatch = resolved.length === currentPinnedSet.size &&
+      resolved.every(id => currentPinnedSet.has(id))
+
+    if (!setsMatch) {
+      dispatchMessageAction((prev) => ({
+        ...prev,
+        pinnedIds: resolved,
+      }))
+    }
+  }, [messages, dbPins.pins, dbPins.loaded, messageActionState.pinnedIds])
   const activeSubKey =
     externalSubagentKey ?? internalSubagentKey ?? activeSubagent?.sessionKey ?? null
 
@@ -223,11 +255,11 @@ export function ChatView({
     )
     const resultMessage =
       [...assistantMessages]
-      .reverse()
-      .find((message) =>
-        /\bI spawned a subagent\b/i.test(message.text) ||
-        /\bDone\./i.test(message.text),
-      ) ?? assistantMessages.at(-1)
+        .reverse()
+        .find((message) =>
+          /\bI spawned a subagent\b/i.test(message.text) ||
+          /\bDone\./i.test(message.text),
+        ) ?? assistantMessages.at(-1)
     return cleanSubagentReply(resultMessage?.text ?? "")
   }, [activeSubagent, messages])
 
@@ -279,26 +311,37 @@ export function ChatView({
     )
     if (isPinned) {
       const msg = messages.find((m) => m.messageId === messageId)
-      pinnedDbRef.current = pinnedDbRef.current.filter(
-        (p) => p.messageId !== messageId,
-      )
+      const snippet = msg?.text?.slice(0, 80) ?? ""
+
+      setDbPins((prev) => ({
+        ...prev,
+        pins: prev.pins.filter((p) => {
+          // Match by exact ID or by text snippet (in case ID changed)
+          if (p.messageId === messageId) return false
+          if (snippet && p.messageText?.includes(snippet)) return false
+          return true
+        }),
+      }))
+
       invoke("middleware_pins_remove", {
         sessionKey,
         messageId,
         messageText: msg?.text?.slice(0, 200) ?? "",
-      }).catch(() => {})
+      }).catch(() => { })
     } else {
       const msg = messages.find((m) => m.messageId === messageId)
       const text = msg?.text?.slice(0, 200) ?? ""
-      pinnedDbRef.current = [
-        ...pinnedDbRef.current,
-        { messageId, messageText: text },
-      ]
+
+      setDbPins((prev) => ({
+        ...prev,
+        pins: [...prev.pins, { messageId, messageText: text }],
+      }))
+
       invoke("middleware_pins_add", {
         sessionKey,
         messageId,
         messageText: text,
-      }).catch(() => {})
+      }).catch(() => { })
     }
   }, [sessionKey, messages, messageActionState.pinnedIds])
 
@@ -308,11 +351,93 @@ export function ChatView({
     )
   }, [])
 
-  const reactToMessage = useCallback((messageId: string, reaction: "up" | "down") => {
-    dispatchMessageAction((prev) =>
-      messageActionReducer(prev, { type: "react", messageId, reaction }),
-    )
-  }, [])
+  const reactToMessage = useCallback(
+    (messageId: string, reaction: "up" | "down") => {
+      const current = messageActionState.reactions[messageId]
+      const isRemoving = current === reaction
+
+      dispatchMessageAction((prev) =>
+        messageActionReducer(prev, { type: "react", messageId, reaction }),
+      )
+
+      // Guard against double-clicks or rapid firing on the same message
+      const now = Date.now()
+      const lastTime = lastFeedbackTimesRef.current[messageId] || 0
+      if (now - lastTime < 500) return
+      lastFeedbackTimesRef.current[messageId] = now
+
+      if (isRemoving) {
+        invoke("middleware_message_feedback_delete", {
+          conversation_id: sessionKey,
+          message_id: messageId,
+        }).catch(() => { })
+        return
+      }
+
+      // Handle Feedback API (New or Changed)
+      const rating = reaction === "up" ? "thumbsUp" : "thumbsDown"
+      
+      let payload: any = {
+        conversation_id: sessionKey,
+        message_id: messageId,
+        rating,
+      }
+
+      if (reaction === "down") {
+        payload.tag_choices = [
+          "Incorrect or incomplete",
+          "Not what I asked for",
+          "Slow or buggy",
+          "Style or tone",
+          "Safety or legal concern",
+          "Other",
+        ]
+        payload.tags = ["Other"]
+      }
+
+      invoke("middleware_message_feedback", payload)
+        .then((res) => console.log("[Feedback Response]", res))
+        .catch(() => { })
+
+      if (reaction === "down") {
+        setFeedbackTargetId(messageId)
+        setFeedbackDialogOpen(true)
+      }
+    },
+    [sessionKey, messageActionState.reactions],
+  )
+
+  const handleScroll = useCallback(() => {
+    onScroll()
+    if (activePopoverId) setActivePopoverId(null)
+  }, [onScroll, activePopoverId])
+
+  const handleFeedbackSubmit = useCallback(
+    (feedback: { tags: string[]; details: string }) => {
+      if (!feedbackTargetId) return
+
+      const payload = {
+        conversation_id: sessionKey,
+        message_id: feedbackTargetId,
+        rating: "thumbsDown",
+        tag_choices: [
+          "Incorrect or incomplete",
+          "Not what I asked for",
+          "Slow or buggy",
+          "Style or tone",
+          "Safety or legal concern",
+          "Other",
+        ],
+        tags: feedback.tags,
+        details: feedback.details,
+      }
+
+      invoke("middleware_message_feedback", payload)
+        .then((res) => console.log("[Feedback Response]", res))
+        .catch(() => { })
+    },
+    [sessionKey, feedbackTargetId],
+  )
 
   const regenerateFromMessage = useCallback((messageId: string) => {
     const target = messages.find((message) => message.messageId === messageId)
@@ -341,11 +466,11 @@ export function ChatView({
 
   const statusText =
     status === "thinking" ? "Thinking..."
-    : status === "tool_running" ? `Running${statusLabel ? ` · ${statusLabel}` : " tool"}...`
-    : status === "streaming" ? "Responding..."
-    : status === "stopping" ? "Stopping..."
-    : status === "restarting" ? "Restarting..."
-    : null
+      : status === "tool_running" ? `Running${statusLabel ? ` · ${statusLabel}` : " tool"}...`
+        : status === "streaming" ? "Responding..."
+          : status === "stopping" ? "Stopping..."
+            : status === "restarting" ? "Restarting..."
+              : null
 
   if (loading) {
     return (
@@ -420,34 +545,60 @@ export function ChatView({
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
+    <div className="relative flex h-full w-full flex-col overflow-hidden">
+      {/* Sub-header for chat actions & pins */}
+      <div className="z-40 flex h-9 shrink-0 items-center justify-between bg-background/70 px-4 backdrop-blur-[2px]">
+        <div className="flex items-center gap-4">
+          {/* <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground/50">
+            <Icons.BubbleChat size={12} className="opacity-50" />
+            <span className="uppercase tracking-widest">Conversation</span>
+          </div> */}
+        </div>
+
+        <div className="relative">
+          <button
+            onClick={() => setPinnedPopoverOpen(!pinnedPopoverOpen)}
+            className={cn(
+              "group relative flex size-8 items-center justify-center rounded-sm transition-all cursor-pointer",
+              pinnedPopoverOpen
+                ? " text-foreground shadow-inner"
+                : "text-muted-foreground/60 hover:text-foreground"
+            )}
+          >
+            <Icons.Pin
+              size={16}
+              className={cn("transition-transform", pinnedPopoverOpen && "scale-110")}
+            />
+          </button>
+
+          <PinnedMessagesPopover
+            open={pinnedPopoverOpen}
+            onClose={() => setPinnedPopoverOpen(false)}
+            pinned={pinned}
+            onTogglePin={togglePin}
+            onNavigateToMessage={(id) => {
+              document
+                .getElementById(`message-${id}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+            }}
+          />
+        </div>
+      </div>
+
+      <MessageFeedbackDialog
+        open={feedbackDialogOpen}
+        onClose={() => setFeedbackDialogOpen(false)}
+        onSubmit={handleFeedbackSubmit}
+      />
+
       <div
         ref={scrollContainerRef}
-        onScroll={onScroll}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto"
       >
         <div className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
-            {pinned.length > 0 && (
-              <div className="sticky top-2 z-10 mb-3 rounded-xl border border-border/20 bg-white/10 p-2 backdrop-blur">
-                <div className="flex gap-2 overflow-x-auto pb-3">
-                  {pinned.map((message) => (
-                    <button
-                      key={message.messageId}
-                      type="button"
-                      onClick={() => {
-                        document
-                          .getElementById(`message-${message.messageId}`)
-                          ?.scrollIntoView({ behavior: "smooth", block: "center" })
-                      }}
-                      className="max-w-52 shrink-0 truncate rounded-lg bg-card px-3 py-1.5 text-left text-[11px] text-foreground/70 hover:bg-foreground/5"
-                    >
-                      {message.text}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+
             {renderedMessages.map((msg, i) => {
               const isLast = i === renderedMessages.length - 1
               const showPending =
@@ -519,6 +670,8 @@ export function ChatView({
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
                       isActivelyStreaming={isActivelyStreaming}
+                      popoverOpen={activePopoverId === msg.messageId}
+                      onPopoverOpenChange={(open) => setActivePopoverId(open ? msg.messageId : null)}
                     />
                   )}
                   {msg.role === "user" && allSubagents.length > 0 && (
