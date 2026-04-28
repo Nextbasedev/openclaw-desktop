@@ -78,6 +78,7 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
           <PopoverTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               title="Topic options"
               className={cn(
                 "absolute flex h-5 w-5 cursor-pointer items-center justify-center rounded transition-all duration-100",
