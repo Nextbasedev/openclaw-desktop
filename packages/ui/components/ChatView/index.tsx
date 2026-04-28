@@ -20,6 +20,7 @@ import {
   quotePrefix,
   visibleMessages,
 } from "@/lib/messageActions"
+import { invoke } from "@/lib/ipc"
 import type { SpawnedSubagent } from "./types"
 
 type Props = {
@@ -134,6 +135,52 @@ export function ChatView({
     initialMessageActionState,
   )
   const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
+
+  const pinnedDbRef = useRef<Array<{ messageId: string; messageText: string }>>([])
+
+  useEffect(() => {
+    dispatchMessageAction(initialMessageActionState)
+    pinnedDbRef.current = []
+    invoke<{ pins: Array<{ messageId: string; messageText: string }> }>("middleware_pins_list", {
+      sessionKey,
+    })
+      .then(({ pins }) => {
+        pinnedDbRef.current = pins
+        dispatchMessageAction((prev) => ({
+          ...prev,
+          pinnedIds: pins.map((p) => p.messageId),
+        }))
+      })
+      .catch(() => {})
+  }, [sessionKey])
+
+  useEffect(() => {
+    const dbPins = pinnedDbRef.current
+    if (dbPins.length === 0 || messages.length === 0) return
+    const currentIds = new Set(messages.map((m) => m.messageId))
+    const hasUnmatched = dbPins.some((p) => !currentIds.has(p.messageId))
+    if (!hasUnmatched) return
+    const seen = new Set<string>()
+    const resolved: string[] = []
+    for (const pin of dbPins) {
+      let id: string | undefined
+      if (currentIds.has(pin.messageId)) {
+        id = pin.messageId
+      } else if (pin.messageText) {
+        const snippet = pin.messageText.slice(0, 80)
+        const match = messages.find((m) => m.text.includes(snippet))
+        if (match) id = match.messageId
+      }
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        resolved.push(id)
+      }
+    }
+    dispatchMessageAction((prev) => ({
+      ...prev,
+      pinnedIds: resolved,
+    }))
+  }, [messages])
   const activeSubKey =
     externalSubagentKey ?? internalSubagentKey ?? activeSubagent?.sessionKey ?? null
 
@@ -223,13 +270,37 @@ export function ChatView({
   }, [messages])
 
   const togglePin = useCallback((messageId: string) => {
+    const isPinned = messageActionState.pinnedIds.includes(messageId)
     dispatchMessageAction((prev) =>
       messageActionReducer(prev, {
-        type: prev.pinnedIds.includes(messageId) ? "unpin" : "pin",
+        type: isPinned ? "unpin" : "pin",
         messageId,
       }),
     )
-  }, [])
+    if (isPinned) {
+      const msg = messages.find((m) => m.messageId === messageId)
+      pinnedDbRef.current = pinnedDbRef.current.filter(
+        (p) => p.messageId !== messageId,
+      )
+      invoke("middleware_pins_remove", {
+        sessionKey,
+        messageId,
+        messageText: msg?.text?.slice(0, 200) ?? "",
+      }).catch(() => {})
+    } else {
+      const msg = messages.find((m) => m.messageId === messageId)
+      const text = msg?.text?.slice(0, 200) ?? ""
+      pinnedDbRef.current = [
+        ...pinnedDbRef.current,
+        { messageId, messageText: text },
+      ]
+      invoke("middleware_pins_add", {
+        sessionKey,
+        messageId,
+        messageText: text,
+      }).catch(() => {})
+    }
+  }, [sessionKey, messages, messageActionState.pinnedIds])
 
   const deleteMessage = useCallback((messageId: string) => {
     dispatchMessageAction((prev) =>
@@ -320,12 +391,11 @@ export function ChatView({
     )
   }
 
+  const assistantMessages = messages.filter((m) => m.role === "assistant")
   const lastTwoAssistantIds = new Set(
-    messages
-      .filter((m) => m.role === "assistant")
-      .slice(-2)
-      .map((m) => m.messageId),
+    assistantMessages.slice(-2).map((m) => m.messageId),
   )
+  const lastAssistantId = assistantMessages.at(-1)?.messageId
 
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
     tools.filter((t) => t.tool !== "sessions_spawn" && t.tool !== "subagents" && t.tool !== "sessions_yield")
@@ -359,8 +429,8 @@ export function ChatView({
         <div className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
             {pinned.length > 0 && (
-              <div className="sticky top-2 z-10 mb-3 rounded-xl border border-border/20 bg-background/80 p-2 backdrop-blur">
-                <div className="flex gap-2 overflow-x-auto">
+              <div className="sticky top-2 z-10 mb-3 rounded-xl border border-border/20 bg-white/10 p-2 backdrop-blur">
+                <div className="flex gap-2 overflow-x-auto pb-3">
                   {pinned.map((message) => (
                     <button
                       key={message.messageId}
@@ -442,7 +512,7 @@ export function ChatView({
                       onReply={replyToMessage}
                       onPin={togglePin}
                       onDelete={deleteMessage}
-                      onRegenerate={msg.role === "assistant" ? regenerateFromMessage : undefined}
+                      onRegenerate={msg.role === "assistant" && msg.messageId === lastAssistantId ? regenerateFromMessage : undefined}
                       onReact={msg.role === "assistant" ? reactToMessage : undefined}
                       onExport={exportOneMessage}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
@@ -488,7 +558,7 @@ export function ChatView({
             </div>
           )}
 
-          <div ref={bottomRef} className="h-px" />
+          <div ref={bottomRef} className="h-32" />
         </div>
       </div>
 

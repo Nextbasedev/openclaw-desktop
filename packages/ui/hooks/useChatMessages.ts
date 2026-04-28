@@ -110,6 +110,7 @@ export function useChatMessages(
 
   const [pendingTools, setPendingTools] = useState<InlineToolCall[]>([])
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
+  const embedsMapRef = useRef<Map<string, { ref: string; content: string; title?: string }>>(new Map())
 
   const [spawnedSubagents, setSpawnedSubagents] = useState<SpawnedSubagent[]>([])
   const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
@@ -289,6 +290,15 @@ export function useChatMessages(
               }
               pendingToolMapRef.current.set(toolCallId, tc)
             }
+            if (name === "write") {
+              const args = (ev as Record<string, unknown>).args as Record<string, unknown> | undefined
+              const ref = args?.ref as string | undefined
+              const content = args?.content as string | undefined
+              const title = args?.title as string | undefined
+              if (ref && content) {
+                embedsMapRef.current.set(ref, { ref, content, title })
+              }
+            }
             if (name === "sessions_spawn" && !spawnMapRef.current.has(toolCallId)) {
               const args = (ev as Record<string, unknown>).args as Record<string, unknown> | undefined
               const taskStr = (args?.task as string) ?? ""
@@ -349,9 +359,12 @@ export function useChatMessages(
           const text = rawText.trim()
           if (!text) break
           const timestamp = ev.createdAt || new Date().toISOString()
+          const pendingEmbeds = embedsMapRef.current.size > 0
+            ? Array.from(embedsMapRef.current.values())
+            : undefined
           if (seenIds.current.has(id)) {
             setMessages((prev) =>
-              prev.map((m) => (m.messageId === id ? { ...m, text, createdAt: m.createdAt || timestamp } : m))
+              prev.map((m) => (m.messageId === id ? { ...m, text, createdAt: m.createdAt || timestamp, embeds: pendingEmbeds ?? m.embeds } : m))
             )
           } else {
             seenIds.current.add(id)
@@ -368,20 +381,20 @@ export function useChatMessages(
                   const longer = text.length >= lastTrimmed.length ? text : lastTrimmed
                   return prev.map((m) =>
                     m.messageId === lastAssistant.messageId
-                      ? { ...m, text: longer, messageId: id, createdAt: m.createdAt || timestamp }
+                      ? { ...m, text: longer, messageId: id, createdAt: m.createdAt || timestamp, embeds: pendingEmbeds ?? m.embeds }
                       : m,
                   )
                 }
                 const merged = lastTrimmed + "\n\n" + text
                 return prev.map((m) =>
                   m.messageId === lastAssistant.messageId
-                    ? { ...m, text: merged, messageId: id, createdAt: m.createdAt || timestamp }
+                    ? { ...m, text: merged, messageId: id, createdAt: m.createdAt || timestamp, embeds: pendingEmbeds ?? m.embeds }
                     : m,
                 )
               }
               return [
                 ...prev.filter((m) => m.messageId !== id),
-                { messageId: id, role: "assistant", text, createdAt: timestamp, model: ev.model },
+                { messageId: id, role: "assistant", text, createdAt: timestamp, model: ev.model, embeds: pendingEmbeds },
               ]
             })
           }
@@ -457,6 +470,7 @@ export function useChatMessages(
         const histMsgs: ChatMessage[] = []
         let pendingToolCalls: InlineToolCall[] = []
         let resultQueue: InlineToolCall[] = []
+        const historyEmbeds = new Map<string, { ref: string; content: string; title?: string }>()
         const historySpawns: Array<{
           toolCallId: string
           label: string
@@ -505,6 +519,15 @@ export function useChatMessages(
               }
               pendingToolCalls.push(call)
               resultQueue.push(call)
+              if (b.name === "write") {
+                const args = (b.arguments ?? b.input ?? {}) as Record<string, unknown>
+                const ref = args.ref as string | undefined
+                const content = args.content as string | undefined
+                const title = args.title as string | undefined
+                if (ref && content) {
+                  historyEmbeds.set(ref, { ref, content, title })
+                }
+              }
               if (b.name === "sessions_spawn") {
                 const args = (b.arguments ?? b.input ?? {}) as Record<string, unknown>
                 const histTask = (args.task as string) ?? ""
@@ -522,11 +545,15 @@ export function useChatMessages(
 
             const text = (m.text || extractText(m.content))?.trim()
             if (text) {
+              const currentEmbeds = historyEmbeds.size > 0
+                ? Array.from(historyEmbeds.values())
+                : undefined
               const lastEntry = histMsgs[histMsgs.length - 1]
               if (lastEntry?.role === "assistant") {
                 lastEntry.text = lastEntry.text + "\n\n" + text
                 lastEntry.messageId = id
                 lastEntry.createdAt = m.createdAt || lastEntry.createdAt
+                if (currentEmbeds) lastEntry.embeds = [...(lastEntry.embeds ?? []), ...currentEmbeds]
                 if (pendingToolCalls.length > 0) {
                   lastEntry.toolCalls = [...(lastEntry.toolCalls || []), ...pendingToolCalls]
                 }
@@ -538,6 +565,7 @@ export function useChatMessages(
                   createdAt: m.createdAt,
                   model: m.model,
                   toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+                  embeds: currentEmbeds,
                 })
               }
               pendingToolCalls = []

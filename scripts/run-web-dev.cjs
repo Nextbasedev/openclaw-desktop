@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process")
 const http = require("node:http")
+const path = require("node:path")
 
 function checkHttp(url, match) {
   return new Promise((resolve) => {
@@ -28,7 +29,7 @@ function checkNextServer() {
 }
 
 function checkJarvisServer() {
-  return checkHttp("http://127.0.0.1:3001/health", (response) =>
+  return checkHttp("http://127.0.0.1:4000/health", (response) =>
     response.statusCode === 200,
   )
 }
@@ -45,6 +46,16 @@ function spawnPnpm(args) {
   return spawn("pnpm", args, {
     stdio: "inherit",
     env: process.env,
+  })
+}
+
+function spawnNode(scriptPath) {
+  const absoluteScriptPath = path.resolve(__dirname, "..", scriptPath)
+
+  return spawn(process.execPath, [absoluteScriptPath], {
+    stdio: "inherit",
+    env: process.env,
+    cwd: process.cwd(),
   })
 }
 
@@ -67,7 +78,7 @@ async function main() {
   }
 
   if (serverRunning) {
-    console.log("Reusing existing Jarvis server on http://127.0.0.1:3001")
+    console.log("Reusing existing Jarvis server on http://127.0.0.1:4000")
   }
 
   const children = []
@@ -77,7 +88,7 @@ async function main() {
   }
 
   if (!nextRunning) {
-    children.push(spawnPnpm(["--filter", "ui", "dev"]))
+    children.push(spawnNode("scripts/run-ui-dev.cjs"))
   }
 
   if (children.length === 0) {

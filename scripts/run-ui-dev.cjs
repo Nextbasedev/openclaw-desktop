@@ -23,6 +23,30 @@ function checkNextServer(url) {
   });
 }
 
+function spawnPnpm(args) {
+  if (process.platform === "win32") {
+    const command = ["pnpm", ...args].map(quoteWindowsArg).join(" ");
+
+    return spawn("cmd.exe", ["/d", "/s", "/c", command], {
+      stdio: "inherit",
+      env: process.env,
+    });
+  }
+
+  return spawn("pnpm", args, {
+    stdio: "inherit",
+    env: process.env,
+  });
+}
+
+function quoteWindowsArg(arg) {
+  if (!/[ \t"]/u.test(arg)) {
+    return arg;
+  }
+
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
 async function main() {
   const nextServerRunning = await checkNextServer("http://127.0.0.1:3000");
   if (nextServerRunning) {
@@ -30,11 +54,7 @@ async function main() {
     return;
   }
 
-  const executable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  const child = spawn(executable, ["--filter", "ui", "dev"], {
-    stdio: "inherit",
-    env: process.env,
-  });
+  const child = spawnPnpm(["--filter", "ui", "dev"]);
 
   child.on("exit", (code, signal) => {
     if (signal) {

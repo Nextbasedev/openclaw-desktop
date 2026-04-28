@@ -25,6 +25,7 @@ import * as models from "../services/models.service.js"
 import * as repos from "../services/repos.service.js"
 import * as version from "../services/version.service.js"
 import * as sandbox from "../services/sandbox.service.js"
+import * as pins from "../services/pins.service.js"
 
 type Handler = (input: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -260,4 +261,9 @@ export const commandRegistry: Record<string, Handler> = {
 
   // Sandbox
   middleware_sandbox_cleanup_audit_data: (i) => sandbox.sandboxCleanupAuditData(i as { dryRun?: boolean } | undefined),
+
+  // Pinned Messages
+  middleware_pins_list: (i) => pins.pinsList(i as { sessionKey: string }),
+  middleware_pins_add: (i) => pins.pinsAdd(i as { sessionKey: string; messageId: string; messageText: string }),
+  middleware_pins_remove: (i) => pins.pinsRemove(i as { sessionKey: string; messageId: string }),
 }

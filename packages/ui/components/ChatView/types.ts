@@ -28,6 +28,12 @@ export type MessageBranch = {
   }
 }
 
+export type EmbedContent = {
+  ref: string
+  content: string
+  title?: string
+}
+
 export type ChatMessage = {
   messageId: string
   role: "user" | "assistant"
@@ -38,6 +44,7 @@ export type ChatMessage = {
   toolCalls?: InlineToolCall[]
   branches?: MessageBranch[]
   activeBranch?: number
+  embeds?: EmbedContent[]
   attachments?: Array<{
     name: string
     mimeType: string

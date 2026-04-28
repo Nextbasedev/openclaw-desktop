@@ -26,6 +26,7 @@ type Props = {
   onRename: () => void
   onArchive: () => void
   onDelete: () => void
+  disableReorder?: boolean
 }
 
 export function ChatRow({
@@ -38,6 +39,7 @@ export function ChatRow({
   onRename,
   onArchive,
   onDelete,
+  disableReorder,
 }: Props) {
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
@@ -48,25 +50,8 @@ export function ChatRow({
   const timeStr = formatCompactTime(chat.updatedAt)
   const displayName = chatDisplayName(chat)
 
-  return (
-    <Reorder.Item
-      value={chatId}
-      dragListener={false}
-      dragControls={controls}
-      as="div"
-      layout="position"
-      transition={{
-        layout: {
-          type: "tween",
-          duration: 0.15,
-          ease: [0.2, 0, 0, 1],
-        },
-      }}
-      className="group/row relative flex min-w-0 items-center rounded-md"
-      style={{ position: "relative", boxShadow: "none" }}
-      whileDrag={{ boxShadow: "none" }}
-      {...longPress}
-    >
+  const rowContent = (
+    <>
       <button
         onClick={onClick}
         className={cn(
@@ -172,6 +157,40 @@ export function ChatRow({
           </PopoverContent>
         </Popover>
       </div>
+    </>
+  )
+
+  if (disableReorder) {
+    return (
+      <div
+        className="group/row relative flex min-w-0 items-center rounded-md"
+        style={{ position: "relative" }}
+      >
+        {rowContent}
+      </div>
+    )
+  }
+
+  return (
+    <Reorder.Item
+      value={chatId}
+      dragListener={false}
+      dragControls={controls}
+      as="div"
+      layout="position"
+      transition={{
+        layout: {
+          type: "tween",
+          duration: 0.15,
+          ease: [0.2, 0, 0, 1],
+        },
+      }}
+      className="group/row relative flex min-w-0 items-center rounded-md"
+      style={{ position: "relative", boxShadow: "none" }}
+      whileDrag={{ boxShadow: "none" }}
+      {...longPress}
+    >
+      {rowContent}
     </Reorder.Item>
   )
 }

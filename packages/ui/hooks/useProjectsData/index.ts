@@ -155,7 +155,9 @@ export function useProjectsData(
       const result = await invoke<{ projects: Project[] }>(
         "middleware_projects_list"
       )
-      const active = (result.projects || []).filter((p) => !p.archived)
+      const active = (result.projects || []).filter(
+        (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
+      )
       setProjects(active)
     } catch (e) {
       console.error("[ProjectsSection] load projects failed", e)
