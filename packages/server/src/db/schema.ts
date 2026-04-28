@@ -155,6 +155,16 @@ export function initDb(db: Database.Database): void {
       repo_root TEXT,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS pinned_messages (
+      id TEXT PRIMARY KEY,
+      session_key TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      message_text TEXT NOT NULL,
+      pinned_at TEXT NOT NULL,
+      UNIQUE(session_key, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pinned_messages_session ON pinned_messages(session_key);
   `)
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [

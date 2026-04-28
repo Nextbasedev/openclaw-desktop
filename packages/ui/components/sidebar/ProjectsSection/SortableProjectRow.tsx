@@ -34,6 +34,7 @@ type Props = {
   onArchiveTopic: (topic: FullTopic) => void
   onDeleteTopic: (topic: FullTopic) => void
   onTopicReorder: (newOrder: string[]) => void
+  disableReorder?: boolean
 }
 
 export function SortableProjectRow({
@@ -41,6 +42,7 @@ export function SortableProjectRow({
   activeTopic, topics, topicOrderForProject, pinnedTopics, loadingProject,
   onProjectClick, onTogglePinProject, onOpenAddTopic, onRenameProject,
   onArchiveProject, onDeleteProject, onTopicSelect, onPinTopic, onRenameTopic, onArchiveTopic, onDeleteTopic, onTopicReorder,
+  disableReorder,
 }: Props) {
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
@@ -50,19 +52,8 @@ export function SortableProjectRow({
 
   const isLoading = loadingProject === projectId
 
-  return (
-    <Reorder.Item
-      value={projectId}
-      dragListener={false}
-      dragControls={controls}
-      as="div"
-      layout="position"
-      transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
-      className="flex flex-col"
-      style={{ position: "relative", boxShadow: "none" }}
-      whileDrag={{ boxShadow: "none" }}
-      {...longPress}
-    >
+  const rowContent = (
+    <>
       <div className="group/row group/project relative flex items-center">
         <button
           onClick={onProjectClick}
@@ -142,6 +133,31 @@ export function SortableProjectRow({
           </div>
         </div>
       </div>
+    </>
+  )
+
+  if (disableReorder) {
+    return (
+      <div className="flex flex-col" style={{ position: "relative" }}>
+        {rowContent}
+      </div>
+    )
+  }
+
+  return (
+    <Reorder.Item
+      value={projectId}
+      dragListener={false}
+      dragControls={controls}
+      as="div"
+      layout="position"
+      transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
+      className="flex flex-col"
+      style={{ position: "relative", boxShadow: "none" }}
+      whileDrag={{ boxShadow: "none" }}
+      {...longPress}
+    >
+      {rowContent}
     </Reorder.Item>
   )
 }

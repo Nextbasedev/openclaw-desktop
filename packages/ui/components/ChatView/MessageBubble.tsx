@@ -4,22 +4,23 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import {
-  LuBookmark,
   LuCheck,
   LuChevronLeft,
   LuChevronRight,
   LuCopy,
-  LuFileDown,
+  LuEllipsisVertical,
   LuPenLine,
   LuPin,
   LuRefreshCw,
   LuReply,
   LuThumbsDown,
   LuThumbsUp,
-  LuTrash,
   LuX,
 } from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
@@ -191,7 +192,7 @@ export function MessageBubble({
         isUser ? "justify-end" : "justify-start",
       )}
     >
-      <div className={cn("flex min-w-0 max-w-[85%] flex-col", isUser ? "items-end" : "items-start")}>
+      <div className={cn("flex min-w-0 max-w-[85%] flex-col", isUser ? "items-end" : "w-[85%] items-start")}>
         {isUser && editing ? (
           <div className="flex w-full min-w-[280px] flex-col gap-2 rounded-2xl border border-border/30 bg-foreground/5 p-3">
             <textarea
@@ -224,21 +225,21 @@ export function MessageBubble({
             </div>
           </div>
         ) : (
-        <div
-          className={cn(
-            "min-w-0 max-w-full text-[14px] leading-relaxed",
-            isUser
-              ? "rounded-2xl rounded-tr-sm bg-foreground px-4 py-2.5 text-background"
-              : "text-foreground",
-          )}
-        >
-          {isUser ? (
-            <p className="whitespace-pre-wrap">{message.text}</p>
-          ) : (
-            <MarkdownContent text={message.text} />
-          )}
-          <RichContentPreview message={message} />
-        </div>
+          <div
+            className={cn(
+              "min-w-0 max-w-full text-[14px] leading-relaxed",
+              isUser
+                ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                : "w-full text-foreground",
+            )}
+          >
+            {isUser ? (
+              <p className="whitespace-pre-wrap">{message.text}</p>
+            ) : (
+              <MarkdownContent text={message.text} embeds={message.embeds} />
+            )}
+            <RichContentPreview message={message} />
+          </div>
         )}
         {isUser ? (
           <div className="mt-1 flex items-center gap-1 flex-row-reverse">
@@ -285,42 +286,7 @@ export function MessageBubble({
                   {formatTime(message.createdAt)}
                 </span>
               )}
-              <CopyButton text={message.text} />
-              <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
-                {onReply && (
-                  <button
-                    type="button"
-                    onClick={() => onReply(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label="Reply"
-                  >
-                    <LuReply className="size-3.5" />
-                  </button>
-                )}
-                {onPin && (
-                  <button
-                    type="button"
-                    onClick={() => onPin(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label={isPinned ? "Unpin" : "Pin"}
-                  >
-                    {isPinned ? (
-                      <LuBookmark className="size-3.5" />
-                    ) : (
-                      <LuPin className="size-3.5" />
-                    )}
-                  </button>
-                )}
-                {onRegenerate && (
-                  <button
-                    type="button"
-                    onClick={() => onRegenerate(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label="Regenerate"
-                  >
-                    <LuRefreshCw className="size-3.5" />
-                  </button>
-                )}
+              <div className="flex items-center gap-0.5">
                 {onReact && (
                   <>
                     <button
@@ -351,25 +317,47 @@ export function MessageBubble({
                     </button>
                   </>
                 )}
-                {onExport && (
-                  <button
-                    type="button"
-                    onClick={() => onExport(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label="Copy as markdown"
-                  >
-                    <LuFileDown className="size-3.5" />
-                  </button>
-                )}
-                {onDelete && (
-                  <button
-                    type="button"
-                    onClick={() => onDelete(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-rose-400"
-                    aria-label="Delete"
-                  >
-                    <LuTrash className="size-3.5" />
-                  </button>
+                <CopyButton text={message.text} />
+                {(onPin || onReply || onRegenerate) && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded transition-all duration-100 text-foreground/30 hover:text-foreground/60"
+                        aria-label="More actions"
+                      >
+                        <LuEllipsisVertical className="size-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      side="right"
+                      sideOffset={4}
+                      className={cn("w-36 gap-0 p-1", GLASS_POPOVER)}
+                    >
+                      {onPin && (
+                        <MenuAction
+                          label={isPinned ? "Unpin" : "Pin"}
+                          icon={<LuPin className="size-3.5" />}
+                          onClick={() => onPin(message.messageId)}
+                        />
+                      )}
+                      {onReply && (
+                        <MenuAction
+                          label="Reply"
+                          icon={<LuReply className="size-3.5" />}
+                          onClick={() => onReply(message.messageId)}
+                        />
+                      )}
+                      {onRegenerate && (
+                        <MenuAction
+                          label="Regenerate"
+                          icon={<LuRefreshCw className="size-3.5" />}
+                          onClick={() => onRegenerate(message.messageId)}
+                        />
+                      )}
+                    </PopoverContent>
+                  </Popover>
                 )}
               </div>
             </div>

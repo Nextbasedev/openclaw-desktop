@@ -79,9 +79,15 @@ export function pinnedMessages(
   state: MessageActionState,
 ): ChatMessage[] {
   const byId = new Map(messages.map((message) => [message.messageId, message]))
-  return state.pinnedIds
-    .map((id) => byId.get(id))
-    .filter((message): message is ChatMessage => Boolean(message))
+  const seen = new Set<string>()
+  const result: ChatMessage[] = []
+  for (const id of state.pinnedIds) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    const msg = byId.get(id)
+    if (msg) result.push(msg)
+  }
+  return result
 }
 
 export function quotePrefix(text: string): string {
