@@ -3,6 +3,7 @@
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
+import { emit } from "@/lib/events"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
@@ -18,7 +19,7 @@ import {
   extractSubagentSessionKey,
 } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
-import { parseChatHistory } from "@/lib/chatHistoryParser"
+import { parseChatHistory, extractReplyBlock } from "@/lib/chatHistoryParser"
 
 type RawMessage = {
   id?: string
@@ -493,12 +494,14 @@ export function useChatMessages(
             } else if (autoAnnouncesToSkip > 0) {
               autoAnnouncesToSkip--
             } else if (text) {
+              const reply = extractReplyBlock(text, histMsgs)
               histMsgs.push({
                 messageId: id,
                 role: "user",
-                text,
+                text: reply ? reply.displayText : text,
                 createdAt: m.createdAt,
                 model: m.model,
+                replyTo: reply?.replyTo,
               })
             }
             pendingToolCalls = []
@@ -785,9 +788,6 @@ export function useChatMessages(
 
   const handleSend = useCallback(async (payload: ChatComposerSubmit) => {
     const trimmed = payload.text.trim()
-    // Use a synchronous ref guard to prevent duplicate calls within the
-    // same tick (React state is batched, so isSending would still be false
-    // on a rapid-fire second call).
     if (!trimmed || sendingGuardRef.current) return
     sendingGuardRef.current = true
     setIsSending(true)
@@ -800,9 +800,25 @@ export function useChatMessages(
     }
     setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
     doneAfterYieldRef.current = 0
+
+    const replyTo = payload.replyTo ?? undefined
+    const snippet = replyTo
+      ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
+      : undefined
+    const gatewayText = snippet
+      ? `> ${snippet.split("\n").join("\n> ")}\n\n${trimmed}`
+      : trimmed
+
     setMessages((prev) => [
       ...prev,
-      { messageId: optimisticId, role: "user", text: trimmed, createdAt: new Date().toISOString(), isOptimistic: true },
+      {
+        messageId: optimisticId,
+        role: "user" as const,
+        text: trimmed,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        replyTo,
+      },
     ])
     setStatus("thinking")
     forceScrollToBottom(false)
@@ -816,10 +832,14 @@ export function useChatMessages(
       await invoke("middleware_chat_send", {
         input: {
           sessionKey,
-          text: trimmed,
+          text: gatewayText,
           attachments: payload.attachments,
+          replyTo: replyTo
+            ? { messageId: replyTo.messageId, snippet: snippet! }
+            : undefined,
         },
       })
+      emit("chat:activity")
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
@@ -831,6 +851,53 @@ export function useChatMessages(
       setIsSending(false)
     }
   }, [isGenerating, sessionKey, forceScrollToBottom])
+
+  const handleRegenerate = useCallback(async (assistantMessageId: string) => {
+    if (sendingGuardRef.current || isGenerating) return
+
+    const currentMessages = messages
+    const assistantIdx = currentMessages.findIndex(
+      (m) => m.messageId === assistantMessageId,
+    )
+    if (assistantIdx === -1) return
+
+    const precedingUser = assistantIdx > 0 && currentMessages[assistantIdx - 1].role === "user"
+      ? currentMessages[assistantIdx - 1]
+      : null
+    const resendText = precedingUser?.text?.trim() || "Continue."
+
+    sendingGuardRef.current = true
+    setIsSending(true)
+    setErrorMessage(null)
+    pendingToolMapRef.current.clear()
+    setPendingTools([])
+    doneAfterYieldRef.current = 0
+
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.messageId === assistantMessageId)
+      if (idx === -1) return prev
+      return prev.slice(0, idx)
+    })
+
+    setStatus("thinking")
+    forceScrollToBottom(false)
+
+    try {
+      await invoke("middleware_chat_regenerate", {
+        input: {
+          sessionKey,
+          messageId: assistantMessageId,
+          text: resendText,
+        },
+      })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error))
+      setStatus("error")
+    } finally {
+      sendingGuardRef.current = false
+      setIsSending(false)
+    }
+  }, [isGenerating, sessionKey, forceScrollToBottom, messages])
 
   const handleAbort = useCallback(async () => {
     setStatus("stopping")
@@ -989,7 +1056,7 @@ export function useChatMessages(
   return {
     messages, status, statusLabel, loading, loadError, errorMessage,
     isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
-    handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
-    spawnedSubagents,
+    handleSend, handleAbort, handleEdit, handleRegenerate, switchBranch,
+    pendingTools, spawnedSubagents,
   }
 }

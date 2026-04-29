@@ -11,10 +11,12 @@ import { useSlashCommands } from "@/hooks/useSlashCommands"
 import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { useModels } from "@/hooks/useModels"
 import { useVoiceInput } from "@/hooks/useVoiceInput"
+import { LuX } from "react-icons/lu"
 import {
   stripComposerAttachment,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
+import type { ReplyTo } from "@/components/ChatView/types"
 import {
   composeBatch,
   composerReducer,
@@ -29,6 +31,8 @@ type Props = {
   disabled?: boolean
   isGenerating?: boolean
   onAbort?: () => void
+  replyTo?: ReplyTo | null
+  onCancelReply?: () => void
 }
 
 export function ChatBox({
@@ -38,6 +42,8 @@ export function ChatBox({
   onAbort,
   initialPrompt,
   errorMessage,
+  replyTo,
+  onCancelReply,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [planEnabled, setPlanEnabled] = React.useState(false)
@@ -196,11 +202,12 @@ export function ChatBox({
   async function handleSend() {
     const text = input.trim()
     if (!text || disabled || isPreparingAttachments) return
-    const payload = {
+    const payload: ChatComposerSubmit = {
       text,
       attachments: attachments.length > 0
         ? attachments.map(stripComposerAttachment)
         : undefined,
+      replyTo: replyTo ?? undefined,
     }
     setInput("")
     if (textareaRef.current) textareaRef.current.style.height = "auto"
@@ -257,6 +264,36 @@ export function ChatBox({
             : "border-border/50"
         )}
       >
+        <AnimatePresence initial={false}>
+          {replyTo && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-start gap-2 border-b border-border/30 px-3 pb-2 pt-2.5 bg-[#252529] rounded-t-xl">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[11px] font-medium text-muted-foreground/70">
+                    {replyTo.role === "user" ? "You" : "Assistant"}
+                  </span>
+                  <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/60">
+                    {replyTo.text}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onCancelReply}
+                  className="mt-0.5 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-foreground/30 transition-colors hover:text-foreground/60"
+                  aria-label="Cancel reply"
+                >
+                  <LuX className="size-3.5" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AttachmentPreviewList
           attachments={attachments}
           isPreparing={isPreparingAttachments}
@@ -318,6 +355,11 @@ export function ChatBox({
                   setSlashMenuOpen(false)
                   return
                 }
+              }
+              if (e.key === "Escape" && replyTo && onCancelReply) {
+                e.preventDefault()
+                onCancelReply()
+                return
               }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault()

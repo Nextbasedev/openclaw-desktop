@@ -186,17 +186,40 @@ export function MessageBubble({
   return (
     <motion.div
       initial={shouldAnimateSend ? { opacity: 0, y: 12, scale: 0.985 } : false}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{
-        duration: shouldAnimateSend ? 0.16 : 0.12,
+      animate={shouldAnimateSend ? { opacity: 1, y: 0, scale: 1 } : undefined}
+      transition={shouldAnimateSend ? {
+        duration: 0.16,
         ease: [0.22, 1, 0.36, 1],
-      }}
+      } : { duration: 0 }}
       className={cn(
         "group/msg flex w-full min-w-0 transform-gpu",
         isUser ? "justify-end" : "justify-start",
       )}
     >
       <div className={cn("flex min-w-0 max-w-[85%] flex-col", isUser ? "items-end" : "w-[85%] items-start")}>
+        {message.replyTo && (
+          <button
+            type="button"
+            onClick={() => {
+              document
+                .getElementById(`message-${message.replyTo!.messageId}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+            }}
+            className={cn(
+              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-border/20 bg-foreground/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.06]",
+            )}
+          >
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-medium text-muted-foreground/60">
+                {message.replyTo.role === "user" ? "You" : "Assistant"}
+              </span>
+              <p className="line-clamp-2 text-[12px] leading-snug text-foreground/50">
+                {message.replyTo.text.slice(0, 150)}
+                {message.replyTo.text.length > 150 ? "…" : ""}
+              </p>
+            </div>
+          </button>
+        )}
         {isUser && editing ? (
           <div className="flex w-full min-w-[280px] flex-col gap-2 rounded-2xl border border-border/30 bg-foreground/5 p-3">
             <textarea
@@ -297,7 +320,6 @@ export function MessageBubble({
                       {(reaction === "up" || !reaction) && (
                         <motion.button
                           key="up"
-                          layout
                           initial={{ opacity: 0, scale: 0.8 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.8 }}
@@ -322,7 +344,6 @@ export function MessageBubble({
                       {(reaction === "down" || !reaction) && (
                         <motion.button
                           key="down"
-                          layout
                           initial={{ opacity: 0, scale: 0.8 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.8 }}
@@ -347,7 +368,7 @@ export function MessageBubble({
                   </div>
                 )}
                 <CopyButton text={message.text} />
-                {(onPin || onReply || onRegenerate) && (
+                {(onPin || onReply || (onRegenerate && !isGenerating)) && (
                   <Popover
                     open={popoverOpen}
                     onOpenChange={onPopoverOpenChange}
@@ -387,7 +408,7 @@ export function MessageBubble({
                           }}
                         />
                       )}
-                      {onRegenerate && (
+                      {onRegenerate && !isGenerating && (
                         <MenuAction
                           label="Regenerate"
                           icon={<LuRefreshCw className="size-3.5" />}

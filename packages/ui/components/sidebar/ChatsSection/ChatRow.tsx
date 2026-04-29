@@ -89,7 +89,7 @@ export function ChatRow({
       <div className="absolute right-1 flex h-5 w-5 items-center justify-center">
         <span
           className={cn(
-            "pointer-events-none absolute select-none text-[10px] tabular-nums text-muted-foreground/35 transition-opacity duration-100",
+            "pointer-events-none absolute select-none text-[10px] tabular-nums text-muted-foreground/50 transition-opacity duration-100",
             isActive || menuOpen
               ? "opacity-0"
               : "group-hover/row:opacity-0",

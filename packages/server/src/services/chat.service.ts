@@ -195,6 +195,7 @@ export async function chatSend(input: {
   text: string
   timeoutMs?: number
   attachments?: unknown[]
+  replyTo?: { messageId: string; snippet: string }
 }) {
   const validatedAttachments = validateAttachments(input.attachments)
   const gwKey = await ensureGatewaySession(input.sessionKey)
@@ -206,6 +207,7 @@ export async function chatSend(input: {
       text: input.text,
       timeoutMs: input.timeoutMs,
       attachments: validatedAttachments,
+      replyTo: input.replyTo,
     })
   } catch (error) {
     wrapGatewayError(error)
@@ -328,13 +330,15 @@ export async function chatEditAndResend(input: {
 export async function chatRegenerate(input: {
   sessionKey: string
   messageId: string
+  text: string
 }) {
   const gwKey = resolveGatewayKey(input.sessionKey)
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
     result = await sendChatMessage({
       sessionKey: gwKey,
-      text: "",
+      text: input.text,
+      regenerate: true,
     })
   } catch (error) {
     wrapGatewayError(error)

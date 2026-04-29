@@ -74,10 +74,10 @@ export function PinnedMessagesPopover({
           <div className="absolute -top-[5px] right-3.5 h-2.5 w-2.5 rotate-45 border-l border-t border-white/[0.08] bg-popover/90 backdrop-blur-xl" />
 
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2">
-            <div className="flex items-center gap-2">
-              <span className="flex size-6 items-center justify-center rounded-md bg-white/5 text-white/50">
-                <Icons.Pin size={12} />
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2">
+            <div className="flex items-center gap-1">
+              <span className="flex size-6 items-center justify-center text-white">
+                <Icons.Pin size={16} />
               </span>
               <span className="text-[13px] font-medium text-foreground">Pinned Messages</span>
             </div>

@@ -34,6 +34,12 @@ export type EmbedContent = {
   title?: string
 }
 
+export type ReplyTo = {
+  messageId: string
+  role: "user" | "assistant"
+  text: string
+}
+
 export type ChatMessage = {
   messageId: string
   role: "user" | "assistant"
@@ -45,6 +51,7 @@ export type ChatMessage = {
   branches?: MessageBranch[]
   activeBranch?: number
   embeds?: EmbedContent[]
+  replyTo?: ReplyTo
   attachments?: Array<{
     name: string
     mimeType: string
