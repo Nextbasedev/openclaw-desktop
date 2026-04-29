@@ -3,10 +3,51 @@ import type {
   ChatMessage,
   ContentBlock,
   InlineToolCall,
+  ReplyTo,
   SpawnedSubagent,
 } from "../components/ChatView/types"
 import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey } from "./subagentSession"
+
+const BLOCKQUOTE_RE = /^((?:> .+\n?)+)\n\n([\s\S]+)$/
+
+export function extractReplyBlock(
+  text: string,
+  priorMessages: ChatMessage[],
+): { replyTo: ReplyTo; displayText: string } | null {
+  return extractReplyFromText(text, priorMessages)
+}
+
+function extractReplyFromText(
+  text: string,
+  priorMessages: ChatMessage[],
+): { replyTo: ReplyTo; displayText: string } | null {
+  const match = text.match(BLOCKQUOTE_RE)
+  if (!match) return null
+
+  const quoted = match[1]
+    .split("\n")
+    .map((line) => line.replace(/^> /, ""))
+    .join("\n")
+    .trim()
+  const displayText = match[2].trim()
+  if (!quoted || !displayText) return null
+
+  for (let i = priorMessages.length - 1; i >= 0; i--) {
+    const msg = priorMessages[i]
+    if (msg.text.startsWith(quoted) || quoted.startsWith(msg.text.slice(0, 150))) {
+      return {
+        replyTo: { messageId: msg.messageId, role: msg.role, text: msg.text },
+        displayText,
+      }
+    }
+  }
+
+  return {
+    replyTo: { messageId: "", role: "assistant", text: quoted },
+    displayText,
+  }
+}
 
 export type RawHistoryMessage = {
   id?: string
@@ -62,14 +103,16 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     const role = item.role
 
     if (role === "user") {
-      const text = item.text || extractText(item.content)
-      if (text) {
+      const rawText = item.text || extractText(item.content)
+      if (rawText) {
+        const reply = extractReplyFromText(rawText, messages)
         messages.push({
           messageId: messageId(item),
           role: "user",
-          text,
+          text: reply ? reply.displayText : rawText,
           createdAt: item.createdAt,
           model: item.model,
+          replyTo: reply?.replyTo,
         })
       }
       pendingToolCalls = []

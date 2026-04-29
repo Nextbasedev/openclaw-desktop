@@ -19,14 +19,13 @@ import {
   initialMessageActionState,
   messageActionReducer,
   pinnedMessages,
-  quotePrefix,
   visibleMessages,
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
-import type { SpawnedSubagent } from "./types"
+import type { ReplyTo, SpawnedSubagent } from "./types"
 
 type Props = {
   sessionKey: string
@@ -69,8 +68,8 @@ export function ChatView({
   const {
     messages, status, statusLabel, loading, loadError, errorMessage,
     isGenerating, bottomRef, scrollContainerRef, onScroll,
-    handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
-    spawnedSubagents,
+    handleSend, handleAbort, handleEdit, handleRegenerate, switchBranch,
+    pendingTools, spawnedSubagents,
   } = useChatMessages(sessionKey, initialMessages)
 
   const lastAssistantText = messages
@@ -140,6 +139,7 @@ export function ChatView({
     initialMessageActionState,
   )
   const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
+  const [replyTo, setReplyTo] = useState<ReplyTo | null>(null)
   const [pinnedPopoverOpen, setPinnedPopoverOpen] = useState(false)
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
@@ -280,6 +280,7 @@ export function ChatView({
     dispatchMessageAction((prev) =>
       messageActionReducer(prev, { type: "clear_reply" }),
     )
+    setReplyTo(null)
     setComposerSeed("")
   }, [handleSend, messages.length, onFirstMessageSent])
 
@@ -298,8 +299,19 @@ export function ChatView({
     dispatchMessageAction((prev) =>
       messageActionReducer(prev, { type: "reply", messageId }),
     )
-    setComposerSeed(`${quotePrefix(target.text)}\n\n`)
+    setReplyTo({
+      messageId: target.messageId,
+      role: target.role,
+      text: target.text,
+    })
   }, [messages])
+
+  const cancelReply = useCallback(() => {
+    setReplyTo(null)
+    dispatchMessageAction((prev) =>
+      messageActionReducer(prev, { type: "clear_reply" }),
+    )
+  }, [])
 
   const togglePin = useCallback((messageId: string) => {
     const isPinned = messageActionState.pinnedIds.includes(messageId)
@@ -440,10 +452,8 @@ export function ChatView({
   )
 
   const regenerateFromMessage = useCallback((messageId: string) => {
-    const target = messages.find((message) => message.messageId === messageId)
-    if (!target) return
-    setComposerSeed(`/regenerate ${quotePrefix(target.text)}\n\n`)
-  }, [messages])
+    handleRegenerate(messageId)
+  }, [handleRegenerate])
 
   const exportOneMessage = useCallback((messageId: string) => {
     const target = messages.find((message) => message.messageId === messageId)
@@ -504,6 +514,8 @@ export function ChatView({
           isGenerating={isGenerating}
           onAbort={handleAbort}
           initialPrompt={composerSeed}
+          replyTo={replyTo}
+          onCancelReply={cancelReply}
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -730,6 +742,8 @@ export function ChatView({
           isGenerating={isGenerating}
           onAbort={handleAbort}
           initialPrompt={composerSeed}
+          replyTo={replyTo}
+          onCancelReply={cancelReply}
         />
       </div>
     </div>

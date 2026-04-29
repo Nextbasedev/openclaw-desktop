@@ -7,6 +7,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import oneDark from "react-syntax-highlighter/dist/esm/styles/prism/one-dark"
 import { cn } from "@/lib/utils"
 import { LuCopy, LuCheck } from "react-icons/lu"
+import { LanguageIcon } from "@/components/icons/LanguageIcon"
+import { MermaidBlock } from "./MermaidBlock"
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -68,7 +70,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
     <div className="group/code relative my-2 min-w-0 overflow-clip rounded-xl border border-border/20 bg-[#1a1a1e]">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/15 bg-[#252529] px-4 py-2">
         <span className="flex items-center gap-2 text-[12px] font-medium text-foreground/60">
-          <span className="text-foreground/40">&lt;/&gt;</span>
+          <LanguageIcon lang={language} className="size-4" />
           {displayLang}
         </span>
         <CopyBtn text={code} />
@@ -107,7 +109,10 @@ const mdComponents = {
     const text = String(children)
     const match = /language-(\w+)/.exec(className || "")
     const isBlock = match || text.includes("\n") || /[┌┐└┘│─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]/.test(text) || (text.length > 60 && /[{[\]()→←↑↓|>]/.test(text))
-    if (isBlock) return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
+    if (isBlock) {
+      if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
+      return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
+    }
     return <code className="rounded-md bg-foreground/[0.07] px-1.5 py-0.5 text-[0.85em] font-mono text-foreground/90" {...rest}>{children}</code>
   },
   table({ children }: { children?: React.ReactNode }) {

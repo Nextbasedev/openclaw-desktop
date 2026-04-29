@@ -55,7 +55,7 @@ export function GlassDialog({ open, onClose, title, description, children, class
             onClick={onClose}
             aria-label="Close dialog"
             className={cn(
-              "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg cursor-pointer",
               "text-muted-foreground transition-colors",
               "hover:bg-foreground/8 hover:text-foreground",
             )}

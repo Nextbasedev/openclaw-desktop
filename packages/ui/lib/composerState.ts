@@ -43,9 +43,11 @@ export function composeBatch(batch: ChatComposerSubmit[]): ChatComposerSubmit {
     .filter(Boolean)
     .join("\n\n")
   const attachments = batch.flatMap((item) => item.attachments ?? [])
+  const replyTo = batch.find((item) => item.replyTo)?.replyTo
   return {
     text,
     attachments: attachments.length > 0 ? attachments : undefined,
+    replyTo,
   }
 }
 
