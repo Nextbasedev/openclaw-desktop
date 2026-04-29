@@ -137,7 +137,14 @@ function AppShell({
   })
 
   const prevTabRef = useRef("chat")
-  const sidebarItems: SidebarNavItem[] = DEFAULT_DRAGGABLE_ITEMS
+  const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
+
+  const handleItemsReorder = useCallback((ids: string[]) => {
+    setSidebarItems((prev) => {
+      const map = new Map(prev.map((item) => [item.id, item]))
+      return ids.map((id) => map.get(id)).filter(Boolean) as SidebarNavItem[]
+    })
+  }, [])
 
   useEffect(() => {
     initClientLogs()
@@ -198,7 +205,7 @@ function AppShell({
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
   const [composerError, setComposerError] = useState<string | null>(null)
-  const [focusActivityTrigger, setFocusActivityTrigger] = useState(0)
+  const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
   const isResizing = useRef(false)
   const routeRequestRef = useRef(0)
@@ -354,9 +361,9 @@ function AppShell({
     return () => window.removeEventListener("popstate", onPopState)
   }, [activateRoute])
 
-  const handleSelectTool = useCallback((_toolCallId: string) => {
+  const handleSelectTool = useCallback((toolCallId: string) => {
     if (!inspectorOpen) setInspectorOpen(true)
-    setFocusActivityTrigger((n) => n + 1)
+    setFocusedToolCallId(toolCallId)
   }, [inspectorOpen])
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
@@ -939,6 +946,7 @@ function AppShell({
           activeTab={effectiveActiveTab}
           onTabChange={handleTabChange}
           items={sidebarItems}
+          onItemsReorder={handleItemsReorder}
           activeTopic={activeTopic}
           onTopicSelect={handleTopicSelect}
           onTopicClear={handleTopicClear}
@@ -995,7 +1003,8 @@ function AppShell({
           terminalActive={terminalActive}
           onTerminalActiveChange={setTerminalActive}
           sessionKey={activeSessionKey}
-          focusActivityTrigger={focusActivityTrigger}
+          focusedToolCallId={focusedToolCallId}
+          onClearFocusedToolCall={() => setFocusedToolCallId(null)}
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}

@@ -668,6 +668,10 @@ export async function openChatEventStream(input: {
     const history = await gateway.request<SessionHistoryPayload>("chat.history", { sessionKey: input.sessionKey, limit: 20 })
     if (!history.ok) throw new Error(history.error?.message ?? "chat.history failed")
 
+    for (const message of history.payload?.messages ?? []) {
+      if (message.id) seenMessageIds.add(message.id)
+    }
+
     await gateway.request("sessions.subscribe", {})
     await gateway.request("sessions.messages.subscribe", { key: input.sessionKey })
 

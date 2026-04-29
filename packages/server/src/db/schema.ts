@@ -155,6 +155,14 @@ export function initDb(db: Database.Database): void {
       repo_root TEXT,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS sent_messages (
+      id TEXT PRIMARY KEY,
+      session_key TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sent_messages_session ON sent_messages(session_key, created_at);
   `)
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [

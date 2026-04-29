@@ -47,6 +47,7 @@ export function ChatBox({
   >("full")
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
+  const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
   const [slashFilter, setSlashFilter] = React.useState("")
@@ -66,7 +67,6 @@ export function ChatBox({
     loading: modelsLoading,
     error: modelsError,
     reload: reloadModels,
-    ensureLoaded: ensureModelsLoaded,
   } = useModels()
   const autoResize = React.useCallback(() => {
     const el = textareaRef.current
@@ -234,12 +234,6 @@ export function ChatBox({
     setPlusOpen(false)
   }
 
-  React.useEffect(() => {
-    if (modelOpen) {
-      void ensureModelsLoaded()
-    }
-  }, [ensureModelsLoaded, modelOpen])
-
   return (
     <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
       <input
@@ -392,7 +386,7 @@ export function ChatBox({
             modelOpen={modelOpen}
             onModelOpenChange={setModelOpen}
             models={models}
-            currentModelId={currentModel}
+            currentModelId={sessionModelId ?? currentModel}
             modelLoading={modelsLoading}
             modelError={modelsError}
             onModelRefresh={() => {
@@ -400,6 +394,7 @@ export function ChatBox({
             }}
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
+              setSessionModelId(modelId)
               void onSend?.({ text: `/model ${modelId}` })
               setModelOpen(false)
             }}
