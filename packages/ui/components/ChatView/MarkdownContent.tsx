@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import remarkBreaks from "remark-breaks"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import oneDark from "react-syntax-highlighter/dist/esm/styles/prism/one-dark"
 import { cn } from "@/lib/utils"
@@ -107,7 +108,7 @@ const mdComponents = {
 export function MarkdownContent({ text, className }: { text: string; className?: string }) {
   return (
     <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={mdComponents}>
         {text}
       </ReactMarkdown>
     </div>

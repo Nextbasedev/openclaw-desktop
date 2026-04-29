@@ -102,7 +102,8 @@ function buildChatPayload(entityId: string): {
     .prepare(
       `SELECT c.id, c.name, c.session_key, c.agent_id, c.archived, c.pinned,
               c.last_active_at, c.updated_at, c.deleted_at,
-              sm.project_id, sm.topic_id, sm.sort_order_key
+              sm.project_id, sm.topic_id, sm.sort_order_key,
+              sm.label AS gateway_label
        FROM chats c
        LEFT JOIN session_mappings sm ON sm.session_key = c.session_key
        WHERE c.id = ?`,
@@ -121,10 +122,12 @@ function buildChatPayload(entityId: string): {
         project_id: string | null
         topic_id: string | null
         sort_order_key: string | null
+        gateway_label: string | null
       }
     | undefined
   if (!row) return null
   if (!row.project_id) return null
+  const gatewayName = row.gateway_label || row.name
   const payload: SyncPayload = {
     schema: 1,
     kind: "chat",
@@ -133,7 +136,7 @@ function buildChatPayload(entityId: string): {
       topicId: row.topic_id ?? undefined,
       chatId: row.id,
     },
-    names: { chatName: row.name },
+    names: { chatName: gatewayName },
     chat: {
       archived: sqlToBool(row.archived),
       pinned: sqlToBool(row.pinned),
@@ -145,7 +148,7 @@ function buildChatPayload(entityId: string): {
     updatedBy: deviceId(),
     deletedAt: row.deleted_at ?? undefined,
   }
-  return { payload, sessionKey: row.session_key, userName: row.name }
+  return { payload, sessionKey: row.session_key, userName: gatewayName }
 }
 
 function clearDirty(task: OutboxRow, pushedAt?: string, sessionKey?: string | null): void {

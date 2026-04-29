@@ -6,6 +6,7 @@ import {
   ArrowDown01Icon,
   AttachmentIcon,
   Cancel01Icon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -87,6 +88,12 @@ export function ActionBar({
     return m.id === currentModelId || m.id === bare
   })
   const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
+  const uniqueModels = models.filter(
+    (m, i, arr) =>
+      arr.findIndex(
+        (x) => x.name.toLowerCase() === m.name.toLowerCase(),
+      ) === i,
+  )
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
@@ -197,55 +204,60 @@ export function ActionBar({
             </button>
           </PopoverTrigger>
           <PopoverContent side="top" align="end" sideOffset={8} className="w-56 gap-0 p-1.5">
-            {modelLoading && (
-              <p className="px-3 py-2 text-xs text-muted-foreground">
-                Loading models...
-              </p>
-            )}
-            {modelError && (
-              <div className="px-3 py-2">
-                <p className="text-xs text-rose-400">Models unavailable</p>
-                <button
-                  type="button"
-                  onClick={onModelRefresh}
-                  className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
-                >
-                  Refresh
-                </button>
-              </div>
-            )}
-            {models.map((model) => {
-              const isActive = activeModel?.id === model.id
-              return (
-                <button
-                  key={`${model.provider}/${model.id}`}
-                  type="button"
-                  className={cn(
-                    "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
-                    isActive
-                      ? "font-medium text-popover-foreground"
-                      : "text-muted-foreground"
-                  )}
-                  onClick={() => onModelSelect(model)}
-                >
-                  {model.name}
-                </button>
-              )
-            })}
-            {!modelLoading && !modelError && models.length === 0 && (
-              <div className="px-3 py-2">
-                <p className="text-xs text-muted-foreground">
-                  No models available
+            <div className="max-h-60 overflow-y-auto">
+              {modelLoading && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  Loading models...
                 </p>
-                <button
-                  type="button"
-                  onClick={onModelRefresh}
-                  className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
-                >
-                  Connect or refresh
-                </button>
-              </div>
-            )}
+              )}
+              {modelError && (
+                <div className="px-3 py-2">
+                  <p className="text-xs text-rose-400">Models unavailable</p>
+                  <button
+                    type="button"
+                    onClick={onModelRefresh}
+                    className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              )}
+              {uniqueModels.map((model) => {
+                const isActive = activeModel?.id === model.id
+                return (
+                  <button
+                    key={`${model.provider}/${model.id}`}
+                    type="button"
+                    className={cn(
+                      "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-muted",
+                      isActive
+                        ? "bg-foreground/10 font-medium text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                    onClick={() => onModelSelect(model)}
+                  >
+                    {model.name}
+                    {isActive && (
+                      <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-white" />
+                    )}
+                  </button>
+                )
+              })}
+              {!modelLoading && !modelError && models.length === 0 && (
+                <div className="px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    No models available
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onModelRefresh}
+                    className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
+                  >
+                    Connect or refresh
+                  </button>
+                </div>
+              )}
+            </div>
           </PopoverContent>
         </Popover>
 

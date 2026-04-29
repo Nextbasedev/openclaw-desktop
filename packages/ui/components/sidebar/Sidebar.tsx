@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, type CSSProperties } from "react"
+import { Reorder } from "framer-motion"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { cn } from "@/lib/utils"
@@ -32,6 +33,7 @@ type SidebarProps = {
   activeTab: string
   onTabChange: (tab: string) => void
   items: SidebarNavItem[]
+  onItemsReorder: (ids: string[]) => void
   activeTopic: ActiveTopic | null
   onTopicSelect: (topic: ActiveTopic) => void
   onTopicClear: () => void
@@ -51,6 +53,7 @@ export function Sidebar({
   activeTab,
   onTabChange,
   items,
+  onItemsReorder,
   activeTopic,
   onTopicSelect,
   onTopicClear,
@@ -152,7 +155,13 @@ export function Sidebar({
           isHiddenMobileSidebar && "hidden",
         )}>
           {mounted && showExpandedContent ? (
-            <div className="flex flex-col gap-0.5">
+            <Reorder.Group
+              axis="y"
+              values={items.map((i) => i.id)}
+              onReorder={onItemsReorder}
+              as="div"
+              className="flex flex-col gap-0.5"
+            >
               {items.map((item) => (
                 <SidebarItem
                   key={item.id}
@@ -161,9 +170,10 @@ export function Sidebar({
                   onClick={() => handlePrimaryTabClick(item.id)}
                   href={NAV_HREFS[item.id]}
                   collapsed={itemCollapsed}
+                  draggable
                 />
               ))}
-            </div>
+            </Reorder.Group>
           ) : (
             <div className="flex flex-col gap-0.5">
               {items.map((item) => (

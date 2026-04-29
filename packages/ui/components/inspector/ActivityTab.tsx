@@ -1,12 +1,26 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscPulse } from "react-icons/vsc"
 import { ToolCallRow, StatusBadge, TREE_DOT_COLORS, COUNT_BADGE_COLORS } from "./ActivityNodes"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import { SubagentChatView } from "./SubagentChatView"
 import type { AgentNode } from "./activity-types"
+
+const AGENT_SIDEBAR_MIN = 140
+const AGENT_SIDEBAR_MAX = 260
+const AGENT_SIDEBAR_DEFAULT = 180
+
+function getAgentSidebarDefaults() {
+  if (typeof window === "undefined") {
+    return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
+  }
+  if (window.innerWidth < 768) {
+    return { min: 108, max: 168, default: 128 }
+  }
+  return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
+}
 
 function findNode(
   nodes: AgentNode[],
@@ -36,7 +50,7 @@ function AgentTreeItem({
       type="button"
       onClick={() => onSelect(node.id)}
       className={cn(
-        "flex w-full items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-all cursor-pointer",
+        "flex w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition-all cursor-pointer",
         isActive
           ? "border-white/[0.14] bg-white/5"
           : "border-transparent hover:bg-white/3",
@@ -49,20 +63,18 @@ function AgentTreeItem({
         )}
       />
       <div className="min-w-0 flex-1">
-        <span className="text-[12px] font-medium text-foreground">
+        <span className="truncate text-[12px] font-medium text-foreground">
           {node.label}
         </span>
         {node.description && (
           <p className="mt-0.5 truncate text-[11px] text-muted-foreground/60">
-            {node.description.length > 60
-              ? node.description.slice(0, 60) + "..."
-              : node.description}
+            {node.description}
           </p>
         )}
       </div>
       <span
         className={cn(
-          "mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+          "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
           COUNT_BADGE_COLORS[node.status],
         )}
       >
@@ -108,16 +120,65 @@ export function ActivityTab({
   sessionKey,
   activeAgentId,
   onAgentSelect,
+  focusedToolCallId,
+  onClearFocusedToolCall,
 }: {
   sessionKey: string | null
   activeAgentId: string | null
   onAgentSelect?: (id: string) => void
+  focusedToolCallId: string | null
+  onClearFocusedToolCall?: () => void
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [mainExpanded, setMainExpanded] = useState(true)
   const [filter, setFilter] = useState<"all" | "success">("all")
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
+
+  const agentSidebarRef = useRef(getAgentSidebarDefaults())
+  const [sidebarWidth, setSidebarWidth] = useState(agentSidebarRef.current.default)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  useEffect(() => {
+    function onResize() {
+      const next = getAgentSidebarDefaults()
+      agentSidebarRef.current = next
+      setSidebarWidth((prev) => Math.min(next.max, Math.max(next.min, prev)))
+    }
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      dragRef.current = { startX: e.clientX, startWidth: sidebarWidth }
+      setIsDragging(true)
+    },
+    [sidebarWidth],
+  )
+
+  useEffect(() => {
+    if (!isDragging) return
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return
+      const delta = e.clientX - dragRef.current.startX
+      const { min, max } = agentSidebarRef.current
+      const newWidth = Math.min(max, Math.max(min, dragRef.current.startWidth + delta))
+      setSidebarWidth(newWidth)
+    }
+    function onMouseUp() {
+      setIsDragging(false)
+      dragRef.current = null
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [isDragging])
 
   const selectedId = activeAgentId ?? "root"
   const selectedNode = findNode(tree, selectedId) ?? tree[0] ?? null
@@ -175,36 +236,35 @@ export function ActivityTab({
   }
 
   return (
-    <div className="flex h-full overflow-hidden bg-[#0b0c0f]">
-      <aside className="flex w-[240px] shrink-0 flex-col border-r border-white/6 bg-[#0f1014] max-md:w-[168px]">
-        <div className="border-b border-white/6 px-4 py-3.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white max-md:tracking-[0.14em]">
-              <span className="flex shrink-0 items-center justify-center text-white">
-                <AgentHeaderIcon />
-              </span>
-              <span className="truncate">Agents</span>
-            </div>
-            <span className="inline-flex shrink-0 items-center rounded-full border border-white/8 bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-foreground/55 max-md:px-1.5">
-              <span className="md:hidden">{subagentCount} sub</span>
-              <span className="max-md:hidden">{subagentCount} subagents</span>
+    <div className="relative flex h-full overflow-hidden">
+      <div className="flex shrink-0 flex-col" style={{ width: sidebarWidth }}>
+        <div className="flex h-7 shrink-0 items-center justify-between border-b border-border/30 px-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-white">
+            <span className="flex shrink-0 items-center justify-center text-white">
+              <AgentHeaderIcon />
+            </span>
+            <span className="truncate">Agents</span>
+          </div>
+          <span className="inline-flex shrink-0 items-center rounded-full border border-white/8 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-foreground/55">
+            {subagentCount}
+          </span>
+        </div>
+
+        <div className="border-b border-border/30 px-2 py-1.5">
+          <div className="flex items-center gap-1.5 text-[11px] text-foreground/70">
+            <span
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                isLive ? "bg-amber-400" : "bg-muted-foreground/40",
+              )}
+            />
+            <span className="truncate">
+              {isLive ? "Session active" : "Session idle"}
             </span>
           </div>
         </div>
 
-        <div className="border-b border-white/6 px-4 py-2.5">
-          <div className="flex items-center gap-2 text-[11px] text-foreground/70">
-            <span
-              className={cn(
-                "size-1.5 rounded-full",
-                isLive ? "bg-amber-400" : "bg-muted-foreground/40",
-              )}
-            />
-            {isLive ? "Session active" : "Session idle"}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-2 py-3">
+        <div className="flex-1 overflow-y-auto px-1.5 py-2">
           {mainNode && (
             <div>
               <button
@@ -214,23 +274,23 @@ export function ActivityTab({
                   setMainExpanded((p) => !p)
                 }}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors cursor-pointer",
+                  "flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left transition-colors cursor-pointer",
                   selectedId === "root"
                     ? "bg-white/[0.04]"
                     : "hover:bg-white/[0.02]",
                 )}
               >
                 {mainExpanded ? (
-                  <VscChevronDown className="size-3 text-muted-foreground/50" />
+                  <VscChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
                 ) : (
-                  <VscChevronRight className="size-3 text-muted-foreground/50" />
+                  <VscChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
                 )}
-                <span className="flex-1 text-[13px] font-semibold text-foreground">
+                <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-foreground">
                   Main
                 </span>
                 {childCount > 0 && (
-                  <span className="text-[11px] text-muted-foreground/50">
-                    {childCount} sub
+                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
+                    {childCount}
                   </span>
                 )}
               </button>
@@ -238,21 +298,21 @@ export function ActivityTab({
               {mainExpanded &&
                 mainNode.children &&
                 mainNode.children.length > 0 && (
-                  <div className="ml-3.75 mt-1">
+                  <div className="ml-3 mt-1">
                     {mainNode.children.map((child, index, arr) => {
                       const isLast = index === arr.length - 1
                       return (
                         <div
                           key={child.id}
                           className={cn(
-                            "relative pl-3",
+                            "relative pl-2.5",
                             !isLast && "pb-1",
                           )}
                         >
                           {isLast ? (
                             <span
                               aria-hidden
-                              className="pointer-events-none absolute left-0 top-0 h-4.5 w-3 rounded-bl-sm border-b border-l border-white/10"
+                              className="pointer-events-none absolute left-0 top-0 h-4.5 w-2.5 rounded-bl-sm border-b border-l border-white/10"
                             />
                           ) : (
                             <>
@@ -262,7 +322,7 @@ export function ActivityTab({
                               />
                               <span
                                 aria-hidden
-                                className="pointer-events-none absolute left-0 top-4.5 h-px w-3 bg-white/10"
+                                className="pointer-events-none absolute left-0 top-4.5 h-px w-2.5 bg-white/10"
                               />
                             </>
                           )}
@@ -280,20 +340,51 @@ export function ActivityTab({
           )}
         </div>
 
-        <div className="border-t border-white/6 px-4 py-3">
+        <div className="border-t border-border/30 px-2 py-2">
           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>Activity view</span>
-            <span className="text-foreground/40">
-              {totalEvents} events
+            <span className="truncate">Activity</span>
+            <span className="shrink-0 tabular-nums text-foreground/40">
+              {totalEvents}
             </span>
           </div>
         </div>
-      </aside>
+      </div>
 
-      <section className="flex min-w-0 flex-1 flex-col bg-[#111217]">
+      <div
+        onMouseDown={handleDragStart}
+        className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
+      />
+
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#121212]">
         {!historyLoaded ? (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="size-5 animate-spin rounded-full border-2 border-border/30 border-t-foreground/50" />
+          <div className="flex-1 px-3 py-4">
+            <div className="mb-4 space-y-2 border-b border-border/30 px-2 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-4 w-24 animate-pulse rounded bg-secondary/50" />
+                <div className="h-4 w-14 animate-pulse rounded-full bg-secondary/30" />
+              </div>
+              <div className="flex items-center gap-4 pt-1">
+                <div className="h-3 w-16 animate-pulse rounded bg-secondary/40" />
+                <div className="ml-auto flex gap-1">
+                  <div className="h-5 w-10 animate-pulse rounded-md bg-secondary/30" />
+                  <div className="h-5 w-14 animate-pulse rounded-md bg-secondary/20" />
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {[28, 20, 32, 18, 24, 22, 26, 20].map((w, i) => (
+                <div key={i} className="flex items-center gap-3 px-1.5 py-1">
+                  <div
+                    className="flex h-7 animate-pulse items-center rounded-md bg-secondary/40"
+                    style={{ width: `${w * 4}px` }}
+                  />
+                  <div className="ml-auto flex items-center gap-3">
+                    <div className="h-3 w-10 animate-pulse rounded bg-secondary/25" />
+                    <div className="h-3 w-12 animate-pulse rounded bg-secondary/20" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : !selectedNode ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
@@ -304,7 +395,7 @@ export function ActivityTab({
           </div>
         ) : (
           <>
-            <div className="border-b border-white/6 px-5 py-4">
+            <div className="border-b border-border/30 px-5 py-4">
               <div className="flex items-center gap-3">
                 <h3 className="text-[14px] font-semibold text-foreground">
                   {selectedNode.id === "root"
@@ -348,7 +439,7 @@ export function ActivityTab({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
               {selectedSubagentSessionKey && (
-                <div className="mb-3 overflow-hidden rounded-xl border border-white/8 bg-[#0d0e12]">
+                <div className="mb-3 overflow-hidden rounded-xl border border-border/30 bg-[#121212]">
                   <SubagentChatView
                     sessionKey={selectedSubagentSessionKey}
                     isLive={selectedNode.status === "running"}
@@ -356,10 +447,15 @@ export function ActivityTab({
                 </div>
               )}
               {filteredCalls.map((call) => (
-                <ToolCallRow key={call.id} call={call} />
+                <ToolCallRow
+                  key={call.id}
+                  call={call}
+                  focused={call.id === focusedToolCallId}
+                  onFocusHandled={onClearFocusedToolCall}
+                />
               ))}
               {filteredCalls.length === 0 && !selectedSubagentSessionKey && (
-                <div className="flex min-h-28 items-center justify-center rounded-xl border border-white/6 bg-white/[0.02]">
+                <div className="flex min-h-28 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
                   <p className="text-[11px] text-muted-foreground">
                     {selectedIsSubagent
                       ? "Waiting for sub-agent activity..."
@@ -372,6 +468,8 @@ export function ActivityTab({
           </>
         )}
       </section>
+
+      {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
     </div>
   )
 }

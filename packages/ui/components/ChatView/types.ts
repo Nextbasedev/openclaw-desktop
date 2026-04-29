@@ -88,5 +88,6 @@ export type StreamEventPayload = {
     model?: string
     message?: string
     error?: string
+    recentMessages?: unknown[]
   }
 }

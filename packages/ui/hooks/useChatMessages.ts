@@ -120,6 +120,7 @@ export function useChatMessages(
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
+  const readyFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isGenerating =
     status === "thinking" ||
@@ -214,6 +215,10 @@ export function useChatMessages(
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
+            if (readyFallbackRef.current) {
+              clearTimeout(readyFallbackRef.current)
+              readyFallbackRef.current = null
+            }
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
             setPendingTools([])
@@ -342,6 +347,10 @@ export function useChatMessages(
           break
         }
         case "chat.message": {
+          if (readyFallbackRef.current) {
+            clearTimeout(readyFallbackRef.current)
+            readyFallbackRef.current = null
+          }
           if (ev.role !== "assistant") break
           const id = ev.messageId || randomId()
           const rawText = ev.text || extractText(ev.content)
@@ -393,6 +402,49 @@ export function useChatMessages(
           const errText = ev.message || ev.error || null
           setErrorMessage(errText)
           setStatus("error")
+          break
+        }
+        case "chat.ready": {
+          if (statusRef.current !== "thinking" && statusRef.current !== "restarting") break
+          const recent = (ev.recentMessages ?? []) as Array<{
+            id?: string | null
+            role?: string
+            text?: string | null
+            createdAt?: string | null
+            model?: string | null
+          }>
+          if (recent.length === 0) break
+          const last = recent[recent.length - 1]
+          if (!last || last.role !== "assistant" || !last.text?.trim()) break
+          const readyText = last.text.trim()
+          const readyModel = last.model || undefined
+          const readyTime = last.createdAt || new Date().toISOString()
+          if (readyFallbackRef.current) clearTimeout(readyFallbackRef.current)
+          readyFallbackRef.current = setTimeout(() => {
+            readyFallbackRef.current = null
+            if (statusRef.current !== "thinking" && statusRef.current !== "restarting") return
+            setMessages((prev) => {
+              const tail = prev[prev.length - 1]
+              if (tail?.role !== "user") return prev
+              if (prev.some((m) => m.role === "assistant" && m.text === readyText)) return prev
+              return [
+                ...prev,
+                {
+                  messageId: randomId(),
+                  role: "assistant" as const,
+                  text: readyText,
+                  createdAt: readyTime,
+                  model: readyModel,
+                },
+              ]
+            })
+            flushToolsToLastAssistant()
+            pendingToolMapRef.current.clear()
+            setPendingTools([])
+            doneAfterYieldRef.current = 0
+            setStatus("done")
+            scrollToBottom(true)
+          }, 2000)
           break
         }
       }
@@ -467,17 +519,19 @@ export function useChatMessages(
         }> = []
         let autoAnnouncesToSkip = 0
 
+        const stripBootstrap = (t: string) =>
+          t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
+
         for (const m of raw) {
           if (m.role === "user") {
             const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || randomId()
             seenIds.current.add(id)
-            const text = m.text || extractText(m.content)
+            const rawText = m.text || extractText(m.content)
+            const text = rawText ? stripBootstrap(rawText) : ""
             const isSubagentAnnounce = text ? /agent:main:subagent:[0-9a-f-]{36}/.test(text) : false
 
-            if (isSubagentAnnounce && text) {
+            if (isSubagentAnnounce) {
               if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
-            } else if (autoAnnouncesToSkip > 0) {
-              autoAnnouncesToSkip--
             } else if (text) {
               histMsgs.push({
                 messageId: id,
@@ -521,10 +575,10 @@ export function useChatMessages(
             }
 
             const text = (m.text || extractText(m.content))?.trim()
-            if (text) {
+            if (text || pendingToolCalls.length > 0) {
               const lastEntry = histMsgs[histMsgs.length - 1]
               if (lastEntry?.role === "assistant") {
-                lastEntry.text = lastEntry.text + "\n\n" + text
+                if (text) lastEntry.text = lastEntry.text ? lastEntry.text + "\n\n" + text : text
                 lastEntry.messageId = id
                 lastEntry.createdAt = m.createdAt || lastEntry.createdAt
                 if (pendingToolCalls.length > 0) {
@@ -534,7 +588,7 @@ export function useChatMessages(
                 histMsgs.push({
                   messageId: id,
                   role: "assistant",
-                  text,
+                  text: text || "",
                   createdAt: m.createdAt,
                   model: m.model,
                   toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
@@ -702,6 +756,10 @@ export function useChatMessages(
     return () => {
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
+      if (readyFallbackRef.current) {
+        clearTimeout(readyFallbackRef.current)
+        readyFallbackRef.current = null
+      }
       eventSource?.close()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)

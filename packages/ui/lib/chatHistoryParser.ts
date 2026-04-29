@@ -48,6 +48,10 @@ function inferToolStatus(resultText: string): InlineToolCall["status"] {
   }
 }
 
+function stripBootstrap(t: string): string {
+  return t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
+}
+
 export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
   const messages: ChatMessage[] = []
   const subagents: SpawnedSubagent[] = []
@@ -62,7 +66,8 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     const role = item.role
 
     if (role === "user") {
-      const text = item.text || extractText(item.content)
+      const rawText = item.text || extractText(item.content)
+      const text = rawText ? stripBootstrap(rawText) : ""
       if (text) {
         messages.push({
           messageId: messageId(item),

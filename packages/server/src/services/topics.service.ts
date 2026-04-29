@@ -54,14 +54,20 @@ export function topicsUpdate(input: { topicId: string; name?: string; sortOrder?
   const existing = db.prepare("SELECT name, sort_order FROM topics WHERE id = ?").get(input.topicId) as { name: string; sort_order: number } | undefined
   if (!existing) throw new Error(`Topic not found: ${input.topicId}`)
 
-  db.prepare("UPDATE topics SET name = ?, sort_order = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?").run(
-    input.name ?? existing.name,
-    input.sortOrder ?? existing.sort_order,
-    nowIso(),
-    input.topicId,
-  )
-  enqueue("topic", input.topicId, "upsert")
-  kickSyncEngine()
+  const newSortOrder = input.sortOrder ?? existing.sort_order
+  const needsSync = newSortOrder !== existing.sort_order
+
+  if (needsSync) {
+    db.prepare("UPDATE topics SET name = ?, sort_order = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?").run(
+      input.name ?? existing.name, newSortOrder, nowIso(), input.topicId,
+    )
+    enqueue("topic", input.topicId, "upsert")
+    kickSyncEngine()
+  } else {
+    db.prepare("UPDATE topics SET name = ?, sort_order = ?, updated_at = ? WHERE id = ?").run(
+      input.name ?? existing.name, newSortOrder, nowIso(), input.topicId,
+    )
+  }
   return { topic: fetchTopic(input.topicId) }
 }
 
@@ -116,11 +122,9 @@ export function topicsRename(input: { topicId: string; name: string }) {
   if (!input.name.trim()) throw new Error("Name cannot be empty")
   const db = getDb()
   const changes = db.prepare(
-    "UPDATE topics SET name = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+    "UPDATE topics SET name = ?, updated_at = ? WHERE id = ?",
   ).run(input.name.trim(), nowIso(), input.topicId)
   if (changes.changes === 0) throw new Error(`Topic not found: ${input.topicId}`)
-  enqueue("topic", input.topicId, "upsert")
-  kickSyncEngine()
   return { topic: fetchTopic(input.topicId) }
 }
 

@@ -55,6 +55,10 @@ export function useModels() {
     finally { setLoading(false) }
   }, [])
 
+  useEffect(() => {
+    void load(false)
+  }, [load])
+
   const ensureLoaded = useCallback(() => load(false), [load])
   const reload = useCallback(() => load(true), [load])
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscPass, VscError } from "react-icons/vsc"
 import type { ToolCall, ToolCallStatus } from "./activity-types"
@@ -66,14 +66,32 @@ function truncateOutput(text: string): string {
     : text
 }
 
-export function ToolCallRow({ call }: { call: ToolCall }) {
+export function ToolCallRow({
+  call,
+  focused,
+  onFocusHandled,
+}: {
+  call: ToolCall
+  focused?: boolean
+  onFocusHandled?: () => void
+}) {
   const [open, setOpen] = useState(false)
+  const rowRef = useRef<HTMLDivElement>(null)
   const hasDetails = call.input || call.output
   const dot = DOT_COLORS[call.status]
   const isError = call.status === "error"
 
+  useEffect(() => {
+    if (!focused) return
+    if (hasDetails) setOpen(true)
+    requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+    onFocusHandled?.()
+  }, [focused, hasDetails, onFocusHandled])
+
   return (
-    <div className="activity-item px-1 py-1">
+    <div ref={rowRef} className="activity-item px-1 py-1">
       <button
         type="button"
         onClick={() => hasDetails && setOpen((p) => !p)}
@@ -115,7 +133,7 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
       {hasDetails && (
         <div className="activity-expand" data-open={open ? "true" : "false"}>
           <div>
-            <div className="activity-expand-inner mt-2 mb-2 overflow-hidden rounded-lg border border-white/6 bg-[#0a0b0d]">
+            <div className="activity-expand-inner mt-2 mb-2 overflow-hidden rounded-lg border border-border/30 bg-[#121212]">
               {call.input && (
                 <div>
                   <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">

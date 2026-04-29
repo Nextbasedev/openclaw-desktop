@@ -82,10 +82,9 @@ function applyProject(payload: SyncPayload, sessionKey: string): void {
   if (!isNewer(payload.updatedAt, existing.updated_at)) return
 
   db.prepare(
-    `UPDATE projects SET name = ?, archived = ?, pinned = ?, sort_order = ?,
+    `UPDATE projects SET archived = ?, pinned = ?, sort_order = ?,
      updated_at = ?, updated_by_device = ?, sync_dirty = 0 WHERE id = ?`,
   ).run(
-    payload.names.projectName ?? "Untitled",
     boolToSql(payload.project?.archived ?? false),
     boolToSql(payload.project?.pinned ?? false),
     payload.project?.sortOrderKey ?? null,
@@ -138,12 +137,11 @@ function applyTopic(payload: SyncPayload, sessionKey: string): void {
   if (!isNewer(payload.updatedAt, existing.updated_at)) return
 
   db.prepare(
-    `UPDATE topics SET project_id = ?, name = ?, archived = ?,
+    `UPDATE topics SET project_id = ?, archived = ?,
      sort_order_key = ?, updated_at = ?, updated_by_device = ?, sync_dirty = 0
      WHERE id = ?`,
   ).run(
     payload.ids.projectId,
-    payload.names.topicName ?? "Untitled",
     boolToSql(payload.topic?.archived ?? false),
     payload.topic?.sortOrderKey ?? null,
     payload.updatedAt,
@@ -189,11 +187,10 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
     )
   } else if (isNewer(payload.updatedAt, existingChat.updated_at)) {
     db.prepare(
-      `UPDATE chats SET name = ?, session_key = ?, agent_id = ?, archived = ?,
+      `UPDATE chats SET session_key = ?, agent_id = ?, archived = ?,
        pinned = ?, last_active_at = ?, updated_at = ?, updated_by_device = ?,
        sync_dirty = 0 WHERE id = ?`,
     ).run(
-      payload.names.chatName ?? "New Chat",
       sessionKey,
       payload.chat?.agentId ?? "main",
       boolToSql(payload.chat?.archived ?? false),
@@ -242,23 +239,6 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
   }
 }
 
-function ensureDefaultProject(db: Database.Database): string {
-  const existing = db
-    .prepare(
-      "SELECT id FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
-    )
-    .get() as { id: string } | undefined
-  if (existing) return existing.id
-
-  const id = `proj_${crypto.randomUUID().replace(/-/g, "")}`
-  const now = nowIso()
-  db.prepare(
-    `INSERT INTO projects (id, name, profile_id, workspace_root, repo_root,
-     archived, unread_count, created_at, updated_at, pinned, sync_dirty)
-     VALUES (?, 'Default', 'default', '', NULL, 0, 0, ?, ?, 0, 1)`,
-  ).run(id, now, now)
-  return id
-}
 
 function formatBareSessionName(key: string): string {
   if (key.includes(":telegram:")) return `Telegram ${key.split(":").pop() ?? "Chat"}`
@@ -340,16 +320,29 @@ export async function pullOnce(): Promise<{ seen: number; applied: number }> {
   }
 
   if (bareSessions.length > 0) {
-    const projectId = ensureDefaultProject(db)
-    for (const bare of bareSessions) {
-      try {
-        importBareSession(db, bare.key, bare.label, projectId, bare.updatedAt)
-        applied += 1
-      } catch {
-        // skip
+    const existing = db
+      .prepare(
+        "SELECT id FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+      )
+      .get() as { id: string } | undefined
+    if (existing) {
+      for (const bare of bareSessions) {
+        try {
+          importBareSession(db, bare.key, bare.label, existing.id, bare.updatedAt)
+          applied += 1
+        } catch {
+          // skip
+        }
       }
     }
   }
+
+  db.prepare(
+    `DELETE FROM projects WHERE name = 'Default' AND profile_id = 'default'
+     AND workspace_root = '' AND deleted_at IS NULL
+     AND id NOT IN (SELECT DISTINCT project_id FROM topics WHERE project_id IS NOT NULL)
+     AND id NOT IN (SELECT DISTINCT project_id FROM session_mappings WHERE project_id IS NOT NULL)`,
+  ).run()
 
   db.prepare(
     "INSERT INTO app_settings (key, value, updated_at) VALUES ('sync.last_sync_at', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
