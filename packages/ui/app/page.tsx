@@ -589,6 +589,14 @@ function AppShell({
     }
   }, [handleChatSelect])
 
+  const handleForkNavigate = useCallback(
+    (chat: { id: string; name: string; sessionKey: string }) => {
+      setChatRefreshTrigger((n) => n + 1)
+      handleChatSelect({ id: chat.id, name: chat.name, sessionKey: chat.sessionKey })
+    },
+    [handleChatSelect],
+  )
+
   const handleChatClear = useCallback(() => {
     routeRequestRef.current += 1
     setPendingPrompt(null)
@@ -972,6 +980,7 @@ function AppShell({
               onTopicQuickSend={handleTopicQuickSend}
               onDraftPrompt={handlePromptDraft}
               onNavigateToChat={handleCronJobNavigate}
+              onForkNavigate={handleForkNavigate}
             />
             {/* Keep the previous session alive in the background so it can
                 finish generating and trigger a notification after the user
@@ -1044,6 +1053,7 @@ function MainContent({
   onTopicQuickSend,
   onDraftPrompt,
   onNavigateToChat,
+  onForkNavigate,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -1066,6 +1076,7 @@ function MainContent({
   onTopicQuickSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   onDraftPrompt?: (prompt: string) => void
   onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
+  onForkNavigate?: (chat: { id: string; name: string; sessionKey: string }) => void
 }) {
   if (activeTab === "settings") {
     return (
@@ -1102,6 +1113,7 @@ function MainContent({
           initialMessages={initialMessages}
           onSelectTool={onSelectTool}
           initialPrompt={pendingPrompt ?? undefined}
+          onForkNavigate={onForkNavigate}
         />
       </div>
     )
