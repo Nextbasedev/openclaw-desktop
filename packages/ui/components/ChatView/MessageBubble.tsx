@@ -16,6 +16,7 @@ import {
   LuThumbsDown,
   LuThumbsUp,
   LuX,
+  LuGitFork,
 } from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -108,6 +109,7 @@ export function MessageBubble({
   onRegenerate,
   onReact,
   onExport,
+  onFork,
   isPinned,
   reaction,
   isGenerating,
@@ -124,6 +126,7 @@ export function MessageBubble({
   onRegenerate?: (messageId: string) => void
   onReact?: (messageId: string, reaction: "up" | "down") => void
   onExport?: (messageId: string) => void
+  onFork?: (messageId: string) => void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -368,7 +371,7 @@ export function MessageBubble({
                   </div>
                 )}
                 <CopyButton text={message.text} />
-                {(onPin || onReply || (onRegenerate && !isGenerating)) && (
+                {(onPin || onReply || onFork || (onRegenerate && !isGenerating)) && (
                   <Popover
                     open={popoverOpen}
                     onOpenChange={onPopoverOpenChange}
@@ -414,6 +417,16 @@ export function MessageBubble({
                           icon={<LuRefreshCw className="size-3.5" />}
                           onClick={() => {
                             onRegenerate(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                      {onFork && (
+                        <MenuAction
+                          label="Fork"
+                          icon={<LuGitFork className="size-3.5" />}
+                          onClick={() => {
+                            onFork(message.messageId)
                             onPopoverOpenChange?.(false)
                           }}
                         />

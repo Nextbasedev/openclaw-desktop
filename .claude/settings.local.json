@@ -62,7 +62,8 @@
       "Bash(git rebase *)",
       "Bash(GIT_EDITOR=true git rebase --continue)",
       "Bash(git -c core.editor=true rebase --continue)",
-      "Bash(pnpm dev:tauri)"
+      "Bash(pnpm dev:tauri)",
+      "PowerShell($body = '{\"input\":{\"sessionKey\":\"sess_690048481a694c2b9407bd6f515e73ec\"}}'; $resp = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_chat_history\" -Method POST -ContentType \"application/json\" -Body $body -UseBasicParsing; $json = $resp.Content | ConvertFrom-Json; $m = $json.messages[1]; Write-Output \"id: $\\($m.id\\)\"; Write-Output \"createdAt: $\\($m.createdAt\\)\")"
     ]
   }
 }
