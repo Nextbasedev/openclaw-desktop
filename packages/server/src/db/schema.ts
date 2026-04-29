@@ -1,5 +1,5 @@
-import crypto from "node:crypto"
-import type Database from "better-sqlite3"
+import crypto from "node:crypto";
+import type Database from "better-sqlite3";
 
 export function initDb(db: Database.Database): void {
   db.exec(`
@@ -163,38 +163,107 @@ export function initDb(db: Database.Database): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_sent_messages_session ON sent_messages(session_key, created_at);
-  `)
+    CREATE TABLE IF NOT EXISTS pinned_messages (
+      id TEXT PRIMARY KEY,
+      session_key TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      message_text TEXT NOT NULL,
+      pinned_at TEXT NOT NULL,
+      UNIQUE(session_key, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pinned_messages_session ON pinned_messages(session_key);
+  `);
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [
-    { table: "projects", column: "remotes_json", sql: "ALTER TABLE projects ADD COLUMN remotes_json TEXT" },
-    { table: "projects", column: "pinned", sql: "ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0" },
-    { table: "projects", column: "sync_dirty", sql: "ALTER TABLE projects ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1" },
-    { table: "topics", column: "sync_dirty", sql: "ALTER TABLE topics ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1" },
-    { table: "session_mappings", column: "sync_dirty", sql: "ALTER TABLE session_mappings ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1" },
-    { table: "branches", column: "sync_dirty", sql: "ALTER TABLE branches ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1" },
-    { table: "projects", column: "updated_by_device", sql: "ALTER TABLE projects ADD COLUMN updated_by_device TEXT" },
-    { table: "projects", column: "deleted_at", sql: "ALTER TABLE projects ADD COLUMN deleted_at TEXT" },
-    { table: "projects", column: "sort_order", sql: "ALTER TABLE projects ADD COLUMN sort_order TEXT" },
-    { table: "topics", column: "updated_by_device", sql: "ALTER TABLE topics ADD COLUMN updated_by_device TEXT" },
-    { table: "topics", column: "deleted_at", sql: "ALTER TABLE topics ADD COLUMN deleted_at TEXT" },
-    { table: "topics", column: "sort_order_key", sql: "ALTER TABLE topics ADD COLUMN sort_order_key TEXT" },
-    { table: "chats", column: "updated_by_device", sql: "ALTER TABLE chats ADD COLUMN updated_by_device TEXT" },
-    { table: "chats", column: "deleted_at", sql: "ALTER TABLE chats ADD COLUMN deleted_at TEXT" },
-    { table: "session_mappings", column: "sort_order_key", sql: "ALTER TABLE session_mappings ADD COLUMN sort_order_key TEXT" },
-  ]
+    {
+      table: "projects",
+      column: "remotes_json",
+      sql: "ALTER TABLE projects ADD COLUMN remotes_json TEXT",
+    },
+    {
+      table: "projects",
+      column: "pinned",
+      sql: "ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      table: "projects",
+      column: "sync_dirty",
+      sql: "ALTER TABLE projects ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1",
+    },
+    {
+      table: "topics",
+      column: "sync_dirty",
+      sql: "ALTER TABLE topics ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1",
+    },
+    {
+      table: "session_mappings",
+      column: "sync_dirty",
+      sql: "ALTER TABLE session_mappings ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1",
+    },
+    {
+      table: "branches",
+      column: "sync_dirty",
+      sql: "ALTER TABLE branches ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1",
+    },
+    {
+      table: "projects",
+      column: "updated_by_device",
+      sql: "ALTER TABLE projects ADD COLUMN updated_by_device TEXT",
+    },
+    {
+      table: "projects",
+      column: "deleted_at",
+      sql: "ALTER TABLE projects ADD COLUMN deleted_at TEXT",
+    },
+    {
+      table: "projects",
+      column: "sort_order",
+      sql: "ALTER TABLE projects ADD COLUMN sort_order TEXT",
+    },
+    {
+      table: "topics",
+      column: "updated_by_device",
+      sql: "ALTER TABLE topics ADD COLUMN updated_by_device TEXT",
+    },
+    {
+      table: "topics",
+      column: "deleted_at",
+      sql: "ALTER TABLE topics ADD COLUMN deleted_at TEXT",
+    },
+    {
+      table: "topics",
+      column: "sort_order_key",
+      sql: "ALTER TABLE topics ADD COLUMN sort_order_key TEXT",
+    },
+    {
+      table: "chats",
+      column: "updated_by_device",
+      sql: "ALTER TABLE chats ADD COLUMN updated_by_device TEXT",
+    },
+    {
+      table: "chats",
+      column: "deleted_at",
+      sql: "ALTER TABLE chats ADD COLUMN deleted_at TEXT",
+    },
+    {
+      table: "session_mappings",
+      column: "sort_order_key",
+      sql: "ALTER TABLE session_mappings ADD COLUMN sort_order_key TEXT",
+    },
+  ];
 
   for (const m of migrations) {
     try {
-      db.exec(m.sql)
+      db.exec(m.sql);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = e instanceof Error ? e.message : String(e);
       if (!msg.includes("duplicate column name")) {
-        throw new Error(`Failed to migrate ${m.table}.${m.column}: ${msg}`)
+        throw new Error(`Failed to migrate ${m.table}.${m.column}: ${msg}`);
       }
     }
   }
 
-  repairNullSessionKeys(db)
+  repairNullSessionKeys(db);
 }
 
 function repairNullSessionKeys(db: Database.Database): void {
@@ -202,12 +271,12 @@ function repairNullSessionKeys(db: Database.Database): void {
     .prepare(
       "SELECT rowid, project_id, topic_id FROM session_mappings WHERE session_key IS NULL",
     )
-    .all() as Array<{ rowid: number; project_id: string; topic_id: string }>
+    .all() as Array<{ rowid: number; project_id: string; topic_id: string }>;
 
   for (const row of rows) {
-    const key = `sess_${crypto.randomUUID().replace(/-/g, "")}`
+    const key = `sess_${crypto.randomUUID().replace(/-/g, "")}`;
     db.prepare(
       "UPDATE session_mappings SET session_key = ? WHERE rowid = ?",
-    ).run(key, row.rowid)
+    ).run(key, row.rowid);
   }
 }

@@ -76,6 +76,19 @@ export function useChatsData(
   useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
 
   useEffect(() => {
+    return on("chat:activity", () => {
+      if (!activeChat) return
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === activeChat.id
+            ? { ...c, updatedAt: new Date().toISOString() }
+            : c,
+        ),
+      )
+    })
+  }, [activeChat])
+
+  useEffect(() => {
     setChatOrder((prev) => {
       const existing = prev.filter((id) =>
         chats.some((c) => c.id === id),
@@ -185,12 +198,15 @@ export function useChatsData(
     const pinned = chatOrder.filter((id) =>
       pinnedChats.has(id),
     )
-    const unpinned = chatOrder.filter(
-      (id) => !pinnedChats.has(id),
-    )
-    return [...pinned, ...unpinned].filter((id) =>
-      chats.some((c) => c.id === id),
-    )
+    const unpinned = chats
+      .filter((c) => !pinnedChats.has(c.id))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() -
+          new Date(a.updatedAt).getTime(),
+      )
+      .map((c) => c.id)
+    return [...pinned, ...unpinned]
   }, [chatOrder, pinnedChats, chats])
 
   const dialogState: ChatDialogState = {

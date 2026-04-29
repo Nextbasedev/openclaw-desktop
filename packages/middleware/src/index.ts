@@ -623,6 +623,8 @@ export async function sendChatMessage(input: {
   sessionKey: string
   text: string
   timeoutMs?: number
+  regenerate?: boolean
+  replyTo?: { messageId: string; snippet: string }
   attachments?: Array<{
     name: string
     mimeType: string
@@ -638,6 +640,12 @@ export async function sendChatMessage(input: {
       message: input.text,
       timeoutMs: input.timeoutMs ?? 60_000,
       idempotencyKey: crypto.randomUUID(),
+    }
+    if (input.regenerate) {
+      params.regenerate = true
+    }
+    if (input.replyTo) {
+      params.replyTo = input.replyTo
     }
     if (input.attachments && input.attachments.length > 0) {
       params.attachments = input.attachments

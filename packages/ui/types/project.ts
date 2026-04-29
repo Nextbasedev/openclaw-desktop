@@ -1,4 +1,4 @@
-export type Project = { id: string; name: string; archived: boolean }
+export type Project = { id: string; name: string; profileId?: string; archived: boolean }
 
 export type FullTopic = {
   id: string

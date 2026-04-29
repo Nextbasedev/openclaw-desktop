@@ -68,7 +68,7 @@ pub fn ensure_backend(app: &AppHandle) -> Result<(), String> {
   let log_path = resolve_log_path(app);
 
   if wait_for_existing_backend(EXISTING_BACKEND_WAIT, &log_path) {
-    append_backend_log(&log_path, "Detected backend already listening on :3001");
+    append_backend_log(&log_path, "Detected backend already listening on :4000");
     return Ok(());
   }
 

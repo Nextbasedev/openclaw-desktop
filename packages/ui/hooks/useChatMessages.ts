@@ -3,6 +3,7 @@
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
+import { emit } from "@/lib/events"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
@@ -14,11 +15,9 @@ import type {
   SpawnedSubagent,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
-import {
-  extractSubagentSessionKey,
-} from "@/lib/subagentSession"
+import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
-import { parseChatHistory } from "@/lib/chatHistoryParser"
+import { parseChatHistory, extractReplyBlock } from "@/lib/chatHistoryParser"
 
 type RawMessage = {
   id?: string
@@ -49,14 +48,12 @@ const chatBootstrapCache = new Map<
 >()
 
 async function loadChatBootstrap(
-  sessionKey: string,
+  sessionKey: string
 ): Promise<ChatBootstrapData> {
   const now = Date.now()
   const cached = chatBootstrapCache.get(sessionKey)
   if (cached && cached.expiresAt > now) {
-    return cached.value instanceof Promise
-      ? await cached.value
-      : cached.value
+    return cached.value instanceof Promise ? await cached.value : cached.value
   }
 
   const value = Promise.all([
@@ -88,14 +85,14 @@ async function loadChatBootstrap(
 
 export function useChatMessages(
   sessionKey: string,
-  initialMessages?: ChatMessage[],
+  initialMessages?: ChatMessage[]
 ) {
   const hasInitial = initialMessages && initialMessages.length > 0
   const [messages, setMessages] = useState<ChatMessage[]>(
-    hasInitial ? initialMessages : [],
+    hasInitial ? initialMessages : []
   )
   const [status, setStatus] = useState<StreamStatus>(
-    hasInitial ? "thinking" : "idle",
+    hasInitial ? "thinking" : "idle"
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [loading, setLoading] = useState(!hasInitial)
@@ -110,8 +107,13 @@ export function useChatMessages(
 
   const [pendingTools, setPendingTools] = useState<InlineToolCall[]>([])
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
+  const embedsMapRef = useRef<
+    Map<string, { ref: string; content: string; title?: string }>
+  >(new Map())
 
-  const [spawnedSubagents, setSpawnedSubagents] = useState<SpawnedSubagent[]>([])
+  const [spawnedSubagents, setSpawnedSubagents] = useState<SpawnedSubagent[]>(
+    []
+  )
   const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
   const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const doneAfterYieldRef = useRef(0)
@@ -128,7 +130,8 @@ export function useChatMessages(
     status === "streaming" ||
     status === "stopping" ||
     status === "restarting"
-  const initialMessageKey = initialMessages?.map((m) => m.messageId).join("|") ?? ""
+  const initialMessageKey =
+    initialMessages?.map((m) => m.messageId).join("|") ?? ""
 
   useEffect(() => {
     statusRef.current = status
@@ -146,20 +149,25 @@ export function useChatMessages(
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    isAtBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }, [])
 
   const scrollToBottom = useCallback((smooth = false) => {
     if (!isAtBottomRef.current) return
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" })
+      bottomRef.current?.scrollIntoView({
+        behavior: smooth ? "smooth" : "instant",
+      })
     })
   }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
     isAtBottomRef.current = true
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" })
+      bottomRef.current?.scrollIntoView({
+        behavior: smooth ? "smooth" : "instant",
+      })
     })
   }, [])
 
@@ -176,7 +184,12 @@ export function useChatMessages(
       }
       return [
         ...prev,
-        { messageId: randomId(), role: "assistant" as const, text: "", toolCalls: tools },
+        {
+          messageId: randomId(),
+          role: "assistant" as const,
+          text: "",
+          toolCalls: tools,
+        },
       ]
     })
   }, [])
@@ -227,7 +240,10 @@ export function useChatMessages(
               const last = prev[prev.length - 1]
               if (last?.role === "assistant" && !last.createdAt) {
                 const updated = [...prev]
-                updated[prev.length - 1] = { ...last, createdAt: new Date().toISOString() }
+                updated[prev.length - 1] = {
+                  ...last,
+                  createdAt: new Date().toISOString(),
+                }
                 return updated
               }
               return prev
@@ -237,17 +253,27 @@ export function useChatMessages(
           break
         }
         case "chat.tool": {
-          const toolCallId = (ev as Record<string, unknown>).toolCallId as string | null
+          const toolCallId = (ev as Record<string, unknown>).toolCallId as
+            | string
+            | null
           const name = (ev as Record<string, unknown>).name as string | null
           const phase = (ev as Record<string, unknown>).phase as string | null
-          const subagentOf = (ev as Record<string, unknown>).subagentOf as string | null
+          const subagentOf = (ev as Record<string, unknown>).subagentOf as
+            | string
+            | null
           if (!toolCallId || !name) break
           if (subagentOf) {
-            if (name === "sessions_yield" && (phase === "result" || phase === "error")) {
+            if (
+              name === "sessions_yield" &&
+              (phase === "result" || phase === "error")
+            ) {
               const spawnTcId = subagentOf.replace("spawn:", "")
               const spawn = spawnMapRef.current.get(spawnTcId)
               if (spawn) {
-                upsertSpawn({ ...spawn, status: phase === "error" ? "failed" : "completed" })
+                upsertSpawn({
+                  ...spawn,
+                  status: phase === "error" ? "failed" : "completed",
+                })
               }
             }
             break
@@ -259,8 +285,7 @@ export function useChatMessages(
             const prev = spawnMapRef.current.get(toolCallId)
             if (prev) {
               const error = (ev as Record<string, unknown>).error
-              const childKey =
-                extractSubagentSessionKey(ev) ?? prev.sessionKey
+              const childKey = extractSubagentSessionKey(ev) ?? prev.sessionKey
               upsertSpawn({
                 ...prev,
                 sessionKey: childKey,
@@ -278,7 +303,11 @@ export function useChatMessages(
                 extractSubagentSessionKey(result) ??
                 extractSubagentSessionKey(ev)
               if (childKey) {
-                upsertSpawn({ ...prev, sessionKey: childKey, status: "working" })
+                upsertSpawn({
+                  ...prev,
+                  sessionKey: childKey,
+                  status: "working",
+                })
               }
             }
             break
@@ -294,10 +323,31 @@ export function useChatMessages(
               }
               pendingToolMapRef.current.set(toolCallId, tc)
             }
-            if (name === "sessions_spawn" && !spawnMapRef.current.has(toolCallId)) {
-              const args = (ev as Record<string, unknown>).args as Record<string, unknown> | undefined
+            if (name === "write") {
+              const args = (ev as Record<string, unknown>).args as
+                | Record<string, unknown>
+                | undefined
+              const ref = args?.ref as string | undefined
+              const content = args?.content as string | undefined
+              const title = args?.title as string | undefined
+              if (ref && content) {
+                embedsMapRef.current.set(ref, { ref, content, title })
+              }
+            }
+            if (
+              name === "sessions_spawn" &&
+              !spawnMapRef.current.has(toolCallId)
+            ) {
+              const args = (ev as Record<string, unknown>).args as
+                | Record<string, unknown>
+                | undefined
               const taskStr = (args?.task as string) ?? ""
-              const label = (args?.label as string) ?? (args?.agentId as string) ?? (taskStr.length > 0 ? taskStr.slice(0, 60) + (taskStr.length > 60 ? "..." : "") : `Sub-agent ${spawnMapRef.current.size + 1}`)
+              const label =
+                (args?.label as string) ??
+                (args?.agentId as string) ??
+                (taskStr.length > 0
+                  ? taskStr.slice(0, 60) + (taskStr.length > 60 ? "..." : "")
+                  : `Sub-agent ${spawnMapRef.current.size + 1}`)
               upsertSpawn({
                 id: `spawn:${toolCallId}`,
                 label,
@@ -308,7 +358,11 @@ export function useChatMessages(
               })
             }
           } else if (phase === "result" || phase === "error") {
-            const call = existing ?? { id: toolCallId, tool: name, status: "running" as const }
+            const call = existing ?? {
+              id: toolCallId,
+              tool: name,
+              status: "running" as const,
+            }
             const duration = call.startedAt
               ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
               : undefined
@@ -330,7 +384,7 @@ export function useChatMessages(
                   status:
                     phase === "error"
                       ? "failed"
-                      : childKey ?? prev.sessionKey
+                      : (childKey ?? prev.sessionKey)
                         ? "working"
                         : "linking",
                 })
@@ -358,15 +412,29 @@ export function useChatMessages(
           const text = rawText.trim()
           if (!text) break
           const timestamp = ev.createdAt || new Date().toISOString()
+          const pendingEmbeds =
+            embedsMapRef.current.size > 0
+              ? Array.from(embedsMapRef.current.values())
+              : undefined
           if (seenIds.current.has(id)) {
             setMessages((prev) =>
-              prev.map((m) => (m.messageId === id ? { ...m, text, createdAt: m.createdAt || timestamp } : m))
+              prev.map((m) =>
+                m.messageId === id
+                  ? {
+                      ...m,
+                      text,
+                      createdAt: m.createdAt || timestamp,
+                      embeds: pendingEmbeds ?? m.embeds,
+                    }
+                  : m
+              )
             )
           } else {
             seenIds.current.add(id)
             setMessages((prev) => {
               const lastMsg = prev[prev.length - 1]
-              const lastAssistant = lastMsg?.role === "assistant" ? lastMsg : null
+              const lastAssistant =
+                lastMsg?.role === "assistant" ? lastMsg : null
               const lastTrimmed = lastAssistant?.text.trim() ?? ""
               if (lastAssistant && lastTrimmed.length > 0) {
                 if (
@@ -374,23 +442,43 @@ export function useChatMessages(
                   text.startsWith(lastTrimmed) ||
                   lastTrimmed.startsWith(text)
                 ) {
-                  const longer = text.length >= lastTrimmed.length ? text : lastTrimmed
+                  const longer =
+                    text.length >= lastTrimmed.length ? text : lastTrimmed
                   return prev.map((m) =>
                     m.messageId === lastAssistant.messageId
-                      ? { ...m, text: longer, messageId: id, createdAt: m.createdAt || timestamp }
-                      : m,
+                      ? {
+                          ...m,
+                          text: longer,
+                          messageId: id,
+                          createdAt: m.createdAt || timestamp,
+                          embeds: pendingEmbeds ?? m.embeds,
+                        }
+                      : m
                   )
                 }
                 const merged = lastTrimmed + "\n\n" + text
                 return prev.map((m) =>
                   m.messageId === lastAssistant.messageId
-                    ? { ...m, text: merged, messageId: id, createdAt: m.createdAt || timestamp }
-                    : m,
+                    ? {
+                        ...m,
+                        text: merged,
+                        messageId: id,
+                        createdAt: m.createdAt || timestamp,
+                        embeds: pendingEmbeds ?? m.embeds,
+                      }
+                    : m
                 )
               }
               return [
                 ...prev.filter((m) => m.messageId !== id),
-                { messageId: id, role: "assistant", text, createdAt: timestamp, model: ev.model },
+                {
+                  messageId: id,
+                  role: "assistant",
+                  text,
+                  createdAt: timestamp,
+                  model: ev.model,
+                  embeds: pendingEmbeds,
+                },
               ]
             })
           }
@@ -405,7 +493,11 @@ export function useChatMessages(
           break
         }
         case "chat.ready": {
-          if (statusRef.current !== "thinking" && statusRef.current !== "restarting") break
+          if (
+            statusRef.current !== "thinking" &&
+            statusRef.current !== "restarting"
+          )
+            break
           const recent = (ev.recentMessages ?? []) as Array<{
             id?: string | null
             role?: string
@@ -422,11 +514,18 @@ export function useChatMessages(
           if (readyFallbackRef.current) clearTimeout(readyFallbackRef.current)
           readyFallbackRef.current = setTimeout(() => {
             readyFallbackRef.current = null
-            if (statusRef.current !== "thinking" && statusRef.current !== "restarting") return
+            if (
+              statusRef.current !== "thinking" &&
+              statusRef.current !== "restarting"
+            )
+              return
             setMessages((prev) => {
               const tail = prev[prev.length - 1]
               if (tail?.role !== "user") return prev
-              if (prev.some((m) => m.role === "assistant" && m.text === readyText)) return prev
+              if (
+                prev.some((m) => m.role === "assistant" && m.text === readyText)
+              )
+                return prev
               return [
                 ...prev,
                 {
@@ -449,13 +548,14 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, upsertSpawn],
+    [scrollToBottom, flushToolsToLastAssistant, upsertSpawn]
   )
 
   useEffect(() => {
-    const seededMessages = initialMessages && initialMessages.length > 0
-      ? initialMessages
-      : undefined
+    const seededMessages =
+      initialMessages && initialMessages.length > 0
+        ? initialMessages
+        : undefined
 
     setLoadError(null)
     setErrorMessage(null)
@@ -509,6 +609,10 @@ export function useChatMessages(
         const histMsgs: ChatMessage[] = []
         let pendingToolCalls: InlineToolCall[] = []
         let resultQueue: InlineToolCall[] = []
+        const historyEmbeds = new Map<
+          string,
+          { ref: string; content: string; title?: string }
+        >()
         const historySpawns: Array<{
           toolCallId: string
           label: string
@@ -524,32 +628,50 @@ export function useChatMessages(
 
         for (const m of raw) {
           if (m.role === "user") {
-            const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || randomId()
+            const id =
+              ((m as Record<string, unknown>).id as string) ||
+              ((m as Record<string, unknown>).messageId as string) ||
+              randomId()
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
             const text = rawText ? stripBootstrap(rawText) : ""
-            const isSubagentAnnounce = text ? /agent:main:subagent:[0-9a-f-]{36}/.test(text) : false
+            const isSubagentAnnounce = text
+              ? /agent:main:subagent:[0-9a-f-]{36}/.test(text)
+              : false
 
             if (isSubagentAnnounce) {
               if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
             } else if (text) {
+              const reply = extractReplyBlock(text, histMsgs)
               histMsgs.push({
                 messageId: id,
                 role: "user",
-                text,
+                text: reply ? reply.displayText : text,
                 createdAt: m.createdAt,
                 model: m.model,
+                replyTo: reply?.replyTo,
               })
             }
             pendingToolCalls = []
             resultQueue = []
           } else if (m.role === "assistant") {
-            const id = (m as Record<string, unknown>).id as string || (m as Record<string, unknown>).messageId as string || randomId()
+            const id =
+              ((m as Record<string, unknown>).id as string) ||
+              ((m as Record<string, unknown>).messageId as string) ||
+              randomId()
             seenIds.current.add(id)
 
-            const blocks = Array.isArray(m.content) ? m.content as Array<{ type?: string; id?: string; name?: string; arguments?: unknown; input?: unknown }> : []
+            const blocks = Array.isArray(m.content)
+              ? (m.content as Array<{
+                  type?: string
+                  id?: string
+                  name?: string
+                  arguments?: unknown
+                  input?: unknown
+                }>)
+              : []
             const tcBlocks = blocks.filter(
-              (b) => b.type === "toolCall" || b.type === "tool_use",
+              (b) => b.type === "toolCall" || b.type === "tool_use"
             )
             for (const b of tcBlocks) {
               const call: InlineToolCall = {
@@ -559,10 +681,31 @@ export function useChatMessages(
               }
               pendingToolCalls.push(call)
               resultQueue.push(call)
+              if (b.name === "write") {
+                const args = (b.arguments ?? b.input ?? {}) as Record<
+                  string,
+                  unknown
+                >
+                const ref = args.ref as string | undefined
+                const content = args.content as string | undefined
+                const title = args.title as string | undefined
+                if (ref && content) {
+                  historyEmbeds.set(ref, { ref, content, title })
+                }
+              }
               if (b.name === "sessions_spawn") {
-                const args = (b.arguments ?? b.input ?? {}) as Record<string, unknown>
+                const args = (b.arguments ?? b.input ?? {}) as Record<
+                  string,
+                  unknown
+                >
                 const histTask = (args.task as string) ?? ""
-                const label = (args.label as string) ?? (args.agentId as string) ?? (histTask.length > 0 ? histTask.slice(0, 60) + (histTask.length > 60 ? "..." : "") : `Sub-agent ${historySpawns.length + 1}`)
+                const label =
+                  (args.label as string) ??
+                  (args.agentId as string) ??
+                  (histTask.length > 0
+                    ? histTask.slice(0, 60) +
+                      (histTask.length > 60 ? "..." : "")
+                    : `Sub-agent ${historySpawns.length + 1}`)
                 historySpawns.push({
                   toolCallId: call.id,
                   label,
@@ -576,13 +719,28 @@ export function useChatMessages(
 
             const text = (m.text || extractText(m.content))?.trim()
             if (text || pendingToolCalls.length > 0) {
+              const currentEmbeds =
+                historyEmbeds.size > 0
+                  ? Array.from(historyEmbeds.values())
+                  : undefined
               const lastEntry = histMsgs[histMsgs.length - 1]
               if (lastEntry?.role === "assistant") {
-                if (text) lastEntry.text = lastEntry.text ? lastEntry.text + "\n\n" + text : text
+                if (text)
+                  lastEntry.text = lastEntry.text
+                    ? lastEntry.text + "\n\n" + text
+                    : text
                 lastEntry.messageId = id
                 lastEntry.createdAt = m.createdAt || lastEntry.createdAt
+                if (currentEmbeds)
+                  lastEntry.embeds = [
+                    ...(lastEntry.embeds ?? []),
+                    ...currentEmbeds,
+                  ]
                 if (pendingToolCalls.length > 0) {
-                  lastEntry.toolCalls = [...(lastEntry.toolCalls || []), ...pendingToolCalls]
+                  lastEntry.toolCalls = [
+                    ...(lastEntry.toolCalls || []),
+                    ...pendingToolCalls,
+                  ]
                 }
               } else {
                 histMsgs.push({
@@ -591,7 +749,11 @@ export function useChatMessages(
                   text: text || "",
                   createdAt: m.createdAt,
                   model: m.model,
-                  toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+                  toolCalls:
+                    pendingToolCalls.length > 0
+                      ? [...pendingToolCalls]
+                      : undefined,
+                  embeds: currentEmbeds,
                 })
               }
               pendingToolCalls = []
@@ -608,14 +770,17 @@ export function useChatMessages(
               if (resultText) {
                 try {
                   const parsed = JSON.parse(resultText)
-                  matchedCall.status = parsed.status === "error" ? "error" : "success"
+                  matchedCall.status =
+                    parsed.status === "error" ? "error" : "success"
                 } catch {
                   matchedCall.status = "success"
                 }
               }
             }
             if (matchedCall?.tool === "sessions_spawn" && resultText) {
-              const spawn = historySpawns.find((s) => s.toolCallId === matchedCall!.id)
+              const spawn = historySpawns.find(
+                (s) => s.toolCallId === matchedCall!.id
+              )
               if (spawn) {
                 if (matchedCall.status === "error") spawn.error = true
                 const childKey = extractSubagentSessionKey(resultText)
@@ -659,7 +824,10 @@ export function useChatMessages(
         if (historySpawns.length > 0) {
           setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
         }
-        if (historySpawns.length === 0 && normalizedHistory.subagents.length > 0) {
+        if (
+          historySpawns.length === 0 &&
+          normalizedHistory.subagents.length > 0
+        ) {
           for (const spawn of normalizedHistory.subagents) {
             spawnMapRef.current.set(spawn.toolCallId, spawn)
           }
@@ -670,10 +838,11 @@ export function useChatMessages(
           .filter((b) => b.branchReason === "edit")
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
-        let filtered = histMsgs.length > 0 ? histMsgs : normalizedHistory.messages
+        let filtered =
+          histMsgs.length > 0 ? histMsgs : normalizedHistory.messages
         for (const edit of edits) {
           const sourceIdx = filtered.findIndex(
-            (m) => m.messageId === edit.sourceMessageId,
+            (m) => m.messageId === edit.sourceMessageId
           )
           if (sourceIdx === -1) continue
 
@@ -701,7 +870,7 @@ export function useChatMessages(
           if (prev.length === 0) return filtered
           const histIds = new Set(filtered.map((hm) => hm.messageId))
           const kept = prev.filter(
-            (pm) => pm.isOptimistic && !histIds.has(pm.messageId),
+            (pm) => pm.isOptimistic && !histIds.has(pm.messageId)
           )
           return [...filtered, ...kept]
         })
@@ -711,7 +880,7 @@ export function useChatMessages(
         })
 
         eventSource = new EventSource(
-          streamUrl(`/api/stream/chat/${sessionKey}`),
+          streamUrl(`/api/stream/chat/${sessionKey}`)
         )
         const handleSSE = (event: MessageEvent) => {
           if (cancelled) return
@@ -747,7 +916,10 @@ export function useChatMessages(
           clearTimeout(loadingTimeout)
           loadingTimeout = null
         }
-        if (!cancelled) { setLoadError(String(e)); setLoading(false) }
+        if (!cancelled) {
+          setLoadError(String(e))
+          setLoading(false)
+        }
       }
     }
 
@@ -779,14 +951,22 @@ export function useChatMessages(
         try {
           const hist = await invoke<{ messages: unknown[] }>(
             "middleware_chat_history",
-            { input: { sessionKey: sub.sessionKey } },
+            { input: { sessionKey: sub.sessionKey } }
           )
           const msgs = (hist.messages ?? []) as RawMessage[]
           let isDone = false
           for (const m of msgs) {
             if (m.role !== "assistant") continue
-            const blocks = Array.isArray(m.content) ? m.content as Array<{ type?: string; name?: string }> : []
-            if (blocks.some((b) => (b.type === "toolCall" || b.type === "tool_use") && b.name === "sessions_yield")) {
+            const blocks = Array.isArray(m.content)
+              ? (m.content as Array<{ type?: string; name?: string }>)
+              : []
+            if (
+              blocks.some(
+                (b) =>
+                  (b.type === "toolCall" || b.type === "tool_use") &&
+                  b.name === "sessions_yield"
+              )
+            ) {
               isDone = true
               break
             }
@@ -813,54 +993,125 @@ export function useChatMessages(
     }
   }, [spawnedSubagents, upsertSpawn])
 
-  const handleSend = useCallback(async (payload: ChatComposerSubmit) => {
-    const trimmed = payload.text.trim()
-    // Use a synchronous ref guard to prevent duplicate calls within the
-    // same tick (React state is batched, so isSending would still be false
-    // on a rapid-fire second call).
-    if (!trimmed || sendingGuardRef.current) return
-    sendingGuardRef.current = true
-    setIsSending(true)
-    setErrorMessage(null)
-    const optimisticId = randomId()
-    pendingToolMapRef.current.clear()
-    setPendingTools([])
-    for (const [key, spawn] of spawnMapRef.current) {
-      if (!isActiveSubagent(spawn.status)) spawnMapRef.current.delete(key)
-    }
-    setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
-    doneAfterYieldRef.current = 0
-    setMessages((prev) => [
-      ...prev,
-      { messageId: optimisticId, role: "user", text: trimmed, createdAt: new Date().toISOString(), isOptimistic: true },
-    ])
-    setStatus("thinking")
-    forceScrollToBottom(false)
-    try {
-      if (isGenerating) {
-        restartInFlightRef.current = true
-        setStatus("restarting")
-        setStatusLabel(null)
-        await invoke("middleware_chat_stop", { input: { sessionKey } })
+  const handleSend = useCallback(
+    async (payload: ChatComposerSubmit) => {
+      const trimmed = payload.text.trim()
+      if (!trimmed || sendingGuardRef.current) return
+      sendingGuardRef.current = true
+      setIsSending(true)
+      setErrorMessage(null)
+      const optimisticId = randomId()
+      pendingToolMapRef.current.clear()
+      setPendingTools([])
+      for (const [key, spawn] of spawnMapRef.current) {
+        if (!isActiveSubagent(spawn.status)) spawnMapRef.current.delete(key)
       }
-      await invoke("middleware_chat_send", {
-        input: {
-          sessionKey,
+      setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+      doneAfterYieldRef.current = 0
+
+      const replyTo = payload.replyTo ?? undefined
+      const snippet = replyTo
+        ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
+        : undefined
+      const gatewayText = snippet
+        ? `> ${snippet.split("\n").join("\n> ")}\n\n${trimmed}`
+        : trimmed
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          messageId: optimisticId,
+          role: "user" as const,
           text: trimmed,
-          attachments: payload.attachments,
+          createdAt: new Date().toISOString(),
+          isOptimistic: true,
+          replyTo,
         },
+      ])
+      setStatus("thinking")
+      forceScrollToBottom(false)
+      try {
+        if (isGenerating) {
+          restartInFlightRef.current = true
+          setStatus("restarting")
+          setStatusLabel(null)
+          await invoke("middleware_chat_stop", { input: { sessionKey } })
+        }
+        await invoke("middleware_chat_send", {
+          input: {
+            sessionKey,
+            text: gatewayText,
+            attachments: payload.attachments,
+            replyTo: replyTo
+              ? { messageId: replyTo.messageId, snippet: snippet! }
+              : undefined,
+          },
+        })
+        emit("chat:activity")
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : String(error))
+        setStatus("error")
+        restartInFlightRef.current = false
+        setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId))
+        throw error
+      } finally {
+        sendingGuardRef.current = false
+        setIsSending(false)
+      }
+    },
+    [isGenerating, sessionKey, forceScrollToBottom]
+  )
+
+  const handleRegenerate = useCallback(
+    async (assistantMessageId: string) => {
+      if (sendingGuardRef.current || isGenerating) return
+
+      const currentMessages = messages
+      const assistantIdx = currentMessages.findIndex(
+        (m) => m.messageId === assistantMessageId
+      )
+      if (assistantIdx === -1) return
+
+      const precedingUser =
+        assistantIdx > 0 && currentMessages[assistantIdx - 1].role === "user"
+          ? currentMessages[assistantIdx - 1]
+          : null
+      const resendText = precedingUser?.text?.trim() || "Continue."
+
+      sendingGuardRef.current = true
+      setIsSending(true)
+      setErrorMessage(null)
+      pendingToolMapRef.current.clear()
+      setPendingTools([])
+      doneAfterYieldRef.current = 0
+
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.messageId === assistantMessageId)
+        if (idx === -1) return prev
+        return prev.slice(0, idx)
       })
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error))
-      setStatus("error")
-      restartInFlightRef.current = false
-      setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId))
-      throw error
-    } finally {
-      sendingGuardRef.current = false
-      setIsSending(false)
-    }
-  }, [isGenerating, sessionKey, forceScrollToBottom])
+
+      setStatus("thinking")
+      forceScrollToBottom(false)
+
+      try {
+        await invoke("middleware_chat_regenerate", {
+          input: {
+            sessionKey,
+            messageId: assistantMessageId,
+            text: resendText,
+          },
+        })
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : String(error))
+        setStatus("error")
+      } finally {
+        sendingGuardRef.current = false
+        setIsSending(false)
+      }
+    },
+    [isGenerating, sessionKey, forceScrollToBottom, messages]
+  )
 
   const handleAbort = useCallback(async () => {
     setStatus("stopping")
@@ -876,150 +1127,175 @@ export function useChatMessages(
     }
   }, [sessionKey])
 
-  const handleEdit = useCallback(async (userMessageId: string, newText: string) => {
-    const trimmed = newText.trim()
-    if (!trimmed || isSending || isGenerating) return
+  const handleEdit = useCallback(
+    async (userMessageId: string, newText: string) => {
+      const trimmed = newText.trim()
+      if (!trimmed || isSending || isGenerating) return
 
-    setMessages((prev) => {
-      const userIdx = prev.findIndex((m) => m.messageId === userMessageId)
-      if (userIdx === -1) return prev
+      setMessages((prev) => {
+        const userIdx = prev.findIndex((m) => m.messageId === userMessageId)
+        if (userIdx === -1) return prev
 
-      const userMsg = prev[userIdx]
-      const assistantMsg = userIdx + 1 < prev.length && prev[userIdx + 1].role === "assistant"
-        ? prev[userIdx + 1]
-        : undefined
+        const userMsg = prev[userIdx]
+        const assistantMsg =
+          userIdx + 1 < prev.length && prev[userIdx + 1].role === "assistant"
+            ? prev[userIdx + 1]
+            : undefined
 
-      const currentBranch: MessageBranch = {
-        userText: userMsg.text,
-        userCreatedAt: userMsg.createdAt,
-        response: assistantMsg
-          ? {
-              messageId: assistantMsg.messageId,
-              text: assistantMsg.text,
-              createdAt: assistantMsg.createdAt,
-              model: assistantMsg.model,
-              toolCalls: assistantMsg.toolCalls,
-            }
-          : undefined,
-      }
+        const currentBranch: MessageBranch = {
+          userText: userMsg.text,
+          userCreatedAt: userMsg.createdAt,
+          response: assistantMsg
+            ? {
+                messageId: assistantMsg.messageId,
+                text: assistantMsg.text,
+                createdAt: assistantMsg.createdAt,
+                model: assistantMsg.model,
+                toolCalls: assistantMsg.toolCalls,
+              }
+            : undefined,
+        }
 
-      const existingBranches = userMsg.branches ?? []
-      const wasOnOldBranch = userMsg.activeBranch !== undefined
-      let allBranches: MessageBranch[]
+        const existingBranches = userMsg.branches ?? []
+        const wasOnOldBranch = userMsg.activeBranch !== undefined
+        let allBranches: MessageBranch[]
 
-      if (wasOnOldBranch) {
-        allBranches = [...existingBranches]
-        allBranches[userMsg.activeBranch!] = currentBranch
-      } else {
-        allBranches = [...existingBranches, currentBranch]
-      }
+        if (wasOnOldBranch) {
+          allBranches = [...existingBranches]
+          allBranches[userMsg.activeBranch!] = currentBranch
+        } else {
+          allBranches = [...existingBranches, currentBranch]
+        }
 
-      const newBranch: MessageBranch = {
-        userText: trimmed,
-        userCreatedAt: new Date().toISOString(),
-      }
-      allBranches.push(newBranch)
+        const newBranch: MessageBranch = {
+          userText: trimmed,
+          userCreatedAt: new Date().toISOString(),
+        }
+        allBranches.push(newBranch)
 
-      const updated = prev.slice(0, userIdx + 1)
-      updated[userIdx] = {
-        ...userMsg,
-        text: trimmed,
-        createdAt: new Date().toISOString(),
-        branches: allBranches,
-        activeBranch: allBranches.length - 1,
-      }
+        const updated = prev.slice(0, userIdx + 1)
+        updated[userIdx] = {
+          ...userMsg,
+          text: trimmed,
+          createdAt: new Date().toISOString(),
+          branches: allBranches,
+          activeBranch: allBranches.length - 1,
+        }
 
-      return updated
-    })
-
-    pendingToolMapRef.current.clear()
-    setPendingTools([])
-    setStatus("thinking")
-    setIsSending(true)
-    forceScrollToBottom(false)
-
-    try {
-      await invoke("middleware_chat_edit_and_resend", {
-        input: { sessionKey, messageId: userMessageId, text: trimmed },
+        return updated
       })
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error))
-      setStatus("error")
-    } finally {
-      setIsSending(false)
-    }
-  }, [isSending, isGenerating, sessionKey, forceScrollToBottom])
 
-  const switchBranch = useCallback((userMessageId: string, branchIndex: number) => {
-    if (isGenerating) return
+      pendingToolMapRef.current.clear()
+      setPendingTools([])
+      setStatus("thinking")
+      setIsSending(true)
+      forceScrollToBottom(false)
 
-    setMessages((prev) => {
-      const userIdx = prev.findIndex((m) => m.messageId === userMessageId)
-      if (userIdx === -1) return prev
-
-      const userMsg = prev[userIdx]
-      const branches = userMsg.branches
-      if (!branches || branchIndex < 0 || branchIndex >= branches.length) return prev
-
-      const currentActiveBranch = userMsg.activeBranch
-      const assistantMsg = userIdx + 1 < prev.length && prev[userIdx + 1].role === "assistant"
-        ? prev[userIdx + 1]
-        : undefined
-
-      const currentSnapshot: MessageBranch = {
-        userText: userMsg.text,
-        userCreatedAt: userMsg.createdAt,
-        response: assistantMsg
-          ? {
-              messageId: assistantMsg.messageId,
-              text: assistantMsg.text,
-              createdAt: assistantMsg.createdAt,
-              model: assistantMsg.model,
-              toolCalls: assistantMsg.toolCalls,
-            }
-          : undefined,
-      }
-
-      const updatedBranches = [...branches]
-      if (currentActiveBranch !== undefined) {
-        updatedBranches[currentActiveBranch] = currentSnapshot
-      }
-
-      const target = updatedBranches[branchIndex]
-
-      const before = prev.slice(0, userIdx)
-      const after = assistantMsg ? prev.slice(userIdx + 2) : prev.slice(userIdx + 1)
-
-      const newUser: ChatMessage = {
-        ...userMsg,
-        text: target.userText,
-        createdAt: target.userCreatedAt,
-        branches: updatedBranches,
-        activeBranch: branchIndex,
-      }
-
-      const result = [...before, newUser]
-
-      if (target.response) {
-        result.push({
-          messageId: target.response.messageId,
-          role: "assistant",
-          text: target.response.text,
-          createdAt: target.response.createdAt,
-          model: target.response.model,
-          toolCalls: target.response.toolCalls,
+      try {
+        await invoke("middleware_chat_edit_and_resend", {
+          input: { sessionKey, messageId: userMessageId, text: trimmed },
         })
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : String(error))
+        setStatus("error")
+      } finally {
+        setIsSending(false)
       }
+    },
+    [isSending, isGenerating, sessionKey, forceScrollToBottom]
+  )
 
-      result.push(...after)
-      return result
-    })
-  }, [isGenerating])
+  const switchBranch = useCallback(
+    (userMessageId: string, branchIndex: number) => {
+      if (isGenerating) return
+
+      setMessages((prev) => {
+        const userIdx = prev.findIndex((m) => m.messageId === userMessageId)
+        if (userIdx === -1) return prev
+
+        const userMsg = prev[userIdx]
+        const branches = userMsg.branches
+        if (!branches || branchIndex < 0 || branchIndex >= branches.length)
+          return prev
+
+        const currentActiveBranch = userMsg.activeBranch
+        const assistantMsg =
+          userIdx + 1 < prev.length && prev[userIdx + 1].role === "assistant"
+            ? prev[userIdx + 1]
+            : undefined
+
+        const currentSnapshot: MessageBranch = {
+          userText: userMsg.text,
+          userCreatedAt: userMsg.createdAt,
+          response: assistantMsg
+            ? {
+                messageId: assistantMsg.messageId,
+                text: assistantMsg.text,
+                createdAt: assistantMsg.createdAt,
+                model: assistantMsg.model,
+                toolCalls: assistantMsg.toolCalls,
+              }
+            : undefined,
+        }
+
+        const updatedBranches = [...branches]
+        if (currentActiveBranch !== undefined) {
+          updatedBranches[currentActiveBranch] = currentSnapshot
+        }
+
+        const target = updatedBranches[branchIndex]
+
+        const before = prev.slice(0, userIdx)
+        const after = assistantMsg
+          ? prev.slice(userIdx + 2)
+          : prev.slice(userIdx + 1)
+
+        const newUser: ChatMessage = {
+          ...userMsg,
+          text: target.userText,
+          createdAt: target.userCreatedAt,
+          branches: updatedBranches,
+          activeBranch: branchIndex,
+        }
+
+        const result = [...before, newUser]
+
+        if (target.response) {
+          result.push({
+            messageId: target.response.messageId,
+            role: "assistant",
+            text: target.response.text,
+            createdAt: target.response.createdAt,
+            model: target.response.model,
+            toolCalls: target.response.toolCalls,
+          })
+        }
+
+        result.push(...after)
+        return result
+      })
+    },
+    [isGenerating]
+  )
 
   return {
-    messages, status, statusLabel, loading, loadError, errorMessage,
-    isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
-    handleSend, handleAbort, handleEdit, switchBranch, pendingTools,
+    messages,
+    status,
+    statusLabel,
+    loading,
+    loadError,
+    errorMessage,
+    isSending,
+    isGenerating,
+    bottomRef,
+    scrollContainerRef,
+    onScroll,
+    handleSend,
+    handleAbort,
+    handleEdit,
+    handleRegenerate,
+    switchBranch,
+    pendingTools,
     spawnedSubagents,
   }
 }

@@ -100,12 +100,15 @@ export function ChatsSection({
 
                 <Reorder.Group
                   axis="y"
-                  values={showAllChats ? sortedChatIds : sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)}
-                  onReorder={setChatOrder}
+                  values={sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)}
+                  onReorder={(newVisible) => {
+                    const hiddenTail = sortedChatIds.filter((id) => !newVisible.includes(id))
+                    setChatOrder([...newVisible, ...hiddenTail])
+                  }}
                   as="div"
                   className="flex flex-col gap-0.5"
                 >
-                  {(showAllChats ? sortedChatIds : sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)).map((chatId) => {
+                  {sortedChatIds.slice(0, CHAT_INITIAL_LIMIT).map((chatId) => {
                     const chat = chats.find(
                       (c) => c.id === chatId,
                     )
@@ -139,6 +142,54 @@ export function ChatsSection({
                     )
                   })}
                 </Reorder.Group>
+                <AnimatePresence initial={false}>
+                  {showAllChats && sortedChatIds.length > CHAT_INITIAL_LIMIT && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="overflow-hidden"
+                    >
+                      <div className="flex flex-col gap-0.5">
+                        {sortedChatIds.slice(CHAT_INITIAL_LIMIT).map((chatId) => {
+                          const chat = chats.find(
+                            (c) => c.id === chatId,
+                          )
+                          if (!chat) return null
+
+                          return (
+                            <ChatRow
+                              key={chatId}
+                              chatId={chatId}
+                              chats={chats}
+                              isActive={activeChat?.id === chatId}
+                              isPinned={pinnedChats.has(chatId)}
+                              disableReorder
+                              onClick={() =>
+                                onChatSelect({
+                                  id: chat.id,
+                                  name: chatDisplayName(chat),
+                                  sessionKey: chat.sessionKey,
+                                })
+                              }
+                              onPin={() => togglePinChat(chatId)}
+                              onRename={() =>
+                                dialogActions.openRename(chat)
+                              }
+                              onArchive={() =>
+                                handleArchiveChat(chatId)
+                              }
+                              onDelete={() =>
+                                dialogActions.openDelete(chat)
+                              }
+                            />
+                          )
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 {sortedChatIds.length > CHAT_INITIAL_LIMIT && (
                   <button
                     onClick={() => setShowAllChats((prev) => !prev)}
