@@ -1,25 +1,26 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import {
-  LuBookmark,
   LuCheck,
   LuChevronLeft,
   LuChevronRight,
   LuCopy,
-  LuFileDown,
+  LuEllipsisVertical,
   LuPenLine,
   LuPin,
   LuRefreshCw,
   LuReply,
   LuThumbsDown,
   LuThumbsUp,
-  LuTrash,
   LuX,
 } from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
@@ -111,6 +112,8 @@ export function MessageBubble({
   reaction,
   isGenerating,
   isActivelyStreaming,
+  popoverOpen,
+  onPopoverOpenChange,
 }: {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
@@ -125,6 +128,8 @@ export function MessageBubble({
   reaction?: "up" | "down"
   isGenerating?: boolean
   isActivelyStreaming?: boolean
+  popoverOpen?: boolean
+  onPopoverOpenChange?: (open: boolean) => void
 }) {
   const isUser = message.role === "user"
   const shouldAnimateSend = isUser && message.isOptimistic
@@ -181,17 +186,40 @@ export function MessageBubble({
   return (
     <motion.div
       initial={shouldAnimateSend ? { opacity: 0, y: 12, scale: 0.985 } : false}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{
-        duration: shouldAnimateSend ? 0.16 : 0.12,
+      animate={shouldAnimateSend ? { opacity: 1, y: 0, scale: 1 } : undefined}
+      transition={shouldAnimateSend ? {
+        duration: 0.16,
         ease: [0.22, 1, 0.36, 1],
-      }}
+      } : { duration: 0 }}
       className={cn(
         "group/msg flex w-full min-w-0 transform-gpu",
         isUser ? "justify-end" : "justify-start",
       )}
     >
-      <div className={cn("flex min-w-0 max-w-[85%] flex-col", isUser ? "items-end" : "items-start")}>
+      <div className={cn("flex min-w-0 max-w-[85%] flex-col", isUser ? "items-end" : "w-[85%] items-start")}>
+        {message.replyTo && (
+          <button
+            type="button"
+            onClick={() => {
+              document
+                .getElementById(`message-${message.replyTo!.messageId}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+            }}
+            className={cn(
+              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-border/20 bg-foreground/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.06]",
+            )}
+          >
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-medium text-muted-foreground/60">
+                {message.replyTo.role === "user" ? "You" : "Assistant"}
+              </span>
+              <p className="line-clamp-2 text-[12px] leading-snug text-foreground/50">
+                {message.replyTo.text.slice(0, 150)}
+                {message.replyTo.text.length > 150 ? "…" : ""}
+              </p>
+            </div>
+          </button>
+        )}
         {isUser && editing ? (
           <div className="flex w-full min-w-[280px] flex-col gap-2 rounded-2xl border border-border/30 bg-foreground/5 p-3">
             <textarea
@@ -224,21 +252,21 @@ export function MessageBubble({
             </div>
           </div>
         ) : (
-        <div
-          className={cn(
-            "min-w-0 max-w-full text-[14px] leading-relaxed",
-            isUser
-              ? "rounded-2xl rounded-tr-sm bg-foreground px-4 py-2.5 text-background"
-              : "text-foreground",
-          )}
-        >
-          {isUser ? (
-            <p className="whitespace-pre-wrap">{message.text}</p>
-          ) : (
-            <MarkdownContent text={message.text} />
-          )}
-          <RichContentPreview message={message} />
-        </div>
+          <div
+            className={cn(
+              "min-w-0 max-w-full text-[14px] leading-relaxed",
+              isUser
+                ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                : "w-full text-foreground",
+            )}
+          >
+            {isUser ? (
+              <p className="whitespace-pre-wrap">{message.text}</p>
+            ) : (
+              <MarkdownContent text={message.text} embeds={message.embeds} />
+            )}
+            <RichContentPreview message={message} />
+          </div>
         )}
         {isUser ? (
           <div className="mt-1 flex items-center gap-1 flex-row-reverse">
@@ -285,91 +313,113 @@ export function MessageBubble({
                   {formatTime(message.createdAt)}
                 </span>
               )}
-              <CopyButton text={message.text} />
-              <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
-                {onReply && (
-                  <button
-                    type="button"
-                    onClick={() => onReply(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label="Reply"
-                  >
-                    <LuReply className="size-3.5" />
-                  </button>
-                )}
-                {onPin && (
-                  <button
-                    type="button"
-                    onClick={() => onPin(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label={isPinned ? "Unpin" : "Pin"}
-                  >
-                    {isPinned ? (
-                      <LuBookmark className="size-3.5" />
-                    ) : (
-                      <LuPin className="size-3.5" />
-                    )}
-                  </button>
-                )}
-                {onRegenerate && (
-                  <button
-                    type="button"
-                    onClick={() => onRegenerate(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label="Regenerate"
-                  >
-                    <LuRefreshCw className="size-3.5" />
-                  </button>
-                )}
+              <div className="flex items-center gap-0.5">
                 {onReact && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onReact(message.messageId, "up")}
-                      className={cn(
-                        "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-                        reaction === "up"
-                          ? "text-emerald-400"
-                          : "text-foreground/30 hover:text-foreground/60",
+                  <div className="flex items-center gap-0.5">
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      {(reaction === "up" || !reaction) && (
+                        <motion.button
+                          key="up"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          type="button"
+                          onClick={() => onReact(message.messageId, "up")}
+                          className={cn(
+                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
+                            reaction === "up"
+                              ? "text-white"
+                              : "text-foreground/30 hover:text-foreground/60"
+                          )}
+                          aria-label="Helpful"
+                        >
+                          {reaction === "up" ? (
+                            <LuThumbsUp className="size-3.5 fill-white" />
+                          ) : (
+                            <LuThumbsUp className="size-3.5" />
+                          )}
+                        </motion.button>
                       )}
-                      aria-label="Helpful"
-                    >
-                      <LuThumbsUp className="size-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onReact(message.messageId, "down")}
-                      className={cn(
-                        "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
-                        reaction === "down"
-                          ? "text-rose-400"
-                          : "text-foreground/30 hover:text-foreground/60",
+
+                      {(reaction === "down" || !reaction) && (
+                        <motion.button
+                          key="down"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          type="button"
+                          onClick={() => onReact(message.messageId, "down")}
+                          className={cn(
+                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
+                            reaction === "down"
+                              ? "text-white"
+                              : "text-foreground/30 hover:text-foreground/60"
+                          )}
+                          aria-label="Not helpful"
+                        >
+                          {reaction === "down" ? (
+                            <LuThumbsDown className="size-3.5 fill-white" />
+                          ) : (
+                            <LuThumbsDown className="size-3.5" />
+                          )}
+                        </motion.button>
                       )}
-                      aria-label="Not helpful"
+                    </AnimatePresence>
+                  </div>
+                )}
+                <CopyButton text={message.text} />
+                {(onPin || onReply || (onRegenerate && !isGenerating)) && (
+                  <Popover
+                    open={popoverOpen}
+                    onOpenChange={onPopoverOpenChange}
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded transition-all duration-100 text-foreground/30 hover:text-foreground/60"
+                        aria-label="More actions"
+                      >
+                        <LuEllipsisVertical className="size-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      side="right"
+                      sideOffset={4}
+                      className={cn("w-36 gap-0 p-1", GLASS_POPOVER)}
                     >
-                      <LuThumbsDown className="size-3.5" />
-                    </button>
-                  </>
-                )}
-                {onExport && (
-                  <button
-                    type="button"
-                    onClick={() => onExport(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
-                    aria-label="Copy as markdown"
-                  >
-                    <LuFileDown className="size-3.5" />
-                  </button>
-                )}
-                {onDelete && (
-                  <button
-                    type="button"
-                    onClick={() => onDelete(message.messageId)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-rose-400"
-                    aria-label="Delete"
-                  >
-                    <LuTrash className="size-3.5" />
-                  </button>
+                      {onPin && (
+                        <MenuAction
+                          label={isPinned ? "Unpin" : "Pin"}
+                          icon={<LuPin className="size-3.5" />}
+                          onClick={() => {
+                            onPin(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                      {onReply && (
+                        <MenuAction
+                          label="Reply"
+                          icon={<LuReply className="size-3.5" />}
+                          onClick={() => {
+                            onReply(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                      {onRegenerate && !isGenerating && (
+                        <MenuAction
+                          label="Regenerate"
+                          icon={<LuRefreshCw className="size-3.5" />}
+                          onClick={() => {
+                            onRegenerate(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                    </PopoverContent>
+                  </Popover>
                 )}
               </div>
             </div>

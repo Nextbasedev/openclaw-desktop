@@ -16,6 +16,11 @@ export type ChatSendAttachment = {
 export type ChatComposerSubmit = {
   text: string
   attachments?: ChatSendAttachment[]
+  replyTo?: {
+    messageId: string
+    role: "user" | "assistant"
+    text: string
+  }
 }
 
 export type ChatComposerAttachment = ChatSendAttachment & {
