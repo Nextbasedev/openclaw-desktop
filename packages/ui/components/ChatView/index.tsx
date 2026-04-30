@@ -70,7 +70,7 @@ export function ChatView({
     messages, status, statusLabel, loading, loadError, errorMessage,
     isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort, handleEdit, handleRegenerate, switchBranch,
-    pendingTools, spawnedSubagents,
+    markTextAnimationComplete, pendingTools, spawnedSubagents,
   } = useChatMessages(sessionKey, initialMessages)
 
   const lastAssistantText = messages
@@ -389,8 +389,14 @@ export function ChatView({
 
       // Handle Feedback API (New or Changed)
       const rating = reaction === "up" ? "thumbsUp" : "thumbsDown"
-      
-      let payload: any = {
+
+      const payload: {
+        conversation_id: string
+        message_id: string
+        rating: string
+        tag_choices?: string[]
+        free_text?: string
+      } = {
         conversation_id: sessionKey,
         message_id: messageId,
         rating,
@@ -567,8 +573,10 @@ export function ChatView({
             className={cn(
               "group relative flex size-8 items-center justify-center rounded-sm transition-all cursor-pointer",
               pinnedPopoverOpen
-                ? " text-foreground shadow-inner"
-                : "text-muted-foreground/60 hover:text-foreground"
+                ? "text-foreground shadow-inner"
+                : pinned.length > 0
+                  ? "animate-pulse text-foreground"
+                  : "text-muted-foreground/60 hover:text-foreground"
             )}
           >
             <Icons.Pin
@@ -672,6 +680,7 @@ export function ChatView({
                       onRegenerate={msg.role === "assistant" && msg.messageId === lastAssistantId ? regenerateFromMessage : undefined}
                       onReact={msg.role === "assistant" ? reactToMessage : undefined}
                       onExport={exportOneMessage}
+                      onTextAnimationComplete={markTextAnimationComplete}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}

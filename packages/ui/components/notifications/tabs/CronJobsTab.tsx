@@ -294,7 +294,10 @@ function CronJobEditDialog({
   const { models, loading: modelsLoading, ensureLoaded } = useModels()
 
   useEffect(() => {
-    setDraft(job ? draftFromJob(job) : draftSeed ?? null)
+    const timer = window.setTimeout(() => {
+      setDraft(job ? draftFromJob(job) : draftSeed ?? null)
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [draftSeed, job])
 
   useEffect(() => {

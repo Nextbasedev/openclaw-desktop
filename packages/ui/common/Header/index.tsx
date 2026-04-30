@@ -66,7 +66,10 @@ export function Header({
     const [nodeVersion, setNodeVersion] = useState<string | null>(null)
 
     useEffect(() => {
-        setIsTauri(typeof window !== "undefined" && !!window.__TAURI_INTERNALS__)
+        const timer = window.setTimeout(() => {
+            setIsTauri(typeof window !== "undefined" && !!window.__TAURI_INTERNALS__)
+        }, 0)
+        return () => window.clearTimeout(timer)
     }, [])
 
     useEffect(() => {

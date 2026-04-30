@@ -50,7 +50,9 @@ export function SubagentBar({
   const hasActive = activeCount > 0
 
   useEffect(() => {
-    if (hasActive) setExpanded(true)
+    if (!hasActive) return
+    const timer = window.setTimeout(() => setExpanded(true), 0)
+    return () => window.clearTimeout(timer)
   }, [hasActive])
 
   if (subagents.length === 0) return null

@@ -83,11 +83,17 @@ export function ToolCallRow({
 
   useEffect(() => {
     if (!focused) return
-    if (hasDetails) setOpen(true)
-    requestAnimationFrame(() => {
+    const timer = hasDetails
+      ? window.setTimeout(() => setOpen(true), 0)
+      : null
+    const frame = requestAnimationFrame(() => {
       rowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
     onFocusHandled?.()
+    return () => {
+      if (timer !== null) window.clearTimeout(timer)
+      cancelAnimationFrame(frame)
+    }
   }, [focused, hasDetails, onFocusHandled])
 
   return (

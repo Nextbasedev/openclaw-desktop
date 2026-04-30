@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useMemo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkBreaks from "remark-breaks"
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { LuCopy, LuCheck } from "react-icons/lu"
 import { LanguageIcon } from "@/components/icons/LanguageIcon"
 import { MermaidBlock } from "./MermaidBlock"
+import { useStreamingText } from "./useStreamingText"
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -183,14 +184,17 @@ function EmbedBlock({ embed }: { embed: EmbedContent }) {
 }
 
 function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
-  if (!embeds || embeds.length === 0 || !EMBED_RE.test(text)) {
+  EMBED_RE.lastIndex = 0
+  const hasEmbedRef = EMBED_RE.test(text)
+  EMBED_RE.lastIndex = 0
+
+  if (!embeds || embeds.length === 0 || !hasEmbedRef) {
     return [{ type: "text" as const, value: text }]
   }
 
   const embedMap = new Map(embeds.map((e) => [e.ref, e]))
   const parts: Array<{ type: "text"; value: string } | { type: "embed"; embed: EmbedContent }> = []
   let lastIndex = 0
-  EMBED_RE.lastIndex = 0
 
   let match: RegExpExecArray | null
   while ((match = EMBED_RE.exec(text)) !== null) {
@@ -210,16 +214,36 @@ function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
   return parts
 }
 
-export function MarkdownContent({ text, className, embeds }: { text: string; className?: string; embeds?: EmbedContent[] }) {
-  const parts = splitTextAndEmbeds(text, embeds)
+export function MarkdownContent({
+  text,
+  className,
+  embeds,
+  streaming,
+  onRevealComplete,
+}: {
+  text: string
+  className?: string
+  embeds?: EmbedContent[]
+  streaming?: boolean
+  onRevealComplete?: () => void
+}) {
+  const { displayText, isRevealing } = useStreamingText(
+    text,
+    streaming,
+    onRevealComplete,
+  )
+  const parts = useMemo(
+    () => splitTextAndEmbeds(displayText, embeds),
+    [displayText, embeds],
+  )
 
   return (
-    <div className={cn("prose-chat max-w-full min-w-0", className)}>
+    <div className={cn("prose-chat max-w-full min-w-0", isRevealing && "streaming-text", className)}>
       {parts.map((part, i) =>
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />
         ) : (
-          <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm]} components={mdComponents}>
+          <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm, remarkBreaks]} components={mdComponents}>
             {part.value}
           </ReactMarkdown>
         ),

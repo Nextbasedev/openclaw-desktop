@@ -70,6 +70,9 @@ export function useAgentActivity(sessionKey: string | null) {
   const callMapRef = useRef<Map<string, ToolCall>>(new Map())
   const agentsRef = useRef<Map<string, AgentInfo>>(new Map())
   const [agents, setAgents] = useState<Map<string, AgentInfo>>(new Map())
+  const [subKeyToAgent, setSubKeyToAgent] = useState<Array<[string, string]>>(
+    [],
+  )
   const spawnQueueRef = useRef<string[]>([])
   const subKeyToAgentRef = useRef<Map<string, string>>(new Map())
   const activeSubPollsRef = useRef<
@@ -80,6 +83,7 @@ export function useAgentActivity(sessionKey: string | null) {
   const syncState = useCallback(() => {
     setToolCalls(Array.from(callMapRef.current.values()))
     setAgents(new Map(agentsRef.current))
+    setSubKeyToAgent(Array.from(subKeyToAgentRef.current.entries()))
   }, [])
 
   const stopSubagentPoll = useCallback((subKey: string) => {
@@ -375,6 +379,7 @@ export function useAgentActivity(sessionKey: string | null) {
       subKeyToAgentRef.current.clear()
       setToolCalls([])
       setAgents(new Map())
+      setSubKeyToAgent([])
       setStreamStatus(null)
       setHistoryLoaded(false)
       return
@@ -385,6 +390,7 @@ export function useAgentActivity(sessionKey: string | null) {
     subKeyToAgentRef.current.clear()
     setToolCalls([])
     setAgents(new Map())
+    setSubKeyToAgent([])
     setHistoryLoaded(false)
 
     async function loadHistory() {
@@ -511,7 +517,7 @@ export function useAgentActivity(sessionKey: string | null) {
     streamStatus === "streaming"
 
   const agentToSessionKey = new Map<string, string>()
-  for (const [subKey, agentId] of subKeyToAgentRef.current) {
+  for (const [subKey, agentId] of subKeyToAgent) {
     agentToSessionKey.set(agentId, subKey)
   }
   for (const [agentId, info] of agents) {

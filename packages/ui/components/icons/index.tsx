@@ -65,14 +65,20 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
     strokeWidth?: number
 }
 
-const wrapHugeicon = (IconData: any) => {
+type HugeiconData = React.ComponentProps<typeof HugeiconsIcon>["icon"]
+type NamedReactIcon = React.ElementType & {
+    displayName?: string
+    name?: string
+}
+
+const wrapHugeicon = (IconData: HugeiconData) => {
     const Component = ({ size = 20, strokeWidth = 1.5, className, ...props }: IconProps) => (
         <HugeiconsIcon
             icon={IconData}
             size={size}
             strokeWidth={strokeWidth}
             className={className}
-            {...props as any}
+            {...props}
         />
     )
     Component.displayName = `Hugeicon(${IconData.name || 'Unknown'})`
@@ -80,11 +86,11 @@ const wrapHugeicon = (IconData: any) => {
 }
 
 // Map React Icons to our standard props if needed, but usually they are already compatible
-const wrapReactIcon = (IconComponent: React.ElementType) => {
+const wrapReactIcon = (IconComponent: NamedReactIcon) => {
     const Component = ({ size = 20, className, ...props }: IconProps) => (
         <IconComponent size={size} className={className} {...props} />
     )
-    Component.displayName = `ReactIcon(${(IconComponent as any).displayName || (IconComponent as any).name || 'Unknown'})`
+    Component.displayName = `ReactIcon(${IconComponent.displayName || IconComponent.name || 'Unknown'})`
     return Component
 }
 

@@ -47,8 +47,9 @@ interface InspectorPanelProps {
 
 export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusedToolCallId, onClearFocusedToolCall, projectId, activeAgentId, onAgentSelect }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
-  const responsiveRef = useRef(getResponsiveDefaults())
-  const [width, setWidth] = useState(responsiveRef.current.default)
+  const responsiveDefaults = getResponsiveDefaults()
+  const responsiveRef = useRef(responsiveDefaults)
+  const [width, setWidth] = useState(responsiveDefaults.default)
   const [isDragging, setIsDragging] = useState(false)
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
 
