@@ -507,6 +507,17 @@ export async function chatHistory(input: { sessionKey: string }) {
 
   let msgs = deduplicateUserMessages((history.messages ?? []) as HistMsg[])
 
+  try {
+    const cronMsgs = await loadCronMessagesForSession(input.sessionKey)
+    if (cronMsgs.length > 0) {
+      msgs = [...msgs, ...cronMsgs].sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        return ta - tb
+      })
+    }
+  } catch {}
+
   const aliasKeys = sessionAliasKeys(input.sessionKey, gwKey)
   const placeholders = aliasKeys.map(() => "?").join(", ")
   const commands = db
@@ -556,6 +567,53 @@ export async function chatHistory(input: { sessionKey: string }) {
   }
 
   return { ...history, messages: msgs }
+}
+
+async function loadCronMessagesForSession(sessionKey: string): Promise<HistMsg[]> {
+  const { cronListJobs, cronListRuns, getParentSessionKey } = await import("./cron.service.js")
+
+  let jobs: Awaited<ReturnType<typeof cronListJobs>>
+  try {
+    jobs = await cronListJobs()
+  } catch {
+    return []
+  }
+
+  const matchingJobs = jobs.jobs.filter((job) => {
+    return getParentSessionKey(job.jobId) === sessionKey || job.session === sessionKey
+  })
+  if (matchingJobs.length === 0) return []
+
+  const cronMsgs: HistMsg[] = []
+  for (const job of matchingJobs) {
+    try {
+      const { runs } = await cronListRuns({ jobId: job.jobId, limit: 50, sortDir: "asc" })
+      for (const run of runs) {
+        if (run.status !== "completed" && run.status !== "failed") continue
+        if (!run.sessionKey) continue
+        try {
+          const history = await getChatHistory(run.sessionKey)
+          const messages = (history.messages ?? []) as HistMsg[]
+          for (const m of messages) {
+            const raw = m as Record<string, unknown>
+            const text = typeof m.text === "string"
+              ? m.text
+              : String(raw.content ?? "")
+            const prefix = m.role === "assistant" ? `**[Cron: ${job.name}]**\n` : ""
+            cronMsgs.push({
+              id: `cron:${run.runId}:${m.id ?? m.role}`,
+              role: m.role,
+              text: `${prefix}${text}`,
+              content: [{ type: "text", text: `${prefix}${text}` }],
+              createdAt: m.createdAt ?? run.startedAt,
+              model: m.role === "assistant" ? "cron" : undefined,
+            } as HistMsg)
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  return cronMsgs
 }
 
 export async function chatEditAndResend(input: {

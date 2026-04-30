@@ -21,6 +21,7 @@ import {
   parseChatHistory,
   extractReplyBlock,
   deduplicateRawMessages,
+  stripGatewayPrefixes,
 } from "@/lib/chatHistoryParser"
 
 type RawMessage = {
@@ -608,7 +609,9 @@ export function useChatMessages(
               randomId()
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
-            const text = rawText ? stripBootstrap(rawText) : ""
+            const text = rawText
+              ? stripGatewayPrefixes(stripBootstrap(rawText))
+              : ""
             const isSubagentAnnounce = text
               ? /agent:main:subagent:[0-9a-f-]{36}/.test(text)
               : false

@@ -325,6 +325,7 @@ export async function pullOnce(): Promise<{ seen: number; applied: number }> {
   }> = []
 
   for (const session of sessions) {
+    if (session.key.includes(":cron:")) continue
     const decoded = decodeLabel(session.label)
     if (!decoded.payload) {
       if (!isAnchorKey(session.key)) {

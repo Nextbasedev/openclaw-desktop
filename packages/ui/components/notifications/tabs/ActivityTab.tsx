@@ -16,6 +16,10 @@ type CronRunEvent = {
   timestamp: string
   result?: unknown
   error?: string | null
+  deliveryMode?: string | null
+  deliveryChannel?: string | null
+  deliveryTo?: string | null
+  parentSessionKey?: string | null
 }
 
 const MAX_EVENTS = 50
@@ -26,6 +30,7 @@ type ActivityTabProps = {
     name: string
     sessionKey?: string
     cronJobId?: string
+    cronRunId?: string
   }) => void | boolean | Promise<void | boolean>
 }
 
@@ -52,6 +57,28 @@ function statusLabel(type: CronRunEvent["type"]): string {
 function eventLabel(event: CronRunEvent): string {
   const id = event.jobId.slice(0, 8)
   return event.name ? `${id} - ${event.name}` : id
+}
+
+function cronNavigationPayload(event: CronRunEvent) {
+  return {
+    id: event.jobId,
+    name: event.name ?? event.jobId.slice(0, 8),
+    sessionKey: event.sessionKey ?? event.parentSessionKey ?? undefined,
+    cronJobId: event.jobId,
+    cronRunId: event.runId,
+  }
+}
+
+function deliveryLabel(event: CronRunEvent): string | null {
+  if (event.parentSessionKey) return "App Chat"
+  if (event.deliveryChannel === "telegram") return "Telegram"
+  if (event.deliveryChannel === "discord") return "Discord"
+  if (event.deliveryChannel === "slack") return "Slack"
+  if (event.deliveryChannel === "webhook") return "Webhook"
+  if (event.deliveryMode === "announce") return "Announce"
+  if (event.deliveryMode === "webhook") return "Webhook"
+  if (event.deliveryMode === "none") return "Jarvis Only"
+  return null
 }
 
 function resolveEventName(
@@ -223,6 +250,7 @@ export function ActivityTab({ onNavigateToChat }: ActivityTabProps) {
             const isExpanded = expandedIdx === idx
             const hasDetail = event.result || event.error
             const canNavigate = Boolean(onNavigateToChat)
+            const delivery = deliveryLabel(event)
 
             return (
               <motion.div
@@ -250,12 +278,7 @@ export function ActivityTab({ onNavigateToChat }: ActivityTabProps) {
                       if (hasDetail) setExpandedIdx(isExpanded ? null : idx)
                       return
                     }
-                    void onNavigateToChat({
-                      id: event.jobId,
-                      name: event.name ?? event.jobId.slice(0, 8),
-                      sessionKey: event.sessionKey ?? undefined,
-                      cronJobId: event.jobId,
-                    })
+                    void onNavigateToChat(cronNavigationPayload(event))
                   }}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 text-left",
@@ -299,9 +322,16 @@ export function ActivityTab({ onNavigateToChat }: ActivityTabProps) {
                         {status}
                       </span>
                     </div>
-                    <span className="text-[11px] text-muted-foreground/60">
-                      {formatTime(event.timestamp)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-muted-foreground/60">
+                        {formatTime(event.timestamp)}
+                      </span>
+                      {delivery && (
+                        <span className="rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground/70">
+                          {delivery}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {hasDetail && !canNavigate && (

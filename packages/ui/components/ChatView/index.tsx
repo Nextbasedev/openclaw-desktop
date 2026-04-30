@@ -144,6 +144,7 @@ export function ChatView({
   const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null)
   const [pinnedPopoverOpen, setPinnedPopoverOpen] = useState(false)
+  const pinButtonRef = useRef<HTMLButtonElement>(null)
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
@@ -596,6 +597,7 @@ export function ChatView({
 
         <div className="relative">
           <button
+            ref={pinButtonRef}
             onClick={() => setPinnedPopoverOpen(!pinnedPopoverOpen)}
             className={cn(
               "group relative flex size-8 items-center justify-center rounded-sm transition-all cursor-pointer",
@@ -617,6 +619,7 @@ export function ChatView({
             onClose={() => setPinnedPopoverOpen(false)}
             pinned={pinned}
             onTogglePin={togglePin}
+            triggerRef={pinButtonRef}
             onNavigateToMessage={(id) => {
               document
                 .getElementById(`message-${id}`)

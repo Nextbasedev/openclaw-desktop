@@ -38,6 +38,22 @@ import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
 const CRON_SESSION_TARGETS = new Set(["isolated", "main", "current"])
 
+function isRealChatSessionKey(sessionKey: string | null | undefined): sessionKey is string {
+  return Boolean(sessionKey && !CRON_SESSION_TARGETS.has(sessionKey) && !sessionKey.includes(":cron:"))
+}
+
+function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
+  return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
+}
+
+type CronConversationTarget = {
+  jobId: string
+  name: string
+  session: string
+  schedule: string
+  prompt: string
+}
+
 type ParsedRoute =
   | { kind: "chat"; chatId: string }
   | { kind: "topic"; projectId: string; topicId: string }
@@ -170,6 +186,10 @@ function AppShell({
   const [activeTopic, setActiveTopic] = useState<ActiveTopic | null>(null)
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
+  const [cronConversationTarget, setCronConversationTarget] =
+    useState<CronConversationTarget | null>(null)
+
+  const lastActiveSessionKeyRef = useRef<string | null>(null)
 
   // Keep the previous session alive (hidden) so its SSE connection
   // and notification logic survive when the user switches away.
@@ -186,6 +206,9 @@ function AppShell({
     if (prevKey && prevKey !== activeSessionKey) {
       setBackgroundSessionKey(prevKey)
       setBackgroundSessionTitle(prevTitle)
+    }
+    if (activeSessionKey) {
+      lastActiveSessionKeyRef.current = activeSessionKey
     }
     prevActiveSessionKeyRef.current = activeSessionKey
     prevActiveSessionTitleRef.current = activeSessionTitle
@@ -541,62 +564,98 @@ function AppShell({
   const handleCronJobNavigate = useCallback(async (cronJob: ActiveChat) => {
     try {
       const cronJobId = cronJob.cronJobId ?? cronJob.id
-      const conversation = await invoke<{
-        sessionKey: string | null
-        messages?: unknown[]
-      }>("middleware_cron_job_conversation", { input: { jobId: cronJobId } })
-      const fallbackSessionKey =
-        cronJob.sessionKey && !CRON_SESSION_TARGETS.has(cronJob.sessionKey)
-          ? cronJob.sessionKey
-          : null
-      const sessionKey = conversation.sessionKey ?? fallbackSessionKey
-
-      if (!sessionKey) {
-        console.error("Cron job has no conversation session yet", cronJob)
-        return false
-      }
-
-      const listResult = await invoke<{ chats: { id: string; name: string; sessionKey?: string; archived: boolean }[] }>(
-        "middleware_chats_list",
-        { input: {} },
-      )
-      const existing = (listResult.chats || []).find(
-        (c) => !c.archived && (c.sessionKey === sessionKey || c.name === cronJob.name),
+      const listResult = await invoke<{
+        chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
+      }>("middleware_chats_list", { input: {} }).catch(() => ({ chats: [] }))
+      const chats = listResult.chats.filter((chat) => !chat.archived)
+      const directSessionKey = isRealChatSessionKey(cronJob.sessionKey)
+        ? cronJob.sessionKey
+        : null
+      const directChat = directSessionKey
+        ? chats.find((chat) => chat.sessionKey === directSessionKey)
+        : null
+      const exactNameChat = chats.find(
+        (chat) => sameName(chat.name, cronJob.name) && !chat.name.trim().toLowerCase().startsWith("cron:"),
       )
 
-      if (existing) {
-        if (existing.sessionKey !== sessionKey) {
-          await invoke("middleware_chats_attach_session", {
-            input: { chatId: existing.id, sessionKey },
-          })
-        }
-        handleChatSelect({ ...existing, sessionKey })
+      if (directChat) {
+        setCronConversationTarget(null)
+        handleChatSelect({ ...directChat, sessionKey: directSessionKey ?? directChat.sessionKey })
         return true
       }
 
-      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string } }>(
-        "middleware_chats_create",
-        { input: { name: cronJob.name, sessionKey } },
-      )
+      if (
+        activeChat &&
+        activeSessionKey &&
+        sameName(activeChat.name, cronJob.name)
+      ) {
+        setCronConversationTarget(null)
+        setInitialMessages(undefined)
+        setActiveTab("chat")
+        setActiveTopic(null)
+        setActiveChat(activeChat)
+        setActiveSessionKey(activeSessionKey)
+        setActiveSessionTitle(activeSessionTitle ?? activeChat.name)
+        window.history.pushState(null, "", `/${activeChat.id}`)
+        return true
+      }
+
+      if (exactNameChat?.sessionKey) {
+        setCronConversationTarget(null)
+        handleChatSelect({ ...exactNameChat, sessionKey: exactNameChat.sessionKey })
+        return true
+      }
+
+      let target: CronConversationTarget = {
+        jobId: cronJobId,
+        name: cronJob.name,
+        session: cronJob.sessionKey ?? "isolated",
+        schedule: "",
+        prompt: "",
+      }
+      try {
+        const result = await invoke<{
+          job: {
+            jobId: string
+            name: string
+            session: string
+            schedule: string
+            task?: string | null
+            message?: string | null
+          }
+        }>("middleware_cron_get_job", { input: { jobId: cronJobId } })
+        target = {
+          jobId: result.job.jobId,
+          name: result.job.name || cronJob.name,
+          session: result.job.session || cronJob.sessionKey || "isolated",
+          schedule: result.job.schedule || "",
+          prompt: result.job.message ?? result.job.task ?? "",
+        }
+      } catch {}
+
+      if (isRealChatSessionKey(target.session)) {
+        const targetChat = chats.find((chat) => chat.sessionKey === target.session)
+        if (targetChat) {
+          setCronConversationTarget(null)
+          handleChatSelect({ ...targetChat, sessionKey: target.session })
+          return true
+        }
+      }
+
+      setCronConversationTarget(target)
       setInitialMessages(undefined)
-      setActiveTab("chat")
+      setActiveTab("notifications")
       setActiveTopic(null)
-      setActiveChat({ id: result.chat.id, name: cronJob.name, sessionKey })
-      setActiveSessionKey(sessionKey)
-      setActiveSessionTitle(cronJob.name)
-      resolvedChatCacheRef.current.set(result.chat.id, {
-        chat: { id: result.chat.id, name: cronJob.name, sessionKey },
-        sessionKey,
-        title: cronJob.name,
-      })
-      setChatRefreshTrigger((n) => n + 1)
-      window.history.pushState(null, "", `/${result.chat.id}`)
+      setActiveChat(null)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      window.history.pushState(null, "", "/notifications")
       return true
     } catch (err) {
       console.error("Failed to navigate to cron job chat", err)
       return false
     }
-  }, [handleChatSelect])
+  }, [activeChat, activeSessionKey, activeSessionTitle, handleChatSelect])
 
   const handleForkNavigate = useCallback(
     (chat: { id: string; name: string; sessionKey: string }) => {
@@ -973,6 +1032,8 @@ function AppShell({
               activeTopic={activeTopic}
               activeChat={activeChat}
               activeSessionKey={activeSessionKey}
+              lastActiveSessionKey={lastActiveSessionKeyRef.current}
+              cronConversationTarget={cronConversationTarget}
               activeSessionTitle={activeSessionTitle}
               onSignOut={handleSignOut}
               onDeleteAccount={handleDeleteAccount}
@@ -1047,6 +1108,8 @@ function MainContent({
   activeTopic,
   activeChat,
   activeSessionKey,
+  lastActiveSessionKey,
+  cronConversationTarget,
   activeSessionTitle,
   onSignOut,
   onDeleteAccount,
@@ -1070,6 +1133,8 @@ function MainContent({
   activeTopic: ActiveTopic | null
   activeChat: ActiveChat | null
   activeSessionKey: string | null
+  lastActiveSessionKey: string | null
+  cronConversationTarget: CronConversationTarget | null
   activeSessionTitle: string | null
   onSignOut: () => void
   onDeleteAccount: () => void
@@ -1101,7 +1166,8 @@ function MainContent({
     return (
       <div className="flex h-full w-full">
         <NotificationDashboard
-          activeSessionKey={activeSessionKey}
+          activeSessionKey={activeSessionKey ?? lastActiveSessionKey}
+          initialSelectedJob={cronConversationTarget}
           onBack={onSettingsBack}
           onDraftPrompt={onDraftPrompt}
           onNavigateToChat={onNavigateToChat}

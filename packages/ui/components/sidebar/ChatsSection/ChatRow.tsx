@@ -18,7 +18,7 @@ import type { Chat } from "@/types/chat"
 
 type Props = {
   chatId: string
-  chats: Chat[]
+  chat: Chat
   isActive: boolean
   isPinned: boolean
   onClick: () => void
@@ -31,7 +31,7 @@ type Props = {
 
 export function ChatRow({
   chatId,
-  chats,
+  chat,
   isActive,
   isPinned,
   onClick,
@@ -44,8 +44,6 @@ export function ChatRow({
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
   const [menuOpen, setMenuOpen] = useState(false)
-  const chat = chats.find((c) => c.id === chatId)
-  if (!chat) return null
 
   const timeStr = formatCompactTime(chat.updatedAt)
   const displayName = chatDisplayName(chat)

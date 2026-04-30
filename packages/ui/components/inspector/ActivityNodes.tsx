@@ -147,11 +147,9 @@ export function ToolCallRow({
                       Input
                     </p>
                   </div>
-                  <div className="px-5 py-4">
-                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-foreground/85">
-                      {formatInput(call.input)}
-                    </pre>
-                  </div>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all px-5 py-4 font-mono text-[12px] leading-relaxed text-foreground/85">
+                    {formatInput(call.input)}
+                  </pre>
                 </div>
               )}
               {call.input && call.output && (
@@ -169,16 +167,14 @@ export function ToolCallRow({
                       Output
                     </p>
                   </div>
-                  <div className="px-5 py-4">
-                    <pre
-                      className={cn(
-                        "max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed",
-                        isError ? "text-[#FF4D4D]" : "text-[#00D492]",
-                      )}
-                    >
-                      {truncateOutput(call.output)}
-                    </pre>
-                  </div>
+                  <pre
+                    className={cn(
+                      "max-h-48 overflow-auto whitespace-pre-wrap break-all px-5 py-4 font-mono text-[12px] leading-relaxed",
+                      isError ? "text-[#FF4D4D]" : "text-[#00D492]",
+                    )}
+                  >
+                    {truncateOutput(call.output)}
+                  </pre>
                 </div>
               )}
             </div>

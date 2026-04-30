@@ -57,6 +57,7 @@ type CronRunEvent = CronRunEventLike & {
   timestamp: string
   result?: unknown
   error?: string | null
+  parentSessionKey?: string | null
 }
 
 type SelectedJob = {
@@ -167,7 +168,7 @@ function draftFromJob(job: CronJob): CronJobDraft {
     scheduleType: job.scheduleType,
     schedule: job.schedule,
     timezone: job.timezone ?? "",
-    deliveryMode: job.deliveryMode ?? "announce",
+    deliveryMode: job.deliveryMode ?? "none",
     deliveryChannel: job.deliveryChannel ?? "",
     deliveryTo: job.deliveryTo ?? "",
     model: job.model ?? "",
@@ -705,6 +706,7 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
         schedule: draft.schedule.trim(),
         timezone: draft.timezone.trim() || "Asia/Kolkata",
         session: activeSessionKey || "isolated",
+        parentSessionKey: activeSessionKey || undefined,
         message: draft.prompt.trim(),
         model: draft.model.trim() || undefined,
         enabled: true,
@@ -721,7 +723,7 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
     } finally {
       setCreatingJob(false)
     }
-  }, [fetchJobs])
+  }, [activeSessionKey, fetchJobs])
 
   return (
     <div className="flex flex-col gap-6">
