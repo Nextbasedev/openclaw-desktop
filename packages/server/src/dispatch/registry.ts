@@ -233,6 +233,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_connect_disconnect: () => connect.connectDisconnect(),
   middleware_connect_bootstrap: () => connect.connectBootstrap(),
   middleware_connect_reset: () => connect.connectReset(),
+  middleware_connect_delete_all: () => connect.connectDeleteAll(),
 
   // Terminal
   middleware_terminal_create: (i) => terminal.terminalCreate(i as Parameters<typeof terminal.terminalCreate>[0]),

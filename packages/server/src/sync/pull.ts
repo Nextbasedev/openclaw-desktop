@@ -150,6 +150,29 @@ function applyTopic(payload: SyncPayload, sessionKey: string): void {
   )
 }
 
+const WEAK_NAME_RE = /^(?:[0-9a-f]{8}|[0-9a-f]{12,}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|chat_[0-9a-f]{12,}|sess_[0-9a-f]{12,})$/i
+
+function isWeakName(name: string | null | undefined): boolean {
+  const v = name?.trim()
+  if (!v) return true
+  if (v === "New Chat") return true
+  return WEAK_NAME_RE.test(v)
+}
+
+function resolveChatName(
+  db: Database.Database,
+  chatId: string,
+  incomingName: string | undefined,
+): string {
+  const incoming = incomingName ?? "New Chat"
+  const row = db
+    .prepare("SELECT name FROM chats WHERE id = ?")
+    .get(chatId) as { name: string } | undefined
+  const localName = row?.name
+  if (isWeakName(incoming) && !isWeakName(localName)) return localName!
+  return incoming
+}
+
 function applyChat(payload: SyncPayload, sessionKey: string): void {
   const db = getDb()
   const chatId = payload.ids.chatId
@@ -168,6 +191,10 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
     .prepare("SELECT updated_at FROM chats WHERE id = ?")
     .get(chatId) as { updated_at: string } | undefined
 
+  const resolvedName = existingChat
+    ? resolveChatName(db, chatId, payload.names.chatName)
+    : (payload.names.chatName ?? "New Chat")
+
   if (!existingChat) {
     db.prepare(
       `INSERT INTO chats (id, name, session_key, agent_id, archived, pinned,
@@ -175,7 +202,7 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
     ).run(
       chatId,
-      payload.names.chatName ?? "New Chat",
+      resolvedName,
       sessionKey,
       payload.chat?.agentId ?? "main",
       boolToSql(payload.chat?.archived ?? false),
@@ -187,10 +214,11 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
     )
   } else if (isNewer(payload.updatedAt, existingChat.updated_at)) {
     db.prepare(
-      `UPDATE chats SET session_key = ?, agent_id = ?, archived = ?,
+      `UPDATE chats SET name = ?, session_key = ?, agent_id = ?, archived = ?,
        pinned = ?, last_active_at = ?, updated_at = ?, updated_by_device = ?,
        sync_dirty = 0 WHERE id = ?`,
     ).run(
+      resolvedName,
       sessionKey,
       payload.chat?.agentId ?? "main",
       boolToSql(payload.chat?.archived ?? false),
@@ -217,7 +245,7 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
       payload.ids.projectId,
       payload.ids.topicId ?? null,
       payload.chat?.agentId ?? "main",
-      payload.names.chatName ?? "New Chat",
+      resolvedName,
       payload.updatedAt,
       payload.updatedAt,
       payload.chat?.sortOrderKey ?? null,
@@ -231,7 +259,7 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
       payload.ids.projectId,
       payload.ids.topicId ?? null,
       payload.chat?.agentId ?? "main",
-      payload.names.chatName ?? "New Chat",
+      resolvedName,
       payload.updatedAt,
       payload.chat?.sortOrderKey ?? null,
       sessionKey,
@@ -257,6 +285,16 @@ function importBareSession(
     .prepare("SELECT id FROM chats WHERE session_key = ?")
     .get(sessionKey) as { id: string } | undefined
   if (existingChat) return
+
+  const mappedLocal = db
+    .prepare("SELECT session_key FROM session_mappings WHERE session_id = ?")
+    .get(sessionKey) as { session_key: string } | undefined
+  if (mappedLocal) {
+    const linkedChat = db
+      .prepare("SELECT id FROM chats WHERE session_key = ?")
+      .get(mappedLocal.session_key) as { id: string } | undefined
+    if (linkedChat) return
+  }
 
   const chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
   const chatName = label || formatBareSessionName(sessionKey)

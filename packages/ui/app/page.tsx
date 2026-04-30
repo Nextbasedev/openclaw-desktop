@@ -1090,6 +1090,7 @@ function MainContent({
     return (
       <div className="flex h-full w-full">
         <NotificationDashboard
+          activeSessionKey={activeSessionKey}
           onBack={onSettingsBack}
           onDraftPrompt={onDraftPrompt}
           onNavigateToChat={onNavigateToChat}

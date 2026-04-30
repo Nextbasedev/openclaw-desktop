@@ -1,7 +1,10 @@
 import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
-import { connectToOpenClawGateway } from "middleware"
+import {
+  connectToOpenClawGateway,
+  deleteChatSession,
+} from "middleware"
 import { connectGateway, disconnectGateway } from "../gateway/client.js"
 import { getDb } from "../db/connection.js"
 import { stopSyncEngine, startSyncEngine } from "../sync/engine.js"
@@ -334,19 +337,35 @@ export async function connectTest() {
   const gatewayUrl = status.gatewayUrl!
   const local = isLocalGateway(gatewayUrl)
 
-  try {
-    const client = await connectToOpenClawGateway({
-      scopes: [...SCOPES],
-    })
-    const url = client.gatewayUrl
-    client.close()
-    return {
-      ok: true,
-      url,
-      message: "Connected successfully",
-      isLocal: local,
+  const MAX_RETRIES = 2
+  let lastErr: unknown
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const client = await connectToOpenClawGateway({
+        scopes: [...SCOPES],
+      })
+      const url = client.gatewayUrl
+      client.close()
+      return {
+        ok: true,
+        url,
+        message: "Connected successfully",
+        isLocal: local,
+      }
+    } catch (err) {
+      lastErr = err
+      const m = err instanceof Error ? err.message : ""
+      const retryable =
+        m.includes("websocket open timeout") ||
+        m.includes("timeout waiting for connect")
+      if (!retryable || attempt >= MAX_RETRIES - 1) break
+      await new Promise((r) => setTimeout(r, 2_000))
     }
-  } catch (err) {
+  }
+
+  {
+    const err = lastErr
     const msg =
       err instanceof Error ? err.message : String(err)
 
@@ -454,5 +473,46 @@ export function connectReset() {
     ok: true,
     message:
       "Connection state reset. Re-run onboarding to reconfigure.",
+  }
+}
+
+export async function connectDeleteAll() {
+  const db = getDb()
+
+  const sessions = db
+    .prepare(
+      "SELECT session_key, session_id FROM session_mappings",
+    )
+    .all() as { session_key: string; session_id: string | null }[]
+
+  const errors: string[] = []
+  for (const row of sessions) {
+    const gwKey = row.session_id ?? row.session_key
+    try {
+      await deleteChatSession(gwKey)
+    } catch (err) {
+      errors.push(
+        `${gwKey}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
+  db.exec(`
+    DELETE FROM chats;
+    DELETE FROM session_mappings;
+    DELETE FROM topics;
+    DELETE FROM projects;
+    DELETE FROM branches;
+    DELETE FROM sent_messages;
+    DELETE FROM pinned_messages;
+    DELETE FROM anchor_sessions;
+    DELETE FROM sync_outbox;
+    DELETE FROM sync_tombstones;
+  `)
+
+  return {
+    ok: true,
+    deletedSessions: sessions.length,
+    gatewayErrors: errors,
   }
 }

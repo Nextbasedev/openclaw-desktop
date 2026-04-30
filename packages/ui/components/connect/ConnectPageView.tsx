@@ -13,6 +13,7 @@ import {
   ViewOffIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -122,10 +123,10 @@ export function ConnectPageView({
 
   return (
     <div className="flex h-svh items-center justify-center overflow-y-auto bg-background p-6">
-      <div className="w-full max-w-[820px] space-y-3">
-        <div className="overflow-hidden rounded-2xl border border-border/50 shadow-lg">
-          <div className="grid lg:grid-cols-[260px_1fr]">
-            <div className="flex flex-col gap-8 border-b border-white/[0.06] bg-gradient-to-b from-zinc-900 to-zinc-950 p-6 lg:border-b-0 lg:border-r">
+      <div className="w-full max-w-[960px] space-y-3">
+        <div className={cn("overflow-hidden", GLASS_POPOVER)}>
+          <div className="grid lg:grid-cols-[310px_1fr]">
+            <div className="flex flex-col gap-9 border-b border-white/[0.06] bg-white/[0.02] p-8 lg:border-b-0 lg:border-r lg:border-border/10">
               <div className="flex items-center gap-3">
                 <div className="flex size-9 items-center justify-center rounded-xl border border-white/10 bg-white/5">
                   <HugeiconsIcon
@@ -171,7 +172,7 @@ export function ConnectPageView({
               </div>
             </div>
 
-            <div className="flex flex-col bg-card p-6">
+            <div className="flex flex-col p-8">
               <div className="mb-5 flex items-center justify-between">
                 <h2 className="text-sm font-medium">
                   Gateway Settings
@@ -303,67 +304,72 @@ export function ConnectPageView({
                 </div>
               </div>
 
-              {connectResult?.ok && (
-                <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-400">
-                  <HugeiconsIcon
-                    icon={CheckmarkCircle02Icon}
-                    size={15}
-                    className="shrink-0"
-                  />
-                  Connected to{" "}
-                  <span className="font-medium">
-                    {connectResult.url}
-                  </span>
+              <div className="mt-5 space-y-3 border-t border-border/50 pt-5">
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    onClick={onTest}
+                    disabled={busy || missingConfig}
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                  >
+                    <HugeiconsIcon
+                      icon={ElectricPlugsIcon}
+                      size={15}
+                    />
+                    {testing ? "Testing..." : "Test"}
+                  </Button>
+                  <Button
+                    onClick={onSave}
+                    disabled={busy || missingConfig}
+                    size="sm"
+                    className="w-full"
+                  >
+                    <HugeiconsIcon
+                      icon={FloppyDiskIcon}
+                      size={15}
+                    />
+                    {saving
+                      ? "Saving..."
+                      : "Save & Connect"}
+                  </Button>
                 </div>
-              )}
-
-              <div className="mt-5 flex items-center gap-2 border-t border-border/50 pt-5">
-                <Button
-                  onClick={onTest}
-                  disabled={busy || missingConfig}
-                  variant="outline"
-                  size="sm"
-                >
-                  <HugeiconsIcon
-                    icon={ElectricPlugsIcon}
-                    size={15}
-                  />
-                  {testing ? "Testing..." : "Test"}
-                </Button>
-                <Button
-                  onClick={onSave}
-                  disabled={busy || missingConfig}
-                  size="sm"
-                >
-                  <HugeiconsIcon
-                    icon={FloppyDiskIcon}
-                    size={15}
-                  />
-                  {saving
-                    ? "Saving..."
-                    : "Save & Connect"}
-                </Button>
-                <div className="flex-1" />
                 {status?.gatewayConfigured &&
                   status.hasIdentity && (
                     <Button
                       onClick={onDisconnect}
                       disabled={busy}
-                      variant="ghost"
+                      variant="link"
                       size="sm"
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      className="w-full text-destructive hover:text-destructive"
                     >
                       <HugeiconsIcon
                         icon={Unlink03Icon}
                         size={14}
                       />
-                      {disconnecting ? "..." : "Disconnect"}
+                      {disconnecting
+                        ? "Disconnecting..."
+                        : "Disconnect"}
                     </Button>
                   )}
               </div>
             </div>
           </div>
         </div>
+
+        {connectResult?.ok && (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5 text-xs text-emerald-400">
+            <HugeiconsIcon
+              icon={CheckmarkCircle02Icon}
+              size={15}
+              className="shrink-0"
+            />
+            Connected to{" "}
+            <span className="font-medium">
+              {connectResult.url}
+            </span>
+          </div>
+        )}
 
         <ConnectionErrorGuide
           result={connectResult}

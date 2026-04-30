@@ -257,7 +257,7 @@ async function readDeviceIdentity(): Promise<DeviceIdentity> {
 async function waitForOpen(ws: WebSocket) {
   if (ws.readyState === ws.OPEN) return
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("gateway websocket open timeout")), 10_000)
+    const timeout = setTimeout(() => reject(new Error("gateway websocket open timeout")), 20_000)
     ws.addEventListener("open", () => {
       clearTimeout(timeout)
       resolve()
