@@ -81,7 +81,10 @@ export function useVoiceInput(options?: VoiceInputOptions): VoiceInputResult {
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
   const isSupported = getSpeechRecognition() !== null
   const optionsRef = useRef(options)
-  optionsRef.current = options
+
+  useEffect(() => {
+    optionsRef.current = options
+  }, [options])
 
   const cleanup = useCallback(() => {
     if (recognitionRef.current) {

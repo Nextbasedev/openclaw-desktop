@@ -135,8 +135,9 @@ export function ActivityTab({
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
 
-  const agentSidebarRef = useRef(getAgentSidebarDefaults())
-  const [sidebarWidth, setSidebarWidth] = useState(agentSidebarRef.current.default)
+  const agentSidebarDefaults = getAgentSidebarDefaults()
+  const agentSidebarRef = useRef(agentSidebarDefaults)
+  const [sidebarWidth, setSidebarWidth] = useState(agentSidebarDefaults.default)
   const [isDragging, setIsDragging] = useState(false)
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
 

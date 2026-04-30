@@ -716,7 +716,7 @@ export default function ConnectionErrorGuide({
                       <p className="text-xs text-muted-foreground">
                         {cmd.label}:
                       </p>
-                      <pre className="overflow-x-auto rounded bg-muted px-3 py-1.5 font-mono text-xs">
+                      <pre className="overflow-x-auto rounded bg-muted px-3 py-1.5 font-sans text-xs">
                         {cmd.command}
                       </pre>
                     </div>
@@ -728,7 +728,7 @@ export default function ConnectionErrorGuide({
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
               Raw error details
             </summary>
-            <pre className="mt-1 overflow-x-auto rounded bg-muted px-3 py-1.5 font-mono">
+            <pre className="mt-1 overflow-x-auto rounded bg-muted px-3 py-1.5 font-sans">
               {rawError}
             </pre>
           </details>
@@ -784,7 +784,7 @@ export default function ConnectionErrorGuide({
                   <p className="text-xs text-muted-foreground">
                     {cmd.label}:
                   </p>
-                  <pre className="overflow-x-auto rounded bg-muted px-3 py-1.5 font-mono text-xs">
+                  <pre className="overflow-x-auto rounded bg-muted px-3 py-1.5 font-sans text-xs">
                     {cmd.command}
                   </pre>
                 </div>
@@ -806,7 +806,7 @@ export default function ConnectionErrorGuide({
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                 Raw error details
               </summary>
-              <pre className="mt-1 overflow-x-auto rounded bg-muted px-3 py-1.5 font-mono">
+              <pre className="mt-1 overflow-x-auto rounded bg-muted px-3 py-1.5 font-sans">
                 {result.message}
               </pre>
             </details>

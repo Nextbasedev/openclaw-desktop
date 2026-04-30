@@ -69,7 +69,10 @@ export function Sidebar({
   const [projectsPopoverOpen, setProjectsPopoverOpen] = useState(false)
   const prevCollapsed = useRef(collapsed)
 
-  useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     function syncViewport() {
@@ -81,13 +84,14 @@ export function Sidebar({
     return () => window.removeEventListener("resize", syncViewport)
   }, [])
 
-  if (prevCollapsed.current !== collapsed) {
+  useEffect(() => {
+    if (prevCollapsed.current === collapsed) return
     prevCollapsed.current = collapsed
     if (!collapsed) {
       if (chatsPopoverOpen) setChatsPopoverOpen(false)
       if (projectsPopoverOpen) setProjectsPopoverOpen(false)
     }
-  }
+  }, [chatsPopoverOpen, collapsed, projectsPopoverOpen])
 
   const sidebarStyle = useMemo(
     () =>

@@ -97,7 +97,8 @@ export function GlassTooltip({ label, children, disabled }: { label: string; chi
   const triggerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setMounted(true)
+    const timer = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(timer)
   }, [])
 
   function handleEnter() {

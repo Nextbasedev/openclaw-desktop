@@ -18,7 +18,7 @@ import {
 } from "middleware"
 import { prependSkillContext, clearSessionTracking } from "./skill-runtime.service.js"
 import { getDb } from "../db/connection.js"
-import { getAppSetting } from "../db/helpers.js"
+import { getAppSetting, generateId, nowIso } from "../db/helpers.js"
 
 export const chatEvents = new EventEmitter()
 chatEvents.setMaxListeners(100)
@@ -37,19 +37,27 @@ function persistGatewayKey(localKey: string, gwKey: string) {
 }
 
 function loadGatewayKey(localKey: string): string | undefined {
-  const cached = localToGatewayKey.get(localKey)
-  if (cached) return cached
   try {
     const row = getDb()
       .prepare(
-        "SELECT session_id FROM session_mappings WHERE session_key = ?",
+        "SELECT session_id, source FROM session_mappings WHERE session_key = ?",
       )
-      .get(localKey) as { session_id: string | null } | undefined
+      .get(localKey) as
+      | { session_id: string | null; source: string | null }
+      | undefined
+    if (row?.source === "gateway" && !row.session_id) {
+      localToGatewayKey.delete(localKey)
+      return undefined
+    }
+    const cached = localToGatewayKey.get(localKey)
+    if (cached) return cached
     if (row?.session_id) {
       localToGatewayKey.set(localKey, row.session_id)
       return row.session_id
     }
   } catch {}
+  const cached = localToGatewayKey.get(localKey)
+  if (cached) return cached
   return undefined
 }
 
@@ -75,6 +83,7 @@ const activeStreams = new Map<
   string,
   { close: () => void }
 >()
+const openingStreams = new Map<string, Promise<void>>()
 
 const lastSessionStatus = new Map<string, ChatStatusEvent>()
 
@@ -94,6 +103,16 @@ type Attachment = {
   content?: string
   encoding?: "utf-8" | "base64"
   size?: number
+}
+
+export type HistMsg = {
+  id?: string
+  role?: string
+  text?: string
+  createdAt?: string
+  model?: string | null
+  content?: unknown
+  [key: string]: unknown
 }
 
 function validateAttachments(
@@ -176,6 +195,37 @@ function resolveGatewayKey(localKey: string): string {
   return loadGatewayKey(localKey) ?? localKey
 }
 
+function isGatewayBackedSession(localKey: string): boolean {
+  if (localKey.startsWith("agent:")) return true
+  try {
+    const row = getDb()
+      .prepare("SELECT source FROM session_mappings WHERE session_key = ?")
+      .get(localKey) as { source: string | null } | undefined
+    return row?.source === "gateway"
+  } catch {
+    return false
+  }
+}
+
+function sessionAliasKeys(primaryKey: string, gatewayKey: string): string[] {
+  const keys = new Set([primaryKey, gatewayKey])
+  try {
+    const rows = getDb()
+      .prepare(
+        "SELECT session_key, session_id FROM session_mappings WHERE session_key IN (?, ?) OR session_id IN (?, ?)",
+      )
+      .all(primaryKey, gatewayKey, primaryKey, gatewayKey) as Array<{
+      session_key: string | null
+      session_id: string | null
+    }>
+    for (const row of rows) {
+      if (row.session_key) keys.add(row.session_key)
+      if (row.session_id) keys.add(row.session_id)
+    }
+  } catch {}
+  return [...keys]
+}
+
 function readPrimaryModel(): string | undefined {
   try {
     const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json")
@@ -194,6 +244,8 @@ function readPrimaryModel(): string | undefined {
 async function ensureGatewaySession(localKey: string): Promise<string> {
   const existing = loadGatewayKey(localKey)
   if (existing) return existing
+
+  if (isGatewayBackedSession(localKey)) return localKey
 
   const model = readPrimaryModel() ?? getAppSetting(getDb(), "onboarding.model.ref") ?? undefined
   try {
@@ -220,6 +272,15 @@ export async function chatSend(input: {
   const validatedAttachments = validateAttachments(input.attachments)
   const gwKey = await ensureGatewaySession(input.sessionKey)
 
+  const isCommand = input.text.startsWith("/")
+  const commandTimestamp = isCommand ? nowIso() : null
+
+  try {
+    await ensureEventStream(gwKey, input.sessionKey)
+  } catch (error) {
+    wrapGatewayError(error)
+  }
+
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
     result = await sendChatMessage({
@@ -233,7 +294,15 @@ export async function chatSend(input: {
     wrapGatewayError(error)
   }
 
-  startEventStream(gwKey, input.sessionKey)
+  if (isCommand && commandTimestamp) {
+    try {
+      getDb()
+        .prepare(
+          "INSERT INTO sent_messages (id, session_key, text, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .run(generateId("cmd"), input.sessionKey, input.text, commandTimestamp)
+    } catch {}
+  }
 
   return result
 }
@@ -245,6 +314,7 @@ export async function chatStop(input: { sessionKey: string }) {
     stream.close()
     activeStreams.delete(gwKey)
   }
+  openingStreams.delete(gwKey)
   const stoppedStatus: ChatStatusEvent = {
     type: "chat.status",
     sessionKey: input.sessionKey,
@@ -254,6 +324,174 @@ export async function chatStop(input: { sessionKey: string }) {
   lastSessionStatus.set(input.sessionKey, stoppedStatus)
   chatEvents.emit(`chat:event:${input.sessionKey}`, stoppedStatus)
   return { stopped: true, sessionKey: input.sessionKey }
+}
+
+function commandMessage(command: {
+  id: string
+  text: string
+  created_at: string
+}): HistMsg {
+  return {
+    id: command.id,
+    role: "user",
+    text: command.text,
+    content: [{ type: "text", text: command.text }],
+    createdAt: command.created_at,
+    model: null,
+  }
+}
+
+function commandMatchesInjectedReply(command: string, reply: string): boolean {
+  const cmd = command.trim().toLowerCase()
+  const text = reply.trim().toLowerCase()
+
+  if (!cmd.startsWith("/") || !text) return false
+  if (cmd === "/status") return text.includes("openclaw") || text.includes("runtime:")
+  if (cmd === "/models" || cmd.startsWith("/models ")) {
+    return text.includes("providers:") || text.includes("use: /model")
+  }
+  if (cmd === "/model" || cmd === "/model status") {
+    return (
+      text.includes("current:") ||
+      text.includes("switch: /model") ||
+      text.includes("browse: /models") ||
+      text.includes("more: /model status")
+    )
+  }
+  if (cmd.startsWith("/model ")) {
+    const target = cmd.slice("/model ".length).trim()
+    return (
+      (text.includes("model set to") ||
+        text.includes("switched") ||
+        text.includes("using model")) &&
+      (!target || text.includes(target))
+    )
+  }
+  if (cmd === "/help") return text.includes("help") || text.includes("session")
+  return false
+}
+
+function hasExistingCommandBefore(messages: HistMsg[], index: number): boolean {
+  for (let i = index - 1; i >= 0; i--) {
+    const msg = messages[i]
+    const text = msg.text?.trim()
+    if (!text && msg.role === "assistant") continue
+    return msg.role === "user" && Boolean(text?.startsWith("/"))
+  }
+  return false
+}
+
+export function mergeCommandMessages(
+  messages: HistMsg[],
+  commands: Array<{ id: string; text: string; created_at: string }>,
+): HistMsg[] {
+  if (commands.length === 0) return messages
+
+  const localCommandCounts = new Map<string, number>()
+  for (const command of commands) {
+    const text = command.text.trim()
+    localCommandCounts.set(text, (localCommandCounts.get(text) ?? 0) + 1)
+  }
+
+  const historyMessages = messages.filter((msg) => {
+    const text = msg.text?.trim()
+    if (msg.role === "user" && text?.startsWith("/")) {
+      const localCount = localCommandCounts.get(text) ?? 0
+      if (localCount > 0) {
+        localCommandCounts.set(text, localCount - 1)
+        return false
+      }
+    }
+    return true
+  })
+
+  const pending = commands
+  if (pending.length === 0) return historyMessages
+
+  const insertBefore = new Map<number, HistMsg[]>()
+  const usedCommands = new Set<string>()
+
+  for (let i = 0; i < historyMessages.length; i++) {
+    const msg = historyMessages[i]
+    if (msg.role !== "assistant" || msg.model !== "gateway-injected") continue
+    const replyText = msg.text ?? ""
+    const match = pending.find(
+      (command) =>
+        !usedCommands.has(command.id) &&
+        commandMatchesInjectedReply(command.text, replyText),
+    )
+    if (!match) continue
+    usedCommands.add(match.id)
+    insertBefore.set(i, [...(insertBefore.get(i) ?? []), commandMessage(match)])
+  }
+
+  for (let i = 0; i < historyMessages.length; i++) {
+    const msg = historyMessages[i]
+    if (msg.role !== "assistant" || msg.model !== "gateway-injected") continue
+    if (insertBefore.has(i) || hasExistingCommandBefore(historyMessages, i)) {
+      continue
+    }
+    const fallback = pending.find((command) => !usedCommands.has(command.id))
+    if (!fallback) break
+    usedCommands.add(fallback.id)
+    insertBefore.set(i, [
+      ...(insertBefore.get(i) ?? []),
+      commandMessage(fallback),
+    ])
+  }
+
+  const merged: HistMsg[] = []
+  for (let i = 0; i < historyMessages.length; i++) {
+    const before = insertBefore.get(i)
+    if (before) merged.push(...before)
+    merged.push(historyMessages[i])
+  }
+
+  return merged
+}
+
+function stripBootstrapWarning(text: string): string {
+  return text.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
+}
+
+function hasContent(msg: HistMsg): boolean {
+  const text = typeof msg.text === "string" ? msg.text.trim() : ""
+  if (text) return true
+  if (Array.isArray(msg.content) && msg.content.length > 0) return true
+  return false
+}
+
+function deduplicateUserMessages(msgs: HistMsg[]): HistMsg[] {
+  const result: HistMsg[] = []
+  for (let i = 0; i < msgs.length; i++) {
+    const msg = msgs[i]
+
+    if (msg.role === "assistant" && !hasContent(msg)) continue
+
+    if (msg.role === "user") {
+      const coreText = stripBootstrapWarning(
+        typeof msg.text === "string" ? msg.text : ""
+      )
+      if (coreText) {
+        let isDuplicate = false
+        for (let j = result.length - 1; j >= Math.max(0, result.length - 4); j--) {
+          const prev = result[j]
+          if (prev.role !== "user") continue
+          const prevCore = stripBootstrapWarning(
+            typeof prev.text === "string" ? prev.text : ""
+          )
+          if (prevCore === coreText) {
+            isDuplicate = true
+            break
+          }
+        }
+        if (isDuplicate) continue
+      }
+    }
+
+    result.push(msg)
+  }
+  return result
 }
 
 export async function chatHistory(input: { sessionKey: string }) {
@@ -266,6 +504,23 @@ export async function chatHistory(input: { sessionKey: string }) {
   }
 
   const db = getDb()
+
+  let msgs = deduplicateUserMessages((history.messages ?? []) as HistMsg[])
+
+  const aliasKeys = sessionAliasKeys(input.sessionKey, gwKey)
+  const placeholders = aliasKeys.map(() => "?").join(", ")
+  const commands = db
+    .prepare(
+      `SELECT id, text, created_at FROM sent_messages WHERE session_key IN (${placeholders}) AND text LIKE '/%' ORDER BY created_at ASC`,
+    )
+    .all(...aliasKeys) as Array<{
+    id: string
+    text: string
+    created_at: string
+  }>
+
+  msgs = mergeCommandMessages(msgs, commands)
+
   const edits = db
     .prepare(
       "SELECT source_message_id, created_at FROM branches WHERE source_session_key = ? AND branch_reason = 'edit' ORDER BY created_at ASC",
@@ -275,16 +530,7 @@ export async function chatHistory(input: { sessionKey: string }) {
     created_at: string
   }>
 
-  if (edits.length === 0) return history
-
-  type HistMsg = {
-    id?: string
-    role?: string
-    text?: string
-    createdAt?: string
-    [key: string]: unknown
-  }
-  let msgs = (history.messages ?? []) as HistMsg[]
+  if (edits.length === 0) return { ...history, messages: msgs }
 
   for (const edit of edits) {
     const sourceIdx = msgs.findIndex(
@@ -330,6 +576,7 @@ export async function chatEditAndResend(input: {
 
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
+    await ensureEventStream(gwKey, input.sessionKey)
     result = await sendChatMessage({
       sessionKey: gwKey,
       text: input.text,
@@ -337,8 +584,6 @@ export async function chatEditAndResend(input: {
   } catch (error) {
     wrapGatewayError(error)
   }
-
-  startEventStream(gwKey, input.sessionKey)
 
   return {
     ...result,
@@ -355,6 +600,7 @@ export async function chatRegenerate(input: {
   const gwKey = resolveGatewayKey(input.sessionKey)
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
+    await ensureEventStream(gwKey, input.sessionKey)
     result = await sendChatMessage({
       sessionKey: gwKey,
       text: input.text,
@@ -364,8 +610,6 @@ export async function chatRegenerate(input: {
     wrapGatewayError(error)
   }
 
-  startEventStream(gwKey, input.sessionKey)
-
   return {
     ...result,
     regeneratedMessageId: input.messageId,
@@ -373,7 +617,25 @@ export async function chatRegenerate(input: {
   }
 }
 
-function startEventStream(gwKey: string, localKey: string) {
+async function ensureEventStream(gwKey: string, localKey: string) {
+  if (activeStreams.has(gwKey)) return
+
+  const opening = openingStreams.get(gwKey)
+  if (opening) {
+    await opening
+    return
+  }
+
+  const openingPromise = startEventStream(gwKey, localKey)
+  openingStreams.set(gwKey, openingPromise)
+  try {
+    await openingPromise
+  } finally {
+    openingStreams.delete(gwKey)
+  }
+}
+
+async function startEventStream(gwKey: string, localKey: string) {
   const existing = activeStreams.get(gwKey)
   if (existing) {
     existing.close()
@@ -383,15 +645,33 @@ function startEventStream(gwKey: string, localKey: string) {
   let doneCount = 0
   let consecutiveAgentErrors = 0
   let lastModelName: string | null = null
+  let lastAssistantMessage: { text: string; at: number } | null = null
   const MAX_AGENT_RETRIES = 2
 
-  openChatEventStream({
+  const stream = await openChatEventStream({
     sessionKey: gwKey,
     onEvent(event: ChatStreamEvent) {
       console.log(`[stream:${localKey.slice(-8)}] ${event.type}`, event.type === "chat.status" ? (event as ChatStatusEvent).state : event.type === "chat.tool" ? `${(event as ChatToolEvent).name}:${(event as ChatToolEvent).phase}` : event.type === "chat.agent" ? `phase=${(event as ChatAgentEvent).phase}` : "")
 
       if (event.type === "chat.message" && (event as ChatMessageEvent).model) {
         lastModelName = (event as ChatMessageEvent).model
+      }
+
+      if (event.type === "chat.message") {
+        const msg = event as ChatMessageEvent
+        const text = typeof msg.text === "string" ? msg.text.trim() : ""
+        const now = Date.now()
+        if (
+          msg.role === "assistant" &&
+          text &&
+          lastAssistantMessage?.text === text &&
+          now - lastAssistantMessage.at < 1000
+        ) {
+          return
+        }
+        if (msg.role === "assistant" && text) {
+          lastAssistantMessage = { text, at: now }
+        }
       }
 
       if (event.type === "chat.agent") {
@@ -438,26 +718,25 @@ function startEventStream(gwKey: string, localKey: string) {
       }
     },
   })
-    .then((stream) => {
-      activeStreams.set(gwKey, stream)
-      console.log(`[stream:${localKey.slice(-8)}] stream opened`)
-    })
-    .catch((error) => {
-      console.error(`[stream:${localKey.slice(-8)}] stream error:`, error)
-      chatEvents.emit(`chat:event:${localKey}`, {
-        type: "chat.error",
-        sessionKey: localKey,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to open event stream",
-      } satisfies ChatStreamEvent)
-    })
+  activeStreams.set(gwKey, stream)
+  console.log(`[stream:${localKey.slice(-8)}] stream opened`)
 }
 
 export function chatStartSubagentStream(input: { sessionKey: string }) {
   const gwKey = input.sessionKey
-  if (activeStreams.has(gwKey)) return { started: false, reason: "already_active" }
-  startEventStream(gwKey, gwKey)
+  if (activeStreams.has(gwKey) || openingStreams.has(gwKey)) {
+    return { started: false, reason: "already_active" }
+  }
+  void ensureEventStream(gwKey, gwKey).catch((error) => {
+    console.error(`[stream:${gwKey.slice(-8)}] stream error:`, error)
+    chatEvents.emit(`chat:event:${gwKey}`, {
+      type: "chat.error",
+      sessionKey: gwKey,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to open event stream",
+    } satisfies ChatStreamEvent)
+  })
   return { started: true, sessionKey: gwKey }
 }

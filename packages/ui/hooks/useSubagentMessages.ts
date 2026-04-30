@@ -175,8 +175,11 @@ export function useSubagentMessages(
       timerRef.current = null
     }
     if (!sessionKey) {
-      setMessages([])
-      setLoading(false)
+      const timer = window.setTimeout(() => {
+        setMessages([])
+        setLoading(false)
+      }, 0)
+      timerRef.current = timer
       return
     }
 

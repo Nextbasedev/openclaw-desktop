@@ -108,6 +108,7 @@ export function MessageBubble({
   onRegenerate,
   onReact,
   onExport,
+  onTextAnimationComplete,
   isPinned,
   reaction,
   isGenerating,
@@ -124,6 +125,7 @@ export function MessageBubble({
   onRegenerate?: (messageId: string) => void
   onReact?: (messageId: string, reaction: "up" | "down") => void
   onExport?: (messageId: string) => void
+  onTextAnimationComplete?: (messageId: string) => void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -263,7 +265,14 @@ export function MessageBubble({
             {isUser ? (
               <p className="whitespace-pre-wrap">{message.text}</p>
             ) : (
-              <MarkdownContent text={message.text} embeds={message.embeds} />
+              <MarkdownContent
+                text={message.text}
+                embeds={message.embeds}
+                streaming={isActivelyStreaming || message.animateText}
+                onRevealComplete={() =>
+                  onTextAnimationComplete?.(message.messageId)
+                }
+              />
             )}
             <RichContentPreview message={message} />
           </div>

@@ -23,7 +23,7 @@ export interface GitContextResponse {
   hasGit: boolean
   currentBranch: string | null
   uncommittedChanges: string[]
-  recentCommits: any[]
+  recentCommits: unknown[]
   trackedBranches: Array<{ branchName: string; detectedAt: string }>
   summary?: {
     totalFiles: number
@@ -58,15 +58,20 @@ export function parseStatusLine(line: string): GitFile | null {
   return { path: filePath, state }
 }
 
-export function parseCommitLine(line: any) {
+export function parseCommitLine(line: unknown) {
   if (typeof line === "object" && line !== null) {
+    const commit = line as Record<string, unknown>
     return {
-      hash: String(line.hash || line.id || line.commit || "empty"),
-      message: String(line.message || line.subject || line.text || ""),
-      additions: Number(line.additions || 0),
-      deletions: Number(line.deletions || 0),
-      shortHash: String(line.shortHash || (line.hash && String(line.hash).substring(0, 7)) || ""),
-      date: String(line.date || ""),
+      hash: String(commit.hash || commit.id || commit.commit || "empty"),
+      message: String(commit.message || commit.subject || commit.text || ""),
+      additions: Number(commit.additions || 0),
+      deletions: Number(commit.deletions || 0),
+      shortHash: String(
+        commit.shortHash ||
+          (commit.hash && String(commit.hash).substring(0, 7)) ||
+          "",
+      ),
+      date: String(commit.date || ""),
     }
   }
   if (typeof line !== "string") return { hash: String(line || "empty"), message: "", additions: 0, deletions: 0, shortHash: "", date: "" }
@@ -92,7 +97,7 @@ export function parseGitShow(raw: string): FileDiff[] {
   let oldLine = 0
   let newLine = 0
 
-  for (let line of lines) {
+  for (const line of lines) {
     if (line.startsWith("diff --git")) {
       if (currentFile) files.push(currentFile)
       

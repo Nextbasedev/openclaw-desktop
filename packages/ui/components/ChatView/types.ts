@@ -47,6 +47,7 @@ export type ChatMessage = {
   createdAt?: string
   model?: string
   isOptimistic?: boolean
+  animateText?: boolean
   toolCalls?: InlineToolCall[]
   branches?: MessageBranch[]
   activeBranch?: number

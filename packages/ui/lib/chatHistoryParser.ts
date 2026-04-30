@@ -96,7 +96,28 @@ function stripBootstrap(t: string): string {
   return t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 }
 
+export function deduplicateRawMessages(
+  raw: RawHistoryMessage[],
+): RawHistoryMessage[] {
+  const result: RawHistoryMessage[] = []
+  for (const item of raw) {
+    const currText = (item.text || extractText(item.content)).trim()
+    if (item.role === "assistant" && !currText && !toolBlocks(item).length) {
+      continue
+    }
+
+    const prev = result[result.length - 1]
+    if (prev && prev.role === item.role) {
+      const prevText = prev.text || extractText(prev.content)
+      if (prevText.trim() && prevText.trim() === currText) continue
+    }
+    result.push(item)
+  }
+  return result
+}
+
 export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
+  const deduped = deduplicateRawMessages(raw)
   const messages: ChatMessage[] = []
   const subagents: SpawnedSubagent[] = []
   let pendingToolCalls: InlineToolCall[] = []
@@ -106,7 +127,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     SpawnedSubagent & { terminal?: boolean }
   >()
 
-  for (const item of raw) {
+  for (const item of deduped) {
     const role = item.role
 
     if (role === "user") {

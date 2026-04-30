@@ -85,7 +85,8 @@ export default function Page() {
 
   useEffect(() => {
     if (onboardingLoading || hasToken === null) return
-    setOnboardingDone(true)
+    const timer = window.setTimeout(() => setOnboardingDone(true), 0)
+    return () => window.clearTimeout(timer)
   }, [onboardingLoading, hasToken])
 
   if (onboardingDone === null) {

@@ -17,7 +17,11 @@ import type {
 import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
-import { parseChatHistory, extractReplyBlock } from "@/lib/chatHistoryParser"
+import {
+  parseChatHistory,
+  extractReplyBlock,
+  deduplicateRawMessages,
+} from "@/lib/chatHistoryParser"
 
 type RawMessage = {
   id?: string
@@ -122,7 +126,6 @@ export function useChatMessages(
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
-  const readyFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isGenerating =
     status === "thinking" ||
@@ -228,10 +231,6 @@ export function useChatMessages(
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
-            if (readyFallbackRef.current) {
-              clearTimeout(readyFallbackRef.current)
-              readyFallbackRef.current = null
-            }
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
             setPendingTools([])
@@ -401,10 +400,6 @@ export function useChatMessages(
           break
         }
         case "chat.message": {
-          if (readyFallbackRef.current) {
-            clearTimeout(readyFallbackRef.current)
-            readyFallbackRef.current = null
-          }
           if (ev.role !== "assistant") break
           const id = ev.messageId || randomId()
           const rawText = ev.text || extractText(ev.content)
@@ -417,18 +412,45 @@ export function useChatMessages(
               ? Array.from(embedsMapRef.current.values())
               : undefined
           if (seenIds.current.has(id)) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.messageId === id
-                  ? {
-                      ...m,
-                      text,
-                      createdAt: m.createdAt || timestamp,
-                      embeds: pendingEmbeds ?? m.embeds,
-                    }
-                  : m
-              )
-            )
+            setMessages((prev) => {
+              let matched = false
+              const updated = prev.map((m) => {
+                if (m.messageId !== id) return m
+                matched = true
+                return {
+                  ...m,
+                  text,
+                  createdAt: m.createdAt || timestamp,
+                  embeds: pendingEmbeds ?? m.embeds,
+                  animateText: true,
+                }
+              })
+              if (matched) return updated
+
+              const last = prev[prev.length - 1]
+              if (last?.role !== "assistant") return prev
+              const lastText = last.text.trim()
+              if (
+                lastText &&
+                (lastText === text ||
+                  text.startsWith(lastText) ||
+                  lastText.startsWith(text))
+              ) {
+                const longer = text.length >= lastText.length ? text : lastText
+                return prev.map((m) =>
+                  m.messageId === last.messageId
+                    ? {
+                        ...m,
+                        text: longer,
+                        createdAt: m.createdAt || timestamp,
+                        embeds: pendingEmbeds ?? m.embeds,
+                        animateText: true,
+                      }
+                    : m
+                )
+              }
+              return prev
+            })
           } else {
             seenIds.current.add(id)
             setMessages((prev) => {
@@ -449,9 +471,9 @@ export function useChatMessages(
                       ? {
                           ...m,
                           text: longer,
-                          messageId: id,
                           createdAt: m.createdAt || timestamp,
                           embeds: pendingEmbeds ?? m.embeds,
+                          animateText: true,
                         }
                       : m
                   )
@@ -462,9 +484,9 @@ export function useChatMessages(
                     ? {
                         ...m,
                         text: merged,
-                        messageId: id,
                         createdAt: m.createdAt || timestamp,
                         embeds: pendingEmbeds ?? m.embeds,
+                        animateText: true,
                       }
                     : m
                 )
@@ -478,6 +500,7 @@ export function useChatMessages(
                   createdAt: timestamp,
                   model: ev.model,
                   embeds: pendingEmbeds,
+                  animateText: true,
                 },
               ]
             })
@@ -493,57 +516,6 @@ export function useChatMessages(
           break
         }
         case "chat.ready": {
-          if (
-            statusRef.current !== "thinking" &&
-            statusRef.current !== "restarting"
-          )
-            break
-          const recent = (ev.recentMessages ?? []) as Array<{
-            id?: string | null
-            role?: string
-            text?: string | null
-            createdAt?: string | null
-            model?: string | null
-          }>
-          if (recent.length === 0) break
-          const last = recent[recent.length - 1]
-          if (!last || last.role !== "assistant" || !last.text?.trim()) break
-          const readyText = last.text.trim()
-          const readyModel = last.model || undefined
-          const readyTime = last.createdAt || new Date().toISOString()
-          if (readyFallbackRef.current) clearTimeout(readyFallbackRef.current)
-          readyFallbackRef.current = setTimeout(() => {
-            readyFallbackRef.current = null
-            if (
-              statusRef.current !== "thinking" &&
-              statusRef.current !== "restarting"
-            )
-              return
-            setMessages((prev) => {
-              const tail = prev[prev.length - 1]
-              if (tail?.role !== "user") return prev
-              if (
-                prev.some((m) => m.role === "assistant" && m.text === readyText)
-              )
-                return prev
-              return [
-                ...prev,
-                {
-                  messageId: randomId(),
-                  role: "assistant" as const,
-                  text: readyText,
-                  createdAt: readyTime,
-                  model: readyModel,
-                },
-              ]
-            })
-            flushToolsToLastAssistant()
-            pendingToolMapRef.current.clear()
-            setPendingTools([])
-            doneAfterYieldRef.current = 0
-            setStatus("done")
-            scrollToBottom(true)
-          }, 2000)
           break
         }
       }
@@ -604,8 +576,9 @@ export function useChatMessages(
         }
         if (cancelled) return
 
-        const raw = (history.messages as RawMessage[]) || []
-        const normalizedHistory = parseChatHistory(raw)
+        const rawAll = (history.messages as RawMessage[]) || []
+        const normalizedHistory = parseChatHistory(rawAll)
+        const raw = deduplicateRawMessages(rawAll) as RawMessage[]
         const histMsgs: ChatMessage[] = []
         let pendingToolCalls: InlineToolCall[] = []
         let resultQueue: InlineToolCall[] = []
@@ -928,10 +901,6 @@ export function useChatMessages(
     return () => {
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
-      if (readyFallbackRef.current) {
-        clearTimeout(readyFallbackRef.current)
-        readyFallbackRef.current = null
-      }
       eventSource?.close()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)
@@ -1278,6 +1247,16 @@ export function useChatMessages(
     [isGenerating]
   )
 
+  const markTextAnimationComplete = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.messageId === messageId && message.animateText
+          ? { ...message, animateText: false }
+          : message,
+      ),
+    )
+  }, [])
+
   return {
     messages,
     status,
@@ -1295,6 +1274,7 @@ export function useChatMessages(
     handleEdit,
     handleRegenerate,
     switchBranch,
+    markTextAnimationComplete,
     pendingTools,
     spawnedSubagents,
   }
