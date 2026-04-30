@@ -269,7 +269,7 @@ export function ConnectPageView({
                         }
                         autoComplete="off"
                         spellCheck={false}
-                        className="h-9 pl-9"
+                        className="no-native-password-reveal h-9 pl-9"
                       />
                     </div>
                     <Button

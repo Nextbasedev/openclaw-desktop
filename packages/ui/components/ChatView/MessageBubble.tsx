@@ -42,7 +42,7 @@ function CopyButton({ text, className: cls }: { text: string; className?: string
       className={cn(
         "flex size-6 items-center justify-center rounded-md",
         "transition-colors duration-150",
-        "cursor-pointer text-foreground/30 hover:text-foreground/60",
+        "cursor-pointer text-foreground/30 hover:text-white",
         cls,
       )}
     >
@@ -80,7 +80,7 @@ function BranchNav({
         type="button"
         disabled={current <= 1}
         onClick={() => onSwitch(current - 2)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground/70 disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-white disabled:cursor-default disabled:opacity-30"
       >
         <LuChevronLeft className="size-3.5" />
       </button>
@@ -91,7 +91,7 @@ function BranchNav({
         type="button"
         disabled={current >= total}
         onClick={() => onSwitch(current)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground/70 disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-white disabled:cursor-default disabled:opacity-30"
       >
         <LuChevronRight className="size-3.5" />
       </button>
@@ -138,6 +138,8 @@ export function MessageBubble({
 }) {
   const isUser = message.role === "user"
   const shouldAnimateSend = isUser && message.isOptimistic
+  const hideAssistantActions =
+    !isUser && (Boolean(isGenerating) || Boolean(isActivelyStreaming) || Boolean(message.animateText))
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -174,6 +176,12 @@ export function MessageBubble({
       ta.style.height = `${ta.scrollHeight}px`
     }
   }, [editing])
+
+  useEffect(() => {
+    if (hideAssistantActions && popoverOpen) {
+      onPopoverOpenChange?.(false)
+    }
+  }, [hideAssistantActions, popoverOpen, onPopoverOpenChange])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -243,7 +251,7 @@ export function MessageBubble({
               <button
                 type="button"
                 onClick={cancelEdit}
-                className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground/40 transition-colors hover:text-foreground/70"
+                className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground/40 transition-colors hover:text-white"
               >
                 <LuX className="size-4" />
               </button>
@@ -292,7 +300,7 @@ export function MessageBubble({
                 <button
                   type="button"
                   onClick={startEdit}
-                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-white"
                 >
                   <LuPenLine className="size-3.5" />
                 </button>
@@ -302,7 +310,7 @@ export function MessageBubble({
                 <button
                   type="button"
                   onClick={() => onReply(message.messageId)}
-                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-white"
                   aria-label="Reply"
                 >
                   <LuReply className="size-3.5" />
@@ -318,7 +326,7 @@ export function MessageBubble({
             )}
           </div>
         ) : (
-          !isActivelyStreaming && (
+          !hideAssistantActions && (
             <div className="mt-1 flex items-center gap-2">
               {formatTime(message.createdAt) && (
                 <span className="text-[10px] text-muted-foreground/40">
@@ -341,7 +349,7 @@ export function MessageBubble({
                             "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
                             reaction === "up"
                               ? "text-white"
-                              : "text-foreground/30 hover:text-foreground/60"
+                              : "text-foreground/30 hover:text-white"
                           )}
                           aria-label="Helpful"
                         >
@@ -365,7 +373,7 @@ export function MessageBubble({
                             "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
                             reaction === "down"
                               ? "text-white"
-                              : "text-foreground/30 hover:text-foreground/60"
+                              : "text-foreground/30 hover:text-white"
                           )}
                           aria-label="Not helpful"
                         >
@@ -388,7 +396,7 @@ export function MessageBubble({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex size-6 cursor-pointer items-center justify-center rounded transition-all duration-100 text-foreground/30 hover:text-foreground/60"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded transition-all duration-100 text-foreground/30 hover:text-white"
                         aria-label="More actions"
                       >
                         <LuEllipsisVertical className="size-3.5" />

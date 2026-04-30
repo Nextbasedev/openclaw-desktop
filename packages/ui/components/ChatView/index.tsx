@@ -70,7 +70,7 @@ export function ChatView({
 }: Props) {
   const {
     messages, status, statusLabel, loading, loadError, errorMessage,
-    isGenerating, bottomRef, scrollContainerRef, onScroll,
+    isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
     handleSend, handleAbort, handleEdit, handleRegenerate, switchBranch,
     markTextAnimationComplete, pendingTools, spawnedSubagents,
   } = useChatMessages(sessionKey, initialMessages)
@@ -149,6 +149,9 @@ export function ChatView({
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
+  const messageContentRef = useRef<HTMLDivElement>(null)
+  const previousMessageCountRef = useRef(messages.length)
+  const suppressResizeFollowUntilRef = useRef(0)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -434,6 +437,56 @@ export function ChatView({
     if (activePopoverId) setActivePopoverId(null)
   }, [onScroll, activePopoverId])
 
+  useEffect(() => {
+    const previousCount = previousMessageCountRef.current
+    previousMessageCountRef.current = messages.length
+    const latestMessage = messages.at(-1)
+
+    if (messages.length > previousCount && latestMessage?.role === "user") {
+      suppressResizeFollowUntilRef.current = Date.now() + 450
+    }
+  }, [messages])
+
+  useEffect(() => {
+    const content = messageContentRef.current
+    if (!content || typeof ResizeObserver === "undefined") return
+
+    let frame: number | null = null
+    const observer = new ResizeObserver(() => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const el = scrollContainerRef.current
+        if (!el) return
+        const distanceFromBottom =
+          el.scrollHeight - el.scrollTop - el.clientHeight
+        const shouldLetSmoothSendScrollFinish =
+          Date.now() < suppressResizeFollowUntilRef.current
+
+        if (isSending || shouldLetSmoothSendScrollFinish) {
+          el.scrollTo({
+            top: el.scrollHeight,
+            behavior: "smooth",
+          })
+          return
+        }
+
+        if (isGenerating || distanceFromBottom < 260) {
+          el.scrollTo({
+            top: el.scrollHeight,
+            behavior: "auto",
+          })
+        }
+      })
+    })
+
+    observer.observe(content)
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [isSending, isGenerating, scrollContainerRef])
+
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
       if (!feedbackTargetId) return
@@ -511,11 +564,18 @@ export function ChatView({
 
   const statusText =
     status === "thinking" ? "Thinking..."
-      : status === "tool_running" ? `Running${statusLabel ? ` · ${statusLabel}` : " tool"}...`
-        : status === "streaming" ? "Responding..."
-          : status === "stopping" ? "Stopping..."
-            : status === "restarting" ? "Restarting..."
-              : null
+      : status === "queued" ? statusLabel ? `Queued - ${statusLabel}...` : "Queued..."
+        : status === "running" ? statusLabel ? `Running - ${statusLabel}...` : "Running..."
+          : status === "collect" ? statusLabel ? `Collecting - ${statusLabel}...` : "Collecting..."
+            : status === "tool_running" ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
+              : status === "streaming" ? "Responding..."
+                : status === "stopping" ? "Stopping..."
+                  : status === "restarting" ? "Restarting..."
+                    : isGenerating
+                      ? statusLabel
+                        ? `${statusLabel}...`
+                        : "Thinking..."
+                      : null
 
   if (loading) {
     return <ChatLoadingSkeleton />
@@ -640,7 +700,7 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto"
       >
-        <div className="mx-auto max-w-3xl px-4 py-8">
+        <div ref={messageContentRef} className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
 
             {renderedMessages.map((msg, i) => {
@@ -757,7 +817,7 @@ export function ChatView({
             </div>
           )}
 
-          <div ref={bottomRef} className="h-32" />
+          <div ref={bottomRef} className="h-8" />
         </div>
       </div>
 

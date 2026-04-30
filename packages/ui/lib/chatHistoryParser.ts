@@ -92,7 +92,7 @@ function inferToolStatus(resultText: string): InlineToolCall["status"] {
   }
 }
 
-function stripBootstrap(t: string): string {
+export function stripBootstrap(t: string): string {
   return t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 }
 
@@ -110,15 +110,32 @@ const MESSAGE_TOOL_RE =
   /^Use the message tool if you need to notify the user directly[^\n]*(?:\.\s*If you do not send directly[^\n]*)?\n*/m
 const ASYNC_RESULT_RE =
   /^An async command you ran earlier has completed\.[^\n]*(?:\n[^\n]*Handle the result internally[^\n]*)?(?:\n[^\n]*Do not relay[^\n]*)?\n*/m
-const MEDIA_ATTACHMENT_RE =
-  /^\[media attached:[\s\S]*?\]\s*\n+To send an image back,[\s\S]*?Keep caption in the text body\.\s*/m
+const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
+const MEDIA_REPLY_INSTRUCTION_RE =
+  /^To send an image back,[\s\S]*?Keep caption in the text body\.\s*/
+
+function stripMediaAttachmentPreamble(text: string): string {
+  let result = text
+  let hadMediaHeader = false
+
+  while (MEDIA_ATTACHMENT_HEADER_RE.test(result)) {
+    hadMediaHeader = true
+    result = result.replace(MEDIA_ATTACHMENT_HEADER_RE, "")
+  }
+
+  if (hadMediaHeader) {
+    result = result.replace(MEDIA_REPLY_INSTRUCTION_RE, "")
+  }
+
+  return result
+}
 
 export function stripGatewayPrefixes(text: string): string {
   let result = text
   while (SYSTEM_LINE_RE.test(result)) {
     result = result.replace(SYSTEM_LINE_RE, "")
   }
-  result = result.replace(MEDIA_ATTACHMENT_RE, "")
+  result = stripMediaAttachmentPreamble(result)
   result = result.replace(CRON_HEADER_RE, "")
   result = result.replace(CURRENT_TIME_RE, "")
   result = result.replace(MESSAGE_TOOL_RE, "")
@@ -126,6 +143,10 @@ export function stripGatewayPrefixes(text: string): string {
   result = result.replace(TIMESTAMP_PREFIX_RE, "")
   result = result.replace(BARE_TIMESTAMP_RE, "")
   return result.trim()
+}
+
+export function cleanUserMessageText(text: string): string {
+  return stripGatewayPrefixes(stripBootstrap(text))
 }
 
 export function deduplicateRawMessages(
@@ -164,9 +185,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
 
     if (role === "user") {
       const rawText = item.text || extractText(item.content)
-      const text = rawText
-        ? stripGatewayPrefixes(stripBootstrap(rawText))
-        : ""
+      const text = rawText ? cleanUserMessageText(rawText) : ""
       if (text) {
         const reply = extractReplyFromText(text, messages)
         messages.push({

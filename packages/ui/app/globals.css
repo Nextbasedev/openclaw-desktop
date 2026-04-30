@@ -143,6 +143,14 @@
   box-shadow: none;
 }
 
+.no-native-password-reveal::-ms-reveal,
+.no-native-password-reveal::-ms-clear,
+.no-native-password-reveal::-webkit-credentials-auto-fill-button {
+  display: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* ─── Glass Buttons ─── */
 .glass-btn-primary {
   display: inline-flex;
