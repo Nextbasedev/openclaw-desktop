@@ -80,6 +80,9 @@ export type SpawnedSubagent = {
 export type StreamStatus =
   | "idle"
   | "connected"
+  | "queued"
+  | "running"
+  | "collect"
   | "thinking"
   | "tool_running"
   | "streaming"

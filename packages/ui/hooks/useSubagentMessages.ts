@@ -3,6 +3,7 @@
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import { cleanUserMessageText } from "@/lib/chatHistoryParser"
 
 export type SubagentToolCall = {
   id: string
@@ -59,13 +60,14 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
         typeof msg.content === "string"
           ? msg.content
           : (msg.text ?? extractText(msg.content))
-      if (!text) continue
+      const visibleText = cleanUserMessageText(text)
+      if (!visibleText) continue
       if (/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) continue
-      if (/agent:main:subagent:[0-9a-f-]{36}/.test(text)) continue
+      if (/agent:main:subagent:[0-9a-f-]{36}/.test(visibleText)) continue
       result.push({
         id: msg.id ?? randomId(),
         role: "user",
-        text,
+        text: visibleText,
       })
       pendingToolCalls = []
       resultQueue = []
@@ -154,7 +156,7 @@ export function useSubagentMessages(
 ) {
   const [messages, setMessages] = useState<SubagentMessage[]>([])
   const [loading, setLoading] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timerRef = useRef<number | null>(null)
   const cancelledRef = useRef(false)
 
   const fetchMessages = useCallback(async (key: string) => {
@@ -171,7 +173,7 @@ export function useSubagentMessages(
   useEffect(() => {
     cancelledRef.current = false
     if (timerRef.current) {
-      clearTimeout(timerRef.current)
+      window.clearTimeout(timerRef.current)
       timerRef.current = null
     }
     if (!sessionKey) {
@@ -191,17 +193,17 @@ export function useSubagentMessages(
         if (cancelledRef.current) return
         fetchMessages(sessionKey).then(() => {
           if (!cancelledRef.current && isLive) {
-            timerRef.current = setTimeout(poll, 1000)
+            timerRef.current = window.setTimeout(poll, 1000)
           }
         })
       }
-      timerRef.current = setTimeout(poll, 1000)
+      timerRef.current = window.setTimeout(poll, 1000)
     }
 
     return () => {
       cancelledRef.current = true
       if (timerRef.current) {
-        clearTimeout(timerRef.current)
+        window.clearTimeout(timerRef.current)
         timerRef.current = null
       }
     }

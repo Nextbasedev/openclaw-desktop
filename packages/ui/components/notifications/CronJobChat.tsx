@@ -3,6 +3,7 @@
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import { cleanUserMessageText } from "@/lib/chatHistoryParser"
 import { cn } from "@/lib/utils"
 import { Icons } from "@/components/icons"
 import { MarkdownContent } from "@/components/ChatView/MarkdownContent"
@@ -61,17 +62,19 @@ function parseMessages(raw: RawMsg[]): ParsedMessage[] {
       typeof msg.content === "string"
         ? msg.content
         : (msg.text ?? extractText(msg.content))
-    if (!text?.trim()) continue
+    const visibleText =
+      role === "user" ? cleanUserMessageText(text ?? "") : text?.trim()
+    if (!visibleText) continue
     if (/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) continue
     const last = result[result.length - 1]
     if (last?.role === role) {
-      last.text = last.text + "\n\n" + text.trim()
+      last.text = last.text + "\n\n" + visibleText
       last.id = msg.id ?? last.id
     } else {
       result.push({
         id: msg.id ?? randomId(),
         role: role as "user" | "assistant",
-        text: text.trim(),
+        text: visibleText,
         createdAt: msg.createdAt,
       })
     }

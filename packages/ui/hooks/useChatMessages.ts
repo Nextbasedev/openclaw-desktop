@@ -18,10 +18,10 @@ import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
-  parseChatHistory,
-  extractReplyBlock,
+  cleanUserMessageText,
   deduplicateRawMessages,
-  stripGatewayPrefixes,
+  extractReplyBlock,
+  parseChatHistory,
 } from "@/lib/chatHistoryParser"
 
 type RawMessage = {
@@ -127,13 +127,14 @@ export function useChatMessages(
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
+  const scrollFrameRef = useRef<number | null>(null)
+  const programmaticScrollUntilRef = useRef(0)
 
   const isGenerating =
-    status === "thinking" ||
-    status === "tool_running" ||
-    status === "streaming" ||
-    status === "stopping" ||
-    status === "restarting"
+    status !== "idle" &&
+    status !== "connected" &&
+    status !== "done" &&
+    status !== "error"
   const initialMessageKey =
     initialMessages?.map((m) => m.messageId).join("|") ?? ""
 
@@ -153,26 +154,67 @@ export function useChatMessages(
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
+    if (Date.now() < programmaticScrollUntilRef.current) return
     isAtBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 80
+      el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }, [])
 
   const scrollToBottom = useCallback((smooth = false) => {
     if (!isAtBottomRef.current) return
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({
-        behavior: smooth ? "smooth" : "instant",
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
+    const scroll = () => {
+      const el = scrollContainerRef.current
+      if (!el) return
+      programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
       })
+      isAtBottomRef.current = true
+      scrollFrameRef.current = null
+    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      if (smooth) {
+        scrollFrameRef.current = requestAnimationFrame(scroll)
+        return
+      }
+      scroll()
     })
   }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
     isAtBottomRef.current = true
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({
-        behavior: smooth ? "smooth" : "instant",
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
+    const scroll = () => {
+      const el = scrollContainerRef.current
+      if (!el) return
+      programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
       })
+      isAtBottomRef.current = true
+      scrollFrameRef.current = null
+    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      if (smooth) {
+        scrollFrameRef.current = requestAnimationFrame(scroll)
+        return
+      }
+      scroll()
     })
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+      }
+    }
   }, [])
 
   const flushToolsToLastAssistant = useCallback(() => {
@@ -249,7 +291,7 @@ export function useChatMessages(
               return prev
             })
           }
-          scrollToBottom(true)
+          scrollToBottom(false)
           break
         }
         case "chat.tool": {
@@ -397,7 +439,7 @@ export function useChatMessages(
           }
 
           setPendingTools(Array.from(pendingToolMapRef.current.values()))
-          scrollToBottom(true)
+          scrollToBottom(false)
           break
         }
         case "chat.message": {
@@ -506,7 +548,7 @@ export function useChatMessages(
               ]
             })
           }
-          scrollToBottom(true)
+          scrollToBottom(false)
           break
         }
         case "chat.error":
@@ -597,9 +639,6 @@ export function useChatMessages(
         }> = []
         let autoAnnouncesToSkip = 0
 
-        const stripBootstrap = (t: string) =>
-          t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
-
         for (let rawIdx = 0; rawIdx < raw.length; rawIdx++) {
           const m = raw[rawIdx]
           if (m.role === "user") {
@@ -609,9 +648,7 @@ export function useChatMessages(
               randomId()
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
-            const text = rawText
-              ? stripGatewayPrefixes(stripBootstrap(rawText))
-              : ""
+            const text = rawText ? cleanUserMessageText(rawText) : ""
             const isSubagentAnnounce = text
               ? /agent:main:subagent:[0-9a-f-]{36}/.test(text)
               : false
@@ -883,9 +920,7 @@ export function useChatMessages(
           return [...allMessages, ...kept]
         })
         setLoading(false)
-        requestAnimationFrame(() => {
-          bottomRef.current?.scrollIntoView({ behavior: "instant" })
-        })
+        forceScrollToBottom(true)
 
         eventSource = new EventSource(
           streamUrl(`/api/stream/chat/${sessionKey}`)
@@ -942,7 +977,7 @@ export function useChatMessages(
         subagentPollRef.current = null
       }
     }
-  }, [sessionKey, handleStreamEvent, initialMessageKey, initialMessages])
+  }, [sessionKey, handleStreamEvent, initialMessageKey, initialMessages, forceScrollToBottom])
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
@@ -1033,7 +1068,7 @@ export function useChatMessages(
         },
       ])
       setStatus("thinking")
-      forceScrollToBottom(false)
+      forceScrollToBottom(true)
       try {
         if (isGenerating) {
           restartInFlightRef.current = true
@@ -1096,7 +1131,7 @@ export function useChatMessages(
       })
 
       setStatus("thinking")
-      forceScrollToBottom(false)
+      forceScrollToBottom(true)
 
       try {
         await invoke("middleware_chat_regenerate", {
@@ -1193,7 +1228,7 @@ export function useChatMessages(
       setPendingTools([])
       setStatus("thinking")
       setIsSending(true)
-      forceScrollToBottom(false)
+      forceScrollToBottom(true)
 
       try {
         await invoke("middleware_chat_edit_and_resend", {

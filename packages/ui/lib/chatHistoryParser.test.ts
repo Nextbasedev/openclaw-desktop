@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
-import { parseChatHistory, stripGatewayPrefixes } from "./chatHistoryParser"
+import {
+  cleanUserMessageText,
+  parseChatHistory,
+  stripGatewayPrefixes,
+} from "./chatHistoryParser"
 
 function clean(text: string): string {
   return stripGatewayPrefixes(
@@ -96,6 +100,16 @@ describe("stripGatewayPrefixes", () => {
       "[media attached: /root/.openclaw/media/inbound/image_2026-04-30_14-20-00---dcb1de83-56c4-45cb-9e5e-2e4390e18213.png (image/png) | /root/.openclaw/media/inbound/image_2026-04-30_14-20-00---dcb1de83-56c4-45cb-9e5e-2e4390e18213.png]\nTo send an image back, prefer the message tool (media/path/filePath). If you must inline, use MEDIA:https://example.com/image.jpg (spaces ok, quote if needed) or a safe relative path like MEDIA:./image.jpg. Absolute and ~ paths only work when they stay inside your allowed file-read boundary; host file:// URLs are blocked. Keep caption in the text body.\n\n\nyou have ngix setup>\nwhich is forwarding the traffics?\nyou have to route to the default port\nlet me know if you have everything properly setup?\nif yes then I am sure it's cloudflared ssl issue\n\ncheck this",
       "you have ngix setup>\nwhich is forwarding the traffics?\nyou have to route to the default port\nlet me know if you have everything properly setup?\nif yes then I am sure it's cloudflared ssl issue\n\ncheck this",
     ],
+    [
+      "media attachment header without helper instruction",
+      "[media attached: /root/.openclaw/media/inbound/image.png (image/png) | /root/.openclaw/media/inbound/image.png]\n\nlook at this image",
+      "look at this image",
+    ],
+    [
+      "multiple media attachment headers",
+      "[media attached: /root/.openclaw/media/inbound/a.png (image/png) | /root/.openclaw/media/inbound/a.png]\n[media attached: /root/.openclaw/media/inbound/b.png (image/png) | /root/.openclaw/media/inbound/b.png]\n\ncompare these",
+      "compare these",
+    ],
   ]
 
   for (const [label, input, expected] of gatewayCases) {
@@ -125,6 +139,17 @@ describe("stripGatewayPrefixes", () => {
       assert.equal(clean(message), message)
     })
   }
+})
+
+describe("cleanUserMessageText", () => {
+  it("combines bootstrap and gateway cleanup for all history renderers", () => {
+    assert.equal(
+      cleanUserMessageText(
+        "[media attached: /root/.openclaw/media/inbound/image.png (image/png) | /root/.openclaw/media/inbound/image.png]\n\ncheck this\n\n[Bootstrap truncation warning] truncated",
+      ),
+      "check this",
+    )
+  })
 })
 
 describe("parseChatHistory", () => {
