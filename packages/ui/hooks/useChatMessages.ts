@@ -854,22 +854,7 @@ export function useChatMessages(
           ]
         }
 
-        let forkPrefix: ChatMessage[] = []
-        try {
-          const forkData = await invoke<{
-            messages: RawMessage[]
-            isFork: boolean
-          }>("middleware_chat_fork_history", { input: { sessionKey } })
-          if (forkData.isFork && forkData.messages.length > 0) {
-            const parsed = parseChatHistory(forkData.messages)
-            forkPrefix = parsed.messages
-            for (const fm of forkPrefix) {
-              seenIds.current.add(fm.messageId)
-            }
-          }
-        } catch {}
-
-        const allMessages = [...forkPrefix, ...filtered]
+        const allMessages = filtered
 
         setMessages((prev) => {
           if (prev.length === 0) return allMessages

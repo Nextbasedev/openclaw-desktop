@@ -23,6 +23,7 @@ import * as terminal from "../services/terminal.service.js"
 import * as ptyService from "../services/pty.service.js"
 import * as models from "../services/models.service.js"
 import * as repos from "../services/repos.service.js"
+import * as workspace from "../services/workspace.service.js"
 import * as version from "../services/version.service.js"
 import * as sandbox from "../services/sandbox.service.js"
 import * as pins from "../services/pins.service.js"
@@ -259,6 +260,12 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_repos_scan: (i) => repos.reposScan(i as { extraPaths?: string[] } | undefined),
   middleware_repos_recent: (i) => repos.reposRecent(i as { limit?: number } | undefined),
   middleware_repos_select: (i) => repos.reposSelect(i as { path: string; name: string }),
+  middleware_repos_clone: (i) => repos.reposClone(i as { url: string; name?: string; targetDir?: string }),
+
+  // Workspace (remote, gateway-backed)
+  middleware_workspace_tree: (i) => workspace.workspaceTree(i as { sessionKey: string; path?: string }),
+  middleware_workspace_read: (i) => workspace.workspaceRead(i as { sessionKey: string; path: string }),
+  middleware_workspace_write: (i) => workspace.workspaceWrite(i as { sessionKey: string; path: string; content: string }),
 
   // Version
   middleware_version_info: () => version.versionInfo(),

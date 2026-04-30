@@ -978,3 +978,10 @@ export async function openChatEventStream(input: {
     throw error
   }
 }
+
+export {
+  listSessionWorkspaceFiles,
+  getSessionWorkspaceFile,
+  writeSessionWorkspaceFile,
+} from "./workspace.js"
+export type { GatewayWorkspaceEntry } from "./workspace.js"

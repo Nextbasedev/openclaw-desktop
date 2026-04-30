@@ -61,7 +61,7 @@ export function MessageFeedbackDialog({ open, onClose, onSubmit }: Props) {
 
         <div className="space-y-6">
           {/* Tags */}
-          <div className="flex flex-wrap gap-2">
+          {/* <div className="flex flex-wrap gap-2">
             {TAG_CHOICES.map((tag) => {
               const active = selectedTags.includes(tag)
               return (
@@ -79,7 +79,7 @@ export function MessageFeedbackDialog({ open, onClose, onSubmit }: Props) {
                 </button>
               )
             })}
-          </div>
+          </div> */}
 
           {/* Details */}
           <textarea

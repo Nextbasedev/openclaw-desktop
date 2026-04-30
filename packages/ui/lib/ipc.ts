@@ -21,7 +21,8 @@ function isLoopbackServerUrl(url: string): boolean {
 }
 
 function shouldUseSameOriginProxy(): boolean {
-  return false
+  if (isTauriRuntime()) return false
+  return isLoopbackServerUrl(SERVER_URL)
 }
 
 function shouldRetryBackendBoot(error: unknown): boolean {
