@@ -47,6 +47,10 @@ type CronRunEvent = CronRunEventLike & {
   timestamp: string
   result?: unknown
   error?: string | null
+  deliveryMode?: string | null
+  deliveryChannel?: string | null
+  deliveryTo?: string | null
+  parentSessionKey?: string | null
 }
 
 type NotificationPopoverProps = {
@@ -102,6 +106,28 @@ function statusIcon(type: CronRunEvent["type"]) {
   if (type === "cron.run.started") return "running"
   if (type === "cron.run.completed") return "completed"
   return "failed"
+}
+
+function cronNavigationPayload(event: CronRunEvent): ActiveChat {
+  return {
+    id: event.jobId,
+    name: event.name ?? event.jobId.slice(0, 8),
+    sessionKey: event.sessionKey ?? event.parentSessionKey ?? undefined,
+    cronJobId: event.jobId,
+    cronRunId: event.runId,
+  }
+}
+
+function deliveryLabel(event: CronRunEvent): string | null {
+  if (event.parentSessionKey) return "App Chat"
+  if (event.deliveryChannel === "telegram") return "Telegram"
+  if (event.deliveryChannel === "discord") return "Discord"
+  if (event.deliveryChannel === "slack") return "Slack"
+  if (event.deliveryChannel === "webhook") return "Webhook"
+  if (event.deliveryMode === "announce") return "Announce"
+  if (event.deliveryMode === "webhook") return "Webhook"
+  if (event.deliveryMode === "none") return "Jarvis Only"
+  return null
 }
 
 function resolveEventName(
@@ -400,12 +426,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
                         idx={idx}
                         onClick={() => void (async () => {
                           if (!onNavigateToChat) return
-                          await handleNavigateToChat({
-                            id: event.jobId,
-                            name: event.name ?? event.jobId.slice(0, 8),
-                            sessionKey: event.sessionKey ?? undefined,
-                            cronJobId: event.jobId,
-                          })
+                          await handleNavigateToChat(cronNavigationPayload(event))
                         })()}
                       />
                     ))}
@@ -534,6 +555,7 @@ function PopoverJobRow({
 
 function EventRow({ event, idx, onClick }: { event: CronRunEvent; idx: number; onClick?: () => void }) {
   const status = statusIcon(event.type)
+  const delivery = deliveryLabel(event)
   return (
     <motion.div
       initial={{ opacity: 0, x: -8 }}
@@ -578,14 +600,21 @@ function EventRow({ event, idx, onClick }: { event: CronRunEvent; idx: number; o
             ? `${event.jobId.slice(0, 8)} - ${event.name}`
             : event.jobId.slice(0, 8)}
         </span>
-        <span className={cn(
-          "text-[10px]",
-          status === "running" && "text-chart-2",
-          status === "completed" && "text-chart-1",
-          status === "failed" && "text-red-400",
-        )}>
-          {status === "running" ? "Running now..." : status === "completed" ? "Completed" : "Failed"}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className={cn(
+            "text-[10px]",
+            status === "running" && "text-chart-2",
+            status === "completed" && "text-chart-1",
+            status === "failed" && "text-red-400",
+          )}>
+            {status === "running" ? "Running now..." : status === "completed" ? "Completed" : "Failed"}
+          </span>
+          {delivery && (
+            <span className="rounded-full bg-foreground/[0.06] px-1 py-px text-[8px] font-medium text-muted-foreground/60">
+              {delivery}
+            </span>
+          )}
+        </div>
       </div>
       <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/50">
         {timeAgo(event.timestamp)}

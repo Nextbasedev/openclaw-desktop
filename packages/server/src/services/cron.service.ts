@@ -1,5 +1,7 @@
 import { ensureGatewayClient } from "../gateway/client.js"
 import { cronEvents } from "./cron-events.service.js"
+import { chatEvents } from "./chat.service.js"
+import { generateId, nowIso } from "../db/helpers.js"
 
 export function parseSchedule(schedule: string, type?: string) {
   const trimmed = schedule.trim()
@@ -14,6 +16,10 @@ export function parseSchedule(schedule: string, type?: string) {
     )
   }
   return trimmed
+}
+
+export function parseCronSchedule(schedule: string) {
+  return { kind: "cron" as const, expr: parseSchedule(schedule, "cron") }
 }
 
 export type CronScheduleType = "at" | "every" | "cron"
@@ -64,11 +70,16 @@ export type CronActivityEvent = {
   timestamp: string
   result?: unknown
   error?: string | null
+  deliveryMode?: string | null
+  deliveryChannel?: string | null
+  deliveryTo?: string | null
+  parentSessionKey?: string | null
 }
 
 const activeRuns = new Map<string, CronRun>()
 const localJobOverrides = new Map<string, Partial<CronJob>>()
 const lastRunCache = new Map<string, { run: CronRun | null; cachedAt: number }>()
+const parentSessionKeys = new Map<string, string>()
 const LAST_RUN_CACHE_TTL_MS = 30_000
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -110,7 +121,7 @@ cronEvents.on("cron:event", (event: CronActivityEvent) => {
       startedAt: event.timestamp,
       finishedAt: null,
       result: null,
-      sessionKey: null,
+      sessionKey: event.sessionKey ?? null,
       error: null,
     })
     return
@@ -226,9 +237,12 @@ function inferScheduleType(schedule: string): CronScheduleType {
 
 function extractSessionKey(raw: Record<string, unknown>): string | null {
   if (typeof raw.sessionKey === "string") return raw.sessionKey
+  if (typeof raw.session === "string") return raw.session
+  if (typeof raw.sessionId === "string") return raw.sessionId
   const result = raw.result as Record<string, unknown> | null | undefined
   if (result && typeof result.sessionKey === "string") return result.sessionKey
   if (result && typeof result.session === "string") return result.session
+  if (result && typeof result.sessionId === "string") return result.sessionId
   return null
 }
 
@@ -264,6 +278,7 @@ export type CreateCronJobInput = {
   scheduleType?: CronScheduleType
   timezone?: string
   session?: CronSessionTarget
+  parentSessionKey?: string
   message?: string
   model?: string
   thinking?: string
@@ -318,6 +333,7 @@ function cronRunToActivityEvent(job: CronJob, run: CronRun): CronActivityEvent |
   if (!timestamp) return null
   const isRunning = run.status === "running"
   const isFailed = run.status === "failed" || run.status === "error" || Boolean(run.error)
+  const psk = resolveParentSessionKey(job)
   return {
     type: isRunning ? "cron.run.started" : isFailed ? "cron.run.failed" : "cron.run.completed",
     jobId: job.jobId,
@@ -328,6 +344,10 @@ function cronRunToActivityEvent(job: CronJob, run: CronRun): CronActivityEvent |
     timestamp,
     result: run.result ?? null,
     error: run.error,
+    deliveryMode: job.deliveryMode,
+    deliveryChannel: job.deliveryChannel,
+    deliveryTo: job.deliveryTo,
+    parentSessionKey: psk,
   }
 }
 
@@ -400,7 +420,7 @@ export async function cronCreateJob(input: CreateCronJobInput) {
   // The current gateway rejects metadata on cron.add. Keep metadata in the
   // public UI input type, but do not forward it until the protocol accepts it.
 
-  if (input.deliveryMode && input.deliveryMode !== "none") {
+  if (input.deliveryMode) {
     gwParams.delivery = {
       mode: input.deliveryMode,
       ...(input.deliveryChannel && { channel: input.deliveryChannel }),
@@ -411,7 +431,15 @@ export async function cronCreateJob(input: CreateCronJobInput) {
   const gw = await ensureGatewayClient()
   const res = await gw.request<Record<string, unknown>>("cron.add", gwParams)
   if (!res.ok) throw new Error(res.error?.message ?? "cron.add failed")
-  return { job: normalizeJob(res.payload ?? {}) }
+  const job = normalizeJob(res.payload ?? {})
+  if (input.parentSessionKey && job.jobId) {
+    parentSessionKeys.set(job.jobId, input.parentSessionKey)
+    localJobOverrides.set(job.jobId, {
+      ...localJobOverrides.get(job.jobId),
+      session: input.parentSessionKey,
+    })
+  }
+  return { job }
 }
 
 export async function cronUpdateJob(input: {
@@ -777,6 +805,18 @@ export async function cronCreateNotificationJob(input: {
 
 const SESSION_TARGET_KEYWORDS = new Set(["isolated", "main", "current"])
 
+function isConcreteSessionKey(session: string | null | undefined): session is string {
+  return Boolean(session && !SESSION_TARGET_KEYWORDS.has(session) && !session.includes(":cron:"))
+}
+
+function resolveParentSessionKey(job: CronJob | null): string | null {
+  if (!job) return null
+  const remembered = parentSessionKeys.get(job.jobId)
+  if (isConcreteSessionKey(remembered)) return remembered
+  if (isConcreteSessionKey(job.session)) return job.session
+  return null
+}
+
 export async function cronJobConversation(input: { jobId: string }) {
   const { runs } = await cronListRuns({ jobId: input.jobId, limit: 10, sortDir: "desc" })
   const latestRun = runs[0] ?? null
@@ -784,22 +824,105 @@ export async function cronJobConversation(input: { jobId: string }) {
   for (const run of runs) {
     if (run.sessionKey) { sessionKey = run.sessionKey; break }
   }
+  let job: CronJob | null = null
   if (!sessionKey) {
     try {
-      const { job } = await cronGetJob({ jobId: input.jobId })
-      if (job.session && !SESSION_TARGET_KEYWORDS.has(job.session)) {
+      const result = await cronGetJob({ jobId: input.jobId })
+      job = result.job
+      if (isConcreteSessionKey(job.session)) {
         sessionKey = job.session
       }
     } catch {}
   }
+  if (!job) {
+    try {
+      const result = await cronGetJob({ jobId: input.jobId })
+      job = result.job
+    } catch {}
+  }
+  const psk = resolveParentSessionKey(job)
   const lastRun = latestRun ? {
     status: latestRun.status,
     error: latestRun.error,
     startedAt: latestRun.startedAt,
     finishedAt: latestRun.finishedAt,
   } : null
-  if (!sessionKey) return { messages: [], sessionKey: null, lastRun }
+  if (!sessionKey && !psk) return { messages: [], sessionKey: null, parentSessionKey: null, lastRun }
+  const effectiveKey = psk ?? sessionKey!
   const { getChatHistory } = await import("middleware")
-  const history = await getChatHistory(sessionKey)
-  return { messages: history.messages ?? [], sessionKey, lastRun }
+  try {
+    const history = await getChatHistory(effectiveKey)
+    return { messages: history.messages ?? [], sessionKey: effectiveKey, parentSessionKey: psk, lastRun }
+  } catch {
+    if (sessionKey && sessionKey !== effectiveKey) {
+      try {
+        const history = await getChatHistory(sessionKey)
+        return { messages: history.messages ?? [], sessionKey, parentSessionKey: psk, lastRun }
+      } catch {}
+    }
+  }
+  return { messages: [], sessionKey: effectiveKey, parentSessionKey: psk, lastRun }
+}
+
+export function getParentSessionKey(jobId: string): string | null {
+  return parentSessionKeys.get(jobId) ?? null
+}
+
+export async function relayCronRunToParentSession(jobId: string, cronResult?: unknown): Promise<void> {
+  let jobName = jobId
+  let parentSession = parentSessionKeys.get(jobId) ?? null
+  try {
+    const { job } = await cronGetJob({ jobId })
+    jobName = job.name || jobId
+    parentSession = parentSession ?? resolveParentSessionKey(job)
+  } catch {}
+  if (!parentSession) return
+
+  let resultText = ""
+  if (typeof cronResult === "string") {
+    resultText = cronResult
+  } else if (cronResult && typeof cronResult === "object") {
+    const content = cronResult as Record<string, unknown>
+    if (typeof content.text === "string") resultText = content.text
+    else if (Array.isArray(content)) {
+      resultText = content
+        .map((c: unknown) => {
+          const block = c as Record<string, unknown>
+          return typeof block.text === "string" ? block.text : ""
+        })
+        .filter(Boolean)
+        .join("\n")
+    }
+  }
+
+  if (!resultText) {
+    try {
+      const { runs } = await cronListRuns({ jobId, limit: 1, sortDir: "desc" })
+      const latestRun = runs[0]
+      if (latestRun?.sessionKey) {
+        const { getChatHistory } = await import("middleware")
+        const history = await getChatHistory(latestRun.sessionKey)
+        const messages = (history.messages ?? []) as Array<Record<string, unknown>>
+        const assistantMsg = messages.filter((m) => m.role === "assistant").pop()
+        if (assistantMsg) {
+          resultText = typeof assistantMsg.text === "string"
+            ? assistantMsg.text
+            : String(assistantMsg.content ?? "")
+        }
+      }
+    } catch {}
+  }
+
+  if (!resultText) resultText = "(no output)"
+
+  chatEvents.emit(`chat:event:${parentSession}`, {
+    type: "chat.message",
+    sessionKey: parentSession,
+    messageId: generateId("cron"),
+    role: "assistant",
+    content: [{ type: "text", text: `**[Cron: ${jobName}]**\n${resultText}` }],
+    text: `**[Cron: ${jobName}]**\n${resultText}`,
+    createdAt: nowIso(),
+    model: "cron",
+  })
 }

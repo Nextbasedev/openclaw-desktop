@@ -12,6 +12,7 @@ type Props = {
   pinned: ChatMessage[]
   onTogglePin: (messageId: string) => void
   onNavigateToMessage: (messageId: string) => void
+  triggerRef?: React.RefObject<HTMLButtonElement | null>
 }
 
 const spring = {
@@ -27,13 +28,16 @@ export function PinnedMessagesPopover({
   pinned,
   onTogglePin,
   onNavigateToMessage,
+  triggerRef,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     function handleClickOutside(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      if (triggerRef?.current?.contains(target)) return
+      if (panelRef.current && !panelRef.current.contains(target)) {
         onClose()
       }
     }

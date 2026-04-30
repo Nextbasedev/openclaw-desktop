@@ -32,12 +32,14 @@ type NotificationDashboardProps = {
   activeSessionKey?: string | null
   onBack?: () => void
   defaultTab?: NotificationSection
+  initialSelectedJob?: SelectedJob | null
   onDraftPrompt?: (prompt: string) => void
   onNavigateToChat?: (chat: {
     id: string
     name: string
     sessionKey?: string
     cronJobId?: string
+    cronRunId?: string
   }) => void | boolean | Promise<void | boolean>
 }
 
@@ -45,6 +47,7 @@ export function NotificationDashboard({
   activeSessionKey,
   onBack,
   defaultTab = "cron-jobs",
+  initialSelectedJob,
   onDraftPrompt,
   onNavigateToChat,
 }: NotificationDashboardProps) {
@@ -52,6 +55,13 @@ export function NotificationDashboard({
     React.useState<NotificationSection>(defaultTab)
   const [selectedJob, setSelectedJob] =
     React.useState<SelectedJob | null>(null)
+
+  React.useEffect(() => {
+    if (initialSelectedJob) {
+      setActiveSection("activity")
+      setSelectedJob(initialSelectedJob)
+    }
+  }, [initialSelectedJob])
 
   const handleSectionChange = (id: NotificationSection) => {
     setActiveSection(id)

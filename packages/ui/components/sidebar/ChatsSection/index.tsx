@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
@@ -22,9 +22,10 @@ type Props = {
 }
 
 const CHAT_INITIAL_LIMIT = 5
+const CHAT_LOAD_STEP = 10
+const MORE_CHATS_ANIMATION_MS = 200
 
 export function ChatsSection({
-  collapsed,
   collapsible = true,
   activeChat,
   onChatSelect,
@@ -33,7 +34,9 @@ export function ChatsSection({
   refreshTrigger = 0,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
-  const [showAllChats, setShowAllChats] = useState(false)
+  const [visibleChatLimit, setVisibleChatLimit] = useState(CHAT_INITIAL_LIMIT)
+  const [extraChatsOpen, setExtraChatsOpen] = useState(false)
+  const closeTimerRef = useRef<number | null>(null)
   const showList = !collapsible || isOpen
   const {
     chats,
@@ -45,6 +48,40 @@ export function ChatsSection({
     dialogState,
     dialogActions,
   } = useChatsData(activeChat, onChatClear, refreshTrigger)
+  const chatsById = useMemo(
+    () => new Map(chats.map((chat) => [chat.id, chat])),
+    [chats],
+  )
+  const effectiveVisibleChatLimit = Math.min(
+    visibleChatLimit,
+    sortedChatIds.length,
+  )
+  const hasMoreChats = sortedChatIds.length > effectiveVisibleChatLimit
+  const hasExpandedChats = effectiveVisibleChatLimit > CHAT_INITIAL_LIMIT
+  const visibleExtraChatIds = sortedChatIds.slice(
+    CHAT_INITIAL_LIMIT,
+    effectiveVisibleChatLimit,
+  )
+
+  const handleShowMoreChats = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+
+    setExtraChatsOpen(true)
+    setVisibleChatLimit((currentLimit) =>
+      Math.min(currentLimit + CHAT_LOAD_STEP, sortedChatIds.length),
+    )
+  }
+
+  const handleShowLessChats = () => {
+    setExtraChatsOpen(false)
+    closeTimerRef.current = window.setTimeout(() => {
+      setVisibleChatLimit(CHAT_INITIAL_LIMIT)
+      closeTimerRef.current = null
+    }, MORE_CHATS_ANIMATION_MS)
+  }
 
   return (
     <>
@@ -109,16 +146,14 @@ export function ChatsSection({
                   className="flex flex-col gap-0.5"
                 >
                   {sortedChatIds.slice(0, CHAT_INITIAL_LIMIT).map((chatId) => {
-                    const chat = chats.find(
-                      (c) => c.id === chatId,
-                    )
+                    const chat = chatsById.get(chatId)
                     if (!chat) return null
 
                     return (
                       <ChatRow
                         key={chatId}
                         chatId={chatId}
-                        chats={chats}
+                        chat={chat}
                         isActive={activeChat?.id === chatId}
                         isPinned={pinnedChats.has(chatId)}
                         onClick={() =>
@@ -142,70 +177,99 @@ export function ChatsSection({
                     )
                   })}
                 </Reorder.Group>
-                <AnimatePresence initial={false}>
-                  {showAllChats && sortedChatIds.length > CHAT_INITIAL_LIMIT && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: "easeInOut" }}
-                      className="overflow-hidden"
-                    >
-                      <div className="flex flex-col gap-0.5">
-                        {sortedChatIds.slice(CHAT_INITIAL_LIMIT).map((chatId) => {
-                          const chat = chats.find(
-                            (c) => c.id === chatId,
-                          )
-                          if (!chat) return null
-
-                          return (
-                            <ChatRow
-                              key={chatId}
-                              chatId={chatId}
-                              chats={chats}
-                              isActive={activeChat?.id === chatId}
-                              isPinned={pinnedChats.has(chatId)}
-                              disableReorder
-                              onClick={() =>
-                                onChatSelect({
-                                  id: chat.id,
-                                  name: chatDisplayName(chat),
-                                  sessionKey: chat.sessionKey,
-                                })
-                              }
-                              onPin={() => togglePinChat(chatId)}
-                              onRename={() =>
-                                dialogActions.openRename(chat)
-                              }
-                              onArchive={() =>
-                                handleArchiveChat(chatId)
-                              }
-                              onDelete={() =>
-                                dialogActions.openDelete(chat)
-                              }
-                            />
-                          )
-                        })}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                {sortedChatIds.length > CHAT_INITIAL_LIMIT && (
-                  <button
-                    onClick={() => setShowAllChats((prev) => !prev)}
-                    className="mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                {(hasExpandedChats || sortedChatIds.length > CHAT_INITIAL_LIMIT) && (
+                  <div
+                    aria-hidden={!extraChatsOpen}
+                    className="grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-in-out"
+                    style={{
+                      gridTemplateRows: extraChatsOpen ? "1fr" : "0fr",
+                      opacity: extraChatsOpen ? 1 : 0,
+                    }}
                   >
-                    <motion.span
-                      animate={{ rotate: showAllChats ? 180 : 0 }}
-                      transition={{ duration: 0.2, ease: "easeInOut" }}
-                      className="inline-flex items-center justify-center"
-                    >
-                      <Icons.ChevronDown size={11} />
-                    </motion.span>
-                    {showAllChats
-                      ? "Show less"
-                      : `${sortedChatIds.length - CHAT_INITIAL_LIMIT} more`}
-                  </button>
+                    <div className="flex min-h-0 flex-col gap-0.5 overflow-hidden">
+                      {visibleExtraChatIds.map((chatId) => {
+                        const chat = chatsById.get(chatId)
+                        if (!chat) return null
+
+                        return (
+                          <ChatRow
+                            key={chatId}
+                            chatId={chatId}
+                            chat={chat}
+                            isActive={activeChat?.id === chatId}
+                            isPinned={pinnedChats.has(chatId)}
+                            disableReorder
+                            onClick={() =>
+                              onChatSelect({
+                                id: chat.id,
+                                name: chatDisplayName(chat),
+                                sessionKey: chat.sessionKey,
+                              })
+                            }
+                            onPin={() => togglePinChat(chatId)}
+                            onRename={() =>
+                              dialogActions.openRename(chat)
+                            }
+                            onArchive={() =>
+                              handleArchiveChat(chatId)
+                            }
+                            onDelete={() =>
+                              dialogActions.openDelete(chat)
+                            }
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+                {sortedChatIds.length > CHAT_INITIAL_LIMIT && (
+                  <div className="mt-0.5 flex items-center gap-1">
+                    {hasMoreChats && (
+                      <button
+                        onClick={handleShowMoreChats}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                      >
+                        <motion.span
+                          animate={{ rotate: 0 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="inline-flex items-center justify-center"
+                        >
+                          <Icons.ChevronDown size={11} />
+                        </motion.span>
+                        See more
+                      </button>
+                    )}
+                    {hasExpandedChats && (
+                      <button
+                        onClick={handleShowLessChats}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                      >
+                        <motion.span
+                          animate={{ rotate: 180 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="inline-flex items-center justify-center"
+                        >
+                          <Icons.ChevronDown size={11} />
+                        </motion.span>
+                        See less
+                      </button>
+                    )}
+                    {!hasMoreChats && !hasExpandedChats && (
+                      <button
+                        onClick={handleShowMoreChats}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                      >
+                        <motion.span
+                          animate={{ rotate: 0 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="inline-flex items-center justify-center"
+                        >
+                          <Icons.ChevronDown size={11} />
+                        </motion.span>
+                        See more
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </motion.div>

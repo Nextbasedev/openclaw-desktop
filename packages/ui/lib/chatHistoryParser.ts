@@ -96,6 +96,38 @@ function stripBootstrap(t: string): string {
   return t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 }
 
+const SYSTEM_LINE_RE =
+  /^System(?:\s*\([^)]*\))?:\s*\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*[^\n]*\n*/
+const TIMESTAMP_PREFIX_RE =
+  /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*/
+const BARE_TIMESTAMP_RE =
+  /^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*/
+const CRON_HEADER_RE =
+  /^\[cron:[^\]]*\]\s*(?:Reply with exactly:\s*)?/
+const CURRENT_TIME_RE =
+  /^Current time:\s*[^\n]+\n*/m
+const MESSAGE_TOOL_RE =
+  /^Use the message tool if you need to notify the user directly[^\n]*(?:\.\s*If you do not send directly[^\n]*)?\n*/m
+const ASYNC_RESULT_RE =
+  /^An async command you ran earlier has completed\.[^\n]*(?:\n[^\n]*Handle the result internally[^\n]*)?(?:\n[^\n]*Do not relay[^\n]*)?\n*/m
+const MEDIA_ATTACHMENT_RE =
+  /^\[media attached:[\s\S]*?\]\s*\n+To send an image back,[\s\S]*?Keep caption in the text body\.\s*/m
+
+export function stripGatewayPrefixes(text: string): string {
+  let result = text
+  while (SYSTEM_LINE_RE.test(result)) {
+    result = result.replace(SYSTEM_LINE_RE, "")
+  }
+  result = result.replace(MEDIA_ATTACHMENT_RE, "")
+  result = result.replace(CRON_HEADER_RE, "")
+  result = result.replace(CURRENT_TIME_RE, "")
+  result = result.replace(MESSAGE_TOOL_RE, "")
+  result = result.replace(ASYNC_RESULT_RE, "")
+  result = result.replace(TIMESTAMP_PREFIX_RE, "")
+  result = result.replace(BARE_TIMESTAMP_RE, "")
+  return result.trim()
+}
+
 export function deduplicateRawMessages(
   raw: RawHistoryMessage[],
 ): RawHistoryMessage[] {
@@ -132,13 +164,15 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
 
     if (role === "user") {
       const rawText = item.text || extractText(item.content)
-      const text = rawText ? stripBootstrap(rawText) : ""
+      const text = rawText
+        ? stripGatewayPrefixes(stripBootstrap(rawText))
+        : ""
       if (text) {
-        const reply = extractReplyFromText(rawText, messages)
+        const reply = extractReplyFromText(text, messages)
         messages.push({
           messageId: messageId(item),
           role: "user",
-          text: reply ? reply.displayText : rawText,
+          text: reply ? reply.displayText : text,
           createdAt: item.createdAt,
           model: item.model,
           replyTo: reply?.replyTo,
@@ -230,7 +264,8 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
   }
 
   for (const spawn of subagentByToolId.values()) {
-    const { terminal: _terminal, ...publicSpawn } = spawn
+    const publicSpawn = { ...spawn }
+    delete publicSpawn.terminal
     subagents.push(publicSpawn)
   }
 

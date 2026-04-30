@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events"
 import { ensureGatewayClient } from "../gateway/client.js"
 import { gatewayEvents } from "../gateway/client.js"
+import { relayCronRunToParentSession } from "./cron.service.js"
 
 export const cronEvents = new EventEmitter()
 cronEvents.setMaxListeners(50)
@@ -11,6 +12,7 @@ export type CronRunEvent = {
   type: "cron.run.started" | "cron.run.completed" | "cron.run.failed"
   jobId: string
   runId?: string
+  sessionKey?: string | null
   name?: string
   status: string
   timestamp: string
@@ -30,6 +32,7 @@ function mapCronAction(payload: Record<string, unknown>): CronRunEvent | null {
       type: "cron.run.started",
       jobId,
       runId: payload.runId ? String(payload.runId) : payload.sessionId ? String(payload.sessionId) : undefined,
+      sessionKey: payload.sessionKey ? String(payload.sessionKey) : payload.sessionId ? String(payload.sessionId) : null,
       name: payload.name ? String(payload.name) : undefined,
       status: "running",
       timestamp: new Date().toISOString(),
@@ -46,6 +49,7 @@ function mapCronAction(payload: Record<string, unknown>): CronRunEvent | null {
       jobId,
       name: payload.name ? String(payload.name) : undefined,
       runId: payload.runId ? String(payload.runId) : payload.sessionId ? String(payload.sessionId) : undefined,
+      sessionKey: payload.sessionKey ? String(payload.sessionKey) : payload.sessionId ? String(payload.sessionId) : null,
       status: failed ? "failed" : "completed",
       timestamp: new Date().toISOString(),
       result: payload.result ?? null,
@@ -93,6 +97,7 @@ async function subscribe(): Promise<void> {
           type: "cron.run.completed",
           jobId,
           runId: parts[1] ?? (payload.runId ? String(payload.runId) : undefined),
+          sessionKey,
           status: "completed",
           timestamp: new Date().toISOString(),
           result: (payload.message as Record<string, unknown> | undefined)?.content ?? null,
@@ -107,6 +112,11 @@ export async function startCronEventListener(): Promise<void> {
   await subscribe()
   gatewayEvents.on("connected", () => {
     subscribe().catch(() => {})
+  })
+  cronEvents.on("cron:event", (event: CronRunEvent) => {
+    if (event.type === "cron.run.completed") {
+      relayCronRunToParentSession(event.jobId, event.result).catch(() => {})
+    }
   })
 }
 
