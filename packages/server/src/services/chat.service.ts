@@ -740,3 +740,123 @@ export function chatStartSubagentStream(input: { sessionKey: string }) {
   })
   return { started: true, sessionKey: gwKey }
 }
+
+export async function chatFork(input: {
+  sessionKey: string
+  messageId: string
+  gatewayIndex: number
+}) {
+  const gwKey = resolveGatewayKey(input.sessionKey)
+
+  let history: Awaited<ReturnType<typeof getChatHistory>>
+  try {
+    history = await getChatHistory(gwKey)
+  } catch (error) {
+    throw wrapGatewayError(error)
+  }
+
+  const msgs = history.messages ?? []
+  const msgIdx = input.gatewayIndex
+  if (msgIdx < 0 || msgIdx >= msgs.length) {
+    throw new Error(`Message index ${msgIdx} out of range (${msgs.length} messages)`)
+  }
+  const sliced = msgs.slice(0, msgIdx + 1)
+
+  const forkLabel = `Fork ${crypto.randomUUID().slice(0, 8)}`
+  const model =
+    getAppSetting(getDb(), "onboarding.model.ref") ?? undefined
+  let newSession: Awaited<ReturnType<typeof createChatSession>>
+  try {
+    newSession = await createChatSession({
+      agentId: "main",
+      label: forkLabel,
+      model,
+    })
+  } catch (error) {
+    throw wrapGatewayError(error)
+  }
+
+  const db = getDb()
+  const now = nowIso()
+  const chatId = generateId("chat")
+  const branchId = generateId("branch")
+  const newSessionKey = newSession.sessionKey
+
+  db.transaction(() => {
+    db.prepare(
+      "INSERT INTO chats (id, name, session_key, agent_id, archived, pinned, last_active_at, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)",
+    ).run(chatId, forkLabel, newSessionKey, "main", now, now, now)
+
+    db.prepare(
+      "INSERT OR REPLACE INTO session_mappings (session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, NULL, NULL, NULL, 'main', ?, 'idle', ?, ?, 0, 0, 'jarvis')",
+    ).run(newSessionKey, forkLabel, now, now)
+
+    db.prepare(
+      "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)",
+    ).run(
+      branchId,
+      input.sessionKey,
+      input.messageId,
+      newSessionKey,
+      "fork",
+      now,
+      JSON.stringify({
+        sourceGatewaySessionId: gwKey,
+        newGatewaySessionId: newSessionKey,
+        messageIndex: msgIdx,
+      }),
+    )
+  })()
+
+  persistGatewayKey(newSessionKey, newSession.sessionKey)
+
+  return {
+    chatId,
+    sessionKey: newSessionKey,
+    name: forkLabel,
+    messages: sliced,
+  }
+}
+
+export async function chatForkHistory(input: {
+  sessionKey: string
+}) {
+  const db = getDb()
+  const branch = db
+    .prepare(
+      "SELECT source_session_key, source_message_id, metadata_json FROM branches WHERE branch_session_key = ? AND branch_reason = 'fork'",
+    )
+    .get(input.sessionKey) as
+    | { source_session_key: string; source_message_id: string; metadata_json: string | null }
+    | undefined
+
+  if (!branch) return { messages: [], isFork: false }
+
+  let messageIndex = -1
+  if (branch.metadata_json) {
+    try {
+      const meta = JSON.parse(branch.metadata_json)
+      if (typeof meta.messageIndex === "number") messageIndex = meta.messageIndex
+    } catch {}
+  }
+
+  const sourceGwKey = resolveGatewayKey(branch.source_session_key)
+  let history: Awaited<ReturnType<typeof getChatHistory>>
+  try {
+    history = await getChatHistory(sourceGwKey)
+  } catch {
+    return { messages: [], isFork: true }
+  }
+
+  const msgs = history.messages ?? []
+  if (messageIndex < 0 || messageIndex >= msgs.length) {
+    return { messages: [], isFork: true }
+  }
+
+  return {
+    messages: msgs.slice(0, messageIndex + 1),
+    isFork: true,
+    sourceSessionKey: branch.source_session_key,
+    sourceMessageId: branch.source_message_id,
+  }
+}

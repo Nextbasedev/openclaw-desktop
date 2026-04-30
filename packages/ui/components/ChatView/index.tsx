@@ -37,6 +37,7 @@ type Props = {
   initialPrompt?: string
   activeSubagentKey?: string | null
   onSubagentOpen?: (key: string | null) => void
+  onForkNavigate?: (chat: { id: string; name: string; sessionKey: string }) => void
   /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
 }
@@ -64,6 +65,7 @@ export function ChatView({
   initialPrompt,
   activeSubagentKey: externalSubagentKey,
   onSubagentOpen,
+  onForkNavigate,
   isBackgroundSession = false,
 }: Props) {
   const {
@@ -462,6 +464,31 @@ export function ChatView({
     handleRegenerate(messageId)
   }, [handleRegenerate])
 
+  const forkFromMessage = useCallback(async (messageId: string) => {
+    const msg = messages.find((m) => m.messageId === messageId)
+    if (!msg || msg.gatewayIndex === undefined) return
+    try {
+      const result = await invoke<{
+        chatId: string
+        sessionKey: string
+        name: string
+      }>("middleware_chat_fork", {
+        input: {
+          sessionKey,
+          messageId,
+          gatewayIndex: msg.gatewayIndex,
+        },
+      })
+      onForkNavigate?.({
+        id: result.chatId,
+        name: result.name,
+        sessionKey: result.sessionKey,
+      })
+    } catch (err) {
+      console.error("Fork failed", err)
+    }
+  }, [sessionKey, messages, onForkNavigate])
+
   const exportOneMessage = useCallback((messageId: string) => {
     const target = messages.find((message) => message.messageId === messageId)
     if (!target) return
@@ -681,6 +708,7 @@ export function ChatView({
                       onReact={msg.role === "assistant" ? reactToMessage : undefined}
                       onExport={exportOneMessage}
                       onTextAnimationComplete={markTextAnimationComplete}
+                      onFork={msg.role === "assistant" ? forkFromMessage : undefined}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}

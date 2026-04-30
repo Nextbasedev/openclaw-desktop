@@ -170,6 +170,8 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_chat_edit_and_resend: (i) => chat.chatEditAndResend(i as Parameters<typeof chat.chatEditAndResend>[0]),
   middleware_chat_regenerate: (i) => chat.chatRegenerate(i as Parameters<typeof chat.chatRegenerate>[0]),
   middleware_chat_start_subagent_stream: (i) => chat.chatStartSubagentStream(i as { sessionKey: string }),
+  middleware_chat_fork: (i) => chat.chatFork(i as Parameters<typeof chat.chatFork>[0]),
+  middleware_chat_fork_history: (i) => chat.chatForkHistory(i as { sessionKey: string }),
 
   // Cron (Gateway-dependent)
   middleware_cron_list_jobs: () => cron.cronListJobs(),

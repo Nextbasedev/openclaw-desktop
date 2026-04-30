@@ -53,6 +53,7 @@ export type ChatMessage = {
   activeBranch?: number
   embeds?: EmbedContent[]
   replyTo?: ReplyTo
+  gatewayIndex?: number
   attachments?: Array<{
     name: string
     mimeType: string
