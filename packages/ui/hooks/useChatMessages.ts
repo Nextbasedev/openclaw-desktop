@@ -599,7 +599,8 @@ export function useChatMessages(
         const stripBootstrap = (t: string) =>
           t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 
-        for (const m of raw) {
+        for (let rawIdx = 0; rawIdx < raw.length; rawIdx++) {
+          const m = raw[rawIdx]
           if (m.role === "user") {
             const id =
               ((m as Record<string, unknown>).id as string) ||
@@ -623,6 +624,7 @@ export function useChatMessages(
                 createdAt: m.createdAt,
                 model: m.model,
                 replyTo: reply?.replyTo,
+                gatewayIndex: rawIdx,
               })
             }
             pendingToolCalls = []
@@ -691,17 +693,17 @@ export function useChatMessages(
             }
 
             const text = (m.text || extractText(m.content))?.trim()
-            if (text || pendingToolCalls.length > 0) {
-              const currentEmbeds =
-                historyEmbeds.size > 0
-                  ? Array.from(historyEmbeds.values())
-                  : undefined
-              const lastEntry = histMsgs[histMsgs.length - 1]
-              if (lastEntry?.role === "assistant") {
-                if (text)
-                  lastEntry.text = lastEntry.text
-                    ? lastEntry.text + "\n\n" + text
-                    : text
+            const currentEmbeds =
+              historyEmbeds.size > 0
+                ? Array.from(historyEmbeds.values())
+                : undefined
+            const lastEntry = histMsgs[histMsgs.length - 1]
+            if (lastEntry?.role === "assistant") {
+              lastEntry.gatewayIndex = rawIdx
+              if (text) {
+                lastEntry.text = lastEntry.text
+                  ? lastEntry.text + "\n\n" + text
+                  : text
                 lastEntry.messageId = id
                 lastEntry.createdAt = m.createdAt || lastEntry.createdAt
                 if (currentEmbeds)
@@ -715,22 +717,35 @@ export function useChatMessages(
                     ...pendingToolCalls,
                   ]
                 }
-              } else {
-                histMsgs.push({
-                  messageId: id,
-                  role: "assistant",
-                  text: text || "",
-                  createdAt: m.createdAt,
-                  model: m.model,
-                  toolCalls:
-                    pendingToolCalls.length > 0
-                      ? [...pendingToolCalls]
-                      : undefined,
-                  embeds: currentEmbeds,
-                })
+              } else if (pendingToolCalls.length > 0) {
+                lastEntry.toolCalls = [...(lastEntry.toolCalls || []), ...pendingToolCalls]
               }
-              pendingToolCalls = []
+            } else if (text) {
+              const currentEmbeds = historyEmbeds.size > 0
+                ? Array.from(historyEmbeds.values())
+                : undefined
+              histMsgs.push({
+                messageId: id,
+                role: "assistant",
+                text,
+                createdAt: m.createdAt,
+                model: m.model,
+                toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+                embeds: currentEmbeds,
+                gatewayIndex: rawIdx,
+              })
+            } else if (pendingToolCalls.length > 0) {
+              histMsgs.push({
+                messageId: id,
+                role: "assistant",
+                text: "",
+                createdAt: m.createdAt,
+                model: m.model,
+                toolCalls: [...pendingToolCalls],
+                gatewayIndex: rawIdx,
+              })
             }
+            pendingToolCalls = []
           } else if (
             m.role === "tool" ||
             m.role === "tool_result" ||
@@ -839,13 +854,30 @@ export function useChatMessages(
           ]
         }
 
+        let forkPrefix: ChatMessage[] = []
+        try {
+          const forkData = await invoke<{
+            messages: RawMessage[]
+            isFork: boolean
+          }>("middleware_chat_fork_history", { input: { sessionKey } })
+          if (forkData.isFork && forkData.messages.length > 0) {
+            const parsed = parseChatHistory(forkData.messages)
+            forkPrefix = parsed.messages
+            for (const fm of forkPrefix) {
+              seenIds.current.add(fm.messageId)
+            }
+          }
+        } catch {}
+
+        const allMessages = [...forkPrefix, ...filtered]
+
         setMessages((prev) => {
-          if (prev.length === 0) return filtered
-          const histIds = new Set(filtered.map((hm) => hm.messageId))
+          if (prev.length === 0) return allMessages
+          const histIds = new Set(allMessages.map((hm) => hm.messageId))
           const kept = prev.filter(
             (pm) => pm.isOptimistic && !histIds.has(pm.messageId)
           )
-          return [...filtered, ...kept]
+          return [...allMessages, ...kept]
         })
         setLoading(false)
         requestAnimationFrame(() => {
