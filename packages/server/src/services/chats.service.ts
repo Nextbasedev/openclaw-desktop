@@ -96,15 +96,15 @@ export function chatsRename(input: {
 }) {
   if (!input.name.trim()) throw new Error("Name cannot be empty")
   const db = getDb()
+  const trimmed = input.name.trim()
+  const now = nowIso()
   const changes = db
     .prepare(
-      "UPDATE chats SET name = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+      "UPDATE chats SET name = ?, updated_at = ? WHERE id = ?",
     )
-    .run(input.name.trim(), nowIso(), input.chatId)
+    .run(trimmed, now, input.chatId)
   if (changes.changes === 0)
     throw new Error(`Chat not found: ${input.chatId}`)
-  enqueue("chat", input.chatId, "upsert")
-  kickSyncEngine()
   return { chat: fetchChat(input.chatId) }
 }
 

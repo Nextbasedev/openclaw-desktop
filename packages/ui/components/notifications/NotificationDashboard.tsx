@@ -29,6 +29,7 @@ type SelectedJob = {
 }
 
 type NotificationDashboardProps = {
+  activeSessionKey?: string | null
   onBack?: () => void
   defaultTab?: NotificationSection
   onDraftPrompt?: (prompt: string) => void
@@ -41,6 +42,7 @@ type NotificationDashboardProps = {
 }
 
 export function NotificationDashboard({
+  activeSessionKey,
   onBack,
   defaultTab = "cron-jobs",
   onDraftPrompt,
@@ -123,6 +125,7 @@ export function NotificationDashboard({
           <>
             {activeSection === "cron-jobs" && (
               <CronJobsTab
+                activeSessionKey={activeSessionKey}
                 onSelectJob={setSelectedJob}
                 onDraftPrompt={onDraftPrompt}
               />

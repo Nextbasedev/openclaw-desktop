@@ -17,8 +17,8 @@ export function ModelSelector({ open, onOpenChange }: Props) {
     models,
     currentModel: current,
     loading,
+    error,
     reload,
-    ensureLoaded,
   } = useModels()
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
@@ -27,10 +27,10 @@ export function ModelSelector({ open, onOpenChange }: Props) {
   useEffect(() => {
     if (open) {
       setQuery("")
-      ensureLoaded()
+      reload()
       setTimeout(() => searchRef.current?.focus(), 50)
     }
-  }, [ensureLoaded, open])
+  }, [reload, open])
 
   async function handleSelect(modelId: string) {
     setSaving(true)
@@ -99,7 +99,21 @@ export function ModelSelector({ open, onOpenChange }: Props) {
             Loading models...
           </p>
         )}
-        {!loading && filtered.map((model) => {
+        {!loading && error && (
+          <div className="flex flex-col items-center gap-2 px-2.5 py-4">
+            <p className="text-center text-[12px] text-red-400">
+              {error}
+            </p>
+            <button
+              type="button"
+              onClick={reload}
+              className="rounded-md px-3 py-1 text-[11px] text-foreground/70 hover:bg-foreground/5"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!loading && !error && filtered.map((model) => {
           const active = isActiveModel(current, model)
           return (
             <button
@@ -137,7 +151,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
             </button>
           )
         })}
-        {!loading && filtered.length === 0 && (
+        {!loading && !error && filtered.length === 0 && (
           <p className="px-2.5 py-4 text-center text-[12px] text-muted-foreground">
             No models match &ldquo;{query}&rdquo;
           </p>

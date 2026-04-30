@@ -68,6 +68,7 @@ type SelectedJob = {
 }
 
 type CronJobsTabProps = {
+  activeSessionKey?: string | null
   onSelectJob?: (job: SelectedJob | null) => void
   onDraftPrompt?: (prompt: string) => void
 }
@@ -483,7 +484,7 @@ function CronJobEditDialog({
   )
 }
 
-export function CronJobsTab({ onSelectJob, onDraftPrompt }: CronJobsTabProps) {
+export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: CronJobsTabProps) {
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [loading, setLoading] = useState(true)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
@@ -703,7 +704,7 @@ export function CronJobsTab({ onSelectJob, onDraftPrompt }: CronJobsTabProps) {
         scheduleType: draft.scheduleType,
         schedule: draft.schedule.trim(),
         timezone: draft.timezone.trim() || "Asia/Kolkata",
-        session: "isolated",
+        session: activeSessionKey || "isolated",
         message: draft.prompt.trim(),
         model: draft.model.trim() || undefined,
         enabled: true,

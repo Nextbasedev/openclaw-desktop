@@ -127,7 +127,7 @@ function buildChatPayload(entityId: string): {
     | undefined
   if (!row) return null
   if (!row.project_id) return null
-  const gatewayName = row.gateway_label || row.name
+  const gatewayName = row.gateway_label ?? row.name
   const payload: SyncPayload = {
     schema: 1,
     kind: "chat",

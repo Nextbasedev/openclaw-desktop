@@ -292,6 +292,7 @@ export function Sidebar({
               onTopicClear={onTopicClear}
             />
           </div>
+
         </nav>
 
         {!collapsed && (
