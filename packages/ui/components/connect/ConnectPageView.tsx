@@ -48,7 +48,7 @@ type ConnectPageViewProps = {
   url: string
   token: string
   showToken: boolean
-  setupMode: "local" | "remote"
+  setupMode: "choice" | "local" | "remote"
   status: ConnectionStatus | null
   connectResult: ConnectResult | null
   error: string | null
@@ -63,7 +63,7 @@ type ConnectPageViewProps = {
   onUrlChange: (value: string) => void
   onTokenChange: (value: string) => void
   onShowTokenChange: (show: boolean) => void
-  onSetupModeChange: (mode: "local" | "remote") => void
+  onSetupModeChange: (mode: "choice" | "local" | "remote") => void
   onAutoDetectChange: (enabled: boolean) => void
   onTest: () => void
   onSave: () => void
@@ -141,28 +141,14 @@ export function ConnectPageView({
               />
             ) : (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <ModeCard
-                    active={setupMode === "local"}
-                    icon={ComputerIcon}
-                    title="OpenClaw is on this computer"
-                    description="Use this when the OpenClaw app/runtime is installed locally."
-                    onClick={() => onSetupModeChange("local")}
-                  />
-                  <ModeCard
-                    active={setupMode === "remote"}
-                    icon={Globe02Icon}
-                    title="OpenClaw is on a VPS"
-                    description="Use this when OpenClaw runs on a server or cloud machine."
-                    onClick={() => onSetupModeChange("remote")}
-                  />
-                </div>
-
-                {setupMode === "local" ? (
+                {setupMode === "choice" ? (
+                  <ChoiceScreen onSelect={onSetupModeChange} />
+                ) : setupMode === "local" ? (
                   <LocalOpenClawPanel
                     busy={busy}
                     loadingStatus={loadingStatus}
                     detectMessage={detectMessage}
+                    onBack={() => onSetupModeChange("choice")}
                     onDetect={() => onAutoDetectChange(true)}
                   />
                 ) : (
@@ -173,6 +159,7 @@ export function ConnectPageView({
                     busy={busy}
                     saving={saving}
                     missingConfig={missingConfig}
+                    onBack={() => onSetupModeChange("choice")}
                     onUrlChange={onUrlChange}
                     onTokenChange={onTokenChange}
                     onShowTokenChange={onShowTokenChange}
@@ -180,6 +167,7 @@ export function ConnectPageView({
                   />
                 )}
 
+                {setupMode !== "choice" && (
                 <details className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <summary className="cursor-pointer select-none text-sm font-medium text-zinc-300 hover:text-white">
                     Advanced manual setup
@@ -204,6 +192,7 @@ export function ConnectPageView({
                     </div>
                   </div>
                 </details>
+                )}
               </>
             )}
           </div>
@@ -213,6 +202,36 @@ export function ConnectPageView({
           <ConnectionErrorGuide result={connectResult} rawError={error} gatewayUrl={url} />
         )}
       </div>
+    </div>
+  )
+}
+
+function ChoiceScreen({
+  onSelect,
+}: {
+  onSelect: (mode: "local" | "remote") => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ModeCard
+          active={false}
+          icon={ComputerIcon}
+          title="OpenClaw is on this computer"
+          description="Choose this if OpenClaw runs locally on this machine."
+          onClick={() => onSelect("local")}
+        />
+        <ModeCard
+          active={false}
+          icon={Globe02Icon}
+          title="OpenClaw is on a VPS"
+          description="Choose this if OpenClaw runs on a server or cloud machine."
+          onClick={() => onSelect("remote")}
+        />
+      </div>
+      <p className="text-center text-xs text-zinc-500">
+        Pick one. The next screen will guide that setup.
+      </p>
     </div>
   )
 }
@@ -256,17 +275,20 @@ function LocalOpenClawPanel({
   busy,
   loadingStatus,
   detectMessage,
+  onBack,
   onDetect,
 }: {
   busy: boolean
   loadingStatus: boolean
   detectMessage: DetectMessage | null
+  onBack: () => void
   onDetect: () => void
 }) {
   const checking = busy || loadingStatus
   return (
     <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <StepBadge step="1" label="Check local OpenClaw" />
+      <Button type="button" variant="ghost" size="sm" onClick={onBack} className="h-7 w-fit px-2 text-xs text-zinc-400">← Back</Button>
+      <StepBadge step="2" label="Check local OpenClaw" />
       <div>
         <p className="text-sm font-medium text-zinc-100">We’ll look for OpenClaw on this machine.</p>
         <p className="mt-1 text-xs leading-relaxed text-zinc-500">
@@ -292,6 +314,7 @@ function VpsOpenClawPanel(props: {
   busy: boolean
   saving: boolean
   missingConfig: boolean
+  onBack: () => void
   onUrlChange: (value: string) => void
   onTokenChange: (value: string) => void
   onShowTokenChange: (show: boolean) => void
@@ -299,12 +322,13 @@ function VpsOpenClawPanel(props: {
 }) {
   return (
     <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <StepBadge step="1" label="Prepare the VPS" />
+      <Button type="button" variant="ghost" size="sm" onClick={props.onBack} className="h-7 w-fit px-2 text-xs text-zinc-400">← Back</Button>
+      <StepBadge step="2" label="Prepare the VPS" />
       <PromptBox
         title="Ask OpenClaw on your VPS:"
         prompt={VPS_OPENCLAW_PROMPT}
       />
-      <StepBadge step="2" label="Paste the result" />
+      <StepBadge step="3" label="Paste the result" />
       <ManualFields
         url={props.url}
         token={props.token}

@@ -45,7 +45,7 @@ export default function ConnectPage() {
   const [url, setUrl] = useState("")
   const [token, setToken] = useState("")
   const [showToken, setShowToken] = useState(false)
-  const [setupMode, setSetupMode] = useState<"local" | "remote">("local")
+  const [setupMode, setSetupMode] = useState<"choice" | "local" | "remote">("choice")
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
   const [connectResult, setConnectResult] = useState<ConnectResult | null>(null)
   const [error, setError] = useState<string | null>(null)
