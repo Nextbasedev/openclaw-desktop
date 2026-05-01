@@ -157,8 +157,13 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_workspace_write":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/file`, { method: "PUT", body: JSON.stringify(input) })
     case "middleware_pty_spawn": {
-      const projectId = localStorage.getItem("openclaw.activeProjectId")
-      if (!projectId) throw new Error("Select a project before opening terminal")
+      let projectId = localStorage.getItem("openclaw.activeProjectId")
+      if (!projectId) {
+        const projects = await middlewareFetch<{ projects?: Array<{ id: string }> }>("/api/projects").catch(() => ({ projects: [] }))
+        projectId = projects.projects?.[0]?.id ?? null
+        if (projectId) localStorage.setItem("openclaw.activeProjectId", projectId)
+      }
+      if (!projectId) throw new Error("Select or create a project before opening Terminal.")
       const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(`/api/projects/${projectId}/terminal/spawn`, { method: "POST", body: JSON.stringify(input) })
       return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
     }
