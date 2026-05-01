@@ -67,7 +67,7 @@ export default function ConnectPage() {
       setStatus(statusFromConnection(false))
       detectLocalMiddleware().then((detected) => {
         if (!detected) {
-          setDetectMessage({ ok: false, text: "No local Middleware found yet. Choose local setup or connect a server." })
+          setDetectMessage({ ok: false, text: "No local OpenClaw runtime found yet. Start OpenClaw locally, or connect a server." })
           return
         }
         saveMiddlewareConnection(detected)
@@ -76,7 +76,7 @@ export default function ConnectPage() {
         setStatus(statusFromConnection(true, detected.url, detected.token))
         setSessionConnected(true)
         setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
-        setDetectMessage({ ok: true, text: "Local workspace ready." })
+        setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
         emit("sidebar:refresh")
         window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
       })
@@ -188,7 +188,7 @@ export default function ConnectPage() {
         setStatus(statusFromConnection(true, detected.url, detected.token))
         setSessionConnected(true)
         setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
-        setDetectMessage({ ok: true, text: "Local workspace ready." })
+        setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
         emit("sidebar:refresh")
         window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
       }}
