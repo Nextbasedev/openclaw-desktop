@@ -103,6 +103,34 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/projects/${input.projectId}`, { method: "PATCH", body: JSON.stringify(input) })
     case "middleware_projects_delete":
       return middlewareFetch<T>(`/api/projects/${input.projectId}`, { method: "DELETE" })
+    case "middleware_topics_list":
+      return middlewareFetch<T>(`/api/topics?projectId=${encodeURIComponent(String(input.projectId ?? ""))}`)
+    case "middleware_topics_create":
+      return middlewareFetch<T>("/api/topics", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_topics_update":
+      return middlewareFetch<T>(`/api/topics/${input.topicId}`, { method: "PATCH", body: JSON.stringify(input) })
+    case "middleware_topics_delete":
+      return middlewareFetch<T>(`/api/topics/${input.topicId}`, { method: "DELETE" })
+    case "middleware_topics_archive":
+      return middlewareFetch<T>(`/api/topics/${input.topicId}/archive`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_chats_list":
+      return middlewareFetch<T>("/api/chats")
+    case "middleware_chats_create":
+      return middlewareFetch<T>("/api/chats", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_chats_update":
+      return middlewareFetch<T>(`/api/chats/${input.chatId}`, { method: "PATCH", body: JSON.stringify(input) })
+    case "middleware_chats_rename":
+      return middlewareFetch<T>(`/api/chats/${input.chatId}/rename`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_chats_archive":
+      return middlewareFetch<T>(`/api/chats/${input.chatId}/archive`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_chats_delete":
+      return middlewareFetch<T>(`/api/chats/${input.chatId}`, { method: "DELETE" })
+    case "middleware_chats_attach_session":
+      return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_sessions_list":
+      return middlewareFetch<T>("/api/sessions")
+    case "middleware_sessions_create":
+      return middlewareFetch<T>("/api/sessions", { method: "POST", body: JSON.stringify(input) })
     case "middleware_repos_recent":
       return middlewareFetch<T>("/api/repos/recent")
     case "middleware_repos_scan":
