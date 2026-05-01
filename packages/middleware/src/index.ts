@@ -195,11 +195,11 @@ type SessionToolPayload = {
 const PROTOCOL_VERSION = 3
 const DEFAULT_CAPS = ["chat", "sessions"] as const
 const DEFAULT_CLIENT = {
-  id: "openclaw-control-ui",
+  id: "openclaw-tui",
   displayName: "Jarvis Middleware",
   version: "0.0.1",
   platform: "desktop",
-  mode: "webchat",
+  mode: "cli",
 } satisfies GatewayClientIdentity
 const DEFAULT_ORIGIN = "http://127.0.0.1:3000"
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
@@ -484,7 +484,7 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
       params: {
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
-        client: { ...client, mode: "control" },
+        client: { ...client, mode: "backend" },
         auth: { token },
         caps,
         scopes: options.scopes,
@@ -1097,5 +1097,178 @@ export async function openChatEventStream(input: {
       message: error instanceof Error ? error.message : "Unknown stream error",
     })
     throw error
+  }
+}
+
+// ── Gateway Terminal ─────────────────────────────────────
+
+export type TerminalDataEvent = {
+  type: "terminal.data"
+  terminalId: string
+  data: string
+}
+
+export type TerminalExitEvent = {
+  type: "terminal.exit"
+  terminalId: string
+  exitCode: number
+}
+
+export type TerminalStreamEvent = TerminalDataEvent | TerminalExitEvent
+
+export async function createGatewayTerminal(input: {
+  cols?: number
+  rows?: number
+  cwd?: string
+}): Promise<{ terminalId: string; cwd: string }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.read", "operator.write"],
+  })
+  try {
+    const response = await gateway.request<{
+      terminalId?: string
+      cwd?: string
+    }>("terminal.spawn", {
+      cols: input.cols ?? 80,
+      rows: input.rows ?? 24,
+      cwd: input.cwd,
+    })
+    if (!response.ok || !response.payload?.terminalId) {
+      throw new Error(
+        response.error?.message ?? "terminal.spawn failed",
+      )
+    }
+    return {
+      terminalId: response.payload.terminalId,
+      cwd: response.payload.cwd ?? input.cwd ?? "",
+    }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function writeGatewayTerminal(input: {
+  terminalId: string
+  data: string
+}): Promise<{ ok: boolean }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.write"],
+  })
+  try {
+    const response = await gateway.request("terminal.write", {
+      terminalId: input.terminalId,
+      data: input.data,
+    })
+    if (!response.ok) {
+      throw new Error(
+        response.error?.message ?? "terminal.write failed",
+      )
+    }
+    return { ok: true }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function resizeGatewayTerminal(input: {
+  terminalId: string
+  cols: number
+  rows: number
+}): Promise<{ ok: boolean }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.write"],
+  })
+  try {
+    const response = await gateway.request("terminal.resize", {
+      terminalId: input.terminalId,
+      cols: input.cols,
+      rows: input.rows,
+    })
+    if (!response.ok) {
+      throw new Error(
+        response.error?.message ?? "terminal.resize failed",
+      )
+    }
+    return { ok: true }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function killGatewayTerminal(input: {
+  terminalId: string
+}): Promise<{ ok: boolean }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.write"],
+  })
+  try {
+    const response = await gateway.request("terminal.kill", {
+      terminalId: input.terminalId,
+    })
+    if (!response.ok) {
+      throw new Error(
+        response.error?.message ?? "terminal.kill failed",
+      )
+    }
+    return { ok: true }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function openTerminalEventStream(input: {
+  terminalId: string
+  onEvent: (event: TerminalStreamEvent) => void
+}): Promise<{ close: () => void }> {
+  let stopped = false
+  const POLL_MS = 100
+
+  async function poll() {
+    while (!stopped) {
+      try {
+        const gw = await connectToOpenClawGateway({
+          scopes: ["operator.read", "operator.write"],
+        })
+        try {
+          const res = await gw.request<{
+            data?: string
+            exited?: boolean
+            exitCode?: number
+          }>("terminal.read", {
+            terminalId: input.terminalId,
+          })
+          if (!res.ok) break
+          const p = res.payload
+          if (p?.data) {
+            input.onEvent({
+              type: "terminal.data",
+              terminalId: input.terminalId,
+              data: p.data,
+            })
+          }
+          if (p?.exited) {
+            input.onEvent({
+              type: "terminal.exit",
+              terminalId: input.terminalId,
+              exitCode: p.exitCode ?? 0,
+            })
+            break
+          }
+        } finally {
+          gw.close()
+        }
+      } catch {
+        break
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS))
+    }
+  }
+
+  poll()
+
+  return {
+    close() {
+      stopped = true
+    },
   }
 }

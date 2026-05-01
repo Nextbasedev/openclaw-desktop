@@ -1,36 +1,60 @@
 import { EventEmitter } from "node:events"
-import { homedir } from "node:os"
+import { ensureGatewayClient } from "../gateway/client.js"
 import { generateId } from "../db/helpers.js"
-import { MAX_SESSIONS } from "./terminal.service.js"
 
+const MAX_SESSIONS = 20
 const DEFAULT_PTY_COLS = 80
 const DEFAULT_PTY_ROWS = 24
+const POLL_MS = 100
 
 export const ptyEvents = new EventEmitter()
 
 interface PtyHandle {
-  write: (data: string) => void
-  resize: (cols: number, rows: number) => void
-  kill: () => void
+  terminalId: string
+  stopPolling: () => void
   cwd: string
 }
 
 const activePtys = new Map<string, PtyHandle>()
 
-function getShell(): string {
-  if (process.platform === "win32") {
-    return process.env.COMSPEC || "powershell.exe"
-  }
-  return process.env.SHELL || "/bin/sh"
-}
+function startPolling(
+  ptyId: string,
+  terminalId: string,
+) {
+  let stopped = false
 
-async function loadNodePty() {
-  try {
-    return await import("node-pty")
-  } catch {
-    throw new Error(
-      "node-pty is not installed. Run: pnpm add node-pty",
-    )
+  async function poll() {
+    while (!stopped) {
+      try {
+        const gw = await ensureGatewayClient()
+        const res = await gw.request<{
+          data?: string
+          exited?: boolean
+          exitCode?: number
+        }>("terminal.read", { terminalId })
+        if (!res.ok) break
+        const p = res.payload
+        if (p?.data) {
+          ptyEvents.emit(`pty:data:${ptyId}`, {
+            ptyId,
+            data: p.data,
+          })
+        }
+        if (p?.exited) {
+          ptyEvents.emit(`pty:exit:${ptyId}`, { ptyId })
+          activePtys.delete(ptyId)
+          break
+        }
+      } catch {
+        break
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS))
+    }
+  }
+
+  poll()
+  return () => {
+    stopped = true
   }
 }
 
@@ -47,40 +71,34 @@ export async function ptySpawn(input: {
 
   const cols = input.cols ?? DEFAULT_PTY_COLS
   const rows = input.rows ?? DEFAULT_PTY_ROWS
-  const cwd = input.cwd ?? homedir()
-  const shell = getShell()
   const ptyId = generateId("pty")
 
-  const ptyMod = await loadNodePty()
-  const ptyProcess = ptyMod.spawn(shell, [], {
-    name: "xterm-256color",
-    cols,
-    rows,
-    cwd,
-    env: process.env as Record<string, string>,
-  })
+  const gw = await ensureGatewayClient()
+  const res = await gw.request<{
+    terminalId?: string
+    cwd?: string
+  }>("terminal.spawn", { cols, rows, cwd: input.cwd })
 
-  const handle: PtyHandle = {
-    write: (data: string) => ptyProcess.write(data),
-    resize: (c: number, r: number) => ptyProcess.resize(c, r),
-    kill: () => ptyProcess.kill(),
-    cwd,
+  if (!res.ok || !res.payload?.terminalId) {
+    throw new Error(
+      res.error?.message ?? "terminal.spawn failed",
+    )
   }
-  activePtys.set(ptyId, handle)
 
-  ptyProcess.onData((data: string) => {
-    ptyEvents.emit(`pty:data:${ptyId}`, { ptyId, data })
-  })
+  const terminalId = res.payload.terminalId
+  const cwd = res.payload.cwd ?? input.cwd ?? ""
+  const stopPolling = startPolling(ptyId, terminalId)
 
-  ptyProcess.onExit(() => {
-    ptyEvents.emit(`pty:exit:${ptyId}`, { ptyId })
-    activePtys.delete(ptyId)
+  activePtys.set(ptyId, {
+    terminalId,
+    stopPolling,
+    cwd,
   })
 
   return { ptyId, cwd }
 }
 
-export function ptyWrite(input: {
+export async function ptyWrite(input: {
   ptyId: string
   data: string
 }) {
@@ -88,11 +106,20 @@ export function ptyWrite(input: {
   if (!handle) {
     throw new Error(`PTY not found: ${input.ptyId}`)
   }
-  handle.write(input.data)
+  const gw = await ensureGatewayClient()
+  const res = await gw.request("terminal.write", {
+    terminalId: handle.terminalId,
+    data: input.data,
+  })
+  if (!res.ok) {
+    throw new Error(
+      res.error?.message ?? "terminal.write failed",
+    )
+  }
   return { ok: true }
 }
 
-export function ptyResize(input: {
+export async function ptyResize(input: {
   ptyId: string
   cols: number
   rows: number
@@ -101,16 +128,25 @@ export function ptyResize(input: {
   if (!handle) {
     throw new Error(`PTY not found: ${input.ptyId}`)
   }
-  handle.resize(input.cols, input.rows)
+  const gw = await ensureGatewayClient()
+  await gw.request("terminal.resize", {
+    terminalId: handle.terminalId,
+    cols: input.cols,
+    rows: input.rows,
+  })
   return { ok: true }
 }
 
-export function ptyKill(input: { ptyId: string }) {
+export async function ptyKill(input: { ptyId: string }) {
   const handle = activePtys.get(input.ptyId)
   if (!handle) {
     throw new Error(`PTY not found: ${input.ptyId}`)
   }
-  handle.kill()
+  handle.stopPolling()
+  const gw = await ensureGatewayClient()
+  await gw.request("terminal.kill", {
+    terminalId: handle.terminalId,
+  })
   activePtys.delete(input.ptyId)
   return { ok: true, ptyId: input.ptyId }
 }

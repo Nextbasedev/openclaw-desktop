@@ -44,7 +44,7 @@ export function SkillCard({
             <h3 className="truncate text-[15px] font-semibold text-foreground/90 group-hover:text-foreground transition-colors">
               {skill.name}
             </h3>
-            <p className="mt-1.5 min-h-[2.75rem] line-clamp-2 text-[12px] leading-relaxed text-muted-foreground/80 group-hover:text-muted-foreground transition-colors">
+            <p className="mt-1.5 min-h-[2.50rem] line-clamp-2 text-[12px] leading-relaxed text-muted-foreground/80 group-hover:text-muted-foreground transition-colors">
               {skill.description || "No description available."}
             </p>
           </div>

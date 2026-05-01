@@ -12,11 +12,11 @@ const SCOPES = [
 ] as const
 
 const CLIENT_IDENTITY = {
-  id: "openclaw-control-ui",
+  id: "openclaw-tui",
   displayName: "Jarvis Middleware",
   version: "0.0.1",
   platform: "desktop",
-  mode: "webchat",
+  mode: "cli",
 }
 
 const RECONNECT_DELAY_MS = 3_000
