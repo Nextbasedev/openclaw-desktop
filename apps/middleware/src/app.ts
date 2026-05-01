@@ -37,7 +37,31 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       version: "0.1.0",
       host: config.host,
       openclaw: { gatewayUrl: config.openclawGatewayUrl },
+      pairing: { enabled: true },
     })
+  })
+
+
+  function publicUrl(req: express.Request) {
+    const proto = req.header("x-forwarded-proto") || req.protocol || "http"
+    const host = req.header("x-forwarded-host") || req.header("host") || `${config.host}:${config.port}`
+    return `${proto}://${host}`
+  }
+  function isLoopback(req: express.Request) {
+    const ip = req.ip || req.socket.remoteAddress || ""
+    return ip === "::1" || ip === "127.0.0.1" || ip === "::ffff:127.0.0.1" || ip.includes("127.0.0.1")
+  }
+
+  app.get("/pairing/local", (req, res, next) => {
+    if (!isLoopback(req)) return next(new HttpError(403, "Local pairing is only available from this computer", "FORBIDDEN"))
+    res.json({ ok: true, url: publicUrl(req), token: config.token, mode: "local" })
+  })
+
+  app.post("/pairing/claim", (req, res, next) => {
+    const code = String(req.body?.code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
+    const expected = config.pairingCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
+    if (!code || code !== expected) return next(new HttpError(401, "Invalid pairing code", "UNAUTHORIZED"))
+    res.json({ ok: true, url: publicUrl(req), token: config.token, mode: "remote" })
   })
 
   app.use("/api", authMiddleware(config))

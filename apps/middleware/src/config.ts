@@ -10,6 +10,7 @@ export type MiddlewareConfig = {
   openclawGatewayUrl: string
   workspaceRoot: string
   nodeEnv: string
+  pairingCode: string
 }
 
 function defaultDatabasePath() {
@@ -35,5 +36,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MiddlewareConf
     openclawGatewayUrl: env.OPENCLAW_GATEWAY_URL ?? "ws://127.0.0.1:18789",
     workspaceRoot: env.WORKSPACE_ROOT ?? defaultWorkspaceRoot(),
     nodeEnv,
+    pairingCode: env.MIDDLEWARE_PAIRING_CODE || crypto.randomBytes(3).toString("hex").toUpperCase(),
   }
 }

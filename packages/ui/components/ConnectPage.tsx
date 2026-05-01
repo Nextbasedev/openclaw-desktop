@@ -8,6 +8,8 @@ import {
   getMiddlewareConnection,
   saveMiddlewareConnection,
   testMiddlewareConnection,
+  claimMiddlewarePairing,
+  detectLocalMiddleware,
   type MiddlewareHealth,
 } from "@/lib/middleware-client"
 
@@ -52,7 +54,7 @@ export default function ConnectPage() {
   const [disconnecting, setDisconnecting] = useState(false)
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [sessionConnected, setSessionConnected] = useState(false)
-  const [detectMessage, setDetectMessage] = useState<DetectMessage | null>(null)
+  const [detectMessage, setDetectMessage] = useState<DetectMessage | null>({ ok: true, text: "Checking for a local workspace service..." })
 
   useEffect(() => {
     const saved = getMiddlewareConnection()
@@ -63,6 +65,20 @@ export default function ConnectPage() {
       setSessionConnected(true)
     } else {
       setStatus(statusFromConnection(false))
+      detectLocalMiddleware().then((detected) => {
+        if (!detected) {
+          setDetectMessage({ ok: false, text: "No local Middleware found yet. Choose local setup or connect a server." })
+          return
+        }
+        saveMiddlewareConnection(detected)
+        setUrl(detected.url)
+        setToken(detected.token)
+        setStatus(statusFromConnection(true, detected.url, detected.token))
+        setSessionConnected(true)
+        setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
+        setDetectMessage({ ok: true, text: "Local workspace ready." })
+        emit("sidebar:refresh")
+      })
     }
     setLoadingStatus(false)
   }, [])
@@ -72,10 +88,20 @@ export default function ConnectPage() {
       setError("Both Middleware URL and token are required")
       return null
     }
-    const health: MiddlewareHealth = await testMiddlewareConnection({ url: url.trim(), token: token.trim() })
-    if (save) saveMiddlewareConnection({ url: url.trim(), token: token.trim() })
-    setStatus(statusFromConnection(save, url.trim(), token.trim()))
-    setConnectResult({ ok: true, url: url.trim(), message: `${health.service} ${health.version}` })
+    let connection = { url: url.trim(), token: token.trim() }
+    let health: MiddlewareHealth | null = null
+    if (setupMode === "remote" && token.trim() && !token.trim().startsWith("sk-") && token.trim().length <= 32) {
+      const paired = await claimMiddlewarePairing({ url: url.trim(), code: token.trim() })
+      connection = { url: paired.url, token: paired.token }
+      health = await testMiddlewareConnection(connection)
+    } else {
+      health = await testMiddlewareConnection(connection)
+    }
+    if (save) saveMiddlewareConnection(connection)
+    setUrl(connection.url)
+    setToken(connection.token)
+    setStatus(statusFromConnection(save, connection.url, connection.token))
+    setConnectResult({ ok: true, url: connection.url, message: `${health.service} ${health.version}` })
     return health
   }
 
@@ -147,7 +173,22 @@ export default function ConnectPage() {
         setConnectResult(null)
         if (mode === "local" && !url.trim()) setUrl("http://127.0.0.1:8787")
       }}
-      onAutoDetectChange={() => setDetectMessage({ ok: false, text: "Auto-detect is replaced by Middleware URL in new architecture." })}
+      onAutoDetectChange={async () => {
+        setDetectMessage({ ok: true, text: "Checking for a local Middleware..." })
+        const detected = await detectLocalMiddleware()
+        if (!detected) {
+          setDetectMessage({ ok: false, text: setupMode === "local" ? "Local Middleware is not running yet. Start OpenClaw locally, or use the advanced command below." : "Run the installer on your server, then paste the Middleware URL and pairing code." })
+          return
+        }
+        saveMiddlewareConnection(detected)
+        setUrl(detected.url)
+        setToken(detected.token)
+        setStatus(statusFromConnection(true, detected.url, detected.token))
+        setSessionConnected(true)
+        setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
+        setDetectMessage({ ok: true, text: "Local workspace ready." })
+        emit("sidebar:refresh")
+      }}
       onTest={handleTest}
       onSave={handleSave}
       onDisconnect={handleDisconnect}
