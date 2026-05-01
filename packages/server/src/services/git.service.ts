@@ -109,8 +109,13 @@ function isLocalGatewayUrl(gatewayUrl: string | null): boolean {
 function isRemoteEnvironment(env: ProjectEnvironment): boolean {
   const mode = env.profileMode.toLowerCase()
   if (mode === "remote") return true
+  // The UI currently does not expose an explicit local/remote profile mode.
+  // Treat a non-local Gateway URL as remote even when older/default profile rows
+  // still say "local", otherwise users who paste a remote Gateway URL still see
+  // local git state by mistake.
+  if (!isLocalGatewayUrl(env.gatewayUrl)) return true
   if (mode === "local") return false
-  return !isLocalGatewayUrl(env.gatewayUrl)
+  return false
 }
 
 async function connectProjectGateway(env: ProjectEnvironment) {
