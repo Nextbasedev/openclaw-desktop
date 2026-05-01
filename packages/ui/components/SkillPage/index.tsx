@@ -9,8 +9,17 @@ import { useSkillsDiscovery } from "./hooks"
 import { SortDropdown } from "./SortDropdown"
 import { SkillCard } from "./SkillCard"
 import { SkillDetailView } from "./SkillDetailView"
+import {
+  TabButton,
+  EmptyState,
+  GridSkeleton,
+} from "./SkillPageParts"
+
+type TabId = "all" | "installed"
 
 export function SkillPage() {
+  const [activeTab, setActiveTab] = React.useState<TabId>("all")
+
   const {
     skills,
     loading,
@@ -19,15 +28,25 @@ export function SkillPage() {
     query,
     sources,
     nextCursor,
+    installedCount,
     onSortChange,
     onQueryChange,
     loadMore,
     updateSkill,
-  } = useSkillsDiscovery()
+    refetch,
+  } = useSkillsDiscovery(activeTab === "installed")
 
-  const [selectedSlug, setSelectedSlug] = React.useState<string | null>(null)
-  const [installingSlug, setInstallingSlug] = React.useState<string | null>(null)
-  const [actionError, setActionError] = React.useState<string | null>(null)
+  const [selectedSlug, setSelectedSlug] = React.useState<
+    string | null
+  >(null)
+  const [installingSlug, setInstallingSlug] = React.useState<
+    string | null
+  >(null)
+  const [uninstallingSlug, setUninstallingSlug] =
+    React.useState<string | null>(null)
+  const [actionError, setActionError] = React.useState<
+    string | null
+  >(null)
   const togglingRef = React.useRef<Set<string>>(new Set())
 
   const handleInstall = React.useCallback(
@@ -46,13 +65,48 @@ export function SkillPage() {
         })
         updateSkill(slug, { installed: true, enabled: true })
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : "Install failed")
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : "Install failed",
+        )
         setTimeout(() => setActionError(null), 4000)
       } finally {
         setInstallingSlug(null)
       }
     },
     [installingSlug, skills, updateSkill],
+  )
+
+  const handleUninstall = React.useCallback(
+    async (slug: string) => {
+      if (uninstallingSlug) return
+      setUninstallingSlug(slug)
+      setActionError(null)
+      try {
+        await invoke("middleware_skills_uninstall", {
+          input: { slug },
+        })
+        if (activeTab === "installed") {
+          refetch()
+        } else {
+          updateSkill(slug, {
+            installed: false,
+            enabled: false,
+          })
+        }
+      } catch (err) {
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : "Uninstall failed",
+        )
+        setTimeout(() => setActionError(null), 4000)
+      } finally {
+        setUninstallingSlug(null)
+      }
+    },
+    [uninstallingSlug, activeTab, updateSkill, refetch],
   )
 
   const handleToggle = React.useCallback(
@@ -80,163 +134,146 @@ export function SkillPage() {
       <SkillDetailView
         slug={selectedSlug}
         onBack={() => setSelectedSlug(null)}
-        onInstallDone={(slug) => updateSkill(slug, { installed: true, enabled: true })}
+        onInstallDone={(slug) =>
+          updateSkill(slug, { installed: true, enabled: true })
+        }
+        onUninstallDone={() => refetch()}
       />
     )
   }
 
   return (
     <div className="h-full w-full overflow-y-auto">
-    <div className="mx-auto w-full max-w-5xl px-7 py-10">
-      <div className="mb-7 text-center">
-        <h1 className="text-[28px] font-medium tracking-tight text-foreground">
-          Discover Skills
-        </h1>
-        <p className="mt-1 text-[14px] text-muted-foreground">
-          Browse and install skills from ClawHub
-        </p>
-      </div>
-
-      <div className="mb-6 flex items-center gap-2.5">
-        <div className="relative flex-1">
-          <Icons.Search
-            size={14}
-            strokeWidth={1.6}
-            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search skills..."
-            className={cn(
-              "h-9 w-full rounded-lg border border-border/60 bg-card pl-10 pr-3",
-              "text-[13px] text-foreground outline-none transition-colors",
-              "placeholder:text-muted-foreground/80 focus:border-foreground/20",
-            )}
-          />
+      <div className="mx-auto w-full max-w-5xl px-7 py-10">
+        <div className="mb-7 text-center">
+          <h1 className="text-[28px] font-medium tracking-tight text-foreground">
+            Discover Skills
+          </h1>
+          <p className="mt-1 text-[14px] text-muted-foreground">
+            Browse and install skills from ClawHub
+          </p>
         </div>
-        <SortDropdown value={sort} onChange={onSortChange} />
-      </div>
-
-      {actionError && (
-        <div className="mb-4 rounded-lg border border-red-400/20 bg-red-400/5 px-4 py-2.5 text-center text-[13px] text-red-400">
-          {actionError}
-        </div>
-      )}
-
-      {!loading && skills.length > 0 && (
-        <div className="mb-5 flex items-center justify-between text-[13px] text-muted-foreground">
-          <span>
-            {skills.length} skill{skills.length === 1 ? "" : "s"}
-          </span>
-          {sources.length > 0 && (
-            <span>Sources: {sources.join(", ")}</span>
-          )}
-        </div>
-      )}
-
-      {loading ? (
-        <GridSkeleton />
-      ) : error ? (
-        <EmptyState
-          icon={<LuWifiOff size={28} />}
-          title="Could not load skills"
-          description={error}
-        />
-      ) : skills.length === 0 ? (
-        query.trim() ? (
-          <EmptyState
-            icon={<LuSearchX size={28} />}
-            title="No matching skills"
-            description={`No skills match "${query}".`}
-          />
-        ) : (
-          <EmptyState
-            icon={<LuPackageOpen size={28} />}
-            title="No skills found"
-            description="No skills are available right now."
-          />
-        )
-      ) : (
-        <>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {skills.map((skill) => (
-              <SkillCard
-                key={skill.slug}
-                skill={skill}
-                installing={installingSlug === skill.slug}
-                onInstall={handleInstall}
-                onToggle={handleToggle}
-                onClick={setSelectedSlug}
+        <div className="mb-5 flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5">
+            <TabButton
+              active={activeTab === "all"}
+              onClick={() => setActiveTab("all")}
+              label="All"
+            />
+            <TabButton
+              active={activeTab === "installed"}
+              onClick={() => setActiveTab("installed")}
+              label="Installed"
+              count={installedCount}
+            />
+            {activeTab === "all" && (
+              <SortDropdown
+                value={sort}
+                onChange={onSortChange}
               />
-            ))}
+            )}
           </div>
 
-          {nextCursor && (
-            <div className="mt-6 text-center">
-              <button
-                type="button"
-                onClick={loadMore}
+          {activeTab === "all" && (
+            <div className="relative ml-auto w-56">
+              <Icons.Search
+                size={14}
+                strokeWidth={1.6}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                value={query}
+                onChange={(e) => onQueryChange(e.target.value)}
+                placeholder="Search skills..."
                 className={cn(
-                  "rounded-lg border border-border/60 bg-card px-6 py-2",
-                  "text-[13px] text-foreground transition-colors hover:bg-card/80",
+                  "h-9 w-full rounded-lg border border-border/60 bg-card pl-10 pr-3",
+                  "text-[13px] text-foreground outline-none transition-colors",
+                  "placeholder:text-muted-foreground/80 focus:border-foreground/20",
                 )}
-              >
-                Load More
-              </button>
+              />
             </div>
           )}
-        </>
-      )}
-    </div>
-    </div>
-  )
-}
-
-function EmptyState({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode
-  title: string
-  description: string
-}) {
-  return (
-    <div className="rounded-xl border border-border/50 bg-card px-5 py-12 text-center">
-      <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-muted/30 text-muted-foreground/60">
-        {icon}
-      </div>
-      <p className="text-[14px] font-medium text-foreground">{title}</p>
-      <p className="mt-1 text-[13px] text-muted-foreground/70">
-        {description}
-      </p>
-    </div>
-  )
-}
-
-function GridSkeleton() {
-  return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: 9 }).map((_, i) => (
-        <div
-          key={i}
-          className="min-h-[140px] rounded-md border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl"
-        >
-          <div className="flex items-start gap-3.5">
-            <div className="size-10 animate-pulse rounded-lg bg-white/[0.08]" />
-            <div className="flex-1 space-y-2.5">
-              <div className="h-4 w-32 animate-pulse rounded-md bg-white/[0.08]" />
-              <div className="h-3 w-full animate-pulse rounded-md bg-white/[0.06]" />
-              <div className="h-3 w-3/4 animate-pulse rounded-md bg-white/[0.05]" />
-            </div>
-            <div className="size-8 animate-pulse rounded-full bg-white/[0.06]" />
-          </div>
-          <div className="mt-auto flex items-center gap-2 pt-6">
-            <div className="h-5 w-16 animate-pulse rounded-full bg-white/[0.06]" />
-          </div>
         </div>
-      ))}
+        {actionError && (
+          <div className="mb-4 rounded-lg border border-red-400/20 bg-red-400/5 px-4 py-2.5 text-center text-[13px] text-red-400">
+            {actionError}
+          </div>
+        )}
+
+        {!loading && skills.length > 0 && (
+          <div className="mb-5 flex items-center justify-between text-[13px] text-muted-foreground">
+            <span>
+              {skills.length} skill
+              {skills.length === 1 ? "" : "s"}
+            </span>
+            {activeTab === "all" && sources.length > 0 && (
+              <span>Sources: {sources.join(", ")}</span>
+            )}
+          </div>
+        )}
+
+        {loading ? (
+          <GridSkeleton />
+        ) : error ? (
+          <EmptyState
+            icon={<LuWifiOff size={28} />}
+            title="Could not load skills"
+            description={error}
+          />
+        ) : skills.length === 0 ? (
+          activeTab === "installed" ? (
+            <EmptyState
+              icon={<LuPackageOpen size={28} />}
+              title="No installed skills"
+              description="Skills you install will appear here."
+            />
+          ) : query.trim() ? (
+            <EmptyState
+              icon={<LuSearchX size={28} />}
+              title="No matching skills"
+              description={`No skills match "${query}".`}
+            />
+          ) : (
+            <EmptyState
+              icon={<LuPackageOpen size={28} />}
+              title="No skills found"
+              description="No skills are available right now."
+            />
+          )
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {skills.map((skill) => (
+                <SkillCard
+                  key={skill.slug}
+                  skill={skill}
+                  installing={
+                    installingSlug === skill.slug
+                  }
+                  onInstall={handleInstall}
+                  onToggle={handleToggle}
+                  onClick={setSelectedSlug}
+                />
+              ))}
+            </div>
+
+            {activeTab === "all" && nextCursor && (
+              <div className="mt-6 text-center">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  className={cn(
+                    "rounded-lg border border-border/60 bg-card px-6 py-2",
+                    "text-[13px] text-foreground transition-colors hover:bg-card/80",
+                  )}
+                >
+                  Load More
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

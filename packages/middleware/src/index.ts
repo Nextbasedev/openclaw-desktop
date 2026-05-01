@@ -303,6 +303,63 @@ export type OpenClawGatewayClient = {
   socket: WebSocket
 }
 
+function waitForResponse(ws: WebSocket, expectedId: string): Promise<GatewayResponse> {
+  return new Promise<GatewayResponse>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.removeEventListener("message", onMessage)
+      reject(new Error("timeout waiting for connect response"))
+    }, 15_000)
+
+    const onMessage = (event: MessageEvent) => {
+      const parsed = parseSocketMessage(event)
+      if (!isGatewayResponse(parsed) || parsed.id !== expectedId) return
+      clearTimeout(timeout)
+      ws.removeEventListener("message", onMessage)
+      resolve(parsed)
+    }
+
+    ws.addEventListener("message", onMessage)
+  })
+}
+
+function buildClient(ws: WebSocket, gatewayUrl: string, server?: GatewayServerInfo): OpenClawGatewayClient {
+  return {
+    gatewayUrl,
+    server,
+    socket: ws,
+    request<TPayload = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 15_000) {
+      const id = crypto.randomUUID()
+      return new Promise<GatewayResponse<TPayload>>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.removeEventListener("message", onMessage)
+          reject(new Error(`timeout waiting for ${method}`))
+        }, timeoutMs)
+
+        const onMessage = (event: MessageEvent) => {
+          const parsed = parseSocketMessage(event)
+          if (!isGatewayResponse(parsed) || parsed.id !== id) return
+          clearTimeout(timeout)
+          ws.removeEventListener("message", onMessage)
+          resolve(parsed as GatewayResponse<TPayload>)
+        }
+
+        ws.addEventListener("message", onMessage)
+        ws.send(JSON.stringify({ type: "req", id, method, params }))
+      })
+    },
+    addMessageListener(listener) {
+      const onMessage = (event: MessageEvent) => {
+        listener(parseSocketMessage(event))
+      }
+      ws.addEventListener("message", onMessage)
+      return () => ws.removeEventListener("message", onMessage)
+    },
+    close() {
+      ws.close()
+    },
+  }
+}
+
 export async function connectToOpenClawGateway(options: ConnectOptions): Promise<OpenClawGatewayClient> {
   const config = await readGatewayConfig()
   const token = config.gateway?.auth?.token
@@ -373,22 +430,61 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
     },
   }))
 
-  const connectResponse = await new Promise<GatewayResponse>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.removeEventListener("message", onMessage)
-      reject(new Error("timeout waiting for connect response"))
-    }, 15_000)
+  let connectResponse = await waitForResponse(ws, connectId)
 
-    const onMessage = (event: MessageEvent) => {
-      const parsed = parseSocketMessage(event)
-      if (!isGatewayResponse(parsed) || parsed.id !== connectId) return
-      clearTimeout(timeout)
-      ws.removeEventListener("message", onMessage)
-      resolve(parsed)
+  if (
+    !connectResponse.ok &&
+    connectResponse.error?.code === "NOT_PAIRED"
+  ) {
+    ws.close()
+    const retryWs = new NodeWebSocket(gatewayUrl, { headers: { origin } })
+    await waitForOpen(retryWs)
+
+    const retryChallenge = await new Promise<{ nonce: string }>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        retryWs.removeEventListener("message", onMsg)
+        reject(new Error("timeout waiting for connect.challenge (retry)"))
+      }, 10_000)
+      const onMsg = (event: MessageEvent) => {
+        const parsed = parseSocketMessage(event)
+        if (!isConnectChallenge(parsed)) return
+        clearTimeout(timeout)
+        retryWs.removeEventListener("message", onMsg)
+        resolve(parsed.payload)
+      }
+      retryWs.addEventListener("message", onMsg)
+    })
+
+    void retryChallenge
+
+    const retryId = crypto.randomUUID()
+    retryWs.send(JSON.stringify({
+      type: "req",
+      id: retryId,
+      method: "connect",
+      params: {
+        minProtocol: PROTOCOL_VERSION,
+        maxProtocol: PROTOCOL_VERSION,
+        client: { ...client, mode: "control" },
+        auth: { token },
+        caps,
+        scopes: options.scopes,
+      },
+    }))
+
+    connectResponse = await waitForResponse(retryWs, retryId)
+
+    if (!connectResponse.ok) {
+      retryWs.close()
+      throw new Error(connectResponse.error?.message ?? "OpenClaw connect failed")
     }
 
-    ws.addEventListener("message", onMessage)
-  })
+    const retryHello = connectResponse.payload as
+      | { server?: GatewayServerInfo }
+      | undefined
+
+    return buildClient(retryWs, gatewayUrl, retryHello?.server)
+  }
 
   if (!connectResponse.ok) {
     ws.close()
@@ -399,41 +495,7 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
     | { server?: GatewayServerInfo }
     | undefined
 
-  return {
-    gatewayUrl,
-    server: hello?.server,
-    socket: ws,
-    request<TPayload = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 15_000) {
-      const id = crypto.randomUUID()
-      return new Promise<GatewayResponse<TPayload>>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          ws.removeEventListener("message", onMessage)
-          reject(new Error(`timeout waiting for ${method}`))
-        }, timeoutMs)
-
-        const onMessage = (event: MessageEvent) => {
-          const parsed = parseSocketMessage(event)
-          if (!isGatewayResponse(parsed) || parsed.id !== id) return
-          clearTimeout(timeout)
-          ws.removeEventListener("message", onMessage)
-          resolve(parsed as GatewayResponse<TPayload>)
-        }
-
-        ws.addEventListener("message", onMessage)
-        ws.send(JSON.stringify({ type: "req", id, method, params }))
-      })
-    },
-    addMessageListener(listener) {
-      const onMessage = (event: MessageEvent) => {
-        listener(parseSocketMessage(event))
-      }
-      ws.addEventListener("message", onMessage)
-      return () => ws.removeEventListener("message", onMessage)
-    },
-    close() {
-      ws.close()
-    },
-  }
+  return buildClient(ws, gatewayUrl, hello?.server)
 }
 
 export type OpenClawContentBlock = {

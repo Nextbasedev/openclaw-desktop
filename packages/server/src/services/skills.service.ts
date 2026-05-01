@@ -13,8 +13,10 @@ import {
 import {
   getAllLocalSkills,
   isSkillInstalled,
+  getLocalSkillDetail,
   installLocalSkill,
   installCatalogSkill,
+  uninstallSkill,
   openclawUserRoot,
   openclawSkillRootForScope,
   getSkillCatalog,
@@ -22,7 +24,12 @@ import {
   removeSkillFromCatalog,
 } from "./skills-local.js"
 
-export { getSkillCatalog, addSkillToCatalog, removeSkillFromCatalog }
+export {
+  getSkillCatalog,
+  addSkillToCatalog,
+  removeSkillFromCatalog,
+  uninstallSkill,
+}
 
 type DiscoverResult = {
   slug: string
@@ -225,14 +232,19 @@ export async function skillsDiscover(input?: {
 
 export async function skillsDetail(input: { slug: string }) {
   const [detail, pkg] = await Promise.all([
-    fetchDetail(input.slug),
+    fetchDetail(input.slug).catch(() => ({ skill: null })),
     fetchPkgDetail(input.slug).catch(() => null),
   ])
   const installed = isSkillInstalled(input.slug)
+  const local = installed
+    ? getLocalSkillDetail(input.slug)
+    : null
   return {
     ...detail,
     installed,
     enabled: installed ? isSkillEnabled(input.slug) : false,
+    localContent: local?.content ?? null,
+    localVersion: local?.version ?? null,
     package: pkg?.package
       ? {
           channel: pkg.package.channel,

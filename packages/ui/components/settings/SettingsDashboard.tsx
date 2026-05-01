@@ -7,10 +7,10 @@ import { HelpTab } from "./tabs/HelpTab"
 import { KeyboardShortcutsTab } from "./tabs/KeyboardShortcutsTab"
 import { ArchiveTab } from "./tabs/ArchiveTab"
 import { MemoryTab } from "./tabs/MemoryTab"
-// import { UsagePage } from "@/components/UsagePage"
+import { UsageTab } from "./tabs/UsageTab"
 import { cn } from "@/lib/utils"
 
-type SettingSection = "memory" | "archive" | "appearance" | "help" | "shortcuts"
+type SettingSection = "usage" | "memory" | "archive" | "appearance" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -21,7 +21,7 @@ const SECTION_GROUPS: SectionGroup[] = [
   {
     label: "Personal",
     items: [
-      // { id: "usage", label: "Usage", icon: Icons.Automations },
+      { id: "usage", label: "Usage", icon: Icons.Automations },
       { id: "memory", label: "Memory", icon: Icons.Memory },
       { id: "archive", label: "Archive", icon: Icons.File },
     ],
@@ -95,7 +95,7 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
       </nav>
 
       <div ref={scrollRef} className="w-full max-w-xl overflow-y-auto scrollbar-hide my-2 md:my-4 lg:my-6">
-        {/* {activeSection === "usage" && <UsagePage />} */}
+        {activeSection === "usage" && <UsageTab />}
 
         {activeSection === "memory" && <MemoryTab />}
 

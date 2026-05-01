@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events"
+import { homedir } from "node:os"
 import { generateId } from "../db/helpers.js"
 import { MAX_SESSIONS } from "./terminal.service.js"
 
@@ -46,7 +47,7 @@ export async function ptySpawn(input: {
 
   const cols = input.cols ?? DEFAULT_PTY_COLS
   const rows = input.rows ?? DEFAULT_PTY_ROWS
-  const cwd = input.cwd ?? process.cwd()
+  const cwd = input.cwd ?? homedir()
   const shell = getShell()
   const ptyId = generateId("pty")
 

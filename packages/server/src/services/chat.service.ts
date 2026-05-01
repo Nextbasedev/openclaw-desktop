@@ -16,7 +16,12 @@ import {
   type ChatAgentEvent,
   type ChatMessageEvent,
 } from "middleware"
-import { prependSkillContext, clearSessionTracking } from "./skill-runtime.service.js"
+import {
+  prependSkillContext,
+  clearSessionTracking,
+  resolveSkillMention,
+  buildMentionContext,
+} from "./skill-runtime.service.js"
 import { getDb } from "../db/connection.js"
 import { getAppSetting, generateId, nowIso } from "../db/helpers.js"
 
@@ -64,15 +69,37 @@ function loadGatewayKey(localKey: string): string | undefined {
 function wrapGatewayError(error: unknown): never {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
+    if (msg.includes("enoent")) {
+      throw new Error(
+        "Gateway config or identity file not found. Run onboarding first.",
+      )
+    }
+    if (msg.includes("token is missing")) {
+      throw new Error(
+        "Gateway authentication token is missing. Re-run onboarding to configure.",
+      )
+    }
+    if (msg.includes("pairing") || msg.includes("not paired") || msg.includes("not registered")) {
+      throw new Error(
+        "Device not paired with gateway. Re-run onboarding to pair this device.",
+      )
+    }
+    if (msg.includes("econnrefused")) {
+      throw new Error(
+        "Gateway is not running. Start the OpenClaw Gateway and try again.",
+      )
+    }
+    if (msg.includes("timeout") || msg.includes("etimedout")) {
+      throw new Error(
+        "Gateway connection timed out. Check that the gateway is reachable.",
+      )
+    }
     if (
-      msg.includes("enoent") ||
-      msg.includes("token is missing") ||
       msg.includes("websocket") ||
-      msg.includes("timeout") ||
       msg.includes("connect")
     ) {
       throw new Error(
-        "Gateway not connected. Start the OpenClaw Gateway first.",
+        `Gateway connection failed: ${error.message}`,
       )
     }
   }
@@ -272,6 +299,12 @@ export async function chatSend(input: {
   const validatedAttachments = validateAttachments(input.attachments)
   const gwKey = await ensureGatewaySession(input.sessionKey)
 
+  let messageText = input.text
+  const { skill, cleanedText } = resolveSkillMention(messageText)
+  if (skill) {
+    messageText = buildMentionContext(skill, cleanedText)
+  }
+
   const isCommand = input.text.startsWith("/")
   const commandTimestamp = isCommand ? nowIso() : null
 
@@ -285,7 +318,7 @@ export async function chatSend(input: {
   try {
     result = await sendChatMessage({
       sessionKey: gwKey,
-      text: input.text,
+      text: messageText,
       timeoutMs: input.timeoutMs,
       attachments: validatedAttachments,
       replyTo: input.replyTo,

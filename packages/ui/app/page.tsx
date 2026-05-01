@@ -865,7 +865,7 @@ function AppShell({
     } catch (err) {
       console.error("Quick send failed", err)
       if (isGatewayError(err)) {
-        showGatewayError()
+        showGatewayError(err instanceof Error ? err.message : undefined)
         clearConversationState()
         window.history.pushState(null, "", "/connect")
         window.dispatchEvent(new PopStateEvent("popstate"))
@@ -923,7 +923,7 @@ function AppShell({
     } catch (err) {
       console.error("Topic quick send failed", err)
       if (isGatewayError(err)) {
-        showGatewayError()
+        showGatewayError(err instanceof Error ? err.message : undefined)
         window.history.pushState(null, "", "/connect")
         window.dispatchEvent(new PopStateEvent("popstate"))
       } else {

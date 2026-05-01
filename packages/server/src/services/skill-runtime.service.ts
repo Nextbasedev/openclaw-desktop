@@ -197,3 +197,36 @@ export function prependSkillContext(
 
   return `${context}\n\n${text}`
 }
+
+export function resolveSkillMention(text: string): {
+  skill: LoadedSkill | null
+  cleanedText: string
+} {
+  const match = text.match(/^@(\S+)\s*/)
+  if (!match) return { skill: null, cleanedText: text }
+
+  const slug = match[1]
+  const skills = getInstalledSkills()
+  const skill = skills.find((s) => s.slug === slug) ?? null
+  const cleanedText = text.slice(match[0].length).trim()
+  return { skill, cleanedText }
+}
+
+export function buildMentionContext(
+  skill: LoadedSkill,
+  userText: string,
+): string {
+  const block = [
+    "<skill-context>",
+    `You are being invoked as the "${skill.name}" skill.`,
+    "Follow the skill instructions below precisely.",
+    "",
+    `<skill name="${skill.name}">`,
+    skill.content,
+    "</skill>",
+    "</skill-context>",
+    "",
+    userText,
+  ].join("\n")
+  return block
+}

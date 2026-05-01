@@ -60,6 +60,8 @@ export type SkillDetailResponse = {
   } | null
   installed: boolean
   enabled: boolean
+  localContent?: string | null
+  localVersion?: string | null
   package?: {
     channel: string
     isOfficial: boolean
