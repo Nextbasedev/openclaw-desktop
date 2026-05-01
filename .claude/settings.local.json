@@ -82,7 +82,25 @@
       "PowerShell($response = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_usage\" -Method POST -ContentType \"application/json\" -Body '{\"input\":{\"days\":7}}' -UseBasicParsing; $json = $response.Content | ConvertFrom-Json; $json._debug_cost | Select-Object -Property updatedAt,days,totals | ConvertTo-Json -Depth 5)",
       "PowerShell(Start-Sleep 4; $r1 = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_usage\" -Method POST -ContentType \"application/json\" -Body '{\"input\":{\"days\":7}}' -UseBasicParsing; $r1.Content)",
       "PowerShell($r2 = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_usage_daily\" -Method POST -ContentType \"application/json\" -Body '{\"input\":{\"days\":3}}' -UseBasicParsing; $r2.Content)",
-      "PowerShell(Start-Sleep 4; $r7 = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_usage_daily\" -Method POST -ContentType \"application/json\" -Body '{\"input\":{\"days\":7}}' -UseBasicParsing; $r1 = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_usage_daily\" -Method POST -ContentType \"application/json\" -Body '{\"input\":{\"days\":1}}' -UseBasicParsing; \"7d count: $\\(\\($r7.Content | ConvertFrom-Json\\).daily.Count\\)  1d count: $\\(\\($r1.Content | ConvertFrom-Json\\).daily.Count\\)\")"
+      "PowerShell(Start-Sleep 4; $r7 = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_usage_daily\" -Method POST -ContentType \"application/json\" -Body '{\"input\":{\"days\":7}}' -UseBasicParsing; $r1 = Invoke-WebRequest -Uri \"http://127.0.0.1:4000/api/ipc/middleware_usage_daily\" -Method POST -ContentType \"application/json\" -Body '{\"input\":{\"days\":1}}' -UseBasicParsing; \"7d count: $\\(\\($r7.Content | ConvertFrom-Json\\).daily.Count\\)  1d count: $\\(\\($r1.Content | ConvertFrom-Json\\).daily.Count\\)\")",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\pc\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\extensions\\\\\" -Force | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\pc\\\\.openclaw\" -Force 2>$null | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\pc\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\extensions\\\\openshell\" -Force | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\pc\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\extensions\\\\webhooks\" | ForEach-Object { $_.FullName })",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\pc\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\" -Name -File)",
+      "Bash(Select-String -Pattern \"^\\(plugin|extension|gateway|load\\)\")",
+      "PowerShell(head *)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\pc\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\extensions\\\\signal\" | ForEach-Object { $_.Name })",
+      "PowerShell(New-Item *)",
+      "PowerShell(openclaw gateway *)",
+      "PowerShell(Get-Content \"C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Temp\\\\openclaw\\\\openclaw-2026-05-01.log\" -Tail 5 | ForEach-Object { \\($_ | ConvertFrom-Json\\)._meta.date })",
+      "PowerShell(& \"C:\\\\Program Files\\\\nodejs\\\\node.exe\" \"C:\\\\Users\\\\pc\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\index.js\" gateway --port 18789 2>&1 | Select-Object -First 30)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Start-Process -FilePath \"C:\\\\Program Files\\\\nodejs\\\\node.exe\" -ArgumentList \"C:\\\\Users\\\\pc\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\dist\\\\index.js\",\"gateway\",\"--port\",\"18789\" -WindowStyle Hidden)",
+      "PowerShell(Get-Content \"C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Temp\\\\openclaw\\\\openclaw-2026-05-01.log\" -Tail 5 | ForEach-Object { $json = $_ | ConvertFrom-Json; \"$\\($json._meta.date\\) [$\\($json._meta.logLevelName\\)] $\\($json.'0'\\) $\\($json.'1'\\)\" })",
+      "PowerShell(curl.exe -s -X POST \"http://127.0.0.1:4000/api/ipc/middleware_terminal_create\" -H \"Content-Type: application/json\" -d '{\\\\\"input\\\\\":{\\\\\"projectId\\\\\":\\\\\"test\\\\\"}}')",
+      "PowerShell(curl.exe -s -X POST \"http://127.0.0.1:4000/api/ipc/middleware_terminal_list\" -H \"Content-Type: application/json\" -d '{\\\\\"input\\\\\":{\\\\\"projectId\\\\\":\\\\\"default\\\\\"}}')",
+      "PowerShell(curl.exe -s -X POST \"http://127.0.0.1:4000/api/ipc/middleware_terminal_create\" -H \"Content-Type: application/json\" -d '{\\\\\"input\\\\\":{\\\\\"projectId\\\\\":\\\\\"default\\\\\",\\\\\"title\\\\\":\\\\\"Test Terminal\\\\\"}}')"
     ]
   }
 }
