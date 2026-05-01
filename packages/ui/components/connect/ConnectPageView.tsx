@@ -49,6 +49,7 @@ type ConnectPageViewProps = {
   url: string
   token: string
   showToken: boolean
+  setupMode: "local" | "remote"
   status: ConnectionStatus | null
   connectResult: ConnectResult | null
   error: string | null
@@ -63,6 +64,7 @@ type ConnectPageViewProps = {
   onUrlChange: (value: string) => void
   onTokenChange: (value: string) => void
   onShowTokenChange: (show: boolean) => void
+  onSetupModeChange: (mode: "local" | "remote") => void
   onAutoDetectChange: (enabled: boolean) => void
   onTest: () => void
   onSave: () => void
@@ -109,6 +111,7 @@ export function ConnectPageView({
   url,
   token,
   showToken,
+  setupMode,
   status,
   connectResult,
   error,
@@ -123,6 +126,7 @@ export function ConnectPageView({
   onUrlChange,
   onTokenChange,
   onShowTokenChange,
+  onSetupModeChange,
   onAutoDetectChange,
   onTest,
   onSave,
@@ -144,6 +148,7 @@ export function ConnectPageView({
               url={url}
               token={token}
               showToken={showToken}
+              setupMode={setupMode}
               isConnected={isConnected}
               autoDetect={autoDetect}
               detecting={detecting}
@@ -155,6 +160,7 @@ export function ConnectPageView({
               onUrlChange={onUrlChange}
               onTokenChange={onTokenChange}
               onShowTokenChange={onShowTokenChange}
+              onSetupModeChange={onSetupModeChange}
               onAutoDetectChange={onAutoDetectChange}
               onTest={onTest}
               onSave={onSave}
@@ -277,6 +283,7 @@ function RightPanel({
   url,
   token,
   showToken,
+  setupMode,
   isConnected,
   autoDetect,
   detecting,
@@ -288,6 +295,7 @@ function RightPanel({
   onUrlChange,
   onTokenChange,
   onShowTokenChange,
+  onSetupModeChange,
   onAutoDetectChange,
   onTest,
   onSave,
@@ -296,6 +304,7 @@ function RightPanel({
   url: string
   token: string
   showToken: boolean
+  setupMode: "local" | "remote"
   isConnected: boolean
   autoDetect: boolean
   detecting: boolean
@@ -307,6 +316,7 @@ function RightPanel({
   onUrlChange: (value: string) => void
   onTokenChange: (value: string) => void
   onShowTokenChange: (show: boolean) => void
+  onSetupModeChange: (mode: "local" | "remote") => void
   onAutoDetectChange: (enabled: boolean) => void
   onTest: () => void
   onSave: () => void
@@ -323,12 +333,17 @@ function RightPanel({
       </div>
 
       <div className="space-y-4">
-        <AutoDetectToggle
-          enabled={autoDetect}
+        <SetupModeChooser
+          mode={setupMode}
+          disabled={isConnected}
+          onChange={onSetupModeChange}
+        />
+
+        <InstallCommandPanel
+          mode={setupMode}
           detecting={detecting}
           detectMessage={detectMessage}
-          disabled={isConnected}
-          onChange={onAutoDetectChange}
+          onAction={() => onAutoDetectChange(setupMode === "local")}
         />
 
         <div className="space-y-1.5">
@@ -460,6 +475,108 @@ function RightPanel({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function SetupModeChooser({
+  mode,
+  disabled,
+  onChange,
+}: {
+  mode: "local" | "remote"
+  disabled: boolean
+  onChange: (mode: "local" | "remote") => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange("local")}
+        className={cn(
+          "rounded-xl border p-3 text-left transition-colors",
+          mode === "local"
+            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
+            : "border-border/50 bg-white/[0.02] text-zinc-300 hover:bg-white/[0.04]",
+          disabled && "cursor-not-allowed opacity-60",
+        )}
+      >
+        <p className="text-[13px] font-medium">Use this computer</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+          Start local middleware and run git, files, and terminal here.
+        </p>
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange("remote")}
+        className={cn(
+          "rounded-xl border p-3 text-left transition-colors",
+          mode === "remote"
+            ? "border-sky-500/40 bg-sky-500/10 text-sky-100"
+            : "border-border/50 bg-white/[0.02] text-zinc-300 hover:bg-white/[0.04]",
+          disabled && "cursor-not-allowed opacity-60",
+        )}
+      >
+        <p className="text-[13px] font-medium">Connect to VPS</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+          Paste a middleware URL from your remote server.
+        </p>
+      </button>
+    </div>
+  )
+}
+
+function InstallCommandPanel({
+  mode,
+  detecting,
+  detectMessage,
+  onAction,
+}: {
+  mode: "local" | "remote"
+  detecting: boolean
+  detectMessage: DetectMessage | null
+  onAction: () => void
+}) {
+  const command =
+    mode === "local"
+      ? "pnpm dev:local"
+      : "curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/new-arch/apps/middleware/scripts/install.sh | bash"
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border/50 bg-white/[0.02] px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="text-[13px] font-medium text-zinc-200">
+            {mode === "local" ? "Local setup" : "Remote VPS setup"}
+          </p>
+          <p className="text-[11px] text-zinc-500">
+            {mode === "local"
+              ? "Run the local stack, then use http://127.0.0.1:8787 as Middleware URL."
+              : "Run this on the VPS. It prints the Middleware URL and token."}
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onAction}>
+          Help
+        </Button>
+      </div>
+      <code className="block overflow-x-auto rounded-md bg-black/30 px-3 py-2 text-[11px] text-zinc-300">
+        {command}
+      </code>
+
+      {detecting && (
+        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+          <div className="size-3 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
+          Preparing setup guidance...
+        </div>
+      )}
+
+      {!detecting && detectMessage && (
+        <p className={cn("text-[11px]", detectMessage.ok ? "text-emerald-400" : "text-amber-400")}>
+          {detectMessage.text}
+        </p>
+      )}
     </div>
   )
 }
