@@ -21,6 +21,8 @@ export const chatMessageSchema = z.object({
   text: z.string().optional(),
   createdAt: timestampSchema,
   model: z.string().nullable().optional(),
+  usage: z.unknown().nullable().optional(),
+  stopReason: z.string().nullable().optional(),
 })
 
 export const chatHistoryRequestSchema = z.object({ sessionKey: sessionKeySchema })
@@ -105,6 +107,8 @@ export const chatMessageEventSchema = z.object({
   text: z.string(),
   createdAt: z.string().nullable(),
   model: z.string().nullable(),
+  usage: z.unknown().nullable().optional(),
+  stopReason: z.string().nullable().optional(),
 })
 
 export const chatErrorEventSchema = z.object({

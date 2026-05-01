@@ -5,6 +5,15 @@ import path from "node:path"
 
 export type ToolOutputVisibility = "hidden" | "metadata-only" | "full"
 
+export type ChatTokenUsage = {
+  input: number | null
+  output: number | null
+  cacheRead: number | null
+  cacheWrite: number | null
+  total: number | null
+  raw: unknown
+}
+
 export type ChatReadyEvent = {
   type: "chat.ready"
   sessionKey: string
@@ -17,6 +26,8 @@ export type ChatReadyEvent = {
     text: string
     createdAt: string | null
     model: string | null
+    usage?: ChatTokenUsage | null
+    stopReason?: string | null
   }>
 }
 
@@ -52,6 +63,8 @@ export type ChatMessageEvent = {
   text: string
   createdAt: string | null
   model: string | null
+  usage?: ChatTokenUsage | null
+  stopReason?: string | null
 }
 
 export type ChatAgentEvent = {
@@ -124,6 +137,8 @@ type ConnectOptions = {
   caps?: readonly string[]
   client?: GatewayClientIdentity
   origin?: string
+  gatewayUrl?: string
+  token?: string
 }
 
 type GatewayServerInfo = {
@@ -141,6 +156,8 @@ type SessionHistoryPayload = {
     createdAt?: string
     timestamp?: string | number
     model?: string
+    usage?: unknown
+    stopReason?: string
   }>
 }
 
@@ -154,6 +171,8 @@ type SessionMessagePayload = {
     createdAt?: string
     timestamp?: string | number
     model?: string
+    usage?: unknown
+    stopReason?: string
   }
 }
 
@@ -176,11 +195,11 @@ type SessionToolPayload = {
 const PROTOCOL_VERSION = 3
 const DEFAULT_CAPS = ["chat", "sessions"] as const
 const DEFAULT_CLIENT = {
-  id: "openclaw-control-ui",
+  id: "openclaw-tui",
   displayName: "Jarvis Middleware",
   version: "0.0.1",
   platform: "desktop",
-  mode: "webchat",
+  mode: "cli",
 } satisfies GatewayClientIdentity
 const DEFAULT_ORIGIN = "http://127.0.0.1:3000"
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
@@ -362,11 +381,11 @@ function buildClient(ws: WebSocket, gatewayUrl: string, server?: GatewayServerIn
 
 export async function connectToOpenClawGateway(options: ConnectOptions): Promise<OpenClawGatewayClient> {
   const config = await readGatewayConfig()
-  const token = config.gateway?.auth?.token
+  const token = options.token ?? config.gateway?.auth?.token
   const port = config.gateway?.port ?? 18789
-  const gatewayUrl = config.gateway_url ?? `ws://127.0.0.1:${port}`
+  const gatewayUrl = options.gatewayUrl ?? config.gateway_url ?? `ws://127.0.0.1:${port}`
 
-  if (!token) throw new Error("OpenClaw gateway token is missing from local config")
+  if (!token) throw new Error("OpenClaw gateway token is missing")
 
   const identity = await readDeviceIdentity()
   const client = options.client ?? DEFAULT_CLIENT
@@ -465,7 +484,7 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
       params: {
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
-        client: { ...client, mode: "control" },
+        client: { ...client, mode: "backend" },
         auth: { token },
         caps,
         scopes: options.scopes,
@@ -551,6 +570,38 @@ export function extractToolCallBlocks(content: unknown): Array<{
       phase: "start",
     }))
   return calls.length > 0 ? calls : undefined
+}
+
+function usageNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function usageField(source: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = source[key]
+    const normalized = usageNumber(value)
+    if (normalized !== null) return normalized
+  }
+  return null
+}
+
+export function normalizeChatTokenUsage(raw: unknown): ChatTokenUsage | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const usage = raw as Record<string, unknown>
+  const input = usageField(usage, "input", "inputTokens", "input_tokens", "prompt_tokens", "promptTokens")
+  const output = usageField(usage, "output", "outputTokens", "output_tokens", "completion_tokens", "completionTokens")
+  const cacheRead = usageField(usage, "cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens")
+  const cacheWrite = usageField(usage, "cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens")
+  const explicitTotal = usageField(usage, "total", "totalTokens", "total_tokens")
+  const computedTotal = [input, output, cacheRead, cacheWrite].reduce<number>((sum, value) => sum + (value ?? 0), 0)
+  const total = explicitTotal ?? (computedTotal > 0 ? computedTotal : null)
+  if (input === null && output === null && cacheRead === null && cacheWrite === null && total === null) return null
+  return { input, output, cacheRead, cacheWrite, total, raw }
 }
 
 export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibility {
@@ -673,6 +724,8 @@ export async function getChatHistory(sessionKey: string) {
         text: contentBlocksToText(message.content),
         createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : new Date().toISOString()),
         model: message.model ?? null,
+        usage: normalizeChatTokenUsage(message.usage),
+        stopReason: message.stopReason ?? null,
         toolCalls: extractToolCallBlocks(message.content),
       })),
     }
@@ -758,6 +811,8 @@ export async function openChatEventStream(input: {
         text: contentBlocksToText(message.content),
         createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : null),
         model: message.model ?? null,
+        usage: normalizeChatTokenUsage(message.usage),
+        stopReason: message.stopReason ?? null,
       })),
     })
     input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "connected" })
@@ -889,6 +944,8 @@ export async function openChatEventStream(input: {
           text,
           createdAt: payload.message.createdAt ?? (typeof payload.message.timestamp === "string" ? payload.message.timestamp : null),
           model: payload.message.model ?? null,
+          usage: normalizeChatTokenUsage(payload.message.usage),
+          stopReason: payload.message.stopReason ?? null,
         })
         input.onEvent({
           type: "chat.status",
@@ -923,6 +980,8 @@ export async function openChatEventStream(input: {
               text,
               createdAt: null,
               model: (msgContent?.model as string) ?? null,
+              usage: state === "final" ? normalizeChatTokenUsage(payload.usage) : null,
+              stopReason: state === "final" ? ((payload.stopReason as string | undefined) ?? null) : null,
             })
           }
           if (state === "final") {
@@ -1047,3 +1106,175 @@ export {
   writeSessionWorkspaceFile,
 } from "./workspace.js"
 export type { GatewayWorkspaceEntry } from "./workspace.js"
+// ── Gateway Terminal ─────────────────────────────────────
+
+export type TerminalDataEvent = {
+  type: "terminal.data"
+  terminalId: string
+  data: string
+}
+
+export type TerminalExitEvent = {
+  type: "terminal.exit"
+  terminalId: string
+  exitCode: number
+}
+
+export type TerminalStreamEvent = TerminalDataEvent | TerminalExitEvent
+
+export async function createGatewayTerminal(input: {
+  cols?: number
+  rows?: number
+  cwd?: string
+}): Promise<{ terminalId: string; cwd: string }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.read", "operator.write"],
+  })
+  try {
+    const response = await gateway.request<{
+      terminalId?: string
+      cwd?: string
+    }>("terminal.spawn", {
+      cols: input.cols ?? 80,
+      rows: input.rows ?? 24,
+      cwd: input.cwd,
+    })
+    if (!response.ok || !response.payload?.terminalId) {
+      throw new Error(
+        response.error?.message ?? "terminal.spawn failed",
+      )
+    }
+    return {
+      terminalId: response.payload.terminalId,
+      cwd: response.payload.cwd ?? input.cwd ?? "",
+    }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function writeGatewayTerminal(input: {
+  terminalId: string
+  data: string
+}): Promise<{ ok: boolean }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.write"],
+  })
+  try {
+    const response = await gateway.request("terminal.write", {
+      terminalId: input.terminalId,
+      data: input.data,
+    })
+    if (!response.ok) {
+      throw new Error(
+        response.error?.message ?? "terminal.write failed",
+      )
+    }
+    return { ok: true }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function resizeGatewayTerminal(input: {
+  terminalId: string
+  cols: number
+  rows: number
+}): Promise<{ ok: boolean }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.write"],
+  })
+  try {
+    const response = await gateway.request("terminal.resize", {
+      terminalId: input.terminalId,
+      cols: input.cols,
+      rows: input.rows,
+    })
+    if (!response.ok) {
+      throw new Error(
+        response.error?.message ?? "terminal.resize failed",
+      )
+    }
+    return { ok: true }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function killGatewayTerminal(input: {
+  terminalId: string
+}): Promise<{ ok: boolean }> {
+  const gateway = await connectToOpenClawGateway({
+    scopes: ["operator.write"],
+  })
+  try {
+    const response = await gateway.request("terminal.kill", {
+      terminalId: input.terminalId,
+    })
+    if (!response.ok) {
+      throw new Error(
+        response.error?.message ?? "terminal.kill failed",
+      )
+    }
+    return { ok: true }
+  } finally {
+    gateway.close()
+  }
+}
+
+export async function openTerminalEventStream(input: {
+  terminalId: string
+  onEvent: (event: TerminalStreamEvent) => void
+}): Promise<{ close: () => void }> {
+  let stopped = false
+  const POLL_MS = 100
+
+  async function poll() {
+    while (!stopped) {
+      try {
+        const gw = await connectToOpenClawGateway({
+          scopes: ["operator.read", "operator.write"],
+        })
+        try {
+          const res = await gw.request<{
+            data?: string
+            exited?: boolean
+            exitCode?: number
+          }>("terminal.read", {
+            terminalId: input.terminalId,
+          })
+          if (!res.ok) break
+          const p = res.payload
+          if (p?.data) {
+            input.onEvent({
+              type: "terminal.data",
+              terminalId: input.terminalId,
+              data: p.data,
+            })
+          }
+          if (p?.exited) {
+            input.onEvent({
+              type: "terminal.exit",
+              terminalId: input.terminalId,
+              exitCode: p.exitCode ?? 0,
+            })
+            break
+          }
+        } finally {
+          gw.close()
+        }
+      } catch {
+        break
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS))
+    }
+  }
+
+  poll()
+
+  return {
+    close() {
+      stopped = true
+    },
+  }
+}

@@ -62,6 +62,73 @@ function formatTime(dateStr?: string): string | null {
   }
 }
 
+function formatTokenCount(value?: number | null): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`
+  return String(value)
+}
+
+function ResponseMetadata({ message }: { message: ChatMessage }) {
+  const usage = message.usage
+  const total = formatTokenCount(usage?.total)
+  const hasDetails = Boolean(message.model || total || message.stopReason)
+  if (!hasDetails) return null
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-foreground/5 hover:text-muted-foreground"
+          aria-label="Response metadata"
+        >
+          {[message.model, total ? `${total} tokens` : null].filter(Boolean).join(" • ")}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={4}
+        className={cn("w-64 p-3 text-[11px]", GLASS_POPOVER)}
+      >
+        <div className="space-y-2">
+          {message.model && (
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground/60">Model</span>
+              <span className="truncate font-mono text-foreground/80">{message.model}</span>
+            </div>
+          )}
+          {usage && (
+            <div className="space-y-1 border-t border-border/20 pt-2">
+              {([
+                ["Input", usage.input],
+                ["Output", usage.output],
+                ["Cache read", usage.cacheRead],
+                ["Cache write", usage.cacheWrite],
+                ["Total", usage.total],
+              ] satisfies Array<[string, number | null | undefined]>).map(([label, value]) => (
+                typeof value === "number" && value > 0 ? (
+                  <div key={label} className="flex justify-between gap-3">
+                    <span className="text-muted-foreground/60">{label}</span>
+                    <span className="font-mono text-foreground/80">{value.toLocaleString()}</span>
+                  </div>
+                ) : null
+              ))}
+            </div>
+          )}
+          {message.stopReason && (
+            <div className="flex justify-between gap-3 border-t border-border/20 pt-2">
+              <span className="text-muted-foreground/60">Stop</span>
+              <span className="font-mono text-foreground/80">{message.stopReason}</span>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function BranchNav({
   branches,
   activeBranch,
@@ -340,6 +407,7 @@ export function MessageBubble({
                   {formatTime(message.createdAt)}
                 </span>
               )}
+              <ResponseMetadata message={message} />
               <div className="flex items-center gap-0.5">
                 {onReact && (
                   <div className="flex items-center gap-0.5">
