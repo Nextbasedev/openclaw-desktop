@@ -90,6 +90,22 @@ export type SpawnedSubagent = {
   toolCallId: string
 }
 
+export type EditPreviewState = {
+  branchSessionKey: string
+  sourceUserMessageId: string
+  sourceAssistantMessageId?: string | null
+  original: {
+    user: ChatMessage
+    assistant?: ChatMessage | null
+  }
+  edited: {
+    user: ChatMessage
+    assistant?: ChatMessage | null
+  }
+  status: "streaming" | "ready" | "error"
+  error?: string | null
+}
+
 export type StreamStatus =
   | "idle"
   | "connected"

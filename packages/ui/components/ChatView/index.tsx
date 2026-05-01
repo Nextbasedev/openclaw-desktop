@@ -26,7 +26,7 @@ import { invoke } from "@/lib/ipc"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
-import type { ReplyTo, SpawnedSubagent } from "./types"
+import type { ChatMessage, EditPreviewState, ReplyTo, SpawnedSubagent } from "./types"
 
 type Props = {
   sessionKey: string
@@ -56,6 +56,99 @@ function cleanSubagentReply(text: string) {
     .trim()
 }
 
+function PreviewResponseCard({
+  title,
+  user,
+  assistant,
+  loading,
+  onSelect,
+  disabled,
+}: {
+  title: string
+  user: ChatMessage
+  assistant?: ChatMessage | null
+  loading?: boolean
+  onSelect: () => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex min-h-[260px] flex-1 flex-col rounded-2xl border border-border/30 bg-foreground/[0.025] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <button
+          type="button"
+          disabled={disabled || loading || !assistant?.text}
+          onClick={onSelect}
+          className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Use this
+        </button>
+      </div>
+      <div className="mb-3 rounded-xl bg-[#252529] px-3 py-2 text-sm text-white">
+        <p className="whitespace-pre-wrap line-clamp-5">{user.text}</p>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border/20 bg-background/40 p-3 text-sm leading-relaxed text-foreground/90">
+        {assistant?.text ? (
+          <p className="whitespace-pre-wrap">{assistant.text}</p>
+        ) : loading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <TypingDots />
+            <span>Generating edited response…</span>
+          </div>
+        ) : (
+          <span className="text-muted-foreground">No response yet</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function EditPreviewPanel({
+  preview,
+  onSelect,
+}: {
+  preview: EditPreviewState
+  onSelect: (selected: "original" | "edited") => void
+}) {
+  const loadingEdited = preview.status === "streaming" && !preview.edited.assistant?.text
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      className="mt-6 rounded-3xl border border-primary/20 bg-primary/[0.03] p-4 shadow-lg shadow-black/10"
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Choose the response to keep</h2>
+          <p className="text-xs text-muted-foreground">Future context continues only from the version you select.</p>
+        </div>
+        {preview.status === "error" && (
+          <span className="rounded-full bg-red-500/10 px-2 py-1 text-xs text-red-400">
+            {preview.error ?? "Preview failed"}
+          </span>
+        )}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <PreviewResponseCard
+          title="Original"
+          user={preview.original.user}
+          assistant={preview.original.assistant}
+          onSelect={() => onSelect("original")}
+        />
+        <PreviewResponseCard
+          title="Edited"
+          user={preview.edited.user}
+          assistant={preview.edited.assistant}
+          loading={loadingEdited}
+          disabled={preview.status === "error"}
+          onSelect={() => onSelect("edited")}
+        />
+      </div>
+    </motion.div>
+  )
+}
+
 export function ChatView({
   sessionKey,
   sessionTitle,
@@ -71,7 +164,7 @@ export function ChatView({
   const {
     messages, status, statusLabel, loading, loadError, errorMessage,
     isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
-    handleSend, handleAbort, handleEdit, handleRegenerate, switchBranch,
+    handleSend, handleAbort, handleEdit, handleRegenerate, editPreview, selectEditBranch, switchBranch,
     markTextAnimationComplete, pendingTools, spawnedSubagents,
   } = useChatMessages(sessionKey, initialMessages)
 
@@ -401,6 +494,7 @@ export function ChatView({
         message_id: string
         rating: string
         tag_choices?: string[]
+        tags?: string[]
         free_text?: string
       } = {
         conversation_id: sessionKey,
@@ -621,6 +715,13 @@ export function ChatView({
     assistantMessages.slice(-2).map((m) => m.messageId),
   )
   const lastAssistantId = assistantMessages.at(-1)?.messageId
+  const lastEditableUserId = useMemo(() => {
+    for (let i = renderedMessages.length - 1; i >= 0; i--) {
+      if (renderedMessages[i].role === "user") return renderedMessages[i].messageId
+      if (renderedMessages[i].role === "assistant") continue
+    }
+    return null
+  }, [renderedMessages])
 
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
     tools.filter((t) => t.tool !== "sessions_spawn" && t.tool !== "subagents" && t.tool !== "sessions_yield")
@@ -762,7 +863,7 @@ export function ChatView({
                   {(msg.role === "user" || msg.text) && (
                     <MessageBubble
                       message={msg}
-                      onEdit={handleEdit}
+                      onEdit={msg.role === "user" && msg.messageId === lastEditableUserId ? handleEdit : undefined}
                       onSwitchBranch={switchBranch}
                       onReply={replyToMessage}
                       onPin={togglePin}
@@ -801,6 +902,16 @@ export function ChatView({
               )
             })}
           </div>
+
+          <AnimatePresence initial={false}>
+            {editPreview && (
+              <EditPreviewPanel
+                key={editPreview.branchSessionKey}
+                preview={editPreview}
+                onSelect={selectEditBranch}
+              />
+            )}
+          </AnimatePresence>
 
           {statusText && (
             <div className="mt-4 flex items-center gap-2 pl-1">
