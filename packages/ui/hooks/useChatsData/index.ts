@@ -53,6 +53,15 @@ export function useChatsData(
 
   const loadChats = useCallback(async () => {
     try {
+      const active =
+        localStorage.getItem("jarvis.gatewayActive") === "true"
+      if (!active) {
+        setChats([])
+        setPinnedChats(new Set())
+        return
+      }
+    } catch {}
+    try {
       const result = await invoke<{ chats: Chat[] }>(
         "middleware_chats_list",
         { input: {} },

@@ -61,7 +61,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   return NextResponse.json(
     {
-      error: `IPC upstream unavailable: ${command}. Browser clients should call /api/ipc/${command} on the Jarvis UI origin, not http://127.0.0.1:3001 directly. Start the middleware server on port 3001 or set JARVIS_SERVER_URL/NEXT_PUBLIC_SERVER_URL to the backend origin.`,
+      error: `IPC upstream unavailable: ${command}. The Jarvis UI proxy could not reach the backend at ${SERVER_URL}. Start the local backend or set JARVIS_SERVER_URL/NEXT_PUBLIC_SERVER_URL to the backend origin.`,
       backendUrl: SERVER_URL,
     },
     { status: 502 },
