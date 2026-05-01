@@ -19,7 +19,8 @@
     "sandbox:routes": "node scripts/sandbox/verify-routes.mjs",
     "sandbox:audit": "node scripts/sandbox/audit-ui.mjs",
     "sandbox:cleanup": "node scripts/sandbox/cleanup-audit-data.mjs",
-    "sandbox:check": "./scripts/sandbox/check-build.sh"
+    "sandbox:check": "./scripts/sandbox/check-build.sh",
+    "cleanup:cargo": "node scripts/clean-cargo-cache.cjs"
   },
   "engines": {
     "node": ">=22",

@@ -2,6 +2,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { cleanCargoTarget } = require("./clean-cargo-cache.cjs");
 
 const cargoBin = path.join(os.homedir(), ".cargo", "bin");
 const pathKey = Object.keys(process.env).find(
@@ -25,7 +26,11 @@ const tauriEntrypoint = require.resolve("@tauri-apps/cli/tauri.js", {
   paths: [process.cwd()],
 });
 
-const child = spawn(process.execPath, [tauriEntrypoint, ...process.argv.slice(2)], {
+const tauriArgs = process.argv.slice(2);
+const shouldCleanupAfterBuild =
+  tauriArgs[0] === "build" && process.env.JARVIS_DISABLE_CARGO_CLEANUP !== "1";
+
+const child = spawn(process.execPath, [tauriEntrypoint, ...tauriArgs], {
   stdio: "inherit",
   env,
 });
@@ -34,6 +39,14 @@ child.on("exit", (code, signal) => {
   if (signal) {
     process.kill(process.pid, signal);
     return;
+  }
+
+  if ((code ?? 1) === 0 && shouldCleanupAfterBuild) {
+    try {
+      cleanCargoTarget();
+    } catch (error) {
+      console.error(`[cargo-cleanup] ${error.message}`);
+    }
   }
 
   process.exit(code ?? 1);

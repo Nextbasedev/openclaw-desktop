@@ -195,3 +195,10 @@ UI (FileTree click) → Service (build request) → Runtime (IPC invoke)
 Gateway WS event → Runtime (route by session) → Service (parse tree)
   → Store (update sub-agent atoms) → UI (tree view re-render)
 ```
+
+## Build Maintenance
+
+- `scripts/run-tauri.cjs` is the single wrapper for Tauri CLI execution.
+- After a successful `tauri build`, the wrapper checks `packages/desktop/src-tauri/target` and runs `cargo clean` only when it exceeds `JARVIS_CARGO_CLEAN_THRESHOLD_MB` (default: 4096 MB).
+- Set `JARVIS_DISABLE_CARGO_CLEANUP=1` to keep Cargo artifacts after builds.
+- Manual cleanup is available with `pnpm cleanup:cargo`.
