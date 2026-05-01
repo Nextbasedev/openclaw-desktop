@@ -153,7 +153,7 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/file`, { method: "PUT", body: JSON.stringify(input) })
     case "middleware_pty_spawn": {
       const projectId = localStorage.getItem("openclaw.activeProjectId")
-      if (!projectId) return null
+      if (!projectId) throw new Error("Select a project before opening terminal")
       const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(`/api/projects/${projectId}/terminal/spawn`, { method: "POST", body: JSON.stringify(input) })
       return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
     }
@@ -164,12 +164,12 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_pty_kill":
       return middlewareFetch<T>(`/api/terminal/${input.ptyId}/kill`, { method: "POST", body: JSON.stringify(input) })
     default:
-      return null
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
   }
 }
 
-// middleware_* commands use the new external Middleware service when configured,
-// falling back to the legacy local Node server during migration.
+// middleware_* commands are served by the external Middleware service in new-arch.
+// There is intentionally no local Node backend fallback for middleware commands.
 export async function invoke<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -177,7 +177,7 @@ export async function invoke<T>(
   if (command.startsWith("middleware_")) {
     const remote = await invokeRemoteMiddleware<T>(command, args)
     if (remote !== null) return remote
-    return invokeHttp<T>(command, args)
+    throw new Error("Middleware connection is not configured")
   }
 
   if (isTauriRuntime()) {
