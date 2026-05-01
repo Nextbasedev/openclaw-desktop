@@ -102,6 +102,8 @@ export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promi
       const health = await fetch(`${url}/health`, { signal: controller.signal, headers: { "Cache-Control": "no-cache" } })
       clearTimeout(timeout)
       if (!health.ok) continue
+      const healthBody = await health.json().catch(() => null) as MiddlewareHealth | null
+      if (!healthBody?.openclaw?.connected) continue
       const pair = await fetch(`${url}/pairing/local`, { signal: controller.signal })
       if (!pair.ok) continue
       const body = await pair.json()

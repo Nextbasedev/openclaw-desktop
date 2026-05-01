@@ -1,5 +1,6 @@
 import express from "express"
 import cors from "cors"
+import net from "node:net"
 import type { MiddlewareConfig } from "./config.js"
 import { authMiddleware } from "./auth.js"
 import { HttpError } from "./lib/http-error.js"
@@ -11,6 +12,22 @@ import { terminalRoutes } from "./services/terminal.js"
 import { recordRoutes } from "./services/records.js"
 import { commandRoutes } from "./services/commands.js"
 import { connectGateway } from "./services/gateway.js"
+
+async function isOpenClawGatewayReachable(gatewayUrl: string) {
+  try {
+    const parsed = new URL(gatewayUrl)
+    const host = parsed.hostname || "127.0.0.1"
+    const port = Number(parsed.port || (parsed.protocol === "wss:" ? 443 : 80))
+    return await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host, port })
+      const timer = setTimeout(() => { socket.destroy(); resolve(false) }, 500)
+      socket.once("connect", () => { clearTimeout(timer); socket.destroy(); resolve(true) })
+      socket.once("error", () => { clearTimeout(timer); resolve(false) })
+    })
+  } catch {
+    return false
+  }
+}
 
 export function createStore(config: MiddlewareConfig) {
   return new Store(config)
@@ -30,13 +47,14 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.use(cors({ origin: true, credentials: false }))
   app.use(express.json({ limit: "150mb" }))
 
-  app.get("/health", (_req, res) => {
+  app.get("/health", async (_req, res) => {
+    const gatewayConnected = await isOpenClawGatewayReachable(config.openclawGatewayUrl)
     res.json({
       ok: true,
       service: "openclaw-middleware",
       version: "0.1.0",
       host: config.host,
-      openclaw: { gatewayUrl: config.openclawGatewayUrl },
+      openclaw: { gatewayUrl: config.openclawGatewayUrl, connected: gatewayConnected },
       pairing: { enabled: true },
     })
   })
@@ -52,16 +70,20 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
     return ip === "::1" || ip === "127.0.0.1" || ip === "::ffff:127.0.0.1" || ip.includes("127.0.0.1")
   }
 
-  app.get("/pairing/local", (req, res, next) => {
+  app.get("/pairing/local", async (req, res, next) => {
     if (!isLoopback(req)) return next(new HttpError(403, "Local pairing is only available from this computer", "FORBIDDEN"))
-    res.json({ ok: true, url: publicUrl(req), token: config.token, mode: "local" })
+    const gatewayConnected = await isOpenClawGatewayReachable(config.openclawGatewayUrl)
+    if (!gatewayConnected) return next(new HttpError(503, "OpenClaw Gateway is not running locally", "OPENCLAW_GATEWAY_UNAVAILABLE"))
+    res.json({ ok: true, url: publicUrl(req), token: config.token, mode: "local", openclaw: { connected: true } })
   })
 
-  app.post("/pairing/claim", (req, res, next) => {
+  app.post("/pairing/claim", async (req, res, next) => {
     const code = String(req.body?.code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
     const expected = config.pairingCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
     if (!code || code !== expected) return next(new HttpError(401, "Invalid pairing code", "UNAUTHORIZED"))
-    res.json({ ok: true, url: publicUrl(req), token: config.token, mode: "remote" })
+    const gatewayConnected = await isOpenClawGatewayReachable(config.openclawGatewayUrl)
+    if (!gatewayConnected) return next(new HttpError(503, "OpenClaw Gateway is not running on this server", "OPENCLAW_GATEWAY_UNAVAILABLE"))
+    res.json({ ok: true, url: publicUrl(req), token: config.token, mode: "remote", openclaw: { connected: true } })
   })
 
   app.use("/api", authMiddleware(config))
