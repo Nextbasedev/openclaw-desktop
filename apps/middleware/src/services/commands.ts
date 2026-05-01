@@ -1,0 +1,285 @@
+import crypto from "node:crypto"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { execFileSync } from "node:child_process"
+import type { Store } from "./store.js"
+import { HttpError } from "../lib/http-error.js"
+import { connectGateway } from "./gateway.js"
+
+function now() { return new Date().toISOString() }
+function state(store: Store): any {
+  const s = (store as any).read()
+  s.commandState ??= {}
+  s.commandState.pins ??= {}
+  s.commandState.feedback ??= []
+  s.commandState.cronJobs ??= []
+  s.commandState.cronRuns ??= []
+  s.commandState.branches ??= []
+  return s
+}
+function save(store: Store, s: any) { (store as any).write(s) }
+function ok(extra: Record<string, unknown> = {}) { return { ok: true, ...extra } }
+function openclawConfigPath() { return path.join(os.homedir(), ".openclaw", "openclaw.json") }
+function workspaceRoot() { return process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace") }
+function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(file, "utf8")) } catch { return {} } }
+function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
+function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
+
+function memoryDir() {
+  const dir = path.join(workspaceRoot(), "memory")
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+function safeMemoryPath(inputPath: string) {
+  const root = workspaceRoot()
+  const requested = inputPath?.trim() || "memory/notes.md"
+  const full = path.resolve(root, requested)
+  if (full !== root && !full.startsWith(root + path.sep)) throw new HttpError(403, "Memory path escapes workspace", "PATH_FORBIDDEN")
+  fs.mkdirSync(path.dirname(full), { recursive: true })
+  return full
+}
+
+function skillRoots() {
+  return [
+    path.join(os.homedir(), ".openclaw", "skills"),
+    path.join(workspaceRoot(), "skills"),
+    "/usr/lib/node_modules/openclaw/skills",
+  ]
+}
+
+function userSkillRoot() {
+  const root = path.join(os.homedir(), ".openclaw", "skills")
+  fs.mkdirSync(root, { recursive: true })
+  return root
+}
+
+function scanSkills() {
+  const roots = skillRoots()
+  const skills: any[] = []
+  for (const root of roots) {
+    let entries: fs.Dirent[] = []
+    try { entries = fs.readdirSync(root, { withFileTypes: true }) } catch { continue }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const skillPath = path.join(root, entry.name)
+      const skillMd = path.join(skillPath, "SKILL.md")
+      if (!fs.existsSync(skillMd)) continue
+      const content = fs.readFileSync(skillMd, "utf8")
+      const description = content.match(/description:\s*(.+)/)?.[1]?.trim() || content.split("\n").find(l => l.trim() && !l.startsWith("---")) || ""
+      skills.push({ slug: entry.name, id: entry.name, name: entry.name, description, source: root.includes("node_modules") ? "builtin" : "local", version: null, path: skillPath, installed: true, enabled: true, updatedAt: fs.statSync(skillMd).mtimeMs, createdAt: fs.statSync(skillMd).ctimeMs })
+    }
+  }
+  return skills
+}
+
+function gitCommitDetails(repoRoot: string, commit: string) {
+  const cwd = repoRoot || workspaceRoot()
+  const sha = commit || "HEAD"
+  const show = execFileSync("git", ["show", "--stat", "--format=fuller", sha], { cwd, encoding: "utf8", timeout: 10_000 })
+  return { commit: { sha, text: show } }
+}
+
+export function commandRoutes(store: Store) {
+  return {
+    async handle(command: string, input: any = {}) {
+      const s = state(store)
+      switch (command) {
+        case "middleware_connect_status": {
+          const cfg = readJson(openclawConfigPath())
+          return {
+            gatewayConfigured: Boolean(cfg.gateway_url || cfg.gateway?.port),
+            gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`,
+            gatewayToken: cfg.gateway?.auth?.token ? "configured" : null,
+            hasConnection: true,
+            hasIdentity: fs.existsSync(path.join(os.homedir(), ".openclaw", "state", "identity")),
+            status: "connected",
+          }
+        }
+        case "middleware_connect_bootstrap":
+        case "middleware_sync_pull_now": return ok()
+        case "middleware_version_info": return { version: "0.1.0", desktop: "new-arch", middleware: "0.1.0", node: process.version }
+        case "middleware_profiles_list": return { profiles: [{ id: "external_middleware", name: "External Middleware", mode: "remote", gatewayUrl: "external", workspaceRoot: workspaceRoot(), isDefault: true, status: "connected" }] }
+
+        case "middleware_fs_read_dir": {
+          const dirPath = String(input.path || workspaceRoot())
+          const entries = fs.readdirSync(dirPath, { withFileTypes: true }).map(e => ({ name: e.name, isDir: e.isDirectory(), type: e.isDirectory() ? "directory" : "file" }))
+          return { entries }
+        }
+
+        case "middleware_models_list": {
+          const cfg = readJson(openclawConfigPath())
+          const models = cfg.agents?.defaults?.models || cfg.agents?.defaults?.model?.models || []
+          const defaultModel = cfg.agents?.defaults?.model?.primary || cfg.agents?.defaults?.model || null
+          return { models: Array.isArray(models) ? models : [], defaultModel }
+        }
+        case "middleware_models_set_default": {
+          const cfg = readJson(openclawConfigPath())
+          cfg.agents ??= {}; cfg.agents.defaults ??= {}; cfg.agents.defaults.model ??= {}
+          if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model }
+          cfg.agents.defaults.model.primary = input.modelId
+          writeJson(openclawConfigPath(), cfg)
+          return ok({ modelId: input.modelId })
+        }
+        case "middleware_usage": return { summary: { totalTokens: 0, totalCost: 0 }, usage: [], source: "middleware-local" }
+        case "middleware_usage_daily": return { days: [] }
+
+        case "middleware_commands_list": return { commands: ["/model", "/status", "/help", "/reasoning", "/verbose"] }
+        case "middleware_autonaming_quick": return { title: String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat" }
+        case "middleware_message_feedback": { s.commandState.feedback.push({ id: crypto.randomUUID(), ...input, createdAt: now() }); save(store, s); return ok() }
+        case "middleware_message_feedback_delete": { s.commandState.feedback = s.commandState.feedback.filter((f:any) => f.message_id !== input.message_id && f.messageId !== input.messageId); save(store, s); return ok() }
+
+        case "middleware_chat_history": {
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
+          try {
+            const res = await gw.request("chat.history", { sessionKey: input.sessionKey }, 30_000)
+            if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
+            return res.payload
+          } finally {
+            gw.close()
+          }
+        }
+        case "middleware_chat_send": {
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
+          try {
+            const key = input.sessionKey || `agent:main:desktop:${crypto.randomUUID()}`
+            await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
+            const res = await gw.request("chat.send", {
+              sessionKey: key,
+              message: input.text || input.message || "",
+              timeoutMs: input.timeoutMs || 120_000,
+              idempotencyKey: crypto.randomUUID(),
+            }, input.timeoutMs || 130_000)
+            if (!res.ok) throw new HttpError(502, res.error?.message || "chat.send failed", "GATEWAY_ERROR")
+            return { ok: true, sessionKey: key, ...((res.payload as object) || {}) }
+          } finally {
+            gw.close()
+          }
+        }
+        case "middleware_chat_stop": return ok()
+        case "middleware_chat_regenerate": {
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
+          try {
+            const key = input.sessionKey
+            const res = await gw.request("chat.send", {
+              sessionKey: key,
+              message: input.text || input.message || "",
+              timeoutMs: input.timeoutMs || 120_000,
+              idempotencyKey: crypto.randomUUID(),
+            }, input.timeoutMs || 130_000)
+            if (!res.ok) throw new HttpError(502, res.error?.message || "chat.regenerate failed", "GATEWAY_ERROR")
+            return { accepted: true, sessionKey: key, regeneratedMessageId: input.messageId, action: "regenerate", ...((res.payload as object) || {}) }
+          } finally { gw.close() }
+        }
+        case "middleware_chat_fork": {
+          const key = `agent:main:fork:${crypto.randomUUID()}`
+          return { sessionKey: key, branchSessionKey: key }
+        }
+        case "middleware_chat_edit_last_preview": {
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
+          try {
+            const originalKey = input.sessionKey
+            const branchSessionKey = `agent:main:edit:${crypto.randomUUID()}`
+            const label = `Edit preview ${new Date().toISOString()}`
+            await gw.request("sessions.create", { key: branchSessionKey, agentId: input.agentId || "main", label }, 30_000).catch(() => null)
+            const history = await gw.request<any>("chat.history", { sessionKey: originalKey, limit: 100 }, 30_000)
+            const messages = history.ok && Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
+            const sourceUser = messages.find((m:any) => m.id === input.userMessageId || m.messageId === input.userMessageId) || null
+            const prompt = [
+              "Continue the conversation. Prior transcript is context only.",
+              ...messages.filter((m:any) => m.role === "user" || m.role === "assistant").slice(0, -1).map((m:any) => `${m.role}: ${Array.isArray(m.content) ? m.content.map((b:any)=>b.text||'').join('') : (m.text || m.content || '')}`),
+              `user: ${input.text || input.message || ""}`,
+            ].filter(Boolean).join("\n\n")
+            const sent = await gw.request("chat.send", { sessionKey: branchSessionKey, message: prompt, timeoutMs: input.timeoutMs || 120_000, idempotencyKey: crypto.randomUUID() }, input.timeoutMs || 130_000)
+            if (!sent.ok) throw new HttpError(502, sent.error?.message || "edit preview send failed", "GATEWAY_ERROR")
+            const branch = { sourceSessionKey: originalKey, sourceMessageId: input.userMessageId, branchSessionKey, branchReason: "edit_preview", createdAt: now() }
+            s.commandState.branches.push(branch); save(store, s)
+            return { branchId: crypto.randomUUID(), branchSessionKey, sourceUserMessageId: input.userMessageId, original: { user: sourceUser, assistant: null }, edited: { user: { id: `edited:${input.userMessageId}`, role: "user", text: input.text }, assistant: null }, ...((sent.payload as object) || {}) }
+          } finally { gw.close() }
+        }
+        case "middleware_chat_select_edit_branch": return ok({ selected: input.selected })
+        case "middleware_branch_list": return { branches: s.commandState.branches.filter((b:any) => !input.sourceSessionKey || b.sourceSessionKey === input.sourceSessionKey) }
+
+        case "middleware_pins_list": return { pins: s.commandState.pins[input.sessionKey] ?? [] }
+        case "middleware_pins_add": { const key = input.sessionKey || "global"; s.commandState.pins[key] ??= []; const pin = { id: crypto.randomUUID(), ...input, pinnedAt: now() }; s.commandState.pins[key].push(pin); save(store,s); return { pin } }
+        case "middleware_pins_remove": { const key = input.sessionKey || "global"; s.commandState.pins[key] = (s.commandState.pins[key] ?? []).filter((p:any) => p.messageId !== input.messageId && p.id !== input.id); save(store,s); return ok() }
+
+        case "middleware_memory_list": return { files: fs.readdirSync(memoryDir()).map(name => ({ name, path: `memory/${name}` })) }
+        case "middleware_memory_read": return { content: fs.existsSync(safeMemoryPath(input.path)) ? fs.readFileSync(safeMemoryPath(input.path), "utf8") : "" }
+        case "middleware_memory_write": fs.writeFileSync(safeMemoryPath(input.path), input.content ?? ""); return ok({ path: input.path })
+        case "middleware_memory_store": { const file = path.join(memoryDir(), `${new Date().toISOString().slice(0,10)}.md`); fs.appendFileSync(file, `\n- ${input.content || input.text || ""}\n`); return ok({ path: path.relative(workspaceRoot(), file) }) }
+        case "middleware_memory_recall": return { results: [] }
+
+        case "middleware_cron_list_jobs": return { jobs: s.commandState.cronJobs }
+        case "middleware_cron_create_job": { const job = { id: crypto.randomUUID(), jobId: crypto.randomUUID(), ...input, status: "paused", createdAt: now(), updatedAt: now() }; s.commandState.cronJobs.push(job); save(store,s); return { job, jobId: job.jobId } }
+        case "middleware_cron_get_job": return { job: s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId) ?? null }
+        case "middleware_cron_update_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); Object.assign(job, input, { updatedAt: now() }); save(store,s); return { job } }
+        case "middleware_cron_delete_job": s.commandState.cronJobs = s.commandState.cronJobs.filter((j:any)=>j.jobId!==input.jobId && j.id!==input.jobId); save(store,s); return ok()
+        case "middleware_cron_pause_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId); if (job) job.status = "paused"; save(store,s); return { job } }
+        case "middleware_cron_run_job": { const run = { id: crypto.randomUUID(), jobId: input.jobId, status: "completed", startedAt: now(), finishedAt: now() }; s.commandState.cronRuns.push(run); save(store,s); return { run } }
+        case "middleware_cron_list_runs": return { runs: s.commandState.cronRuns.filter((r:any)=>!input.jobId || r.jobId===input.jobId) }
+        case "middleware_cron_recent_activity": return { activity: s.commandState.cronRuns.slice(-20).reverse() }
+        case "middleware_cron_job_conversation": return { messages: [] }
+        case "middleware_cron_reset_fixtures": s.commandState.cronJobs = []; s.commandState.cronRuns = []; save(store,s); return ok()
+
+        case "middleware_skills_installed_local": return { skills: scanSkills() }
+        case "middleware_skills_discover": return { skills: scanSkills() }
+        case "middleware_skills_detail": {
+          const slug = input.slug || input.skillId
+          const found = scanSkills().find(skill => skill.slug === slug || skill.id === slug || skill.name === slug)
+          if (!found) return { skill: null, installed: false, enabled: false }
+          const skillMd = path.join(found.path, "SKILL.md")
+          const content = fs.existsSync(skillMd) ? fs.readFileSync(skillMd, "utf8") : ""
+          return {
+            skill: { slug: found.slug, displayName: found.name, summary: found.description, createdAt: found.createdAt || Date.now(), updatedAt: found.updatedAt || Date.now() },
+            latestVersion: { version: found.version || "local", createdAt: found.updatedAt || Date.now() },
+            installed: true,
+            enabled: found.enabled,
+            localContent: content,
+            localVersion: found.version || "local",
+            package: { channel: found.source, isOfficial: found.source === "builtin" },
+          }
+        }
+        case "middleware_skills_install": {
+          const slug = String(input.slug || input.skillId || "").trim()
+          if (!slug) throw new HttpError(400, "Skill slug is required", "BAD_REQUEST")
+          const existing = scanSkills().find(skill => skill.slug === slug || skill.id === slug)
+          const dest = path.join(userSkillRoot(), slug)
+          if (existing?.path && existing.path !== dest) {
+            fs.cpSync(existing.path, dest, { recursive: true, force: true })
+          } else {
+            fs.mkdirSync(dest, { recursive: true })
+            const file = path.join(dest, "SKILL.md")
+            if (!fs.existsSync(file)) fs.writeFileSync(file, `---\nname: ${slug}\ndescription: Local installed skill ${slug}\n---\n\n# ${slug}\n`)
+          }
+          return { ok: true, skill: scanSkills().find(skill => skill.slug === slug || skill.id === slug) }
+        }
+        case "middleware_skills_uninstall": {
+          const slug = String(input.slug || input.skillId || "").trim()
+          if (!slug) throw new HttpError(400, "Skill slug is required", "BAD_REQUEST")
+          const target = path.join(userSkillRoot(), slug)
+          if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true })
+          return ok({ slug })
+        }
+        case "middleware_skills_toggle": return ok({ skillId: input.skillId || input.slug, enabled: input.enabled ?? true })
+        case "middleware_skills_versions": return { items: [], nextCursor: null }
+
+        case "middleware_onboarding_core":
+        case "middleware_onboarding_flow": return { steps: [], status: "external-middleware", configPath: openclawConfigPath() }
+        case "middleware_onboarding_providers": return { providers: Object.keys(readJson(openclawConfigPath()).providers ?? {}).map(id => ({ id })) }
+        case "middleware_onboarding_provider_details": return { provider: readJson(openclawConfigPath()).providers?.[input.providerId] ?? null }
+        case "middleware_onboarding_provider_submit":
+        case "middleware_onboarding_model_submit":
+        case "middleware_onboarding_sign_out":
+        case "middleware_onboarding_delete_account": return ok()
+        case "middleware_onboarding_model_contract": return { contract: { providerId: input.providerId ?? null, fields: [] } }
+        case "middleware_openclaw_bot_name_get": return { name: readJson(openclawConfigPath()).bot?.name ?? "OpenClaw" }
+        case "middleware_openclaw_bot_name_set": { const cfg = readJson(openclawConfigPath()); cfg.bot ??= {}; cfg.bot.name = input.name; writeJson(openclawConfigPath(), cfg); return ok({ name: input.name }) }
+        case "middleware_open_url": return ok({ url: input.url })
+        case "middleware_git_commit_details": return gitCommitDetails(String(input.repoRoot || input.cwd || workspaceRoot()), String(input.commit || input.sha || "HEAD"))
+        case "middleware_projects_archive": { const project = store.updateProject(input.projectId, { archived: input.archived ?? true } as any); return { project } }
+        default: throw new HttpError(404, `Unknown middleware command: ${command}`, "UNKNOWN_COMMAND")
+      }
+    }
+  }
+}
