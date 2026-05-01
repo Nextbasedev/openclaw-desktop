@@ -37,9 +37,13 @@ function middlewareStreamUrl(path: string): string | null {
   if (typeof window === "undefined") return null
   try {
     const url = localStorage.getItem("openclaw.middleware.url")?.replace(/\/+$/, "")
+    const token = localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
     if (!url) return null
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ""
     const ptyMatch = path.match(/^\/api\/stream\/pty\/([^/]+)$/)
-    if (ptyMatch?.[1]) return `${url}/api/terminal/${encodeURIComponent(ptyMatch[1])}/stream`
+    if (ptyMatch?.[1]) return `${url}/api/terminal/${encodeURIComponent(ptyMatch[1])}/stream${tokenQuery}`
+    const chatMatch = path.match(/^\/api\/stream\/chat\/(.+)$/)
+    if (chatMatch?.[1]) return `${url}/api/stream/chat/${encodeURIComponent(decodeURIComponent(chatMatch[1]))}${tokenQuery}`
   } catch {}
   return null
 }

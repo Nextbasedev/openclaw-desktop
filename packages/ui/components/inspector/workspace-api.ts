@@ -1,5 +1,7 @@
 "use client"
 
+import { getMiddlewareConnection, middlewareFetch } from "@/lib/middleware-client"
+
 export type RemoteWorkspaceEntry = {
   name: string
   path: string
@@ -19,21 +21,16 @@ export type RemoteWorkspaceCapabilities = {
   canDeleteEntry: boolean
 }
 
-function sessionHeaders(sessionKey: string): HeadersInit {
-  return {
-    "x-session-key": sessionKey,
-  }
+function activeProjectId(): string {
+  const projectId = typeof window !== "undefined" ? localStorage.getItem("openclaw.activeProjectId") : null
+  if (!projectId) throw new Error("Select a project before opening workspace")
+  return projectId
 }
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const payload = await response
-      .json()
-      .catch(() => ({ error: response.statusText }))
-    throw new Error(
-      (payload as { error?: string }).error ||
-        `Workspace request failed: ${response.status}`,
-    )
+    const payload = await response.json().catch(() => ({ error: response.statusText }))
+    throw new Error((payload as { error?: string }).error || `Workspace request failed: ${response.status}`)
   }
   return response.json() as Promise<T>
 }
@@ -43,39 +40,37 @@ export async function fetchRemoteWorkspaceTree(input: {
   path?: string
   all?: boolean
 }): Promise<{ entries: RemoteWorkspaceEntry[] }> {
-  const params = new URLSearchParams()
-  if (input.path) params.set("path", input.path)
-  if (input.all) params.set("all", "true")
-  const suffix = params.toString() ? `?${params.toString()}` : ""
-  const response = await fetch(`/api/my/workspace/tree${suffix}`, {
-    headers: sessionHeaders(input.sessionKey),
-  })
-  return readJson(response)
+  if (getMiddlewareConnection()) {
+    const params = new URLSearchParams()
+    if (input.path) params.set("path", input.path)
+    return middlewareFetch(`/api/projects/${activeProjectId()}/workspace/tree?${params.toString()}`)
+  }
+  throw new Error("Middleware connection is not configured")
 }
 
-export async function fetchRemoteWorkspaceCapabilities(
-  sessionKey: string,
-): Promise<{ capabilities: RemoteWorkspaceCapabilities }> {
-  const response = await fetch("/api/my/workspace/capabilities", {
-    headers: sessionHeaders(sessionKey),
-  })
-  return readJson(response)
+export async function fetchRemoteWorkspaceCapabilities(_sessionKey: string): Promise<{ capabilities: RemoteWorkspaceCapabilities }> {
+  return {
+    capabilities: {
+      canTree: true,
+      canStat: false,
+      canRead: true,
+      canWrite: true,
+      canDownloadFile: false,
+      canCreateDir: false,
+      canMoveEntry: false,
+      canDeleteEntry: false,
+    },
+  }
 }
 
 export async function fetchRemoteWorkspaceFile(input: {
   sessionKey: string
   path: string
 }): Promise<{ path: string; content: string; encoding: string }> {
-  const response = await fetch(
-    `/api/my/workspace/files/${input.path
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`,
-    {
-      headers: sessionHeaders(input.sessionKey),
-    },
-  )
-  return readJson(response)
+  if (getMiddlewareConnection()) {
+    return middlewareFetch(`/api/projects/${activeProjectId()}/workspace/file?path=${encodeURIComponent(input.path)}`)
+  }
+  throw new Error("Middleware connection is not configured")
 }
 
 export async function saveRemoteWorkspaceFile(input: {
@@ -83,81 +78,38 @@ export async function saveRemoteWorkspaceFile(input: {
   path: string
   content: string
 }): Promise<void> {
-  const response = await fetch(
-    `/api/my/workspace/files/${input.path
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`,
-    {
+  if (getMiddlewareConnection()) {
+    await middlewareFetch(`/api/projects/${activeProjectId()}/workspace/file`, {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        ...sessionHeaders(input.sessionKey),
-      },
-      body: JSON.stringify({ content: input.content }),
-    },
-  )
-  await readJson<{ ok: true }>(response)
+      body: JSON.stringify({ path: input.path, content: input.content }),
+    })
+    return
+  }
+  throw new Error("Middleware connection is not configured")
 }
 
-export async function deleteRemoteWorkspaceEntry(input: {
+export async function deleteRemoteWorkspaceEntry(_input: {
   sessionKey: string
   path: string
 }): Promise<void> {
-  const response = await fetch(
-    `/api/my/workspace/files/${input.path
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`,
-    {
-      method: "DELETE",
-      headers: sessionHeaders(input.sessionKey),
-    },
-  )
-  await readJson<{ ok: true }>(response)
+  throw new Error("Delete is not implemented in the new Middleware workspace API yet")
 }
 
-export async function createRemoteWorkspaceDirectory(input: {
+export async function createRemoteWorkspaceDirectory(_input: {
   sessionKey: string
   path: string
 }): Promise<void> {
-  const response = await fetch("/api/my/workspace/mkdir", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...sessionHeaders(input.sessionKey),
-    },
-    body: JSON.stringify({ path: input.path }),
-  })
-  await readJson<{ ok: true }>(response)
+  throw new Error("Create directory is not implemented in the new Middleware workspace API yet")
 }
 
-export async function moveRemoteWorkspaceEntry(input: {
+export async function moveRemoteWorkspaceEntry(_input: {
   sessionKey: string
   fromPath: string
   toPath: string
 }): Promise<void> {
-  const response = await fetch("/api/my/workspace/move", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...sessionHeaders(input.sessionKey),
-    },
-    body: JSON.stringify({
-      fromPath: input.fromPath,
-      toPath: input.toPath,
-    }),
-  })
-  await readJson<{ ok: true }>(response)
+  throw new Error("Move is not implemented in the new Middleware workspace API yet")
 }
 
-export function remoteWorkspaceDownloadUrl(
-  sessionKey: string,
-  path: string,
-): string {
-  const params = new URLSearchParams({ sessionKey })
-  return `/api/my/workspace/download/${path
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/")}?${params.toString()}`
+export function remoteWorkspaceDownloadUrl(_sessionKey: string, _path: string): string {
+  throw new Error("Download is not implemented in the new Middleware workspace API yet")
 }
