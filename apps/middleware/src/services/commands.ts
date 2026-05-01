@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process"
 import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway } from "./gateway.js"
+import { terminalSpawnWorkspace } from "./terminal.js"
 
 function now() { return new Date().toISOString() }
 function state(store: Store): any {
@@ -191,6 +192,7 @@ export function commandRoutes(store: Store) {
         case "middleware_sync_pull_now": return ok()
         case "middleware_version_info": return { version: "0.1.0", desktop: "new-arch", middleware: "0.1.0", node: process.version }
         case "middleware_profiles_list": return { profiles: [{ id: "external_middleware", name: "External Middleware", mode: "remote", gatewayUrl: "external", workspaceRoot: workspaceRoot(), isDefault: true, status: "connected" }] }
+        case "middleware_pty_spawn_workspace": return terminalSpawnWorkspace(input)
 
         case "middleware_fs_read_dir": {
           const dirPath = String(input.path || workspaceRoot())
