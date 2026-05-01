@@ -10,9 +10,39 @@ export type ModelEntry = {
   reasoning?: boolean
 }
 
+type RawModelEntry = ModelEntry | string | { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean }
+
 type ModelsResponse = {
-  models: ModelEntry[]
-  currentModel: string | null
+  models?: RawModelEntry[]
+  currentModel?: string | null
+  defaultModel?: string | null
+}
+
+function normalizeModelEntry(entry: RawModelEntry): ModelEntry | null {
+  if (typeof entry === "string") {
+    const ref = entry
+    if (!ref.trim()) return null
+    const [provider, id] = ref.includes("/") ? ref.split(/\/(.+)/) : ["custom", ref]
+    return { id, provider, name: id, reasoning: false }
+  }
+
+  const raw = entry as { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean }
+  const ref = String(raw.id || raw.model || raw.value || "")
+  if (!ref.trim()) return null
+  const [providerFromRef, idFromRef] = ref.includes("/") ? ref.split(/\/(.+)/) : ["custom", ref]
+  const provider = String(raw.provider || providerFromRef || "custom")
+  const id = String(raw.id || idFromRef || ref)
+  return { id, provider, name: String(raw.name || id), reasoning: Boolean(raw.reasoning) }
+}
+
+function normalizeModelsResponse(response: ModelsResponse): { models: ModelEntry[]; currentModel: string | null } {
+  const models = (response.models ?? []).map(normalizeModelEntry).filter((model): model is ModelEntry => Boolean(model))
+  const currentModel = response.currentModel ?? response.defaultModel ?? null
+  if (currentModel && !models.some((model) => model.id === currentModel || `${model.provider}/${model.id}` === currentModel)) {
+    const current = normalizeModelEntry(currentModel)
+    if (current) models.unshift(current)
+  }
+  return { models, currentModel }
 }
 
 let cachedModels: ModelEntry[] | null = null
@@ -45,8 +75,9 @@ export function useModels() {
       const res = await invoke<ModelsResponse>("middleware_models_list", {
         input: {},
       })
-      cachedModels = res.models ?? []
-      cachedCurrent = res.currentModel ?? null
+      const normalized = normalizeModelsResponse(res)
+      cachedModels = normalized.models
+      cachedCurrent = normalized.currentModel
       setModels(cachedModels)
       setCurrentModel(cachedCurrent)
     } catch (err) {
