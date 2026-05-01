@@ -3,11 +3,10 @@
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   CheckmarkCircle02Icon,
+  ComputerIcon,
   ElectricPlugsIcon,
   EyeIcon,
-  FloppyDiskIcon,
   Globe02Icon,
-  Key01Icon,
   ServerStack01Icon,
   Unlink03Icon,
   ViewOffIcon,
@@ -71,42 +70,6 @@ type ConnectPageViewProps = {
   onDisconnect: () => void
 }
 
-function StatusItem({
-  active,
-  label,
-  value,
-}: {
-  active: boolean
-  label: string
-  value?: string | null
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <div
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          active
-            ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]"
-            : "bg-zinc-600",
-        )}
-      />
-      <span
-        className={cn(
-          "text-[13px]",
-          active ? "text-zinc-200" : "text-zinc-500",
-        )}
-      >
-        {label}
-      </span>
-      {value && (
-        <span className="ml-auto max-w-[140px] truncate text-[11px] text-zinc-500">
-          {value}
-        </span>
-      )}
-    </div>
-  )
-}
-
 export function ConnectPageView({
   url,
   token,
@@ -120,7 +83,6 @@ export function ConnectPageView({
   disconnecting,
   loadingStatus,
   isConnected,
-  autoDetect,
   detecting,
   detectMessage,
   onUrlChange,
@@ -133,546 +95,347 @@ export function ConnectPageView({
   onDisconnect,
 }: ConnectPageViewProps) {
   const busy = testing || saving || disconnecting || detecting
+  const isRemote = setupMode === "remote"
+  const missingConfig = !url.trim() || !token.trim()
 
   return (
-    <div className="flex h-svh items-center justify-center overflow-y-auto bg-background p-6">
-      <div className="w-full max-w-[960px] space-y-3">
-        <div className={cn("overflow-hidden", GLASS_POPOVER)}>
-          <div className="grid lg:grid-cols-[310px_1fr]">
-            <LeftPanel
-              status={status}
-              loadingStatus={loadingStatus}
-              isConnected={isConnected}
-            />
-            <RightPanel
-              url={url}
-              token={token}
-              showToken={showToken}
-              setupMode={setupMode}
-              isConnected={isConnected}
-              autoDetect={autoDetect}
-              detecting={detecting}
-              detectMessage={detectMessage}
-              busy={busy}
-              testing={testing}
-              saving={saving}
-              disconnecting={disconnecting}
-              onUrlChange={onUrlChange}
-              onTokenChange={onTokenChange}
-              onShowTokenChange={onShowTokenChange}
-              onSetupModeChange={onSetupModeChange}
-              onAutoDetectChange={onAutoDetectChange}
-              onTest={onTest}
-              onSave={onSave}
-              onDisconnect={onDisconnect}
-            />
+    <div className="flex min-h-svh items-center justify-center overflow-y-auto bg-background p-4 sm:p-6">
+      <div className="w-full max-w-[720px] space-y-4">
+        <div className={cn("overflow-hidden p-6 sm:p-8", GLASS_POPOVER)}>
+          <div className="mx-auto max-w-[560px] space-y-6">
+            <header className="space-y-3 text-center">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+                <HugeiconsIcon icon={ServerStack01Icon} size={22} className="text-zinc-200" />
+              </div>
+              <div>
+                <p className="text-xl font-semibold tracking-tight text-white">Set up OpenClaw Desktop</p>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+                  We’ll connect to the workspace service that runs your terminal, git, files, and chats.
+                </p>
+              </div>
+            </header>
+
+            {isConnected ? (
+              <ConnectedState
+                url={connectResult?.url || status?.gatewayUrl || url}
+                busy={busy}
+                disconnecting={disconnecting}
+                onDisconnect={onDisconnect}
+              />
+            ) : (
+              <>
+                <AutoDetectState
+                  loadingStatus={loadingStatus}
+                  detectMessage={detectMessage}
+                  busy={busy}
+                  onDetect={() => onAutoDetectChange(true)}
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ModeCard
+                    active={setupMode === "local"}
+                    icon={ComputerIcon}
+                    title="Use this computer"
+                    description="Best for local projects and private files. Usually automatic."
+                    action="Detect locally"
+                    onClick={() => onSetupModeChange("local")}
+                  />
+                  <ModeCard
+                    active={setupMode === "remote"}
+                    icon={Globe02Icon}
+                    title="Use a server"
+                    description="Best for VPS, always-on agents, and remote workspaces."
+                    action="Pair server"
+                    onClick={() => onSetupModeChange("remote")}
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  {isRemote ? (
+                    <RemotePairingForm
+                      url={url}
+                      token={token}
+                      showToken={showToken}
+                      busy={busy}
+                      testing={testing}
+                      saving={saving}
+                      missingConfig={missingConfig}
+                      onUrlChange={onUrlChange}
+                      onTokenChange={onTokenChange}
+                      onShowTokenChange={onShowTokenChange}
+                      onTest={onTest}
+                      onSave={onSave}
+                    />
+                  ) : (
+                    <LocalSetupPanel busy={busy} onDetect={() => onAutoDetectChange(true)} />
+                  )}
+                </div>
+
+                <details className="rounded-xl border border-white/10 bg-black/20 p-4">
+                  <summary className="cursor-pointer select-none text-sm font-medium text-zinc-300 hover:text-white">
+                    Advanced manual setup
+                  </summary>
+                  <div className="mt-4 space-y-4">
+                    <ManualFields
+                      url={url}
+                      token={token}
+                      showToken={showToken}
+                      disabled={busy}
+                      onUrlChange={onUrlChange}
+                      onTokenChange={onTokenChange}
+                      onShowTokenChange={onShowTokenChange}
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Button onClick={onTest} disabled={busy || missingConfig} variant="outline" size="sm">
+                        {testing ? "Testing..." : "Test"}
+                      </Button>
+                      <Button onClick={onSave} disabled={busy || missingConfig} size="sm">
+                        {saving ? "Connecting..." : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                </details>
+              </>
+            )}
           </div>
         </div>
 
-        {isConnected && connectResult?.ok && (
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5 text-xs text-emerald-400">
-            <HugeiconsIcon
-              icon={CheckmarkCircle02Icon}
-              size={15}
-              className="shrink-0"
-            />
-            Connected successfully. OpenClaw Desktop is now connected to{" "}
-            <span className="font-medium">
-              {connectResult.url}
-            </span>
-            . Projects, terminal, git, chats, and workspace files will run there.
-          </div>
-        )}
-
-        {!isConnected && (
-          <ConnectionErrorGuide
-            result={connectResult}
-            rawError={error}
-            gatewayUrl={url}
-          />
+        {!isConnected && (error || connectResult) && (
+          <ConnectionErrorGuide result={connectResult} rawError={error} gatewayUrl={url} />
         )}
       </div>
     </div>
   )
 }
 
-function LeftPanel({
-  status,
+function AutoDetectState({
   loadingStatus,
-  isConnected,
+  detectMessage,
+  busy,
+  onDetect,
 }: {
-  status: ConnectionStatus | null
   loadingStatus: boolean
-  isConnected: boolean
+  detectMessage: DetectMessage | null
+  busy: boolean
+  onDetect: () => void
 }) {
   return (
-    <div className="flex flex-col gap-9 border-b border-white/[0.06] bg-white/[0.02] p-8 lg:border-b-0 lg:border-r lg:border-border/10">
-      <div className="flex items-center gap-3">
-        <div className="flex size-9 items-center justify-center rounded-xl border border-white/10 bg-white/5">
-          <HugeiconsIcon
-            icon={ServerStack01Icon}
-            size={18}
-            className="text-zinc-300"
-          />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-white">
-            OpenClaw Desktop
-          </p>
-          <p className="text-[11px] text-zinc-500">AI workspace</p>
-        </div>
-      </div>
-
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-white">
-          Where should your AI workspace run?
-        </h1>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-500">
-          Choose this computer for a private local workspace, or connect a server for always-on remote agents.
-        </p>
-      </div>
-
-      <div className="space-y-3">
-        <StatusItem
-          active={Boolean(status?.gatewayUrl)}
-          label="Middleware URL"
-          value={status?.gatewayUrl}
-        />
-        <StatusItem
-          active={Boolean(status?.gatewayToken)}
-          label="Token"
-        />
-        <StatusItem
-          active={Boolean(status?.hasConnection)}
-          label="Connection"
-        />
-      </div>
-
-      {!loadingStatus && status && (
-        <span
-          className={cn(
-            "inline-flex items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium",
-            isConnected
-              ? "bg-emerald-500/10 text-emerald-400"
-              : status.gatewayConfigured
-                ? "bg-yellow-500/10 text-yellow-400"
-                : "bg-muted text-muted-foreground",
+    <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] p-4">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300">
+          {loadingStatus ? (
+            <div className="size-4 animate-spin rounded-full border-2 border-emerald-500/20 border-t-emerald-300" />
+          ) : (
+            <HugeiconsIcon icon={ElectricPlugsIcon} size={17} />
           )}
-        >
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              isConnected
-                ? "bg-emerald-400"
-                : status.gatewayConfigured
-                  ? "bg-yellow-400"
-                  : "bg-muted-foreground",
-            )}
-          />
-          {isConnected
-            ? "Connected"
-            : status.gatewayConfigured
-              ? "No Connection"
-              : "Not Configured"}
-        </span>
-      )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-zinc-100">Automatic setup</p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+            {detectMessage?.text || "Checking for a local workspace service..."}
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onDetect}>
+          Retry
+        </Button>
+      </div>
     </div>
   )
 }
 
-function RightPanel({
+function ModeCard({
+  active,
+  icon,
+  title,
+  description,
+  action,
+  onClick,
+}: {
+  active: boolean
+  icon: typeof ComputerIcon
+  title: string
+  description: string
+  action: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-2xl border p-4 text-left transition-all",
+        active
+          ? "border-emerald-500/40 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]"
+          : "border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.04]",
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <div className={cn("flex size-9 items-center justify-center rounded-xl", active ? "bg-emerald-500/15 text-emerald-300" : "bg-white/5 text-zinc-400")}>
+          <HugeiconsIcon icon={icon} size={18} />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-zinc-100">{title}</p>
+          <p className="mt-0.5 text-[11px] font-medium text-zinc-500">{action}</p>
+        </div>
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-zinc-500">{description}</p>
+    </button>
+  )
+}
+
+function LocalSetupPanel({ busy, onDetect }: { busy: boolean; onDetect: () => void }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium text-zinc-100">Use this computer</p>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          OpenClaw will use Middleware on this machine. In the desktop app this starts automatically; in development, run the local stack once.
+        </p>
+      </div>
+      <Button type="button" onClick={onDetect} disabled={busy} className="w-full">
+        {busy ? "Checking..." : "Detect local workspace"}
+      </Button>
+      <details className="rounded-lg bg-black/20 px-3 py-2">
+        <summary className="cursor-pointer text-xs text-zinc-400">Developer command</summary>
+        <code className="mt-2 block overflow-x-auto text-xs text-zinc-500">pnpm dev:local</code>
+      </details>
+    </div>
+  )
+}
+
+function RemotePairingForm(props: {
+  url: string
+  token: string
+  showToken: boolean
+  busy: boolean
+  testing: boolean
+  saving: boolean
+  missingConfig: boolean
+  onUrlChange: (value: string) => void
+  onTokenChange: (value: string) => void
+  onShowTokenChange: (show: boolean) => void
+  onTest: () => void
+  onSave: () => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-medium text-zinc-100">Pair a server</p>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          Run the installer on your VPS. It prints a Middleware URL and short pairing code. Paste both here.
+        </p>
+      </div>
+      <ManualFields
+        url={props.url}
+        token={props.token}
+        showToken={props.showToken}
+        disabled={props.busy}
+        tokenLabel="Pairing code"
+        tokenPlaceholder="ABC-123"
+        onUrlChange={props.onUrlChange}
+        onTokenChange={props.onTokenChange}
+        onShowTokenChange={props.onShowTokenChange}
+      />
+      <Button onClick={props.onSave} disabled={props.busy || props.missingConfig} className="w-full">
+        {props.saving ? "Pairing..." : "Pair and continue"}
+      </Button>
+      <details className="rounded-lg bg-black/20 px-3 py-2">
+        <summary className="cursor-pointer text-xs text-zinc-400">Server install command</summary>
+        <code className="mt-2 block overflow-x-auto text-xs text-zinc-500">
+          curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/new-arch/apps/middleware/scripts/install.sh | bash
+        </code>
+      </details>
+    </div>
+  )
+}
+
+function ManualFields({
   url,
   token,
   showToken,
-  setupMode,
-  isConnected,
-  autoDetect,
-  detecting,
-  detectMessage,
-  busy,
-  testing,
-  saving,
-  disconnecting,
+  disabled,
+  tokenLabel = "Access token",
+  tokenPlaceholder = "Paste token",
   onUrlChange,
   onTokenChange,
   onShowTokenChange,
-  onSetupModeChange,
-  onAutoDetectChange,
-  onTest,
-  onSave,
-  onDisconnect,
 }: {
   url: string
   token: string
   showToken: boolean
-  setupMode: "local" | "remote"
-  isConnected: boolean
-  autoDetect: boolean
-  detecting: boolean
-  detectMessage: DetectMessage | null
-  busy: boolean
-  testing: boolean
-  saving: boolean
-  disconnecting: boolean
+  disabled: boolean
+  tokenLabel?: string
+  tokenPlaceholder?: string
   onUrlChange: (value: string) => void
   onTokenChange: (value: string) => void
   onShowTokenChange: (show: boolean) => void
-  onSetupModeChange: (mode: "local" | "remote") => void
-  onAutoDetectChange: (enabled: boolean) => void
-  onTest: () => void
-  onSave: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label htmlFor="middleware-url" className="text-xs">Middleware URL</Label>
+        <Input
+          id="middleware-url"
+          value={url}
+          onChange={(event) => onUrlChange(event.target.value)}
+          placeholder="https://your-server.com"
+          disabled={disabled}
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="middleware-token" className="text-xs">{tokenLabel}</Label>
+        <div className="flex gap-2">
+          <Input
+            id="middleware-token"
+            value={token}
+            onChange={(event) => onTokenChange(event.target.value)}
+            type={showToken ? "text" : "password"}
+            placeholder={tokenPlaceholder}
+            disabled={disabled}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Button type="button" variant="outline" size="icon" onClick={() => onShowTokenChange(!showToken)} disabled={disabled}>
+            <HugeiconsIcon icon={showToken ? ViewOffIcon : EyeIcon} size={15} />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ConnectedState({
+  url,
+  busy,
+  disconnecting,
+  onDisconnect,
+}: {
+  url?: string | null
+  busy: boolean
+  disconnecting: boolean
   onDisconnect: () => void
 }) {
-  const missingConfig = !url.trim() || !token.trim()
-
   return (
-    <div className="flex flex-col p-8">
-      <div className="mb-5 flex items-center justify-between">
-        <h2 className="text-sm font-medium">
-          Welcome to OpenClaw Desktop
-        </h2>
+    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5 text-center">
+      <div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300">
+        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={22} />
       </div>
-
-      <div className="space-y-4">
-        <SetupModeChooser
-          mode={setupMode}
-          disabled={isConnected}
-          onChange={onSetupModeChange}
-        />
-
-        <InstallCommandPanel
-          mode={setupMode}
-          detecting={detecting}
-          detectMessage={detectMessage}
-          onAction={() => onAutoDetectChange(setupMode === "local")}
-        />
-
-        <div className="space-y-1.5">
-          <Label htmlFor="gateway-url" className="text-xs">
-            Middleware URL
-          </Label>
-          <div className="relative">
-            <HugeiconsIcon
-              icon={Globe02Icon}
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              id="gateway-url"
-              type="text"
-              placeholder="http://host:8787"
-              value={url}
-              onChange={(event) =>
-                onUrlChange(event.target.value)
-              }
-              autoComplete="off"
-              spellCheck={false}
-              disabled={isConnected}
-              className={cn(
-                "h-9 pl-9",
-                isConnected && "opacity-60",
-              )}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="gateway-token"
-            className="text-xs"
-          >
-            {setupMode === "remote" ? "Pairing code" : "Access token"}
-          </Label>
-          <div className="flex gap-2">
-            <div className="relative min-w-0 flex-1">
-              <HugeiconsIcon
-                icon={Key01Icon}
-                size={15}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                id="gateway-token"
-                type={showToken ? "text" : "password"}
-                placeholder={setupMode === "remote" ? "Paste the pairing code from your server" : "Filled automatically after local detection"}
-                value={token}
-                onChange={(event) =>
-                  onTokenChange(event.target.value)
-                }
-                autoComplete="off"
-                spellCheck={false}
-                disabled={isConnected}
-                className={cn(
-                  "h-9 pl-9",
-                  isConnected && "opacity-60",
-                )}
-              />
-            </div>
-            {!isConnected && (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label={
-                  showToken ? "Hide token" : "Show token"
-                }
-                onClick={() =>
-                  onShowTokenChange(!showToken)
-                }
-              >
-                <HugeiconsIcon
-                  icon={showToken ? ViewOffIcon : EyeIcon}
-                  size={15}
-                />
-              </Button>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground/60">
-            {setupMode === "remote" ? "The installer prints this code after setup" : "Usually filled automatically by local detection"}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 border-t border-border/50 pt-5">
-        {isConnected ? (
-          <Button
-            onClick={onDisconnect}
-            disabled={busy}
-            variant="outline"
-            size="sm"
-            className="w-full border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            <HugeiconsIcon icon={Unlink03Icon} size={14} />
-            {disconnecting
-              ? "Disconnecting..."
-              : "Disconnect"}
-          </Button>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            <Button
-              onClick={onTest}
-              disabled={busy || missingConfig}
-              variant="outline"
-              size="sm"
-              className="w-full"
-            >
-              <HugeiconsIcon
-                icon={ElectricPlugsIcon}
-                size={15}
-              />
-              {testing ? "Testing..." : "Test connection"}
-            </Button>
-            <Button
-              onClick={onSave}
-              disabled={busy || missingConfig}
-              size="sm"
-              className="w-full"
-            >
-              <HugeiconsIcon
-                icon={FloppyDiskIcon}
-                size={15}
-              />
-              {saving ? "Connecting..." : "Continue"}
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function SetupModeChooser({
-  mode,
-  disabled,
-  onChange,
-}: {
-  mode: "local" | "remote"
-  disabled: boolean
-  onChange: (mode: "local" | "remote") => void
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onChange("local")}
-        className={cn(
-          "rounded-xl border p-3 text-left transition-colors",
-          mode === "local"
-            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
-            : "border-border/50 bg-white/[0.02] text-zinc-300 hover:bg-white/[0.04]",
-          disabled && "cursor-not-allowed opacity-60",
-        )}
+      <p className="mt-3 text-sm font-medium text-emerald-100">Workspace ready</p>
+      <p className="mt-1 text-xs leading-relaxed text-emerald-100/60">
+        OpenClaw is connected to {url || "Middleware"}. Projects, terminal, git, chats, and files will run there.
+      </p>
+      <Button
+        onClick={onDisconnect}
+        disabled={busy}
+        variant="outline"
+        size="sm"
+        className="mt-4 border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/10"
       >
-        <p className="text-[13px] font-medium">Use this computer</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-          Best for local development, private files, and quick setup. OpenClaw uses projects, terminal, git, and files on this machine.
-        </p>
-        <span className="mt-3 inline-flex rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
-          Set up locally
-        </span>
-      </button>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onChange("remote")}
-        className={cn(
-          "rounded-xl border p-3 text-left transition-colors",
-          mode === "remote"
-            ? "border-sky-500/40 bg-sky-500/10 text-sky-100"
-            : "border-border/50 bg-white/[0.02] text-zinc-300 hover:bg-white/[0.04]",
-          disabled && "cursor-not-allowed opacity-60",
-        )}
-      >
-        <p className="text-[13px] font-medium">Connect to a remote server</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-          Best for VPS, cloud workspaces, always-on agents, or shared environments. Your server runs terminal, git, files, and chats.
-        </p>
-        <span className="mt-3 inline-flex rounded-md bg-sky-500/10 px-2 py-1 text-[11px] font-medium text-sky-300">
-          Connect server
-        </span>
-      </button>
-    </div>
-  )
-}
-
-function InstallCommandPanel({
-  mode,
-  detecting,
-  detectMessage,
-  onAction,
-}: {
-  mode: "local" | "remote"
-  detecting: boolean
-  detectMessage: DetectMessage | null
-  onAction: () => void
-}) {
-  const isLocal = mode === "local"
-  const command = isLocal
-    ? "pnpm dev:local"
-    : "curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/new-arch/apps/middleware/scripts/install.sh | bash"
-
-  return (
-    <div className="space-y-3 rounded-lg border border-border/50 bg-white/[0.02] px-4 py-3">
-      <div className="space-y-1">
-        <p className="text-[13px] font-medium text-zinc-200">
-          {isLocal ? "Set up locally" : "Connect your server"}
-        </p>
-        <p className="text-[11px] leading-relaxed text-zinc-500">
-          {isLocal
-            ? "We’ll connect this app to a local OpenClaw Middleware running on your computer. This gives OpenClaw access to local projects, git changes, terminal, workspace files, and chat sessions."
-            : "Install OpenClaw Middleware on your VPS or remote machine, then paste the connection details here. Your server will handle terminal commands, git operations, workspace files, AI chat sessions, and background agents."}
-        </p>
-      </div>
-
-      <div className="rounded-md border border-white/5 bg-black/20 px-3 py-2 text-[11px] text-zinc-400">
-        {isLocal ? (
-          <p>
-            Local Middleware usually runs at <span className="text-zinc-200">http://127.0.0.1:8787</span>. If it is not running yet, start it from your development environment.
-          </p>
-        ) : (
-          <p>
-            Need to install Middleware? Open your server terminal and run the installer from the OpenClaw docs. After installation, it will show your Middleware URL and access token.
-          </p>
-        )}
-      </div>
-
-      <details className="group rounded-md border border-white/5 bg-black/20 px-3 py-2">
-        <summary className="cursor-pointer select-none text-[11px] font-medium text-zinc-300 transition-colors hover:text-white">
-          Advanced install command
-        </summary>
-        <code className="mt-2 block overflow-x-auto rounded bg-black/30 px-2 py-2 text-[11px] text-zinc-400">
-          {command}
-        </code>
-      </details>
-
-      <Button type="button" variant="ghost" size="sm" onClick={onAction} className="h-7 px-2 text-[11px] text-zinc-400 hover:text-zinc-100">
-        {isLocal ? "Detect local Middleware" : "Show server setup hint"}
+        <HugeiconsIcon icon={Unlink03Icon} size={14} />
+        {disconnecting ? "Disconnecting..." : "Disconnect"}
       </Button>
-
-      {detecting && (
-        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-          <div className="size-3 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
-          Preparing setup guidance...
-        </div>
-      )}
-
-      {!detecting && detectMessage && (
-        <p className={cn("text-[11px]", detectMessage.ok ? "text-emerald-400" : "text-amber-400")}>
-          {detectMessage.text}
-        </p>
-      )}
-    </div>
-  )
-}
-
-function AutoDetectToggle({
-  enabled,
-  detecting,
-  detectMessage,
-  disabled,
-  onChange,
-}: {
-  enabled: boolean
-  detecting: boolean
-  detectMessage: DetectMessage | null
-  disabled: boolean
-  onChange: (enabled: boolean) => void
-}) {
-  return (
-    <div className="space-y-2 rounded-lg border border-border/50 bg-white/[0.02] px-4 py-3">
-      <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
-          <p className="text-[13px] font-medium text-zinc-200">
-            Install Middleware
-          </p>
-          <p className="text-[11px] text-zinc-500">
-            Run the installer on your VPS/local machine and paste URL + token
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          disabled={disabled}
-          onClick={() => onChange(!enabled)}
-          className={cn(
-            "flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-1 transition-all",
-            enabled
-              ? "bg-emerald-500/20 ring-1 ring-emerald-500/30"
-              : "bg-white/5 ring-1 ring-white/10 hover:bg-white/10",
-            disabled && "cursor-not-allowed opacity-50",
-          )}
-        >
-          <div
-            className={cn(
-              "h-4 w-4 rounded-full shadow-sm transition-all duration-300",
-              enabled
-                ? "translate-x-4 bg-emerald-500 shadow-emerald-500/40"
-                : "translate-x-0 bg-zinc-500",
-            )}
-          />
-        </button>
-      </div>
-
-      {detecting && (
-        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-          <div className="size-3 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
-          Detecting local gateway...
-        </div>
-      )}
-
-      {!detecting && detectMessage && (
-        <p
-          className={cn(
-            "text-[11px]",
-            detectMessage.ok
-              ? "text-emerald-400"
-              : "text-amber-400",
-          )}
-        >
-          {detectMessage.text}
-        </p>
-      )}
     </div>
   )
 }
