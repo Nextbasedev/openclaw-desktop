@@ -157,25 +157,9 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_workspace_write":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/file`, { method: "PUT", body: JSON.stringify(input) })
     case "middleware_pty_spawn": {
-      let projectId = localStorage.getItem("openclaw.activeProjectId")
-      if (!projectId) {
-        const projects = await middlewareFetch<{ projects?: Array<{ id: string }> }>("/api/projects").catch(() => ({ projects: [] }))
-        projectId = projects.projects?.[0]?.id ?? null
-        if (!projectId) {
-          const profiles = await middlewareFetch<{ profiles?: Array<{ workspaceRoot?: string }> }>("/api/commands/middleware_profiles_list", { method: "POST", body: JSON.stringify({ input: {} }) }).catch(() => ({ profiles: [] }))
-          const workspaceRoot = profiles.profiles?.[0]?.workspaceRoot
-          if (workspaceRoot) {
-            const created = await middlewareFetch<{ project?: { id: string } }>("/api/projects", {
-              method: "POST",
-              body: JSON.stringify({ name: "Main", workspaceRoot, repoRoot: workspaceRoot }),
-            })
-            projectId = created.project?.id ?? null
-          }
-        }
-        if (projectId) localStorage.setItem("openclaw.activeProjectId", projectId)
-      }
-      if (!projectId) throw new Error("Could not find or create the Main workspace for Terminal.")
-      const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(`/api/projects/${projectId}/terminal/spawn`, { method: "POST", body: JSON.stringify(input) })
+      const projectId = localStorage.getItem("openclaw.activeProjectId")
+      const endpoint = projectId ? `/api/projects/${projectId}/terminal/spawn` : "/api/terminal/spawn"
+      const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(endpoint, { method: "POST", body: JSON.stringify(input) })
       return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
     }
     case "middleware_pty_write":

@@ -126,6 +126,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.get("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.read(req.params.projectId, String(req.query.path ?? ""))))
   app.put("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.write(req.params.projectId, String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
 
+  app.post("/api/terminal/spawn", async (req, res, next) => { try { res.json(await terminal.spawnWorkspace(req.body)) } catch (error) { next(error) } })
   app.post("/api/projects/:projectId/terminal/spawn", async (req, res, next) => { try { res.json(await terminal.spawn(req.params.projectId, req.body)) } catch (error) { next(error) } })
   app.post("/api/terminal/:terminalId/write", (req, res) => res.json(terminal.write(req.params.terminalId, String(req.body?.data ?? ""))))
   app.post("/api/terminal/:terminalId/resize", (req, res) => res.json(terminal.resize(req.params.terminalId, Number(req.body?.cols ?? 80), Number(req.body?.rows ?? 24))))
