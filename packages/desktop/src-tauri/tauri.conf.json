@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../../ui/out",
     "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "pnpm --dir ../.. dev:web",
+    "beforeDevCommand": "pnpm --dir ../.. dev:local",
     "beforeBuildCommand": "node ../../scripts/prepare-tauri-bundle.cjs"
   },
   "app": {
@@ -33,7 +33,7 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "bundled/server/**/*"
+      "bundled/middleware/**/*"
     ],
     "icon": [
       "icons/32x32.png",
