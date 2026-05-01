@@ -81,6 +81,8 @@ export function ChatBox({
     const maxH = 8 * 24
     el.style.height = Math.max(56, Math.min(el.scrollHeight, maxH)) + "px"
   }, [])
+  const [isDragOver, setIsDragOver] = React.useState(false)
+  const dragCounterRef = React.useRef(0)
   const {
     attachments,
     attachmentError,
@@ -91,6 +93,7 @@ export function ChatBox({
     setAttachmentError,
     handleUploadClick,
     handleFileChange,
+    processFiles,
   } = useChatComposerAttachments({
     disabled,
     onFilesProcessed: () => {
@@ -241,6 +244,57 @@ export function ChatBox({
     setPlusOpen(false)
   }
 
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current += 1
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragOver(true)
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current -= 1
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false)
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+    if (disabled || isPreparingAttachments) return
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      void processFiles(files)
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData.items)
+    const files: File[] = []
+    for (const item of items) {
+      if (item.kind === "file") {
+        const file = item.getAsFile()
+        if (file) files.push(file)
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault()
+      if (disabled || isPreparingAttachments) return
+      void processFiles(files)
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl px-2 sm:px-4">
       <input
@@ -251,13 +305,25 @@ export function ChatBox({
         onChange={handleFileChange}
       />
       <div
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         className={cn(
           "relative flex flex-col rounded-2xl border bg-card transition-all",
           isFocused
             ? "border-foreground/25 shadow-[0_0_0_1px_hsl(var(--border))] ring-1 ring-ring/10"
-            : "border-border/50"
+            : "border-border/50",
+          isDragOver && "border-primary/50 ring-2 ring-primary/20",
         )}
       >
+        {isDragOver && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-primary/5">
+            <p className="text-sm font-medium text-primary/70">
+              Drop files to attach
+            </p>
+          </div>
+        )}
         <AnimatePresence initial={false}>
           {replyTo && (
             <motion.div
@@ -318,6 +384,7 @@ export function ChatBox({
               updateSlashMenu(e.target.value)
               autoResize()
             }}
+            onPaste={handlePaste}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             onKeyDown={(e) => {

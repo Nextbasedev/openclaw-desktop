@@ -153,11 +153,30 @@ function AppShell({
 
   useEffect(() => {
     async function initialSync() {
+      let autoDetect = false
+      try {
+        autoDetect =
+          localStorage.getItem("jarvis.autoDetect") === "true"
+      } catch {}
+      if (!autoDetect) return
+
+      try {
+        const s = await invoke<{
+          gatewayConfigured: boolean
+          hasIdentity: boolean
+        }>("middleware_connect_status", { input: {} })
+        if (!s.gatewayConfigured || !s.hasIdentity) return
+      } catch {
+        return
+      }
       try {
         await invoke("middleware_connect_bootstrap", { input: {} })
       } catch {}
       try {
         await invoke("middleware_sync_pull_now", { input: {} })
+      } catch {}
+      try {
+        localStorage.setItem("jarvis.gatewayActive", "true")
       } catch {}
       emit("sidebar:refresh")
     }
@@ -200,7 +219,7 @@ function AppShell({
   >())
   activeChatRef.current = activeChat
 
-  type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true }
+  type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true; attachments?: Array<{ name: string; mimeType: string; content?: string; size?: number }> }
   const [initialMessages, setInitialMessages] = useState<OptimisticMsg[] | undefined>()
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -767,6 +786,12 @@ function AppShell({
         text,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
+        attachments: payload.attachments?.map((a) => ({
+          name: a.name,
+          mimeType: a.mimeType,
+          content: a.content,
+          size: a.size,
+        })),
       }]
       setPendingPrompt(null)
       setInitialMessages(optimisticMessages)
@@ -848,6 +873,12 @@ function AppShell({
         text,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
+        attachments: payload.attachments?.map((a) => ({
+          name: a.name,
+          mimeType: a.mimeType,
+          content: a.content,
+          size: a.size,
+        })),
       }]
       setPendingPrompt(null)
       setInitialMessages(optimisticMessages)
