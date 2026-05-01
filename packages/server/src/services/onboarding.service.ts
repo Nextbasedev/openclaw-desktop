@@ -961,6 +961,48 @@ function isLocalGatewayUrl(gatewayUrl: string): boolean {
   }
 }
 
+function syncDefaultGatewayProfile(gatewayUrl: string) {
+  const db = getDb()
+  const now = new Date().toISOString()
+  const remote = !isLocalGatewayUrl(gatewayUrl)
+  const mode = remote ? "remote" : "local"
+  const name = remote ? "Remote OpenClaw" : "Local OpenClaw"
+  const workspaceRoot = remote
+    ? "/root/.openclaw/workspace"
+    : path.join(os.homedir(), ".openclaw", "workspace")
+  const capabilities = {
+    openclaw: true,
+    files: !remote && fs.existsSync(workspaceRoot),
+    git: true,
+    terminal: !remote,
+    bootstrap: false,
+  }
+
+  const existingDefault = db
+    .prepare("SELECT id FROM profiles WHERE is_default = 1 ORDER BY updated_at DESC LIMIT 1")
+    .get() as { id: string } | undefined
+  const existingSameGateway = db
+    .prepare("SELECT id FROM profiles WHERE gateway_url = ? ORDER BY updated_at DESC LIMIT 1")
+    .get(gatewayUrl) as { id: string } | undefined
+  const id = existingDefault?.id ?? existingSameGateway?.id ?? `prof_gateway_${crypto.randomUUID().replace(/-/g, "")}`
+
+  db.prepare("UPDATE profiles SET is_default = 0 WHERE id != ?").run(id)
+  db.prepare(
+    `INSERT INTO profiles (id, name, mode, gateway_url, workspace_root, is_default, status, capabilities_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, 'connected', ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       mode = excluded.mode,
+       gateway_url = excluded.gateway_url,
+       workspace_root = excluded.workspace_root,
+       is_default = 1,
+       status = 'connected',
+       capabilities_json = excluded.capabilities_json,
+       updated_at = excluded.updated_at,
+       last_error = NULL`,
+  ).run(id, name, mode, gatewayUrl, workspaceRoot, JSON.stringify(capabilities), now, now)
+}
+
 export function onboardingSaveGatewayConfig(input: {
   gatewayUrl: string
   token?: string
@@ -997,6 +1039,7 @@ export function onboardingSaveGatewayConfig(input: {
     existing.gateway = gw
   }
   fs.writeFileSync(configPath, JSON.stringify(existing, null, 2))
+  syncDefaultGatewayProfile(input.gatewayUrl)
   return { saved: true, configPath }
 }
 
