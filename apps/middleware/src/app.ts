@@ -10,6 +10,7 @@ import { workspaceRoutes } from "./services/workspace.js"
 import { terminalRoutes } from "./services/terminal.js"
 import { recordRoutes } from "./services/records.js"
 import { commandRoutes } from "./services/commands.js"
+import { connectGateway } from "./services/gateway.js"
 
 export function createStore(config: MiddlewareConfig) {
   return new Store(config)
@@ -84,6 +85,54 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.post("/api/terminal/:terminalId/resize", (req, res) => res.json(terminal.resize(req.params.terminalId, Number(req.body?.cols ?? 80), Number(req.body?.rows ?? 24))))
   app.post("/api/terminal/:terminalId/kill", (req, res) => res.json(terminal.kill(req.params.terminalId)))
   app.get("/api/terminal/:terminalId/stream", (req, res) => terminal.stream(req.params.terminalId, res))
+
+  app.get("/api/stream/chat/:sessionKey", async (req, res, next) => {
+    const sessionKey = req.params.sessionKey
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+    })
+    const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    let gateway: Awaited<ReturnType<typeof connectGateway>> | null = null
+    send("chat.ready", { type: "chat.ready", sessionKey })
+    try {
+      gateway = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
+      send("chat.status", { type: "chat.status", sessionKey, state: "connected" })
+      await gateway.request("sessions.subscribe", {}, 30_000).catch(() => null)
+      await gateway.request("sessions.messages.subscribe", { key: sessionKey }, 30_000).catch(() => null)
+      const off = gateway.on((message) => {
+        if (message.type !== "event") return
+        const payload = message.payload as any
+        if (payload?.sessionKey && payload.sessionKey !== sessionKey) return
+        if (message.event === "session.message" && payload?.message) {
+          const content = payload.message.content
+          const text = Array.isArray(content)
+            ? content.map((b:any) => typeof b?.text === "string" ? b.text : "").join("")
+            : typeof content === "string" ? content : ""
+          if (payload.message.role === "assistant") {
+            send("chat.message", { type: "chat.message", sessionKey, messageId: payload.message.id ?? payload.messageId ?? null, role: payload.message.role, content, text, createdAt: payload.message.createdAt ?? null, model: payload.message.model ?? null, usage: payload.message.usage ?? null, stopReason: payload.message.stopReason ?? null })
+            send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
+          }
+        } else if (message.event === "chat") {
+          if (payload?.sessionKey && payload.sessionKey !== sessionKey) return
+          const state = payload?.state
+          const content = payload?.message?.content
+          const text = Array.isArray(content) ? content.map((b:any) => typeof b?.text === "string" ? b.text : "").join("") : ""
+          if (text) send("chat.message", { type: "chat.message", sessionKey, messageId: payload?.runId ?? null, role: "assistant", content, text, createdAt: null, model: payload?.message?.model ?? null, usage: state === "final" ? payload?.usage ?? null : null, stopReason: state === "final" ? payload?.stopReason ?? null : null })
+          if (state === "final") send("chat.status", { type: "chat.status", sessionKey, state: "done" })
+          if (state === "error") send("chat.status", { type: "chat.status", sessionKey, state: "error" })
+        } else if (message.event === "session.tool" && payload?.data) {
+          send("chat.tool", { type: "chat.tool", sessionKey, ...payload.data })
+        }
+      })
+      req.on("close", () => { off(); gateway?.close() })
+    } catch (error) {
+      send("chat.status", { type: "chat.status", sessionKey, state: "error", label: error instanceof Error ? error.message : "stream_error" })
+      gateway?.close()
+    }
+  })
 
   app.use((req, _res, next) => next(new HttpError(404, `Route not found: ${req.method} ${req.path}`, "NOT_FOUND")))
 
