@@ -124,6 +124,8 @@ type ConnectOptions = {
   caps?: readonly string[]
   client?: GatewayClientIdentity
   origin?: string
+  gatewayUrl?: string
+  token?: string
 }
 
 type GatewayServerInfo = {
@@ -362,11 +364,11 @@ function buildClient(ws: WebSocket, gatewayUrl: string, server?: GatewayServerIn
 
 export async function connectToOpenClawGateway(options: ConnectOptions): Promise<OpenClawGatewayClient> {
   const config = await readGatewayConfig()
-  const token = config.gateway?.auth?.token
+  const token = options.token ?? config.gateway?.auth?.token
   const port = config.gateway?.port ?? 18789
-  const gatewayUrl = config.gateway_url ?? `ws://127.0.0.1:${port}`
+  const gatewayUrl = options.gatewayUrl ?? config.gateway_url ?? `ws://127.0.0.1:${port}`
 
-  if (!token) throw new Error("OpenClaw gateway token is missing from local config")
+  if (!token) throw new Error("OpenClaw gateway token is missing")
 
   const identity = await readDeviceIdentity()
   const client = options.client ?? DEFAULT_CLIENT
