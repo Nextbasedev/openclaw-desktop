@@ -2,6 +2,8 @@ import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { ensureGatewayClient } from "../gateway/client.js"
+import { getDb } from "../db/connection.js"
+import { getAppSetting } from "../db/helpers.js"
 
 type ModelCatalogEntry = {
   id: string
@@ -132,7 +134,9 @@ export async function modelsList() {
       (valueAtJsonPath(
         config,
         "agents.defaults.model.primary",
-      ) as string) ?? null
+      ) as string) ??
+      getAppSetting(getDb(), "onboarding.model.ref") ??
+      null
     return {
       models: res.payload?.models ?? [],
       currentModel,
