@@ -32,6 +32,8 @@ type RawMessage = {
   content?: string | ContentBlock[]
   createdAt?: string
   model?: string
+  usage?: ChatMessage["usage"]
+  stopReason?: string | null
 }
 
 type BranchSummary = {
@@ -465,6 +467,9 @@ export function useChatMessages(
                   text,
                   createdAt: m.createdAt || timestamp,
                   embeds: pendingEmbeds ?? m.embeds,
+                  usage: ev.usage ?? m.usage,
+                  stopReason: ev.stopReason ?? m.stopReason,
+                  model: ev.model ?? m.model,
                   animateText: true,
                 }
               })
@@ -487,6 +492,9 @@ export function useChatMessages(
                         text: longer,
                         createdAt: m.createdAt || timestamp,
                         embeds: pendingEmbeds ?? m.embeds,
+                        usage: ev.usage ?? m.usage,
+                        stopReason: ev.stopReason ?? m.stopReason,
+                        model: ev.model ?? m.model,
                         animateText: true,
                       }
                     : m
@@ -516,6 +524,9 @@ export function useChatMessages(
                           text: longer,
                           createdAt: m.createdAt || timestamp,
                           embeds: pendingEmbeds ?? m.embeds,
+                          usage: ev.usage ?? m.usage,
+                          stopReason: ev.stopReason ?? m.stopReason,
+                          model: ev.model ?? m.model,
                           animateText: true,
                         }
                       : m
@@ -529,6 +540,9 @@ export function useChatMessages(
                         text: merged,
                         createdAt: m.createdAt || timestamp,
                         embeds: pendingEmbeds ?? m.embeds,
+                        usage: ev.usage ?? m.usage,
+                        stopReason: ev.stopReason ?? m.stopReason,
+                        model: ev.model ?? m.model,
                         animateText: true,
                       }
                     : m
@@ -542,6 +556,8 @@ export function useChatMessages(
                   text,
                   createdAt: timestamp,
                   model: ev.model,
+                  usage: ev.usage ?? null,
+                  stopReason: ev.stopReason ?? null,
                   embeds: pendingEmbeds,
                   animateText: true,
                 },
@@ -663,6 +679,8 @@ export function useChatMessages(
                 text: reply ? reply.displayText : text,
                 createdAt: m.createdAt,
                 model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
                 replyTo: reply?.replyTo,
                 gatewayIndex: rawIdx,
               })
@@ -746,6 +764,9 @@ export function useChatMessages(
                   : text
                 lastEntry.messageId = id
                 lastEntry.createdAt = m.createdAt || lastEntry.createdAt
+                lastEntry.model = m.model ?? lastEntry.model
+                lastEntry.usage = m.usage ?? lastEntry.usage
+                lastEntry.stopReason = m.stopReason ?? lastEntry.stopReason
                 if (currentEmbeds)
                   lastEntry.embeds = [
                     ...(lastEntry.embeds ?? []),
@@ -770,6 +791,8 @@ export function useChatMessages(
                 text,
                 createdAt: m.createdAt,
                 model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
                 toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
                 embeds: currentEmbeds,
                 gatewayIndex: rawIdx,
@@ -781,6 +804,8 @@ export function useChatMessages(
                 text: "",
                 createdAt: m.createdAt,
                 model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
                 toolCalls: [...pendingToolCalls],
                 gatewayIndex: rawIdx,
               })
@@ -1190,6 +1215,8 @@ export function useChatMessages(
                 text: assistantMsg.text,
                 createdAt: assistantMsg.createdAt,
                 model: assistantMsg.model,
+                usage: assistantMsg.usage,
+                stopReason: assistantMsg.stopReason,
                 toolCalls: assistantMsg.toolCalls,
               }
             : undefined,
@@ -1272,6 +1299,8 @@ export function useChatMessages(
                 text: assistantMsg.text,
                 createdAt: assistantMsg.createdAt,
                 model: assistantMsg.model,
+                usage: assistantMsg.usage,
+                stopReason: assistantMsg.stopReason,
                 toolCalls: assistantMsg.toolCalls,
               }
             : undefined,
@@ -1306,6 +1335,8 @@ export function useChatMessages(
             text: target.response.text,
             createdAt: target.response.createdAt,
             model: target.response.model,
+            usage: target.response.usage,
+            stopReason: target.response.stopReason,
             toolCalls: target.response.toolCalls,
           })
         }

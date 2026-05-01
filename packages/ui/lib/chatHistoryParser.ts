@@ -60,6 +60,8 @@ export type RawHistoryMessage = {
   content?: string | ContentBlock[]
   createdAt?: string
   model?: string
+  usage?: ChatMessage["usage"]
+  stopReason?: string | null
 }
 
 export type ParsedChatHistory = {
@@ -194,6 +196,8 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           text: reply ? reply.displayText : text,
           createdAt: item.createdAt,
           model: item.model,
+          usage: item.usage,
+          stopReason: item.stopReason,
           replyTo: reply?.replyTo,
         })
       }
@@ -238,6 +242,9 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           last.toolCalls = [...(last.toolCalls ?? []), ...pendingToolCalls]
           last.messageId = messageId(item)
           last.createdAt = item.createdAt ?? last.createdAt
+          last.model = item.model ?? last.model
+          last.usage = item.usage ?? last.usage
+          last.stopReason = item.stopReason ?? last.stopReason
         } else {
           messages.push({
             messageId: messageId(item),
@@ -245,6 +252,8 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             text,
             createdAt: item.createdAt,
             model: item.model,
+            usage: item.usage,
+            stopReason: item.stopReason,
             toolCalls:
               pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
           })
