@@ -167,6 +167,7 @@ export function useProjectsData(
         (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
       )
       setProjects(active)
+      setPinnedProjects(new Set(active.filter((p) => p.pinned).map((p) => p.id)))
     } catch (e) {
       console.error("[ProjectsSection] load projects failed", e)
     }
@@ -215,6 +216,14 @@ export function useProjectsData(
         )
         const active = (result.topics || []).filter((t) => !t.archived)
         setProjectTopics((prev) => ({ ...prev, [projectId]: active }))
+        setPinnedTopics((prev) => {
+          const next = new Set(prev)
+          for (const topic of active) {
+            if (topic.pinned) next.add(topic.id)
+            else next.delete(topic.id)
+          }
+          return next
+        })
         setTopicOrder((prev) => {
           const existing = (prev[projectId] || []).filter((id) =>
             active.some((t) => t.id === id)
@@ -261,15 +270,15 @@ export function useProjectsData(
   const togglePinProject = useCallback((projectId: string) => {
     setPinnedProjects((prev) => {
       const next = new Set(prev)
-      if (next.has(projectId)) {
-        next.delete(projectId)
-      } else {
+      const pinned = !next.has(projectId)
+      if (pinned) {
         next.add(projectId)
-        setProjectOrder((o) => [
-          projectId,
-          ...o.filter((id) => id !== projectId),
-        ])
+        setProjectOrder((o) => [projectId, ...o.filter((id) => id !== projectId)])
+      } else {
+        next.delete(projectId)
       }
+      invoke("middleware_projects_update", { input: { projectId, pinned } })
+        .catch((error) => console.error("pin project failed", error))
       return next
     })
   }, [])
@@ -277,18 +286,18 @@ export function useProjectsData(
   const togglePinTopic = useCallback((topicId: string, projectId: string) => {
     setPinnedTopics((prev) => {
       const next = new Set(prev)
-      if (next.has(topicId)) {
-        next.delete(topicId)
-      } else {
+      const pinned = !next.has(topicId)
+      if (pinned) {
         next.add(topicId)
         setTopicOrder((o) => ({
           ...o,
-          [projectId]: [
-            topicId,
-            ...(o[projectId] || []).filter((id) => id !== topicId),
-          ],
+          [projectId]: [topicId, ...(o[projectId] || []).filter((id) => id !== topicId)],
         }))
+      } else {
+        next.delete(topicId)
       }
+      invoke("middleware_topics_update", { input: { topicId, pinned } })
+        .catch((error) => console.error("pin topic failed", error))
       return next
     })
   }, [])

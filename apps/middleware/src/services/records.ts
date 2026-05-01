@@ -19,7 +19,7 @@ function now() { return new Date().toISOString() }
 export function recordRoutes(store: Store) {
   return {
     topicsList: (projectId: string) => ({ topics: state(store).topics.filter((t) => t.projectId === projectId && !t.deleted) }),
-    topicsCreate: (body: any) => { const s = state(store); const t = { id: id("topic"), projectId: body.projectId, name: body.name || "General", archived: false, unreadCount: 0, sortOrder: 0, createdAt: now(), updatedAt: now() }; s.topics.push(t); save(store,s); return { topic: t } },
+    topicsCreate: (body: any) => { const s = state(store); const t = { id: id("topic"), projectId: body.projectId, name: body.name || "General", archived: false, pinned: Boolean(body.pinned), unreadCount: 0, sortOrder: body.sortOrder ?? 0, createdAt: now(), updatedAt: now() }; s.topics.push(t); save(store,s); return { topic: t } },
     topicsUpdate: (topicId: string, body: any) => { const s = state(store); const t = s.topics.find((x)=>x.id===topicId); if(!t) throw new HttpError(404,"Topic not found","NOT_FOUND"); Object.assign(t, body, { updatedAt: now() }); save(store,s); return { topic: t } },
     topicsDelete: (topicId: string) => { const s = state(store); s.topics = s.topics.filter((t)=>t.id!==topicId); save(store,s); return { ok: true } },
     topicsArchive: (topicId: string, archived = true) => { const s = state(store); const t = s.topics.find((x)=>x.id===topicId); if(!t) throw new HttpError(404,"Topic not found","NOT_FOUND"); t.archived = archived; t.updatedAt = now(); save(store,s); return { ok: true, topicId, archived } },
