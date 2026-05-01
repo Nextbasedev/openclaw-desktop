@@ -115,7 +115,7 @@ export class Store {
 
   createProject(input: { name: string; workspaceRoot: string; repoRoot?: string | null }) {
     const state = this.read(); const now = new Date().toISOString()
-    const project: Project = { id: `proj_${crypto.randomUUID().replace(/-/g, "")}`, name: input.name, workspaceRoot: input.workspaceRoot, repoRoot: input.repoRoot ?? input.workspaceRoot, pinned: false, archived: false, createdAt: now, updatedAt: now }
+    const project: Project = { id: `proj_${crypto.randomUUID().replace(/-/g, "")}`, name: input.name, workspaceRoot: input.workspaceRoot, repoRoot: input.repoRoot ?? null, pinned: false, archived: false, createdAt: now, updatedAt: now }
     state.projects.push(project); this.write(state); return project
   }
 

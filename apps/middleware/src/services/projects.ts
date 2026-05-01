@@ -11,7 +11,7 @@ export function projectRoutes(store: Store) {
       const name = String(body?.name ?? "").trim(); const workspaceRoot = String(body?.workspaceRoot ?? "").trim()
       if (!name) throw new HttpError(400, "Project name is required", "BAD_REQUEST")
       if (!workspaceRoot) throw new HttpError(400, "workspaceRoot is required", "BAD_REQUEST")
-      return { project: store.createProject({ name, workspaceRoot, repoRoot: body?.repoRoot ?? workspaceRoot }) }
+      return { project: store.createProject({ name, workspaceRoot, repoRoot: body?.repoRoot ?? null }) }
     },
     update: (id: string, body: any) => {
       const project = store.updateProject(id, body ?? {})
@@ -24,7 +24,7 @@ export function projectRoutes(store: Store) {
 
 const SKIP = new Set(["node_modules", ".git", "dist", "build", ".cache", "target"])
 function scanDir(dir: string, depth: number, out: Map<string,string>) {
-  if (depth > 3 || out.size > 300) return
+  if (depth > 5 || out.size > 500) return
   let entries: fs.Dirent[] = []
   try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
   for (const e of entries) {
