@@ -1,4 +1,4 @@
-import { randomId } from "@/lib/id"
+import { randomId } from "./id"
 import type {
   ChatMessage,
   ContentBlock,
