@@ -83,10 +83,22 @@ Use this repo/branch:
 https://github.com/Nextbasedev/openclaw-desktop.git
 branch: new-arch
 
-Install and start the Middleware as an auto-restarting service.
+Requirements:
+1. Install or update the Middleware from this repo.
+2. Run it as an auto-restarting service so it survives crashes and reboot.
+3. Confirm the OpenClaw Gateway/runtime is running on this VPS.
+4. Choose the best URL that my Desktop can reach:
+   - If this VPS has a domain with HTTPS, use https://domain.com
+   - If using Tailscale, use the Tailscale MagicDNS name or 100.x.y.z address
+   - If only LAN/private network, use the reachable private IP
+   - If public IP is exposed, use http://PUBLIC_IP:8787 or the configured reverse proxy URL
+5. If using firewall/security group, allow the Middleware port or configure reverse proxy.
+6. Test /health from the chosen URL and make sure openclaw.connected is true.
+
 When finished, give me only:
-Middleware URL: <url>
-Pairing code: <code>`
+Middleware URL: <reachable-url>
+Pairing code: <code>
+Network note: <public domain | tailscale | private ip | public ip | reverse proxy>`
 
 export function ConnectPageView({
   url,
@@ -127,7 +139,7 @@ export function ConnectPageView({
               <div>
                 <p className="text-xl font-semibold tracking-tight text-white">Where is OpenClaw running?</p>
                 <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-                  Choose the machine that already has OpenClaw, then Desktop will pair with it.
+                  Choose where OpenClaw runs. Desktop must be able to reach that machine over your network.
                 </p>
               </div>
             </header>
@@ -328,6 +340,7 @@ function VpsOpenClawPanel(props: {
         title="Ask OpenClaw on your VPS:"
         prompt={VPS_OPENCLAW_PROMPT}
       />
+      <NetworkChecklist />
       <StepBadge step="3" label="Paste the result" />
       <ManualFields
         url={props.url}
@@ -343,6 +356,20 @@ function VpsOpenClawPanel(props: {
       <Button onClick={props.onSave} disabled={props.busy || props.missingConfig} className="w-full">
         {props.saving ? "Pairing..." : "Pair and continue"}
       </Button>
+    </div>
+  )
+}
+
+function NetworkChecklist() {
+  return (
+    <div className="rounded-xl border border-sky-500/15 bg-sky-500/[0.04] p-3">
+      <p className="text-xs font-medium text-sky-200">Which URL should I paste?</p>
+      <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed text-sky-100/65">
+        <li>• Domain/reverse proxy: <span className="text-sky-100">https://your-domain.com</span></li>
+        <li>• Tailscale: MagicDNS name or <span className="text-sky-100">100.x.y.z:8787</span></li>
+        <li>• Same private network: LAN/private IP</li>
+        <li>• Public IP: only if firewall allows it</li>
+      </ul>
     </div>
   )
 }
@@ -414,7 +441,7 @@ function ManualFields({
           id="middleware-url"
           value={url}
           onChange={(event) => onUrlChange(event.target.value)}
-          placeholder="https://your-server.com"
+          placeholder="https://domain.com or http://100.x.y.z:8787"
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
