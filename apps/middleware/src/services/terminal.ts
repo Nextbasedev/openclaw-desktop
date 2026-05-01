@@ -62,9 +62,13 @@ async function spawnAt(cwd: string, body: any) {
   return { terminalId: id, cwd, streamUrl: `/api/terminal/${id}/stream`, websocketUrl: `/api/terminal/${id}/ws` }
 }
 
+export function terminalSpawnWorkspace(body: any) {
+  return spawnAt(process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace"), body)
+}
+
 export function terminalRoutes(store: Store) {
   return {
-    spawnWorkspace: async (body: any) => spawnAt(process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace"), body),
+    spawnWorkspace: terminalSpawnWorkspace,
     spawn: async (projectId: string, body: any) => {
       const p = store.getProject(projectId)
       if (!p) throw new HttpError(404, "Project not found", "NOT_FOUND")

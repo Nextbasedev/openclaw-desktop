@@ -159,8 +159,14 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_pty_spawn": {
       const projectId = localStorage.getItem("openclaw.activeProjectId")
       const endpoint = projectId ? `/api/projects/${projectId}/terminal/spawn` : "/api/terminal/spawn"
-      const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(endpoint, { method: "POST", body: JSON.stringify(input) })
-      return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
+      try {
+        const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(endpoint, { method: "POST", body: JSON.stringify(input) })
+        return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
+      } catch (error) {
+        if (projectId || !(error instanceof Error) || !error.message.includes("Route not found")) throw error
+        const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>("/api/commands/middleware_pty_spawn_workspace", { method: "POST", body: JSON.stringify({ input }) })
+        return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
+      }
     }
     case "middleware_pty_write":
       return middlewareFetch<T>(`/api/terminal/${input.ptyId}/write`, { method: "POST", body: JSON.stringify(input) })
