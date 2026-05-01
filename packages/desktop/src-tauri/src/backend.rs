@@ -25,14 +25,14 @@ use windows::Win32::{
   },
 };
 
-const SERVER_PORT: u16 = 4000;
+const SERVER_PORT: u16 = 8787;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 const HEALTHCHECK_TIMEOUT: Duration = Duration::from_millis(500);
 #[cfg(debug_assertions)]
 const EXISTING_BACKEND_WAIT: Duration = Duration::from_secs(30);
 #[cfg(not(debug_assertions))]
 const EXISTING_BACKEND_WAIT: Duration = Duration::from_secs(1);
-const BACKEND_LOG_NAME: &str = "backend.log";
+const BACKEND_LOG_NAME: &str = "middleware.log";
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -40,6 +40,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[derive(Default)]
 pub struct BackendState {
   child: Mutex<Option<Child>>,
+  monitor_started: Mutex<bool>,
   #[cfg(target_os = "windows")]
   job: Mutex<Option<WindowsJobObject>>,
 }
@@ -68,14 +69,16 @@ pub fn ensure_backend(app: &AppHandle) -> Result<(), String> {
   let log_path = resolve_log_path(app);
 
   if wait_for_existing_backend(EXISTING_BACKEND_WAIT, &log_path) {
-    append_backend_log(&log_path, "Detected backend already listening on :4000");
+    append_backend_log(&log_path, "Detected middleware already listening on :8787");
+    #[cfg(not(debug_assertions))]
+    start_backend_monitor(app.clone(), log_path.clone());
     return Ok(());
   }
 
   #[cfg(debug_assertions)]
   {
     let message = format!(
-      "No backend on http://127.0.0.1:{SERVER_PORT} after {}s. In dev, the backend is started by `pnpm dev:web` (the Tauri beforeDevCommand). Check that script's output.",
+      "No middleware on http://127.0.0.1:{SERVER_PORT} after {}s. In dev, Middleware is started by `pnpm dev:local` (the Tauri beforeDevCommand). Check that script's output.",
       EXISTING_BACKEND_WAIT.as_secs()
     );
     append_backend_log(&log_path, &message);
@@ -84,7 +87,9 @@ pub fn ensure_backend(app: &AppHandle) -> Result<(), String> {
 
   #[cfg(not(debug_assertions))]
   {
-    spawn_bundled_backend(app, &log_path)
+    spawn_bundled_backend(app, &log_path)?;
+    start_backend_monitor(app.clone(), log_path.clone());
+    Ok(())
   }
 }
 
@@ -92,7 +97,7 @@ pub fn ensure_backend(app: &AppHandle) -> Result<(), String> {
 fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String> {
   append_backend_log(
     log_path,
-    "Backend healthcheck failed, attempting bundled startup",
+    "Middleware healthcheck failed, attempting bundled startup",
   );
 
   let server_dir = resolve_server_dir(app, log_path)?;
@@ -101,7 +106,7 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
 
   append_backend_log(
     &log_path,
-    &format!("Using bundled server directory {}", server_dir.display()),
+    &format!("Using bundled middleware directory {}", server_dir.display()),
   );
 
   if !node_path.exists() {
@@ -114,7 +119,7 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
 
   if !entry_path.exists() {
     return Err(format!(
-      "Bundled backend entrypoint not found at {}. See {}",
+      "Bundled middleware entrypoint not found at {}. See {}",
       entry_path.display(),
       log_path.display()
     ));
@@ -128,7 +133,8 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
     .arg(&entry_path)
     .current_dir(&server_dir)
     .env("NODE_ENV", "production")
-    .env("JARVIS_SERVER_PORT", SERVER_PORT.to_string())
+    .env("PORT", SERVER_PORT.to_string())
+    .env("HOST", "127.0.0.1")
     .stdin(Stdio::null())
     .stdout(stdout)
     .stderr(stderr);
@@ -138,20 +144,20 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
 
   let mut child = command
     .spawn()
-    .map_err(|err| format!("Failed to start bundled backend: {err}"))?;
+    .map_err(|err| format!("Failed to start bundled middleware: {err}"))?;
 
   #[cfg(target_os = "windows")]
   let job = create_kill_on_close_job_object(&mut child, &log_path)?;
 
   append_backend_log(
     &log_path,
-    &format!("Spawned bundled backend process with pid {}", child.id()),
+    &format!("Spawned bundled middleware process with pid {}", child.id()),
   );
 
   if let Err(err) = wait_for_backend(&mut child, &log_path) {
     let _ = child.kill();
     let _ = child.wait();
-    append_backend_log(&log_path, &format!("Backend startup failed: {err}"));
+    append_backend_log(&log_path, &format!("Middleware startup failed: {err}"));
     return Err(err);
   }
 
@@ -165,9 +171,50 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
     *job_guard = Some(job);
   }
 
-  append_backend_log(&log_path, "Bundled backend reported healthy");
+  append_backend_log(&log_path, "Bundled middleware reported healthy");
 
   Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+fn start_backend_monitor(app: AppHandle, log_path: PathBuf) {
+  {
+    let state = app.state::<BackendState>();
+    let mut started = state.inner().monitor_started.lock().unwrap();
+    if *started {
+      return;
+    }
+    *started = true;
+  }
+
+  thread::spawn(move || loop {
+    thread::sleep(Duration::from_secs(5));
+    if is_backend_healthy() {
+      continue;
+    }
+
+    append_backend_log(&log_path, "Middleware healthcheck failed in monitor; restarting bundled middleware");
+
+    {
+      let state = app.state::<BackendState>();
+      let mut guard = state.inner().child.lock().unwrap();
+      if let Some(child) = guard.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+      }
+      *guard = None;
+
+      #[cfg(target_os = "windows")]
+      {
+        let mut job_guard = state.inner().job.lock().unwrap();
+        *job_guard = None;
+      }
+    }
+
+    if let Err(err) = spawn_bundled_backend(&app, &log_path) {
+      append_backend_log(&log_path, &format!("Bundled middleware restart failed: {err}"));
+    }
+  });
 }
 
 pub fn stop_backend(app: &AppHandle) {
@@ -178,7 +225,7 @@ pub fn stop_backend(app: &AppHandle) {
   if let Some(child) = guard.as_mut() {
     append_backend_log(
       &log_path,
-      &format!("Stopping bundled backend process {}", child.id()),
+      &format!("Stopping bundled middleware process {}", child.id()),
     );
     let _ = child.kill();
     let _ = child.wait();
@@ -210,7 +257,7 @@ fn wait_for_existing_backend(timeout: Duration, log_path: &Path) -> bool {
       append_backend_log(
         log_path,
         &format!(
-          "Waiting up to {}s for backend on :{}",
+          "Waiting up to {}s for middleware on :{}",
           timeout.as_secs(),
           SERVER_PORT
         ),
@@ -234,14 +281,14 @@ fn wait_for_backend(child: &mut Child, log_path: &Path) -> Result<(), String> {
     match child.try_wait() {
       Ok(Some(status)) => {
         return Err(format!(
-          "Bundled backend exited early with status {status}. See {}",
+          "Bundled middleware exited early with status {status}. See {}",
           log_path.display()
         ));
       }
       Ok(None) => {}
       Err(err) => {
         return Err(format!(
-          "Failed to inspect bundled backend status: {err}. See {}",
+          "Failed to inspect bundled middleware status: {err}. See {}",
           log_path.display()
         ));
       }
@@ -251,7 +298,7 @@ fn wait_for_backend(child: &mut Child, log_path: &Path) -> Result<(), String> {
   }
 
   Err(format!(
-    "Bundled backend did not become healthy on http://127.0.0.1:{SERVER_PORT}. See {}",
+    "Bundled middleware did not become healthy on http://127.0.0.1:{SERVER_PORT}. See {}",
     log_path.display()
   ))
 }
@@ -261,27 +308,27 @@ fn resolve_server_dir(app: &AppHandle, log_path: &Path) -> Result<PathBuf, Strin
 
   if let Ok(resource_dir) = app.path().resource_dir() {
     let resource_dir = normalize_path(resource_dir);
-    candidates.push(resource_dir.join("bundled").join("server"));
-    candidates.push(resource_dir.join("server"));
+    candidates.push(resource_dir.join("bundled").join("middleware"));
+    candidates.push(resource_dir.join("middleware"));
   }
 
   if let Ok(executable_dir) = app.path().executable_dir() {
     let executable_dir = normalize_path(executable_dir);
-    candidates.push(executable_dir.join("bundled").join("server"));
-    candidates.push(executable_dir.join("resources").join("bundled").join("server"));
+    candidates.push(executable_dir.join("bundled").join("middleware"));
+    candidates.push(executable_dir.join("resources").join("bundled").join("middleware"));
     candidates.push(
       executable_dir
         .join("..")
         .join("Resources")
         .join("bundled")
-        .join("server"),
+        .join("middleware"),
     );
   }
 
   for candidate in &candidates {
     append_backend_log(
       log_path,
-      &format!("Checking bundled server candidate {}", candidate.display()),
+      &format!("Checking bundled middleware candidate {}", candidate.display()),
     );
 
     if candidate.exists() {
@@ -290,7 +337,7 @@ fn resolve_server_dir(app: &AppHandle, log_path: &Path) -> Result<PathBuf, Strin
   }
 
   Err(format!(
-    "Unable to locate the bundled backend resources. Checked {}. See {}",
+    "Unable to locate the bundled middleware resources. Checked {}. See {}",
     candidates
       .iter()
       .map(|candidate| candidate.display().to_string())
@@ -374,7 +421,7 @@ fn create_kill_on_close_job_object(
 
     append_backend_log(
       log_path,
-      &format!("Attached bundled backend process {} to Windows job object", child.id()),
+      &format!("Attached bundled middleware process {} to Windows job object", child.id()),
     );
 
     Ok(WindowsJobObject { handle: job })
