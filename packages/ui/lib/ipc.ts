@@ -126,8 +126,8 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_pty_spawn": {
       const projectId = localStorage.getItem("openclaw.activeProjectId")
       if (!projectId) return null
-      const result = await middlewareFetch<{ terminalId: string; cwd: string }>(`/api/projects/${projectId}/terminal/spawn`, { method: "POST", body: JSON.stringify(input) })
-      return { ptyId: result.terminalId, cwd: result.cwd } as T
+      const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(`/api/projects/${projectId}/terminal/spawn`, { method: "POST", body: JSON.stringify(input) })
+      return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
     }
     case "middleware_pty_write":
       return middlewareFetch<T>(`/api/terminal/${input.ptyId}/write`, { method: "POST", body: JSON.stringify(input) })
