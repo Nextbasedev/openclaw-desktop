@@ -4,14 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuSearch, LuX, LuFolderGit2 } from "react-icons/lu"
+import { LuSearch, LuX, LuFolderGit2, LuRefreshCw } from "react-icons/lu"
 
-type WorkspaceProject = {
-  id: string
+type RepoItem = {
   name: string
-  workspaceRoot: string
-  repoRoot: string | null
-  pinned: boolean
+  path: string
+  pinned?: boolean
 }
 
 type Props = {
@@ -21,49 +19,29 @@ type Props = {
 }
 
 export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
-  const [projects, setProjects] = useState<WorkspaceProject[]>([])
+  const [repos, setRepos] = useState<RepoItem[]>([])
   const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState("")
+  const [error, setError] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
-      const res = await invoke<{
-        projects: Array<{
-          id: string
-          name: string
-          workspaceRoot: string
-          repoRoot: string | null
-          pinned: boolean
-        }>
-      }>("middleware_projects_list", { input: {} })
-
-      const all = res.projects ?? []
-      const gitProjects = await Promise.all(
-        all.map(async (p) => {
-          const root = p.repoRoot ?? p.workspaceRoot
-          try {
-            const dir = await invoke<{
-              entries: Array<{ name: string; isDir?: boolean }>
-            }>("middleware_fs_read_dir", { path: root })
-            const hasGit = dir.entries.some(
-              (e) =>
-                (e.name === ".git" || e.name === ".github") && e.isDir,
-            )
-            return hasGit ? p : null
-          } catch {
-            return null
-          }
-        }),
-      )
-      setProjects(
-        gitProjects.filter(
-          (p): p is WorkspaceProject => p !== null,
-        ),
-      )
-    } catch {
-      setProjects([])
+      const [scan, recent] = await Promise.all([
+        invoke<{ repos: RepoItem[] }>("middleware_repos_scan", { input: {} }).catch(() => ({ repos: [] })),
+        invoke<{ repos: RepoItem[] }>("middleware_repos_recent", { input: {} }).catch(() => ({ repos: [] })),
+      ])
+      const byPath = new Map<string, RepoItem>()
+      for (const repo of [...(recent.repos ?? []), ...(scan.repos ?? [])]) {
+        if (!repo.path) continue
+        byPath.set(repo.path, { name: repo.name || repo.path.split(/[\\/]/).pop() || repo.path, path: repo.path, pinned: repo.pinned })
+      }
+      setRepos([...byPath.values()].sort((a, b) => a.name.localeCompare(b.name)))
+    } catch (err) {
+      setRepos([])
+      setError(err instanceof Error ? err.message : "Could not scan repositories")
     } finally {
       setLoading(false)
     }
@@ -72,7 +50,7 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
   useEffect(() => {
     if (open) {
       setQuery("")
-      setProjects([])
+      setRepos([])
       load()
       setTimeout(() => searchRef.current?.focus(), 50)
     }
@@ -90,15 +68,9 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
   if (!open) return null
 
   const q = query.toLowerCase().trim()
-  const filtered = projects.filter(
-    (p) =>
-      !q ||
-      p.name.toLowerCase().includes(q) ||
-      p.workspaceRoot.toLowerCase().includes(q),
+  const filtered = repos.filter(
+    (repo) => !q || repo.name.toLowerCase().includes(q) || repo.path.toLowerCase().includes(q),
   )
-
-  const pinned = filtered.filter((p) => p.pinned)
-  const unpinned = filtered.filter((p) => !p.pinned)
 
   return createPortal(
     <div className="glass-overlay" onClick={onClose}>
@@ -112,33 +84,38 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
       >
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-foreground">
-              Select Project
-            </h2>
+            <h2 className="text-[15px] font-semibold text-foreground">Select Repository</h2>
             <p className="mt-0.5 text-[11px] text-muted-foreground/60">
-              Choose a project from your workspace
+              Optional — choose a repo, or close this to create a plain workspace project.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="cursor-pointer rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
-          >
-            <LuX size={15} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={load}
+              className="cursor-pointer rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+              title="Rescan repositories"
+            >
+              <LuRefreshCw size={15} className={loading ? "animate-spin" : undefined} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="cursor-pointer rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+            >
+              <LuX size={15} />
+            </button>
+          </div>
         </div>
 
         <div className="px-5 pb-3">
           <div className="relative">
-            <LuSearch
-              size={14}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
+            <LuSearch size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search projects..."
+              placeholder="Search repositories..."
               className={cn(
                 "h-9 w-full rounded-lg border border-border/50 bg-secondary/30 pl-9 pr-3",
                 "text-[13px] text-foreground outline-none",
@@ -152,50 +129,22 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
           {loading ? (
             <div className="flex flex-col items-center gap-2 py-10">
               <div className="size-5 animate-spin rounded-full border-2 border-border/30 border-t-foreground/50" />
-              <p className="text-[11px] text-muted-foreground">
-                Loading projects...
-              </p>
+              <p className="text-[11px] text-muted-foreground">Scanning repositories...</p>
             </div>
+          ) : filtered.length > 0 ? (
+            <Section label="Repositories" icon={LuFolderGit2}>
+              {filtered.map((repo) => (
+                <RepoRow key={repo.path} repo={repo} onSelect={onSelect} />
+              ))}
+            </Section>
           ) : (
-            <>
-              {pinned.length > 0 && (
-                <Section label="Pinned" icon={LuFolderGit2}>
-                  {pinned.map((p) => (
-                    <ProjectRow
-                      key={p.id}
-                      project={p}
-                      onSelect={onSelect}
-                    />
-                  ))}
-                </Section>
-              )}
-
-              {unpinned.length > 0 && (
-                <Section label="Projects" icon={LuFolderGit2}>
-                  {unpinned.map((p) => (
-                    <ProjectRow
-                      key={p.id}
-                      project={p}
-                      onSelect={onSelect}
-                    />
-                  ))}
-                </Section>
-              )}
-
-              {filtered.length === 0 && (
-                <div className="flex flex-col items-center gap-2 py-10">
-                  <LuFolderGit2
-                    size={20}
-                    className="text-muted-foreground/30"
-                  />
-                  <p className="text-[12px] text-muted-foreground">
-                    {q
-                      ? "No matching projects."
-                      : "No projects in workspace."}
-                  </p>
-                </div>
-              )}
-            </>
+            <div className="flex flex-col items-center gap-2 py-10">
+              <LuFolderGit2 size={20} className="text-muted-foreground/30" />
+              <p className="text-[12px] text-muted-foreground">
+                {q ? "No matching repositories." : "No repositories found."}
+              </p>
+              {error && <p className="max-w-[320px] text-center text-[11px] text-red-400">{error}</p>}
+            </div>
           )}
         </div>
       </div>
@@ -204,56 +153,31 @@ export function RepoPickerDialog({ open, onClose, onSelect }: Props) {
   )
 }
 
-function Section({
-  label,
-  icon: Icon,
-  children,
-}: {
-  label: string
-  icon: React.ElementType
-  children: React.ReactNode
-}) {
+function Section({ label, icon: Icon, children }: { label: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="mb-2">
       <div className="flex items-center gap-1.5 px-3 py-1.5">
         <Icon size={11} className="text-muted-foreground/40" />
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-          {label}
-        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">{label}</span>
       </div>
       {children}
     </div>
   )
 }
 
-function ProjectRow({
-  project,
-  onSelect,
-}: {
-  project: WorkspaceProject
-  onSelect: (r: { name: string; path: string }) => void
-}) {
-  const path = project.repoRoot ?? project.workspaceRoot
-
+function RepoRow({ repo, onSelect }: { repo: RepoItem; onSelect: (r: { name: string; path: string }) => void }) {
   return (
     <button
       type="button"
-      onClick={() => onSelect({ name: project.name, path })}
-      className={cn(
-        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left",
-        "transition-colors hover:bg-secondary/40",
-      )}
+      onClick={() => onSelect({ name: repo.name, path: repo.path })}
+      className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left", "transition-colors hover:bg-secondary/40")}
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary/40">
         <LuFolderGit2 size={14} className="text-muted-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[13px] font-medium text-foreground/90">
-          {project.name}
-        </span>
-        <span className="truncate text-[11px] text-muted-foreground/50">
-          {path}
-        </span>
+        <span className="truncate text-[13px] font-medium text-foreground/90">{repo.name}</span>
+        <span className="truncate text-[11px] text-muted-foreground/50">{repo.path}</span>
       </div>
     </button>
   )

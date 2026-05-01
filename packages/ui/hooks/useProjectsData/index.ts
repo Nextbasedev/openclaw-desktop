@@ -140,6 +140,7 @@ export function useProjectsData(
   const handleRepoSelect = useCallback(
     async (repo: { name: string; path: string }) => {
       setNewProjectPath(repo.path)
+      if (!newProjectName.trim()) setNewProjectName(repo.name)
       setRepoPickerOpen(false)
       try {
         await invoke("middleware_repos_select", {
@@ -147,7 +148,7 @@ export function useProjectsData(
         })
       } catch {}
     },
-    []
+    [newProjectName]
   )
 
   const loadProjects = useCallback(async () => {
@@ -316,11 +317,15 @@ export function useProjectsData(
     setProjectError("")
     try {
       let profileId = "prof_local_main"
+      let workspaceRoot = "~"
       try {
-        const r = await invoke<{ profiles: Array<{ id: string }> }>(
+        const r = await invoke<{ profiles: Array<{ id: string; workspaceRoot?: string }> }>(
           "middleware_profiles_list"
         )
-        if (r?.profiles?.length > 0) profileId = r.profiles[0].id
+        if (r?.profiles?.length > 0) {
+          profileId = r.profiles[0].id
+          workspaceRoot = r.profiles[0].workspaceRoot || workspaceRoot
+        }
       } catch {}
 
       const result = await invoke<{ project: { id: string; name: string } }>(
@@ -329,8 +334,8 @@ export function useProjectsData(
           input: {
             name: newProjectName.trim(),
             profileId,
-            workspaceRoot: newProjectPath || "~",
-            repoRoot: newProjectPath || "~",
+            workspaceRoot: newProjectPath || workspaceRoot,
+            repoRoot: newProjectPath || null,
           },
         }
       )

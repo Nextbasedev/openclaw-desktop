@@ -38,15 +38,16 @@ export function ProjectDialogs({ dialog, actions }: Props) {
             <input ref={projectNameRef} className="glass-input" placeholder="My Project" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleCreateProject()} />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[12px] font-medium text-muted-foreground">Repository</label>
+            <label className="text-[12px] font-medium text-muted-foreground">Repository <span className="text-muted-foreground/40">(optional)</span></label>
             <button type="button" onClick={() => setRepoPickerOpen(true)} className="glass-input text-left truncate">
               {dialog.newProjectPath ? (
                 <span className="text-foreground">{dialog.newProjectPath}</span>
               ) : (
-                <span className="text-muted-foreground/50">Pick a repository...</span>
+                <span className="text-muted-foreground/50">Optional: pick a repository...</span>
               )}
             </button>
           </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground/55">Leave repository empty to use the OpenClaw workspace root.</p>
           {projectError && <p className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2 text-[12px] text-red-400">{projectError}</p>}
           <div className="mt-1 flex gap-2.5">
             <button onClick={() => setCreateProjectOpen(false)} className="glass-btn-secondary flex-1">Cancel</button>
