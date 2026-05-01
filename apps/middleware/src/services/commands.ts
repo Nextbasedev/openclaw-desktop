@@ -222,8 +222,14 @@ export function commandRoutes(store: Store) {
         case "middleware_cron_job_conversation": return { messages: [] }
         case "middleware_cron_reset_fixtures": s.commandState.cronJobs = []; s.commandState.cronRuns = []; save(store,s); return ok()
 
-        case "middleware_skills_installed_local": return { skills: scanSkills() }
-        case "middleware_skills_discover": return { skills: scanSkills() }
+        case "middleware_skills_installed_local": {
+          const skills = scanSkills()
+          return { query: input.query ?? null, sort: input.sort ?? "name", results: skills, skills, warnings: [], sources: ["local"], nextCursor: null }
+        }
+        case "middleware_skills_discover": {
+          const skills = scanSkills()
+          return { query: input.query ?? null, sort: input.sort ?? "name", results: skills, skills, warnings: [], sources: ["local"], nextCursor: null }
+        }
         case "middleware_skills_detail": {
           const slug = input.slug || input.skillId
           const found = scanSkills().find(skill => skill.slug === slug || skill.id === slug || skill.name === slug)
