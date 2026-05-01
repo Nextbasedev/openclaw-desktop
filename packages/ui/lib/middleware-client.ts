@@ -12,7 +12,20 @@ export type MiddlewareHealth = {
   version: string
   host?: string
   openclaw?: { gatewayUrl?: string; connected?: boolean }
+  pairing?: { enabled?: boolean }
 }
+
+export type MiddlewarePairingResult = MiddlewareConnection & {
+  ok: boolean
+  mode?: "local" | "remote"
+}
+
+const LOCAL_MIDDLEWARE_URLS = [
+  "http://127.0.0.1:8787",
+  "http://localhost:8787",
+  "http://127.0.0.1:8788",
+  "http://127.0.0.1:8799",
+]
 
 function trimTrailingSlash(value: string) {
   return value.trim().replace(/\/+$/, "")
@@ -65,4 +78,35 @@ export async function testMiddlewareConnection(input: MiddlewareConnection): Pro
   const health = await healthRes.json() as MiddlewareHealth
   await middlewareFetch("/api/version", {}, { url, token: input.token.trim() })
   return health
+}
+
+export async function claimMiddlewarePairing(input: { url: string; code: string }): Promise<MiddlewarePairingResult> {
+  const url = trimTrailingSlash(input.url)
+  const response = await fetch(`${url}/pairing/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: input.code.trim() }),
+  })
+  const text = await response.text()
+  const body = text ? JSON.parse(text) : null
+  if (!response.ok) throw new Error(body?.error?.message ?? `Pairing failed (${response.status})`)
+  return { ok: true, url: trimTrailingSlash(body.url || url), token: String(body.token ?? ""), mode: body.mode }
+}
+
+export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promise<MiddlewarePairingResult | null> {
+  for (const rawUrl of urls) {
+    const url = trimTrailingSlash(rawUrl)
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 800)
+      const health = await fetch(`${url}/health`, { signal: controller.signal, headers: { "Cache-Control": "no-cache" } })
+      clearTimeout(timeout)
+      if (!health.ok) continue
+      const pair = await fetch(`${url}/pairing/local`, { signal: controller.signal })
+      if (!pair.ok) continue
+      const body = await pair.json()
+      if (body?.token) return { ok: true, url: trimTrailingSlash(body.url || url), token: String(body.token), mode: "local" }
+    } catch {}
+  }
+  return null
 }

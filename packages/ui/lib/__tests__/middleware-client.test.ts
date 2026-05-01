@@ -4,6 +4,8 @@ import {
   getMiddlewareConnection,
   saveMiddlewareConnection,
   testMiddlewareConnection,
+  claimMiddlewarePairing,
+  detectLocalMiddleware,
 } from "../middleware-client"
 
 function mockStorage() {
@@ -58,5 +60,24 @@ describe("middleware onboarding client", () => {
     }))
 
     await expect(testMiddlewareConnection({ url: "http://server:8787", token: "bad" })).rejects.toThrow("Invalid token")
+  })
+
+  it("detects local middleware without asking for a token", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0" }), { status: 200 })
+      if (url.endsWith("/pairing/local")) return new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:8787", token: "local-token" }), { status: 200 })
+      return new Response("not found", { status: 404 })
+    }))
+
+    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "local-token", mode: "local" })
+  })
+
+  it("claims remote pairing code and receives token", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/pairing/claim")) return new Response(JSON.stringify({ ok: true, url: "https://server.test", token: "server-token", mode: "remote" }), { status: 200 })
+      return new Response("not found", { status: 404 })
+    }))
+
+    await expect(claimMiddlewarePairing({ url: "https://server.test/", code: "ABC-123" })).resolves.toEqual({ ok: true, url: "https://server.test", token: "server-token", mode: "remote" })
   })
 })
