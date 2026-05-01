@@ -140,7 +140,13 @@ export default function ConnectPage() {
       onUrlChange={(value) => { setUrl(value); setError(null); setConnectResult(null) }}
       onTokenChange={(value) => { setToken(value); setError(null); setConnectResult(null) }}
       onShowTokenChange={setShowToken}
-      onSetupModeChange={setSetupMode}
+      onSetupModeChange={(mode) => {
+        setSetupMode(mode)
+        setDetectMessage(null)
+        setError(null)
+        setConnectResult(null)
+        if (mode === "local" && !url.trim()) setUrl("http://127.0.0.1:8787")
+      }}
       onAutoDetectChange={() => setDetectMessage({ ok: false, text: "Auto-detect is replaced by Middleware URL in new architecture." })}
       onTest={handleTest}
       onSave={handleSave}

@@ -176,10 +176,11 @@ export function ConnectPageView({
               size={15}
               className="shrink-0"
             />
-            Connected to{" "}
+            Connected successfully. OpenClaw Desktop is now connected to{" "}
             <span className="font-medium">
               {connectResult.url}
             </span>
+            . Projects, terminal, git, chats, and workspace files will run there.
           </div>
         )}
 
@@ -216,18 +217,18 @@ function LeftPanel({
         </div>
         <div>
           <p className="text-sm font-semibold text-white">
-            OpenClaw
+            OpenClaw Desktop
           </p>
-          <p className="text-[11px] text-zinc-500">Desktop</p>
+          <p className="text-[11px] text-zinc-500">AI workspace</p>
         </div>
       </div>
 
       <div>
         <h1 className="text-lg font-semibold tracking-tight text-white">
-          Connect to Middleware
+          Where should your AI workspace run?
         </h1>
         <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-500">
-          Connect Desktop to your Node.js Middleware service.
+          Choose this computer for a private local workspace, or connect a server for always-on remote agents.
         </p>
       </div>
 
@@ -328,7 +329,7 @@ function RightPanel({
     <div className="flex flex-col p-8">
       <div className="mb-5 flex items-center justify-between">
         <h2 className="text-sm font-medium">
-          Middleware Settings
+          Welcome to OpenClaw Desktop
         </h2>
       </div>
 
@@ -458,7 +459,7 @@ function RightPanel({
                 icon={ElectricPlugsIcon}
                 size={15}
               />
-              {testing ? "Testing..." : "Test"}
+              {testing ? "Testing..." : "Test connection"}
             </Button>
             <Button
               onClick={onSave}
@@ -470,7 +471,7 @@ function RightPanel({
                 icon={FloppyDiskIcon}
                 size={15}
               />
-              {saving ? "Connecting..." : "Connect"}
+              {saving ? "Connecting..." : "Continue"}
             </Button>
           </div>
         )}
@@ -504,8 +505,11 @@ function SetupModeChooser({
       >
         <p className="text-[13px] font-medium">Use this computer</p>
         <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-          Start local middleware and run git, files, and terminal here.
+          Best for local development, private files, and quick setup. OpenClaw uses projects, terminal, git, and files on this machine.
         </p>
+        <span className="mt-3 inline-flex rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
+          Set up locally
+        </span>
       </button>
       <button
         type="button"
@@ -519,10 +523,13 @@ function SetupModeChooser({
           disabled && "cursor-not-allowed opacity-60",
         )}
       >
-        <p className="text-[13px] font-medium">Connect to VPS</p>
+        <p className="text-[13px] font-medium">Connect to a remote server</p>
         <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-          Paste a middleware URL from your remote server.
+          Best for VPS, cloud workspaces, always-on agents, or shared environments. Your server runs terminal, git, files, and chats.
         </p>
+        <span className="mt-3 inline-flex rounded-md bg-sky-500/10 px-2 py-1 text-[11px] font-medium text-sky-300">
+          Connect server
+        </span>
       </button>
     </div>
   )
@@ -539,31 +546,48 @@ function InstallCommandPanel({
   detectMessage: DetectMessage | null
   onAction: () => void
 }) {
-  const command =
-    mode === "local"
-      ? "pnpm dev:local"
-      : "curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/new-arch/apps/middleware/scripts/install.sh | bash"
+  const isLocal = mode === "local"
+  const command = isLocal
+    ? "pnpm dev:local"
+    : "curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/new-arch/apps/middleware/scripts/install.sh | bash"
 
   return (
-    <div className="space-y-2 rounded-lg border border-border/50 bg-white/[0.02] px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <p className="text-[13px] font-medium text-zinc-200">
-            {mode === "local" ? "Local setup" : "Remote VPS setup"}
-          </p>
-          <p className="text-[11px] text-zinc-500">
-            {mode === "local"
-              ? "Run the local stack, then use http://127.0.0.1:8787 as Middleware URL."
-              : "Run this on the VPS. It prints the Middleware URL and token."}
-          </p>
-        </div>
-        <Button type="button" variant="outline" size="sm" onClick={onAction}>
-          Help
-        </Button>
+    <div className="space-y-3 rounded-lg border border-border/50 bg-white/[0.02] px-4 py-3">
+      <div className="space-y-1">
+        <p className="text-[13px] font-medium text-zinc-200">
+          {isLocal ? "Set up locally" : "Connect your server"}
+        </p>
+        <p className="text-[11px] leading-relaxed text-zinc-500">
+          {isLocal
+            ? "We’ll connect this app to a local OpenClaw Middleware running on your computer. This gives OpenClaw access to local projects, git changes, terminal, workspace files, and chat sessions."
+            : "Install OpenClaw Middleware on your VPS or remote machine, then paste the connection details here. Your server will handle terminal commands, git operations, workspace files, AI chat sessions, and background agents."}
+        </p>
       </div>
-      <code className="block overflow-x-auto rounded-md bg-black/30 px-3 py-2 text-[11px] text-zinc-300">
-        {command}
-      </code>
+
+      <div className="rounded-md border border-white/5 bg-black/20 px-3 py-2 text-[11px] text-zinc-400">
+        {isLocal ? (
+          <p>
+            Local Middleware usually runs at <span className="text-zinc-200">http://127.0.0.1:8787</span>. If it is not running yet, start it from your development environment.
+          </p>
+        ) : (
+          <p>
+            Need to install Middleware? Open your server terminal and run the installer from the OpenClaw docs. After installation, it will show your Middleware URL and access token.
+          </p>
+        )}
+      </div>
+
+      <details className="group rounded-md border border-white/5 bg-black/20 px-3 py-2">
+        <summary className="cursor-pointer select-none text-[11px] font-medium text-zinc-300 transition-colors hover:text-white">
+          Advanced install command
+        </summary>
+        <code className="mt-2 block overflow-x-auto rounded bg-black/30 px-2 py-2 text-[11px] text-zinc-400">
+          {command}
+        </code>
+      </details>
+
+      <Button type="button" variant="ghost" size="sm" onClick={onAction} className="h-7 px-2 text-[11px] text-zinc-400 hover:text-zinc-100">
+        Show setup hint
+      </Button>
 
       {detecting && (
         <div className="flex items-center gap-2 text-[11px] text-zinc-400">
