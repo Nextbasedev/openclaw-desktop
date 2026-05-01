@@ -86,7 +86,9 @@ async function main() {
   assert(typeof (await req('/api/commands/middleware_connect_status', { method: 'POST', body: JSON.stringify({ input: {} }) })) === 'object', 'connect status')
   assert((await req('/api/commands/middleware_memory_write', { method: 'POST', body: JSON.stringify({ input: { path: 'memory/api-test.md', content: 'MEMORY_SQLITE_OK' } }) })).ok, 'memory write')
   assert((await req('/api/commands/middleware_memory_read', { method: 'POST', body: JSON.stringify({ input: { path: 'memory/api-test.md' } }) })).content.includes('MEMORY_SQLITE_OK'), 'memory read')
-  assert(Array.isArray((await req('/api/commands/middleware_skills_installed_local', { method: 'POST', body: JSON.stringify({ input: {} }) })).skills), 'skills local')
+  const skillsResponse = await req('/api/commands/middleware_skills_installed_local', { method: 'POST', body: JSON.stringify({ input: {} }) })
+  assert(Array.isArray(skillsResponse.skills), 'skills local legacy shape')
+  assert(Array.isArray(skillsResponse.results), 'skills local ui results shape')
 
   await req(`/api/chats/${chat.id}`, { method: 'DELETE' })
   await req(`/api/topics/${topic.id}`, { method: 'DELETE' })

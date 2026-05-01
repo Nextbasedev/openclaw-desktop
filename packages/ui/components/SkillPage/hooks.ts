@@ -10,6 +10,24 @@ import type {
   SkillVersionsResponse,
 } from "./types"
 
+function normalizeSkillDiscoverResponse(response: SkillDiscoverResponse | { skills?: DiscoveredSkill[] }): SkillDiscoverResponse {
+  const legacySkills = (response as { skills?: DiscoveredSkill[] }).skills
+  const results = Array.isArray((response as SkillDiscoverResponse).results)
+    ? (response as SkillDiscoverResponse).results
+    : Array.isArray(legacySkills)
+      ? legacySkills
+      : []
+
+  return {
+    query: (response as SkillDiscoverResponse).query ?? null,
+    sort: (response as SkillDiscoverResponse).sort ?? "name",
+    results,
+    warnings: (response as SkillDiscoverResponse).warnings ?? [],
+    sources: (response as SkillDiscoverResponse).sources ?? [],
+    nextCursor: (response as SkillDiscoverResponse).nextCursor ?? null,
+  }
+}
+
 export function useSkillsDiscovery(installedOnly?: boolean) {
   const [skills, setSkills] = React.useState<DiscoveredSkill[]>(
     [],
@@ -52,10 +70,11 @@ export function useSkillsDiscovery(installedOnly?: boolean) {
               includeLocal: true,
               includeClawHub: true,
             }
-        const res = await invoke<SkillDiscoverResponse>(
+        const raw = await invoke<SkillDiscoverResponse | { skills?: DiscoveredSkill[] }>(
           endpoint,
           { input },
         )
+        const res = normalizeSkillDiscoverResponse(raw)
         if (params.append) {
           setSkills((prev) => [...prev, ...res.results])
         } else {
@@ -74,11 +93,11 @@ export function useSkillsDiscovery(installedOnly?: boolean) {
   )
 
   const refreshInstalledCount = React.useCallback(() => {
-    invoke<SkillDiscoverResponse>(
+    invoke<SkillDiscoverResponse | { skills?: DiscoveredSkill[] }>(
       "middleware_skills_installed_local",
       { input: {} },
     )
-      .then((res) => setInstalledCount(res.results.length))
+      .then((res) => setInstalledCount(normalizeSkillDiscoverResponse(res).results.length))
       .catch(() => {})
   }, [])
 
