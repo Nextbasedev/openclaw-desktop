@@ -132,6 +132,18 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.post("/api/terminal/:terminalId/kill", (req, res) => res.json(terminal.kill(req.params.terminalId)))
   app.get("/api/terminal/:terminalId/stream", (req, res) => terminal.stream(req.params.terminalId, res))
 
+  app.get("/api/stream/cron", (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+    })
+    res.write(": cron stream ready\n\n")
+    const keepAlive = setInterval(() => res.write(": keepalive\n\n"), 25_000)
+    req.on("close", () => clearInterval(keepAlive))
+  })
+
   app.get("/api/stream/chat/:sessionKey", async (req, res, next) => {
     const sessionKey = req.params.sessionKey
     res.writeHead(200, {
