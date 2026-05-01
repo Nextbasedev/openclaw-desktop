@@ -21,10 +21,9 @@ export type RemoteWorkspaceCapabilities = {
   canDeleteEntry: boolean
 }
 
-function activeProjectId(): string {
+function workspaceBasePath(): string {
   const projectId = typeof window !== "undefined" ? localStorage.getItem("openclaw.activeProjectId") : null
-  if (!projectId) throw new Error("Select a project before opening workspace")
-  return projectId
+  return projectId ? `/api/projects/${projectId}/workspace` : "/api/workspace"
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -43,7 +42,7 @@ export async function fetchRemoteWorkspaceTree(input: {
   if (getMiddlewareConnection()) {
     const params = new URLSearchParams()
     if (input.path) params.set("path", input.path)
-    return middlewareFetch(`/api/projects/${activeProjectId()}/workspace/tree?${params.toString()}`)
+    return middlewareFetch(`${workspaceBasePath()}/tree?${params.toString()}`)
   }
   throw new Error("Middleware connection is not configured")
 }
@@ -68,7 +67,7 @@ export async function fetchRemoteWorkspaceFile(input: {
   path: string
 }): Promise<{ path: string; content: string; encoding: string }> {
   if (getMiddlewareConnection()) {
-    return middlewareFetch(`/api/projects/${activeProjectId()}/workspace/file?path=${encodeURIComponent(input.path)}`)
+    return middlewareFetch(`${workspaceBasePath()}/file?path=${encodeURIComponent(input.path)}`)
   }
   throw new Error("Middleware connection is not configured")
 }
@@ -79,7 +78,7 @@ export async function saveRemoteWorkspaceFile(input: {
   content: string
 }): Promise<void> {
   if (getMiddlewareConnection()) {
-    await middlewareFetch(`/api/projects/${activeProjectId()}/workspace/file`, {
+    await middlewareFetch(`${workspaceBasePath()}/file`, {
       method: "PUT",
       body: JSON.stringify({ path: input.path, content: input.content }),
     })
