@@ -5,6 +5,15 @@ import path from "node:path"
 
 export type ToolOutputVisibility = "hidden" | "metadata-only" | "full"
 
+export type ChatTokenUsage = {
+  input: number | null
+  output: number | null
+  cacheRead: number | null
+  cacheWrite: number | null
+  total: number | null
+  raw: unknown
+}
+
 export type ChatReadyEvent = {
   type: "chat.ready"
   sessionKey: string
@@ -17,6 +26,8 @@ export type ChatReadyEvent = {
     text: string
     createdAt: string | null
     model: string | null
+    usage?: ChatTokenUsage | null
+    stopReason?: string | null
   }>
 }
 
@@ -52,6 +63,8 @@ export type ChatMessageEvent = {
   text: string
   createdAt: string | null
   model: string | null
+  usage?: ChatTokenUsage | null
+  stopReason?: string | null
 }
 
 export type ChatAgentEvent = {
@@ -143,6 +156,8 @@ type SessionHistoryPayload = {
     createdAt?: string
     timestamp?: string | number
     model?: string
+    usage?: unknown
+    stopReason?: string
   }>
 }
 
@@ -156,6 +171,8 @@ type SessionMessagePayload = {
     createdAt?: string
     timestamp?: string | number
     model?: string
+    usage?: unknown
+    stopReason?: string
   }
 }
 
@@ -555,6 +572,38 @@ export function extractToolCallBlocks(content: unknown): Array<{
   return calls.length > 0 ? calls : undefined
 }
 
+function usageNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function usageField(source: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = source[key]
+    const normalized = usageNumber(value)
+    if (normalized !== null) return normalized
+  }
+  return null
+}
+
+export function normalizeChatTokenUsage(raw: unknown): ChatTokenUsage | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const usage = raw as Record<string, unknown>
+  const input = usageField(usage, "input", "inputTokens", "input_tokens", "prompt_tokens", "promptTokens")
+  const output = usageField(usage, "output", "outputTokens", "output_tokens", "completion_tokens", "completionTokens")
+  const cacheRead = usageField(usage, "cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens")
+  const cacheWrite = usageField(usage, "cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens")
+  const explicitTotal = usageField(usage, "total", "totalTokens", "total_tokens")
+  const computedTotal = [input, output, cacheRead, cacheWrite].reduce<number>((sum, value) => sum + (value ?? 0), 0)
+  const total = explicitTotal ?? (computedTotal > 0 ? computedTotal : null)
+  if (input === null && output === null && cacheRead === null && cacheWrite === null && total === null) return null
+  return { input, output, cacheRead, cacheWrite, total, raw }
+}
+
 export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibility {
   if (verboseLevel === "full") return "full"
   if (verboseLevel === "on") return "metadata-only"
@@ -675,6 +724,8 @@ export async function getChatHistory(sessionKey: string) {
         text: contentBlocksToText(message.content),
         createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : new Date().toISOString()),
         model: message.model ?? null,
+        usage: normalizeChatTokenUsage(message.usage),
+        stopReason: message.stopReason ?? null,
         toolCalls: extractToolCallBlocks(message.content),
       })),
     }
@@ -760,6 +811,8 @@ export async function openChatEventStream(input: {
         text: contentBlocksToText(message.content),
         createdAt: message.createdAt ?? (typeof message.timestamp === "string" ? message.timestamp : null),
         model: message.model ?? null,
+        usage: normalizeChatTokenUsage(message.usage),
+        stopReason: message.stopReason ?? null,
       })),
     })
     input.onEvent({ type: "chat.status", sessionKey: input.sessionKey, state: "connected" })
@@ -891,6 +944,8 @@ export async function openChatEventStream(input: {
           text,
           createdAt: payload.message.createdAt ?? (typeof payload.message.timestamp === "string" ? payload.message.timestamp : null),
           model: payload.message.model ?? null,
+          usage: normalizeChatTokenUsage(payload.message.usage),
+          stopReason: payload.message.stopReason ?? null,
         })
         input.onEvent({
           type: "chat.status",
@@ -925,6 +980,8 @@ export async function openChatEventStream(input: {
               text,
               createdAt: null,
               model: (msgContent?.model as string) ?? null,
+              usage: state === "final" ? normalizeChatTokenUsage(payload.usage) : null,
+              stopReason: state === "final" ? ((payload.stopReason as string | undefined) ?? null) : null,
             })
           }
           if (state === "final") {
