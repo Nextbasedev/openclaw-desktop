@@ -10,6 +10,7 @@ import * as git from "../services/git.service.js"
 import * as memory from "../services/memory.service.js"
 import * as skills from "../services/skills.service.js"
 import * as skillRuntime from "../services/skill-runtime.service.js"
+import * as skillsInstalled from "../services/skills-installed.service.js"
 import * as chats from "../services/chats.service.js"
 import * as autonaming from "../services/autonaming.service.js"
 import * as recent from "../services/recent.service.js"
@@ -133,10 +134,12 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_skills_versions: (i) => skills.skillsVersions(i as { slug: string; limit?: number; cursor?: string }),
   middleware_skills_install: (i) => skills.skillsInstall(i as Parameters<typeof skills.skillsInstall>[0]),
   middleware_skills_installed: (i) => skills.skillsInstalled(i as Parameters<typeof skills.skillsInstalled>[0]),
+  middleware_skills_installed_local: (i) => skillsInstalled.skillsInstalledLocal(i as Parameters<typeof skillsInstalled.skillsInstalledLocal>[0]),
   middleware_skills_search_hub: (i) => skills.skillsSearchHub(i as Parameters<typeof skills.skillsSearchHub>[0]),
   middleware_skills_catalog: () => skills.getSkillCatalog(),
   middleware_skills_catalog_add: (i) => skills.addSkillToCatalog(i as Parameters<typeof skills.addSkillToCatalog>[0]),
   middleware_skills_catalog_remove: (i) => skills.removeSkillFromCatalog((i as { slug: string }).slug),
+  middleware_skills_uninstall: (i) => skills.uninstallSkill((i as { slug: string }).slug),
   middleware_skills_active: () => skillRuntime.getInstalledSkills(),
   middleware_skills_toggle: (i) => skillRuntime.setSkillEnabled((i as { slug: string; enabled: boolean }).slug, (i as { slug: string; enabled: boolean }).enabled),
   middleware_skills_enabled_map: () => skillRuntime.getSkillEnabledMap(),
@@ -199,11 +202,8 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_sync_backfill_now: () => sync.syncBackfillNow(),
 
   // Usage (Gateway-dependent)
-  middleware_usage_summary: (i) => usage.usageSummary(i as { startDate?: string; endDate?: string }),
-  middleware_usage_current: () => usage.usageCurrent(),
-  middleware_usage_history: (i) => usage.usageHistory(i as { period?: string }),
-  middleware_usage_limits: () => usage.usageLimits(),
-  middleware_usage_estimate: (i) => usage.usageEstimate(i as { model?: string; tokens?: number }),
+  middleware_usage: (i) => usage.usage(i as { days?: number }),
+  middleware_usage_daily: (i) => usage.usageDaily(i as { days?: number }),
 
   // Onboarding
   middleware_onboarding_status: () => onboarding.onboardingStatus(),

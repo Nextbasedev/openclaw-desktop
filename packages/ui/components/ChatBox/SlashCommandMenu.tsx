@@ -15,6 +15,7 @@ type Props = {
   selectedIndex: number
   onSelect: (command: SlashCommand) => void
   prefix?: "/" | "@"
+  groupLabel?: string
 }
 
 export function SlashCommandMenu({
@@ -23,6 +24,7 @@ export function SlashCommandMenu({
   selectedIndex,
   onSelect,
   prefix = "/",
+  groupLabel,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
 

@@ -62,7 +62,7 @@ export function useQuickChat({ navigateToChat }: Props) {
       )
     } catch (err) {
       if (isGatewayError(err)) {
-        showGatewayError()
+        showGatewayError(err instanceof Error ? err.message : undefined)
         window.history.pushState(null, "", "/connect")
         window.dispatchEvent(new PopStateEvent("popstate"))
       } else {

@@ -66,7 +66,11 @@ export function ChatBox({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const batchRef = React.useRef<ChatComposerSubmit[]>([])
   const batchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { commands, ensureLoaded: ensureSlashCommandsLoaded } = useSlashCommands()
+  const {
+    commands,
+    installedSkills,
+    ensureLoaded: ensureSlashCommandsLoaded,
+  } = useSlashCommands()
   const {
     models,
     currentModel,
@@ -294,17 +298,24 @@ export function ChatBox({
           onRemove={removeAttachment}
         />
         <AnimatePresence initial={false}>
-          {slashMenuOpen && commands.length > 0 && (
+          {slashMenuOpen && (commandPrefix === "@"
+            ? installedSkills.length > 0
+            : commands.length > 0) && (
             <SlashCommandMenu
               commands={
                 commandPrefix === "@"
-                  ? commands.filter((cmd) => cmd.source === "skill")
+                  ? installedSkills
                   : commands
               }
               filter={slashFilter}
               selectedIndex={slashSelectedIndex}
               onSelect={handleSlashSelect}
               prefix={commandPrefix}
+              groupLabel={
+                commandPrefix === "@"
+                  ? "Installed Skills"
+                  : undefined
+              }
             />
           )}
         </AnimatePresence>
@@ -322,7 +333,10 @@ export function ChatBox({
             onBlur={() => setIsFocused(false)}
             onKeyDown={(e) => {
               if (slashMenuOpen) {
-                const filtered = getFilteredCommands(commands, slashFilter)
+                const activeCommands = commandPrefix === "@"
+                  ? installedSkills
+                  : commands
+                const filtered = getFilteredCommands(activeCommands, slashFilter)
                 if (e.key === "ArrowDown") {
                   e.preventDefault()
                   setSlashSelectedIndex((i) =>

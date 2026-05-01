@@ -2,8 +2,9 @@ import { toast } from "react-toastify"
 import { invoke } from "@/lib/ipc"
 
 export function showGatewayError(message?: string) {
-  toast.error(message ?? "Gateway not connected. Please connect first.", {
+  toast.error(message ?? "Gateway not connected. Check connection settings.", {
     toastId: "gateway-disconnected",
+    autoClose: 5000,
   })
 }
 
@@ -11,10 +12,12 @@ export function isGatewayError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   const lower = msg.toLowerCase()
   return (
-    lower.includes("gateway not connected") ||
+    lower.includes("gateway") ||
     lower.includes("not configured") ||
     lower.includes("token is missing") ||
-    lower.includes("econnrefused")
+    lower.includes("not paired") ||
+    lower.includes("econnrefused") ||
+    lower.includes("onboarding")
   )
 }
 
