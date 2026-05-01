@@ -96,7 +96,12 @@ export default function Page() {
         setHasToken(false)
       }
     }
+    function onMiddlewareConnected() {
+      setHasToken(true)
+    }
+    window.addEventListener("openclaw:middleware-connected", onMiddlewareConnected)
     checkToken()
+    return () => window.removeEventListener("openclaw:middleware-connected", onMiddlewareConnected)
   }, [])
 
   useEffect(() => {
@@ -107,6 +112,10 @@ export default function Page() {
 
   if (onboardingDone === null) {
     return <AppLoadingSkeleton />
+  }
+
+  if (!hasToken) {
+    return <ConnectPage />
   }
 
   return (
