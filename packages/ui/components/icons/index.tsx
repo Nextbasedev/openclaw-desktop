@@ -66,7 +66,7 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
 }
 
 type HugeiconData = React.ComponentProps<typeof HugeiconsIcon>["icon"]
-type NamedReactIcon = React.ElementType & {
+type NamedReactIcon = React.ComponentType<IconProps> & {
     displayName?: string
     name?: string
 }
@@ -81,7 +81,7 @@ const wrapHugeicon = (IconData: HugeiconData) => {
             {...props}
         />
     )
-    Component.displayName = `Hugeicon(${IconData.name || 'Unknown'})`
+    Component.displayName = `Hugeicon(${(IconData as { name?: string }).name || 'Unknown'})`
     return Component
 }
 

@@ -94,7 +94,7 @@ async function invokeRemoteMiddleware<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T | null> {
-  const { getMiddlewareConnection, middlewareFetch } = await import("@/lib/middleware-client")
+  const { getMiddlewareConnection, middlewareFetch } = await import("./middleware-client")
   if (!getMiddlewareConnection()) return null
   const input = (args?.input ?? args ?? {}) as Record<string, unknown>
 
