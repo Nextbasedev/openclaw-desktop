@@ -78,6 +78,7 @@ export default function ConnectPage() {
         setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
         setDetectMessage({ ok: true, text: "Local workspace ready." })
         emit("sidebar:refresh")
+        window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
       })
     }
     setLoadingStatus(false)
@@ -125,6 +126,7 @@ export default function ConnectPage() {
       await runTest(true)
       setSessionConnected(true)
       emit("sidebar:refresh")
+      window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -188,6 +190,7 @@ export default function ConnectPage() {
         setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
         setDetectMessage({ ok: true, text: "Local workspace ready." })
         emit("sidebar:refresh")
+        window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
       }}
       onTest={handleTest}
       onSave={handleSave}
