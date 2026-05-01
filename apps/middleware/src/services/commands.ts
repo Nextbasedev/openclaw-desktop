@@ -70,7 +70,11 @@ function scanSkills() {
       skills.push({ slug: entry.name, id: entry.name, name: entry.name, description, source: root.includes("node_modules") ? "builtin" : "local", version: null, path: skillPath, installed: true, enabled: true, updatedAt: fs.statSync(skillMd).mtimeMs, createdAt: fs.statSync(skillMd).ctimeMs })
     }
   }
-  return skills
+  const bySlug = new Map<string, any>()
+  for (const skill of skills) {
+    if (!bySlug.has(skill.slug)) bySlug.set(skill.slug, skill)
+  }
+  return [...bySlug.values()]
 }
 
 function gitCommitDetails(repoRoot: string, commit: string) {
