@@ -43,6 +43,7 @@ export default function ConnectPage() {
   const [url, setUrl] = useState("")
   const [token, setToken] = useState("")
   const [showToken, setShowToken] = useState(false)
+  const [setupMode, setSetupMode] = useState<"local" | "remote">("local")
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
   const [connectResult, setConnectResult] = useState<ConnectResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -124,6 +125,7 @@ export default function ConnectPage() {
       url={url}
       token={token}
       showToken={showToken}
+      setupMode={setupMode}
       status={status}
       connectResult={connectResult}
       error={error}
@@ -138,6 +140,7 @@ export default function ConnectPage() {
       onUrlChange={(value) => { setUrl(value); setError(null); setConnectResult(null) }}
       onTokenChange={(value) => { setToken(value); setError(null); setConnectResult(null) }}
       onShowTokenChange={setShowToken}
+      onSetupModeChange={setSetupMode}
       onAutoDetectChange={() => setDetectMessage({ ok: false, text: "Auto-detect is replaced by Middleware URL in new architecture." })}
       onTest={handleTest}
       onSave={handleSave}
