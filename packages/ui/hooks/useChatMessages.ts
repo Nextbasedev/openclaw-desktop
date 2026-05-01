@@ -67,6 +67,26 @@ function rawToChatMessage(raw: RawMessage, fallbackRole: "user" | "assistant"): 
   }
 }
 
+function sameUserMessage(a: ChatMessage, b: ChatMessage) {
+  if (a.role !== "user" || b.role !== "user") return false
+  if (a.text.trim() !== b.text.trim()) return false
+  if (a.createdAt && b.createdAt) return a.createdAt === b.createdAt
+  return Boolean(a.isOptimistic || b.isOptimistic)
+}
+
+function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  const result: ChatMessage[] = []
+  const seenIds = new Set<string>()
+  for (const message of messages) {
+    if (seenIds.has(message.messageId)) continue
+    const duplicateUser = result.some((existing) => sameUserMessage(existing, message))
+    if (duplicateUser) continue
+    seenIds.add(message.messageId)
+    result.push(message)
+  }
+  return result
+}
+
 const CHAT_BOOTSTRAP_TTL_MS = 5000
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const chatBootstrapCache = new Map<
@@ -942,15 +962,18 @@ export function useChatMessages(
           ]
         }
 
-        const allMessages = filtered
+        const allMessages = dedupeChatMessages(filtered)
 
         setMessages((prev) => {
           if (prev.length === 0) return allMessages
           const histIds = new Set(allMessages.map((hm) => hm.messageId))
           const kept = prev.filter(
-            (pm) => pm.isOptimistic && !histIds.has(pm.messageId)
+            (pm) =>
+              pm.isOptimistic &&
+              !histIds.has(pm.messageId) &&
+              !allMessages.some((hm) => sameUserMessage(hm, pm))
           )
-          return [...allMessages, ...kept]
+          return dedupeChatMessages([...allMessages, ...kept])
         })
         setLoading(false)
         forceScrollToBottom(true)
