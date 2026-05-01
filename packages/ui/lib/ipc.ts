@@ -33,12 +33,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms))
 }
 
+function middlewareStreamUrl(path: string): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    const url = localStorage.getItem("openclaw.middleware.url")?.replace(/\/+$/, "")
+    if (!url) return null
+    const ptyMatch = path.match(/^\/api\/stream\/pty\/([^/]+)$/)
+    if (ptyMatch?.[1]) return `${url}/api/terminal/${encodeURIComponent(ptyMatch[1])}/stream`
+  } catch {}
+  return null
+}
+
 function ipcUrl(command: string): string {
   if (shouldUseSameOriginProxy()) return `/api/ipc/${command}`
   return `${SERVER_URL}/api/ipc/${command}`
 }
 
 export function streamUrl(path: string): string {
+  const middlewareUrl = middlewareStreamUrl(path)
+  if (middlewareUrl) return middlewareUrl
   if (shouldUseSameOriginProxy()) return path
   return `${SERVER_URL}${path}`
 }
@@ -73,13 +86,69 @@ async function invokeHttp<T>(
   throw new Error("IPC call failed before the backend became ready")
 }
 
-// All middleware_* commands are handled by the Node.js server, not Rust.
-// Skip Tauri IPC entirely for these to avoid failed preflight + fallback overhead.
+async function invokeRemoteMiddleware<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T | null> {
+  const { getMiddlewareConnection, middlewareFetch } = await import("@/lib/middleware-client")
+  if (!getMiddlewareConnection()) return null
+  const input = (args?.input ?? args ?? {}) as Record<string, unknown>
+
+  switch (command) {
+    case "middleware_projects_list":
+      return middlewareFetch<T>("/api/projects")
+    case "middleware_projects_create":
+      return middlewareFetch<T>("/api/projects", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_projects_update":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}`, { method: "PATCH", body: JSON.stringify(input) })
+    case "middleware_projects_delete":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}`, { method: "DELETE" })
+    case "middleware_repos_recent":
+      return middlewareFetch<T>("/api/repos/recent")
+    case "middleware_repos_scan":
+      return middlewareFetch<T>("/api/repos/scan", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_repos_select":
+      return middlewareFetch<T>("/api/repos/select", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_git_status":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/status`)
+    case "middleware_git_diff":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/diff?path=${encodeURIComponent(String(input.path ?? ""))}`)
+    case "middleware_git_branches":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/branches`)
+    case "middleware_git_switch_branch":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/checkout`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_workspace_tree":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/tree?path=${encodeURIComponent(String(input.path ?? ""))}`)
+    case "middleware_workspace_read":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/file?path=${encodeURIComponent(String(input.path ?? ""))}`)
+    case "middleware_workspace_write":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/file`, { method: "PUT", body: JSON.stringify(input) })
+    case "middleware_pty_spawn": {
+      const projectId = localStorage.getItem("openclaw.activeProjectId")
+      if (!projectId) return null
+      const result = await middlewareFetch<{ terminalId: string; cwd: string }>(`/api/projects/${projectId}/terminal/spawn`, { method: "POST", body: JSON.stringify(input) })
+      return { ptyId: result.terminalId, cwd: result.cwd } as T
+    }
+    case "middleware_pty_write":
+      return middlewareFetch<T>(`/api/terminal/${input.ptyId}/write`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_pty_resize":
+      return middlewareFetch<T>(`/api/terminal/${input.ptyId}/resize`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_pty_kill":
+      return middlewareFetch<T>(`/api/terminal/${input.ptyId}/kill`, { method: "POST", body: JSON.stringify(input) })
+    default:
+      return null
+  }
+}
+
+// middleware_* commands use the new external Middleware service when configured,
+// falling back to the legacy local Node server during migration.
 export async function invoke<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
   if (command.startsWith("middleware_")) {
+    const remote = await invokeRemoteMiddleware<T>(command, args)
+    if (remote !== null) return remote
     return invokeHttp<T>(command, args)
   }
 
