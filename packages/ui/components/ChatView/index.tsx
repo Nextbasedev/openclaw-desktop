@@ -643,6 +643,14 @@ export function ChatView({
     void navigator.clipboard.writeText(exportMessagesMarkdown([target]))
   }, [messages])
 
+  const lastEditableUserId = useMemo(() => {
+    for (let i = renderedMessages.length - 1; i >= 0; i--) {
+      if (renderedMessages[i].role === "user") return renderedMessages[i].messageId
+      if (renderedMessages[i].role === "assistant") continue
+    }
+    return null
+  }, [renderedMessages])
+
   if (activeSubKey && activeSubagent) {
     return (
       <SubagentFullChat
@@ -715,13 +723,6 @@ export function ChatView({
     assistantMessages.slice(-2).map((m) => m.messageId),
   )
   const lastAssistantId = assistantMessages.at(-1)?.messageId
-  const lastEditableUserId = useMemo(() => {
-    for (let i = renderedMessages.length - 1; i >= 0; i--) {
-      if (renderedMessages[i].role === "user") return renderedMessages[i].messageId
-      if (renderedMessages[i].role === "assistant") continue
-    }
-    return null
-  }, [renderedMessages])
 
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
     tools.filter((t) => t.tool !== "sessions_spawn" && t.tool !== "subagents" && t.tool !== "sessions_yield")
