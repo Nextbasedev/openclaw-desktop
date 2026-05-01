@@ -77,7 +77,94 @@ function gitCommitDetails(repoRoot: string, commit: string) {
   const cwd = repoRoot || workspaceRoot()
   const sha = commit || "HEAD"
   const show = execFileSync("git", ["show", "--stat", "--format=fuller", sha], { cwd, encoding: "utf8", timeout: 10_000 })
-  return { commit: { sha, text: show } }
+  return { diff: show, commit: { sha, text: show } }
+}
+
+function modelRefsFromConfig(cfg: any): string[] {
+  const defaults = cfg.agents?.defaults ?? {}
+  const modelMapRefs = defaults.models && !Array.isArray(defaults.models) && typeof defaults.models === "object"
+    ? Object.values(defaults.models).flatMap((value: any) => {
+        if (typeof value === "string") return [value]
+        if (Array.isArray(value)) return value
+        if (value && typeof value === "object") return [value.primary, value.model, ...(Array.isArray(value.fallbacks) ? value.fallbacks : [])]
+        return []
+      })
+    : []
+  const refs = [
+    ...modelMapRefs,
+    ...(Array.isArray(defaults.models) ? defaults.models : []),
+    ...(Array.isArray(defaults.model?.models) ? defaults.model.models : []),
+    defaults.model?.primary,
+    ...(Array.isArray(defaults.model?.fallbacks) ? defaults.model.fallbacks : []),
+    typeof defaults.model === "string" ? defaults.model : null,
+  ]
+  return [...new Set(refs.filter((value): value is string => typeof value === "string" && value.trim().length > 0))]
+}
+
+function normalizeModelEntry(value: any) {
+  const ref = typeof value === "string" ? value : String(value?.id || value?.model || value?.value || "")
+  const [providerFromRef, idFromRef] = ref.includes("/") ? ref.split(/\/(.+)/) : [String(value?.provider || "custom"), ref]
+  const provider = String(value?.provider || providerFromRef || "custom")
+  const id = String(value?.id || idFromRef || ref)
+  return {
+    id,
+    name: String(value?.name || id || ref),
+    provider,
+    reasoning: Boolean(value?.reasoning),
+  }
+}
+
+function modelsResponse(cfg: any) {
+  const refs = modelRefsFromConfig(cfg)
+  const defaultsModels = cfg.agents?.defaults?.models
+  const rawModels = Array.isArray(defaultsModels)
+    ? defaultsModels
+    : defaultsModels && typeof defaultsModels === "object"
+      ? Object.entries(defaultsModels).flatMap(([provider, value]: [string, any]) => {
+          if (typeof value === "string") return [{ provider, id: value.includes("/") ? value.split(/\/(.+)/)[1] : value, name: value }]
+          if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? { provider, id: item.includes("/") ? item.split(/\/(.+)/)[1] : item, name: item } : { provider, ...item })
+          if (value && typeof value === "object") {
+            const candidates = [value.primary, value.model, ...(Array.isArray(value.fallbacks) ? value.fallbacks : [])].filter(Boolean)
+            return candidates.map((item) => ({ provider, id: String(item).includes("/") ? String(item).split(/\/(.+)/)[1] : String(item), name: String(item) }))
+          }
+          return []
+        })
+    : Array.isArray(cfg.agents?.defaults?.model?.models)
+      ? cfg.agents.defaults.model.models
+      : refs
+  const models = (rawModels.length ? rawModels : refs).map(normalizeModelEntry)
+  const currentModel = cfg.agents?.defaults?.model?.primary || (typeof cfg.agents?.defaults?.model === "string" ? cfg.agents.defaults.model : null) || refs[0] || null
+  if (currentModel && !models.some((model: any) => `${model.provider}/${model.id}` === currentModel || model.id === currentModel)) {
+    models.unshift(normalizeModelEntry(currentModel))
+  }
+  return { models, currentModel, defaultModel: currentModel }
+}
+
+function providerSummary(id: string) {
+  return {
+    id,
+    pluginId: id,
+    displayName: id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    category: id.includes("ollama") || id.includes("local") ? "local" : "core",
+    authEnvVars: [],
+    authMethods: ["api-key"],
+    authChoices: [],
+    submit: { payloadShape: { values: { fields: { credentials: [], config: [] } } } },
+  }
+}
+
+function modelContract(cfg: any, providerId?: string | null) {
+  const response = modelsResponse(cfg)
+  const models = providerId ? response.models.filter((model: any) => model.provider === providerId) : response.models
+  const options = models.map((model: any) => ({ id: model.id, value: `${model.provider}/${model.id}`, label: model.name }))
+  const recommended = response.currentModel || options[0]?.value || null
+  return {
+    providerId: providerId || (recommended?.split("/")[0] ?? null),
+    authMethod: null,
+    selectedModelRef: response.currentModel,
+    recommendedModelRef: recommended,
+    types: { payloadShape: { modelRef: { inputKind: "select", allowCustom: true, recommended, options } } },
+  }
 }
 
 export function commandRoutes(store: Store) {
@@ -109,17 +196,17 @@ export function commandRoutes(store: Store) {
 
         case "middleware_models_list": {
           const cfg = readJson(openclawConfigPath())
-          const models = cfg.agents?.defaults?.models || cfg.agents?.defaults?.model?.models || []
-          const defaultModel = cfg.agents?.defaults?.model?.primary || cfg.agents?.defaults?.model || null
-          return { models: Array.isArray(models) ? models : [], defaultModel }
+          return modelsResponse(cfg)
         }
         case "middleware_models_set_default": {
           const cfg = readJson(openclawConfigPath())
+          const modelId = String(input.modelId || input.modelRef || "").trim()
+          if (!modelId) throw new HttpError(400, "modelId is required", "BAD_REQUEST")
           cfg.agents ??= {}; cfg.agents.defaults ??= {}; cfg.agents.defaults.model ??= {}
           if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model }
-          cfg.agents.defaults.model.primary = input.modelId
+          cfg.agents.defaults.model.primary = modelId
           writeJson(openclawConfigPath(), cfg)
-          return ok({ modelId: input.modelId })
+          return ok({ modelId, currentModel: modelId, defaultModel: modelId })
         }
         case "middleware_usage": return { summary: { totalTokens: 0, totalCost: 0 }, usage: [], source: "middleware-local" }
         case "middleware_usage_daily": return { days: [] }
@@ -173,7 +260,9 @@ export function commandRoutes(store: Store) {
         }
         case "middleware_chat_fork": {
           const key = `agent:main:fork:${crypto.randomUUID()}`
-          return { sessionKey: key, branchSessionKey: key }
+          const chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
+          const name = "Forked chat"
+          return { chatId, sessionKey: key, name, branchSessionKey: key }
         }
         case "middleware_chat_edit_last_preview": {
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
@@ -204,11 +293,18 @@ export function commandRoutes(store: Store) {
         case "middleware_pins_add": { const key = input.sessionKey || "global"; s.commandState.pins[key] ??= []; const pin = { id: crypto.randomUUID(), ...input, pinnedAt: now() }; s.commandState.pins[key].push(pin); save(store,s); return { pin } }
         case "middleware_pins_remove": { const key = input.sessionKey || "global"; s.commandState.pins[key] = (s.commandState.pins[key] ?? []).filter((p:any) => p.messageId !== input.messageId && p.id !== input.id); save(store,s); return ok() }
 
-        case "middleware_memory_list": return { files: fs.readdirSync(memoryDir()).map(name => ({ name, path: `memory/${name}` })) }
+        case "middleware_memory_list": {
+          const documents = fs.readdirSync(memoryDir()).map(name => {
+            const full = path.join(memoryDir(), name)
+            const stat = fs.statSync(full)
+            return { name, path: `memory/${name}`, size: stat.size }
+          })
+          return { documents, files: documents }
+        }
         case "middleware_memory_read": return { content: fs.existsSync(safeMemoryPath(input.path)) ? fs.readFileSync(safeMemoryPath(input.path), "utf8") : "" }
         case "middleware_memory_write": fs.writeFileSync(safeMemoryPath(input.path), input.content ?? ""); return ok({ path: input.path })
         case "middleware_memory_store": { const file = path.join(memoryDir(), `${new Date().toISOString().slice(0,10)}.md`); fs.appendFileSync(file, `\n- ${input.content || input.text || ""}\n`); return ok({ path: path.relative(workspaceRoot(), file) }) }
-        case "middleware_memory_recall": return { results: [] }
+        case "middleware_memory_recall": return { entries: [], results: [] }
 
         case "middleware_cron_list_jobs": return { jobs: s.commandState.cronJobs }
         case "middleware_cron_create_job": { const job = { id: crypto.randomUUID(), jobId: crypto.randomUUID(), ...input, status: "paused", createdAt: now(), updatedAt: now() }; s.commandState.cronJobs.push(job); save(store,s); return { job, jobId: job.jobId } }
@@ -218,7 +314,7 @@ export function commandRoutes(store: Store) {
         case "middleware_cron_pause_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId); if (job) job.status = "paused"; save(store,s); return { job } }
         case "middleware_cron_run_job": { const run = { id: crypto.randomUUID(), jobId: input.jobId, status: "completed", startedAt: now(), finishedAt: now() }; s.commandState.cronRuns.push(run); save(store,s); return { run } }
         case "middleware_cron_list_runs": return { runs: s.commandState.cronRuns.filter((r:any)=>!input.jobId || r.jobId===input.jobId) }
-        case "middleware_cron_recent_activity": return { activity: s.commandState.cronRuns.slice(-20).reverse() }
+        case "middleware_cron_recent_activity": { const events = s.commandState.cronRuns.slice(-20).reverse(); return { events, activity: events } }
         case "middleware_cron_job_conversation": return { messages: [] }
         case "middleware_cron_reset_fixtures": s.commandState.cronJobs = []; s.commandState.cronRuns = []; save(store,s); return ok()
 
@@ -270,19 +366,40 @@ export function commandRoutes(store: Store) {
         case "middleware_skills_toggle": return ok({ skillId: input.skillId || input.slug, enabled: input.enabled ?? true })
         case "middleware_skills_versions": return { items: [], nextCursor: null }
 
-        case "middleware_onboarding_core":
-        case "middleware_onboarding_flow": return { steps: [], status: "external-middleware", configPath: openclawConfigPath() }
-        case "middleware_onboarding_providers": return { providers: Object.keys(readJson(openclawConfigPath()).providers ?? {}).map(id => ({ id })) }
-        case "middleware_onboarding_provider_details": return { provider: readJson(openclawConfigPath()).providers?.[input.providerId] ?? null }
-        case "middleware_onboarding_provider_submit":
-        case "middleware_onboarding_model_submit":
-        case "middleware_onboarding_sign_out":
-        case "middleware_onboarding_delete_account": return ok()
-        case "middleware_onboarding_model_contract": return { contract: { providerId: input.providerId ?? null, fields: [] } }
-        case "middleware_openclaw_bot_name_get": return { name: readJson(openclawConfigPath()).bot?.name ?? "OpenClaw" }
-        case "middleware_openclaw_bot_name_set": { const cfg = readJson(openclawConfigPath()); cfg.bot ??= {}; cfg.bot.name = input.name; writeJson(openclawConfigPath(), cfg); return ok({ name: input.name }) }
+        case "middleware_onboarding_core": {
+          return { action: input.action || "check", applied: false, canAutoFix: false, status: { node: { installed: true, version: process.version }, npm: { installed: true, version: null }, openclaw: { installed: true, version: null, installMethod: "existing" }, gateway: { url: readJson(openclawConfigPath()).gateway_url || "ws://127.0.0.1:18789", running: true, status: "connected" }, recommendation: "OpenClaw is managed by Middleware." }, actionsRun: [], message: "OpenClaw is ready." }
+        }
+        case "middleware_onboarding_flow": {
+          const cfg = readJson(openclawConfigPath())
+          const contract = modelContract(cfg)
+          return { flow: { steps: [ { id: "core", title: "Core", complete: true }, { id: "bot", title: "Bot", complete: true }, { id: "provider", title: "Provider", complete: true }, { id: "model", title: "Model", complete: Boolean(contract.selectedModelRef) }, { id: "complete", title: "Complete", complete: true } ], nextStep: contract.selectedModelRef ? "complete" : "model", completed: Boolean(contract.selectedModelRef) }, state: { core: { status: { node: { installed: true, version: process.version }, npm: { installed: true, version: null }, openclaw: { installed: true, version: null, installMethod: "existing" }, gateway: { url: cfg.gateway_url || "ws://127.0.0.1:18789", running: true, status: "connected" }, recommendation: "OpenClaw is managed by Middleware." } }, bot: { botName: cfg.bot?.name ?? "OpenClaw" }, provider: { selection: null }, model: { selectedModelRef: contract.selectedModelRef, contract } } }
+        }
+        case "middleware_onboarding_providers": {
+          const cfg = readJson(openclawConfigPath())
+          const providerIds = Object.keys(cfg.providers ?? {})
+          const fallbackProviders = [...new Set<string>(modelsResponse(cfg).models.map((model: any) => String(model.provider)))]
+          const providers = (providerIds.length ? providerIds : fallbackProviders).map((id) => providerSummary(String(id)))
+          return { providers, count: providers.length }
+        }
+        case "middleware_onboarding_provider_details": return { provider: providerSummary(String(input.providerId || "custom")) }
+        case "middleware_onboarding_provider_submit": return ok({ nextStep: "model" })
+        case "middleware_onboarding_model_submit": {
+          const cfg = readJson(openclawConfigPath())
+          const modelRef = String(input.modelRef || input.modelId || "").trim()
+          if (!modelRef) throw new HttpError(400, "modelRef is required", "BAD_REQUEST")
+          cfg.agents ??= {}; cfg.agents.defaults ??= {}; cfg.agents.defaults.model ??= {}
+          if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model }
+          cfg.agents.defaults.model.primary = modelRef
+          writeJson(openclawConfigPath(), cfg)
+          return ok({ nextStep: "complete", modelRef, currentModel: modelRef })
+        }
+        case "middleware_onboarding_sign_out": return ok({ cleared: [] })
+        case "middleware_onboarding_delete_account": return ok({ cleared: [] })
+        case "middleware_onboarding_model_contract": return { contract: modelContract(readJson(openclawConfigPath()), input.providerId) }
+        case "middleware_openclaw_bot_name_get": { const botName = readJson(openclawConfigPath()).bot?.name ?? "OpenClaw"; return { botName, name: botName } }
+        case "middleware_openclaw_bot_name_set": { const cfg = readJson(openclawConfigPath()); const botName = String(input.botName || input.name || "OpenClaw"); cfg.bot ??= {}; cfg.bot.name = botName; writeJson(openclawConfigPath(), cfg); return ok({ botName, name: botName }) }
         case "middleware_open_url": return ok({ url: input.url })
-        case "middleware_git_commit_details": return gitCommitDetails(String(input.repoRoot || input.cwd || workspaceRoot()), String(input.commit || input.sha || "HEAD"))
+        case "middleware_git_commit_details": return gitCommitDetails(String(input.repoRoot || input.cwd || workspaceRoot()), String(input.commit || input.sha || input.hash || "HEAD"))
         case "middleware_projects_archive": { const project = store.updateProject(input.projectId, { archived: input.archived ?? true } as any); return { project } }
         default: throw new HttpError(404, `Unknown middleware command: ${command}`, "UNKNOWN_COMMAND")
       }
