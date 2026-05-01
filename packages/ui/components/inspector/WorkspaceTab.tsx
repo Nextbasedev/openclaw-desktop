@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react"
+import { on } from "@/lib/events"
 import { cn } from "@/lib/utils"
 import {
   VscFolder,
@@ -935,6 +936,13 @@ export function WorkspaceTab({
       return
     }
 
+    let gwActive = false
+    try {
+      gwActive =
+        localStorage.getItem("jarvis.gatewayActive") === "true"
+    } catch {}
+    if (!gwActive) return
+
     let cancelled = false
     void invoke<{
       sessions: Array<{ key: string; hidden?: boolean; source?: string }>
@@ -1065,6 +1073,49 @@ export function WorkspaceTab({
         window.clearTimeout(refreshTimeoutRef.current)
       }
     }
+  }, [])
+
+  useEffect(() => {
+    return on("sidebar:refresh", () => {
+      let gwActive = false
+      try {
+        gwActive =
+          localStorage.getItem("jarvis.gatewayActive") === "true"
+      } catch {}
+
+      if (!gwActive) {
+        globalWorkspaceSessionKeyCache = null
+        setWorkspaceSessionKey(null)
+        setTree([])
+        setSelectedId(null)
+        setCapabilities(null)
+        setWorkspaceRoot(null)
+        return
+      }
+
+      void invoke<{
+        sessions: Array<{
+          key: string
+          hidden?: boolean
+          source?: string
+        }>
+      }>("middleware_sessions_list", { input: {} })
+        .then((result) => {
+          const key =
+            result.sessions.find(
+              (item) =>
+                !item.hidden && item.source === "jarvis",
+            )?.key ??
+            result.sessions.find((item) => !item.hidden)
+              ?.key ??
+            null
+          if (key) {
+            globalWorkspaceSessionKeyCache = key
+            setWorkspaceSessionKey(key)
+          }
+        })
+        .catch(() => {})
+    })
   }, [])
 
   useEffect(() => {

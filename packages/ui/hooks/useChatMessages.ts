@@ -31,6 +31,13 @@ type RawMessage = {
   content?: string | ContentBlock[]
   createdAt?: string
   model?: string
+  attachments?: Array<{
+    name: string
+    mimeType: string
+    content?: string
+    url?: string
+    size?: number
+  }>
 }
 
 type BranchSummary = {
@@ -625,6 +632,7 @@ export function useChatMessages(
                 model: m.model,
                 replyTo: reply?.replyTo,
                 gatewayIndex: rawIdx,
+                attachments: m.attachments,
               })
             }
             pendingToolCalls = []
@@ -1012,6 +1020,12 @@ export function useChatMessages(
           createdAt: new Date().toISOString(),
           isOptimistic: true,
           replyTo,
+          attachments: payload.attachments?.map((a) => ({
+            name: a.name,
+            mimeType: a.mimeType,
+            content: a.content,
+            size: a.size,
+          })),
         },
       ])
       setStatus("thinking")
