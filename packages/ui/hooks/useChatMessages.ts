@@ -13,6 +13,7 @@ import type {
   InlineToolCall,
   MessageBranch,
   SpawnedSubagent,
+  EditPreviewState,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
@@ -39,6 +40,8 @@ type RawMessage = {
     url?: string
     size?: number
   }>
+  usage?: ChatMessage["usage"]
+  stopReason?: string | null
 }
 
 type BranchSummary = {
@@ -50,6 +53,18 @@ type BranchSummary = {
 type ChatBootstrapData = {
   history: { messages: unknown[] }
   branchData: { branches: BranchSummary[] }
+}
+
+function rawToChatMessage(raw: RawMessage, fallbackRole: "user" | "assistant"): ChatMessage {
+  return {
+    messageId: raw.id ?? raw.messageId ?? randomId(),
+    role: raw.role === "user" ? "user" : raw.role === "assistant" ? "assistant" : fallbackRole,
+    text: raw.text || extractText(raw.content),
+    createdAt: raw.createdAt,
+    model: raw.model,
+    usage: raw.usage ?? null,
+    stopReason: raw.stopReason ?? null,
+  }
 }
 
 const CHAT_BOOTSTRAP_TTL_MS = 5000
@@ -126,9 +141,11 @@ export function useChatMessages(
   const [spawnedSubagents, setSpawnedSubagents] = useState<SpawnedSubagent[]>(
     []
   )
+  const [editPreview, setEditPreview] = useState<EditPreviewState | null>(null)
   const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
   const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const doneAfterYieldRef = useRef(0)
+  const editPreviewSourceRef = useRef<EventSource | null>(null)
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -472,6 +489,9 @@ export function useChatMessages(
                   text,
                   createdAt: m.createdAt || timestamp,
                   embeds: pendingEmbeds ?? m.embeds,
+                  usage: ev.usage ?? m.usage,
+                  stopReason: ev.stopReason ?? m.stopReason,
+                  model: ev.model ?? m.model,
                   animateText: true,
                 }
               })
@@ -494,6 +514,9 @@ export function useChatMessages(
                         text: longer,
                         createdAt: m.createdAt || timestamp,
                         embeds: pendingEmbeds ?? m.embeds,
+                        usage: ev.usage ?? m.usage,
+                        stopReason: ev.stopReason ?? m.stopReason,
+                        model: ev.model ?? m.model,
                         animateText: true,
                       }
                     : m
@@ -523,6 +546,9 @@ export function useChatMessages(
                           text: longer,
                           createdAt: m.createdAt || timestamp,
                           embeds: pendingEmbeds ?? m.embeds,
+                          usage: ev.usage ?? m.usage,
+                          stopReason: ev.stopReason ?? m.stopReason,
+                          model: ev.model ?? m.model,
                           animateText: true,
                         }
                       : m
@@ -536,6 +562,9 @@ export function useChatMessages(
                         text: merged,
                         createdAt: m.createdAt || timestamp,
                         embeds: pendingEmbeds ?? m.embeds,
+                        usage: ev.usage ?? m.usage,
+                        stopReason: ev.stopReason ?? m.stopReason,
+                        model: ev.model ?? m.model,
                         animateText: true,
                       }
                     : m
@@ -549,6 +578,8 @@ export function useChatMessages(
                   text,
                   createdAt: timestamp,
                   model: ev.model,
+                  usage: ev.usage ?? null,
+                  stopReason: ev.stopReason ?? null,
                   embeds: pendingEmbeds,
                   animateText: true,
                 },
@@ -670,6 +701,8 @@ export function useChatMessages(
                 text: reply ? reply.displayText : text,
                 createdAt: m.createdAt,
                 model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
                 replyTo: reply?.replyTo,
                 gatewayIndex: rawIdx,
                 attachments: m.attachments,
@@ -754,6 +787,9 @@ export function useChatMessages(
                   : text
                 lastEntry.messageId = id
                 lastEntry.createdAt = m.createdAt || lastEntry.createdAt
+                lastEntry.model = m.model ?? lastEntry.model
+                lastEntry.usage = m.usage ?? lastEntry.usage
+                lastEntry.stopReason = m.stopReason ?? lastEntry.stopReason
                 if (currentEmbeds)
                   lastEntry.embeds = [
                     ...(lastEntry.embeds ?? []),
@@ -778,6 +814,8 @@ export function useChatMessages(
                 text,
                 createdAt: m.createdAt,
                 model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
                 toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
                 embeds: currentEmbeds,
                 gatewayIndex: rawIdx,
@@ -789,6 +827,8 @@ export function useChatMessages(
                 text: "",
                 createdAt: m.createdAt,
                 model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
                 toolCalls: [...pendingToolCalls],
                 gatewayIndex: rawIdx,
               })
@@ -1169,70 +1209,77 @@ export function useChatMessages(
     async (userMessageId: string, newText: string) => {
       const trimmed = newText.trim()
       if (!trimmed || isSending || isGenerating) return
-
-      setMessages((prev) => {
-        const userIdx = prev.findIndex((m) => m.messageId === userMessageId)
-        if (userIdx === -1) return prev
-
-        const userMsg = prev[userIdx]
-        const assistantMsg =
-          userIdx + 1 < prev.length && prev[userIdx + 1].role === "assistant"
-            ? prev[userIdx + 1]
-            : undefined
-
-        const currentBranch: MessageBranch = {
-          userText: userMsg.text,
-          userCreatedAt: userMsg.createdAt,
-          response: assistantMsg
-            ? {
-                messageId: assistantMsg.messageId,
-                text: assistantMsg.text,
-                createdAt: assistantMsg.createdAt,
-                model: assistantMsg.model,
-                toolCalls: assistantMsg.toolCalls,
-              }
-            : undefined,
-        }
-
-        const existingBranches = userMsg.branches ?? []
-        const wasOnOldBranch = userMsg.activeBranch !== undefined
-        let allBranches: MessageBranch[]
-
-        if (wasOnOldBranch) {
-          allBranches = [...existingBranches]
-          allBranches[userMsg.activeBranch!] = currentBranch
-        } else {
-          allBranches = [...existingBranches, currentBranch]
-        }
-
-        const newBranch: MessageBranch = {
-          userText: trimmed,
-          userCreatedAt: new Date().toISOString(),
-        }
-        allBranches.push(newBranch)
-
-        const updated = prev.slice(0, userIdx + 1)
-        updated[userIdx] = {
-          ...userMsg,
-          text: trimmed,
-          createdAt: new Date().toISOString(),
-          branches: allBranches,
-          activeBranch: allBranches.length - 1,
-        }
-
-        return updated
-      })
-
-      pendingToolMapRef.current.clear()
-      setPendingTools([])
+      editPreviewSourceRef.current?.close()
+      editPreviewSourceRef.current = null
+      setEditPreview(null)
       setStatus("thinking")
       setIsSending(true)
       forceScrollToBottom(true)
 
       try {
-        await invoke("middleware_chat_edit_and_resend", {
-          input: { sessionKey, messageId: userMessageId, text: trimmed },
+        const preview = await invoke<{
+          branchSessionKey: string
+          sourceUserMessageId: string
+          sourceAssistantMessageId?: string | null
+          original: { user: RawMessage; assistant?: RawMessage | null }
+          edited: { user: RawMessage; assistant?: RawMessage | null }
+        }>("middleware_chat_edit_last_preview", {
+          input: { sessionKey, userMessageId, text: trimmed },
         })
+
+        setEditPreview({
+          branchSessionKey: preview.branchSessionKey,
+          sourceUserMessageId: preview.sourceUserMessageId,
+          sourceAssistantMessageId: preview.sourceAssistantMessageId ?? null,
+          original: {
+            user: rawToChatMessage(preview.original.user, "user"),
+            assistant: preview.original.assistant ? rawToChatMessage(preview.original.assistant, "assistant") : null,
+          },
+          edited: {
+            user: rawToChatMessage(preview.edited.user, "user"),
+            assistant: preview.edited.assistant ? rawToChatMessage(preview.edited.assistant, "assistant") : null,
+          },
+          status: "streaming",
+        })
+
+        const source = new EventSource(streamUrl(`/api/stream/chat/${preview.branchSessionKey}`))
+        editPreviewSourceRef.current = source
+        const handlePreview = (event: MessageEvent) => {
+          try {
+            const ev = JSON.parse(event.data)
+            if (ev.type === "chat.message" && ev.role === "assistant") {
+              const text = ev.text || extractText(ev.content)
+              if (!text.trim()) return
+              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey
+                ? {
+                    ...current,
+                    edited: {
+                      ...current.edited,
+                      assistant: {
+                        messageId: ev.messageId || current.edited.assistant?.messageId || randomId(),
+                        role: "assistant",
+                        text,
+                        createdAt: ev.createdAt || current.edited.assistant?.createdAt,
+                        model: ev.model ?? current.edited.assistant?.model,
+                        usage: ev.usage ?? current.edited.assistant?.usage,
+                        stopReason: ev.stopReason ?? current.edited.assistant?.stopReason,
+                      },
+                    },
+                  }
+                : current)
+            }
+            if (ev.type === "chat.status" && ev.state === "done") {
+              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "ready" } : current)
+            }
+            if (ev.type === "chat.error") {
+              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "error", error: ev.message ?? "Edit preview failed" } : current)
+            }
+          } catch {}
+        }
+        source.addEventListener("chat.message", handlePreview)
+        source.addEventListener("chat.status", handlePreview)
+        source.addEventListener("chat.error", handlePreview)
+        source.addEventListener("message", handlePreview)
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : String(error))
         setStatus("error")
@@ -1242,6 +1289,43 @@ export function useChatMessages(
     },
     [isSending, isGenerating, sessionKey, forceScrollToBottom]
   )
+
+  const selectEditBranch = useCallback(async (selected: "original" | "edited") => {
+    const preview = editPreview
+    if (!preview) return
+    try {
+      await invoke("middleware_chat_select_edit_branch", {
+        input: { sessionKey, branchSessionKey: preview.branchSessionKey, selected },
+      })
+      editPreviewSourceRef.current?.close()
+      editPreviewSourceRef.current = null
+      if (selected === "edited") {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.messageId === preview.sourceUserMessageId)
+          if (idx === -1) return prev
+          const next = [...prev]
+          next[idx] = { ...preview.edited.user, messageId: preview.sourceUserMessageId }
+          const assistant = preview.edited.assistant
+          if (assistant) {
+            if (next[idx + 1]?.role === "assistant") next[idx + 1] = assistant
+            else next.splice(idx + 1, 0, assistant)
+          }
+          return next
+        })
+      }
+      setEditPreview(null)
+      setStatus("idle")
+    } catch (error) {
+      setEditPreview((current) => current ? { ...current, status: "error", error: error instanceof Error ? error.message : String(error) } : current)
+    }
+  }, [editPreview, sessionKey])
+
+  useEffect(() => {
+    return () => {
+      editPreviewSourceRef.current?.close()
+      editPreviewSourceRef.current = null
+    }
+  }, [])
 
   const switchBranch = useCallback(
     (userMessageId: string, branchIndex: number) => {
@@ -1271,6 +1355,8 @@ export function useChatMessages(
                 text: assistantMsg.text,
                 createdAt: assistantMsg.createdAt,
                 model: assistantMsg.model,
+                usage: assistantMsg.usage,
+                stopReason: assistantMsg.stopReason,
                 toolCalls: assistantMsg.toolCalls,
               }
             : undefined,
@@ -1305,6 +1391,8 @@ export function useChatMessages(
             text: target.response.text,
             createdAt: target.response.createdAt,
             model: target.response.model,
+            usage: target.response.usage,
+            stopReason: target.response.stopReason,
             toolCalls: target.response.toolCalls,
           })
         }
@@ -1342,6 +1430,8 @@ export function useChatMessages(
     handleAbort,
     handleEdit,
     handleRegenerate,
+    editPreview,
+    selectEditBranch,
     switchBranch,
     markTextAnimationComplete,
     pendingTools,

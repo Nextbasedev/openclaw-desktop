@@ -683,6 +683,181 @@ export async function chatEditAndResend(input: {
   }
 }
 
+function histText(message: HistMsg | undefined): string {
+  if (!message) return ""
+  if (typeof message.text === "string") return message.text
+  const content = message.content
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (!block || typeof block !== "object") return ""
+        const typed = block as { text?: unknown; content?: unknown }
+        if (typeof typed.text === "string") return typed.text
+        if (typeof typed.content === "string") return typed.content
+        return ""
+      })
+      .filter(Boolean)
+      .join("\n")
+  }
+  return ""
+}
+
+function buildEditPreviewPrompt(params: {
+  priorMessages: HistMsg[]
+  editedText: string
+}) {
+  const transcript = params.priorMessages
+    .map((message) => {
+      const role = message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : null
+      const text = histText(message).trim()
+      if (!role || !text) return null
+      return `${role}: ${text}`
+    })
+    .filter(Boolean)
+    .join("\n\n")
+
+  if (!transcript) return params.editedText
+
+  return [
+    "Continue the conversation below. The prior transcript is context only; do not repeat it unless needed.",
+    "",
+    "Prior transcript:",
+    transcript,
+    "",
+    "User edited their latest message to:",
+    params.editedText,
+  ].join("\n")
+}
+
+export async function chatEditLastPreview(input: {
+  sessionKey: string
+  userMessageId: string
+  text: string
+}) {
+  const editedText = input.text.trim()
+  if (!editedText) throw new Error("Edited message cannot be empty")
+
+  const gwKey = resolveGatewayKey(input.sessionKey)
+  let history: Awaited<ReturnType<typeof getChatHistory>>
+  try {
+    history = await getChatHistory(gwKey)
+  } catch (error) {
+    throw wrapGatewayError(error)
+  }
+
+  const messages = ((history.messages ?? []) as HistMsg[]).filter((m) => m.role === "user" || m.role === "assistant")
+  const sourceIdx = messages.findIndex((m) => m.id === input.userMessageId || (m as Record<string, unknown>).messageId === input.userMessageId)
+  if (sourceIdx === -1) throw new Error("Message not found")
+  if (messages[sourceIdx]?.role !== "user") throw new Error("Only user messages can be edited")
+  const laterUser = messages.slice(sourceIdx + 1).some((m) => m.role === "user")
+  if (laterUser) throw new Error("Only the latest user message can be edited")
+
+  const sourceAssistant = messages.slice(sourceIdx + 1).find((m) => m.role === "assistant")
+  const priorMessages = messages.slice(0, sourceIdx)
+  const label = `Edit preview ${crypto.randomUUID().slice(0, 8)}`
+  const created = await createChatSession({ agentId: "main", label, model: readPrimaryModel() })
+  const branchSessionKey = created.sessionKey
+  const branchId = `edit_preview_${crypto.randomUUID().replace(/-/g, "")}`
+  const now = new Date().toISOString()
+
+  try {
+    getDb().prepare(
+      "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_reason, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      branchId,
+      input.sessionKey,
+      input.userMessageId,
+      branchSessionKey,
+      "edit_preview",
+      now,
+      JSON.stringify({
+        type: "last_message_edit",
+        status: "pending",
+        originalSessionKey: input.sessionKey,
+        originalGatewayKey: gwKey,
+        editedSessionKey: branchSessionKey,
+        sourceUserMessageId: input.userMessageId,
+        sourceAssistantMessageId: sourceAssistant?.id ?? null,
+      }),
+    )
+  } catch {}
+
+  const prompt = buildEditPreviewPrompt({ priorMessages, editedText })
+  try {
+    await ensureEventStream(branchSessionKey, branchSessionKey)
+    await sendChatMessage({ sessionKey: branchSessionKey, text: prompt })
+  } catch (error) {
+    try { await deleteChatSession(branchSessionKey) } catch {}
+    throw wrapGatewayError(error)
+  }
+
+  return {
+    branchId,
+    branchSessionKey,
+    sourceUserMessageId: input.userMessageId,
+    sourceAssistantMessageId: sourceAssistant?.id ?? null,
+    original: {
+      user: messages[sourceIdx],
+      assistant: sourceAssistant ?? null,
+    },
+    edited: {
+      user: {
+        id: `edited:${input.userMessageId}`,
+        role: "user",
+        text: editedText,
+        createdAt: now,
+      },
+      assistant: null,
+    },
+  }
+}
+
+export async function chatSelectEditBranch(input: {
+  sessionKey: string
+  branchSessionKey: string
+  selected: "original" | "edited"
+}) {
+  const db = getDb()
+  const now = new Date().toISOString()
+  const row = db.prepare(
+    "SELECT id, metadata_json FROM branches WHERE source_session_key = ? AND branch_session_key = ? AND branch_reason = 'edit_preview' ORDER BY created_at DESC LIMIT 1",
+  ).get(input.sessionKey, input.branchSessionKey) as { id: string; metadata_json: string | null } | undefined
+  if (!row) throw new Error("Edit preview branch not found")
+
+  let metadata: Record<string, unknown> = {}
+  try { metadata = row.metadata_json ? JSON.parse(row.metadata_json) : {} } catch {}
+  metadata.status = "selected"
+  metadata.selected = input.selected
+  metadata.selectedAt = now
+
+  if (input.selected === "edited") {
+    const oldGwKey = resolveGatewayKey(input.sessionKey)
+    const existing = activeStreams.get(oldGwKey)
+    if (existing) {
+      existing.close()
+      activeStreams.delete(oldGwKey)
+    }
+    const branchStream = activeStreams.get(input.branchSessionKey)
+    if (branchStream) {
+      branchStream.close()
+      activeStreams.delete(input.branchSessionKey)
+    }
+    persistGatewayKey(input.sessionKey, input.branchSessionKey)
+    metadata.activeGatewayKey = input.branchSessionKey
+  } else {
+    const branchStream = activeStreams.get(input.branchSessionKey)
+    if (branchStream) {
+      branchStream.close()
+      activeStreams.delete(input.branchSessionKey)
+    }
+    try { await deleteChatSession(input.branchSessionKey) } catch {}
+  }
+
+  db.prepare("UPDATE branches SET metadata_json = ? WHERE id = ?").run(JSON.stringify(metadata), row.id)
+  return { ok: true, selected: input.selected, activeSessionKey: input.selected === "edited" ? input.branchSessionKey : resolveGatewayKey(input.sessionKey) }
+}
+
 export async function chatRegenerate(input: {
   sessionKey: string
   messageId: string

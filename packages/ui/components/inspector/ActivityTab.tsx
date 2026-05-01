@@ -8,7 +8,7 @@ import { useAgentActivity } from "@/hooks/useAgentActivity"
 import { SubagentChatView } from "./SubagentChatView"
 import type { AgentNode } from "./activity-types"
 
-const AGENT_SIDEBAR_MIN = 140
+const AGENT_SIDEBAR_MIN = 156
 const AGENT_SIDEBAR_MAX = 260
 const AGENT_SIDEBAR_DEFAULT = 180
 
@@ -17,7 +17,7 @@ function getAgentSidebarDefaults() {
     return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
   }
   if (window.innerWidth < 768) {
-    return { min: 108, max: 168, default: 128 }
+    return { min: 120, max: 176, default: 136 }
   }
   return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
 }
@@ -50,7 +50,7 @@ function AgentTreeItem({
       type="button"
       onClick={() => onSelect(node.id)}
       className={cn(
-        "flex w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition-all cursor-pointer",
+        "flex min-w-0 w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition-all cursor-pointer",
         isActive
           ? "border-white/[0.14] bg-white/5"
           : "border-transparent hover:bg-white/3",
@@ -62,8 +62,8 @@ function AgentTreeItem({
           TREE_DOT_COLORS[node.status],
         )}
       />
-      <div className="min-w-0 flex-1">
-        <span className="truncate text-[12px] font-medium text-foreground">
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <span className="block truncate text-[12px] font-medium text-foreground">
           {node.label}
         </span>
         {node.description && (

@@ -8,6 +8,15 @@ export type ContentBlock = {
   input?: unknown
 }
 
+export type ChatTokenUsage = {
+  input: number | null
+  output: number | null
+  cacheRead: number | null
+  cacheWrite: number | null
+  total: number | null
+  raw?: unknown
+}
+
 export type InlineToolCall = {
   id: string
   tool: string
@@ -24,6 +33,8 @@ export type MessageBranch = {
     text: string
     createdAt?: string
     model?: string
+    usage?: ChatTokenUsage | null
+    stopReason?: string | null
     toolCalls?: InlineToolCall[]
   }
 }
@@ -46,6 +57,8 @@ export type ChatMessage = {
   text: string
   createdAt?: string
   model?: string
+  usage?: ChatTokenUsage | null
+  stopReason?: string | null
   isOptimistic?: boolean
   animateText?: boolean
   toolCalls?: InlineToolCall[]
@@ -77,6 +90,22 @@ export type SpawnedSubagent = {
   toolCallId: string
 }
 
+export type EditPreviewState = {
+  branchSessionKey: string
+  sourceUserMessageId: string
+  sourceAssistantMessageId?: string | null
+  original: {
+    user: ChatMessage
+    assistant?: ChatMessage | null
+  }
+  edited: {
+    user: ChatMessage
+    assistant?: ChatMessage | null
+  }
+  status: "streaming" | "ready" | "error"
+  error?: string | null
+}
+
 export type StreamStatus =
   | "idle"
   | "connected"
@@ -105,6 +134,8 @@ export type StreamEventPayload = {
     content?: string | ContentBlock[]
     createdAt?: string
     model?: string
+    usage?: ChatTokenUsage | null
+    stopReason?: string | null
     message?: string
     error?: string
     recentMessages?: unknown[]
