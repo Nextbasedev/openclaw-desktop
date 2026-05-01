@@ -547,6 +547,7 @@ function AppShell({
     setPendingPrompt(null)
     setComposerError(null)
     setActiveTab("chat")
+    try { localStorage.setItem("openclaw.activeProjectId", topic.projectId) } catch {}
     setActiveTopic(topic)
     setActiveChat(null)
     setActiveSessionKey(null)
