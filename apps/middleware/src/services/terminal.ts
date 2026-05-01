@@ -1,5 +1,6 @@
 import crypto from "node:crypto"
 import os from "node:os"
+import path from "node:path"
 import type { IncomingMessage } from "node:http"
 import type { Response } from "express"
 import type { IPty } from "node-pty"
@@ -44,26 +45,31 @@ function getTerm(id: string) {
   return term
 }
 
+async function spawnAt(cwd: string, body: any) {
+  const id = `term_${crypto.randomUUID().replace(/-/g, "")}`
+  const proc = await spawnTerminal(shell(), cwd, Number(body?.cols ?? 80), Number(body?.rows ?? 24))
+  const term: Term = { id, proc, buffer: [], sseListeners: new Set(), wsListeners: new Set() }
+  proc.onData((data) => {
+    term.buffer.push(data)
+    if (term.buffer.length > 200) term.buffer.shift()
+    broadcast(term, "data", eventPayload("terminal.data", id, { data }))
+  })
+  proc.onExit((e) => {
+    broadcast(term, "exit", eventPayload("terminal.exit", id, { exitCode: e.exitCode }))
+    terms.delete(id)
+  })
+  terms.set(id, term)
+  return { terminalId: id, cwd, streamUrl: `/api/terminal/${id}/stream`, websocketUrl: `/api/terminal/${id}/ws` }
+}
+
 export function terminalRoutes(store: Store) {
   return {
+    spawnWorkspace: async (body: any) => spawnAt(process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace"), body),
     spawn: async (projectId: string, body: any) => {
       const p = store.getProject(projectId)
       if (!p) throw new HttpError(404, "Project not found", "NOT_FOUND")
       const cwd = p.repoRoot || p.workspaceRoot
-      const id = `term_${crypto.randomUUID().replace(/-/g, "")}`
-      const proc = await spawnTerminal(shell(), cwd, Number(body?.cols ?? 80), Number(body?.rows ?? 24))
-      const term: Term = { id, proc, buffer: [], sseListeners: new Set(), wsListeners: new Set() }
-      proc.onData((data) => {
-        term.buffer.push(data)
-        if (term.buffer.length > 200) term.buffer.shift()
-        broadcast(term, "data", eventPayload("terminal.data", id, { data }))
-      })
-      proc.onExit((e) => {
-        broadcast(term, "exit", eventPayload("terminal.exit", id, { exitCode: e.exitCode }))
-        terms.delete(id)
-      })
-      terms.set(id, term)
-      return { terminalId: id, cwd, streamUrl: `/api/terminal/${id}/stream`, websocketUrl: `/api/terminal/${id}/ws` }
+      return spawnAt(cwd, body)
     },
     write: (id: string, data: string) => {
       getTerm(id).proc.write(data)

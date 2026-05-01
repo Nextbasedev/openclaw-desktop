@@ -128,11 +128,7 @@ export function XTerminal({ visible }: XTerminalProps) {
           if (signal.aborted) return
           const message = err instanceof Error ? err.message : String(err)
           term.writeln(`\x1b[31mFailed to open terminal: ${message}\x1b[0m`)
-          if (message.includes("Main workspace")) {
-            term.writeln("\x1b[90mCheck that OpenClaw Middleware is connected and exposes a workspace root.\x1b[0m")
-          } else {
-            term.writeln("\x1b[90mCheck that OpenClaw Middleware is connected and the selected project still exists.\x1b[0m")
-          }
+          term.writeln("\x1b[90mCheck that OpenClaw Middleware is connected and the selected workspace still exists.\x1b[0m")
         })
       })
     })
