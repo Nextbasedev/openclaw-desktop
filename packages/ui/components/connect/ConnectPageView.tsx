@@ -340,7 +340,6 @@ function VpsOpenClawPanel(props: {
         title="Ask OpenClaw on your VPS:"
         prompt={VPS_OPENCLAW_PROMPT}
       />
-      <NetworkChecklist />
       <StepBadge step="3" label="Paste the result" />
       <ManualFields
         url={props.url}
@@ -360,19 +359,6 @@ function VpsOpenClawPanel(props: {
   )
 }
 
-function NetworkChecklist() {
-  return (
-    <div className="rounded-xl border border-sky-500/15 bg-sky-500/[0.04] p-3">
-      <p className="text-xs font-medium text-sky-200">Which URL should I paste?</p>
-      <ul className="mt-2 space-y-1.5 text-[11px] leading-relaxed text-sky-100/65">
-        <li>• Domain/reverse proxy: <span className="text-sky-100">https://your-domain.com</span></li>
-        <li>• Tailscale: MagicDNS name or <span className="text-sky-100">100.x.y.z:8787</span></li>
-        <li>• Same private network: LAN/private IP</li>
-        <li>• Public IP: only if firewall allows it</li>
-      </ul>
-    </div>
-  )
-}
 
 function StepBadge({ step, label }: { step: string; label: string }) {
   return (
