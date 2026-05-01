@@ -265,28 +265,35 @@ export function MessageBubble({
             </div>
           </div>
         ) : (
-          <div
-            className={cn(
-              "min-w-0 max-w-full text-[14px] leading-relaxed",
-              isUser
-                ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
-                : "w-full text-foreground",
+          <>
+            {isUser && (
+              <div className="mb-1.5">
+                <RichContentPreview message={message} />
+              </div>
             )}
-          >
-            {isUser ? (
-              <p className="whitespace-pre-wrap">{message.text}</p>
-            ) : (
-              <MarkdownContent
-                text={message.text}
-                embeds={message.embeds}
-                streaming={isActivelyStreaming || message.animateText}
-                onRevealComplete={() =>
-                  onTextAnimationComplete?.(message.messageId)
-                }
-              />
-            )}
-            <RichContentPreview message={message} />
-          </div>
+            <div
+              className={cn(
+                "min-w-0 max-w-full text-[14px] leading-relaxed",
+                isUser
+                  ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                  : "w-full text-foreground",
+              )}
+            >
+              {isUser ? (
+                <p className="whitespace-pre-wrap">{message.text}</p>
+              ) : (
+                <MarkdownContent
+                  text={message.text}
+                  embeds={message.embeds}
+                  streaming={isActivelyStreaming || message.animateText}
+                  onRevealComplete={() =>
+                    onTextAnimationComplete?.(message.messageId)
+                  }
+                />
+              )}
+              {!isUser && <RichContentPreview message={message} />}
+            </div>
+          </>
         )}
         {isUser ? (
           <div className="mt-1 flex items-center gap-1 flex-row-reverse">

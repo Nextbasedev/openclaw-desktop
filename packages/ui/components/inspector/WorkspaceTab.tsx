@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react"
+import { on } from "@/lib/events"
 import { cn } from "@/lib/utils"
 import {
   VscFolder,
@@ -22,8 +23,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   PencilEdit02Icon,
-  Download02Icon,
   Delete02Icon,
+  Download02Icon,
   FloppyDiskIcon,
   Tick02Icon,
   MoreVerticalIcon,
@@ -42,7 +43,18 @@ import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
-import { invoke } from "@/lib/ipc"
+import { invoke, streamUrl } from "@/lib/ipc"
+import {
+  createRemoteWorkspaceDirectory,
+  deleteRemoteWorkspaceEntry,
+  fetchRemoteWorkspaceCapabilities,
+  fetchRemoteWorkspaceFile,
+  type RemoteWorkspaceCapabilities,
+  fetchRemoteWorkspaceTree,
+  moveRemoteWorkspaceEntry,
+  remoteWorkspaceDownloadUrl,
+  saveRemoteWorkspaceFile,
+} from "./workspace-api"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 
@@ -51,8 +63,9 @@ import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 interface FsEntry {
   name: string
   path: string
-  isFile: boolean
-  isDir: boolean
+  type?: "file" | "directory"
+  isFile?: boolean
+  isDir?: boolean
   size: number
   modifiedAt?: string
 }
@@ -65,41 +78,24 @@ interface FileNode {
   loaded?: boolean
 }
 
-/* ── IPC helpers ── */
-
-async function getWorkspaceRoot(): Promise<string> {
-  const result = await invoke<{ hasWorkspace: boolean; workspacePath: string }>(
-    "middleware_onboarding_check_workspace",
-  )
-  if (!result.hasWorkspace) throw new Error("Workspace not found")
-  return result.workspacePath
-}
-
-async function loadDirEntries(dirPath: string): Promise<FileNode[]> {
-  const result = await invoke<{ entries: FsEntry[] }>(
-    "middleware_fs_read_dir",
-    { path: dirPath },
-  )
-  return result.entries
+function mapRemoteEntriesToNodes(entries: FsEntry[]): FileNode[] {
+  return entries
     .sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      const aDir = a.type === "directory" || a.type === ("dir" as any) || a.isDir === true
+      const bDir = b.type === "directory" || b.type === ("dir" as any) || b.isDir === true
+      if (aDir !== bDir) return aDir ? -1 : 1
       return a.name.localeCompare(b.name)
     })
-    .map((entry) => ({
-      id: entry.path,
-      name: entry.name,
-      type: entry.isDir ? "dir" as const : "file" as const,
-      children: entry.isDir ? [] : undefined,
-      loaded: !entry.isDir,
-    }))
-}
-
-async function loadFileContent(filePath: string): Promise<string> {
-  const result = await invoke<{ content: string; encoding: string }>(
-    "middleware_fs_read_file",
-    { path: filePath },
-  )
-  return result.content
+    .map((entry) => {
+      const isDir = entry.type === "directory" || entry.type === ("dir" as any) || entry.isDir === true
+      return {
+        id: entry.path,
+        name: entry.name,
+        type: isDir ? "dir" as const : "file" as const,
+        children: isDir ? [] : undefined,
+        loaded: !isDir,
+      }
+    })
 }
 
 /* ── Helpers ── */
@@ -118,6 +114,24 @@ function findNode(nodes: FileNode[], id: string): FileNode | null {
   }
   return null
 }
+
+function isReadOnlyWorkspacePath(pathValue: string): boolean {
+  return pathValue.startsWith("~/")
+}
+
+function workspaceDirname(pathValue: string): string {
+  const normalized = pathValue.replace(/\/+$/, "")
+  if (!normalized || !normalized.includes("/")) return ""
+  return normalized.slice(0, normalized.lastIndexOf("/"))
+}
+
+function joinWorkspacePath(parentPath: string, name: string): string {
+  const normalizedName = name.trim().replace(/^\/+/, "").replace(/\/+$/, "")
+  if (!parentPath) return normalizedName
+  return `${parentPath}/${normalizedName}`
+}
+
+let globalWorkspaceSessionKeyCache: string | null = null
 
 
 /* ── Icon button with tooltip ── */
@@ -277,10 +291,12 @@ function CodeEditor({
   content,
   onChange,
   ext,
+  readOnly,
 }: {
   content: string
   onChange: (v: string) => void
   ext: string
+  readOnly?: boolean
 }) {
   const extToLang: Record<string, string> = {
     json: "json",
@@ -423,6 +439,7 @@ function CodeEditor({
         onChange={(e) => onChange(e.target.value)}
         onScroll={syncScroll}
         spellCheck={false}
+        readOnly={readOnly}
         className="absolute inset-0 z-10 size-full resize-none border-none bg-transparent text-transparent caret-[#aeafad] outline-none"
         style={{
           fontFamily: monoFont,
@@ -443,26 +460,34 @@ function CodeEditor({
 /* ── File preview pane ── */
 
 function FilePreviewPane({
+  capabilities,
+  sessionKey,
   filePath,
   fileName,
-  workspaceRoot,
   compact,
   onDelete,
+  onPathChange,
 }: {
+  capabilities: RemoteWorkspaceCapabilities | null
+  sessionKey?: string | null
   filePath: string
   fileName: string
-  workspaceRoot: string
   compact: boolean
   onDelete?: () => void
+  onPathChange?: (nextPath: string) => void
 }) {
   const ext = getExt(fileName)
   const isMd = ext === "md"
+  const readOnlyPath = isReadOnlyWorkspacePath(filePath)
+  const canWrite = Boolean(capabilities?.canWrite) && !readOnlyPath
+  const canDownload = Boolean(capabilities?.canDownloadFile)
+  const canMove = Boolean(capabilities?.canMoveEntry) && !readOnlyPath
+  const canDelete = Boolean(capabilities?.canDeleteEntry) && !readOnlyPath
 
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [displayName, setDisplayName] = useState(fileName)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(fileName)
   const [saved, setSaved] = useState(false)
@@ -476,12 +501,17 @@ function FilePreviewPane({
     let cancelled = false
     setLoading(true)
     setError(null)
-    setDisplayName(fileName)
     setIsRenaming(false)
+    setRenameValue(fileName)
     setSaved(false)
     setMode(getExt(fileName) === "md" ? "preview" : "edit")
 
-    loadFileContent(filePath)
+    const loadContent = fetchRemoteWorkspaceFile({
+      sessionKey: sessionKey ?? "",
+      path: filePath,
+    }).then((file) => file.content)
+
+    loadContent
       .then((text) => {
         if (cancelled) return
         setContent(text)
@@ -495,12 +525,17 @@ function FilePreviewPane({
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [filePath, fileName])
+  }, [filePath, fileName, sessionKey])
 
   const handleSave = useCallback(async () => {
+    if (!canWrite) return
     setSaving(true)
     try {
-      await invoke("middleware_fs_write_file", { path: filePath, content })
+      await saveRemoteWorkspaceFile({
+        sessionKey: sessionKey ?? "",
+        path: filePath,
+        content,
+      })
       setOriginalContent(content)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -509,78 +544,62 @@ function FilePreviewPane({
     } finally {
       setSaving(false)
     }
-  }, [filePath, content])
-
+  }, [canWrite, content, filePath, sessionKey])
   const [downloaded, setDownloaded] = useState(false)
 
-  const handleDownload = useCallback(async () => {
-    const isTauri =
-      typeof window !== "undefined" &&
-      Boolean(
-        (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__,
-      )
-
-    if (isTauri) {
-      try {
-        const { save } = await import("@tauri-apps/plugin-dialog")
-        const { downloadDir } = await import("@tauri-apps/api/path")
-        const downloads = await downloadDir()
-
-        const chosen = await save({
-          defaultPath: `${downloads}/${displayName}`,
-          title: "Save file",
-        })
-        if (!chosen) return
-
-        await invoke("middleware_fs_write_file", {
-          path: chosen,
-          content,
-        })
-        setDownloaded(true)
-        setTimeout(() => setDownloaded(false), 2000)
-        return
-      } catch {
-        /* fall through to blob download */
-      }
-    }
-
-    const blob = new Blob([content], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
+  const handleDownload = useCallback(() => {
+    const url = sessionKey
+      ? remoteWorkspaceDownloadUrl(sessionKey, filePath)
+      : URL.createObjectURL(new Blob([content], { type: "text/plain" }))
     const a = document.createElement("a")
     a.href = url
-    a.download = displayName
+    a.download = fileName
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }, [content, displayName])
+    if (!sessionKey) {
+      URL.revokeObjectURL(url)
+    }
+    setDownloaded(true)
+    window.setTimeout(() => setDownloaded(false), 2000)
+  }, [content, fileName, filePath, sessionKey])
 
   const handleRename = useCallback(async () => {
+    if (!canMove) return
+
     const trimmed = renameValue.trim()
     if (!trimmed || trimmed === fileName) {
       setIsRenaming(false)
       return
     }
-    const sep = filePath.includes("\\") ? "\\" : "/"
-    const dir = filePath.substring(0, filePath.lastIndexOf(sep))
-    const newPath = dir ? `${dir}${sep}${trimmed}` : trimmed
+
     try {
-      await invoke("middleware_fs_rename", { oldPath: filePath, newPath })
-      setDisplayName(trimmed)
+      const nextPath = joinWorkspacePath(workspaceDirname(filePath), trimmed)
+      await moveRemoteWorkspaceEntry({
+        sessionKey: sessionKey ?? "",
+        fromPath: filePath,
+        toPath: nextPath,
+      })
       setIsRenaming(false)
+      onPathChange?.(nextPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Rename failed")
     }
-  }, [filePath, fileName, renameValue])
+  }, [canMove, fileName, filePath, onPathChange, renameValue, sessionKey])
 
   const handleDelete = useCallback(async () => {
+    if (!canDelete) return
+
     try {
-      await invoke("middleware_fs_remove", { path: filePath })
+      await deleteRemoteWorkspaceEntry({
+        sessionKey: sessionKey ?? "",
+        path: filePath,
+      })
       onDelete?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed")
     }
-  }, [filePath, onDelete])
+  }, [canDelete, filePath, onDelete, sessionKey])
 
   if (loading) {
     return (
@@ -614,11 +633,13 @@ function FilePreviewPane({
             <input
               type="text"
               value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleRename()
-                if (e.key === "Escape") {
-                  setRenameValue(displayName)
+              onChange={(event) => setRenameValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void handleRename()
+                }
+                if (event.key === "Escape") {
+                  setRenameValue(fileName)
                   setIsRenaming(false)
                 }
               }}
@@ -627,16 +648,25 @@ function FilePreviewPane({
               autoFocus
             />
             <div className="flex shrink-0 items-center">
-              <IconBtn icon={VscCheck} label="Confirm" onClick={handleRename} />
-              <IconBtn icon={VscClose} label="Cancel" onClick={() => {
-                setRenameValue(displayName)
-                setIsRenaming(false)
-              }} />
+              <IconBtn icon={VscCheck} label="Confirm" onClick={() => void handleRename()} />
+              <IconBtn
+                icon={VscClose}
+                label="Cancel"
+                onClick={() => {
+                  setRenameValue(fileName)
+                  setIsRenaming(false)
+                }}
+              />
             </div>
           </div>
         ) : (
           <span className="min-w-0 shrink truncate text-[11px] font-medium text-foreground">
-            {displayName}
+            {fileName}
+          </span>
+        )}
+        {readOnlyPath && (
+          <span className="rounded bg-white/6 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            Read only
           </span>
         )}
 
@@ -650,22 +680,31 @@ function FilePreviewPane({
           </>
         )}
 
-        {!isRenaming && !compact && (
+        {!compact && (
           <div className="flex shrink-0 items-center gap-0.5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   onClick={() => {
-                    setRenameValue(displayName)
+                    if (!canMove) return
+                    setRenameValue(fileName)
                     setIsRenaming(true)
                   }}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground"
+                  disabled={!canMove}
+                  className={cn(
+                    "flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
+                    canMove
+                      ? "text-muted-foreground hover:bg-white/8 hover:text-foreground"
+                      : "cursor-default text-muted-foreground/30",
+                  )}
                 >
                   <HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.5} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Rename</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs">
+                Rename
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -674,10 +713,13 @@ function FilePreviewPane({
                   onClick={handleDownload}
                   className={cn(
                     "flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
-                    downloaded
+                    !canDownload
+                      ? "cursor-default text-muted-foreground/30"
+                      : downloaded
                       ? "text-emerald-400"
                       : "text-muted-foreground hover:bg-white/8 hover:text-foreground",
                   )}
+                  disabled={!canDownload}
                 >
                   <HugeiconsIcon icon={downloaded ? Tick02Icon : Download02Icon} size={14} strokeWidth={1.5} />
                 </button>
@@ -690,20 +732,28 @@ function FilePreviewPane({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={handleDelete}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-400"
+                  onClick={() => void handleDelete()}
+                  disabled={!canDelete}
+                  className={cn(
+                    "flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
+                    canDelete
+                      ? "text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                      : "cursor-default text-muted-foreground/30",
+                  )}
                 >
                   <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={1.5} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Delete</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs">
+                Delete
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={(!hasChanges && !saved) || saving}
+                  disabled={!canWrite || (!hasChanges && !saved) || saving}
                   className={cn(
                     "flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
                     saved
@@ -723,7 +773,7 @@ function FilePreviewPane({
           </div>
         )}
 
-        {!isRenaming && compact && (
+        {compact && (
           <Popover open={menuOpen} onOpenChange={setMenuOpen}>
             <PopoverTrigger asChild>
               <button
@@ -747,7 +797,12 @@ function FilePreviewPane({
               <MenuAction
                 label="Rename"
                 icon={<HugeiconsIcon icon={PencilEdit02Icon} size={14} strokeWidth={1.5} />}
-                onClick={() => { setMenuOpen(false); setRenameValue(displayName); setIsRenaming(true) }}
+                onClick={() => {
+                  setMenuOpen(false)
+                  if (!canMove) return
+                  setRenameValue(fileName)
+                  setIsRenaming(true)
+                }}
               />
               <MenuAction
                 label={downloaded ? "Downloaded" : "Download"}
@@ -757,18 +812,25 @@ function FilePreviewPane({
               <MenuAction
                 label={saving ? "Saving..." : saved ? "Saved" : "Save"}
                 icon={<HugeiconsIcon icon={saved ? Tick02Icon : FloppyDiskIcon} size={14} strokeWidth={1.5} />}
-                onClick={handleSave}
+                onClick={() => {
+                  if (!canWrite || saving) return
+                  void handleSave()
+                }}
               />
               <div className="my-0.5 h-px bg-border/20" />
               <MenuAction
                 label="Delete"
                 icon={<HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={1.5} />}
-                onClick={() => { setMenuOpen(false); handleDelete() }}
+                onClick={() => {
+                  setMenuOpen(false)
+                  void handleDelete()
+                }}
                 danger
               />
             </PopoverContent>
           </Popover>
         )}
+
       </div>
 
       {/* Content */}
@@ -801,22 +863,13 @@ function FilePreviewPane({
             <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
           </div>
         ) : (
-          <CodeEditor content={content} onChange={setContent} ext={ext} />
+          <CodeEditor
+            content={content}
+            onChange={setContent}
+            ext={ext}
+            readOnly={readOnlyPath}
+          />
         )}
-      </div>
-    </div>
-  )
-}
-
-/* ── Empty state ── */
-
-function EmptyPreview() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#121212] text-center">
-      <VscFile className="size-10 text-muted-foreground/20" />
-      <div>
-        <p className="text-[12px] font-medium text-muted-foreground/50">No file selected</p>
-        <p className="mt-1 text-[11px] text-muted-foreground/30">Select a file from the tree to preview</p>
       </div>
     </div>
   )
@@ -848,7 +901,14 @@ function getFileSidebarDefaults() {
   }
 }
 
-export function WorkspaceTab() {
+export function WorkspaceTab({
+  sessionKey,
+}: {
+  sessionKey?: string | null
+}) {
+  const [workspaceSessionKey, setWorkspaceSessionKey] = useState<string | null>(
+    globalWorkspaceSessionKeyCache ?? sessionKey ?? null,
+  )
   const fileSidebarRef = useRef(getFileSidebarDefaults())
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [tree, setTree] = useState<FileNode[]>([])
@@ -858,11 +918,51 @@ export function WorkspaceTab() {
   const [isDragging, setIsDragging] = useState(false)
   const [treeLoading, setTreeLoading] = useState(true)
   const [treeError, setTreeError] = useState<string | null>(null)
+  const [capabilities, setCapabilities] =
+    useState<RemoteWorkspaceCapabilities | null>(null)
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const [newItemType, setNewItemType] = useState<"file" | "folder" | null>(null)
   const [newItemName, setNewItemName] = useState("")
   const previewPaneRef = useRef<HTMLDivElement>(null)
   const [previewCompact, setPreviewCompact] = useState(false)
+  const refreshTimeoutRef = useRef<number | null>(null)
+  const effectiveSessionKey = workspaceSessionKey ?? sessionKey ?? null
+
+  useEffect(() => {
+    if (workspaceSessionKey) return
+    if (sessionKey) {
+      globalWorkspaceSessionKeyCache = sessionKey
+      setWorkspaceSessionKey(sessionKey)
+      return
+    }
+
+    let gwActive = false
+    try {
+      gwActive =
+        localStorage.getItem("jarvis.gatewayActive") === "true"
+    } catch {}
+    if (!gwActive) return
+
+    let cancelled = false
+    void invoke<{
+      sessions: Array<{ key: string; hidden?: boolean; source?: string }>
+    }>("middleware_sessions_list", { input: {} })
+      .then((result) => {
+        if (cancelled) return
+        const fallback =
+          result.sessions.find((item) => !item.hidden && item.source === "jarvis")?.key ??
+          result.sessions.find((item) => !item.hidden)?.key ??
+          null
+        if (!fallback) return
+        globalWorkspaceSessionKeyCache = fallback
+        setWorkspaceSessionKey(fallback)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionKey, workspaceSessionKey])
 
   useEffect(() => {
     const el = previewPaneRef.current
@@ -890,18 +990,34 @@ export function WorkspaceTab() {
   const expandedIdsRef = useRef(expandedIds)
   expandedIdsRef.current = expandedIds
 
-  const loadRoot = useCallback(async (root: string) => {
-    setTreeLoading(true)
+  const loadRoot = useCallback(async (root: string, silent = false) => {
+    if (!effectiveSessionKey) return
+    const activeSessionKey = effectiveSessionKey
+    if (!silent) setTreeLoading(true)
     setTreeError(null)
     try {
-      const rootNodes = await loadDirEntries(root)
+      const rootNodes = mapRemoteEntriesToNodes(
+        (
+          await fetchRemoteWorkspaceTree({
+            sessionKey: activeSessionKey,
+            path: root,
+          })
+        ).entries,
+      )
       const snapshot = expandedIdsRef.current
       async function reloadExpanded(nodes: FileNode[]): Promise<FileNode[]> {
         return Promise.all(
           nodes.map(async (node) => {
             if (node.type === "dir" && snapshot.has(node.id)) {
               try {
-                const children = await loadDirEntries(node.id)
+                const children = mapRemoteEntriesToNodes(
+                  (
+                    await fetchRemoteWorkspaceTree({
+                      sessionKey: activeSessionKey,
+                      path: node.id,
+                    })
+                  ).entries,
+                )
                 const deep = await reloadExpanded(children)
                 return { ...node, children: deep, loaded: true }
               } catch {
@@ -917,30 +1033,165 @@ export function WorkspaceTab() {
     } catch (err) {
       setTreeError(err instanceof Error ? err.message : "Failed to load workspace")
     } finally {
+      if (!silent) setTreeLoading(false)
+    }
+  }, [effectiveSessionKey])
+
+  const scheduleRefresh = useCallback((delayMs = 900) => {
+    if (refreshTimeoutRef.current !== null) {
+      window.clearTimeout(refreshTimeoutRef.current)
+    }
+    refreshTimeoutRef.current = window.setTimeout(() => {
+      if (workspaceRoot !== null) {
+        void loadRoot(workspaceRoot, true)
+      }
+      refreshTimeoutRef.current = null
+    }, delayMs)
+  }, [loadRoot, workspaceRoot])
+
+  useEffect(() => {
+    if (!effectiveSessionKey) {
+      setCapabilities(null)
+      setWorkspaceRoot(null)
+      setTree([])
+      setSelectedId(null)
+      setTreeError(null)
       setTreeLoading(false)
+      return
+    }
+
+    setWorkspaceRoot("")
+    void fetchRemoteWorkspaceCapabilities(effectiveSessionKey)
+      .then((result) => setCapabilities(result.capabilities))
+      .catch(() => setCapabilities(null))
+    void loadRoot("")
+  }, [effectiveSessionKey, loadRoot])
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current !== null) {
+        window.clearTimeout(refreshTimeoutRef.current)
+      }
     }
   }, [])
 
   useEffect(() => {
-    getWorkspaceRoot()
-      .then((root) => {
-        setWorkspaceRoot(root)
-        loadRoot(root)
-      })
-      .catch((err) => {
-        setTreeError(err instanceof Error ? err.message : "Failed to get workspace path")
-        setTreeLoading(false)
-      })
-  }, [loadRoot])
+    return on("sidebar:refresh", () => {
+      let gwActive = false
+      try {
+        gwActive =
+          localStorage.getItem("jarvis.gatewayActive") === "true"
+      } catch {}
+
+      if (!gwActive) {
+        globalWorkspaceSessionKeyCache = null
+        setWorkspaceSessionKey(null)
+        setTree([])
+        setSelectedId(null)
+        setCapabilities(null)
+        setWorkspaceRoot(null)
+        return
+      }
+
+      void invoke<{
+        sessions: Array<{
+          key: string
+          hidden?: boolean
+          source?: string
+        }>
+      }>("middleware_sessions_list", { input: {} })
+        .then((result) => {
+          const key =
+            result.sessions.find(
+              (item) =>
+                !item.hidden && item.source === "jarvis",
+            )?.key ??
+            result.sessions.find((item) => !item.hidden)
+              ?.key ??
+            null
+          if (key) {
+            globalWorkspaceSessionKeyCache = key
+            setWorkspaceSessionKey(key)
+          }
+        })
+        .catch(() => {})
+    })
+  }, [])
+
+  useEffect(() => {
+    if (workspaceRoot === null || !effectiveSessionKey) return
+
+    const handleFocus = () => {
+      if (document.visibilityState === "visible") {
+        void loadRoot(workspaceRoot, true)
+      }
+    }
+
+    window.addEventListener("focus", handleFocus)
+    return () => {
+      window.removeEventListener("focus", handleFocus)
+    }
+  }, [effectiveSessionKey, loadRoot, workspaceRoot])
+
+  useEffect(() => {
+    if (!effectiveSessionKey) return
+
+    const source = new EventSource(
+      streamUrl(`/api/stream/chat/${encodeURIComponent(effectiveSessionKey)}`),
+    )
+
+    const handleChatEvent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          type?: string
+          phase?: string
+          state?: string
+        }
+
+        if (payload.type === "chat.tool") {
+          scheduleRefresh(payload.phase === "start" ? 1800 : 900)
+          return
+        }
+
+        if (payload.type === "chat.status") {
+          if (
+            payload.state === "tool_running" ||
+            payload.state === "done" ||
+            payload.state === "error"
+          ) {
+            scheduleRefresh(payload.state === "tool_running" ? 1800 : 900)
+          }
+        }
+      } catch {}
+    }
+
+    source.addEventListener("chat.tool", handleChatEvent)
+    source.addEventListener("chat.status", handleChatEvent)
+
+    return () => {
+      source.removeEventListener("chat.tool", handleChatEvent)
+      source.removeEventListener("chat.status", handleChatEvent)
+      source.close()
+    }
+  }, [effectiveSessionKey, loadRoot, scheduleRefresh])
 
   const handleExpand = useCallback(async (nodeId: string) => {
+    if (!effectiveSessionKey) return
+    const activeSessionKey = effectiveSessionKey
     try {
-      const children = await loadDirEntries(nodeId)
+      const children = mapRemoteEntriesToNodes(
+        (
+          await fetchRemoteWorkspaceTree({
+            sessionKey: activeSessionKey,
+            path: nodeId,
+          })
+        ).entries,
+      )
       setTree((prev) => updateNodeChildren(prev, nodeId, children))
     } catch {
       setTree((prev) => updateNodeChildren(prev, nodeId, []))
     }
-  }, [])
+  }, [effectiveSessionKey])
 
   const handleToggleExpand = useCallback((id: string, open: boolean) => {
     setExpandedIds((prev) => {
@@ -955,6 +1206,13 @@ export function WorkspaceTab() {
     if (!selectedId) return null
     return findNode(tree, selectedId)
   }, [tree, selectedId])
+
+  const selectedDirectoryPath = useMemo(() => {
+    if (!selectedNode) return ""
+    return selectedNode.type === "dir"
+      ? selectedNode.id
+      : workspaceDirname(selectedNode.id)
+  }, [selectedNode])
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -987,20 +1245,50 @@ export function WorkspaceTab() {
   }, [isDragging])
 
   const handleNewItem = useCallback(async () => {
-    if (!workspaceRoot || !newItemName.trim()) return
-    const sep = workspaceRoot.includes("\\") ? "\\" : "/"
-    const fullPath = `${workspaceRoot}${sep}${newItemName.trim()}`
+    if (!effectiveSessionKey || !newItemName.trim() || workspaceRoot === null) return
     try {
+      const targetPath = joinWorkspacePath(selectedDirectoryPath, newItemName)
       if (newItemType === "folder") {
-        await invoke("middleware_fs_create_dir", { path: fullPath, recursive: true })
+        await createRemoteWorkspaceDirectory({
+          sessionKey: effectiveSessionKey,
+          path: targetPath,
+        })
       } else {
-        await invoke("middleware_fs_write_file", { path: fullPath, content: "" })
+        await saveRemoteWorkspaceFile({
+          sessionKey: effectiveSessionKey,
+          path: targetPath,
+          content: "",
+        })
+        setSelectedId(targetPath)
       }
       setNewItemType(null)
       setNewItemName("")
-      loadRoot(workspaceRoot)
-    } catch {}
-  }, [workspaceRoot, newItemType, newItemName, loadRoot])
+      void loadRoot(workspaceRoot, true)
+    } catch (err) {
+      setTreeError(err instanceof Error ? err.message : "Failed to create item")
+    }
+  }, [
+    effectiveSessionKey,
+    loadRoot,
+    newItemName,
+    newItemType,
+    selectedDirectoryPath,
+    workspaceRoot,
+  ])
+
+  const handleFileDeleted = useCallback(() => {
+    setSelectedId(null)
+    if (workspaceRoot !== null) {
+      void loadRoot(workspaceRoot, true)
+    }
+  }, [loadRoot, workspaceRoot])
+
+  const handlePathChange = useCallback((nextPath: string) => {
+    setSelectedId(nextPath)
+    if (workspaceRoot !== null) {
+      void loadRoot(workspaceRoot, true)
+    }
+  }, [loadRoot, workspaceRoot])
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -1034,7 +1322,11 @@ export function WorkspaceTab() {
                   if (e.key === "Enter") handleNewItem()
                   if (e.key === "Escape") setNewItemType(null)
                 }}
-                placeholder={newItemType === "folder" ? "Enter folder name..." : "Enter file name..."}
+                placeholder={
+                  newItemType === "folder"
+                    ? "Enter folder name..."
+                    : "Enter file name..."
+                }
                 className="h-8 w-full rounded-lg border-none bg-white/5 px-3 text-[12px] text-foreground placeholder-muted-foreground/40 outline-none transition-colors focus:bg-white/8"
                 autoFocus
               />
@@ -1061,33 +1353,67 @@ export function WorkspaceTab() {
       )}
 
       {/* Left: file tree sidebar */}
-      <div className="flex shrink-0 flex-col" style={{ width: sidebarWidth }}>
+      <div 
+        className="flex shrink-0 flex-col transition-[width] duration-200" 
+        style={{ width: selectedNode && selectedNode.type === "file" ? sidebarWidth : "100%" }}
+      >
         {/* File sidebar header */}
         <div className="flex h-7 shrink-0 items-center justify-between border-b border-border/30 px-2">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
             Files
           </span>
           <div className="flex items-center gap-0">
-            <IconBtn icon={VscNewFile} label="New file" onClick={() => {
-              setNewItemType("file")
-              setNewItemName("")
-            }} />
-            <IconBtn icon={VscNewFolder} label="New folder" onClick={() => {
-              setNewItemType("folder")
-              setNewItemName("")
-            }} />
+            <IconBtn
+              icon={VscNewFile}
+              label="New file"
+              disabled={!effectiveSessionKey || !capabilities?.canWrite}
+              onClick={() => {
+                setNewItemType("file")
+                setNewItemName("")
+              }}
+            />
+            <IconBtn
+              icon={VscNewFolder}
+              label="New folder"
+              disabled={!effectiveSessionKey || !capabilities?.canCreateDir}
+              onClick={() => {
+                setNewItemType("folder")
+                setNewItemName("")
+              }}
+            />
             <IconBtn
               icon={VscRefresh}
               label="Refresh"
-              onClick={() => workspaceRoot && loadRoot(workspaceRoot)}
+              disabled={!effectiveSessionKey}
+              onClick={() => {
+                if (workspaceRoot !== null && effectiveSessionKey) {
+                  void loadRoot(workspaceRoot, true)
+                }
+              }}
             />
-            <IconBtn icon={VscCollapseAll} label="Collapse all" onClick={() => setExpandedIds(new Set())} />
+            <IconBtn
+              icon={VscCollapseAll}
+              label="Collapse all"
+              onClick={() => setExpandedIds(new Set())}
+            />
           </div>
         </div>
 
         {/* Tree */}
         <div className="flex-1 overflow-y-auto py-0.5">
-          {treeLoading ? (
+          {!effectiveSessionKey ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
+              <VscFolder className="size-8 text-muted-foreground/20" />
+              <p className="text-[12px] font-medium text-muted-foreground/70">
+                Workspace is not available yet
+              </p>
+              <p className="text-[11px] text-muted-foreground/50">
+                Start one Jarvis session once and Workspace will stay available globally.
+              </p>
+            </div>
+          ) : (
+            <>
+              {treeLoading ? (
             <div className="space-y-1.5 px-3 py-2">
               <div className="flex items-center gap-2">
                 <div className="h-3.5 w-3.5 animate-pulse rounded bg-secondary/50" />
@@ -1114,24 +1440,28 @@ export function WorkspaceTab() {
                 <div className="h-3 w-18 animate-pulse rounded bg-secondary/40" />
               </div>
             </div>
-          ) : treeError ? (
+              ) : treeError ? (
             <div className="px-3 py-4 text-center">
               <p className="text-[11px] text-red-400">{treeError}</p>
               <button
                 type="button"
-                onClick={() => workspaceRoot && loadRoot(workspaceRoot)}
+                onClick={() => {
+                  if (workspaceRoot !== null && effectiveSessionKey) {
+                    void loadRoot(workspaceRoot, true)
+                  }
+                }}
                 className="mt-2 text-[11px] text-muted-foreground underline"
               >
                 Retry
               </button>
             </div>
-          ) : tree.length === 0 ? (
+              ) : tree.length === 0 ? (
             <div className="px-3 py-4 text-center">
               <p className="text-[11px] text-muted-foreground/50 italic">
                 Workspace is empty
               </p>
             </div>
-          ) : (
+              ) : (
             tree.map((node) => (
               <TreeNode
                 key={node.id}
@@ -1144,35 +1474,34 @@ export function WorkspaceTab() {
                 onToggleExpand={handleToggleExpand}
               />
             ))
+              )}
+            </>
           )}
         </div>
       </div>
 
       {/* Resize handle */}
-      <div
-        onMouseDown={handleDragStart}
-        className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
-      />
+      {selectedNode && selectedNode.type === "file" && (
+        <div
+          onMouseDown={handleDragStart}
+          className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
+        />
+      )}
 
       {/* Right: preview pane */}
-      <div ref={previewPaneRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {selectedNode && selectedNode.type === "file" && workspaceRoot ? (
+      {selectedNode && selectedNode.type === "file" && (
+        <div ref={previewPaneRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <FilePreviewPane
+            capabilities={capabilities}
+            sessionKey={effectiveSessionKey}
             filePath={selectedId!}
             fileName={selectedNode.name}
-            workspaceRoot={workspaceRoot}
             compact={previewCompact}
-            onDelete={() => {
-              setSelectedId(null)
-              loadRoot(workspaceRoot)
-            }}
+            onDelete={handleFileDeleted}
+            onPathChange={handlePathChange}
           />
-        ) : (
-          <EmptyPreview />
-        )}
-      </div>
-
-      {/* Prevent text selection while dragging */}
+        </div>
+      )}
       {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
     </div>
   )
