@@ -707,13 +707,19 @@ export function useChatMessages(
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
             const text = rawText ? cleanUserMessageText(rawText) : ""
+            const isBootstrapEcho = rawText.includes("[Bootstrap truncation warning]")
+            const hasLaterSameUserText = isBootstrapEcho && raw.slice(rawIdx + 1).some((later) => {
+              if (later.role !== "user") return false
+              const laterRawText = later.text || extractText(later.content)
+              return cleanUserMessageText(laterRawText).trim() === text.trim()
+            })
             const isSubagentAnnounce = text
               ? /agent:main:subagent:[0-9a-f-]{36}/.test(text)
               : false
 
             if (isSubagentAnnounce) {
               if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
-            } else if (text) {
+            } else if (text && !hasLaterSameUserText) {
               const reply = extractReplyBlock(text, histMsgs)
               histMsgs.push({
                 messageId: id,
