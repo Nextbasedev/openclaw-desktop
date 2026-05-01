@@ -40,6 +40,7 @@ function middlewareStreamUrl(path: string): string | null {
     const token = localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
     if (!url) return null
     const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ""
+    if (path === "/api/stream/cron") return `${url}/api/stream/cron${tokenQuery}`
     const ptyMatch = path.match(/^\/api\/stream\/pty\/([^/]+)$/)
     if (ptyMatch?.[1]) return `${url}/api/terminal/${encodeURIComponent(ptyMatch[1])}/stream${tokenQuery}`
     const chatMatch = path.match(/^\/api\/stream\/chat\/(.+)$/)
