@@ -158,7 +158,7 @@ function messageBody(m: any) {
   return ""
 }
 
-function messageIdOf(m: any) { return m?.id || m?.messageId }
+function messageIdOf(m: any) { return m?.id || m?.messageId || m?.__openclaw?.id }
 
 function agentIdFromSessionKey(sessionKey: string | undefined, fallback = "main") {
   const match = String(sessionKey || "").match(/^agent:([^:]+):/)
@@ -473,19 +473,40 @@ export function commandRoutes(store: Store) {
         }
         case "middleware_chat_regenerate": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          if (!input.messageId) throw new HttpError(400, "messageId is required", "BAD_REQUEST")
           const message = String(input.text || input.message || "")
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
           try {
-            const key = input.sessionKey
+            const sourceKey = input.sessionKey
+            const agentId = input.agentId || agentIdFromSessionKey(sourceKey)
+            const history = await gw.request<any>("chat.history", { sessionKey: sourceKey, limit: input.limit || 1000 }, 30_000)
+            if (!history.ok) throw new HttpError(502, history.error?.message || "chat.history failed", "GATEWAY_ERROR")
+            const messages = Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
+            const assistantIndex = messages.findIndex((m:any) => messageIdOf(m) === input.messageId)
+            if (assistantIndex === -1 || messages[assistantIndex]?.role !== "assistant") throw new HttpError(404, "Assistant message not found", "NOT_FOUND")
+            const userIndex = assistantIndex > 0 && messages[assistantIndex - 1]?.role === "user" ? assistantIndex - 1 : -1
+            if (userIndex === -1) throw new HttpError(404, "Preceding user message not found", "NOT_FOUND")
+            const sourceUser = messages[userIndex]
+            const sourceAssistant = messages[assistantIndex]
+            const branchSessionKey = `agent:${agentId}:regen:${crypto.randomUUID()}`
+            const label = `Regenerate preview ${new Date().toISOString()}`
+            const created = await gw.request<any>("sessions.create", { key: branchSessionKey, agentId, label, parentSessionKey: sourceKey }, 30_000)
+            if (!created.ok) throw new HttpError(502, created.error?.message || "sessions.create failed", "GATEWAY_ERROR")
+            const transcriptPath = (created.payload as any)?.entry?.sessionFile
+            if (!transcriptPath || typeof transcriptPath !== "string") throw new HttpError(502, "sessions.create did not return entry.sessionFile", "GATEWAY_ERROR")
+            copyHistoryMessagesToTranscript(transcriptPath, messages.slice(0, userIndex))
             const res = await gw.request("chat.send", {
-              sessionKey: key,
+              sessionKey: branchSessionKey,
               message,
               timeoutMs: input.timeoutMs || 120_000,
               idempotencyKey: crypto.randomUUID(),
             }, input.timeoutMs || 130_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.regenerate failed", "GATEWAY_ERROR")
-            return { accepted: true, sessionKey: key, regeneratedMessageId: input.messageId, action: "regenerate", ...((res.payload as object) || {}) }
+            const branchId = crypto.randomUUID()
+            const branch = { branchId, sourceSessionKey: sourceKey, sourceMessageId: messageIdOf(sourceUser), sourceAssistantMessageId: input.messageId, branchSessionKey, branchReason: "regenerate", createdAt: now() }
+            s.commandState.branches.push(branch); save(store, s)
+            return { accepted: true, branchId, branchSessionKey, sessionKey: sourceKey, regeneratedMessageId: input.messageId, sourceUserMessageId: messageIdOf(sourceUser), sourceAssistantMessageId: input.messageId, action: "regenerate", original: { user: sourceUser, assistant: sourceAssistant }, edited: { user: sourceUser, assistant: null }, ...((res.payload as object) || {}) }
           } finally { gw.close() }
         }
         case "middleware_chat_fork": {

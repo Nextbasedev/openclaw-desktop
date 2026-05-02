@@ -111,6 +111,7 @@ function EditPreviewPanel({
   onSelect: (selected: "original" | "edited") => void
 }) {
   const loadingEdited = preview.status === "streaming" && !preview.edited.assistant?.text
+  const isRegenerate = preview.original.user.text.trim() === preview.edited.user.text.trim()
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -121,7 +122,7 @@ function EditPreviewPanel({
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">Choose the response to keep</h2>
-          <p className="text-xs text-muted-foreground">Future context continues only from the version you select.</p>
+          <p className="text-xs text-muted-foreground">{isRegenerate ? "Compare the current answer with the regenerated one." : "Future context continues only from the version you select."}</p>
         </div>
         {preview.status === "error" && (
           <span className="rounded-full bg-red-500/10 px-2 py-1 text-xs text-red-400">
@@ -137,7 +138,7 @@ function EditPreviewPanel({
           onSelect={() => onSelect("original")}
         />
         <PreviewResponseCard
-          title="Edited"
+          title={isRegenerate ? "Regenerated" : "Edited"}
           user={preview.edited.user}
           assistant={preview.edited.assistant}
           loading={loadingEdited}
