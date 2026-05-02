@@ -232,7 +232,21 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       gateway = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
       send("chat.status", { type: "chat.status", sessionKey, state: "connected" })
       await gateway.request("sessions.subscribe", {}, 30_000).catch(() => null)
-      await gateway.request("sessions.messages.subscribe", { key: sessionKey }, 30_000).catch(() => null)
+      let subscribed = false
+      let closed = false
+      let retrySubscribe: NodeJS.Timeout | null = null
+      const subscribeMessages = async () => {
+        if (subscribed || closed) return
+        const response = await gateway?.request("sessions.messages.subscribe", { key: sessionKey }, 30_000).catch(() => null)
+        subscribed = Boolean(response?.ok && (response.payload as any)?.subscribed)
+        if (subscribed && retrySubscribe) clearInterval(retrySubscribe)
+      }
+      await subscribeMessages()
+      retrySubscribe = setInterval(() => { void subscribeMessages() }, 500)
+      const stopRetrySubscribe = () => {
+        closed = true
+        if (retrySubscribe) clearInterval(retrySubscribe)
+      }
       const off = gateway.on((message) => {
         if (message.type !== "event") return
         const payload = message.payload as any
@@ -260,7 +274,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           send("chat.tool", { type: "chat.tool", sessionKey, ...payload.data })
         }
       })
-      req.on("close", () => { off(); gateway?.close() })
+      req.on("close", () => { stopRetrySubscribe(); off(); gateway?.close() })
     } catch (error) {
       send("chat.status", { type: "chat.status", sessionKey, state: "error", label: error instanceof Error ? error.message : "stream_error" })
       gateway?.close()
