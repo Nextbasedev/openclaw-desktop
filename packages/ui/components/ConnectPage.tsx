@@ -41,6 +41,19 @@ function statusFromConnection(connected: boolean, url?: string, token?: string):
   }
 }
 
+function isLikelyPairingCode(value: string): boolean {
+  const compact = value.trim().replace(/[-\s]/g, "")
+  return /^[A-Z0-9]{4,16}$/i.test(compact) && !compact.toLowerCase().startsWith("sk")
+}
+
+function humanConnectionError(err: unknown, targetUrl: string): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (message.toLowerCase().includes("failed to fetch")) {
+    return `Could not reach Middleware at ${targetUrl.trim() || "the entered URL"}. Check that this device can access that URL/network, then try again.`
+  }
+  return message
+}
+
 export default function ConnectPage() {
   const [url, setUrl] = useState("")
   const [token, setToken] = useState("")
@@ -113,7 +126,7 @@ export default function ConnectPage() {
     }
     let connection = { url: url.trim(), token: token.trim() }
     let health: MiddlewareHealth | null = null
-    if (setupMode === "remote" && token.trim() && !token.trim().startsWith("sk-") && token.trim().length <= 32) {
+    if (isLikelyPairingCode(token)) {
       const paired = await claimMiddlewarePairing({ url: url.trim(), code: token.trim() })
       connection = { url: paired.url, token: paired.token }
       health = await testMiddlewareConnection(connection)
@@ -138,7 +151,7 @@ export default function ConnectPage() {
     try {
       await runTest(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(humanConnectionError(err, url))
     } finally {
       setTesting(false)
     }
@@ -153,7 +166,7 @@ export default function ConnectPage() {
       emit("sidebar:refresh")
       window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(humanConnectionError(err, url))
     } finally {
       setSaving(false)
     }

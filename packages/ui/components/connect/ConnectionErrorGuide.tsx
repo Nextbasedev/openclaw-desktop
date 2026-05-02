@@ -555,29 +555,27 @@ function getErrorGuide(
 
 function classifyRawError(
   msg: string,
+  gatewayUrl?: string,
 ): ErrorGuideConfig {
   const lower = msg.toLowerCase()
 
-  if (lower.includes("backend became ready") || lower.includes("failed to fetch")) {
+  if (lower.includes("backend became ready") || lower.includes("failed to fetch") || lower.includes("could not reach middleware")) {
+    const target = gatewayUrl?.trim() || "the entered Middleware URL"
     return {
-      title: "Jarvis Backend URL Misconfigured or Not Running",
+      title: "Middleware URL Not Reachable",
       variant: "destructive",
       description:
-        "The UI could not reach the Jarvis middleware backend. In browser/Funnel mode, the UI must call the same-origin Next proxy (/api/ipc/* and /api/stream/*), not http://127.0.0.1:3001 directly from the browser.",
+        `The app could not reach ${target}. Pairing codes are reusable until the Middleware owner rotates them; this error is network reachability, not a one-time-code issue.`,
       steps: [
-        "Restart the app completely",
-        "If running in development, ensure both services are running: UI on port 3000 and middleware backend on port 3001",
-        "For browser/Funnel deployments, change client calls to use relative URLs like /api/ipc/<command>; keep 127.0.0.1:3001 only on the server side or set JARVIS_SERVER_URL/NEXT_PUBLIC_SERVER_URL to the backend origin",
-        "Check that port 3001 is not blocked by another process",
+        "Confirm the Middleware URL opens from this computer/browser: /health should return ok: true",
+        "If it is a Tailscale/MagicDNS URL, make sure this user is on the same tailnet and Tailscale is connected",
+        "Use the Middleware port 8787 URL, not the old Jarvis backend port 3001",
+        "If the browser blocks the request, try the Tailscale IP/HTTP URL or configure HTTPS/reverse proxy for the Middleware",
       ],
       commands: [
         {
-          label: "Check backend through the UI proxy",
-          command: "curl http://127.0.0.1:3000/api/health",
-        },
-        {
-          label: "Check middleware backend directly on the server",
-          command: "curl http://127.0.0.1:3001/health",
+          label: "Check Middleware health",
+          command: `curl ${target.replace(/\/$/, "")}/health`,
         },
       ],
     }
@@ -674,7 +672,7 @@ export default function ConnectionErrorGuide({
   gatewayUrl?: string
 }) {
   if (rawError && !result) {
-    const guide = classifyRawError(rawError)
+    const guide = classifyRawError(rawError, gatewayUrl)
     const isWarning = guide.variant === "warning"
     const borderClass = isWarning
       ? "border-yellow-500/30 bg-yellow-500/5"
