@@ -216,7 +216,9 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   })
 
   app.get("/api/stream/chat/:sessionKey", async (req, res, next) => {
-    const sessionKey = req.params.sessionKey
+    const requestedSessionKey = req.params.sessionKey
+    const currentState = (store as any).read?.() ?? {}
+    const sessionKey = currentState.commandState?.activeBranchSessions?.[requestedSessionKey] || requestedSessionKey
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
@@ -225,7 +227,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
     })
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     let gateway: Awaited<ReturnType<typeof connectGateway>> | null = null
-    send("chat.ready", { type: "chat.ready", sessionKey })
+    send("chat.ready", { type: "chat.ready", sessionKey: requestedSessionKey, activeSessionKey: sessionKey })
     try {
       gateway = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
       send("chat.status", { type: "chat.status", sessionKey, state: "connected" })

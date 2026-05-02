@@ -610,7 +610,7 @@ export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibilit
   return "hidden"
 }
 
-export async function createChatSession(input: { agentId?: string; label?: string; model?: string; verboseLevel?: string }) {
+export async function createChatSession(input: { agentId?: string; label?: string; model?: string; verboseLevel?: string; parentSessionKey?: string }) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"] })
   try {
     const params: Record<string, unknown> = {
@@ -618,7 +618,8 @@ export async function createChatSession(input: { agentId?: string; label?: strin
       label: input.label ?? `Jarvis middleware session ${new Date().toISOString()}`,
     }
     if (input.model) params.model = input.model
-    const response = await gateway.request<{ key?: string }>("sessions.create", params)
+    if (input.parentSessionKey) params.parentSessionKey = input.parentSessionKey
+    const response = await gateway.request<{ key?: string; sessionId?: string; entry?: { sessionFile?: string } }>("sessions.create", params)
     if (!response.ok || !response.payload?.key) throw new Error(response.error?.message ?? "sessions.create failed")
 
     if (input.verboseLevel) {
@@ -626,7 +627,7 @@ export async function createChatSession(input: { agentId?: string; label?: strin
       if (!patched.ok) throw new Error(patched.error?.message ?? "sessions.patch failed")
     }
 
-    return { sessionKey: response.payload.key }
+    return { sessionKey: response.payload.key, sessionId: response.payload.sessionId ?? null, sessionFile: response.payload.entry?.sessionFile ?? null }
   } finally {
     gateway.close()
   }

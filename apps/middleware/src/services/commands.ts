@@ -17,6 +17,7 @@ function state(store: Store): any {
   s.commandState.cronJobs ??= []
   s.commandState.cronRuns ??= []
   s.commandState.branches ??= []
+  s.commandState.activeBranchSessions ??= {}
   s.commandState.skillsEnabled ??= {}
   return s
 }
@@ -159,6 +160,7 @@ function messageBody(m: any) {
 }
 
 function messageIdOf(m: any) { return m?.id || m?.messageId || m?.__openclaw?.id }
+function activeSessionKey(s: any, key: string) { return s.commandState?.activeBranchSessions?.[key] || key }
 
 function agentIdFromSessionKey(sessionKey: string | undefined, fallback = "main") {
   const match = String(sessionKey || "").match(/^agent:([^:]+):/)
@@ -436,7 +438,7 @@ export function commandRoutes(store: Store) {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            const res = await gw.request("chat.history", { sessionKey: input.sessionKey }, 30_000)
+            const res = await gw.request("chat.history", { sessionKey: activeSessionKey(s, input.sessionKey) }, 30_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
             return res.payload
           } finally {
@@ -448,7 +450,7 @@ export function commandRoutes(store: Store) {
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            const key = input.sessionKey || `agent:main:desktop:${crypto.randomUUID()}`
+            const key = input.sessionKey ? activeSessionKey(s, input.sessionKey) : `agent:main:desktop:${crypto.randomUUID()}`
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
             const res = await gw.request("chat.send", {
               sessionKey: key,
@@ -496,9 +498,10 @@ export function commandRoutes(store: Store) {
             const transcriptPath = (created.payload as any)?.entry?.sessionFile
             if (!transcriptPath || typeof transcriptPath !== "string") throw new HttpError(502, "sessions.create did not return entry.sessionFile", "GATEWAY_ERROR")
             copyHistoryMessagesToTranscript(transcriptPath, messages.slice(0, userIndex))
+            const prompt = messageBody(sourceUser).trim() || message
             const res = await gw.request("chat.send", {
               sessionKey: branchSessionKey,
-              message,
+              message: prompt,
               timeoutMs: input.timeoutMs || 120_000,
               idempotencyKey: crypto.randomUUID(),
             }, input.timeoutMs || 130_000)
@@ -523,12 +526,14 @@ export function commandRoutes(store: Store) {
             const history = await gw.request<any>("chat.history", { sessionKey: sourceKey, limit: input.limit || 100 }, 30_000)
             if (!history.ok) throw new HttpError(502, history.error?.message || "chat.history failed", "GATEWAY_ERROR")
             const messages = history?.ok && Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
+            const msgIdx = input.messageId ? messages.findIndex((m:any) => messageIdOf(m) === input.messageId) : -1
+            const copyMessages = msgIdx >= 0 ? messages.slice(0, msgIdx + 1) : messages
             const transcriptPath = (created.payload as any)?.entry?.sessionFile
             if (!transcriptPath || typeof transcriptPath !== "string") throw new HttpError(502, "sessions.create did not return entry.sessionFile", "GATEWAY_ERROR")
-            copyHistoryMessagesToTranscript(transcriptPath, messages)
+            copyHistoryMessagesToTranscript(transcriptPath, copyMessages)
             const branch = { branchId: crypto.randomUUID(), sourceSessionKey: sourceKey, branchSessionKey: key, branchReason: "fork", createdAt: now() }
             s.commandState.branches.push(branch); s.chats.push({ id: chatId, name, sessionKey: key, agentId, archived: false, pinned: false, createdAt: now(), updatedAt: now(), lastActiveAt: now() }); save(store, s)
-            return { chatId, sessionKey: key, name, branchSessionKey: key, copiedMessages: messages.filter((m:any) => m && m.role !== "system").length, transcriptPath, branchId: branch.branchId }
+            return { chatId, sessionKey: key, name, branchSessionKey: key, copiedMessages: copyMessages.filter((m:any) => m && m.role !== "system").length, transcriptPath, branchId: branch.branchId }
           } finally { gw.close() }
         }
         case "middleware_chat_edit_last_preview": {
@@ -568,7 +573,10 @@ export function commandRoutes(store: Store) {
           const branchSessionKey = input.branchSessionKey || input.editedSessionKey
           const branch = s.commandState.branches.find((b:any) => b.branchSessionKey === branchSessionKey || b.branchId === input.branchId)
           if (!branch) throw new HttpError(404, "Branch not found", "NOT_FOUND")
-          branch.selected = selected; branch.selectedAt = now(); save(store, s)
+          branch.selected = selected; branch.selectedAt = now();
+          if (selected === "edited") s.commandState.activeBranchSessions[branch.sourceSessionKey] = branch.branchSessionKey
+          else delete s.commandState.activeBranchSessions[branch.sourceSessionKey]
+          save(store, s)
           return ok({ selected, sessionKey: selected === "edited" ? branch.branchSessionKey : branch.sourceSessionKey, branch })
         }
         case "middleware_branch_list": return { branches: s.commandState.branches.filter((b:any) => !input.sourceSessionKey || b.sourceSessionKey === input.sourceSessionKey) }

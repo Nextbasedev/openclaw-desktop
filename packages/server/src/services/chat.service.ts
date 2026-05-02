@@ -730,6 +730,47 @@ function buildEditPreviewPrompt(params: {
   ].join("\n")
 }
 
+function agentIdFromSessionKey(sessionKey: string | undefined, fallback = "main") {
+  const match = String(sessionKey || "").match(/^agent:([^:]+):/)
+  return match?.[1] || fallback
+}
+
+function stripTranscriptUiMeta(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripTranscriptUiMeta)
+  if (!value || typeof value !== "object") return value
+  const out: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "__openclaw" || key === "messageId" || key === "seq") continue
+    out[key] = stripTranscriptUiMeta(item)
+  }
+  return out
+}
+
+function transcriptLineFromHistoryMessage(message: HistMsg) {
+  const meta = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as Record<string, unknown> : {}
+  const id = String(meta.id || message.id || crypto.randomUUID())
+  const timestamp = typeof message.timestamp === "number"
+    ? new Date(message.timestamp).toISOString()
+    : (typeof message.timestamp === "string" ? message.timestamp : message.createdAt ?? nowIso())
+  return JSON.stringify({ id, timestamp, message: stripTranscriptUiMeta(message) })
+}
+
+function copyHistoryMessagesToTranscript(transcriptPath: string, messages: HistMsg[]) {
+  fs.mkdirSync(path.dirname(transcriptPath), { recursive: true })
+  const existing = fs.existsSync(transcriptPath) ? fs.readFileSync(transcriptPath, "utf8") : ""
+  const header = existing.split(/\r?\n/).find((line) => {
+    if (!line.trim()) return false
+    try { return JSON.parse(line)?.type === "session" } catch { return false }
+  }) || JSON.stringify({ type: "session", version: 1, id: path.basename(transcriptPath, ".jsonl"), timestamp: nowIso(), cwd: process.cwd() })
+  const lines = [header, ...messages.filter((m) => m && m.role !== "system").map(transcriptLineFromHistoryMessage)]
+  fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 })
+}
+
+function messageIdOf(message: HistMsg | undefined) {
+  const meta = message?.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as Record<string, unknown> : undefined
+  return String(message?.id || message?.messageId || meta?.id || "")
+}
+
 export async function chatEditLastPreview(input: {
   sessionKey: string
   userMessageId: string
@@ -821,7 +862,7 @@ export async function chatSelectEditBranch(input: {
   const db = getDb()
   const now = new Date().toISOString()
   const row = db.prepare(
-    "SELECT id, metadata_json FROM branches WHERE source_session_key = ? AND branch_session_key = ? AND branch_reason = 'edit_preview' ORDER BY created_at DESC LIMIT 1",
+    "SELECT id, metadata_json FROM branches WHERE source_session_key = ? AND branch_session_key = ? AND branch_reason IN ('edit_preview', 'regenerate') ORDER BY created_at DESC LIMIT 1",
   ).get(input.sessionKey, input.branchSessionKey) as { id: string; metadata_json: string | null } | undefined
   if (!row) throw new Error("Edit preview branch not found")
 
@@ -864,22 +905,74 @@ export async function chatRegenerate(input: {
   text: string
 }) {
   const gwKey = resolveGatewayKey(input.sessionKey)
+  let history: Awaited<ReturnType<typeof getChatHistory>>
+  try {
+    history = await getChatHistory(gwKey)
+  } catch (error) {
+    throw wrapGatewayError(error)
+  }
+
+  const messages = ((history.messages ?? []) as HistMsg[]).filter((m) => m.role === "user" || m.role === "assistant")
+  const assistantIdx = messages.findIndex((m) => messageIdOf(m) === input.messageId)
+  if (assistantIdx === -1) throw new Error("Assistant message not found")
+  if (messages[assistantIdx]?.role !== "assistant") throw new Error("Only assistant messages can be regenerated")
+  const userIdx = assistantIdx > 0 && messages[assistantIdx - 1]?.role === "user" ? assistantIdx - 1 : -1
+  if (userIdx === -1) throw new Error("Preceding user message not found")
+
+  const sourceUser = messages[userIdx]!
+  const sourceAssistant = messages[assistantIdx]!
+  const prompt = histText(sourceUser).trim() || input.text.trim()
+  if (!prompt) throw new Error("Regenerate message cannot be empty")
+
+  const agentId = agentIdFromSessionKey(gwKey || input.sessionKey)
+  const label = `Regenerate preview ${crypto.randomUUID().slice(0, 8)}`
+  const created = await createChatSession({ agentId, label, model: readPrimaryModel(), parentSessionKey: gwKey })
+  if (!created.sessionFile) throw new Error("sessions.create did not return entry.sessionFile")
+  copyHistoryMessagesToTranscript(created.sessionFile, messages.slice(0, userIdx))
+
+  const branchSessionKey = created.sessionKey
+  const branchId = `regen_preview_${crypto.randomUUID().replace(/-/g, "")}`
+  const now = new Date().toISOString()
+  getDb().prepare(
+    "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_reason, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    branchId,
+    input.sessionKey,
+    messageIdOf(sourceUser),
+    branchSessionKey,
+    "regenerate",
+    now,
+    JSON.stringify({
+      type: "regenerate_preview",
+      status: "pending",
+      originalSessionKey: input.sessionKey,
+      originalGatewayKey: gwKey,
+      regeneratedSessionKey: branchSessionKey,
+      sourceUserMessageId: messageIdOf(sourceUser),
+      sourceAssistantMessageId: input.messageId,
+    }),
+  )
+
   let result: Awaited<ReturnType<typeof sendChatMessage>>
   try {
-    await ensureEventStream(gwKey, input.sessionKey)
-    result = await sendChatMessage({
-      sessionKey: gwKey,
-      text: input.text,
-      regenerate: true,
-    })
+    await ensureEventStream(branchSessionKey, branchSessionKey)
+    result = await sendChatMessage({ sessionKey: branchSessionKey, text: prompt, regenerate: true })
   } catch (error) {
-    wrapGatewayError(error)
+    try { await deleteChatSession(branchSessionKey) } catch {}
+    throw wrapGatewayError(error)
   }
 
   return {
     ...result,
+    branchId,
+    branchSessionKey,
+    sessionKey: input.sessionKey,
     regeneratedMessageId: input.messageId,
+    sourceUserMessageId: messageIdOf(sourceUser),
+    sourceAssistantMessageId: input.messageId,
     action: "regenerate",
+    original: { user: sourceUser, assistant: sourceAssistant },
+    edited: { user: sourceUser, assistant: null },
   }
 }
 
@@ -1021,8 +1114,10 @@ export async function chatFork(input: {
     throw wrapGatewayError(error)
   }
 
-  const msgs = history.messages ?? []
-  const msgIdx = input.gatewayIndex
+  const msgs = (history.messages ?? []) as HistMsg[]
+  const msgIdx = Number.isInteger(input.gatewayIndex) && input.gatewayIndex >= 0
+    ? input.gatewayIndex
+    : msgs.findIndex((m) => messageIdOf(m) === input.messageId)
   if (msgIdx < 0 || msgIdx >= msgs.length) {
     throw new Error(`Message index ${msgIdx} out of range (${msgs.length} messages)`)
   }
@@ -1033,11 +1128,15 @@ export async function chatFork(input: {
     getAppSetting(getDb(), "onboarding.model.ref") ?? undefined
   let newSession: Awaited<ReturnType<typeof createChatSession>>
   try {
+    const agentId = agentIdFromSessionKey(gwKey || input.sessionKey)
     newSession = await createChatSession({
-      agentId: "main",
+      agentId,
       label: forkLabel,
       model,
+      parentSessionKey: gwKey,
     })
+    if (!newSession.sessionFile) throw new Error("sessions.create did not return entry.sessionFile")
+    copyHistoryMessagesToTranscript(newSession.sessionFile, sliced as HistMsg[])
   } catch (error) {
     throw wrapGatewayError(error)
   }
@@ -1047,15 +1146,16 @@ export async function chatFork(input: {
   const chatId = generateId("chat")
   const branchId = generateId("branch")
   const newSessionKey = newSession.sessionKey
+  const agentId = agentIdFromSessionKey(newSessionKey)
 
   db.transaction(() => {
     db.prepare(
       "INSERT INTO chats (id, name, session_key, agent_id, archived, pinned, last_active_at, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)",
-    ).run(chatId, forkLabel, newSessionKey, "main", now, now, now)
+    ).run(chatId, forkLabel, newSessionKey, agentId, now, now, now)
 
     db.prepare(
-      "INSERT OR REPLACE INTO session_mappings (session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, NULL, NULL, NULL, 'main', ?, 'idle', ?, ?, 0, 0, 'jarvis')",
-    ).run(newSessionKey, forkLabel, now, now)
+      "INSERT OR REPLACE INTO session_mappings (session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source) VALUES (?, ?, NULL, NULL, ?, ?, 'idle', ?, ?, 0, 0, 'jarvis')",
+    ).run(newSessionKey, newSession.sessionKey, agentId, forkLabel, now, now)
 
     db.prepare(
       "INSERT INTO branches (id, source_session_key, source_message_id, branch_session_key, branch_topic_id, branch_reason, created_at, metadata_json) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)",
