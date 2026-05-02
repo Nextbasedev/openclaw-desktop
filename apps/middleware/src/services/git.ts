@@ -48,12 +48,22 @@ function changedFiles(cwd: string) {
   return files.map(file => ({ ...file, ...(stats.get(file.path) ?? { additions: 0, deletions: 0 }) }))
 }
 
+function commitStats(cwd: string, hash: string) {
+  const raw = tryGit(cwd, ["show", "--first-parent", "--numstat", "--format=", hash]) ?? ""
+  return raw.split("\n").filter(Boolean).reduce((acc, line) => {
+    const [additionsRaw, deletionsRaw] = line.split("\t")
+    acc.additions += additionsRaw === "-" ? 0 : Number(additionsRaw || 0)
+    acc.deletions += deletionsRaw === "-" ? 0 : Number(deletionsRaw || 0)
+    return acc
+  }, { additions: 0, deletions: 0 })
+}
+
 function recentCommits(cwd: string) {
   const raw = tryGit(cwd, ["log", "-10", "--pretty=format:%H%x1f%s%x1f%cr"])
   if (!raw) return []
   return raw.split("\n").filter(Boolean).map(line => {
     const [hash = "", message = "", date = ""] = line.split("\x1f")
-    return { hash, shortHash: hash.slice(0, 7), message, date, additions: 0, deletions: 0 }
+    return { hash, shortHash: hash.slice(0, 7), message, date, ...commitStats(cwd, hash) }
   })
 }
 
