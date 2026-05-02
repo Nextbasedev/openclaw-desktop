@@ -126,7 +126,7 @@ function searchMemory(query: string) {
 }
 
 async function runCronJob(store: Store, s: any, input: any) {
-  const job = s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId)
+  const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id))
   if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND")
   const run = { id: crypto.randomUUID(), runId: crypto.randomUUID(), jobId: job.jobId || job.id, status: "running", startedAt: now(), finishedAt: null as string | null, sessionKey: job.sessionKey || `agent:main:cron:${job.jobId || job.id}:run:${crypto.randomUUID()}`, error: null as string | null }
   s.commandState.cronRuns.push(run); save(store, s)
@@ -348,6 +348,7 @@ export function commandRoutes(store: Store) {
         case "middleware_message_feedback_delete": { s.commandState.feedback = s.commandState.feedback.filter((f:any) => f.message_id !== input.message_id && f.messageId !== input.messageId); save(store, s); return ok() }
 
         case "middleware_chat_history": {
+          if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             const res = await gw.request("chat.history", { sessionKey: input.sessionKey }, 30_000)
@@ -358,13 +359,15 @@ export function commandRoutes(store: Store) {
           }
         }
         case "middleware_chat_send": {
+          const message = String(input.text || input.message || "")
+          if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             const key = input.sessionKey || `agent:main:desktop:${crypto.randomUUID()}`
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
             const res = await gw.request("chat.send", {
               sessionKey: key,
-              message: input.text || input.message || "",
+              message,
               timeoutMs: input.timeoutMs || 120_000,
               idempotencyKey: crypto.randomUUID(),
             }, input.timeoutMs || 130_000)
@@ -384,6 +387,9 @@ export function commandRoutes(store: Store) {
           } finally { gw.close() }
         }
         case "middleware_chat_regenerate": {
+          if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          const message = String(input.text || input.message || "")
+          if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
           try {
             const key = input.sessionKey
@@ -414,6 +420,10 @@ export function commandRoutes(store: Store) {
           } finally { gw.close() }
         }
         case "middleware_chat_edit_last_preview": {
+          if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          if (!input.userMessageId) throw new HttpError(400, "userMessageId is required", "BAD_REQUEST")
+          const editedText = String(input.text || input.message || "")
+          if (!editedText.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
           try {
             const originalKey = input.sessionKey
@@ -426,13 +436,13 @@ export function commandRoutes(store: Store) {
             const prompt = [
               "Continue the conversation. Prior transcript is context only.",
               ...messages.filter((m:any) => m.role === "user" || m.role === "assistant").slice(0, -1).map((m:any) => `${m.role}: ${Array.isArray(m.content) ? m.content.map((b:any)=>b.text||'').join('') : (m.text || m.content || '')}`),
-              `user: ${input.text || input.message || ""}`,
+              `user: ${editedText}`,
             ].filter(Boolean).join("\n\n")
             const sent = await gw.request("chat.send", { sessionKey: branchSessionKey, message: prompt, timeoutMs: input.timeoutMs || 120_000, idempotencyKey: crypto.randomUUID() }, input.timeoutMs || 130_000)
             if (!sent.ok) throw new HttpError(502, sent.error?.message || "edit preview send failed", "GATEWAY_ERROR")
             const branch = { sourceSessionKey: originalKey, sourceMessageId: input.userMessageId, branchSessionKey, branchReason: "edit_preview", createdAt: now() }
             s.commandState.branches.push(branch); save(store, s)
-            return { branchId: crypto.randomUUID(), branchSessionKey, sourceUserMessageId: input.userMessageId, original: { user: sourceUser, assistant: null }, edited: { user: { id: `edited:${input.userMessageId}`, role: "user", text: input.text }, assistant: null }, ...((sent.payload as object) || {}) }
+            return { branchId: crypto.randomUUID(), branchSessionKey, sourceUserMessageId: input.userMessageId, original: { user: sourceUser, assistant: null }, edited: { user: { id: `edited:${input.userMessageId}`, role: "user", text: editedText }, assistant: null }, ...((sent.payload as object) || {}) }
           } finally { gw.close() }
         }
         case "middleware_chat_select_edit_branch": {
@@ -463,12 +473,12 @@ export function commandRoutes(store: Store) {
 
         case "middleware_cron_list_jobs": return { jobs: s.commandState.cronJobs }
         case "middleware_cron_create_job": { const job = { id: crypto.randomUUID(), jobId: crypto.randomUUID(), ...input, status: "paused", createdAt: now(), updatedAt: now() }; s.commandState.cronJobs.push(job); save(store,s); return { job, jobId: job.jobId } }
-        case "middleware_cron_get_job": return { job: s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId) ?? null }
-        case "middleware_cron_update_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); Object.assign(job, input, { updatedAt: now() }); save(store,s); return { job } }
-        case "middleware_cron_delete_job": s.commandState.cronJobs = s.commandState.cronJobs.filter((j:any)=>j.jobId!==input.jobId && j.id!==input.jobId); save(store,s); return ok()
-        case "middleware_cron_pause_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===input.jobId || j.id===input.jobId); if (job) job.status = "paused"; save(store,s); return { job } }
+        case "middleware_cron_get_job": return { job: s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)) ?? null }
+        case "middleware_cron_update_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); Object.assign(job, input, { updatedAt: now() }); save(store,s); return { job } }
+        case "middleware_cron_delete_job": { const before = s.commandState.cronJobs.length; s.commandState.cronJobs = s.commandState.cronJobs.filter((j:any)=>j.jobId!==(input.jobId || input.id) && j.id!==(input.jobId || input.id)); if (before === s.commandState.cronJobs.length) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); save(store,s); return ok() }
+        case "middleware_cron_pause_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); job.status = "paused"; save(store,s); return { job } }
         case "middleware_cron_run_job": return runCronJob(store, s, input)
-        case "middleware_cron_list_runs": return { runs: s.commandState.cronRuns.filter((r:any)=>!input.jobId || r.jobId===input.jobId) }
+        case "middleware_cron_list_runs": return { runs: s.commandState.cronRuns.filter((r:any)=>!(input.jobId || input.id) || r.jobId===(input.jobId || input.id)) }
         case "middleware_cron_recent_activity": { const events = s.commandState.cronRuns.slice(-20).reverse(); return { events, activity: events } }
         case "middleware_cron_job_conversation": {
           const run = s.commandState.cronRuns.find((r:any) => r.jobId === input.jobId || r.runId === input.runId || r.id === input.runId)
