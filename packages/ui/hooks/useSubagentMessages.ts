@@ -63,7 +63,7 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
       const visibleText = cleanUserMessageText(text)
       if (!visibleText) continue
       if (/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) continue
-      if (/agent:main:subagent:[0-9a-f-]{36}/.test(visibleText)) continue
+      if (/agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(visibleText)) continue
       result.push({
         id: msg.id ?? randomId(),
         role: "user",

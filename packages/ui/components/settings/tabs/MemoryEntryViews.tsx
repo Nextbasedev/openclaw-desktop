@@ -49,7 +49,7 @@ export function DocView({
   async function handleSave() {
     setSaving(true); setSaveError(null)
     try {
-      await invoke("middleware_memory_write", { input: { path: doc.name, content: draft } })
+      await invoke("middleware_memory_write", { input: { path: doc.path || doc.name, content: draft } })
       onSaved(draft)
     } catch (err) { setSaveError(String(err)) }
     finally { setSaving(false) }
