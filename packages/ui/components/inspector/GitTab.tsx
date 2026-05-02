@@ -12,15 +12,6 @@ import {
   STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type GitDiffResponse,
 } from "./git-helpers"
 
-type ProjectSummary = {
-  id: string
-  name: string
-  profileId?: string
-  workspaceRoot?: string
-  repoRoot?: string | null
-  archived?: boolean
-}
-
 function StateBadge({ state }: { state: FileState }) {
   const config = STATE_CONFIG[state]
   return (
@@ -35,6 +26,7 @@ function StateBadge({ state }: { state: FileState }) {
 
 export function GitTab({ projectId }: { projectId: string | null }) {
   const [pickedProjectId, setPickedProjectId] = useState<string | null>(null)
+  const [pickedRepo, setPickedRepo] = useState<{ name: string; path: string } | null>(null)
   const [context, setContext] = useState<GitContextResponse | null>(null)
   const [branches, setBranches] = useState<BranchesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -44,21 +36,22 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   const [selectedCommit, setSelectedCommit] = useState<{ hash: string; message: string } | null>(null)
   const [selectedChangedFile, setSelectedChangedFile] = useState<GitFile | null>(null)
   const effectiveProjectId = projectId ?? pickedProjectId ?? null
+  const effectiveRepoPath = !effectiveProjectId ? pickedRepo?.path ?? null : null
   const skipNextAutoLoadRef = useRef<string | null>(null)
 
-  const loadProject = useCallback(async (targetProjectId: string | null) => {
-    if (!targetProjectId) return
+  const loadGitTarget = useCallback(async (targetProjectId: string | null, targetRepoPath: string | null = null) => {
+    if (!targetProjectId && !targetRepoPath) return
     setLoading(true)
     try {
-      const ctx = await invoke<GitContextResponse>("middleware_git_status", {
-        input: { projectId: targetProjectId },
-      })
+      const ctx = targetProjectId
+        ? await invoke<GitContextResponse>("middleware_git_status", { input: { projectId: targetProjectId } })
+        : await invoke<GitContextResponse>("middleware_git_status_for_repo", { input: { repoPath: targetRepoPath } })
       let br: BranchesResponse | null = null
       if (ctx.mode !== "remote") {
         try {
-          br = await invoke<BranchesResponse>("middleware_git_branches", {
-            input: { projectId: targetProjectId },
-          })
+          br = targetProjectId
+            ? await invoke<BranchesResponse>("middleware_git_branches", { input: { projectId: targetProjectId } })
+            : await invoke<BranchesResponse>("middleware_git_branches_for_repo", { input: { repoPath: targetRepoPath } })
         } catch {
           br = null
         }
@@ -71,105 +64,76 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   }, [])
 
   const load = useCallback(async () => {
-    await loadProject(effectiveProjectId)
-  }, [effectiveProjectId, loadProject])
+    await loadGitTarget(effectiveProjectId, effectiveRepoPath)
+  }, [effectiveProjectId, effectiveRepoPath, loadGitTarget])
 
   useEffect(() => {
-    if (!effectiveProjectId) {
+    if (!effectiveProjectId && !effectiveRepoPath) {
       setContext(null)
       setBranches(null)
       setLoading(false)
       return
     }
 
-    if (skipNextAutoLoadRef.current === effectiveProjectId) {
+    const targetKey = effectiveProjectId ?? effectiveRepoPath
+    if (targetKey && skipNextAutoLoadRef.current === targetKey) {
       skipNextAutoLoadRef.current = null
       return
     }
 
-    void loadProject(effectiveProjectId)
-  }, [effectiveProjectId, loadProject])
+    void loadGitTarget(effectiveProjectId, effectiveRepoPath)
+  }, [effectiveProjectId, effectiveRepoPath, loadGitTarget])
 
   const handleSwitchBranch = useCallback(async (branchName: string) => {
     if (!effectiveProjectId || switching) return
     setSwitching(true)
     setBranchDropdown(false)
     try {
-      await invoke("middleware_git_switch_branch", {
-        input: { projectId: effectiveProjectId, branchName },
-      })
+      if (effectiveProjectId) {
+        await invoke("middleware_git_switch_branch", {
+          input: { projectId: effectiveProjectId, branchName },
+        })
+      } else if (effectiveRepoPath) {
+        await invoke("middleware_git_switch_branch_for_repo", {
+          input: { repoPath: effectiveRepoPath, branchName },
+        })
+      }
       await load()
     } catch { /* ignore */ }
     finally { setSwitching(false) }
-  }, [effectiveProjectId, switching, load])
+  }, [effectiveProjectId, effectiveRepoPath, switching, load])
 
   const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
     setRepoPickerOpen(false)
     try {
-      let targetProjectId = effectiveProjectId
-
-      if (!targetProjectId) {
-        const projectList = await invoke<{ projects: ProjectSummary[] }>(
-          "middleware_projects_list",
-        )
-        const matchingProject = (projectList.projects ?? []).find((project) =>
-          !project.archived &&
-          (project.repoRoot === repo.path || project.workspaceRoot === repo.path),
-        )
-
-        if (matchingProject?.id) {
-          targetProjectId = matchingProject.id
-        } else {
-          let profileId = "prof_local_main"
-          try {
-            const profileRes = await invoke<{
-              profiles: Array<{ id: string }>
-            }>("middleware_profiles_list")
-            if (profileRes.profiles?.[0]?.id) {
-              profileId = profileRes.profiles[0].id
-            }
-          } catch {
-            // ignore
-          }
-
-          const created = await invoke<{ project: { id: string } }>(
-            "middleware_projects_create",
-            {
-              input: {
-                name: repo.name,
-                profileId,
-                workspaceRoot: repo.path,
-                repoRoot: repo.path,
-              },
-            },
-          )
-          targetProjectId = created.project.id
-        }
-
-        setLoading(true)
-        skipNextAutoLoadRef.current = targetProjectId
-        setPickedProjectId(targetProjectId)
-      }
-
-      if (!targetProjectId) return
-
-      await invoke("middleware_projects_update", {
-        input: {
-          projectId: targetProjectId,
-          repoRoot: repo.path,
-          workspaceRoot: repo.path,
-        },
-      })
       await invoke("middleware_repos_select", {
         input: { path: repo.path, name: repo.name },
       })
+
       setContext(null)
       setBranches(null)
-      await loadProject(targetProjectId)
-    } catch { /* ignore */ }
-  }, [effectiveProjectId, loadProject])
 
-  if (!effectiveProjectId) {
+      if (effectiveProjectId) {
+        await invoke("middleware_projects_update", {
+          input: {
+            projectId: effectiveProjectId,
+            repoRoot: repo.path,
+            workspaceRoot: repo.path,
+          },
+        })
+        await loadGitTarget(effectiveProjectId, null)
+        return
+      }
+
+      setLoading(true)
+      skipNextAutoLoadRef.current = repo.path
+      setPickedProjectId(null)
+      setPickedRepo(repo)
+      await loadGitTarget(null, repo.path)
+    } catch { /* ignore */ }
+  }, [effectiveProjectId, loadGitTarget])
+
+  if (!effectiveProjectId && !pickedRepo) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-4">
         <VscSourceControl className="size-8 text-muted-foreground/20" />
@@ -246,6 +210,7 @@ export function GitTab({ projectId }: { projectId: string | null }) {
     return (
       <ChangedFileDiffView
         projectId={effectiveProjectId}
+        repoPath={effectiveRepoPath}
         file={selectedChangedFile}
         onBack={() => setSelectedChangedFile(null)}
       />
@@ -627,10 +592,12 @@ function CommitDetailView({
 
 function ChangedFileDiffView({
   projectId,
+  repoPath,
   file,
   onBack,
 }: {
   projectId: string | null
+  repoPath: string | null
   file: GitFile
   onBack: () => void
 }) {
@@ -640,12 +607,16 @@ function ChangedFileDiffView({
 
   useEffect(() => {
     async function loadDiff() {
-      if (!projectId) return
+      if (!projectId && !repoPath) return
       setLoading(true)
       try {
-        const res = await invoke<GitDiffResponse>("middleware_git_diff", {
-          input: { projectId, path: file.path },
-        })
+        const res = projectId
+          ? await invoke<GitDiffResponse>("middleware_git_diff", {
+            input: { projectId, path: file.path },
+          })
+          : await invoke<GitDiffResponse>("middleware_git_diff_for_repo", {
+            input: { repoPath, path: file.path },
+          })
         setDiff(res)
         const parsed = res.patch ? parseGitShow(res.patch) : []
         setParsedDiff(parsed[0] ?? null)
@@ -658,7 +629,7 @@ function ChangedFileDiffView({
       }
     }
     void loadDiff()
-  }, [projectId, file.path])
+  }, [projectId, repoPath, file.path])
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background/50 backdrop-blur-xl">
