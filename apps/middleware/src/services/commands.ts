@@ -73,17 +73,20 @@ function collectUsageFromValue(value: any, out: any[] = []) {
 }
 
 async function usageSummary() {
-  const gw = await connectGateway(["operator.read"])
+  let gw: Awaited<ReturnType<typeof connectGateway>> | null = null
   try {
+    gw = await connectGateway(["operator.read"])
     const res = await gw.request<any>("sessions.list", { includeHidden: true, limit: 200 }, 30_000)
-    if (!res.ok) throw new HttpError(502, res.error?.message || "sessions.list failed", "GATEWAY_ERROR")
+    if (!res.ok) throw new Error(res.error?.message || "sessions.list failed")
     const usageItems = collectUsageFromValue(res.payload)
     const totals = usageItems.map(normalizeUsage).reduce((acc, usage) => {
       acc.input += usage.input; acc.output += usage.output; acc.cacheRead += usage.cacheRead; acc.cacheWrite += usage.cacheWrite; acc.totalTokens += usage.total
       return acc
     }, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: null as number | null })
     return { summary: totals, usage: usageItems, source: "openclaw-gateway", unavailable: usageItems.length === 0 }
-  } finally { gw.close() }
+  } catch (error) {
+    return { summary: { input: null, output: null, cacheRead: null, cacheWrite: null, totalTokens: null, totalCost: null }, usage: [], source: "openclaw-gateway", unavailable: true, error: error instanceof Error ? error.message : String(error) }
+  } finally { gw?.close() }
 }
 
 function searchMemory(query: string) {
