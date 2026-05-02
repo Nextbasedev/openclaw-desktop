@@ -1236,27 +1236,84 @@ export function useChatMessages(
       sendingGuardRef.current = true
       setIsSending(true)
       setErrorMessage(null)
+      editPreviewSourceRef.current?.close()
+      editPreviewSourceRef.current = null
+      setEditPreview(null)
       pendingToolMapRef.current.clear()
       setPendingTools([])
       doneAfterYieldRef.current = 0
-
-      setMessages((prev) => {
-        const idx = prev.findIndex((m) => m.messageId === assistantMessageId)
-        if (idx === -1) return prev
-        return prev.slice(0, idx)
-      })
 
       setStatus("thinking")
       forceScrollToBottom(true)
 
       try {
-        await invoke("middleware_chat_regenerate", {
+        const preview = await invoke<{
+          branchSessionKey: string
+          sourceUserMessageId: string
+          sourceAssistantMessageId?: string | null
+          original: { user: RawMessage; assistant?: RawMessage | null }
+          edited: { user: RawMessage; assistant?: RawMessage | null }
+        }>("middleware_chat_regenerate", {
           input: {
             sessionKey,
             messageId: assistantMessageId,
             text: resendText,
           },
         })
+
+        setEditPreview({
+          branchSessionKey: preview.branchSessionKey,
+          sourceUserMessageId: preview.sourceUserMessageId,
+          sourceAssistantMessageId: preview.sourceAssistantMessageId ?? assistantMessageId,
+          original: {
+            user: rawToChatMessage(preview.original.user, "user"),
+            assistant: preview.original.assistant ? rawToChatMessage(preview.original.assistant, "assistant") : currentMessages[assistantIdx] ?? null,
+          },
+          edited: {
+            user: rawToChatMessage(preview.edited.user, "user"),
+            assistant: preview.edited.assistant ? rawToChatMessage(preview.edited.assistant, "assistant") : null,
+          },
+          status: "streaming",
+        })
+
+        const source = new EventSource(streamUrl(`/api/stream/chat/${preview.branchSessionKey}`))
+        editPreviewSourceRef.current = source
+        const handlePreview = (event: MessageEvent) => {
+          try {
+            const ev = JSON.parse(event.data)
+            if (ev.type === "chat.message" && ev.role === "assistant") {
+              const text = ev.text || extractText(ev.content)
+              if (!text.trim()) return
+              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey
+                ? {
+                    ...current,
+                    edited: {
+                      ...current.edited,
+                      assistant: {
+                        messageId: ev.messageId || current.edited.assistant?.messageId || randomId(),
+                        role: "assistant",
+                        text,
+                        createdAt: ev.createdAt || current.edited.assistant?.createdAt,
+                        model: ev.model ?? current.edited.assistant?.model,
+                        usage: ev.usage ?? current.edited.assistant?.usage,
+                        stopReason: ev.stopReason ?? current.edited.assistant?.stopReason,
+                      },
+                    },
+                  }
+                : current)
+            }
+            if (ev.type === "chat.status" && ev.state === "done") {
+              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "ready" } : current)
+            }
+            if (ev.type === "chat.error") {
+              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "error", error: ev.message ?? "Regenerate preview failed" } : current)
+            }
+          } catch {}
+        }
+        source.addEventListener("chat.message", handlePreview)
+        source.addEventListener("chat.status", handlePreview)
+        source.addEventListener("chat.error", handlePreview)
+        source.addEventListener("message", handlePreview)
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : String(error))
         setStatus("error")
