@@ -22,6 +22,7 @@ import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initClientLogs } from "@/lib/clientLogs"
+import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { emit } from "@/lib/events"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
@@ -157,7 +158,7 @@ function AppShell({
   )
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window === "undefined") return "chat"
-    const route = parseRoute(window.location.pathname)
+    const route = parseRoute(getRoutePath())
     if (route.kind === "tab") return route.tab
     return "chat"
   })
@@ -173,6 +174,7 @@ function AppShell({
   }, [])
 
   useEffect(() => {
+    installDesktopRouteShim()
     initClientLogs()
   }, [])
 
@@ -294,7 +296,7 @@ function AppShell({
 
     if (route.kind === "chat") {
       const expectedPath = `/${route.chatId}`
-      const isCurrentPath = () => window.location.pathname === expectedPath
+      const isCurrentPath = () => getRoutePath() === expectedPath
       const cached = resolvedChatCacheRef.current.get(route.chatId)
       setPendingPrompt(null)
       setComposerError(null)
@@ -316,7 +318,7 @@ function AppShell({
         )
         if (!found || found.archived) {
           clearConversationState()
-          window.history.replaceState(null, "", "/")
+          window.history.replaceState(null, "", routeUrl("/"))
           return
         }
 
@@ -334,7 +336,7 @@ function AppShell({
       } catch {
         if (isCurrentPath()) {
           clearConversationState()
-          window.history.replaceState(null, "", "/")
+          window.history.replaceState(null, "", routeUrl("/"))
         }
       }
       return
@@ -342,7 +344,7 @@ function AppShell({
 
     if (route.kind === "topic") {
       const expectedPath = `/${route.projectId}/${route.topicId}`
-      const isCurrentPath = () => window.location.pathname === expectedPath
+      const isCurrentPath = () => getRoutePath() === expectedPath
       setPendingPrompt(null)
       setComposerError(null)
       setActiveTab("chat")
@@ -362,7 +364,7 @@ function AppShell({
         )
         if (!project) {
           clearConversationState()
-          window.history.replaceState(null, "", "/")
+          window.history.replaceState(null, "", routeUrl("/"))
           return
         }
 
@@ -378,7 +380,7 @@ function AppShell({
         )
         if (!topic) {
           clearConversationState()
-          window.history.replaceState(null, "", "/")
+          window.history.replaceState(null, "", routeUrl("/"))
           return
         }
 
@@ -391,7 +393,7 @@ function AppShell({
       } catch {
         if (isCurrentPath()) {
           clearConversationState()
-          window.history.replaceState(null, "", "/")
+          window.history.replaceState(null, "", routeUrl("/"))
         }
       }
     }
@@ -401,13 +403,13 @@ function AppShell({
   useEffect(() => {
     if (initialRouteAppliedRef.current) return
     initialRouteAppliedRef.current = true
-    void activateRoute(parseRoute(window.location.pathname))
+    void activateRoute(parseRoute(getRoutePath()))
   }, [activateRoute])
 
   // Handle browser back/forward
   useEffect(() => {
     function onPopState() {
-      void activateRoute(parseRoute(window.location.pathname))
+      void activateRoute(parseRoute(getRoutePath()))
     }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
@@ -441,28 +443,28 @@ function AppShell({
   const openSettings = useCallback(() => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
-    previousContentPathRef.current = window.location.pathname
+    previousContentPathRef.current = getRoutePath()
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
     setActiveTab("settings")
     clearConversationState()
-    window.history.pushState(null, "", "/settings")
+    window.history.pushState(null, "", routeUrl("/settings"))
   }, [activeTab, clearConversationState])
 
   const openNotifications = useCallback(() => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
-    previousContentPathRef.current = window.location.pathname
+    previousContentPathRef.current = getRoutePath()
     prevTabRef.current = activeTab === "notifications" ? "chat" : activeTab
     setComposerError(null)
     setActiveTab("notifications")
     clearConversationState()
-    window.history.pushState(null, "", "/notifications")
+    window.history.pushState(null, "", routeUrl("/notifications"))
   }, [activeTab, clearConversationState])
 
   const handleSettingsBack = useCallback(() => {
     const url = previousContentPathRef.current || "/"
-    window.history.pushState(null, "", url)
+    window.history.pushState(null, "", routeUrl(url))
     void activateRoute(parseRoute(url))
   }, [activateRoute])
   const toggleTheme = useCallback(() => {
@@ -484,12 +486,12 @@ function AppShell({
       initialConnectRedirectAppliedRef.current ||
       !connectAutoOpenEnabled ||
       typeof window === "undefined" ||
-      window.location.pathname !== "/"
+      getRoutePath() !== "/"
     ) {
       return
     }
     initialConnectRedirectAppliedRef.current = true
-    window.history.replaceState(null, "", "/connect")
+    window.history.replaceState(null, "", routeUrl("/connect"))
     void activateRoute({ kind: "tab", tab: "connect" })
   }, [activateRoute, connectAutoOpenEnabled])
 
@@ -562,7 +564,7 @@ function AppShell({
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
-    window.history.pushState(null, "", `/${topic.projectId}/${topic.id}`)
+    window.history.pushState(null, "", routeUrl(`/${topic.projectId}/${topic.id}`))
   }, [])
 
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
@@ -580,13 +582,13 @@ function AppShell({
       setActiveChat(resolved.chat)
       setActiveSessionKey(resolved.sessionKey)
       setActiveSessionTitle(resolved.title)
-      window.history.pushState(null, "", `/${resolved.chat.id}`)
+      window.history.pushState(null, "", routeUrl(`/${resolved.chat.id}`))
     } catch (err) {
       console.error("Failed to open chat session", err)
       setActiveChat(chat)
       setActiveSessionKey(null)
       setActiveSessionTitle(null)
-      window.history.pushState(null, "", `/${chat.id}`)
+      window.history.pushState(null, "", routeUrl(`/${chat.id}`))
     }
   }, [])
 
@@ -625,7 +627,7 @@ function AppShell({
         setActiveChat(activeChat)
         setActiveSessionKey(activeSessionKey)
         setActiveSessionTitle(activeSessionTitle ?? activeChat.name)
-        window.history.pushState(null, "", `/${activeChat.id}`)
+        window.history.pushState(null, "", routeUrl(`/${activeChat.id}`))
         return true
       }
 
@@ -678,7 +680,7 @@ function AppShell({
       setActiveChat(null)
       setActiveSessionKey(null)
       setActiveSessionTitle(null)
-      window.history.pushState(null, "", "/notifications")
+      window.history.pushState(null, "", routeUrl("/notifications"))
       return true
     } catch (err) {
       console.error("Failed to navigate to cron job chat", err)
@@ -699,7 +701,7 @@ function AppShell({
     setPendingPrompt(null)
     setComposerError(null)
     clearConversationState()
-    window.history.pushState(null, "", "/")
+    window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState])
 
   const handleTopicClear = useCallback(() => {
@@ -707,7 +709,7 @@ function AppShell({
     setPendingPrompt(null)
     setComposerError(null)
     clearConversationState()
-    window.history.pushState(null, "", "/")
+    window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState])
 
   const handleNewChat = useCallback(() => {
@@ -717,7 +719,7 @@ function AppShell({
     setComposerError(null)
     setActiveTab("chat")
     clearConversationState()
-    window.history.pushState(null, "", "/")
+    window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState])
 
   const handleSessionNavigate = useCallback(async (sessionKey?: string) => {
@@ -762,7 +764,7 @@ function AppShell({
         sessionKey: target.sessionKey,
         title: target.title,
       })
-      window.history.pushState(null, "", `/${target.chat.id}`)
+      window.history.pushState(null, "", routeUrl(`/${target.chat.id}`))
     } catch (err) {
       console.error("Failed to navigate to session", err)
       handleNewChat()
@@ -776,7 +778,7 @@ function AppShell({
     setComposerError(null)
     setActiveTab("chat")
     clearConversationState()
-    window.history.pushState(null, "", "/")
+    window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState])
 
   const handleFirstMessageSent = useCallback(async (text: string) => {
@@ -870,7 +872,7 @@ function AppShell({
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(fallbackName)
       setChatRefreshTrigger((n) => n + 1)
-      window.history.pushState(null, "", `/${result.chat.id}`)
+      window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
 
       await invoke("middleware_chat_send", {
         input: {
@@ -902,7 +904,7 @@ function AppShell({
       if (isGatewayError(err)) {
         showGatewayError(err instanceof Error ? err.message : undefined)
         clearConversationState()
-        window.history.pushState(null, "", "/connect")
+        window.history.pushState(null, "", routeUrl("/connect"))
         window.dispatchEvent(new PopStateEvent("popstate"))
       } else {
         setPendingPrompt(text)
@@ -910,7 +912,7 @@ function AppShell({
         setActiveTab("chat")
         clearConversationState()
         setComposerError("Message failed to send. Try again.")
-        window.history.replaceState(null, "", "/")
+        window.history.replaceState(null, "", routeUrl("/"))
       }
     } finally {
       setQuickSending(false)
@@ -965,7 +967,7 @@ function AppShell({
       console.error("Topic quick send failed", err)
       if (isGatewayError(err)) {
         showGatewayError(err instanceof Error ? err.message : undefined)
-        window.history.pushState(null, "", "/connect")
+        window.history.pushState(null, "", routeUrl("/connect"))
         window.dispatchEvent(new PopStateEvent("popstate"))
       } else {
         setPendingPrompt(text)
@@ -997,7 +999,7 @@ function AppShell({
       notifications: "/notifications",
     }
     const url = tabUrls[tab] ?? "/"
-    window.history.pushState(null, "", url)
+    window.history.pushState(null, "", routeUrl(url))
     setPendingPrompt(null)
     clearConversationState()
   }, [handleNewChat, clearConversationState])
@@ -1006,7 +1008,7 @@ function AppShell({
     activeTab === "connect" &&
     !connectAutoOpenEnabled &&
     typeof window !== "undefined" &&
-    window.location.pathname === "/"
+    getRoutePath() === "/"
       ? "chat"
       : activeTab
 
