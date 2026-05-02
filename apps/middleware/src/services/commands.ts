@@ -160,6 +160,42 @@ function messageBody(m: any) {
 
 function messageIdOf(m: any) { return m?.id || m?.messageId }
 
+function agentIdFromSessionKey(sessionKey: string | undefined, fallback = "main") {
+  const match = String(sessionKey || "").match(/^agent:([^:]+):/)
+  return match?.[1] || fallback
+}
+
+function stripTranscriptUiMeta(value: any): any {
+  if (Array.isArray(value)) return value.map(stripTranscriptUiMeta)
+  if (!value || typeof value !== "object") return value
+  const out: any = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "__openclaw" || key === "messageId" || key === "seq") continue
+    out[key] = stripTranscriptUiMeta(item)
+  }
+  return out
+}
+
+function transcriptLineFromHistoryMessage(message: any) {
+  const meta = message?.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw : {}
+  const id = String(meta.id || message?.id || crypto.randomUUID())
+  const timestamp = typeof message?.timestamp === "number"
+    ? new Date(message.timestamp).toISOString()
+    : (typeof message?.timestamp === "string" ? message.timestamp : now())
+  return JSON.stringify({ id, timestamp, message: stripTranscriptUiMeta(message) })
+}
+
+function copyHistoryMessagesToTranscript(transcriptPath: string, messages: any[]) {
+  fs.mkdirSync(path.dirname(transcriptPath), { recursive: true })
+  const existing = fs.existsSync(transcriptPath) ? fs.readFileSync(transcriptPath, "utf8") : ""
+  const header = existing.split(/\r?\n/).find(line => {
+    if (!line.trim()) return false
+    try { return JSON.parse(line)?.type === "session" } catch { return false }
+  }) || JSON.stringify({ type: "session", version: 1, id: path.basename(transcriptPath, ".jsonl"), timestamp: now(), cwd: process.cwd() })
+  const lines = [header, ...messages.filter((m:any) => m && m.role !== "system").map(transcriptLineFromHistoryMessage)]
+  fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 })
+}
+
 function searchMemory(query: string) {
   const q = query.trim().toLowerCase()
   const entries: any[] = []
@@ -455,17 +491,23 @@ export function commandRoutes(store: Store) {
         case "middleware_chat_fork": {
           const sourceKey = input.sessionKey
           if (!sourceKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
-          const key = `agent:main:fork:${crypto.randomUUID()}`
+          const agentId = input.agentId || agentIdFromSessionKey(sourceKey)
+          const key = `agent:${agentId}:fork:${crypto.randomUUID()}`
           const chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
           const name = input.name || "Forked chat"
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: name }, 30_000)
-            const history = await gw.request<any>("chat.history", { sessionKey: sourceKey, limit: input.limit || 100 }, 30_000).catch(() => null)
+            const created = await gw.request<any>("sessions.create", { key, agentId, label: name, parentSessionKey: sourceKey }, 30_000)
+            if (!created.ok) throw new HttpError(502, created.error?.message || "sessions.create failed", "GATEWAY_ERROR")
+            const history = await gw.request<any>("chat.history", { sessionKey: sourceKey, limit: input.limit || 100 }, 30_000)
+            if (!history.ok) throw new HttpError(502, history.error?.message || "chat.history failed", "GATEWAY_ERROR")
             const messages = history?.ok && Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
+            const transcriptPath = (created.payload as any)?.entry?.sessionFile
+            if (!transcriptPath || typeof transcriptPath !== "string") throw new HttpError(502, "sessions.create did not return entry.sessionFile", "GATEWAY_ERROR")
+            copyHistoryMessagesToTranscript(transcriptPath, messages)
             const branch = { branchId: crypto.randomUUID(), sourceSessionKey: sourceKey, branchSessionKey: key, branchReason: "fork", createdAt: now() }
-            s.commandState.branches.push(branch); s.chats.push({ id: chatId, name, sessionKey: key, agentId: input.agentId || "main", archived: false, pinned: false, createdAt: now(), updatedAt: now(), lastActiveAt: now() }); save(store, s)
-            return { chatId, sessionKey: key, name, branchSessionKey: key, copiedMessages: messages.length, branchId: branch.branchId }
+            s.commandState.branches.push(branch); s.chats.push({ id: chatId, name, sessionKey: key, agentId, archived: false, pinned: false, createdAt: now(), updatedAt: now(), lastActiveAt: now() }); save(store, s)
+            return { chatId, sessionKey: key, name, branchSessionKey: key, copiedMessages: messages.filter((m:any) => m && m.role !== "system").length, transcriptPath, branchId: branch.branchId }
           } finally { gw.close() }
         }
         case "middleware_chat_edit_last_preview": {

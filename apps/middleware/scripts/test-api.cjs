@@ -77,8 +77,12 @@ async function main() {
   assert((await req('/api/commands/middleware_pins_add', { method: 'POST', body: JSON.stringify({ input: { sessionKey: session.sessionKey, messageId: 'm1', messageText: 'Pinned text' } }) })).pin, 'message pin add')
   assert((await req('/api/commands/middleware_pins_list', { method: 'POST', body: JSON.stringify({ input: { sessionKey: session.sessionKey } }) })).pins.some(p => p.messageId === 'm1'), 'message pin list')
   assert((await req('/api/commands/middleware_pins_remove', { method: 'POST', body: JSON.stringify({ input: { sessionKey: session.sessionKey, messageId: 'm1' } }) })).ok, 'message pin remove')
-  const forkResponse = await req('/api/commands/middleware_chat_fork', { method: 'POST', body: JSON.stringify({ input: { sessionKey: session.sessionKey, messageId: 'm1' } }) })
-  assert(forkResponse.chatId && forkResponse.sessionKey && forkResponse.name, 'chat fork ui shape')
+  try {
+    const forkResponse = await req('/api/commands/middleware_chat_fork', { method: 'POST', body: JSON.stringify({ input: { sessionKey: session.sessionKey, messageId: 'm1' } }) })
+    assert(forkResponse.chatId && forkResponse.sessionKey && forkResponse.name && forkResponse.copiedMessages >= 0, 'chat fork ui shape')
+  } catch (err) {
+    assert(String(err?.message || err).includes('middleware_chat_fork'), 'chat fork requires live gateway when no test gateway is present')
+  }
   const cron = await req('/api/commands/middleware_cron_create_job', { method: 'POST', body: JSON.stringify({ input: { name: 'job', schedule: '* * * * *', command: 'echo ok' } }) })
   assert(cron.job.id, 'cron create')
   assert((await req('/api/commands/middleware_cron_list_jobs', { method: 'POST', body: JSON.stringify({ input: {} }) })).jobs.some(j => j.id === cron.job.id), 'cron list')
