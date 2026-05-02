@@ -309,10 +309,14 @@ export function commandRoutes(store: Store) {
             error: gateway.error ?? null,
           }
         }
-        case "middleware_connect_bootstrap":
-        case "middleware_sync_pull_now": return ok()
+        case "middleware_connect_bootstrap": {
+          const cfg = readJson(openclawConfigPath())
+          const gateway = await gatewayStatus()
+          return { ok: gateway.running, gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`, status: gateway.status, error: gateway.error ?? null }
+        }
+        case "middleware_sync_pull_now": unsupported(command)
         case "middleware_version_info": { const version = packageVersion(); return { version, desktop: "new-arch", middleware: version, node: process.version } }
-        case "middleware_profiles_list": return { profiles: [{ id: "external_middleware", name: "External Middleware", mode: "remote", gatewayUrl: "external", workspaceRoot: workspaceRoot(), isDefault: true, status: "connected" }] }
+        case "middleware_profiles_list": { const gateway = await gatewayStatus(); return { profiles: [{ id: "external_middleware", name: "External Middleware", mode: "remote", gatewayUrl: readJson(openclawConfigPath()).gateway_url || "configured", workspaceRoot: workspaceRoot(), isDefault: true, status: gateway.status, error: gateway.error ?? null }] } }
         case "middleware_pty_spawn_workspace": return terminalSpawnWorkspace(input)
 
         case "middleware_fs_read_dir": {
@@ -531,7 +535,10 @@ export function commandRoutes(store: Store) {
         case "middleware_onboarding_flow": {
           const cfg = readJson(openclawConfigPath())
           const contract = modelContract(cfg)
-          return { flow: { steps: [ { id: "core", title: "Core", complete: true }, { id: "bot", title: "Bot", complete: true }, { id: "provider", title: "Provider", complete: true }, { id: "model", title: "Model", complete: Boolean(contract.selectedModelRef) }, { id: "complete", title: "Complete", complete: true } ], nextStep: contract.selectedModelRef ? "complete" : "model", completed: Boolean(contract.selectedModelRef) }, state: { core: { status: { node: { installed: true, version: process.version }, npm: { installed: true, version: null }, openclaw: { installed: true, version: null, installMethod: "existing" }, gateway: { url: cfg.gateway_url || "ws://127.0.0.1:18789", running: true, status: "connected" }, recommendation: "OpenClaw is managed by Middleware." } }, bot: { botName: cfg.bot?.name ?? "OpenClaw" }, provider: { selection: null }, model: { selectedModelRef: contract.selectedModelRef, contract } } }
+          const gateway = await gatewayStatus()
+          const openclawVersion = commandVersion("openclaw", ["--version"])
+          const coreComplete = gateway.running && Boolean(openclawVersion)
+          return { flow: { steps: [ { id: "core", title: "Core", complete: coreComplete }, { id: "bot", title: "Bot", complete: true }, { id: "provider", title: "Provider", complete: true }, { id: "model", title: "Model", complete: Boolean(contract.selectedModelRef) }, { id: "complete", title: "Complete", complete: coreComplete && Boolean(contract.selectedModelRef) } ], nextStep: !coreComplete ? "core" : (contract.selectedModelRef ? "complete" : "model"), completed: coreComplete && Boolean(contract.selectedModelRef) }, state: { core: { status: { node: { installed: true, version: process.version }, npm: { installed: Boolean(commandVersion("npm")), version: commandVersion("npm") }, openclaw: { installed: Boolean(openclawVersion), version: openclawVersion, installMethod: openclawVersion ? "existing" : null }, gateway: { url: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`, running: gateway.running, status: gateway.status, error: gateway.error ?? null }, recommendation: coreComplete ? "OpenClaw is ready." : "Start OpenClaw Gateway, then retry." } }, bot: { botName: cfg.bot?.name ?? "OpenClaw" }, provider: { selection: null }, model: { selectedModelRef: contract.selectedModelRef, contract } } }
         }
         case "middleware_onboarding_providers": {
           const cfg = readJson(openclawConfigPath())
