@@ -37,7 +37,12 @@ function scanDir(dir: string, depth: number, out: Map<string,string>) {
 export function repoRoutes(store: Store, workspaceRoot: string) {
   return {
     recent: () => ({ repos: store.recentRepos() }),
-    scan: () => { const out = new Map<string,string>(); for (const root of [workspaceRoot, os.homedir(), "/root/.openclaw/workspace"]) scanDir(root, 0, out); return { repos: [...out].map(([path,name]) => ({ path, name })) } },
+    scan: () => {
+      const out = new Map<string,string>()
+      const roots = [...new Set([workspaceRoot, os.homedir(), path.join(os.homedir(), ".openclaw", "workspace")])]
+      for (const root of roots) scanDir(root, 0, out)
+      return { repos: [...out].map(([path,name]) => ({ path, name })) }
+    },
     select: (body: any) => { const repoPath = String(body?.path ?? ""); const name = String(body?.name ?? path.basename(repoPath)); if (!repoPath) throw new HttpError(400, "path is required", "BAD_REQUEST"); return store.selectRepo({ path: repoPath, name }) },
   }
 }
