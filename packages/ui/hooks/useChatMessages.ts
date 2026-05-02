@@ -489,6 +489,54 @@ export function useChatMessages(
         case "chat.message": {
           if (ev.role !== "assistant") break
           const id = ev.messageId || randomId()
+          const contentBlocks = Array.isArray(ev.content)
+            ? (ev.content as ContentBlock[])
+            : []
+          let sawToolCallBlock = false
+          for (const block of contentBlocks) {
+            if (block.type !== "toolCall" && block.type !== "tool_use") continue
+            const toolCallId = block.id
+            const name = block.name
+            if (!toolCallId || !name) continue
+            sawToolCallBlock = true
+            if (!pendingToolMapRef.current.has(toolCallId)) {
+              pendingToolMapRef.current.set(toolCallId, {
+                id: toolCallId,
+                tool: name,
+                status: "running",
+                startedAt: Date.now(),
+              })
+            }
+            if (
+              name === "sessions_spawn" &&
+              !spawnMapRef.current.has(toolCallId)
+            ) {
+              const args = (block.arguments ?? block.input ?? {}) as Record<
+                string,
+                unknown
+              >
+              const taskStr = (args.task as string) ?? ""
+              const label =
+                (args.label as string) ??
+                (args.agentId as string) ??
+                (taskStr.length > 0
+                  ? taskStr.slice(0, 60) + (taskStr.length > 60 ? "..." : "")
+                  : `Sub-agent ${spawnMapRef.current.size + 1}`)
+              upsertSpawn({
+                id: `spawn:${toolCallId}`,
+                label,
+                task: taskStr,
+                sessionKey: null,
+                status: "spawning",
+                toolCallId,
+              })
+            }
+          }
+          if (sawToolCallBlock) {
+            setPendingTools(Array.from(pendingToolMapRef.current.values()))
+            setStatus((prev) => (prev === "idle" || prev === "connected" ? "tool_running" : prev))
+            scrollToBottom(false)
+          }
           const rawText = ev.text || extractText(ev.content)
           if (!rawText) break
           const text = rawText.trim()
