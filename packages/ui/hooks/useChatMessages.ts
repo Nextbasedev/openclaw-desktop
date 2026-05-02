@@ -1276,6 +1276,16 @@ export function useChatMessages(
           status: "streaming",
         })
 
+        invoke<{ messages: RawMessage[] }>("middleware_chat_history", { input: { sessionKey: preview.branchSessionKey } })
+          .then((history) => {
+            const assistant = [...(history.messages ?? [])].reverse().find((m) => m.role === "assistant")
+            if (!assistant) return
+            setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey
+              ? { ...current, edited: { ...current.edited, assistant: rawToChatMessage(assistant, "assistant") }, status: "ready" }
+              : current)
+          })
+          .catch(() => {})
+
         const source = new EventSource(streamUrl(`/api/stream/chat/${preview.branchSessionKey}`))
         editPreviewSourceRef.current = source
         const handlePreview = (event: MessageEvent) => {
