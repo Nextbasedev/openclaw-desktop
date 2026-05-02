@@ -30,13 +30,13 @@ function fixturePtyStream() {
   return stream
 }
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   const { ptyId } = await context.params
 
   try {
     const upstream = await fetch(
-      `${SERVER_URL}/api/stream/pty/${encodeURIComponent(ptyId)}`,
-      { headers: { "Cache-Control": "no-cache" } },
+      `${SERVER_URL}/api/terminal/${encodeURIComponent(ptyId)}/stream${request.nextUrl.search}`,
+      { headers: { "Cache-Control": "no-cache", ...(request.headers.get("authorization") ? { Authorization: request.headers.get("authorization")! } : {}) } },
     )
     if (upstream.ok && upstream.body) {
       return new Response(upstream.body, {

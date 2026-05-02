@@ -85,7 +85,7 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   }, [effectiveProjectId, effectiveRepoPath, loadGitTarget])
 
   const handleSwitchBranch = useCallback(async (branchName: string) => {
-    if (!effectiveProjectId || switching) return
+    if ((!effectiveProjectId && !effectiveRepoPath) || switching) return
     setSwitching(true)
     setBranchDropdown(false)
     try {
@@ -199,6 +199,7 @@ export function GitTab({ projectId }: { projectId: string | null }) {
     return (
       <CommitDetailView
         projectId={effectiveProjectId}
+        repoPath={effectiveRepoPath}
         hash={selectedCommit.hash}
         message={selectedCommit.message}
         onBack={() => setSelectedCommit(null)}
@@ -401,11 +402,13 @@ export function GitTab({ projectId }: { projectId: string | null }) {
 
 function CommitDetailView({
   projectId,
+  repoPath,
   hash,
   message,
   onBack,
 }: {
   projectId: string | null
+  repoPath: string | null
   hash: string
   message: string
   onBack: () => void
@@ -416,11 +419,11 @@ function CommitDetailView({
 
   useEffect(() => {
     async function loadDiff() {
-      if (!projectId) return
+      if (!projectId && !repoPath) { setLoading(false); return }
       setLoading(true)
       try {
         const res = await invoke<{ diff: string }>("middleware_git_commit_details", {
-          input: { projectId, hash },
+          input: { projectId, repoRoot: repoPath, hash },
         })
         const parsed = parseGitShow(res.diff)
         setDiffs(parsed)

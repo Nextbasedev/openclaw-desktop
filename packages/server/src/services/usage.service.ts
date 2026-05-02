@@ -40,7 +40,7 @@ export async function usage(input: { days?: number }) {
 
   const [costRes, statusRes] = await Promise.allSettled([
     gw.request<CostPayload>("usage.cost", {
-      period: `${days}d`,
+      days,
     }),
     gw.request<StatusPayload>("usage.status"),
   ])
@@ -74,7 +74,7 @@ export async function usageDaily(input: { days?: number }) {
   const days = input.days ?? 7
 
   const res = await gw.request<CostPayload>("usage.cost", {
-    period: `${days}d`,
+    days,
   })
   if (!res.ok) {
     throw new Error(

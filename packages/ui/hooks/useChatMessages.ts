@@ -166,6 +166,7 @@ export function useChatMessages(
   const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const doneAfterYieldRef = useRef(0)
   const editPreviewSourceRef = useRef<EventSource | null>(null)
+  const [streamGeneration, setStreamGeneration] = useState(0)
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -1087,7 +1088,7 @@ export function useChatMessages(
         subagentPollRef.current = null
       }
     }
-  }, [sessionKey, handleStreamEvent, initialMessageKey, initialMessages, forceScrollToBottom])
+  }, [sessionKey, handleStreamEvent, initialMessageKey, initialMessages, forceScrollToBottom, streamGeneration])
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
@@ -1458,6 +1459,7 @@ export function useChatMessages(
         })
       }
       setEditPreview(null)
+      setStreamGeneration((value) => value + 1)
       setStatus("idle")
     } catch (error) {
       setEditPreview((current) => current ? { ...current, status: "error", error: error instanceof Error ? error.message : String(error) } : current)

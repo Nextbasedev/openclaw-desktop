@@ -887,10 +887,15 @@ export async function chatSelectEditBranch(input: {
     persistGatewayKey(input.sessionKey, input.branchSessionKey)
     metadata.activeGatewayKey = input.branchSessionKey
   } else {
+    const originalGatewayKey = typeof metadata.originalGatewayKey === "string" ? metadata.originalGatewayKey : undefined
     const branchStream = activeStreams.get(input.branchSessionKey)
     if (branchStream) {
       branchStream.close()
       activeStreams.delete(input.branchSessionKey)
+    }
+    if (originalGatewayKey) {
+      persistGatewayKey(input.sessionKey, originalGatewayKey)
+      metadata.activeGatewayKey = originalGatewayKey
     }
     try { await deleteChatSession(input.branchSessionKey) } catch {}
   }

@@ -53,8 +53,8 @@ export function isActiveModel(
   model: ModelEntry,
 ): boolean {
   if (!current) return false
-  const bare = current.includes("/") ? current.split("/")[1] : current
-  return model.id === current || model.id === bare
+  const bare = current.includes("/") ? current.split(/\/(.+)/)[1] : current
+  return model.id === current || `${model.provider}/${model.id}` === current || model.id === bare
 }
 
 export function useModels() {

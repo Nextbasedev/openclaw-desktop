@@ -73,9 +73,10 @@ function collectUsageFromValue(value: any, out: any[] = []) {
   return out
 }
 
-function usageFromSessions() {
+function usageFromSessions(requestedDays = 30) {
   const usage: any[] = []
   const days = new Map<string, any>()
+  const cutoff = Date.now() - Math.max(1, requestedDays) * 24 * 60 * 60 * 1000
   const roots = [path.join(os.homedir(), ".openclaw", "agents")]
   for (const root of roots) {
     if (!fs.existsSync(root)) continue
@@ -95,6 +96,8 @@ function usageFromSessions() {
             const normalized = normalizeUsage(raw)
             const cost = usageNumber(raw?.cost?.total ?? raw?.totalCost)
             const item = { ...normalized, cost, provider: entry?.message?.provider ?? entry?.provider, model: entry?.message?.model ?? entry?.modelId, timestamp: entry?.timestamp ?? entry?.ts, sessionFile: full }
+            const ts = typeof item.timestamp === "string" ? Date.parse(item.timestamp) : Number(item.timestamp)
+            if (Number.isFinite(ts) && ts < cutoff) continue
             usage.push(item)
             const day = String(item.timestamp || "").slice(0, 10) || "unknown"
             const daily = days.get(day) ?? { day, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 }
@@ -145,6 +148,17 @@ function nativeCommands() {
     { name: "model", description: "Switch or inspect the active model", source: "native", scope: "both", acceptsArgs: true },
     { name: "status", description: "Show current session and gateway status", source: "native", scope: "both", acceptsArgs: false },
     { name: "help", description: "Show available commands", source: "native", scope: "both", acceptsArgs: false },
+    { name: "clear", description: "Clear conversation history", source: "native", scope: "both", acceptsArgs: false },
+    { name: "reset", description: "Reset the current session", source: "native", scope: "both", acceptsArgs: false },
+    { name: "new", description: "Start a new session", source: "native", scope: "both", acceptsArgs: false },
+    { name: "stop", description: "Stop the current generation", source: "native", scope: "both", acceptsArgs: false },
+    { name: "plan", description: "Create a step-by-step plan", source: "native", scope: "text", acceptsArgs: true },
+    { name: "search", description: "Search the web for information", source: "native", scope: "text", acceptsArgs: true },
+    { name: "code", description: "Generate or explain code", source: "native", scope: "text", acceptsArgs: true },
+    { name: "summarize", description: "Summarize content or conversation", source: "native", scope: "text", acceptsArgs: true },
+    { name: "debug", description: "Debug code or errors", source: "native", scope: "text", acceptsArgs: true },
+    { name: "explain", description: "Explain a concept or code", source: "native", scope: "text", acceptsArgs: true },
+    { name: "review", description: "Review code for issues", source: "native", scope: "text", acceptsArgs: true },
     { name: "reasoning", description: "Toggle reasoning mode", source: "native", scope: "both", acceptsArgs: true },
     { name: "verbose", description: "Toggle verbose/tool output", source: "native", scope: "both", acceptsArgs: true },
   ]
@@ -261,7 +275,7 @@ function userSkillRoot() {
   return root
 }
 
-function scanSkills() {
+function scanSkills(enabledOverrides: Record<string, boolean> = {}) {
   const roots = skillRoots()
   const skills: any[] = []
   for (const root of roots) {
@@ -274,7 +288,7 @@ function scanSkills() {
       if (!fs.existsSync(skillMd)) continue
       const content = fs.readFileSync(skillMd, "utf8")
       const description = content.match(/description:\s*(.+)/)?.[1]?.trim() || content.split("\n").find(l => l.trim() && !l.startsWith("---")) || ""
-      skills.push({ slug: entry.name, id: entry.name, name: entry.name, description, source: root.includes("node_modules") ? "builtin" : "local", version: null, path: skillPath, installed: true, enabled: true, updatedAt: fs.statSync(skillMd).mtimeMs, createdAt: fs.statSync(skillMd).ctimeMs })
+      skills.push({ slug: entry.name, id: entry.name, name: entry.name, description, source: root.includes("node_modules") ? "builtin" : "local", version: null, path: skillPath, installed: true, enabled: enabledOverrides[entry.name] ?? true, updatedAt: fs.statSync(skillMd).mtimeMs, createdAt: fs.statSync(skillMd).ctimeMs })
     }
   }
   const bySlug = new Map<string, any>()
@@ -426,8 +440,20 @@ export function commandRoutes(store: Store) {
           writeJson(openclawConfigPath(), cfg)
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
         }
-        case "middleware_usage": { const usage = usageFromSessions(); return { range: { days: usageNumber(input.days) || 30 }, summary: frontendUsageSummary(usage.summary), providers: [], usage: usage.usage.slice(-500), source: usage.source, unavailable: usage.unavailable } }
-        case "middleware_usage_daily": { const usage = usageFromSessions(); const daily = frontendDaily(usage.days); return { range: { days: usageNumber(input.days) || 30 }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable } }
+        case "middleware_usage": {
+          const requestedDays = usageNumber(input.days) || 30
+          const usage = usageFromSessions(requestedDays)
+          let providers: any[] = []
+          try {
+            const gw = await connectGateway(["operator.read"])
+            try {
+              const status = await gw.request<any>("usage.status", {}, 30_000)
+              if (status.ok && Array.isArray((status.payload as any)?.providers)) providers = (status.payload as any).providers
+            } finally { gw.close() }
+          } catch { /* provider status unavailable; transcript usage still useful */ }
+          return { range: { days: requestedDays }, summary: frontendUsageSummary(usage.summary), providers, usage: usage.usage.slice(-500), source: usage.source, unavailable: usage.unavailable }
+        }
+        case "middleware_usage_daily": { const requestedDays = usageNumber(input.days) || 30; const usage = usageFromSessions(requestedDays); const daily = frontendDaily(usage.days); return { range: { days: requestedDays }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable } }
 
         case "middleware_commands_list": return { commands: nativeCommands() }
         case "middleware_autonaming_quick": { const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat"; return { name, title: name } }
@@ -601,7 +627,7 @@ export function commandRoutes(store: Store) {
         case "middleware_cron_list_jobs": return { jobs: s.commandState.cronJobs }
         case "middleware_cron_create_job": { const paused = input.paused ?? !(input.enabled ?? false); const job = { id: crypto.randomUUID(), jobId: crypto.randomUUID(), ...input, enabled: input.enabled ?? !paused, paused, status: paused ? "paused" : "active", createdAt: now(), updatedAt: now() }; s.commandState.cronJobs.push(job); save(store,s); return { job, jobId: job.jobId } }
         case "middleware_cron_get_job": return { job: s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)) ?? null }
-        case "middleware_cron_update_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); Object.assign(job, input, { updatedAt: now() }); save(store,s); return { job } }
+        case "middleware_cron_update_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); Object.assign(job, input, { updatedAt: now() }); if ("enabled" in input || "paused" in input) { const paused = "paused" in input ? Boolean(input.paused) : !Boolean(input.enabled); job.paused = paused; job.enabled = "enabled" in input ? Boolean(input.enabled) : !paused; job.status = job.paused ? "paused" : "active" } save(store,s); return { job } }
         case "middleware_cron_delete_job": { const before = s.commandState.cronJobs.length; s.commandState.cronJobs = s.commandState.cronJobs.filter((j:any)=>j.jobId!==(input.jobId || input.id) && j.id!==(input.jobId || input.id)); if (before === s.commandState.cronJobs.length) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); save(store,s); return ok() }
         case "middleware_cron_pause_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); const paused = input.paused ?? true; job.paused = paused; job.enabled = input.enabled ?? !paused; job.status = paused ? "paused" : "active"; job.updatedAt = now(); save(store,s); return { job } }
         case "middleware_cron_run_job": return runCronJob(store, s, input)
@@ -611,21 +637,21 @@ export function commandRoutes(store: Store) {
           const run = s.commandState.cronRuns.find((r:any) => r.jobId === input.jobId || r.runId === input.runId || r.id === input.runId)
           if (!run?.sessionKey) return { messages: [] }
           const gw = await connectGateway(["operator.read"])
-          try { const res = await gw.request<any>("chat.history", { sessionKey: run.sessionKey }, 30_000); if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR"); return res.payload } finally { gw.close() }
+          try { const res = await gw.request<any>("chat.history", { sessionKey: run.sessionKey }, 30_000); if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR"); return { ...((res.payload as object) || {}), messages: (res.payload as any)?.messages ?? [], lastRun: run } } finally { gw.close() }
         }
         case "middleware_cron_reset_fixtures": s.commandState.cronJobs = []; s.commandState.cronRuns = []; save(store,s); return ok()
 
         case "middleware_skills_installed_local": {
-          const skills = scanSkills()
+          const skills = scanSkills(s.commandState.skillsEnabled)
           return { query: input.query ?? null, sort: input.sort ?? "name", results: skills, skills, warnings: [], sources: ["local"], nextCursor: null }
         }
         case "middleware_skills_discover": {
-          const skills = scanSkills()
+          const skills = scanSkills(s.commandState.skillsEnabled)
           return { query: input.query ?? null, sort: input.sort ?? "name", results: skills, skills, warnings: [], sources: ["local"], nextCursor: null }
         }
         case "middleware_skills_detail": {
           const slug = input.slug || input.skillId
-          const found = scanSkills().find(skill => skill.slug === slug || skill.id === slug || skill.name === slug)
+          const found = scanSkills(s.commandState.skillsEnabled).find(skill => skill.slug === slug || skill.id === slug || skill.name === slug)
           if (!found) return { skill: null, installed: false, enabled: false }
           const skillMd = path.join(found.path, "SKILL.md")
           const content = fs.existsSync(skillMd) ? fs.readFileSync(skillMd, "utf8") : ""
@@ -642,7 +668,7 @@ export function commandRoutes(store: Store) {
         case "middleware_skills_install": {
           const slug = String(input.slug || input.skillId || "").trim()
           if (!slug) throw new HttpError(400, "Skill slug is required", "BAD_REQUEST")
-          const existing = scanSkills().find(skill => skill.slug === slug || skill.id === slug)
+          const existing = scanSkills(s.commandState.skillsEnabled).find(skill => skill.slug === slug || skill.id === slug)
           const dest = path.join(userSkillRoot(), slug)
           if (existing?.path && existing.path !== dest) {
             fs.cpSync(existing.path, dest, { recursive: true, force: true })
@@ -651,7 +677,7 @@ export function commandRoutes(store: Store) {
             const file = path.join(dest, "SKILL.md")
             if (!fs.existsSync(file)) fs.writeFileSync(file, `---\nname: ${slug}\ndescription: Local installed skill ${slug}\n---\n\n# ${slug}\n`)
           }
-          return { ok: true, skill: scanSkills().find(skill => skill.slug === slug || skill.id === slug) }
+          return { ok: true, skill: scanSkills(s.commandState.skillsEnabled).find(skill => skill.slug === slug || skill.id === slug) }
         }
         case "middleware_skills_uninstall": {
           const slug = String(input.slug || input.skillId || "").trim()
@@ -661,7 +687,7 @@ export function commandRoutes(store: Store) {
           return ok({ slug })
         }
         case "middleware_skills_toggle": { const skillId = String(input.skillId || input.slug || ""); if (!skillId) throw new HttpError(400, "skillId is required", "BAD_REQUEST"); s.commandState.skillsEnabled[skillId] = input.enabled ?? true; save(store, s); return ok({ skillId, enabled: s.commandState.skillsEnabled[skillId] }) }
-        case "middleware_skills_versions": { const slug = String(input.slug || input.skillId || ""); const found = scanSkills().find(skill => skill.slug === slug || skill.id === slug); return { items: found ? [{ version: found.version || "local", createdAt: found.createdAt, updatedAt: found.updatedAt, source: found.source }] : [], nextCursor: null } }
+        case "middleware_skills_versions": { const slug = String(input.slug || input.skillId || ""); const found = scanSkills(s.commandState.skillsEnabled).find(skill => skill.slug === slug || skill.id === slug); return { items: found ? [{ version: found.version || "local", createdAt: found.createdAt, updatedAt: found.updatedAt, source: found.source }] : [], nextCursor: null } }
 
         case "middleware_onboarding_core": {
           const cfg = readJson(openclawConfigPath())
