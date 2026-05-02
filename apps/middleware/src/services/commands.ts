@@ -111,6 +111,55 @@ function usageFromSessions() {
   return { summary, usage, days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)), source: "openclaw-session-transcripts", unavailable: usage.length === 0 }
 }
 
+function frontendUsageSummary(summary: any) {
+  return {
+    totalCost: usageNumber(summary.totalCost),
+    totalInputTokens: usageNumber(summary.input ?? summary.totalInputTokens),
+    totalOutputTokens: usageNumber(summary.output ?? summary.totalOutputTokens),
+    cacheReadTokens: usageNumber(summary.cacheRead ?? summary.cacheReadTokens),
+    cacheWriteTokens: usageNumber(summary.cacheWrite ?? summary.cacheWriteTokens),
+    totalTokens: usageNumber(summary.totalTokens),
+    input: usageNumber(summary.input),
+    output: usageNumber(summary.output),
+    cacheRead: usageNumber(summary.cacheRead),
+    cacheWrite: usageNumber(summary.cacheWrite),
+  }
+}
+
+function frontendDaily(days: any[]) {
+  return days.map((day) => ({
+    date: day.day ?? day.date,
+    day: day.day ?? day.date,
+    input_tokens: usageNumber(day.input ?? day.input_tokens),
+    output_tokens: usageNumber(day.output ?? day.output_tokens),
+    cache_read_tokens: usageNumber(day.cacheRead ?? day.cache_read_tokens),
+    cache_write_tokens: usageNumber(day.cacheWrite ?? day.cache_write_tokens),
+    total_tokens: usageNumber(day.totalTokens ?? day.total_tokens),
+    cost_usd: usageNumber(day.totalCost ?? day.cost_usd),
+  }))
+}
+
+function nativeCommands() {
+  return [
+    { name: "model", description: "Switch or inspect the active model", source: "native", scope: "both", acceptsArgs: true },
+    { name: "status", description: "Show current session and gateway status", source: "native", scope: "both", acceptsArgs: false },
+    { name: "help", description: "Show available commands", source: "native", scope: "both", acceptsArgs: false },
+    { name: "reasoning", description: "Toggle reasoning mode", source: "native", scope: "both", acceptsArgs: true },
+    { name: "verbose", description: "Toggle verbose/tool output", source: "native", scope: "both", acceptsArgs: true },
+  ]
+}
+
+function messageBody(m: any) {
+  if (!m) return ""
+  if (typeof m.text === "string") return m.text
+  const content = m.content
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) return content.map((b:any)=>b?.text || b?.content || "").join("")
+  return ""
+}
+
+function messageIdOf(m: any) { return m?.id || m?.messageId }
+
 function searchMemory(query: string) {
   const q = query.trim().toLowerCase()
   const entries: any[] = []
@@ -339,11 +388,11 @@ export function commandRoutes(store: Store) {
           writeJson(openclawConfigPath(), cfg)
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
         }
-        case "middleware_usage": { const usage = usageFromSessions(); return { summary: usage.summary, usage: usage.usage.slice(-500), source: usage.source, unavailable: usage.unavailable } }
-        case "middleware_usage_daily": { const usage = usageFromSessions(); return { days: usage.days, source: usage.source, unavailable: usage.unavailable } }
+        case "middleware_usage": { const usage = usageFromSessions(); return { range: { days: usageNumber(input.days) || 30 }, summary: frontendUsageSummary(usage.summary), providers: [], usage: usage.usage.slice(-500), source: usage.source, unavailable: usage.unavailable } }
+        case "middleware_usage_daily": { const usage = usageFromSessions(); const daily = frontendDaily(usage.days); return { range: { days: usageNumber(input.days) || 30 }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable } }
 
-        case "middleware_commands_list": return { commands: ["/model", "/status", "/help", "/reasoning", "/verbose"] }
-        case "middleware_autonaming_quick": return { title: String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat" }
+        case "middleware_commands_list": return { commands: nativeCommands() }
+        case "middleware_autonaming_quick": { const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat"; return { name, title: name } }
         case "middleware_message_feedback": { s.commandState.feedback.push({ id: crypto.randomUUID(), ...input, createdAt: now() }); save(store, s); return ok() }
         case "middleware_message_feedback_delete": { s.commandState.feedback = s.commandState.feedback.filter((f:any) => f.message_id !== input.message_id && f.messageId !== input.messageId); save(store, s); return ok() }
 
@@ -395,7 +444,7 @@ export function commandRoutes(store: Store) {
             const key = input.sessionKey
             const res = await gw.request("chat.send", {
               sessionKey: key,
-              message: input.text || input.message || "",
+              message,
               timeoutMs: input.timeoutMs || 120_000,
               idempotencyKey: crypto.randomUUID(),
             }, input.timeoutMs || 130_000)
@@ -432,25 +481,32 @@ export function commandRoutes(store: Store) {
             await gw.request("sessions.create", { key: branchSessionKey, agentId: input.agentId || "main", label }, 30_000).catch(() => null)
             const history = await gw.request<any>("chat.history", { sessionKey: originalKey, limit: 100 }, 30_000)
             const messages = history.ok && Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
-            const sourceUser = messages.find((m:any) => m.id === input.userMessageId || m.messageId === input.userMessageId) || null
+            const sourceIndex = messages.findIndex((m:any) => messageIdOf(m) === input.userMessageId)
+            if (sourceIndex === -1 || messages[sourceIndex]?.role !== "user") throw new HttpError(404, "User message not found", "NOT_FOUND")
+            const sourceUser = messages[sourceIndex]
+            const sourceAssistant = messages.slice(sourceIndex + 1).find((m:any) => m.role === "assistant") || null
+            const prior = messages.slice(0, sourceIndex).filter((m:any) => m.role === "user" || m.role === "assistant")
             const prompt = [
-              "Continue the conversation. Prior transcript is context only.",
-              ...messages.filter((m:any) => m.role === "user" || m.role === "assistant").slice(0, -1).map((m:any) => `${m.role}: ${Array.isArray(m.content) ? m.content.map((b:any)=>b.text||'').join('') : (m.text || m.content || '')}`),
+              "Continue the conversation from this edited branch. Prior transcript is context only.",
+              ...prior.map((m:any) => `${m.role}: ${messageBody(m)}`),
               `user: ${editedText}`,
             ].filter(Boolean).join("\n\n")
             const sent = await gw.request("chat.send", { sessionKey: branchSessionKey, message: prompt, timeoutMs: input.timeoutMs || 120_000, idempotencyKey: crypto.randomUUID() }, input.timeoutMs || 130_000)
             if (!sent.ok) throw new HttpError(502, sent.error?.message || "edit preview send failed", "GATEWAY_ERROR")
-            const branch = { sourceSessionKey: originalKey, sourceMessageId: input.userMessageId, branchSessionKey, branchReason: "edit_preview", createdAt: now() }
+            const branchId = crypto.randomUUID()
+            const branch = { branchId, sourceSessionKey: originalKey, sourceMessageId: input.userMessageId, branchSessionKey, branchReason: "edit", createdAt: now() }
             s.commandState.branches.push(branch); save(store, s)
-            return { branchId: crypto.randomUUID(), branchSessionKey, sourceUserMessageId: input.userMessageId, original: { user: sourceUser, assistant: null }, edited: { user: { id: `edited:${input.userMessageId}`, role: "user", text: editedText }, assistant: null }, ...((sent.payload as object) || {}) }
+            return { branchId, branchSessionKey, sourceUserMessageId: input.userMessageId, sourceAssistantMessageId: messageIdOf(sourceAssistant), original: { user: sourceUser, assistant: sourceAssistant }, edited: { user: { id: `edited:${input.userMessageId}`, role: "user", text: editedText }, assistant: null }, ...((sent.payload as object) || {}) }
           } finally { gw.close() }
         }
         case "middleware_chat_select_edit_branch": {
           const selected = input.selected || input.choice
+          if (selected !== "original" && selected !== "edited") throw new HttpError(400, "selected must be original or edited", "BAD_REQUEST")
           const branchSessionKey = input.branchSessionKey || input.editedSessionKey
           const branch = s.commandState.branches.find((b:any) => b.branchSessionKey === branchSessionKey || b.branchId === input.branchId)
-          if (branch) { branch.selected = selected; branch.selectedAt = now(); save(store, s) }
-          return ok({ selected, sessionKey: selected === "edited" ? branchSessionKey : input.originalSessionKey, branch })
+          if (!branch) throw new HttpError(404, "Branch not found", "NOT_FOUND")
+          branch.selected = selected; branch.selectedAt = now(); save(store, s)
+          return ok({ selected, sessionKey: selected === "edited" ? branch.branchSessionKey : branch.sourceSessionKey, branch })
         }
         case "middleware_branch_list": return { branches: s.commandState.branches.filter((b:any) => !input.sourceSessionKey || b.sourceSessionKey === input.sourceSessionKey) }
 
@@ -472,11 +528,11 @@ export function commandRoutes(store: Store) {
         case "middleware_memory_recall": { const entries = searchMemory(String(input.query || input.text || "")); return { entries, results: entries } }
 
         case "middleware_cron_list_jobs": return { jobs: s.commandState.cronJobs }
-        case "middleware_cron_create_job": { const job = { id: crypto.randomUUID(), jobId: crypto.randomUUID(), ...input, status: "paused", createdAt: now(), updatedAt: now() }; s.commandState.cronJobs.push(job); save(store,s); return { job, jobId: job.jobId } }
+        case "middleware_cron_create_job": { const paused = input.paused ?? !(input.enabled ?? false); const job = { id: crypto.randomUUID(), jobId: crypto.randomUUID(), ...input, enabled: input.enabled ?? !paused, paused, status: paused ? "paused" : "active", createdAt: now(), updatedAt: now() }; s.commandState.cronJobs.push(job); save(store,s); return { job, jobId: job.jobId } }
         case "middleware_cron_get_job": return { job: s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)) ?? null }
         case "middleware_cron_update_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); Object.assign(job, input, { updatedAt: now() }); save(store,s); return { job } }
         case "middleware_cron_delete_job": { const before = s.commandState.cronJobs.length; s.commandState.cronJobs = s.commandState.cronJobs.filter((j:any)=>j.jobId!==(input.jobId || input.id) && j.id!==(input.jobId || input.id)); if (before === s.commandState.cronJobs.length) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); save(store,s); return ok() }
-        case "middleware_cron_pause_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); job.status = "paused"; save(store,s); return { job } }
+        case "middleware_cron_pause_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); const paused = input.paused ?? true; job.paused = paused; job.enabled = input.enabled ?? !paused; job.status = paused ? "paused" : "active"; job.updatedAt = now(); save(store,s); return { job } }
         case "middleware_cron_run_job": return runCronJob(store, s, input)
         case "middleware_cron_list_runs": return { runs: s.commandState.cronRuns.filter((r:any)=>!(input.jobId || input.id) || r.jobId===(input.jobId || input.id)) }
         case "middleware_cron_recent_activity": { const events = s.commandState.cronRuns.slice(-20).reverse(); return { events, activity: events } }

@@ -762,7 +762,7 @@ export function useChatMessages(
               return cleanUserMessageText(laterRawText).trim() === text.trim()
             })
             const isSubagentAnnounce = text
-              ? /agent:main:subagent:[0-9a-f-]{36}/.test(text)
+              ? /agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(text)
               : false
 
             if (isSubagentAnnounce) {

@@ -59,4 +59,41 @@ describe("production command behavior", () => {
     expect(res.status).toBe(400)
     expect(res.body.error.code).toBe("BAD_REQUEST")
   })
+
+  it("returns frontend-compatible command and autonaming shapes", async () => {
+    const root = tempRoot()
+    const app = makeApp(root)
+
+    const commands = await auth(request(app).post("/api/commands/middleware_commands_list")).send({ input: {} })
+    expect(commands.status).toBe(200)
+    expect(commands.body.commands[0]).toMatchObject({ name: expect.any(String), description: expect.any(String), source: "native", scope: expect.any(String), acceptsArgs: expect.any(Boolean) })
+
+    const name = await auth(request(app).post("/api/commands/middleware_autonaming_quick")).send({ input: { text: "hello world" } })
+    expect(name.status).toBe(200)
+    expect(name.body.name).toBe("hello world")
+    expect(name.body.title).toBe("hello world")
+  })
+
+  it("returns frontend-compatible usage and cron pause shapes", async () => {
+    const root = tempRoot()
+    vi.stubEnv("HOME", root)
+    const sessionsDir = path.join(root, ".openclaw", "agents", "main", "sessions")
+    fs.mkdirSync(sessionsDir, { recursive: true })
+    fs.writeFileSync(path.join(sessionsDir, "session.jsonl"), JSON.stringify({
+      timestamp: "2026-05-02T07:00:00.000Z",
+      message: { usage: { input: 10, output: 5, cacheRead: 2, cacheWrite: 1, totalTokens: 18, cost: { total: 0.12 } } },
+    }) + "\n")
+    const app = makeApp(root)
+
+    const usage = await auth(request(app).post("/api/commands/middleware_usage")).send({ input: { days: 7 } })
+    expect(usage.body.summary).toMatchObject({ totalInputTokens: 10, totalOutputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 1, totalTokens: 18, totalCost: 0.12 })
+    const daily = await auth(request(app).post("/api/commands/middleware_usage_daily")).send({ input: { days: 7 } })
+    expect(daily.body.daily[0]).toMatchObject({ date: "2026-05-02", input_tokens: 10, total_tokens: 18, cost_usd: 0.12 })
+
+    const created = await auth(request(app).post("/api/commands/middleware_cron_create_job")).send({ input: { name: "job", enabled: true, paused: false } })
+    const paused = await auth(request(app).post("/api/commands/middleware_cron_pause_job")).send({ input: { id: created.body.job.id, paused: true } })
+    expect(paused.body.job).toMatchObject({ paused: true, enabled: false, status: "paused" })
+    const resumed = await auth(request(app).post("/api/commands/middleware_cron_pause_job")).send({ input: { id: created.body.job.id, paused: false } })
+    expect(resumed.body.job).toMatchObject({ paused: false, enabled: true, status: "active" })
+  })
 })
