@@ -35,6 +35,7 @@ export function createStore(config: MiddlewareConfig) {
 
 export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   const app = express()
+  app.set("etag", false)
   const store = injectedStore ?? createStore(config)
   const projects = projectRoutes(store)
   const repos = repoRoutes(store, config.workspaceRoot)
@@ -46,6 +47,15 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
 
   app.use(cors({ origin: true, credentials: false }))
   app.use(express.json({ limit: "150mb" }))
+  app.use((req, res, next) => {
+    if (req.path.includes("/git/") || req.path.startsWith("/api/repos/")) {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+      res.setHeader("Pragma", "no-cache")
+      res.setHeader("Expires", "0")
+      res.removeHeader("ETag")
+    }
+    next()
+  })
 
   app.get("/health", async (_req, res) => {
     const gatewayConnected = await isOpenClawGatewayReachable(config.openclawGatewayUrl)
@@ -116,6 +126,10 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.get("/api/repos/recent", (_req, res) => res.json(repos.recent()))
   app.post("/api/repos/scan", (_req, res) => res.json(repos.scan()))
   app.post("/api/repos/select", (req, res) => res.json(repos.select(req.body)))
+  app.get("/api/repos/git/status", (req, res) => res.json(git.statusForPath(String(req.query.path ?? ""))))
+  app.get("/api/repos/git/diff", (req, res) => res.json(git.diffForPath(String(req.query.repoPath ?? ""), String(req.query.path ?? ""))))
+  app.get("/api/repos/git/branches", (req, res) => res.json(git.branchesForPath(String(req.query.path ?? ""))))
+  app.post("/api/repos/git/checkout", (req, res) => res.json(git.checkoutPath(String(req.body?.repoPath ?? req.body?.path ?? ""), String(req.body?.branch ?? req.body?.branchName ?? ""))))
 
   app.get("/api/projects/:projectId/git/status", (req, res) => res.json(git.status(req.params.projectId)))
   app.get("/api/projects/:projectId/git/diff", (req, res) => res.json(git.diff(req.params.projectId, String(req.query.path ?? ""))))

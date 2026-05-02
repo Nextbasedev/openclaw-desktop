@@ -143,13 +143,21 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_repos_select":
       return middlewareFetch<T>("/api/repos/select", { method: "POST", body: JSON.stringify(input) })
     case "middleware_git_status":
-      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/status`)
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/status`, { headers: { "Cache-Control": "no-cache" } })
+    case "middleware_git_status_for_repo":
+      return middlewareFetch<T>(`/api/repos/git/status?path=${encodeURIComponent(String(input.repoPath ?? input.path ?? ""))}`, { headers: { "Cache-Control": "no-cache" } })
     case "middleware_git_diff":
-      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/diff?path=${encodeURIComponent(String(input.path ?? ""))}`)
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/diff?path=${encodeURIComponent(String(input.path ?? ""))}`, { headers: { "Cache-Control": "no-cache" } })
+    case "middleware_git_diff_for_repo":
+      return middlewareFetch<T>(`/api/repos/git/diff?repoPath=${encodeURIComponent(String(input.repoPath ?? ""))}&path=${encodeURIComponent(String(input.path ?? ""))}`, { headers: { "Cache-Control": "no-cache" } })
     case "middleware_git_branches":
-      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/branches`)
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/git/branches`, { headers: { "Cache-Control": "no-cache" } })
+    case "middleware_git_branches_for_repo":
+      return middlewareFetch<T>(`/api/repos/git/branches?path=${encodeURIComponent(String(input.repoPath ?? input.path ?? ""))}`, { headers: { "Cache-Control": "no-cache" } })
     case "middleware_git_switch_branch":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/git/checkout`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_git_switch_branch_for_repo":
+      return middlewareFetch<T>("/api/repos/git/checkout", { method: "POST", body: JSON.stringify(input) })
     case "middleware_workspace_tree":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/tree?path=${encodeURIComponent(String(input.path ?? ""))}`)
     case "middleware_workspace_read":
