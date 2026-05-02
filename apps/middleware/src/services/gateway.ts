@@ -9,7 +9,7 @@ type GatewayMessage = GatewayResponse | { type: "event"; event: string; payload?
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 const PROTOCOL_VERSION = 3
-const CLIENT = { id: "openclaw-tui", displayName: "OpenClaw Middleware", version: "0.1.0", platform: "desktop", mode: "cli" }
+const CLIENT = { id: "openclaw-desktop-middleware", displayName: "OpenClaw Desktop Middleware", version: "0.1.0", platform: "desktop", mode: "cli" }
 
 function base64UrlEncode(buf: Buffer) { return buf.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "") }
 function normalize(value: string | undefined) { return typeof value === "string" ? value.trim().toLowerCase() : "" }
@@ -26,7 +26,7 @@ export async function connectGateway(scopes = ["operator.read", "operator.write"
   const cfg = await readConfig(); const token = process.env.OPENCLAW_GATEWAY_TOKEN || cfg.gateway?.auth?.token; const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`
   if (!token) throw new Error("OpenClaw gateway token is missing")
   const identity = await readIdentity()
-  const ws = new WebSocket(gatewayUrl, { headers: { origin: "http://127.0.0.1:3000" } })
+  const ws = new WebSocket(gatewayUrl, { headers: { origin: process.env.MIDDLEWARE_ORIGIN || "http://127.0.0.1:8787" } })
   await waitOpen(ws)
   const challenge = await waitFor(ws, (m) => m.type === "event" && (m as any).event === "connect.challenge", "connect.challenge") as any
   const signedAt = Date.now(); const payload = authPayload({ deviceId: identity.deviceId, scopes, signedAt, token, nonce: challenge.payload.nonce })
