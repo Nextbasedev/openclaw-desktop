@@ -158,6 +158,8 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/projects/${input.projectId}/git/checkout`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_git_switch_branch_for_repo":
       return middlewareFetch<T>("/api/repos/git/checkout", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_git_commit_details":
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
     case "middleware_workspace_tree":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/tree?path=${encodeURIComponent(String(input.path ?? ""))}`)
     case "middleware_workspace_read":

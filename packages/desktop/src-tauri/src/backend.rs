@@ -33,6 +33,7 @@ const EXISTING_BACKEND_WAIT: Duration = Duration::from_secs(30);
 #[cfg(not(debug_assertions))]
 const EXISTING_BACKEND_WAIT: Duration = Duration::from_secs(1);
 const BACKEND_LOG_NAME: &str = "middleware.log";
+const BUNDLED_TOKEN_NAME: &str = "middleware-token";
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -103,6 +104,7 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
   let server_dir = resolve_server_dir(app, log_path)?;
   let node_path = server_dir.join("bin").join(node_binary_name());
   let entry_path = server_dir.join("dist").join("index.js");
+  let middleware_token = ensure_bundled_middleware_token(app, log_path)?;
 
   append_backend_log(
     &log_path,
@@ -135,6 +137,7 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
     .env("NODE_ENV", "production")
     .env("PORT", SERVER_PORT.to_string())
     .env("HOST", "127.0.0.1")
+    .env("MIDDLEWARE_TOKEN", middleware_token)
     .stdin(Stdio::null())
     .stdout(stdout)
     .stderr(stderr);
@@ -174,6 +177,28 @@ fn spawn_bundled_backend(app: &AppHandle, log_path: &Path) -> Result<(), String>
   append_backend_log(&log_path, "Bundled middleware reported healthy");
 
   Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+fn ensure_bundled_middleware_token(app: &AppHandle, log_path: &Path) -> Result<String, String> {
+  let dir = app
+    .path()
+    .app_config_dir()
+    .map_err(|err| format!("Failed to resolve app config dir: {err}"))?;
+  fs::create_dir_all(&dir)
+    .map_err(|err| format!("Failed to create app config dir {}: {err}", dir.display()))?;
+  let token_path = dir.join(BUNDLED_TOKEN_NAME);
+  if let Ok(existing) = fs::read_to_string(&token_path) {
+    let token = existing.trim().to_string();
+    if !token.is_empty() {
+      return Ok(token);
+    }
+  }
+  let token = format!("desktop-{}-{}", std::process::id(), unix_timestamp_seconds());
+  fs::write(&token_path, &token)
+    .map_err(|err| format!("Failed to write middleware token {}: {err}", token_path.display()))?;
+  append_backend_log(log_path, &format!("Created bundled middleware token at {}", token_path.display()));
+  Ok(token)
 }
 
 #[cfg(not(debug_assertions))]

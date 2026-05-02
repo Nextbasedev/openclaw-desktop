@@ -83,9 +83,9 @@ export function ActionBar({
   const activeModel = models.find((m) => {
     if (!currentModelId) return false
     const bare = currentModelId.includes("/")
-      ? currentModelId.split("/")[1]
+      ? currentModelId.split(/\/(.+)/)[1]
       : currentModelId
-    return m.id === currentModelId || m.id === bare
+    return m.id === currentModelId || `${m.provider}/${m.id}` === currentModelId || m.id === bare
   })
   const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
   const uniqueModels = models.filter(
