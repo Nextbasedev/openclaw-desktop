@@ -1,6 +1,8 @@
 import express from "express"
 import cors from "cors"
 import net from "node:net"
+import fs from "node:fs"
+import path from "node:path"
 import type { MiddlewareConfig } from "./config.js"
 import { authMiddleware } from "./auth.js"
 import { HttpError } from "./lib/http-error.js"
@@ -29,12 +31,23 @@ async function isOpenClawGatewayReachable(gatewayUrl: string) {
   }
 }
 
+function packageVersion() {
+  for (const file of [path.join(process.cwd(), "package.json"), path.join(process.cwd(), "..", "..", "package.json")]) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+      if (pkg.version) return String(pkg.version)
+    } catch { /* keep looking */ }
+  }
+  return "0.1.0"
+}
+
 export function createStore(config: MiddlewareConfig) {
   return new Store(config)
 }
 
 export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   const app = express()
+  const version = packageVersion()
   app.set("etag", false)
   const store = injectedStore ?? createStore(config)
   const projects = projectRoutes(store)
@@ -62,7 +75,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
     res.json({
       ok: true,
       service: "openclaw-middleware",
-      version: "0.1.0",
+      version,
       host: config.host,
       openclaw: { gatewayUrl: config.openclawGatewayUrl, connected: gatewayConnected },
       pairing: { enabled: true },
@@ -98,7 +111,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
 
   app.use("/api", authMiddleware(config))
 
-  app.get("/api/version", (_req, res) => res.json({ ok: true, version: "0.1.0", service: "openclaw-middleware" }))
+  app.get("/api/version", (_req, res) => res.json({ ok: true, version, service: "openclaw-middleware" }))
   app.post("/api/commands/:command", async (req, res, next) => { try { res.json(await commands.handle(req.params.command, req.body?.input ?? req.body ?? {})) } catch (error) { next(error) } })
 
   app.get("/api/projects", (_req, res) => res.json(projects.list()))
