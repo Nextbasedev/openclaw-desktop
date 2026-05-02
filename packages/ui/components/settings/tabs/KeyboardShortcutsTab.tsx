@@ -48,7 +48,7 @@ export function KeyboardShortcutsTab({ onBack }: KeyboardShortcutsTabProps) {
           )}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          All available shortcuts in Jarvis Desktop.
+          All available shortcuts in OpenClaw Desktop.
         </p>
       </div>
 

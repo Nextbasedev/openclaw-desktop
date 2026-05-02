@@ -91,7 +91,7 @@ type CronDialogMode = "create" | "edit"
 const deliveryOptions: CronOption[] = [
   { value: "announce", label: "Announce", detail: "Post the result to a chat/channel" },
   { value: "webhook", label: "Webhook", detail: "Send the result to an endpoint" },
-  { value: "none", label: "None", detail: "Keep the result in Jarvis only" },
+  { value: "none", label: "None", detail: "Keep the result in OpenClaw only" },
 ]
 
 const deliveryChannelOptions: CronOption[] = [
@@ -270,9 +270,9 @@ function cronDraftErrors(draft: CronJobDraft): string[] {
   const errors: string[] = []
   if (!draft.name.trim()) errors.push("Add a name so this job is easy to recognize.")
   if (!draft.schedule.trim()) errors.push("Choose when this job should run.")
-  if (!draft.prompt.trim()) errors.push("Add the task Jarvis should run.")
+  if (!draft.prompt.trim()) errors.push("Add the task OpenClaw should run.")
   if (draft.deliveryMode !== "none" && !draft.deliveryTo.trim()) {
-    errors.push("Add a delivery destination, or choose None to keep the result in Jarvis.")
+    errors.push("Add a delivery destination, or choose None to keep the result in OpenClaw.")
   }
   return errors
 }
@@ -320,7 +320,7 @@ function CronJobEditDialog({
       title={isCreate ? "Review Cron Job" : "Edit Cron Job"}
       description={
         isCreate
-          ? "Check the schedule, model, delivery, and prompt before Jarvis starts running it."
+          ? "Check the schedule, model, delivery, and prompt before OpenClaw starts running it."
           : job?.name
       }
       className="w-[min(680px,calc(100vw-32px))]"

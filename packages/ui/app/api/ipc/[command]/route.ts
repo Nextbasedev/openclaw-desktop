@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { cronFixtureResponse } from "./fixtures"
 
 const SERVER_URL =
-  process.env.JARVIS_SERVER_URL ||
+  process.env.OPENCLAW_SERVER_URL ||
   process.env.NEXT_PUBLIC_SERVER_URL ||
-  "http://127.0.0.1:4000"
+  "http://127.0.0.1:8787"
 
 type RouteContext = {
   params: Promise<{ command: string }>
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   return NextResponse.json(
     {
-      error: `IPC upstream unavailable: ${command}. The Jarvis UI proxy could not reach the backend at ${SERVER_URL}. Start the local backend or set JARVIS_SERVER_URL/NEXT_PUBLIC_SERVER_URL to the backend origin.`,
+      error: `IPC upstream unavailable: ${command}. The OpenClaw UI proxy could not reach the middleware at ${SERVER_URL}. Start the local middleware or set OPENCLAW_SERVER_URL/NEXT_PUBLIC_SERVER_URL to the middleware origin.`,
       backendUrl: SERVER_URL,
     },
     { status: 502 },

@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const ROUTES = [
-  { name: "Route: home", path: "/", waitFor: "Jarvis", expectMain: "Select model", priority: "P0" },
+  { name: "Route: home", path: "/", waitFor: "OpenClaw", expectMain: "Select model", priority: "P0" },
   { name: "Route: connect", path: "/connect", waitFor: "Gateway Settings", expectMain: "Gateway Settings", priority: "P1" },
   { name: "Route: settings", path: "/settings", waitFor: "Memory", expectMain: "Memory", priority: "P1" },
   { name: "Route: skills", path: "/skill", waitFor: "Discover Skills", expectMain: "Discover Skills", priority: "P1" },
@@ -47,7 +47,7 @@ function isWeakChatName(name) {
 }
 
 function isAuditShellName(name) {
-  return /^Jarvis audit shell\b/i.test(String(name ?? "").trim());
+  return /^OpenClaw audit shell\b/i.test(String(name ?? "").trim());
 }
 
 function textFromToolResult(result) {
@@ -136,7 +136,7 @@ class BrowserAudit {
       ".sandbox",
       `chrome-mcp-profile-audit-${this.sessionCounter}`,
     );
-    this.client = new Client({ name: "jarvis-e2e-audit", version: "0.1.0" });
+    this.client = new Client({ name: "openclaw-e2e-audit", version: "0.1.0" });
     const args = [
       "/c",
       "npx",
@@ -1160,7 +1160,7 @@ async function createAuditTopic(serverUrl, discovery) {
   if (!project) return null;
   const topic = await invokeMiddleware(serverUrl, "middleware_topics_create", {
     projectId: project.id,
-    name: `Jarvis audit topic ${Date.now()}`,
+    name: `OpenClaw audit topic ${Date.now()}`,
   });
   return {
     id: topic.topic.id,
@@ -1187,13 +1187,13 @@ async function createAuditChatShell(serverUrl, name) {
 
 async function createAuditCronJob(serverUrl, purpose = "lifecycle") {
   const suffix = Date.now();
-  const name = `Jarvis audit cron ${purpose} ${suffix}`;
+  const name = `OpenClaw audit cron ${purpose} ${suffix}`;
   const baseInput = {
     name,
     schedule: "1h",
     scheduleType: "every",
     session: "isolated",
-    message: `Jarvis cron audit ${purpose} ${suffix}. Reply with CRON_OK only.`,
+    message: `OpenClaw cron audit ${purpose} ${suffix}. Reply with CRON_OK only.`,
     enabled: true,
     deliveryMode: "announce",
   };
@@ -1318,7 +1318,7 @@ async function writeReport(reportPath, audit) {
   findings.sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9));
 
   const lines = [
-    "# Jarvis End-To-End Audit Baseline",
+    "# OpenClaw End-To-End Audit Baseline",
     "",
     `Generated: ${audit.generatedAt}`,
     `Artifact root: ${audit.artifactRoot}`,
@@ -1367,12 +1367,12 @@ async function writeReport(reportPath, audit) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const artifactRoot = path.resolve(process.cwd(), ".sandbox", "runs", `${timestamp()}-audit`);
-  const reportPath = path.resolve(process.cwd(), "docs", "plans", "jarvis-e2e-audit-baseline.md");
+  const reportPath = path.resolve(process.cwd(), "docs", "plans", "openclaw-e2e-audit-baseline.md");
   await mkdir(artifactRoot, { recursive: true });
   await mkdir(path.dirname(reportPath), { recursive: true });
 
   const browser = new BrowserAudit(options, artifactRoot);
-  const serverUrl = `http://${options.host}:3001`;
+  const serverUrl = `http://${options.host}:8787`;
   const audit = {
     generatedAt: new Date().toISOString(),
     artifactRoot,
@@ -1434,7 +1434,7 @@ async function main() {
       await runFlow("Chat shell restore creates session", "P0", "chat/session-restore", async (flow) => {
         const shell = await createAuditChatShell(
           serverUrl,
-          `Jarvis audit shell ${Date.now()}`,
+          `OpenClaw audit shell ${Date.now()}`,
         );
         await browser.open(flow, `/${shell.id}`);
         await browser.waitForFirstInput();
@@ -1500,10 +1500,10 @@ async function main() {
       await runFlow("Command palette recent session navigation", "P0", "sidebar/navigation-sync", async (flow) => {
         const session = await createAuditStandaloneSession(
           serverUrl,
-          `Jarvis recent audit ${Date.now()}`,
+          `OpenClaw recent audit ${Date.now()}`,
         );
         await browser.open(flow, "/");
-        await browser.waitFor("Jarvis");
+        await browser.waitFor("OpenClaw");
         await browser.tool("evaluate_script", {
           function: `() => {
             window.dispatchEvent(new KeyboardEvent("keydown", {
@@ -1567,7 +1567,7 @@ async function main() {
       await runFlow("Topic first-send lifecycle", "P0", "topic/session-lifecycle", async (flow) => {
         const topic = await createAuditTopic(serverUrl, discovery);
         if (!topic) throw new Error("No project available for topic audit");
-        const prompt = `Jarvis topic audit smoke ${Date.now()}: reply with TOPIC_OK.`;
+        const prompt = `OpenClaw topic audit smoke ${Date.now()}: reply with TOPIC_OK.`;
         const beforeChats = await invokeMiddleware(serverUrl, "middleware_chats_list");
         const beforeChatCount = (beforeChats.chats ?? []).filter((item) => !item.archived).length;
 
@@ -1627,9 +1627,9 @@ async function main() {
     }
 
     await runFlow("Chat send lifecycle", "P0", "chat/send-lifecycle", async (flow) => {
-      const prompt = `Jarvis audit smoke ${Date.now()}: reply with AUDIT_OK.`;
+      const prompt = `OpenClaw audit smoke ${Date.now()}: reply with AUDIT_OK.`;
       await browser.open(flow, "/");
-      await browser.waitFor("Jarvis");
+      await browser.waitFor("OpenClaw");
       await browser.waitForFirstInput();
       await new Promise((resolve) => setTimeout(resolve, 1_000));
       await browser.capture(flow, "before");
@@ -1702,7 +1702,7 @@ async function main() {
 
     await runFlow("Sidebar and browser history sync", "P0", "sidebar/navigation-sync", async (flow) => {
       await browser.open(flow, "/");
-      await browser.waitFor("Jarvis");
+      await browser.waitFor("OpenClaw");
       await browser.capture(flow, "home");
       let click = await browser.click("Connect");
       if (!click.ok) throw new Error(click.reason ?? "Connect click failed");
@@ -1730,7 +1730,7 @@ async function main() {
 
     await runFlow("Mission Control surfaces", "P1", "observability/terminal", async (flow) => {
       await browser.open(flow, "/");
-      await browser.waitFor("Jarvis");
+      await browser.waitFor("OpenClaw");
       await browser.capture(flow, "home");
       let click = await browser.click("Toggle inspector panel");
       if (!click.ok) throw new Error(click.reason ?? "Inspector toggle failed");
@@ -1790,7 +1790,7 @@ async function main() {
 
     await runFlow("Top-bar notification popover cron links", "P1", "cron/notifications", async (flow) => {
       await browser.open(flow, "/");
-      await browser.waitFor("Jarvis");
+      await browser.waitFor("OpenClaw");
       let click = await browser.click("Notifications");
       flow.notes.push(`Notifications button result: ${JSON.stringify(click)}`);
       if (!click.ok) throw new Error(click.reason ?? "Notifications popover click failed");

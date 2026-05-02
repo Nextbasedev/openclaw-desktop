@@ -39,7 +39,7 @@ type HeaderProps = {
 }
 
 const DEFAULT_USER: HeaderUser = {
-    name: "Jarvis",
+    name: "OpenClaw",
 }
 
 export function Header({
