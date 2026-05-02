@@ -569,7 +569,7 @@ function classifyRawError(
       steps: [
         "Confirm the Middleware URL opens from this computer/browser: /health should return ok: true",
         "If it is a Tailscale/MagicDNS URL, make sure this user is on the same tailnet and Tailscale is connected",
-        "Use the Middleware port 8787 URL, not the old Jarvis backend port 3001",
+        "Use the Middleware port 8787 URL",
         "If the browser blocks the request, try the Tailscale IP/HTTP URL or configure HTTPS/reverse proxy for the Middleware",
       ],
       commands: [

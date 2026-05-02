@@ -126,7 +126,7 @@ function deliveryLabel(event: CronRunEvent): string | null {
   if (event.deliveryChannel === "webhook") return "Webhook"
   if (event.deliveryMode === "announce") return "Announce"
   if (event.deliveryMode === "webhook") return "Webhook"
-  if (event.deliveryMode === "none") return "Jarvis Only"
+  if (event.deliveryMode === "none") return "OpenClaw Only"
   return null
 }
 

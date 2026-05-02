@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 
 const SERVER_URL =
-  process.env.JARVIS_SERVER_URL ||
+  process.env.OPENCLAW_SERVER_URL ||
   process.env.NEXT_PUBLIC_SERVER_URL ||
-  "http://127.0.0.1:4000"
+  "http://127.0.0.1:8787"
 
 function buildUpstreamUrl(path: string, request: NextRequest): string {
   const search = request.nextUrl.search

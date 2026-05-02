@@ -3,12 +3,12 @@ const path = require("node:path")
 const { spawnSync } = require("node:child_process")
 
 const uiDir = path.resolve(__dirname, "..", "packages", "ui")
-const apiDir = path.join(uiDir, "app", "api")
-const stashDir = path.join(uiDir, ".api-stash")
 const nextDir = path.join(uiDir, ".next")
-
-const apiExists = fs.existsSync(apiDir)
-let stashed = false
+const stashTargets = [
+  { source: path.join(uiDir, "app", "api"), stash: path.join(uiDir, ".api-stash") },
+  { source: path.join(uiDir, "app", "[slug]"), stash: path.join(uiDir, ".[slug]-stash") },
+]
+const stashedTargets = []
 
 function quoteWindowsArg(arg) {
   if (!/[ \t"]/u.test(arg)) return arg
@@ -30,10 +30,12 @@ function runPnpm(args) {
 }
 
 function restore() {
-  if (stashed && fs.existsSync(stashDir)) {
-    fs.rmSync(apiDir, { recursive: true, force: true })
-    fs.renameSync(stashDir, apiDir)
-    stashed = false
+  while (stashedTargets.length > 0) {
+    const { source, stash } = stashedTargets.pop()
+    if (fs.existsSync(stash)) {
+      fs.rmSync(source, { recursive: true, force: true })
+      fs.renameSync(stash, source)
+    }
   }
 }
 
@@ -49,10 +51,11 @@ process.on("SIGTERM", () => {
 try {
   fs.rmSync(nextDir, { recursive: true, force: true })
 
-  if (apiExists) {
-    fs.rmSync(stashDir, { recursive: true, force: true })
-    fs.renameSync(apiDir, stashDir)
-    stashed = true
+  for (const target of stashTargets) {
+    if (!fs.existsSync(target.source)) continue
+    fs.rmSync(target.stash, { recursive: true, force: true })
+    fs.renameSync(target.source, target.stash)
+    stashedTargets.push(target)
   }
 
   const result = runPnpm(["exec", "next", "build"])

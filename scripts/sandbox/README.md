@@ -5,12 +5,12 @@ Tools that give agents the capability to verify their own work.
 ## Components
 
 ### 1. `verify-ui.mjs`
-Connects to the official Chrome DevTools MCP server, opens a Jarvis route, waits for expected text, captures a screenshot, captures an accessibility snapshot, records console/network output, and writes a JSON summary.
+Connects to the official Chrome DevTools MCP server, opens a OpenClaw route, waits for expected text, captures a screenshot, captures an accessibility snapshot, records console/network output, and writes a JSON summary.
 
 Artifacts are saved under `.sandbox/runs/<timestamp>-<route>/`.
 
 ### 2. `verify-routes.mjs`
-Runs the verifier across the core Jarvis routes: `/`, `/connect`, `/settings`, `/skill`, and `/notifications`.
+Runs the verifier across the core OpenClaw routes: `/`, `/connect`, `/settings`, `/skill`, and `/notifications`.
 
 ### 3. `audit-ui.mjs`
 Runs an evidence-only end-to-end audit across routes, chat restore, chat send, sidebar navigation, Mission Control surfaces, cron/notifications, settings, connect, and skills. It writes artifacts under `.sandbox/runs/` and a ranked report under `docs/plans/`.
@@ -36,7 +36,7 @@ Runs TypeScript compilation, lint, and tests. Returns structured output agents c
 pnpm --filter ui dev -- --port 3000
 
 # Verify one route
-pnpm sandbox:verify -- --port=3000 --path=/ --wait-for="Jarvis" --expect-main="Select model"
+pnpm sandbox:verify -- --port=3000 --path=/ --wait-for="OpenClaw" --expect-main="Select model"
 
 # Verify all core routes
 pnpm sandbox:routes -- --port=3000
@@ -65,4 +65,4 @@ The verifier uses the official `chrome-devtools-mcp` package from the Chrome Dev
 cmd /c npx -y chrome-devtools-mcp@latest --no-usage-statistics --no-performance-crux --isolated
 ```
 
-Do not use `chrome-devtools-axi` for Jarvis UI verification.
+Do not use `chrome-devtools-axi` for OpenClaw UI verification.

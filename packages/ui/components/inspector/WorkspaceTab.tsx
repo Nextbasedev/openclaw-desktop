@@ -1408,7 +1408,7 @@ export function WorkspaceTab({
                 Workspace is not available yet
               </p>
               <p className="text-[11px] text-muted-foreground/50">
-                Start one Jarvis session once and Workspace will stay available globally.
+                Start one OpenClaw session once and Workspace will stay available globally.
               </p>
             </div>
           ) : (
