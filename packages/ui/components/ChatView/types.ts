@@ -6,6 +6,7 @@ export type ContentBlock = {
   id?: string
   name?: string
   input?: unknown
+  arguments?: unknown
 }
 
 export type ChatTokenUsage = {

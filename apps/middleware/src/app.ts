@@ -41,6 +41,46 @@ function packageVersion() {
   return "0.1.0"
 }
 
+function contentText(content: unknown) {
+  if (Array.isArray(content)) {
+    return content.map((b:any) => typeof b?.text === "string" ? b.text : "").join("")
+  }
+  return typeof content === "string" ? content : ""
+}
+
+function emitToolCallsFromContent(send: (event: string, data: unknown) => void, sessionKey: string, content: unknown) {
+  if (!Array.isArray(content)) return
+  for (const block of content as any[]) {
+    if (block?.type !== "toolCall" && block?.type !== "tool_use") continue
+    const toolCallId = block.id || block.toolCallId || block.tool_use_id
+    const name = block.name
+    if (!toolCallId || !name) continue
+    send("chat.tool", {
+      type: "chat.tool",
+      sessionKey,
+      phase: "calling",
+      toolCallId,
+      name,
+      args: block.arguments ?? block.input ?? null,
+    })
+  }
+}
+
+function emitToolResultFromMessage(send: (event: string, data: unknown) => void, sessionKey: string, message: any) {
+  const role = message?.role
+  if (role !== "tool" && role !== "toolResult" && role !== "tool_result") return
+  const toolCallId = message.toolCallId || message.tool_call_id || message.toolUseId || message.tool_use_id
+  if (!toolCallId) return
+  send("chat.tool", {
+    type: "chat.tool",
+    sessionKey,
+    phase: "result",
+    toolCallId,
+    name: message.name || message.toolName || "unknown",
+    result: message.content ?? message.text ?? null,
+  })
+}
+
 export function createStore(config: MiddlewareConfig) {
   return new Store(config)
 }
@@ -197,18 +237,20 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
         if (payload?.sessionKey && payload.sessionKey !== sessionKey) return
         if (message.event === "session.message" && payload?.message) {
           const content = payload.message.content
-          const text = Array.isArray(content)
-            ? content.map((b:any) => typeof b?.text === "string" ? b.text : "").join("")
-            : typeof content === "string" ? content : ""
+          const text = contentText(content)
           if (payload.message.role === "assistant") {
+            emitToolCallsFromContent(send, sessionKey, content)
             send("chat.message", { type: "chat.message", sessionKey, messageId: payload.message.id ?? payload.messageId ?? null, role: payload.message.role, content, text, createdAt: payload.message.createdAt ?? null, model: payload.message.model ?? null, usage: payload.message.usage ?? null, stopReason: payload.message.stopReason ?? null })
             send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
+          } else {
+            emitToolResultFromMessage(send, sessionKey, payload.message)
           }
         } else if (message.event === "chat") {
           if (payload?.sessionKey && payload.sessionKey !== sessionKey) return
           const state = payload?.state
           const content = payload?.message?.content
-          const text = Array.isArray(content) ? content.map((b:any) => typeof b?.text === "string" ? b.text : "").join("") : ""
+          const text = contentText(content)
+          emitToolCallsFromContent(send, sessionKey, content)
           if (text) send("chat.message", { type: "chat.message", sessionKey, messageId: payload?.runId ?? null, role: "assistant", content, text, createdAt: null, model: payload?.message?.model ?? null, usage: state === "final" ? payload?.usage ?? null : null, stopReason: state === "final" ? payload?.stopReason ?? null : null })
           if (state === "final") send("chat.status", { type: "chat.status", sessionKey, state: "done" })
           if (state === "error") send("chat.status", { type: "chat.status", sessionKey, state: "error" })
