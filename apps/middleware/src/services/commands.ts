@@ -72,21 +72,43 @@ function collectUsageFromValue(value: any, out: any[] = []) {
   return out
 }
 
-async function usageSummary() {
-  let gw: Awaited<ReturnType<typeof connectGateway>> | null = null
-  try {
-    gw = await connectGateway(["operator.read"])
-    const res = await gw.request<any>("sessions.list", { includeHidden: true, limit: 200 }, 30_000)
-    if (!res.ok) throw new Error(res.error?.message || "sessions.list failed")
-    const usageItems = collectUsageFromValue(res.payload)
-    const totals = usageItems.map(normalizeUsage).reduce((acc, usage) => {
-      acc.input += usage.input; acc.output += usage.output; acc.cacheRead += usage.cacheRead; acc.cacheWrite += usage.cacheWrite; acc.totalTokens += usage.total
-      return acc
-    }, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: null as number | null })
-    return { summary: totals, usage: usageItems, source: "openclaw-gateway", unavailable: usageItems.length === 0 }
-  } catch (error) {
-    return { summary: { input: null, output: null, cacheRead: null, cacheWrite: null, totalTokens: null, totalCost: null }, usage: [], source: "openclaw-gateway", unavailable: true, error: error instanceof Error ? error.message : String(error) }
-  } finally { gw?.close() }
+function usageFromSessions() {
+  const usage: any[] = []
+  const days = new Map<string, any>()
+  const roots = [path.join(os.homedir(), ".openclaw", "agents")]
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue
+    for (const agent of fs.readdirSync(root)) {
+      const sessionsDir = path.join(root, agent, "sessions")
+      if (!fs.existsSync(sessionsDir)) continue
+      for (const file of fs.readdirSync(sessionsDir)) {
+        if (!file.endsWith(".jsonl") || file.endsWith(".trajectory.jsonl")) continue
+        const full = path.join(sessionsDir, file)
+        const lines = fs.readFileSync(full, "utf8").split("\n")
+        for (const line of lines) {
+          if (!line.includes('"usage"')) continue
+          try {
+            const entry = JSON.parse(line)
+            const raw = entry?.message?.usage ?? entry?.data?.usage ?? entry?.usage
+            if (!raw) continue
+            const normalized = normalizeUsage(raw)
+            const cost = usageNumber(raw?.cost?.total ?? raw?.totalCost)
+            const item = { ...normalized, cost, provider: entry?.message?.provider ?? entry?.provider, model: entry?.message?.model ?? entry?.modelId, timestamp: entry?.timestamp ?? entry?.ts, sessionFile: full }
+            usage.push(item)
+            const day = String(item.timestamp || "").slice(0, 10) || "unknown"
+            const daily = days.get(day) ?? { day, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 }
+            daily.input += item.input; daily.output += item.output; daily.cacheRead += item.cacheRead; daily.cacheWrite += item.cacheWrite; daily.totalTokens += item.total; daily.totalCost += item.cost
+            days.set(day, daily)
+          } catch { /* skip malformed transcript lines */ }
+        }
+      }
+    }
+  }
+  const summary = usage.reduce((acc, item) => {
+    acc.input += item.input; acc.output += item.output; acc.cacheRead += item.cacheRead; acc.cacheWrite += item.cacheWrite; acc.totalTokens += item.total; acc.totalCost += item.cost
+    return acc
+  }, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 })
+  return { summary, usage, days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)), source: "openclaw-session-transcripts", unavailable: usage.length === 0 }
 }
 
 function searchMemory(query: string) {
@@ -313,8 +335,8 @@ export function commandRoutes(store: Store) {
           writeJson(openclawConfigPath(), cfg)
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
         }
-        case "middleware_usage": return usageSummary()
-        case "middleware_usage_daily": return { days: [], source: "openclaw-gateway", unavailable: true, reason: "Daily aggregation is not exposed by Gateway yet" }
+        case "middleware_usage": { const usage = usageFromSessions(); return { summary: usage.summary, usage: usage.usage.slice(-500), source: usage.source, unavailable: usage.unavailable } }
+        case "middleware_usage_daily": { const usage = usageFromSessions(); return { days: usage.days, source: usage.source, unavailable: usage.unavailable } }
 
         case "middleware_commands_list": return { commands: ["/model", "/status", "/help", "/reasoning", "/verbose"] }
         case "middleware_autonaming_quick": return { title: String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat" }
