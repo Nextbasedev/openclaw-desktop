@@ -9,7 +9,7 @@ type GatewayMessage = GatewayResponse | { type: "event"; event: string; payload?
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 const PROTOCOL_VERSION = 3
-const CLIENT = { id: "openclaw-desktop-middleware", displayName: "OpenClaw Desktop Middleware", version: "0.1.0", platform: "desktop", mode: "cli" }
+const CLIENT = { id: "openclaw-tui", displayName: "OpenClaw Desktop Middleware", version: "0.1.0", platform: "desktop", mode: "cli" }
 
 function base64UrlEncode(buf: Buffer) { return buf.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "") }
 function normalize(value: string | undefined) { return typeof value === "string" ? value.trim().toLowerCase() : "" }
