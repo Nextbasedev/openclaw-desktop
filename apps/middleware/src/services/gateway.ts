@@ -19,26 +19,73 @@ function authPayload(p: { deviceId: string; scopes: string[]; signedAt: number; 
 
 async function readConfig() { try { return JSON.parse(await fs.readFile(path.join(os.homedir(), ".openclaw", "openclaw.json"), "utf8")) } catch { return {} } }
 async function readIdentity() { const raw = await fs.readFile(path.join(os.homedir(), ".openclaw", "state", "identity", "device.json"), "utf8"); const p = JSON.parse(raw); return { deviceId: p.deviceId ?? p.device_id, publicKeyPem: p.publicKeyPem, privateKeyPem: p.privateKeyPem } }
-function waitOpen(ws: WebSocket) { return new Promise<void>((resolve, reject) => { const t = setTimeout(() => reject(new Error("gateway websocket open timeout")), 15000); ws.once("open", () => { clearTimeout(t); resolve() }); ws.once("error", (e) => { clearTimeout(t); reject(e) }) }) }
-function waitFor(ws: WebSocket, pred: (m: GatewayMessage) => boolean, label: string, timeoutMs = 15000) { return new Promise<GatewayMessage>((resolve, reject) => { const t = setTimeout(() => { ws.off("message", onMsg); reject(new Error(`timeout waiting for ${label}`)) }, timeoutMs); const onMsg = (raw: WebSocket.RawData) => { const msg = JSON.parse(raw.toString()) as GatewayMessage; if (!pred(msg)) return; clearTimeout(t); ws.off("message", onMsg); resolve(msg) }; ws.on("message", onMsg) }) }
+function closeQuietly(ws: WebSocket) { try { ws.close() } catch { /* noop */ } }
+function wait(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)) }
+function waitOpen(ws: WebSocket) {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => { clearTimeout(t); ws.off("open", onOpen); ws.off("error", onError); ws.off("close", onClose) }
+    const onOpen = () => { cleanup(); resolve() }
+    const onError = (e: Error) => { cleanup(); reject(e) }
+    const onClose = () => { cleanup(); reject(new Error("gateway websocket closed before open")) }
+    const t = setTimeout(() => { cleanup(); reject(new Error("gateway websocket open timeout")) }, 15000)
+    ws.once("open", onOpen)
+    ws.once("error", onError)
+    ws.once("close", onClose)
+  })
+}
+function waitFor(ws: WebSocket, pred: (m: GatewayMessage) => boolean, label: string, timeoutMs = 15000) {
+  return new Promise<GatewayMessage>((resolve, reject) => {
+    const cleanup = () => { clearTimeout(t); ws.off("message", onMsg); ws.off("error", onError); ws.off("close", onClose) }
+    const onError = (e: Error) => { cleanup(); reject(e) }
+    const onClose = () => { cleanup(); reject(new Error(`gateway websocket closed waiting for ${label}`)) }
+    const onMsg = (raw: WebSocket.RawData) => {
+      let msg: GatewayMessage
+      try { msg = JSON.parse(raw.toString()) as GatewayMessage } catch { return }
+      if (!pred(msg)) return
+      cleanup(); resolve(msg)
+    }
+    const t = setTimeout(() => { cleanup(); reject(new Error(`timeout waiting for ${label}`)) }, timeoutMs)
+    ws.on("message", onMsg)
+    ws.once("error", onError)
+    ws.once("close", onClose)
+  })
+}
 
 export async function connectGateway(scopes = ["operator.read", "operator.write", "operator.admin"]) {
   const cfg = await readConfig(); const token = process.env.OPENCLAW_GATEWAY_TOKEN || cfg.gateway?.auth?.token; const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`
   if (!token) throw new Error("OpenClaw gateway token is missing")
   const identity = await readIdentity()
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await connectGatewayOnce(gatewayUrl, token, identity, scopes)
+    } catch (error) {
+      lastError = error
+      if (attempt < 3) await wait(150 * attempt)
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Gateway connect failed")
+}
+
+async function connectGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof readIdentity>>, scopes: string[]) {
   const ws = new WebSocket(gatewayUrl, { headers: { origin: process.env.MIDDLEWARE_ORIGIN || "http://127.0.0.1:8787" } })
-  await waitOpen(ws)
-  const challenge = await waitFor(ws, (m) => m.type === "event" && (m as any).event === "connect.challenge", "connect.challenge") as any
-  const signedAt = Date.now(); const payload = authPayload({ deviceId: identity.deviceId, scopes, signedAt, token, nonce: challenge.payload.nonce })
-  const id = crypto.randomUUID(); ws.send(JSON.stringify({ type: "req", id, method: "connect", params: { minProtocol: PROTOCOL_VERSION, maxProtocol: PROTOCOL_VERSION, client: CLIENT, auth: { token }, caps: ["chat", "sessions"], scopes, device: { id: identity.deviceId, publicKey: base64UrlEncode(derivePublicKeyRaw(identity.publicKeyPem)), signature: sign(identity.privateKeyPem, payload), signedAt, nonce: challenge.payload.nonce } } }))
-  const res = await waitFor(ws, (m) => m.type === "res" && (m as any).id === id, "connect response") as GatewayResponse
-  if (!res.ok) { ws.close(); throw new Error(res.error?.message || "Gateway connect failed") }
-  return {
-    request<T=unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 30000) {
-      const reqId = crypto.randomUUID(); ws.send(JSON.stringify({ type: "req", id: reqId, method, params }))
-      return waitFor(ws, (m) => m.type === "res" && (m as any).id === reqId, method, timeoutMs) as Promise<GatewayResponse<T>>
-    },
-    on(listener: (m: GatewayMessage) => void) { const h = (raw: WebSocket.RawData) => listener(JSON.parse(raw.toString())); ws.on("message", h); return () => ws.off("message", h) },
-    close() { ws.close() },
+  try {
+    await waitOpen(ws)
+    const challenge = await waitFor(ws, (m) => m.type === "event" && (m as any).event === "connect.challenge", "connect.challenge") as any
+    const signedAt = Date.now(); const payload = authPayload({ deviceId: identity.deviceId, scopes, signedAt, token, nonce: challenge.payload.nonce })
+    const id = crypto.randomUUID(); ws.send(JSON.stringify({ type: "req", id, method: "connect", params: { minProtocol: PROTOCOL_VERSION, maxProtocol: PROTOCOL_VERSION, client: CLIENT, auth: { token }, caps: ["chat", "sessions"], scopes, device: { id: identity.deviceId, publicKey: base64UrlEncode(derivePublicKeyRaw(identity.publicKeyPem)), signature: sign(identity.privateKeyPem, payload), signedAt, nonce: challenge.payload.nonce } } }))
+    const res = await waitFor(ws, (m) => m.type === "res" && (m as any).id === id, "connect response") as GatewayResponse
+    if (!res.ok) throw new Error(res.error?.message || "Gateway connect failed")
+    return {
+      request<T=unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 30000) {
+        const reqId = crypto.randomUUID(); ws.send(JSON.stringify({ type: "req", id: reqId, method, params }))
+        return waitFor(ws, (m) => m.type === "res" && (m as any).id === reqId, method, timeoutMs) as Promise<GatewayResponse<T>>
+      },
+      on(listener: (m: GatewayMessage) => void) { const h = (raw: WebSocket.RawData) => { try { listener(JSON.parse(raw.toString())) } catch { /* ignore malformed gateway frame */ } }; ws.on("message", h); return () => ws.off("message", h) },
+      close() { closeQuietly(ws) },
+    }
+  } catch (error) {
+    closeQuietly(ws)
+    throw error
   }
 }
