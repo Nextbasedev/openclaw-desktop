@@ -29,24 +29,27 @@ export function UsageTab() {
   } = useUsageData(period)
 
   return (
-    <div className="flex flex-col gap-5 pb-10">
-      <div className="flex items-center justify-between">
+    <div className="flex min-w-0 flex-col gap-4 pb-8">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <Icons.Automations
-            size={16}
-            strokeWidth={1.5}
-            className="text-muted-foreground"
-          />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
-            Token Usage
-          </span>
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-card/70 text-muted-foreground shadow-sm backdrop-blur-md">
+            <Icons.Automations size={14} strokeWidth={1.7} />
+          </div>
+          <div className="min-w-0">
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
+              Token Usage
+            </span>
+            <span className="block truncate text-[12px] text-muted-foreground/50">
+              Dashboard
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
             onClick={refresh}
             disabled={loading}
-            className="cursor-pointer rounded-lg border border-border/45 bg-card p-2 text-muted-foreground transition-all hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
+            className="shrink-0 cursor-pointer rounded-lg border border-border/45 bg-card/70 p-2 text-muted-foreground shadow-sm backdrop-blur-md transition-all hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
             title="Refresh"
           >
             <Icons.Refresh
@@ -55,16 +58,16 @@ export function UsageTab() {
               className={loading ? "animate-spin" : ""}
             />
           </button>
-          <div className="flex gap-0 rounded-lg border border-border/45 bg-card p-0.5">
+          <div className="flex min-w-0 gap-0 rounded-lg border border-border/45 bg-card/70 p-0.5 shadow-sm backdrop-blur-md">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
                 type="button"
                 onClick={() => setPeriod(p.value)}
                 className={cn(
-                  "cursor-pointer rounded-md px-3 py-1.5 text-[11px] font-medium transition-all",
+                  "cursor-pointer rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-all sm:px-3",
                   period === p.value
-                    ? "bg-muted text-foreground shadow-sm"
+                    ? "bg-foreground/10 text-foreground shadow-sm"
                     : "text-muted-foreground/60 hover:text-muted-foreground",
                 )}
               >

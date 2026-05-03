@@ -15,7 +15,7 @@ function formatPercent(value: number): string {
 }
 
 function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-muted/55 ${className}`} />
+  return <div className={`animate-pulse rounded bg-muted/55 ${className}`} />
 }
 
 function MiniMetric({
@@ -30,21 +30,25 @@ function MiniMetric({
   loading?: boolean
 }) {
   return (
-    <div className="rounded-xl border border-border/35 bg-background/35 px-4 py-3">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/60">
+    <div className="min-w-0 rounded-lg border border-border/35 bg-background/35 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md">
+      <div className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/58">
         {label}
       </div>
       {loading ? (
         <div className="mt-2 space-y-2">
-          <Skeleton className="h-5 w-20" />
-          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-5 w-20 max-w-full" />
+          <Skeleton className="h-3 w-24 max-w-full" />
         </div>
       ) : (
         <>
-          <div className="mt-1.5 text-lg font-semibold tabular-nums tracking-tight text-foreground">
+          <div className="mt-1.5 truncate text-[20px] font-semibold tabular-nums tracking-tight text-foreground">
             {value}
           </div>
-          {helper && <div className="mt-0.5 text-[11px] text-muted-foreground/60">{helper}</div>}
+          {helper && (
+            <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground/58">
+              {helper}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -66,38 +70,38 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
   const cacheShare = trackedTokens > 0 ? (cacheTokens / trackedTokens) * 100 : 0
 
   return (
-    <section className="rounded-3xl border border-border/50 bg-card p-5 shadow-[0_18px_48px_rgba(0,0,0,0.14)]">
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/60">
+    <section className="min-w-0 rounded-xl border border-border/45 bg-card/75 p-4 shadow-[0_16px_48px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl sm:p-5">
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="grid min-w-0 gap-3 min-[520px]:grid-cols-[1fr_auto] min-[520px]:items-start">
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/58">
               Usage overview
             </div>
             {loading ? (
               <div className="mt-3 space-y-2">
-                <Skeleton className="h-10 w-44" />
+                <Skeleton className="h-10 w-44 max-w-full" />
                 <Skeleton className="h-3 w-64 max-w-full" />
               </div>
             ) : (
               <>
-                <div className="mt-1.5 text-4xl font-semibold tracking-[-0.045em] text-foreground tabular-nums">
+                <div className="mt-1.5 truncate text-[34px] font-semibold leading-none tracking-tight text-foreground tabular-nums sm:text-4xl">
                   {formatTokens(trackedTokens)}
                 </div>
-                <p className="mt-1 max-w-md text-[12px] leading-5 text-muted-foreground/65">
+                <p className="mt-2 max-w-md text-[12px] leading-5 text-muted-foreground/62">
                   Total tracked tokens. Conversation and cache are shown separately so the math is clear.
                 </p>
               </>
             )}
           </div>
 
-          <div className="min-w-[140px] rounded-2xl border border-border/40 bg-background/40 px-4 py-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/60">
+          <div className="w-full min-w-0 rounded-lg border border-border/35 bg-background/35 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md min-[520px]:w-[132px]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/58">
               Spend
             </div>
             {loading ? (
-              <Skeleton className="mt-2 h-7 w-24" />
+              <Skeleton className="mt-2 h-7 w-24 max-w-full" />
             ) : (
-              <div className="mt-1 text-2xl font-semibold tracking-tight text-foreground tabular-nums">
+              <div className="mt-1 truncate text-2xl font-semibold tracking-tight text-foreground tabular-nums">
                 ${summary.totalCost.toFixed(2)}
               </div>
             )}
@@ -106,26 +110,26 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
 
         <div>
           {loading ? (
-            <Skeleton className="h-3 w-full rounded-full" />
+            <Skeleton className="h-3 w-full" />
           ) : (
-            <div className="h-3 overflow-hidden rounded-full bg-muted/50">
+            <div className="h-3 overflow-hidden rounded bg-muted/45">
               <div
-                className="float-left h-full bg-foreground/75"
+                className="float-left h-full bg-foreground/78"
                 style={{ width: `${Math.min(conversationShare, 100)}%` }}
               />
               <div
-                className="h-full bg-muted-foreground/45"
+                className="h-full bg-muted-foreground/42"
                 style={{ width: `${Math.min(cacheShare, 100)}%` }}
               />
             </div>
           )}
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground/65">
+          <div className="mt-2 flex min-w-0 flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground/58">
             <span>Conversation {loading ? "—" : formatPercent(conversationShare)}</span>
             <span>Cache {loading ? "—" : formatPercent(cacheShare)}</span>
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-3">
           <MiniMetric
             label="Conversation"
             value={formatTokens(conversationTokens)}

@@ -51,30 +51,30 @@ export function UsageChart({
   }))
 
   return (
-    <div className="flex flex-col gap-0 rounded-3xl border border-border/50 bg-card p-5 shadow-[0_18px_50px_rgba(0,0,0,0.14)]">
+    <div className="flex min-w-0 flex-col gap-0 rounded-xl border border-border/45 bg-card/75 p-4 shadow-[0_16px_48px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl sm:p-5">
       {loading ? (
-        <div className="h-[240px] space-y-4 py-3">
-          <div className="ml-auto h-3 w-24 rounded bg-muted/55 animate-pulse" />
-          <div className="flex h-[184px] items-end gap-3">
+        <div className="h-[230px] space-y-4 py-3 sm:h-[250px]">
+          <div className="ml-auto h-3 w-24 max-w-full animate-pulse rounded bg-muted/55" />
+          <div className="flex h-[174px] min-w-0 items-end gap-2 sm:h-[194px] sm:gap-3">
             {[44, 70, 52, 86, 63, 76, 48, 82, 58, 72, 54, 80].map((height, index) => (
               <div
                 key={index}
-                className="flex-1 rounded-t-lg bg-muted/55 animate-pulse"
+                className="min-w-0 flex-1 animate-pulse rounded-t bg-muted/55"
                 style={{ height: `${height}%` }}
               />
             ))}
           </div>
           <div className="flex justify-center gap-6">
-            <div className="h-3 w-20 rounded bg-muted/55 animate-pulse" />
-            <div className="h-3 w-24 rounded bg-muted/55 animate-pulse" />
+            <div className="h-3 w-20 animate-pulse rounded bg-muted/55" />
+            <div className="h-3 w-24 animate-pulse rounded bg-muted/55" />
           </div>
         </div>
       ) : (
-      <div className="h-[240px] w-full">
+      <div className="h-[230px] min-w-0 sm:h-[250px]">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={chartData}
-            margin={{ top: 8, right: 8, bottom: 0, left: -20 }}
+            margin={{ top: 8, right: 4, bottom: 0, left: -18 }}
           >
             <defs>
               <linearGradient
@@ -87,7 +87,7 @@ export function UsageChart({
                 <stop
                   offset="0%"
                   stopColor="var(--muted-foreground)"
-                  stopOpacity={0.3}
+                  stopOpacity={0.28}
                 />
                 <stop
                   offset="100%"
@@ -100,6 +100,7 @@ export function UsageChart({
               strokeDasharray="3 3"
               vertical={false}
               stroke="var(--border)"
+              opacity={0.7}
             />
             <XAxis
               dataKey="label"
@@ -124,9 +125,10 @@ export function UsageChart({
               contentStyle={{
                 backgroundColor: "var(--popover)",
                 border: "1px solid var(--border)",
-                borderRadius: "8px",
+                borderRadius: "6px",
                 fontSize: "12px",
                 backdropFilter: "blur(12px)",
+                boxShadow: "0 12px 32px rgba(0,0,0,0.22)",
               }}
               itemStyle={{ color: "var(--foreground)" }}
               labelStyle={{
@@ -159,6 +161,8 @@ export function UsageChart({
               strokeWidth={2}
               fill="url(#inputGrad)"
               name="inputTokens"
+              dot={false}
+              activeDot={{ r: 3 }}
             />
             <Area
               type="monotone"
@@ -167,6 +171,8 @@ export function UsageChart({
               strokeWidth={2}
               fill="transparent"
               name="outputTokens"
+              dot={false}
+              activeDot={{ r: 3 }}
             />
             <Legend
               verticalAlign="bottom"

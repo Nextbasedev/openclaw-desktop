@@ -9,6 +9,11 @@ import { ArchiveTab } from "./tabs/ArchiveTab"
 import { MemoryTab } from "./tabs/MemoryTab"
 import { UsageTab } from "./tabs/UsageTab"
 import { cn } from "@/lib/utils"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 type SettingSection = "usage" | "memory" | "archive" | "appearance" | "help" | "shortcuts"
 
@@ -52,21 +57,24 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
   }
 
   return (
-    <div className="flex h-full w-full justify-center gap-15 pt-10">
-      <nav className="flex w-[180px] shrink-0 flex-col px-3 py-6">
+    <div className="flex h-full w-full min-w-0 justify-center gap-3 px-2 pt-6 min-[720px]:gap-5 min-[720px]:px-3 min-[720px]:pt-8 lg:gap-10 lg:pt-10">
+      <nav className="flex w-12 shrink-0 flex-col px-1 py-5 min-[720px]:w-[180px] min-[720px]:px-3 min-[720px]:py-6">
         {onBack && (
-          <button
-            onClick={onBack}
-            className="mb-4 flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground group"
-          >
-            <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
-            Back
-          </button>
+          <RailTooltip label="Back">
+            <button
+              onClick={onBack}
+              aria-label="Back"
+              className="group mb-4 flex cursor-pointer items-center justify-center gap-2 rounded-md px-0 py-2 text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground min-[720px]:justify-start min-[720px]:px-2.5 min-[720px]:py-1.5"
+            >
+              <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
+              <span className="hidden min-[720px]:inline">Back</span>
+            </button>
+          </RailTooltip>
         )}
 
         {SECTION_GROUPS.map((group) => (
           <div key={group.label} className="mb-3">
-            <p className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+            <p className="mb-1.5 hidden px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 min-[720px]:block">
               {group.label}
             </p>
             <div className="flex flex-col gap-0.5">
@@ -94,7 +102,7 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
         </div>
       </nav>
 
-      <div ref={scrollRef} className="w-full max-w-xl overflow-y-auto scrollbar-hide my-2 md:my-4 lg:my-6">
+      <div ref={scrollRef} className="my-2 min-w-0 flex-1 overflow-y-auto scrollbar-hide md:my-4 lg:my-6 max-w-xl">
         {activeSection === "usage" && <UsageTab />}
 
         {activeSection === "memory" && <MemoryTab />}
@@ -121,19 +129,39 @@ function SidebarButton({
   onClick: () => void
 }) {
   const Icon = item.icon
-  return (
+  const button = (
     <button
       type="button"
       onClick={onClick}
+      aria-label={item.label}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[14px] transition-colors",
+        "flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-md px-0 py-2 text-left text-[14px] transition-colors min-[720px]:justify-start min-[720px]:px-2.5",
         isActive
           ? "bg-foreground/5 text-foreground"
           : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
       )}
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
-      {item.label}
+      <span className="hidden truncate min-[720px]:inline">{item.label}</span>
     </button>
+  )
+
+  return <RailTooltip label={item.label}>{button}</RailTooltip>
+}
+
+function RailTooltip({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8} className="min-[720px]:hidden">
+        {label}
+      </TooltipContent>
+    </Tooltip>
   )
 }

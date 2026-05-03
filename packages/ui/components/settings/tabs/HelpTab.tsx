@@ -35,13 +35,13 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold text-foreground">Help</h2>
+        <h2 className="text-lg font-semibold text-muted-foreground">Help</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Resources and support for OpenClaw Desktop.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+      <div className="overflow-hidden rounded-sm border border-border/50 ">
         {links.map((link, idx) => {
           const Icon = link.icon
           const isExternal = link.url.startsWith("http")
