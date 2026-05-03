@@ -187,6 +187,32 @@ describe("middleware_chat_fork", () => {
     expect(gatewayRequests.find((r) => r.method === "sessions.create")?.params.label).not.toBe("Forked chat")
   })
 
+  it("keeps forks from topic sessions attached to the same project topic", async () => {
+    const root = tempRoot()
+    const app = makeApp(root)
+    gatewayState.transcriptPath = path.join(root, ".openclaw", "agents", "main", "sessions", "fork-session-id.jsonl")
+    fs.mkdirSync(path.dirname(gatewayState.transcriptPath), { recursive: true })
+    fs.writeFileSync(gatewayState.transcriptPath, JSON.stringify({ type: "session", version: 1, id: "fork-session-id" }) + "\n")
+    gatewayState.sourceMessages = [
+      { role: "user", content: [{ type: "text", text: "topic hello" }], __openclaw: { id: "u1" } },
+    ]
+    await auth(request(app).post("/api/sessions")).send({
+      sessionKey: "agent:main:desktop:topic-source",
+      projectId: "project_ampere",
+      topicId: "topic_hello",
+      label: "hello",
+    })
+
+    const res = await auth(request(app).post("/api/commands/middleware_chat_fork")).send({ input: { sessionKey: "agent:main:desktop:topic-source" } })
+    const topicSessions = await auth(request(app).get("/api/sessions?projectId=project_ampere&topicId=topic_hello"))
+    const chats = await auth(request(app).get("/api/chats"))
+
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ chatId: null, projectId: "project_ampere", topicId: "topic_hello", sessionKey: expect.stringMatching(/^agent:main:fork:/) })
+    expect(topicSessions.body.sessions.map((s: any) => s.sessionKey)).toContain(res.body.sessionKey)
+    expect(chats.body.chats.some((chat: any) => chat.sessionKey === res.body.sessionKey)).toBe(false)
+  })
+
   it("creates a side-by-side regenerate branch without mutating the original transcript", async () => {
     const root = tempRoot()
     gatewayState.transcriptPath = path.join(root, ".openclaw", "agents", "main", "sessions", "regen-session-id.jsonl")

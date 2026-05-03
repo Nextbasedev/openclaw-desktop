@@ -689,11 +689,22 @@ function AppShell({
   }, [activeChat, activeSessionKey, activeSessionTitle, handleChatSelect])
 
   const handleForkNavigate = useCallback(
-    (chat: { id: string; name: string; sessionKey: string }) => {
+    (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => {
       setChatRefreshTrigger((n) => n + 1)
-      handleChatSelect({ id: chat.id, name: chat.name, sessionKey: chat.sessionKey })
+      if (chat.projectId && chat.topicId && activeTopic?.projectId === chat.projectId && activeTopic.id === chat.topicId) {
+        setActiveChat(null)
+        setActiveTopic(activeTopic)
+        setActiveSessionKey(chat.sessionKey)
+        setActiveSessionTitle(chat.name)
+        setInitialMessages(undefined)
+        window.history.pushState(null, "", routeUrl(`/${chat.projectId}/${chat.topicId}`))
+        return
+      }
+      if (chat.id) {
+        handleChatSelect({ id: chat.id, name: chat.name, sessionKey: chat.sessionKey })
+      }
     },
-    [handleChatSelect],
+    [activeTopic, handleChatSelect],
   )
 
   const handleChatClear = useCallback(() => {
@@ -1195,7 +1206,7 @@ function MainContent({
   onTopicQuickSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   onDraftPrompt?: (prompt: string) => void
   onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
-  onForkNavigate?: (chat: { id: string; name: string; sessionKey: string }) => void
+  onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
 }) {
   if (activeTab === "settings") {
     return (

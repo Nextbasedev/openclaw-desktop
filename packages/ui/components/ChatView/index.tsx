@@ -37,7 +37,7 @@ type Props = {
   initialPrompt?: string
   activeSubagentKey?: string | null
   onSubagentOpen?: (key: string | null) => void
-  onForkNavigate?: (chat: { id: string; name: string; sessionKey: string }) => void
+  onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
   /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
 }
@@ -618,9 +618,11 @@ export function ChatView({
     if (!msg || msg.gatewayIndex === undefined) return
     try {
       const result = await invoke<{
-        chatId: string
+        chatId?: string | null
         sessionKey: string
         name: string
+        projectId?: string | null
+        topicId?: string | null
       }>("middleware_chat_fork", {
         input: {
           sessionKey,
@@ -632,6 +634,8 @@ export function ChatView({
         id: result.chatId,
         name: result.name,
         sessionKey: result.sessionKey,
+        projectId: result.projectId,
+        topicId: result.topicId,
       })
     } catch (err) {
       console.error("Fork failed", err)
