@@ -1,9 +1,11 @@
 "use client"
 
 import { useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuFileText, LuX, LuSave } from "react-icons/lu"
+import { LuFileText, LuX, LuSave, LuPencil, LuEye } from "react-icons/lu"
 
 export type MemoryDocument = {
   path: string
@@ -36,6 +38,16 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`
 }
 
+function MarkdownDocument({ content }: { content: string }) {
+  return (
+    <div className="prose prose-invert max-w-none text-[13px] leading-7 prose-headings:scroll-mt-20 prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-2xl prose-h1:text-foreground prose-h2:mt-8 prose-h2:border-b prose-h2:border-border/30 prose-h2:pb-2 prose-h2:text-xl prose-h2:text-foreground prose-h3:text-base prose-h3:text-foreground prose-p:text-foreground/75 prose-a:text-violet-300 prose-strong:text-foreground prose-code:rounded-md prose-code:bg-white/[0.07] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[12px] prose-code:text-violet-200 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-border/40 prose-pre:bg-black/30 prose-blockquote:border-l-violet-400/50 prose-blockquote:text-muted-foreground prose-li:text-foreground/75 prose-hr:border-border/40 prose-table:text-[12px] prose-th:border prose-th:border-border/40 prose-th:bg-white/[0.04] prose-th:px-3 prose-th:py-2 prose-td:border prose-td:border-border/30 prose-td:px-3 prose-td:py-2">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {content || "_This file is empty._"}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
 export function DocView({
   doc, content, isEditing, onBack, onEdit, onSaved,
 }: {
@@ -57,26 +69,26 @@ export function DocView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
           <LuX size={14} /> Close
         </button>
         <div className="h-4 w-px bg-border/40" />
         <FileIcon name={doc.name} />
-        <span className="text-[14px] font-medium text-foreground">{doc.name}</span>
-        <span className="text-[11px] text-muted-foreground">{formatSize(doc.size)}</span>
-      </div>
-
-      <div className="flex items-center gap-2">
-        {!isEditing ? (
-          <button type="button" onClick={onEdit} className={cn(
-            "flex items-center gap-1.5 rounded-lg px-3 py-1.5",
-            "text-[12px] font-medium text-foreground",
-            "bg-foreground/5 ring-1 ring-border/40 transition-colors hover:bg-foreground/10",
-          )}>Edit</button>
-        ) : (
-          <>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-medium text-foreground">{doc.name}</div>
+          <div className="text-[11px] text-muted-foreground">Markdown document · {formatSize(doc.size)}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          {!isEditing ? (
+            <button type="button" onClick={onEdit} className={cn(
+              "flex items-center gap-1.5 rounded-lg px-3 py-1.5",
+              "text-[12px] font-medium text-foreground",
+              "bg-foreground/5 ring-1 ring-border/40 transition-colors hover:bg-foreground/10",
+            )}><LuPencil size={13} /> Edit</button>
+          ) : (
+            <>
             <button type="button" onClick={handleSave} disabled={saving} className={cn(
               "flex items-center gap-1.5 rounded-lg px-3 py-1.5",
               "text-[12px] font-medium text-foreground",
@@ -89,8 +101,9 @@ export function DocView({
               className="rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground">
               Cancel
             </button>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {saveError && (
@@ -100,17 +113,32 @@ export function DocView({
       )}
 
       {isEditing ? (
-        <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false}
-          className={cn(
-            "min-h-[400px] w-full rounded-xl border border-border/50 bg-[#0a0a0c] p-4",
-            "font-mono text-[12px] leading-relaxed text-foreground/90",
-            "outline-none focus:border-foreground/20 resize-y",
-          )} />
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-sm">
+            <div className="flex items-center gap-2 border-b border-border/30 px-4 py-3">
+              <LuPencil size={14} className="text-muted-foreground" />
+              <span className="text-[12px] font-medium text-muted-foreground">Write</span>
+            </div>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={true}
+              className={cn(
+                "min-h-[520px] w-full resize-y bg-transparent p-5",
+                "font-sans text-[14px] leading-7 text-foreground/85",
+                "outline-none placeholder:text-muted-foreground/40",
+              )} />
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-sm">
+            <div className="flex items-center gap-2 border-b border-border/30 px-4 py-3">
+              <LuEye size={14} className="text-muted-foreground" />
+              <span className="text-[12px] font-medium text-muted-foreground">Preview</span>
+            </div>
+            <div className="max-h-[560px] overflow-y-auto p-6">
+              <MarkdownDocument content={draft} />
+            </div>
+          </div>
+        </div>
       ) : (
-        <div className={cn("rounded-xl border border-border/50 bg-[#0a0a0c] p-4", "max-h-[500px] overflow-y-auto")}>
-          <pre className="whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-foreground/80">
-            {content}
-          </pre>
+        <div className={cn("rounded-2xl border border-border/50 bg-card/60 shadow-sm", "max-h-[640px] overflow-y-auto p-6")}>
+          <MarkdownDocument content={content} />
         </div>
       )}
     </div>
