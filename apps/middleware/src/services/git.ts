@@ -58,8 +58,8 @@ function commitStats(cwd: string, hash: string) {
   }, { additions: 0, deletions: 0 })
 }
 
-function recentCommits(cwd: string) {
-  const raw = tryGit(cwd, ["log", "-10", "--pretty=format:%H%x1f%s%x1f%cr"])
+function recentCommits(cwd: string, ref = "HEAD") {
+  const raw = tryGit(cwd, ["log", "-10", "--pretty=format:%H%x1f%s%x1f%cr", ref])
   if (!raw) return []
   return raw.split("\n").filter(Boolean).map(line => {
     const [hash = "", message = "", date = ""] = line.split("\x1f")
@@ -105,6 +105,7 @@ export function gitRoutes(store: Store) {
     const upstream = tryGit(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
     const remoteName = upstream?.split("/")[0] || "origin"
     const remoteUrl = tryGit(cwd, ["remote", "get-url", remoteName])
+    if (remoteUrl) tryGit(cwd, ["fetch", "--prune", remoteName])
     const files = changedFiles(cwd)
     const totals = files.reduce((acc, file) => {
       acc.totalAdditions += file.additions ?? 0
@@ -126,7 +127,7 @@ export function gitRoutes(store: Store) {
       dirty: files.length > 0,
       changedFiles: files,
       files,
-      recentCommits: recentCommits(cwd),
+      recentCommits: recentCommits(cwd, upstream || "HEAD"),
       summary: totals,
     }
   }
