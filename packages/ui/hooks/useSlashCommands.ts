@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { invoke } from "@/lib/ipc"
 
 export type SlashCommand = {
@@ -16,6 +16,19 @@ export type SlashCommand = {
 
 type CommandsResponse = {
   commands: SlashCommand[]
+}
+
+type LocalSkillEntry = {
+  slug: string
+  name: string
+  description: string
+  source: string
+  installed: boolean
+  enabled: boolean
+}
+
+type DiscoverResponse = {
+  results: LocalSkillEntry[]
 }
 
 const FALLBACK_COMMANDS: SlashCommand[] = [
@@ -35,16 +48,51 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
 
 let cachedCommands: SlashCommand[] | null = null
 
+function mapLocalSkill(skill: LocalSkillEntry): SlashCommand {
+  return {
+    name: skill.slug,
+    description: skill.description || skill.name,
+    category: "skills",
+    source: "skill",
+    scope: "text",
+    acceptsArgs: true,
+  }
+}
+
+function fetchInstalledSkills(): Promise<SlashCommand[]> {
+  return invoke<DiscoverResponse>(
+    "middleware_skills_discover",
+    {
+      input: {
+        includeLocal: true,
+        includeClawHub: false,
+        limit: 200,
+      },
+    },
+  )
+    .then((res) =>
+      res.results
+        .filter((s) => s.installed)
+        .map(mapLocalSkill),
+    )
+    .catch(() => [])
+}
+
 export function useSlashCommands() {
   const [commands, setCommands] = useState<SlashCommand[]>(
     cachedCommands ?? FALLBACK_COMMANDS,
   )
+  const [installedSkills, setInstalledSkills] = useState<
+    SlashCommand[]
+  >([])
   const [loading, setLoading] = useState(!cachedCommands)
-  const fetched = useRef(false)
+  const commandsFetched = useRef(false)
 
-  useEffect(() => {
-    if (fetched.current || cachedCommands) return
-    fetched.current = true
+  const ensureLoaded = () => {
+    fetchInstalledSkills().then(setInstalledSkills)
+
+    if (commandsFetched.current || cachedCommands) return
+    commandsFetched.current = true
 
     invoke<CommandsResponse>("middleware_commands_list", {})
       .then((res) => {
@@ -59,7 +107,7 @@ export function useSlashCommands() {
         cachedCommands = FALLBACK_COMMANDS
       })
       .finally(() => setLoading(false))
-  }, [])
+  }
 
-  return { commands, loading }
+  return { commands, installedSkills, loading, ensureLoaded }
 }

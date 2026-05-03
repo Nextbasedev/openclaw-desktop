@@ -10,6 +10,7 @@ import * as git from "../services/git.service.js"
 import * as memory from "../services/memory.service.js"
 import * as skills from "../services/skills.service.js"
 import * as skillRuntime from "../services/skill-runtime.service.js"
+import * as skillsInstalled from "../services/skills-installed.service.js"
 import * as chats from "../services/chats.service.js"
 import * as autonaming from "../services/autonaming.service.js"
 import * as recent from "../services/recent.service.js"
@@ -23,8 +24,11 @@ import * as terminal from "../services/terminal.service.js"
 import * as ptyService from "../services/pty.service.js"
 import * as models from "../services/models.service.js"
 import * as repos from "../services/repos.service.js"
+import * as workspace from "../services/workspace.service.js"
 import * as version from "../services/version.service.js"
 import * as sandbox from "../services/sandbox.service.js"
+import * as pins from "../services/pins.service.js"
+import * as feedback from "../services/feedback.service.js"
 
 type Handler = (input: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -111,6 +115,8 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_git_remote_add: (i) => git.gitRemoteAdd(i as Parameters<typeof git.gitRemoteAdd>[0]),
   middleware_git_remote_list: (i) => git.gitRemoteList(i as { projectId: string }),
   middleware_git_remote_remove: (i) => git.gitRemoteRemove(i as Parameters<typeof git.gitRemoteRemove>[0]),
+  middleware_git_status: (i) => git.gitStatus(i as { projectId: string }),
+  middleware_git_diff: (i) => git.gitDiff(i as { projectId: string; path: string }),
   middleware_git_context: (i) => git.gitContext(i as { projectId?: string; topicId?: string }),
   middleware_git_switch_branch: (i) => git.gitSwitchBranch(i as Parameters<typeof git.gitSwitchBranch>[0]),
   middleware_git_branches: (i) => git.gitBranches(i as { projectId: string }),
@@ -131,10 +137,12 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_skills_versions: (i) => skills.skillsVersions(i as { slug: string; limit?: number; cursor?: string }),
   middleware_skills_install: (i) => skills.skillsInstall(i as Parameters<typeof skills.skillsInstall>[0]),
   middleware_skills_installed: (i) => skills.skillsInstalled(i as Parameters<typeof skills.skillsInstalled>[0]),
+  middleware_skills_installed_local: (i) => skillsInstalled.skillsInstalledLocal(i as Parameters<typeof skillsInstalled.skillsInstalledLocal>[0]),
   middleware_skills_search_hub: (i) => skills.skillsSearchHub(i as Parameters<typeof skills.skillsSearchHub>[0]),
   middleware_skills_catalog: () => skills.getSkillCatalog(),
   middleware_skills_catalog_add: (i) => skills.addSkillToCatalog(i as Parameters<typeof skills.addSkillToCatalog>[0]),
   middleware_skills_catalog_remove: (i) => skills.removeSkillFromCatalog((i as { slug: string }).slug),
+  middleware_skills_uninstall: (i) => skills.uninstallSkill((i as { slug: string }).slug),
   middleware_skills_active: () => skillRuntime.getInstalledSkills(),
   middleware_skills_toggle: (i) => skillRuntime.setSkillEnabled((i as { slug: string; enabled: boolean }).slug, (i as { slug: string; enabled: boolean }).enabled),
   middleware_skills_enabled_map: () => skillRuntime.getSkillEnabledMap(),
@@ -166,8 +174,12 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_chat_stop: (i) => chat.chatStop(i as { sessionKey: string }),
   middleware_chat_history: (i) => chat.chatHistory(i as { sessionKey: string }),
   middleware_chat_edit_and_resend: (i) => chat.chatEditAndResend(i as Parameters<typeof chat.chatEditAndResend>[0]),
+  middleware_chat_edit_last_preview: (i) => chat.chatEditLastPreview(i as Parameters<typeof chat.chatEditLastPreview>[0]),
+  middleware_chat_select_edit_branch: (i) => chat.chatSelectEditBranch(i as Parameters<typeof chat.chatSelectEditBranch>[0]),
   middleware_chat_regenerate: (i) => chat.chatRegenerate(i as Parameters<typeof chat.chatRegenerate>[0]),
   middleware_chat_start_subagent_stream: (i) => chat.chatStartSubagentStream(i as { sessionKey: string }),
+  middleware_chat_fork: (i) => chat.chatFork(i as Parameters<typeof chat.chatFork>[0]),
+  middleware_chat_fork_history: (i) => chat.chatForkHistory(i as { sessionKey: string }),
 
   // Cron (Gateway-dependent)
   middleware_cron_list_jobs: () => cron.cronListJobs(),
@@ -191,14 +203,12 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_sync_purge_tombstones: () => sync.syncPurgeTombstones(),
   middleware_sync_set_device_id: (i) => sync.syncSetDeviceId(i as { deviceId: string }),
   middleware_sync_pull_now: () => sync.syncPullNow(),
+  middleware_sync_push_now: (i) => sync.syncPushNow(i as { limit?: number } | undefined),
   middleware_sync_backfill_now: () => sync.syncBackfillNow(),
 
   // Usage (Gateway-dependent)
-  middleware_usage_summary: (i) => usage.usageSummary(i as { startDate?: string; endDate?: string }),
-  middleware_usage_current: () => usage.usageCurrent(),
-  middleware_usage_history: (i) => usage.usageHistory(i as { period?: string }),
-  middleware_usage_limits: () => usage.usageLimits(),
-  middleware_usage_estimate: (i) => usage.usageEstimate(i as { model?: string; tokens?: number }),
+  middleware_usage: (i) => usage.usage(i as { days?: number }),
+  middleware_usage_daily: (i) => usage.usageDaily(i as { days?: number }),
 
   // Onboarding
   middleware_onboarding_status: () => onboarding.onboardingStatus(),
@@ -227,7 +237,10 @@ export const commandRegistry: Record<string, Handler> = {
   // Connect
   middleware_connect_status: () => connect.connectStatus(),
   middleware_connect_test: () => connect.connectTest(),
+  middleware_connect_disconnect: () => connect.connectDisconnect(),
+  middleware_connect_bootstrap: () => connect.connectBootstrap(),
   middleware_connect_reset: () => connect.connectReset(),
+  middleware_connect_delete_all: () => connect.connectDeleteAll(),
 
   // Terminal
   middleware_terminal_create: (i) => terminal.terminalCreate(i as Parameters<typeof terminal.terminalCreate>[0]),
@@ -251,10 +264,25 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_repos_scan: (i) => repos.reposScan(i as { extraPaths?: string[] } | undefined),
   middleware_repos_recent: (i) => repos.reposRecent(i as { limit?: number } | undefined),
   middleware_repos_select: (i) => repos.reposSelect(i as { path: string; name: string }),
+  middleware_repos_clone: (i) => repos.reposClone(i as { url: string; name?: string; targetDir?: string }),
+
+  // Workspace (remote, gateway-backed)
+  middleware_workspace_tree: (i) => workspace.workspaceTree(i as { sessionKey: string; path?: string }),
+  middleware_workspace_read: (i) => workspace.workspaceRead(i as { sessionKey: string; path: string }),
+  middleware_workspace_write: (i) => workspace.workspaceWrite(i as { sessionKey: string; path: string; content: string }),
 
   // Version
   middleware_version_info: () => version.versionInfo(),
 
   // Sandbox
   middleware_sandbox_cleanup_audit_data: (i) => sandbox.sandboxCleanupAuditData(i as { dryRun?: boolean } | undefined),
+
+  // Pinned Messages
+  middleware_pins_list: (i) => pins.pinsList(i as { sessionKey: string }),
+  middleware_pins_add: (i) => pins.pinsAdd(i as { sessionKey: string; messageId: string; messageText: string }),
+  middleware_pins_remove: (i) => pins.pinsRemove(i as { sessionKey: string; messageId: string; messageText?: string }),
+
+  // Feedback
+  middleware_message_feedback: (i) => feedback.messageFeedback(i as any),
+  middleware_message_feedback_delete: (i) => feedback.deleteMessageFeedback(i as any),
 }

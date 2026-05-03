@@ -4,8 +4,15 @@ import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 import { Icons } from "@/components/icons"
+import {
+  formatCronRunTime,
+  getCronStatusMeta,
+  type CronJobLike,
+  type CronRunLike,
+} from "../cron-status"
+import { formatScheduleLabel } from "../cron-schedule-format"
 
-type CronJob = {
+type CronJob = CronJobLike<CronRun> & {
   jobId: string; name: string; schedule: string
   scheduleType: "at" | "every" | "cron"; timezone: string | null
   session: string; task: string; message: string | null; model: string | null
@@ -15,7 +22,7 @@ type CronJob = {
   lastRun: CronRun | null
 }
 
-type CronRun = {
+type CronRun = CronRunLike & {
   runId: string; jobId: string; status: string
   startedAt: string; finishedAt: string | null; error: string | null
 }
@@ -54,51 +61,8 @@ function RunStatusDot({ status }: { status: string }) {
   return <span className={cn("size-1.5 rounded-full", color)} />
 }
 
-function formatRunTime(iso?: string | null): string {
-  if (!iso) return ""
-  try {
-    return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-  } catch { return iso }
-}
-
-function getRunStatus(run?: CronRun | null) {
-  if (!run) {
-    return {
-      label: "Never run",
-      detail: "No run history yet",
-      className: "bg-foreground/5 text-muted-foreground",
-    }
-  }
-  if (run.status === "running") {
-    return {
-      label: "Running now",
-      detail: "Started " + formatRunTime(run.startedAt),
-      className: "bg-chart-2/15 text-chart-2",
-    }
-  }
-  if (run.status === "completed") {
-    return {
-      label: "Last run completed",
-      detail: formatRunTime(run.finishedAt ?? run.startedAt),
-      className: "bg-chart-1/15 text-chart-1",
-    }
-  }
-  if (run.status === "failed" || run.status === "error") {
-    return {
-      label: "Last run failed",
-      detail: run.error ?? formatRunTime(run.finishedAt ?? run.startedAt),
-      className: "bg-red-400/15 text-red-400",
-    }
-  }
-  return {
-    label: `Last run ${run.status}`,
-    detail: formatRunTime(run.finishedAt ?? run.startedAt),
-    className: "bg-foreground/5 text-muted-foreground",
-  }
-}
-
-function LastRunBadge({ run }: { run: CronRun | null }) {
-  const status = getRunStatus(run)
+function LastRunBadge({ job }: { job: CronJob }) {
+  const status = getCronStatusMeta(job, { variant: "card" })
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase", status.className)}>
@@ -122,12 +86,14 @@ function ActionButton({
   label,
   disabled,
   onClick,
+  testId,
   variant = "default",
 }: {
   icon: React.ElementType
   label: string
   disabled?: boolean
   onClick: () => void
+  testId?: string
   variant?: "default" | "danger"
 }) {
   return (
@@ -135,6 +101,7 @@ function ActionButton({
       type="button"
       title={label}
       aria-label={label}
+      data-testid={testId}
       data-action-label={label}
       disabled={disabled}
       onClick={onClick}
@@ -179,7 +146,9 @@ export function CronJobRow({
   const [expanded, setExpanded] = useState(false)
   const [runs, setRuns] = useState<CronRun[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
-  const failedLastRun = isFailedRun(job.lastRun) ? job.lastRun : null
+  const status = getCronStatusMeta(job, { variant: "card" })
+  const failedLastRun = isFailedRun(status.run) ? status.run : null
+  const scheduleLabel = formatScheduleLabel(job)
 
   const fetchRuns = useCallback(async () => {
     setRunsLoading(true)
@@ -203,7 +172,10 @@ export function CronJobRow({
   return (
     <div
       data-cron-job-id={job.jobId}
+      data-testid={`cron-job-${job.jobId}`}
       data-cron-job-name={job.name}
+      data-cron-job-status={status.phase}
+      data-cron-run-id={status.run?.runId ?? ""}
       className={cn(
         "flex flex-col rounded-2xl",
         "border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl",
@@ -230,10 +202,15 @@ export function CronJobRow({
                 One-time
               </span>
             )}
-            <LastRunBadge run={job.lastRun} />
+            <LastRunBadge job={job} />
           </div>
           <div className="flex items-center gap-2 pl-[22px]">
-            <span className="text-[11px] font-mono text-muted-foreground">{job.schedule}</span>
+            <span
+              className="text-[11px] font-medium text-muted-foreground"
+              title={job.schedule}
+            >
+              {scheduleLabel}
+            </span>
             {job.timezone && (
               <span className="text-[10px] text-muted-foreground/50">{job.timezone}</span>
             )}
@@ -289,26 +266,49 @@ export function CronJobRow({
       </div>
 
       <div className="flex items-center gap-1 border-t border-white/[0.06] px-4 py-1.5">
-        <ActionButton icon={Icons.Play} label="Run now" disabled={busy || !job.enabled} onClick={onRun} />
+        <ActionButton
+          icon={Icons.Play}
+          label="Run now"
+          disabled={busy || !job.enabled}
+          onClick={onRun}
+          testId={`cron-job-run-${job.jobId}`}
+        />
         <ActionButton
           icon={job.paused ? Icons.Play : Icons.Pause}
           label={job.paused ? "Resume" : "Pause"}
           disabled={busy}
           onClick={onTogglePaused}
+          testId={`cron-job-pause-${job.jobId}`}
         />
         {onViewConversation && (
-          <ActionButton icon={Icons.Chat} label="Conversation" onClick={onViewConversation} />
+          <ActionButton
+            icon={Icons.Chat}
+            label="Conversation"
+            onClick={onViewConversation}
+            testId={`cron-job-conversation-${job.jobId}`}
+          />
         )}
         {failedLastRun && onDiagnoseFailure && (
-          <ActionButton icon={Icons.Wrench} label="Diagnose" onClick={onDiagnoseFailure} />
+          <ActionButton
+            icon={Icons.Wrench}
+            label="Diagnose"
+            onClick={onDiagnoseFailure}
+            testId={`cron-job-diagnose-${job.jobId}`}
+          />
         )}
         {onEdit && (
-          <ActionButton icon={Icons.Edit} label="Edit" onClick={onEdit} />
+          <ActionButton
+            icon={Icons.Edit}
+            label="Edit"
+            onClick={onEdit}
+            testId={`cron-job-edit-${job.jobId}`}
+          />
         )}
         <ActionButton
           icon={Icons.Automations}
           label={expanded ? "Hide runs" : "Runs"}
           onClick={() => setExpanded((v) => !v)}
+          testId={`cron-job-runs-${job.jobId}`}
         />
         {!confirmDelete ? (
           <ActionButton
@@ -316,12 +316,14 @@ export function CronJobRow({
             label="Delete"
             disabled={busy}
             onClick={() => setConfirmDelete(true)}
+            testId={`cron-job-delete-${job.jobId}`}
             variant="danger"
           />
         ) : (
           <div className="flex items-center gap-1">
             <button
               type="button"
+              data-testid={`cron-job-confirm-delete-${job.jobId}`}
               data-action-label="Confirm"
               onClick={() => { setConfirmDelete(false); onDelete() }}
               disabled={busy}
@@ -336,6 +338,7 @@ export function CronJobRow({
             </button>
             <button
               type="button"
+              data-testid={`cron-job-cancel-delete-${job.jobId}`}
               data-action-label="Cancel"
               onClick={() => setConfirmDelete(false)}
               className={cn(
@@ -363,11 +366,15 @@ export function CronJobRow({
           {!runsLoading && runs.length > 0 && (
             <div className="flex flex-col gap-1">
               {runs.map((run) => (
-                <div key={run.runId} className="flex flex-col gap-1 rounded-md px-2 py-1.5 text-[11px]">
+                <div
+                  key={run.runId}
+                  data-testid={`cron-run-${job.jobId}-${run.runId || "latest"}`}
+                  className="flex flex-col gap-1 rounded-md px-2 py-1.5 text-[11px]"
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <RunStatusDot status={run.status} />
-                      <span className="text-muted-foreground">{formatRunTime(run.startedAt)}</span>
+                      <span className="text-muted-foreground">{formatCronRunTime(run.startedAt)}</span>
                     </div>
                     <span className={cn(
                       "font-medium",

@@ -1,25 +1,23 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { invoke } from "@/lib/ipc"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
+import { useEffect, useState } from "react"
+import { emit } from "@/lib/events"
+import { ConnectPageView } from "@/components/connect/ConnectPageView"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  clearMiddlewareConnection,
+  getMiddlewareConnection,
+  saveMiddlewareConnection,
+  testMiddlewareConnection,
+  claimMiddlewarePairing,
+  detectLocalMiddleware,
+  type MiddlewareHealth,
+} from "@/lib/middleware-client"
 
 type ConnectionStatus = {
   gatewayConfigured: boolean
   gatewayUrl?: string | null
   gatewayToken?: string | null
-  hasIdentity: boolean
+  hasConnection: boolean
   status: string
 }
 
@@ -28,294 +26,211 @@ type ConnectResult = {
   url?: string
   message?: string
   error?: string
-  isLocal?: boolean
-  addedOrigins?: string[]
-  fix?: {
-    description: string
-    origins: string[]
-    example: Record<string, unknown>
+  errorTitle?: string
+}
+
+type DetectMessage = { ok: boolean; text: string }
+
+function statusFromConnection(connected: boolean, url?: string, token?: string): ConnectionStatus {
+  return {
+    gatewayConfigured: Boolean(url && token),
+    gatewayUrl: url ?? null,
+    gatewayToken: token ? "configured" : null,
+    hasConnection: connected,
+    status: connected ? "connected" : url && token ? "configured" : "disconnected",
   }
+}
+
+function isLikelyPairingCode(value: string): boolean {
+  const compact = value.trim().replace(/[-\s]/g, "")
+  return /^[A-Z0-9]{4,16}$/i.test(compact) && !compact.toLowerCase().startsWith("sk")
+}
+
+function humanConnectionError(err: unknown, targetUrl: string): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (message.toLowerCase().includes("failed to fetch")) {
+    return `Could not reach Middleware at ${targetUrl.trim() || "the entered URL"}. Check that this device can access that URL/network, then try again.`
+  }
+  return message
 }
 
 export default function ConnectPage() {
   const [url, setUrl] = useState("")
   const [token, setToken] = useState("")
   const [showToken, setShowToken] = useState(false)
-
+  const [setupMode, setSetupMode] = useState<"choice" | "local" | "remote">("choice")
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
   const [connectResult, setConnectResult] = useState<ConnectResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
   const [loadingStatus, setLoadingStatus] = useState(true)
-
-  const checkStatus = useCallback(async () => {
-    try {
-      const s = await invoke<ConnectionStatus>("middleware_connect_status", {
-        input: {},
-      })
-      setStatus(s)
-      if (s.gatewayUrl) setUrl(s.gatewayUrl)
-      if (s.gatewayToken) setToken(s.gatewayToken)
-    } catch {
-      setStatus(null)
-    } finally {
-      setLoadingStatus(false)
-    }
-  }, [])
+  const [sessionConnected, setSessionConnected] = useState(false)
+  const [detectMessage, setDetectMessage] = useState<DetectMessage | null>({ ok: true, text: "Checking for a local workspace service..." })
 
   useEffect(() => {
-    checkStatus()
-  }, [checkStatus])
+    async function initializeConnection() {
+      const saved = getMiddlewareConnection()
+      if (saved) {
+        setUrl(saved.url)
+        setToken(saved.token)
+        try {
+          const health = await testMiddlewareConnection(saved)
+          if (!health.openclaw?.connected) {
+            setSessionConnected(false)
+            setStatus(statusFromConnection(false, saved.url, saved.token))
+            setConnectResult(null)
+            setDetectMessage({ ok: false, text: "Saved Middleware is reachable, but OpenClaw is not connected there. The saved URL/token were kept; retry after OpenClaw starts." })
+            return
+          }
+          setStatus(statusFromConnection(true, saved.url, saved.token))
+          setSessionConnected(true)
+          setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
+          return
+        } catch {
+          setSessionConnected(false)
+          setStatus(statusFromConnection(false, saved.url, saved.token))
+          setConnectResult(null)
+          setDetectMessage({ ok: false, text: "Saved Middleware could not be reached on reload. The saved URL/token were kept; check the URL/network or retry." })
+          return
+        }
+      }
 
-  async function handleTest() {
-    if (!url.trim() || !token.trim()) {
-      setError("Both URL and token are required")
-      return
+      setStatus(statusFromConnection(false))
+      const detected = await detectLocalMiddleware()
+      if (!detected) {
+        setDetectMessage({ ok: false, text: "No local OpenClaw runtime found yet. Start OpenClaw locally, or connect a server." })
+        return
+      }
+      saveMiddlewareConnection(detected)
+      setUrl(detected.url)
+      setToken(detected.token)
+      setStatus(statusFromConnection(true, detected.url, detected.token))
+      setSessionConnected(true)
+      setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
+      setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
+      emit("sidebar:refresh")
+      window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
     }
 
+    initializeConnection().finally(() => setLoadingStatus(false))
+  }, [])
+
+  async function runTest(save: boolean) {
+    if (!url.trim() || !token.trim()) {
+      setError("Both Middleware URL and token are required")
+      return null
+    }
+    let connection = { url: url.trim(), token: token.trim() }
+    let health: MiddlewareHealth | null = null
+    if (isLikelyPairingCode(token)) {
+      const paired = await claimMiddlewarePairing({ url: url.trim(), code: token.trim() })
+      connection = { url: paired.url, token: paired.token }
+      health = await testMiddlewareConnection(connection)
+    } else {
+      health = await testMiddlewareConnection(connection)
+    }
+    if (!health.openclaw?.connected) {
+      throw new Error("Middleware is reachable, but OpenClaw is not running there")
+    }
+    if (save) saveMiddlewareConnection(connection)
+    setUrl(connection.url)
+    setToken(connection.token)
+    setStatus(statusFromConnection(save, connection.url, connection.token))
+    setConnectResult({ ok: true, url: connection.url, message: `${health.service} ${health.version}` })
+    return health
+  }
+
+  async function handleTest() {
     setTesting(true)
     setError(null)
     setConnectResult(null)
-
     try {
-      await invoke("middleware_onboarding_save_gateway_config", {
-        input: { gatewayUrl: url.trim(), token: token.trim() },
-      })
-      await invoke("middleware_onboarding_generate_identity", { input: {} })
-      const result = await invoke<ConnectResult>("middleware_connect_test", {
-        input: {},
-      })
-      setConnectResult(result)
-      await checkStatus()
+      await runTest(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(humanConnectionError(err, url))
     } finally {
       setTesting(false)
     }
   }
 
   async function handleSave() {
-    if (!url.trim() || !token.trim()) {
-      setError("Both URL and token are required")
-      return
-    }
-
     setSaving(true)
     setError(null)
-
     try {
-      await invoke("middleware_onboarding_save_gateway_config", {
-        input: { gatewayUrl: url.trim(), token: token.trim() },
-      })
-      await invoke("middleware_onboarding_generate_identity", { input: {} })
-      await checkStatus()
+      await runTest(true)
+      setSessionConnected(true)
+      emit("sidebar:refresh")
+      window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(humanConnectionError(err, url))
     } finally {
       setSaving(false)
     }
   }
 
+  async function handleDisconnect() {
+    setDisconnecting(true)
+    setError(null)
+    setConnectResult(null)
+    setDetectMessage(null)
+    clearMiddlewareConnection()
+    setUrl("")
+    setToken("")
+    setSessionConnected(false)
+    setStatus(statusFromConnection(false))
+    emit("sidebar:refresh")
+    setDisconnecting(false)
+  }
+
   return (
-    <div className="flex min-h-svh items-start justify-center p-6 pt-16">
-      <div className="w-full max-w-lg space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">
-            Connect to Gateway
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Enter your OpenClaw gateway WebSocket URL and authentication token.
-          </p>
-        </div>
-
-        {/* Status badge */}
-        {!loadingStatus && status && (
-          <div className="flex items-center gap-2">
-            {status.gatewayConfigured && status.hasIdentity ? (
-              <Badge variant="default">Ready</Badge>
-            ) : status.gatewayConfigured ? (
-              <Badge variant="outline">Configured &middot; No Identity</Badge>
-            ) : (
-              <Badge variant="secondary">Not configured</Badge>
-            )}
-            {status.gatewayUrl && (
-              <span className="font-mono text-xs text-muted-foreground">
-                {status.gatewayUrl}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Connection form */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Gateway Settings</CardTitle>
-            <CardDescription>
-              The gateway handles all communication with OpenClaw services.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="gateway-url">WebSocket URL</Label>
-              <Input
-                id="gateway-url"
-                type="text"
-                placeholder={status?.gatewayUrl ? status.gatewayUrl : "ws://127.0.0.1:18789"}
-                value={url}
-                onChange={(e) => {
-                  setUrl(e.target.value)
-                  setError(null)
-                  setConnectResult(null)
-                }}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <p className="text-xs text-muted-foreground">
-                Accepts ws://, wss://, http://, https://, or bare host:port.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="gateway-token">Authentication Token</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="gateway-token"
-                  type={showToken ? "text" : "password"}
-                  placeholder={status?.gatewayToken ? "Token saved" : "Paste your gateway token"}
-                  value={token}
-                  onChange={(e) => {
-                    setToken(e.target.value)
-                    setError(null)
-                    setConnectResult(null)
-                  }}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 self-center"
-                  onClick={() => setShowToken(!showToken)}
-                >
-                  {showToken ? "Hide" : "Show"}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Found in <code className="rounded bg-muted px-1 py-0.5">~/.openclaw/openclaw.json</code> or your gateway admin panel.
-              </p>
-            </div>
-          </CardContent>
-
-          <CardFooter className="flex gap-2">
-            <Button
-              onClick={handleTest}
-              disabled={testing || saving || !url.trim() || !token.trim()}
-              variant="outline"
-            >
-              {testing ? "Testing..." : "Test Connection"}
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={saving || testing || !url.trim() || !token.trim()}
-            >
-              {saving ? "Saving..." : "Save & Connect"}
-            </Button>
-          </CardFooter>
-        </Card>
-
-        {/* Error */}
-        {error && (
-          <Card className="border-destructive/30 bg-destructive/5">
-            <CardContent>
-              <p className="text-sm text-destructive">{error}</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Origin auto-fixed (local gateway) */}
-        {connectResult && connectResult.error === "origin_fixed_restart" && (
-          <Card className="border-yellow-500/30 bg-yellow-500/5">
-            <CardHeader>
-              <CardTitle className="text-yellow-700 dark:text-yellow-400">
-                Origins Configured — Restart Required
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p className="text-sm">{connectResult.message}</p>
-              <p className="text-xs text-muted-foreground">
-                Run{" "}
-                <code className="rounded bg-muted px-1 py-0.5">
-                  openclaw gateway restart
-                </code>{" "}
-                then click Test Connection again.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Origin error (remote gateway) */}
-        {connectResult && connectResult.error === "origin_not_allowed" && (
-          <Card className="border-destructive/30 bg-destructive/5">
-            <CardHeader>
-              <CardTitle className="text-destructive">
-                Origin Not Allowed
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm">{connectResult.message}</p>
-              {connectResult.fix && (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    {connectResult.fix.description}:
-                  </p>
-                  <pre className="overflow-x-auto rounded bg-muted p-3 font-mono text-xs">
-                    {JSON.stringify(connectResult.fix.example, null, 2)}
-                  </pre>
-                  <p className="text-xs text-muted-foreground">
-                    After updating, restart the gateway and try again.
-                  </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Other connection errors */}
-        {connectResult && !connectResult.ok &&
-          connectResult.error !== "origin_fixed_restart" &&
-          connectResult.error !== "origin_not_allowed" && (
-            <Card className="border-destructive/30 bg-destructive/5">
-              <CardContent>
-                <p className="text-sm text-destructive">
-                  {connectResult.error ?? connectResult.message}
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-        {/* Success result */}
-        {connectResult && connectResult.ok && (
-          <Card className="border-ring/30">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                Connection Successful
-                <Badge variant="default">Online</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-                <dt className="text-muted-foreground">Gateway URL</dt>
-                <dd className="font-mono">{connectResult.url}</dd>
-              </dl>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
+    <ConnectPageView
+      url={url}
+      token={token}
+      showToken={showToken}
+      setupMode={setupMode}
+      status={status}
+      connectResult={connectResult}
+      error={error}
+      testing={testing}
+      saving={saving}
+      disconnecting={disconnecting}
+      loadingStatus={loadingStatus}
+      isConnected={sessionConnected}
+      autoDetect={false}
+      detecting={false}
+      detectMessage={detectMessage}
+      onUrlChange={(value) => { setUrl(value); setError(null); setConnectResult(null) }}
+      onTokenChange={(value) => { setToken(value); setError(null); setConnectResult(null) }}
+      onShowTokenChange={setShowToken}
+      onSetupModeChange={(mode) => {
+        setSetupMode(mode)
+        setDetectMessage(null)
+        setError(null)
+        setConnectResult(null)
+        if (mode === "local" && !url.trim()) setUrl("http://127.0.0.1:8787")
+      }}
+      onAutoDetectChange={async () => {
+        setDetectMessage({ ok: true, text: "Checking for a local Middleware..." })
+        const detected = await detectLocalMiddleware()
+        if (!detected) {
+          setDetectMessage({ ok: false, text: setupMode === "local" ? "Local Middleware is not running yet. Start OpenClaw locally, or use the advanced command below." : "Run the installer on your server, then paste the Middleware URL and pairing code." })
+          return
+        }
+        saveMiddlewareConnection(detected)
+        setUrl(detected.url)
+        setToken(detected.token)
+        setStatus(statusFromConnection(true, detected.url, detected.token))
+        setSessionConnected(true)
+        setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
+        setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
+        emit("sidebar:refresh")
+        window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+      }}
+      onTest={handleTest}
+      onSave={handleSave}
+      onDisconnect={handleDisconnect}
+    />
   )
 }

@@ -53,6 +53,15 @@ export function useChatsData(
 
   const loadChats = useCallback(async () => {
     try {
+      const active =
+        localStorage.getItem("jarvis.gatewayActive") === "true"
+      if (!active) {
+        setChats([])
+        setPinnedChats(new Set())
+        return
+      }
+    } catch {}
+    try {
       const result = await invoke<{ chats: Chat[] }>(
         "middleware_chats_list",
         { input: {} },
@@ -74,6 +83,53 @@ export function useChatsData(
   }, [loadChats, refreshTrigger])
 
   useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
+
+  useEffect(() => {
+    return on<any>("fork:create", (event) => {
+      if (!event || event.context?.type === "topic") return
+      if (event.status === "pending") {
+        const now = new Date().toISOString()
+        const placeholder: Chat = {
+          id: event.requestId,
+          name: event.name || "Creating fork…",
+          agentId: "main",
+          archived: false,
+          pinned: false,
+          createdAt: now,
+          updatedAt: now,
+          pendingFork: true,
+        }
+        setChats((prev) => [placeholder, ...prev.filter((chat) => chat.id !== event.requestId)])
+        setChatOrder((prev) => [event.requestId, ...prev.filter((id) => id !== event.requestId)])
+        return
+      }
+      if (event.status === "resolved") {
+        setChats((prev) => prev.map((chat) => chat.id === event.requestId
+          ? { ...chat, id: event.chatId, name: event.name, sessionKey: event.sessionKey, pendingFork: false, updatedAt: new Date().toISOString() }
+          : chat,
+        ))
+        setChatOrder((prev) => prev.map((id) => id === event.requestId ? event.chatId : id))
+        return
+      }
+      if (event.status === "failed") {
+        setChats((prev) => prev.filter((chat) => chat.id !== event.requestId))
+        setChatOrder((prev) => prev.filter((id) => id !== event.requestId))
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    return on("chat:activity", () => {
+      if (!activeChat) return
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === activeChat.id
+            ? { ...c, updatedAt: new Date().toISOString() }
+            : c,
+        ),
+      )
+    })
+  }, [activeChat])
 
   useEffect(() => {
     setChatOrder((prev) => {
@@ -185,12 +241,15 @@ export function useChatsData(
     const pinned = chatOrder.filter((id) =>
       pinnedChats.has(id),
     )
-    const unpinned = chatOrder.filter(
-      (id) => !pinnedChats.has(id),
-    )
-    return [...pinned, ...unpinned].filter((id) =>
-      chats.some((c) => c.id === id),
-    )
+    const unpinned = chats
+      .filter((c) => !pinnedChats.has(c.id))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() -
+          new Date(a.updatedAt).getTime(),
+      )
+      .map((c) => c.id)
+    return [...pinned, ...unpinned]
   }, [chatOrder, pinnedChats, chats])
 
   const dialogState: ChatDialogState = {

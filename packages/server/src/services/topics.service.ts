@@ -10,6 +10,12 @@ import {
 import { enqueue } from "../sync/outbox.js"
 import { kickSyncEngine } from "../sync/engine.js"
 
+function enqueueChatForSession(sessionKey: string): void {
+  const db = getDb()
+  const row = db.prepare("SELECT id FROM chats WHERE session_key = ?").get(sessionKey) as { id: string } | undefined
+  if (row) enqueue("chat", row.id, "upsert", db)
+}
+
 const TOPIC_COLUMNS = "id, project_id, name, archived, unread_count, sort_order, created_at, updated_at"
 
 function fetchTopic(id: string) {
@@ -48,14 +54,20 @@ export function topicsUpdate(input: { topicId: string; name?: string; sortOrder?
   const existing = db.prepare("SELECT name, sort_order FROM topics WHERE id = ?").get(input.topicId) as { name: string; sort_order: number } | undefined
   if (!existing) throw new Error(`Topic not found: ${input.topicId}`)
 
-  db.prepare("UPDATE topics SET name = ?, sort_order = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?").run(
-    input.name ?? existing.name,
-    input.sortOrder ?? existing.sort_order,
-    nowIso(),
-    input.topicId,
-  )
-  enqueue("topic", input.topicId, "upsert")
-  kickSyncEngine()
+  const newSortOrder = input.sortOrder ?? existing.sort_order
+  const needsSync = newSortOrder !== existing.sort_order
+
+  if (needsSync) {
+    db.prepare("UPDATE topics SET name = ?, sort_order = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?").run(
+      input.name ?? existing.name, newSortOrder, nowIso(), input.topicId,
+    )
+    enqueue("topic", input.topicId, "upsert")
+    kickSyncEngine()
+  } else {
+    db.prepare("UPDATE topics SET name = ?, sort_order = ?, updated_at = ? WHERE id = ?").run(
+      input.name ?? existing.name, newSortOrder, nowIso(), input.topicId,
+    )
+  }
   return { topic: fetchTopic(input.topicId) }
 }
 
@@ -75,6 +87,13 @@ export function topicsDelete(input: { topicId: string }) {
   if (!exists) throw new Error(`Topic not found: ${input.topicId}`)
 
   const now = nowIso()
+  const affectedChats = db
+    .prepare(
+      `SELECT c.id FROM chats c
+       JOIN session_mappings sm ON sm.session_key = c.session_key
+       WHERE sm.topic_id = ?`,
+    )
+    .all(input.topicId) as Array<{ id: string }>
   const tx = db.transaction(() => {
     db.prepare("UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 1 WHERE topic_id = ?").run(now, input.topicId)
     db.prepare("UPDATE branches SET branch_topic_id = NULL WHERE branch_topic_id = ?").run(input.topicId)
@@ -82,6 +101,7 @@ export function topicsDelete(input: { topicId: string }) {
     db.prepare("DELETE FROM topic_git_context WHERE topic_id = ?").run(input.topicId)
     db.prepare("DELETE FROM topics WHERE id = ?").run(input.topicId)
     recordSyncTombstone(db, "topic", input.topicId)
+    for (const chat of affectedChats) enqueue("chat", chat.id, "upsert", db)
   })
   tx()
   enqueue("topic", input.topicId, "delete")
@@ -93,6 +113,8 @@ export function topicsAttachSession(input: { topicId: string; sessionKey: string
   const db = getDb()
   const changes = db.prepare("UPDATE session_mappings SET topic_id = ?, updated_at = ?, sync_dirty = 1 WHERE session_key = ?").run(input.topicId, nowIso(), input.sessionKey)
   if (changes.changes === 0) throw new Error(`Session mapping not found: ${input.sessionKey}`)
+  enqueueChatForSession(input.sessionKey)
+  kickSyncEngine()
   return { ok: true, topicId: input.topicId, sessionKey: input.sessionKey }
 }
 
@@ -100,11 +122,9 @@ export function topicsRename(input: { topicId: string; name: string }) {
   if (!input.name.trim()) throw new Error("Name cannot be empty")
   const db = getDb()
   const changes = db.prepare(
-    "UPDATE topics SET name = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+    "UPDATE topics SET name = ?, updated_at = ? WHERE id = ?",
   ).run(input.name.trim(), nowIso(), input.topicId)
   if (changes.changes === 0) throw new Error(`Topic not found: ${input.topicId}`)
-  enqueue("topic", input.topicId, "upsert")
-  kickSyncEngine()
   return { topic: fetchTopic(input.topicId) }
 }
 
@@ -112,5 +132,7 @@ export function topicsDetachSession(input: { topicId: string; sessionKey: string
   const db = getDb()
   const changes = db.prepare("UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 1 WHERE session_key = ?").run(nowIso(), input.sessionKey)
   if (changes.changes === 0) throw new Error(`Session mapping not found: ${input.sessionKey}`)
+  enqueueChatForSession(input.sessionKey)
+  kickSyncEngine()
   return { ok: true, topicId: input.topicId, sessionKey: input.sessionKey }
 }

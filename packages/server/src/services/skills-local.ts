@@ -35,9 +35,11 @@ export function parseSkillFrontmatter(
   const block = match[1]
   const result: { name?: string; description?: string } = {}
   const nameMatch = block.match(/^name:\s*(.+)$/m)
-  if (nameMatch) result.name = nameMatch[1].trim()
+  const nameVal = nameMatch?.[1]?.trim()
+  if (nameVal && nameVal !== "undefined") result.name = nameVal
   const descMatch = block.match(/^description:\s*(.+)$/m)
-  if (descMatch) result.description = descMatch[1].trim()
+  const descVal = descMatch?.[1]?.trim()
+  if (descVal && descVal !== "undefined") result.description = descVal
   return result
 }
 
@@ -81,6 +83,37 @@ export function getAllLocalSkills(): LocalSkillEntry[] {
 export function isSkillInstalled(slug: string): boolean {
   const userRoot = path.join(openclawUserRoot(), "skills")
   return fs.existsSync(path.join(userRoot, slug, "SKILL.md"))
+}
+
+type LocalDetail = { name: string; description: string; content: string; version: string; location: string }
+
+export function getLocalSkillDetail(slug: string): LocalDetail | null {
+  const root = openclawUserRoot()
+  const dirs = [path.join(root, "skills", slug), path.join(root, "workspace", "skills", slug)]
+  for (const dir of dirs) {
+    const file = path.join(dir, "SKILL.md")
+    if (!fs.existsSync(file)) continue
+    try {
+      const raw = fs.readFileSync(file, "utf-8")
+      const meta = parseSkillFrontmatter(raw)
+      const fm = raw.match(/^---\n([\s\S]*?)\n---/)
+      const content = fm ? raw.slice(fm[0].length).trim() : raw.trim()
+      const ver = fm?.[1].match(/^version:\s*(.+)$/m)?.[1]?.trim()
+      return { name: meta.name ?? slug, description: meta.description ?? "", content, version: ver ?? "1.0.0", location: dir }
+    } catch { continue }
+  }
+  return null
+}
+
+export function uninstallSkill(slug: string): { removed: boolean; slug: string } {
+  const root = openclawUserRoot()
+  const dirs = [path.join(root, "skills", slug), path.join(root, "workspace", "skills", slug)]
+  let removed = false
+  for (const dir of dirs) {
+    if (fs.existsSync(dir)) { fs.rmSync(dir, { recursive: true, force: true }); removed = true }
+  }
+  if (removed) { removeSkillFromCatalog(slug); invalidateSkillCache() }
+  return { removed, slug }
 }
 
 function copyDirSync(src: string, dest: string): void {

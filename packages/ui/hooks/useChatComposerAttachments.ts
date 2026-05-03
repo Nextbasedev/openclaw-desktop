@@ -66,11 +66,8 @@ export function useChatComposerAttachments({
     fileInputRef.current?.click()
   }, [disabled, isPreparingAttachments])
 
-  const handleFileChange = React.useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files ?? [])
-      event.target.value = ""
-
+  const processFiles = React.useCallback(
+    async (files: File[]) => {
       if (files.length === 0) return
 
       setAttachmentError(null)
@@ -130,6 +127,15 @@ export function useChatComposerAttachments({
     [onFilesProcessed],
   )
 
+  const handleFileChange = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? [])
+      event.target.value = ""
+      await processFiles(files)
+    },
+    [processFiles],
+  )
+
   return {
     attachments,
     attachmentError,
@@ -140,5 +146,6 @@ export function useChatComposerAttachments({
     setAttachmentError,
     handleUploadClick,
     handleFileChange,
+    processFiles,
   }
 }

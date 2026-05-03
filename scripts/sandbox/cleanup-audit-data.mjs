@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const DEFAULT_SERVER_URL = "http://127.0.0.1:3001"
+const DEFAULT_SERVER_URL = "http://127.0.0.1:8787"
 
 function parseArgs(argv) {
   const options = { serverUrl: DEFAULT_SERVER_URL, dryRun: false }

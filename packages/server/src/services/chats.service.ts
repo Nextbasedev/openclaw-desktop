@@ -9,6 +9,7 @@ import {
 } from "../db/helpers.js"
 import { enqueue } from "../sync/outbox.js"
 import { kickSyncEngine } from "../sync/engine.js"
+import { rememberAnchor } from "../sync/anchor.js"
 
 const CHAT_COLUMNS =
   "id, name, session_key, agent_id, archived, pinned, last_active_at, created_at, updated_at"
@@ -95,15 +96,15 @@ export function chatsRename(input: {
 }) {
   if (!input.name.trim()) throw new Error("Name cannot be empty")
   const db = getDb()
+  const trimmed = input.name.trim()
+  const now = nowIso()
   const changes = db
     .prepare(
-      "UPDATE chats SET name = ?, updated_at = ?, sync_dirty = 1 WHERE id = ?",
+      "UPDATE chats SET name = ?, updated_at = ? WHERE id = ?",
     )
-    .run(input.name.trim(), nowIso(), input.chatId)
+    .run(trimmed, now, input.chatId)
   if (changes.changes === 0)
     throw new Error(`Chat not found: ${input.chatId}`)
-  enqueue("chat", input.chatId, "upsert")
-  kickSyncEngine()
   return { chat: fetchChat(input.chatId) }
 }
 
@@ -127,13 +128,13 @@ export function chatsArchive(input: {
 
 export function chatsDelete(input: { chatId: string }) {
   const db = getDb()
-  const exists = (
-    db
-      .prepare("SELECT COUNT(*) as c FROM chats WHERE id = ?")
-      .get(input.chatId) as { c: number }
-  ).c > 0
-  if (!exists)
+  const existing = db
+    .prepare("SELECT session_key FROM chats WHERE id = ?")
+    .get(input.chatId) as { session_key: string | null } | undefined
+  if (!existing)
     throw new Error(`Chat not found: ${input.chatId}`)
+
+  if (existing.session_key) rememberAnchor("chat", input.chatId, existing.session_key)
 
   enqueue("chat", input.chatId, "delete")
   db.prepare("DELETE FROM chats WHERE id = ?").run(input.chatId)
@@ -154,6 +155,7 @@ export function chatsAttachSession(input: {
     .run(input.sessionKey, nowIso(), nowIso(), input.chatId)
   if (changes.changes === 0)
     throw new Error(`Chat not found: ${input.chatId}`)
+  rememberAnchor("chat", input.chatId, input.sessionKey)
   enqueue("chat", input.chatId, "upsert")
   kickSyncEngine()
   return {

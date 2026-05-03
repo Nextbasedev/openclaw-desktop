@@ -18,6 +18,12 @@ const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "connect", label: "Connect", icon: "connect" },
 ]
 
+const NAV_HREFS: Record<string, string> = {
+  chat: "/",
+  skill: "/skill",
+  connect: "/connect",
+}
+
 type SidebarProps = {
   className?: string
   width?: number
@@ -27,7 +33,7 @@ type SidebarProps = {
   activeTab: string
   onTabChange: (tab: string) => void
   items: SidebarNavItem[]
-  onItemsChange: (items: SidebarNavItem[]) => void
+  onItemsReorder: (ids: string[]) => void
   activeTopic: ActiveTopic | null
   onTopicSelect: (topic: ActiveTopic) => void
   onTopicClear: () => void
@@ -47,7 +53,7 @@ export function Sidebar({
   activeTab,
   onTabChange,
   items,
-  onItemsChange,
+  onItemsReorder,
   activeTopic,
   onTopicSelect,
   onTopicClear,
@@ -63,7 +69,10 @@ export function Sidebar({
   const [projectsPopoverOpen, setProjectsPopoverOpen] = useState(false)
   const prevCollapsed = useRef(collapsed)
 
-  useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     function syncViewport() {
@@ -75,21 +84,14 @@ export function Sidebar({
     return () => window.removeEventListener("resize", syncViewport)
   }, [])
 
-  if (prevCollapsed.current !== collapsed) {
+  useEffect(() => {
+    if (prevCollapsed.current === collapsed) return
     prevCollapsed.current = collapsed
     if (!collapsed) {
       if (chatsPopoverOpen) setChatsPopoverOpen(false)
       if (projectsPopoverOpen) setProjectsPopoverOpen(false)
     }
-  }
-
-  const handleReorder = useCallback((newOrder: string[]) => {
-    if (collapsed) return
-    const reordered = newOrder
-      .map((id) => items.find((i) => i.id === id))
-      .filter(Boolean) as SidebarNavItem[]
-    onItemsChange(reordered)
-  }, [collapsed, items, onItemsChange])
+  }, [chatsPopoverOpen, collapsed, projectsPopoverOpen])
 
   const sidebarStyle = useMemo(
     () =>
@@ -99,8 +101,6 @@ export function Sidebar({
       }) as CSSProperties,
     [width],
   )
-  const itemIds = useMemo(() => items.map((i) => i.id), [items])
-
   const handleChatSelectInPopover = useCallback((chat: ActiveChat) => {
     setChatsPopoverOpen(false)
     onChatSelect(chat)
@@ -111,6 +111,12 @@ export function Sidebar({
     onTopicSelect(topic)
   }, [onTopicSelect])
 
+  const handlePrimaryTabClick = useCallback((tab: string) => {
+    onTabChange(tab)
+    if (isMobileViewport) onClose?.()
+  }, [isMobileViewport, onClose, onTabChange])
+
+  const isHiddenMobileSidebar = collapsed && isMobileViewport
   const showExpandedContent = !collapsed || isMobileViewport
   const itemCollapsed = isMobileViewport ? false : collapsed
 
@@ -129,10 +135,12 @@ export function Sidebar({
       />
 
       <aside
+        aria-hidden={isHiddenMobileSidebar}
         style={sidebarStyle}
         className={cn(
           "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden",
           "w-[var(--sidebar-width)]",
+          "z-40",
           "border-r border-border/50 bg-card/70 backdrop-blur-xl",
           "shadow-none transition-[width,transform,opacity] duration-200 ease-out",
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",
@@ -148,17 +156,39 @@ export function Sidebar({
           "relative z-10 flex-1 py-3",
           "px-2",
           showExpandedContent ? "overflow-y-auto scroll-smooth overscroll-contain" : "overflow-hidden",
+          isHiddenMobileSidebar && "hidden",
         )}>
           {mounted && showExpandedContent ? (
-            <Reorder.Group axis="y" values={itemIds} onReorder={handleReorder} as="div" className="flex flex-col gap-0.5">
+            <Reorder.Group
+              axis="y"
+              values={items.map((i) => i.id)}
+              onReorder={onItemsReorder}
+              as="div"
+              className="flex flex-col gap-0.5"
+            >
               {items.map((item) => (
-                <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={itemCollapsed} draggable />
+                <SidebarItem
+                  key={item.id}
+                  item={item}
+                  isActive={activeTab === item.id}
+                  onClick={() => handlePrimaryTabClick(item.id)}
+                  href={NAV_HREFS[item.id]}
+                  collapsed={itemCollapsed}
+                  draggable
+                />
               ))}
             </Reorder.Group>
           ) : (
             <div className="flex flex-col gap-0.5">
               {items.map((item) => (
-                <SidebarItem key={item.id} item={item} isActive={activeTab === item.id} onClick={() => onTabChange(item.id)} collapsed={itemCollapsed} />
+                <SidebarItem
+                  key={item.id}
+                  item={item}
+                  isActive={activeTab === item.id}
+                  onClick={() => handlePrimaryTabClick(item.id)}
+                  href={NAV_HREFS[item.id]}
+                  collapsed={itemCollapsed}
+                />
               ))}
 
               <Popover open={chatsPopoverOpen} onOpenChange={setChatsPopoverOpen}>
@@ -262,6 +292,7 @@ export function Sidebar({
               onTopicClear={onTopicClear}
             />
           </div>
+
         </nav>
 
         {!collapsed && (

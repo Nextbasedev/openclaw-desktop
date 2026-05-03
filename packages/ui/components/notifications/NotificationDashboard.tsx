@@ -25,23 +25,43 @@ type SelectedJob = {
   name: string
   session: string
   schedule: string
+  prompt: string
 }
 
 type NotificationDashboardProps = {
+  activeSessionKey?: string | null
   onBack?: () => void
   defaultTab?: NotificationSection
+  initialSelectedJob?: SelectedJob | null
   onDraftPrompt?: (prompt: string) => void
+  onNavigateToChat?: (chat: {
+    id: string
+    name: string
+    sessionKey?: string
+    cronJobId?: string
+    cronRunId?: string
+  }) => void | boolean | Promise<void | boolean>
 }
 
 export function NotificationDashboard({
+  activeSessionKey,
   onBack,
   defaultTab = "cron-jobs",
+  initialSelectedJob,
   onDraftPrompt,
+  onNavigateToChat,
 }: NotificationDashboardProps) {
   const [activeSection, setActiveSection] =
     React.useState<NotificationSection>(defaultTab)
   const [selectedJob, setSelectedJob] =
     React.useState<SelectedJob | null>(null)
+
+  React.useEffect(() => {
+    if (initialSelectedJob) {
+      setActiveSection("activity")
+      setSelectedJob(initialSelectedJob)
+    }
+  }, [initialSelectedJob])
 
   const handleSectionChange = (id: NotificationSection) => {
     setActiveSection(id)
@@ -50,9 +70,14 @@ export function NotificationDashboard({
 
   return (
     <div className="flex h-full w-full justify-center gap-15 pt-10">
-      <nav className="flex w-[180px] shrink-0 flex-col px-3 py-6">
+      <nav
+        data-testid="notifications-sidebar"
+        className="flex w-[180px] shrink-0 flex-col px-3 py-6"
+      >
         {onBack && (
           <button
+            type="button"
+            data-testid="notifications-back"
             onClick={onBack}
             className="group mb-4 flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
@@ -75,6 +100,8 @@ export function NotificationDashboard({
               <button
                 key={item.id}
                 type="button"
+                data-testid={`notifications-tab-${item.id}`}
+                data-active={isActive ? "true" : "false"}
                 onClick={() => handleSectionChange(item.id)}
                 className={cn(
                   "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[14px] transition-colors",
@@ -101,17 +128,21 @@ export function NotificationDashboard({
             jobId={selectedJob.jobId}
             jobName={selectedJob.name}
             schedule={selectedJob.schedule}
+            prompt={selectedJob.prompt}
             onBack={() => setSelectedJob(null)}
           />
         ) : (
           <>
             {activeSection === "cron-jobs" && (
               <CronJobsTab
+                activeSessionKey={activeSessionKey}
                 onSelectJob={setSelectedJob}
                 onDraftPrompt={onDraftPrompt}
               />
             )}
-            {activeSection === "activity" && <ActivityTab />}
+            {activeSection === "activity" && (
+              <ActivityTab onNavigateToChat={onNavigateToChat} />
+            )}
           </>
         )}
       </div>

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 
 const ROUTES = [
-  { path: "/", waitFor: "Jarvis", expectMain: "Select model" },
+  { path: "/", waitFor: "OpenClaw", expectMain: "Select model" },
   { path: "/connect", waitFor: "Gateway Settings", expectMain: "Gateway Settings" },
   { path: "/settings", waitFor: "Memory", expectMain: "Memory" },
   { path: "/skill", waitFor: "Discover Skills", expectMain: "Discover Skills" },

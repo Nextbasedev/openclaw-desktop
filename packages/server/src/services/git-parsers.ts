@@ -52,13 +52,14 @@ const STATUS_MAP: Record<string, FileState> = {
   "?": "untracked",
 }
 
-export function gitHelper(args: string[], cwd: string): string {
+export function gitHelper(args: string[], cwd: string, maxBuffer = 64 * 1024 * 1024): string {
   try {
-    return execFileSync("git", args, { cwd, timeout: 10_000 })
+    return execFileSync("git", args, { cwd, timeout: 10_000, maxBuffer })
       .toString()
       .replace(/\r/g, "")
       .replace(/\n+$/, "")
   } catch (err: any) {
+    if (err?.code === "ENOBUFS") throw err
     throw new Error(`spawnSync git ENOENT (cwd: ${cwd})`)
   }
 }

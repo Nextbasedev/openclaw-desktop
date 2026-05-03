@@ -18,7 +18,7 @@ import type { Chat } from "@/types/chat"
 
 type Props = {
   chatId: string
-  chats: Chat[]
+  chat: Chat
   isActive: boolean
   isPinned: boolean
   onClick: () => void
@@ -26,11 +26,12 @@ type Props = {
   onRename: () => void
   onArchive: () => void
   onDelete: () => void
+  disableReorder?: boolean
 }
 
 export function ChatRow({
   chatId,
-  chats,
+  chat,
   isActive,
   isPinned,
   onClick,
@@ -38,37 +39,20 @@ export function ChatRow({
   onRename,
   onArchive,
   onDelete,
+  disableReorder,
 }: Props) {
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
   const [menuOpen, setMenuOpen] = useState(false)
-  const chat = chats.find((c) => c.id === chatId)
-  if (!chat) return null
 
-  const timeStr = formatCompactTime(chat.updatedAt)
+  const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.updatedAt)
   const displayName = chatDisplayName(chat)
 
-  return (
-    <Reorder.Item
-      value={chatId}
-      dragListener={false}
-      dragControls={controls}
-      as="div"
-      layout="position"
-      transition={{
-        layout: {
-          type: "tween",
-          duration: 0.15,
-          ease: [0.2, 0, 0, 1],
-        },
-      }}
-      className="group/row relative flex min-w-0 items-center rounded-md"
-      style={{ position: "relative", boxShadow: "none" }}
-      whileDrag={{ boxShadow: "none" }}
-      {...longPress}
-    >
+  const rowContent = (
+    <>
       <button
-        onClick={onClick}
+        onClick={chat.pendingFork ? undefined : onClick}
+        disabled={chat.pendingFork}
         className={cn(
           "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 text-left transition-colors duration-150",
           isActive
@@ -79,22 +63,25 @@ export function ChatRow({
         <span
           onClick={(e) => {
             e.stopPropagation()
-            onPin()
+            if (!chat.pendingFork) onPin()
           }}
           title={isPinned ? "Unpin" : "Pin"}
           className={cn(
             "flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all duration-150",
-            isPinned
+            chat.pendingFork && "cursor-default opacity-100 text-muted-foreground/50",
+            !chat.pendingFork && (isPinned
               ? isActive
                 ? "text-foreground"
                 : "text-foreground/70"
-              : "text-muted-foreground/40 opacity-0 hover:text-foreground group-hover/row:opacity-100",
+              : "text-muted-foreground/40 opacity-0 hover:text-foreground group-hover/row:opacity-100"),
           )}
         >
-          <Icons.Pin
-            size={15}
-            strokeWidth={isPinned ? 2 : 1.5}
-          />
+          {chat.pendingFork ? <span className="size-3 animate-spin rounded-full border border-muted-foreground/20 border-t-muted-foreground/70" /> : (
+            <Icons.Pin
+              size={15}
+              strokeWidth={isPinned ? 2 : 1.5}
+            />
+          )}
         </span>
         <span className="flex-1 truncate text-[13px] font-light">
           {displayName}
@@ -104,7 +91,7 @@ export function ChatRow({
       <div className="absolute right-1 flex h-5 w-5 items-center justify-center">
         <span
           className={cn(
-            "pointer-events-none absolute select-none text-[10px] tabular-nums text-muted-foreground/35 transition-opacity duration-100",
+            "pointer-events-none absolute select-none text-[10px] tabular-nums text-muted-foreground/50 transition-opacity duration-100",
             isActive || menuOpen
               ? "opacity-0"
               : "group-hover/row:opacity-0",
@@ -112,10 +99,11 @@ export function ChatRow({
         >
           {timeStr}
         </span>
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        {!chat.pendingFork && <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               title="Chat options"
               className={cn(
                 "absolute flex h-5 w-5 cursor-pointer items-center justify-center rounded transition-all duration-100",
@@ -169,8 +157,42 @@ export function ChatRow({
               danger
             />
           </PopoverContent>
-        </Popover>
+        </Popover>}
       </div>
+    </>
+  )
+
+  if (disableReorder) {
+    return (
+      <div
+        className="group/row relative flex min-w-0 items-center rounded-md"
+        style={{ position: "relative" }}
+      >
+        {rowContent}
+      </div>
+    )
+  }
+
+  return (
+    <Reorder.Item
+      value={chatId}
+      dragListener={false}
+      dragControls={controls}
+      as="div"
+      layout="position"
+      transition={{
+        layout: {
+          type: "tween",
+          duration: 0.15,
+          ease: [0.2, 0, 0, 1],
+        },
+      }}
+      className="group/row relative flex min-w-0 items-center rounded-md"
+      style={{ position: "relative", boxShadow: "none" }}
+      whileDrag={{ boxShadow: "none" }}
+      {...(!chat.pendingFork ? longPress : {})}
+    >
+      {rowContent}
     </Reorder.Item>
   )
 }

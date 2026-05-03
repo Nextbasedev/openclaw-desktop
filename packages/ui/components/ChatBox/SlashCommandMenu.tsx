@@ -4,12 +4,18 @@ import { useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import type { SlashCommand } from "@/hooks/useSlashCommands"
+import {
+  filterSlashCommands,
+  groupSlashCommands,
+} from "@/lib/slashCommandFilter"
 
 type Props = {
   commands: SlashCommand[]
   filter: string
   selectedIndex: number
   onSelect: (command: SlashCommand) => void
+  prefix?: "/" | "@"
+  groupLabel?: string
 }
 
 export function SlashCommandMenu({
@@ -17,12 +23,13 @@ export function SlashCommandMenu({
   filter,
   selectedIndex,
   onSelect,
+  prefix = "/",
+  groupLabel,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
 
-  const filtered = commands.filter((cmd) =>
-    cmd.name.toLowerCase().includes(filter.toLowerCase()),
-  )
+  const filtered = filterSlashCommands(commands, filter)
+  const groups = groupSlashCommands(filtered)
 
   useEffect(() => {
     const el = listRef.current?.children[selectedIndex] as HTMLElement
@@ -54,35 +61,52 @@ export function SlashCommandMenu({
       }}
       className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-full origin-bottom overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg"
     >
-      {filtered.map((cmd, i) => (
-        <motion.button
-          key={cmd.name}
-          type="button"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 4 }}
-          transition={{ duration: 0.16, ease: "easeOut" }}
-          className={cn(
-            "flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-colors",
-            i === selectedIndex
-              ? "bg-muted text-popover-foreground"
-              : "text-muted-foreground hover:bg-muted/50",
-          )}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            onSelect(cmd)
-          }}
-        >
-          <span className="text-sm font-medium text-foreground">
-            /{cmd.name}
-          </span>
-          {cmd.description && (
-            <span className="text-xs text-muted-foreground">
-              {cmd.description}
-            </span>
-          )}
-        </motion.button>
-      ))}
+      {groups.map((group) => {
+        let groupOffset = 0
+        for (const previous of groups) {
+          if (previous.id === group.id) break
+          groupOffset += previous.commands.length
+        }
+        return (
+          <div key={group.id} className="py-1">
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">
+              {group.label}
+            </p>
+            {group.commands.map((cmd, i) => {
+              const absoluteIndex = groupOffset + i
+              return (
+                <motion.button
+                  key={cmd.name}
+                  type="button"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.16, ease: "easeOut" }}
+                  className={cn(
+                    "flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-colors",
+                    absoluteIndex === selectedIndex
+                      ? "bg-muted text-popover-foreground"
+                      : "text-muted-foreground hover:bg-muted/50",
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    onSelect(cmd)
+                  }}
+                >
+                  <span className="text-sm font-medium text-foreground">
+                    {prefix}{cmd.name}
+                  </span>
+                  {cmd.description && (
+                    <span className="text-xs text-muted-foreground">
+                      {cmd.description}
+                    </span>
+                  )}
+                </motion.button>
+              )
+            })}
+          </div>
+        )
+      })}
     </motion.div>
   )
 }
@@ -91,7 +115,5 @@ export function getFilteredCommands(
   commands: SlashCommand[],
   filter: string,
 ): SlashCommand[] {
-  return commands.filter((cmd) =>
-    cmd.name.toLowerCase().includes(filter.toLowerCase()),
-  )
+  return filterSlashCommands(commands, filter)
 }

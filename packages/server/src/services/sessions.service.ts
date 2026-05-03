@@ -8,6 +8,14 @@ import {
   recordSyncTombstone,
   type SessionRow,
 } from "../db/helpers.js"
+import { enqueue } from "../sync/outbox.js"
+import { kickSyncEngine } from "../sync/engine.js"
+
+function enqueueChatForSession(sessionKey: string): void {
+  const db = getDb()
+  const row = db.prepare("SELECT id FROM chats WHERE session_key = ?").get(sessionKey) as { id: string } | undefined
+  if (row) enqueue("chat", row.id, "upsert", db)
+}
 
 const SESSION_COLUMNS = "session_key, session_id, project_id, topic_id, agent_id, label, status, created_at, updated_at, pinned, hidden, source"
 
@@ -78,6 +86,8 @@ export function sessionsUpdate(input: {
     nowIso(),
     input.sessionKey,
   )
+  enqueueChatForSession(input.sessionKey)
+  kickSyncEngine()
 
   const row = db.prepare(`SELECT ${SESSION_COLUMNS} FROM session_mappings WHERE session_key = ?`).get(input.sessionKey) as SessionRow
   return { session: sessionRowToJson(row) }

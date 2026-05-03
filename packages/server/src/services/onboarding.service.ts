@@ -961,6 +961,48 @@ function isLocalGatewayUrl(gatewayUrl: string): boolean {
   }
 }
 
+function syncDefaultGatewayProfile(gatewayUrl: string) {
+  const db = getDb()
+  const now = new Date().toISOString()
+  const remote = !isLocalGatewayUrl(gatewayUrl)
+  const mode = remote ? "remote" : "local"
+  const name = remote ? "Remote OpenClaw" : "Local OpenClaw"
+  const workspaceRoot = remote
+    ? "/root/.openclaw/workspace"
+    : path.join(os.homedir(), ".openclaw", "workspace")
+  const capabilities = {
+    openclaw: true,
+    files: !remote && fs.existsSync(workspaceRoot),
+    git: true,
+    terminal: !remote,
+    bootstrap: false,
+  }
+
+  const existingDefault = db
+    .prepare("SELECT id FROM profiles WHERE is_default = 1 ORDER BY updated_at DESC LIMIT 1")
+    .get() as { id: string } | undefined
+  const existingSameGateway = db
+    .prepare("SELECT id FROM profiles WHERE gateway_url = ? ORDER BY updated_at DESC LIMIT 1")
+    .get(gatewayUrl) as { id: string } | undefined
+  const id = existingDefault?.id ?? existingSameGateway?.id ?? `prof_gateway_${crypto.randomUUID().replace(/-/g, "")}`
+
+  db.prepare("UPDATE profiles SET is_default = 0 WHERE id != ?").run(id)
+  db.prepare(
+    `INSERT INTO profiles (id, name, mode, gateway_url, workspace_root, is_default, status, capabilities_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, 'connected', ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       mode = excluded.mode,
+       gateway_url = excluded.gateway_url,
+       workspace_root = excluded.workspace_root,
+       is_default = 1,
+       status = 'connected',
+       capabilities_json = excluded.capabilities_json,
+       updated_at = excluded.updated_at,
+       last_error = NULL`,
+  ).run(id, name, mode, gatewayUrl, workspaceRoot, JSON.stringify(capabilities), now, now)
+}
+
 export function onboardingSaveGatewayConfig(input: {
   gatewayUrl: string
   token?: string
@@ -986,8 +1028,8 @@ export function onboardingSaveGatewayConfig(input: {
     const origins = [
       "http://localhost:3000",
       "http://127.0.0.1:3000",
-      "http://localhost:3001",
-      "http://127.0.0.1:3001",
+      "http://localhost:4000",
+      "http://127.0.0.1:4000",
       "tauri://localhost",
     ]
     controlUi.allowedOrigins = [
@@ -997,6 +1039,7 @@ export function onboardingSaveGatewayConfig(input: {
     existing.gateway = gw
   }
   fs.writeFileSync(configPath, JSON.stringify(existing, null, 2))
+  syncDefaultGatewayProfile(input.gatewayUrl)
   return { saved: true, configPath }
 }
 
@@ -1019,7 +1062,6 @@ export function onboardingGenerateIdentity() {
       }
     }
   }
-  const deviceId = `device_${crypto.randomUUID().replace(/-/g, "")}`
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519")
   const publicKeyPem = publicKey
     .export({ type: "spki", format: "pem" })
@@ -1027,14 +1069,21 @@ export function onboardingGenerateIdentity() {
   const privateKeyPem = privateKey
     .export({ type: "pkcs8", format: "pem" })
     .toString()
+
+  // Device ID must be SHA-256 of raw public key bytes (gateway derives it the same way)
+  const spkiDer = publicKey.export({ type: "spki", format: "der" })
+  const rawKey = spkiDer.subarray(12) // strip 12-byte SPKI header for Ed25519
+  const deviceId = crypto.createHash("sha256").update(rawKey).digest("hex")
+
   fs.writeFileSync(
     identityPath,
     JSON.stringify(
       {
-        device_id: deviceId,
-        created_at: new Date().toISOString(),
+        version: 1,
+        deviceId,
         publicKeyPem,
         privateKeyPem,
+        createdAtMs: Date.now(),
       },
       null,
       2,

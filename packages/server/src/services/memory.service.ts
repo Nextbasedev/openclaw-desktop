@@ -67,7 +67,7 @@ function scanMemoryFiles(
       if (entry.isFile() && entry.name.endsWith(".md")) {
         const stat = fs.statSync(fullPath)
         results.push({
-          path: fullPath,
+          path: path.relative(openclawWorkspaceRoot(), fullPath),
           name: entry.name,
           size: stat.size,
         })
@@ -80,7 +80,7 @@ function scanMemoryFiles(
             const subPath = path.join(fullPath, sub.name)
             const stat = fs.statSync(subPath)
             results.push({
-              path: subPath,
+              path: path.relative(openclawWorkspaceRoot(), subPath),
               name: sub.name,
               size: stat.size,
             })
@@ -109,6 +109,9 @@ export function memoryRead(input: {
   const resolved = resolveMemoryPath(input.path)
   if (!fs.existsSync(resolved)) {
     throw new Error(`Memory file not found: ${input.path}`)
+  }
+  if (!fs.statSync(resolved).isFile()) {
+    throw new Error(`Memory path is a directory: ${input.path}`)
   }
 
   let content = fs.readFileSync(resolved, "utf-8")

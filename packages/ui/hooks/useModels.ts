@@ -8,11 +8,46 @@ export type ModelEntry = {
   name: string
   provider: string
   reasoning?: boolean
+  health?: {
+    status: "available" | "unavailable" | "degraded"
+    reason?: string
+    code?: string
+  }
 }
 
+type RawModelEntry = ModelEntry | string | { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean; health?: ModelEntry["health"] }
+
 type ModelsResponse = {
-  models: ModelEntry[]
-  currentModel: string | null
+  models?: RawModelEntry[]
+  currentModel?: string | null
+  defaultModel?: string | null
+}
+
+function normalizeModelEntry(entry: RawModelEntry): ModelEntry | null {
+  if (typeof entry === "string") {
+    const ref = entry
+    if (!ref.trim()) return null
+    const [provider, id] = ref.includes("/") ? ref.split(/\/(.+)/) : ["custom", ref]
+    return { id, provider, name: id, reasoning: false }
+  }
+
+  const raw = entry as { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean; health?: ModelEntry["health"] }
+  const ref = String(raw.id || raw.model || raw.value || "")
+  if (!ref.trim()) return null
+  const [providerFromRef, idFromRef] = ref.includes("/") ? ref.split(/\/(.+)/) : ["custom", ref]
+  const provider = String(raw.provider || providerFromRef || "custom")
+  const id = String(raw.id || idFromRef || ref)
+  return { id, provider, name: String(raw.name || id), reasoning: Boolean(raw.reasoning), health: raw.health }
+}
+
+function normalizeModelsResponse(response: ModelsResponse): { models: ModelEntry[]; currentModel: string | null } {
+  const models = (response.models ?? []).map(normalizeModelEntry).filter((model): model is ModelEntry => Boolean(model))
+  const currentModel = response.currentModel ?? response.defaultModel ?? null
+  if (currentModel && !models.some((model) => model.id === currentModel || `${model.provider}/${model.id}` === currentModel)) {
+    const current = normalizeModelEntry(currentModel)
+    if (current) models.unshift(current)
+  }
+  return { models, currentModel }
 }
 
 let cachedModels: ModelEntry[] | null = null
@@ -23,8 +58,8 @@ export function isActiveModel(
   model: ModelEntry,
 ): boolean {
   if (!current) return false
-  const bare = current.includes("/") ? current.split("/")[1] : current
-  return model.id === current || model.id === bare
+  const bare = current.includes("/") ? current.split(/\/(.+)/)[1] : current
+  return model.id === current || `${model.provider}/${model.id}` === current || model.id === bare
 }
 
 export function useModels() {
@@ -33,26 +68,35 @@ export function useModels() {
     cachedCurrent,
   )
   const [loading, setLoading] = useState(!cachedModels)
+  const [error, setError] = useState<string | null>(null)
   const fetched = useRef(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    if (!force && fetched.current && cachedModels) return
+    fetched.current = true
+    setError(null)
+    setLoading(true)
     try {
       const res = await invoke<ModelsResponse>("middleware_models_list", {
         input: {},
       })
-      cachedModels = res.models ?? []
-      cachedCurrent = res.currentModel ?? null
+      const normalized = normalizeModelsResponse(res)
+      cachedModels = normalized.models
+      cachedCurrent = normalized.currentModel
       setModels(cachedModels)
       setCurrentModel(cachedCurrent)
-    } catch {}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load models")
+    }
     finally { setLoading(false) }
   }, [])
 
   useEffect(() => {
-    if (fetched.current) return
-    fetched.current = true
-    load()
+    void load(false)
   }, [load])
 
-  return { models, currentModel, loading, reload: load }
+  const ensureLoaded = useCallback(() => load(false), [load])
+  const reload = useCallback(() => load(true), [load])
+
+  return { models, currentModel, loading, error, reload, ensureLoaded }
 }

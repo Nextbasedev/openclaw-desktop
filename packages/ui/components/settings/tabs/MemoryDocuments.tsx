@@ -54,7 +54,7 @@ export function MemoryDocuments() {
     try {
       const res = await invoke<{ content: string }>(
         "middleware_memory_read",
-        { input: { path: doc.name } },
+        { input: { path: doc.path || doc.name } },
       )
       setView({ mode: "view", doc, content: res.content ?? "" })
     } catch (err) {

@@ -1,11 +1,29 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
-import { LuCopy, LuCheck, LuChevronLeft, LuChevronRight, LuX, LuPenLine } from "react-icons/lu"
+import {
+  LuCheck,
+  LuChevronLeft,
+  LuChevronRight,
+  LuCopy,
+  LuEllipsisVertical,
+  LuPenLine,
+  LuPin,
+  LuRefreshCw,
+  LuReply,
+  LuThumbsDown,
+  LuThumbsUp,
+  LuX,
+  LuGitFork,
+} from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
+import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
 
 function CopyButton({ text, className: cls }: { text: string; className?: string }) {
@@ -24,7 +42,7 @@ function CopyButton({ text, className: cls }: { text: string; className?: string
       className={cn(
         "flex size-6 items-center justify-center rounded-md",
         "transition-colors duration-150",
-        "cursor-pointer text-foreground/30 hover:text-foreground/60",
+        "cursor-pointer text-foreground/30 hover:text-white",
         cls,
       )}
     >
@@ -42,6 +60,73 @@ function formatTime(dateStr?: string): string | null {
   } catch {
     return null
   }
+}
+
+function formatTokenCount(value?: number | null): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`
+  return String(value)
+}
+
+function ResponseMetadata({ message }: { message: ChatMessage }) {
+  const usage = message.usage
+  const total = formatTokenCount(usage?.total)
+  const hasDetails = Boolean(message.model || total || message.stopReason)
+  if (!hasDetails) return null
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-foreground/5 hover:text-muted-foreground"
+          aria-label="Response metadata"
+        >
+          {[message.model, total ? `${total} tokens` : null].filter(Boolean).join(" • ")}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={4}
+        className={cn("w-64 p-3 text-[11px]", GLASS_POPOVER)}
+      >
+        <div className="space-y-2">
+          {message.model && (
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground/60">Model</span>
+              <span className="truncate font-mono text-foreground/80">{message.model}</span>
+            </div>
+          )}
+          {usage && (
+            <div className="space-y-1 border-t border-border/20 pt-2">
+              {([
+                ["Input", usage.input],
+                ["Output", usage.output],
+                ["Cache read", usage.cacheRead],
+                ["Cache write", usage.cacheWrite],
+                ["Total", usage.total],
+              ] satisfies Array<[string, number | null | undefined]>).map(([label, value]) => (
+                typeof value === "number" && value > 0 ? (
+                  <div key={label} className="flex justify-between gap-3">
+                    <span className="text-muted-foreground/60">{label}</span>
+                    <span className="font-mono text-foreground/80">{value.toLocaleString()}</span>
+                  </div>
+                ) : null
+              ))}
+            </div>
+          )}
+          {message.stopReason && (
+            <div className="flex justify-between gap-3 border-t border-border/20 pt-2">
+              <span className="text-muted-foreground/60">Stop</span>
+              <span className="font-mono text-foreground/80">{message.stopReason}</span>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 function BranchNav({
@@ -62,7 +147,7 @@ function BranchNav({
         type="button"
         disabled={current <= 1}
         onClick={() => onSwitch(current - 2)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground/70 disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-white disabled:cursor-default disabled:opacity-30"
       >
         <LuChevronLeft className="size-3.5" />
       </button>
@@ -73,7 +158,7 @@ function BranchNav({
         type="button"
         disabled={current >= total}
         onClick={() => onSwitch(current)}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-foreground/70 disabled:cursor-default disabled:opacity-30"
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/40 transition-colors hover:text-white disabled:cursor-default disabled:opacity-30"
       >
         <LuChevronRight className="size-3.5" />
       </button>
@@ -85,17 +170,43 @@ export function MessageBubble({
   message,
   onEdit,
   onSwitchBranch,
+  onReply,
+  onPin,
+  onDelete,
+  onRegenerate,
+  onReact,
+  onExport,
+  onTextAnimationComplete,
+  onFork,
+  isPinned,
+  reaction,
   isGenerating,
   isActivelyStreaming,
+  popoverOpen,
+  onPopoverOpenChange,
 }: {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
   onSwitchBranch?: (messageId: string, branchIndex: number) => void
+  onReply?: (messageId: string) => void
+  onPin?: (messageId: string) => void
+  onDelete?: (messageId: string) => void
+  onRegenerate?: (messageId: string) => void
+  onReact?: (messageId: string, reaction: "up" | "down") => void
+  onExport?: (messageId: string) => void
+  onTextAnimationComplete?: (messageId: string) => void
+  onFork?: (messageId: string) => void
+  isPinned?: boolean
+  reaction?: "up" | "down"
   isGenerating?: boolean
   isActivelyStreaming?: boolean
+  popoverOpen?: boolean
+  onPopoverOpenChange?: (open: boolean) => void
 }) {
   const isUser = message.role === "user"
   const shouldAnimateSend = isUser && message.isOptimistic
+  const hideAssistantActions =
+    !isUser && (Boolean(isActivelyStreaming) || Boolean(message.animateText))
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -133,6 +244,12 @@ export function MessageBubble({
     }
   }, [editing])
 
+  useEffect(() => {
+    if (hideAssistantActions && popoverOpen) {
+      onPopoverOpenChange?.(false)
+    }
+  }, [hideAssistantActions, popoverOpen, onPopoverOpenChange])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -149,17 +266,40 @@ export function MessageBubble({
   return (
     <motion.div
       initial={shouldAnimateSend ? { opacity: 0, y: 12, scale: 0.985 } : false}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{
-        duration: shouldAnimateSend ? 0.16 : 0.12,
+      animate={shouldAnimateSend ? { opacity: 1, y: 0, scale: 1 } : undefined}
+      transition={shouldAnimateSend ? {
+        duration: 0.16,
         ease: [0.22, 1, 0.36, 1],
-      }}
+      } : { duration: 0 }}
       className={cn(
-        "group/msg flex w-full transform-gpu",
+        "group/msg flex w-full min-w-0 transform-gpu",
         isUser ? "justify-end" : "justify-start",
       )}
     >
-      <div className={cn("flex max-w-[85%] flex-col", isUser ? "items-end" : "items-start")}>
+      <div className={cn("flex min-w-0 max-w-[85%] flex-col", isUser ? "items-end" : "w-[85%] items-start")}>
+        {message.replyTo && (
+          <button
+            type="button"
+            onClick={() => {
+              document
+                .getElementById(`message-${message.replyTo!.messageId}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+            }}
+            className={cn(
+              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-border/20 bg-foreground/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.06]",
+            )}
+          >
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-medium text-muted-foreground/60">
+                {message.replyTo.role === "user" ? "You" : "Assistant"}
+              </span>
+              <p className="line-clamp-2 text-[12px] leading-snug text-foreground/50">
+                {message.replyTo.text.slice(0, 150)}
+                {message.replyTo.text.length > 150 ? "…" : ""}
+              </p>
+            </div>
+          </button>
+        )}
         {isUser && editing ? (
           <div className="flex w-full min-w-[280px] flex-col gap-2 rounded-2xl border border-border/30 bg-foreground/5 p-3">
             <textarea
@@ -178,7 +318,7 @@ export function MessageBubble({
               <button
                 type="button"
                 onClick={cancelEdit}
-                className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground/40 transition-colors hover:text-foreground/70"
+                className="flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground/40 transition-colors hover:text-white"
               >
                 <LuX className="size-4" />
               </button>
@@ -192,20 +332,35 @@ export function MessageBubble({
             </div>
           </div>
         ) : (
-        <div
-          className={cn(
-            "text-[14px] leading-relaxed",
-            isUser
-              ? "rounded-2xl rounded-tr-sm bg-foreground px-4 py-2.5 text-background"
-              : "text-foreground",
-          )}
-        >
-          {isUser ? (
-            <p className="whitespace-pre-wrap">{message.text}</p>
-          ) : (
-            <MarkdownContent text={message.text} />
-          )}
-        </div>
+          <>
+            {isUser && (
+              <div className="mb-1.5">
+                <RichContentPreview message={message} />
+              </div>
+            )}
+            <div
+              className={cn(
+                "min-w-0 max-w-full text-[14px] leading-relaxed",
+                isUser
+                  ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                  : "w-full text-foreground",
+              )}
+            >
+              {isUser ? (
+                <p className="whitespace-pre-wrap">{message.text}</p>
+              ) : (
+                <MarkdownContent
+                  text={message.text}
+                  embeds={message.embeds}
+                  streaming={isActivelyStreaming || message.animateText}
+                  onRevealComplete={() =>
+                    onTextAnimationComplete?.(message.messageId)
+                  }
+                />
+              )}
+              {!isUser && <RichContentPreview message={message} />}
+            </div>
+          </>
         )}
         {isUser ? (
           <div className="mt-1 flex items-center gap-1 flex-row-reverse">
@@ -219,12 +374,22 @@ export function MessageBubble({
                 <button
                   type="button"
                   onClick={startEdit}
-                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-foreground/60"
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-white"
                 >
                   <LuPenLine className="size-3.5" />
                 </button>
               )}
               <CopyButton text={message.text} />
+              {onReply && (
+                <button
+                  type="button"
+                  onClick={() => onReply(message.messageId)}
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-md text-foreground/30 transition-colors hover:text-white"
+                  aria-label="Reply"
+                >
+                  <LuReply className="size-3.5" />
+                </button>
+              )}
             </div>
             {hasBranches && !editing && onSwitchBranch && (
               <BranchNav
@@ -235,14 +400,133 @@ export function MessageBubble({
             )}
           </div>
         ) : (
-          !isActivelyStreaming && (
+          !hideAssistantActions && (
             <div className="mt-1 flex items-center gap-2">
               {formatTime(message.createdAt) && (
                 <span className="text-[10px] text-muted-foreground/40">
                   {formatTime(message.createdAt)}
                 </span>
               )}
-              <CopyButton text={message.text} />
+              <ResponseMetadata message={message} />
+              <div className="flex items-center gap-0.5">
+                {onReact && (
+                  <div className="flex items-center gap-0.5">
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      {(reaction === "up" || !reaction) && (
+                        <motion.button
+                          key="up"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          type="button"
+                          onClick={() => onReact(message.messageId, "up")}
+                          className={cn(
+                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
+                            reaction === "up"
+                              ? "text-white"
+                              : "text-foreground/30 hover:text-white"
+                          )}
+                          aria-label="Helpful"
+                        >
+                          {reaction === "up" ? (
+                            <LuThumbsUp className="size-3.5 fill-white" />
+                          ) : (
+                            <LuThumbsUp className="size-3.5" />
+                          )}
+                        </motion.button>
+                      )}
+
+                      {(reaction === "down" || !reaction) && (
+                        <motion.button
+                          key="down"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          type="button"
+                          onClick={() => onReact(message.messageId, "down")}
+                          className={cn(
+                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
+                            reaction === "down"
+                              ? "text-white"
+                              : "text-foreground/30 hover:text-white"
+                          )}
+                          aria-label="Not helpful"
+                        >
+                          {reaction === "down" ? (
+                            <LuThumbsDown className="size-3.5 fill-white" />
+                          ) : (
+                            <LuThumbsDown className="size-3.5" />
+                          )}
+                        </motion.button>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+                <CopyButton text={message.text} />
+                {(onPin || onReply || onFork || (onRegenerate && !isGenerating)) && (
+                  <Popover
+                    open={popoverOpen}
+                    onOpenChange={onPopoverOpenChange}
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded transition-all duration-100 text-foreground/30 hover:text-white"
+                        aria-label="More actions"
+                      >
+                        <LuEllipsisVertical className="size-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      side="right"
+                      sideOffset={4}
+                      className={cn("w-36 gap-0 p-1", GLASS_POPOVER)}
+                    >
+                      {onPin && (
+                        <MenuAction
+                          label={isPinned ? "Unpin" : "Pin"}
+                          icon={<LuPin className="size-3.5" />}
+                          onClick={() => {
+                            onPin(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                      {onReply && (
+                        <MenuAction
+                          label="Reply"
+                          icon={<LuReply className="size-3.5" />}
+                          onClick={() => {
+                            onReply(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                      {onRegenerate && !isGenerating && (
+                        <MenuAction
+                          label="Regenerate"
+                          icon={<LuRefreshCw className="size-3.5" />}
+                          onClick={() => {
+                            onRegenerate(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                      {onFork && (
+                        <MenuAction
+                          label="Fork"
+                          icon={<LuGitFork className="size-3.5" />}
+                          onClick={() => {
+                            onFork(message.messageId)
+                            onPopoverOpenChange?.(false)
+                          }}
+                        />
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                )}
+              </div>
             </div>
           )
         )}

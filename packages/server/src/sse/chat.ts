@@ -1,8 +1,16 @@
 import type { Request, Response } from "express"
-import { chatEvents } from "../services/chat.service.js"
+import { chatEvents, getLastSessionStatus } from "../services/chat.service.js"
+
+const ACTIVE_STATES = new Set([
+  "thinking",
+  "tool_running",
+  "streaming",
+  "stopping",
+  "restarting",
+])
 
 export function chatStreamHandler(req: Request, res: Response): void {
-  const sessionKey = req.params.sessionKey
+  const sessionKey = req.params.sessionKey as string
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -10,6 +18,13 @@ export function chatStreamHandler(req: Request, res: Response): void {
     "Access-Control-Allow-Origin": "*",
   })
   res.write("\n")
+
+  const lastStatus = getLastSessionStatus(sessionKey)
+  if (lastStatus && ACTIVE_STATES.has(lastStatus.state)) {
+    res.write(
+      `event: ${lastStatus.type}\ndata: ${JSON.stringify(lastStatus)}\n\n`,
+    )
+  }
 
   const handler = (event: unknown) => {
     const typed = event as { type?: string }

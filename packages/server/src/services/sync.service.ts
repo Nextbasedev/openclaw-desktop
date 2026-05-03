@@ -1,8 +1,8 @@
 import { getDb } from "../db/connection.js"
 import { nowIso, getAppSetting, setAppSetting, recordSyncTombstone } from "../db/helpers.js"
 import { pullOnce } from "../sync/pull.js"
-import { forceBackfill } from "../sync/backfill.js"
-import { kickSyncEngine } from "../sync/engine.js"
+import { enqueueDirtyRows, forceBackfill } from "../sync/backfill.js"
+import { kickSyncEngine, pushDueTasks } from "../sync/engine.js"
 
 export function syncStatus() {
   const db = getDb()
@@ -12,19 +12,17 @@ export function syncStatus() {
   const dirtyProjects = (db.prepare("SELECT COUNT(*) as c FROM projects WHERE sync_dirty = 1").get() as { c: number }).c
   const dirtyTopics = (db.prepare("SELECT COUNT(*) as c FROM topics WHERE sync_dirty = 1").get() as { c: number }).c
   const dirtySessions = (db.prepare("SELECT COUNT(*) as c FROM session_mappings WHERE sync_dirty = 1").get() as { c: number }).c
-  const dirtyBranches = (db.prepare("SELECT COUNT(*) as c FROM branches WHERE sync_dirty = 1").get() as { c: number }).c
   const tombstoneCount = (db.prepare("SELECT COUNT(*) as c FROM sync_tombstones").get() as { c: number }).c
 
   return {
     deviceId,
     lastSyncAt,
-    dirtyCount: dirtyProjects + dirtyTopics + dirtySessions + dirtyBranches,
+    dirtyCount: dirtyProjects + dirtyTopics + dirtySessions,
     tombstoneCount,
     breakdown: {
       projects: dirtyProjects,
       topics: dirtyTopics,
       sessions: dirtySessions,
-      branches: dirtyBranches,
     },
   }
 }
@@ -89,4 +87,10 @@ export async function syncPullNow() {
     topics,
     chats,
   }
+}
+
+export async function syncPushNow(input?: { limit?: number }) {
+  const repaired = enqueueDirtyRows()
+  const result = await pushDueTasks(input?.limit ?? 25)
+  return { ok: true, repaired: repaired.enqueued, ...result, pushedAt: nowIso() }
 }

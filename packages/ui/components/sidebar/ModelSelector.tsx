@@ -3,10 +3,9 @@
 import { useState, useRef, useEffect } from "react"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuCheck, LuSearch } from "react-icons/lu"
-import { Icons } from "@/components/icons"
+import { LuCheck, LuSearch, LuTriangleAlert } from "react-icons/lu"
 import { GlassDialog } from "@/components/ui/GlassDialog"
-import { useModels, isActiveModel, type ModelEntry } from "@/hooks/useModels"
+import { useModels, isActiveModel } from "@/hooks/useModels"
 
 type Props = {
   open: boolean
@@ -14,7 +13,13 @@ type Props = {
 }
 
 export function ModelSelector({ open, onOpenChange }: Props) {
-  const { models, currentModel: current, reload } = useModels()
+  const {
+    models,
+    currentModel: current,
+    loading,
+    error,
+    reload,
+  } = useModels()
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
   const searchRef = useRef<HTMLInputElement>(null)
@@ -22,11 +27,14 @@ export function ModelSelector({ open, onOpenChange }: Props) {
   useEffect(() => {
     if (open) {
       setQuery("")
+      reload()
       setTimeout(() => searchRef.current?.focus(), 50)
     }
-  }, [open])
+  }, [reload, open])
 
   async function handleSelect(modelId: string) {
+    const model = models.find((m) => `${m.provider}/${m.id}` === modelId || m.id === modelId)
+    if (model?.health?.status === "unavailable") return
     setSaving(true)
     try {
       await invoke("middleware_models_set_default", {
@@ -43,7 +51,14 @@ export function ModelSelector({ open, onOpenChange }: Props) {
   const currentModel = models.find((m) => isActiveModel(current, m))
   const label = currentModel?.name ?? current ?? "Select model"
 
-  const filtered = models.filter((m) => {
+  const unique = models.filter(
+    (m, i, arr) =>
+      arr.findIndex(
+        (x) => x.name.toLowerCase() === m.name.toLowerCase(),
+      ) === i,
+  )
+
+  const filtered = unique.filter((m) => {
     if (!query.trim()) return true
     const q = query.toLowerCase()
     return (
@@ -51,13 +66,6 @@ export function ModelSelector({ open, onOpenChange }: Props) {
       m.provider.toLowerCase().includes(q)
     )
   })
-
-  const grouped = filtered.reduce<Record<string, ModelEntry[]>>((acc, m) => {
-    const key = m.provider
-    if (!acc[key]) acc[key] = []
-    acc[key].push(m)
-    return acc
-  }, {})
 
   return (
     <GlassDialog
@@ -87,53 +95,68 @@ export function ModelSelector({ open, onOpenChange }: Props) {
         </div>
       </div>
 
-      <div className="max-h-[320px] overflow-y-auto">
-        {Object.entries(grouped).map(([provider, providerModels]) => (
-          <div key={provider}>
-            <p className="px-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/40">
-              {provider}
+      <div className="h-[320px] overflow-y-auto">
+        {loading && models.length === 0 && (
+          <p className="px-2.5 py-4 text-center text-[12px] text-muted-foreground">
+            Loading models...
+          </p>
+        )}
+        {!loading && error && (
+          <div className="flex flex-col items-center gap-2 px-2.5 py-4">
+            <p className="text-center text-[12px] text-red-400">
+              {error}
             </p>
-            {providerModels.map((model) => {
-              const active = isActiveModel(current, model)
-              return (
-                <button
-                  key={model.id}
-                  type="button"
-                  disabled={saving}
-                  onClick={() =>
-                    handleSelect(`${model.provider}/${model.id}`)
-                  }
-                  className={cn(
-                    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
-                    "transition-colors",
-                    saving && "opacity-50",
-                    active
-                      ? "bg-foreground/8 text-foreground"
-                      : "text-foreground/80 hover:bg-foreground/5 hover:text-foreground",
-                  )}
-                >
-                  <div className="flex flex-1 flex-col gap-0.5 min-w-0">
-                    <span className="truncate text-[13px] font-medium">
-                      {model.name}
-                    </span>
-                    {model.reasoning && (
-                      <span className="text-[10px] text-amber-400/70">
-                        reasoning
-                      </span>
-                    )}
-                  </div>
-                  {active && (
-                    <LuCheck
-                      size={14}
-                      className="shrink-0 text-emerald-400"
-                    />
-                  )}
-                </button>
-              )
-            })}
+            <button
+              type="button"
+              onClick={reload}
+              className="rounded-md px-3 py-1 text-[11px] text-foreground/70 hover:bg-foreground/5"
+            >
+              Retry
+            </button>
           </div>
-        ))}
-        {filtered.length === 0 && (
+        )}
+        {!loading && !error && filtered.map((model) => {
+          const active = isActiveModel(current, model)
+          const unavailable = model.health?.status === "unavailable"
+          return (
+            <button
+              key={`${model.provider}/${model.id}`}
+              type="button"
+              disabled={saving || unavailable}
+              onClick={() =>
+                handleSelect(`${model.provider}/${model.id}`)
+              }
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
+                "transition-colors",
+                saving && "opacity-50",
+                unavailable && "cursor-not-allowed opacity-45",
+                active
+                  ? "bg-foreground/8 text-foreground"
+                  : "text-foreground/80 hover:bg-foreground/5 hover:text-foreground",
+              )}
+            >
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-[13px] font-medium">
+                    {model.name}
+                  </span>
+                  {unavailable && <LuTriangleAlert size={12} className="shrink-0 text-amber-400/80" />}
+                </div>
+                <span className={cn("text-[10px]", unavailable ? "text-amber-300/80" : "text-muted-foreground/50")}>
+                  {unavailable ? model.health?.reason : model.reasoning ? "reasoning" : model.provider}
+                </span>
+              </div>
+              {active && (
+                <LuCheck
+                  size={14}
+                  className="shrink-0 text-white"
+                />
+              )}
+            </button>
+          )
+        })}
+        {!loading && !error && filtered.length === 0 && (
           <p className="px-2.5 py-4 text-center text-[12px] text-muted-foreground">
             No models match &ldquo;{query}&rdquo;
           </p>

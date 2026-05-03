@@ -1,9 +1,12 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { LuDownload, LuArrowRight, LuCheck } from "react-icons/lu"
+import {
+  LuDownload,
+  LuArrowRight,
+  LuCheck,
+} from "react-icons/lu"
 import type { DiscoveredSkill } from "./types"
-
 
 export function SkillCard({
   skill,
@@ -33,7 +36,6 @@ export function SkillCard({
         if (e.key === "Enter") onClick(skill.slug)
       }}
     >
-      {/* Glossy overlay effect on hover */}
       <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
       <div className="relative flex items-start justify-between gap-4">
@@ -42,14 +44,14 @@ export function SkillCard({
             <h3 className="truncate text-[15px] font-semibold text-foreground/90 group-hover:text-foreground transition-colors">
               {skill.name}
             </h3>
-            <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-muted-foreground/80 group-hover:text-muted-foreground transition-colors">
+            <p className="mt-1.5 min-h-[2.50rem] line-clamp-2 text-[12px] leading-relaxed text-muted-foreground/80 group-hover:text-muted-foreground transition-colors">
               {skill.description || "No description available."}
             </p>
           </div>
         </div>
 
         <div
-          className="relative z-10 shrink-0"
+          className="relative z-10 flex shrink-0 items-center gap-2"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >
@@ -64,7 +66,7 @@ export function SkillCard({
                 className={cn(
                   "h-4 w-4 rounded-full transition-all duration-300 shadow-sm",
                   skill.enabled
-                    ? "translate-x-4 bg-emerald-500 shadow-emerald-500/40"
+                    ? "translate-x-4 bg-white shadow-white"
                     : "translate-x-0 bg-zinc-500",
                 )}
               />
@@ -90,27 +92,27 @@ export function SkillCard({
         </div>
       </div>
 
-      <div className="relative mt-6 flex items-center justify-between">
+      <div className="relative mt-auto pt-8 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className={cn(
             "flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider",
             skill.source === "clawhub"
               ? "bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20"
               : skill.source === "local"
-                ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20"
+                ? "bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20"
                 : "bg-zinc-500/10 text-zinc-400 ring-1 ring-zinc-500/20",
           )}>
              {skill.source}
           </div>
-          
+
           {skill.installed && (
-            <div className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 ring-1 ring-emerald-500/20">
+            <div className="flex items-center gap-1 rounded-full bg-blue-500/10 text-blue-400 px-2 py-0.5 text-[10px] font-bold ring-1 ring-blue-500/20">
               <LuCheck size={10} />
-              <span>ENABLED</span>
+              <span>{skill.enabled ? "ENABLED" : "DISABLED"}</span>
             </div>
           )}
         </div>
-        
+
         <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-tight text-muted-foreground/40 transition-all duration-300 group-hover:translate-x-1 group-hover:text-primary">
           <span className="uppercase opacity-0 group-hover:opacity-100 transition-opacity">Details</span>
           <LuArrowRight size={14} className="opacity-40 group-hover:opacity-100 transition-opacity" />

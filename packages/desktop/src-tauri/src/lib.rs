@@ -1,4 +1,5 @@
 mod backend;
+#[cfg(target_os = "windows")]
 mod windows_toast;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -9,10 +10,23 @@ pub fn run() {
     "--enable-features=OverlayScrollbar,OverlayScrollbarFlashAfterAnyScrollUpdate",
   );
 
-  let app = tauri::Builder::default()
+  let builder = tauri::Builder::default()
     .manage(backend::BackendState::default())
     .plugin(tauri_plugin_notification::init())
-    .invoke_handler(tauri::generate_handler![windows_toast::show_reply_notification])
+    .plugin(tauri_plugin_dialog::init());
+
+  #[cfg(not(target_os = "windows"))]
+  let builder = builder.invoke_handler(tauri::generate_handler![
+    backend::read_backend_log,
+  ]);
+
+  #[cfg(target_os = "windows")]
+  let builder = builder.invoke_handler(tauri::generate_handler![
+    backend::read_backend_log,
+    windows_toast::show_reply_notification,
+  ]);
+
+  let app = builder
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

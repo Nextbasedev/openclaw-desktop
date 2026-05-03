@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
+import { checkGatewayOrRedirect } from "@/lib/toast"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
@@ -139,6 +140,7 @@ export function useProjectsData(
   const handleRepoSelect = useCallback(
     async (repo: { name: string; path: string }) => {
       setNewProjectPath(repo.path)
+      if (!newProjectName.trim()) setNewProjectName(repo.name)
       setRepoPickerOpen(false)
       try {
         await invoke("middleware_repos_select", {
@@ -146,16 +148,27 @@ export function useProjectsData(
         })
       } catch {}
     },
-    []
+    [newProjectName]
   )
 
   const loadProjects = useCallback(async () => {
     try {
+      const gwActive =
+        localStorage.getItem("jarvis.gatewayActive") === "true"
+      if (!gwActive) {
+        setProjects([])
+        return
+      }
+    } catch {}
+    try {
       const result = await invoke<{ projects: Project[] }>(
         "middleware_projects_list"
       )
-      const active = (result.projects || []).filter((p) => !p.archived)
+      const active = (result.projects || []).filter(
+        (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
+      )
       setProjects(active)
+      setPinnedProjects(new Set(active.filter((p) => p.pinned).map((p) => p.id)))
     } catch (e) {
       console.error("[ProjectsSection] load projects failed", e)
     }
@@ -202,6 +215,14 @@ export function useProjectsData(
         )
         const active = (result.topics || []).filter((t) => !t.archived)
         setProjectTopics((prev) => ({ ...prev, [projectId]: active }))
+        setPinnedTopics((prev) => {
+          const next = new Set(prev)
+          for (const topic of active) {
+            if (topic.pinned) next.add(topic.id)
+            else next.delete(topic.id)
+          }
+          return next
+        })
         setTopicOrder((prev) => {
           const existing = (prev[projectId] || []).filter((id) =>
             active.some((t) => t.id === id)
@@ -219,6 +240,68 @@ export function useProjectsData(
     },
     [projectTopics]
   )
+
+  useEffect(() => on("sidebar:refresh", () => {
+    loadProjects()
+    for (const id of Object.keys(projectTopics)) loadProjectTopics(id, true)
+  }), [loadProjects, loadProjectTopics, projectTopics])
+
+  useEffect(() => {
+    return on<any>("fork:create", (event) => {
+      const context = event?.context
+      if (!event || context?.type !== "topic" || !context.projectId) return
+      const projectId = context.projectId
+      if (event.status === "pending") {
+        const now = new Date().toISOString()
+        const placeholder: FullTopic = {
+          id: event.requestId,
+          name: event.name || "Creating fork…",
+          projectId,
+          archived: false,
+          pinned: false,
+          unreadCount: 0,
+          sortOrder: Date.now(),
+          createdAt: now,
+          updatedAt: now,
+          pendingFork: true,
+        }
+        setExpandedProjects((prev) => new Set([...prev, projectId]))
+        setProjectTopics((prev) => ({
+          ...prev,
+          [projectId]: [placeholder, ...(prev[projectId] || []).filter((topic) => topic.id !== event.requestId)],
+        }))
+        setTopicOrder((prev) => ({
+          ...prev,
+          [projectId]: [event.requestId, ...(prev[projectId] || []).filter((id) => id !== event.requestId)],
+        }))
+        return
+      }
+      if (event.status === "resolved") {
+        setProjectTopics((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).map((topic) => topic.id === event.requestId
+            ? { ...topic, id: event.topicId, name: event.name, pendingFork: false, updatedAt: new Date().toISOString() }
+            : topic,
+          ),
+        }))
+        setTopicOrder((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).map((id) => id === event.requestId ? event.topicId : id),
+        }))
+        return
+      }
+      if (event.status === "failed") {
+        setProjectTopics((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).filter((topic) => topic.id !== event.requestId),
+        }))
+        setTopicOrder((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).filter((id) => id !== event.requestId),
+        }))
+      }
+    })
+  }, [])
 
   useEffect(() => {
     function onArchiveRestored() {
@@ -248,15 +331,15 @@ export function useProjectsData(
   const togglePinProject = useCallback((projectId: string) => {
     setPinnedProjects((prev) => {
       const next = new Set(prev)
-      if (next.has(projectId)) {
-        next.delete(projectId)
-      } else {
+      const pinned = !next.has(projectId)
+      if (pinned) {
         next.add(projectId)
-        setProjectOrder((o) => [
-          projectId,
-          ...o.filter((id) => id !== projectId),
-        ])
+        setProjectOrder((o) => [projectId, ...o.filter((id) => id !== projectId)])
+      } else {
+        next.delete(projectId)
       }
+      invoke("middleware_projects_update", { input: { projectId, pinned } })
+        .catch((error) => console.error("pin project failed", error))
       return next
     })
   }, [])
@@ -264,18 +347,18 @@ export function useProjectsData(
   const togglePinTopic = useCallback((topicId: string, projectId: string) => {
     setPinnedTopics((prev) => {
       const next = new Set(prev)
-      if (next.has(topicId)) {
-        next.delete(topicId)
-      } else {
+      const pinned = !next.has(topicId)
+      if (pinned) {
         next.add(topicId)
         setTopicOrder((o) => ({
           ...o,
-          [projectId]: [
-            topicId,
-            ...(o[projectId] || []).filter((id) => id !== topicId),
-          ],
+          [projectId]: [topicId, ...(o[projectId] || []).filter((id) => id !== topicId)],
         }))
+      } else {
+        next.delete(topicId)
       }
+      invoke("middleware_topics_update", { input: { topicId, pinned } })
+        .catch((error) => console.error("pin topic failed", error))
       return next
     })
   }, [])
@@ -289,15 +372,20 @@ export function useProjectsData(
 
   const handleCreateProject = useCallback(async () => {
     if (!newProjectName.trim()) return
+    if (!(await checkGatewayOrRedirect())) return
     setCreatingProject(true)
     setProjectError("")
     try {
       let profileId = "prof_local_main"
+      let workspaceRoot = "~"
       try {
-        const r = await invoke<{ profiles: Array<{ id: string }> }>(
+        const r = await invoke<{ profiles: Array<{ id: string; workspaceRoot?: string }> }>(
           "middleware_profiles_list"
         )
-        if (r?.profiles?.length > 0) profileId = r.profiles[0].id
+        if (r?.profiles?.length > 0) {
+          profileId = r.profiles[0].id
+          workspaceRoot = r.profiles[0].workspaceRoot || workspaceRoot
+        }
       } catch {}
 
       const result = await invoke<{ project: { id: string; name: string } }>(
@@ -306,8 +394,8 @@ export function useProjectsData(
           input: {
             name: newProjectName.trim(),
             profileId,
-            workspaceRoot: newProjectPath || "~",
-            repoRoot: newProjectPath || "~",
+            workspaceRoot: newProjectPath || workspaceRoot,
+            repoRoot: newProjectPath || null,
           },
         }
       )
@@ -368,6 +456,7 @@ export function useProjectsData(
 
   const handleCreateTopic = useCallback(async () => {
     if (!newTopicName.trim() || !createTopicForProject) return
+    if (!(await checkGatewayOrRedirect())) return
     setCreatingTopic(true)
     setTopicError("")
     try {

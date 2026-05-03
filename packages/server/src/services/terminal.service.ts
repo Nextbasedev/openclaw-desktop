@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import fs from "node:fs"
+import { ensureGatewayClient } from "../gateway/client.js"
 import { getDb } from "../db/connection.js"
 import {
   nowIso,
@@ -11,6 +11,7 @@ import {
 export const MAX_SESSIONS = 20
 const DEFAULT_TERMINAL_COLS = 120
 const DEFAULT_TERMINAL_ROWS = 30
+const POLL_MS = 100
 
 const TERMINAL_COLUMNS =
   "id, project_id, topic_id, title, cwd, status, last_active_at, runtime_id"
@@ -18,25 +19,60 @@ const TERMINAL_COLUMNS =
 export const terminalEvents = new EventEmitter()
 
 interface TerminalHandle {
-  write: (data: string) => void
-  resize: (cols: number, rows: number) => void
-  kill: () => void
+  terminalId: string
+  stopPolling: () => void
   runtimeId: string
 }
 
 const activeTerminals = new Map<string, TerminalHandle>()
 
-function getShell(): string {
-  return process.env.SHELL || "/bin/sh"
-}
+function startPolling(
+  sessionId: string,
+  terminalId: string,
+) {
+  let stopped = false
 
-async function loadNodePty() {
-  try {
-    return await import("node-pty")
-  } catch {
-    throw new Error(
-      "node-pty is not installed. Run: pnpm add node-pty",
-    )
+  async function poll() {
+    while (!stopped) {
+      try {
+        const gw = await ensureGatewayClient()
+        const res = await gw.request<{
+          data?: string
+          exited?: boolean
+          exitCode?: number
+        }>("terminal.read", { terminalId })
+        if (!res.ok) break
+        const p = res.payload
+        if (p?.data) {
+          terminalEvents.emit(
+            `terminal:output:${sessionId}`,
+            { sessionId, data: p.data },
+          )
+        }
+        if (p?.exited) {
+          terminalEvents.emit(
+            `terminal:exit:${sessionId}`,
+            { sessionId, code: p.exitCode },
+          )
+          activeTerminals.delete(sessionId)
+          try {
+            const db = getDb()
+            db.prepare(
+              "UPDATE terminal_sessions SET status = 'closed', last_active_at = ? WHERE id = ?",
+            ).run(nowIso(), sessionId)
+          } catch {}
+          break
+        }
+      } catch {
+        break
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS))
+    }
+  }
+
+  poll()
+  return () => {
+    stopped = true
   }
 }
 
@@ -61,15 +97,6 @@ export async function terminalCreate(input: {
     throw new Error(`Project not found: ${input.projectId}`)
   }
 
-  const cwd = input.cwd ?? project.workspace_root
-  if (!fs.existsSync(cwd)) {
-    throw new Error(`Directory not found: ${cwd}`)
-  }
-  const stat = fs.statSync(cwd)
-  if (!stat.isDirectory()) {
-    throw new Error(`Not a directory: ${cwd}`)
-  }
-
   if (activeTerminals.size >= MAX_SESSIONS) {
     throw new Error(
       `Maximum session limit reached (${MAX_SESSIONS})`,
@@ -79,6 +106,7 @@ export async function terminalCreate(input: {
   const cols = input.cols ?? DEFAULT_TERMINAL_COLS
   const rows = input.rows ?? DEFAULT_TERMINAL_ROWS
   const title = input.title ?? "Terminal"
+  const cwd = input.cwd ?? project.workspace_root
   const now = nowIso()
   const sessionId = generateId("term")
   const runtimeId = generateId("rt")
@@ -96,44 +124,27 @@ export async function terminalCreate(input: {
     runtimeId,
   )
 
-  const ptyMod = await loadNodePty()
-  const shell = getShell()
-  const ptyProcess = ptyMod.spawn(shell, [], {
-    name: "xterm-256color",
-    cols,
-    rows,
-    cwd,
-    env: process.env as Record<string, string>,
-  })
+  const gw = await ensureGatewayClient()
+  const res = await gw.request<{
+    terminalId?: string
+    cwd?: string
+  }>("terminal.spawn", { cols, rows, cwd })
 
-  const handle: TerminalHandle = {
-    write: (data: string) => ptyProcess.write(data),
-    resize: (c: number, r: number) => ptyProcess.resize(c, r),
-    kill: () => ptyProcess.kill(),
-    runtimeId,
+  if (!res.ok || !res.payload?.terminalId) {
+    throw new Error(
+      res.error?.message ?? "terminal.spawn failed",
+    )
   }
-  activeTerminals.set(sessionId, handle)
 
-  ptyProcess.onData((data: string) => {
-    terminalEvents.emit(`terminal:output:${sessionId}`, {
-      sessionId,
-      data,
-    })
-  })
+  const stopPolling = startPolling(
+    sessionId,
+    res.payload.terminalId,
+  )
 
-  ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
-    terminalEvents.emit(`terminal:exit:${sessionId}`, {
-      sessionId,
-      code: exitCode,
-    })
-    activeTerminals.delete(sessionId)
-    try {
-      db.prepare(
-        "UPDATE terminal_sessions SET status = 'closed', last_active_at = ? WHERE id = ?",
-      ).run(nowIso(), sessionId)
-    } catch {
-      // DB may be closed during shutdown
-    }
+  activeTerminals.set(sessionId, {
+    terminalId: res.payload.terminalId,
+    stopPolling,
+    runtimeId,
   })
 
   const row = db
@@ -145,7 +156,9 @@ export async function terminalCreate(input: {
   return { terminal: terminalRowToJson(row) }
 }
 
-export function terminalList(input: { projectId: string }) {
+export function terminalList(input: {
+  projectId: string
+}) {
   const db = getDb()
   const rows = db
     .prepare(
@@ -155,7 +168,7 @@ export function terminalList(input: { projectId: string }) {
   return { terminals: rows.map(terminalRowToJson) }
 }
 
-export function terminalWrite(input: {
+export async function terminalWrite(input: {
   sessionId: string
   data: string
 }) {
@@ -166,7 +179,11 @@ export function terminalWrite(input: {
     )
   }
 
-  handle.write(input.data)
+  const gw = await ensureGatewayClient()
+  await gw.request("terminal.write", {
+    terminalId: handle.terminalId,
+    data: input.data,
+  })
 
   const db = getDb()
   db.prepare(
@@ -176,7 +193,7 @@ export function terminalWrite(input: {
   return { ok: true }
 }
 
-export function terminalResize(input: {
+export async function terminalResize(input: {
   sessionId: string
   cols: number
   rows: number
@@ -188,11 +205,18 @@ export function terminalResize(input: {
     )
   }
 
-  handle.resize(input.cols, input.rows)
+  const gw = await ensureGatewayClient()
+  await gw.request("terminal.resize", {
+    terminalId: handle.terminalId,
+    cols: input.cols,
+    rows: input.rows,
+  })
   return { ok: true }
 }
 
-export function terminalClose(input: { sessionId: string }) {
+export async function terminalClose(input: {
+  sessionId: string
+}) {
   const handle = activeTerminals.get(input.sessionId)
   if (!handle) {
     throw new Error(
@@ -200,7 +224,11 @@ export function terminalClose(input: { sessionId: string }) {
     )
   }
 
-  handle.kill()
+  handle.stopPolling()
+  const gw = await ensureGatewayClient()
+  await gw.request("terminal.kill", {
+    terminalId: handle.terminalId,
+  })
   activeTerminals.delete(input.sessionId)
 
   const db = getDb()

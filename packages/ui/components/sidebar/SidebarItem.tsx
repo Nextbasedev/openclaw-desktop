@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
-import { Reorder, useDragControls } from "framer-motion"
+import { Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
-import { useLongPressDrag } from "@/hooks/useLongPressDrag"
 import { cn } from "@/lib/utils"
 
 export type SidebarNavItem = {
@@ -15,31 +14,57 @@ type SidebarItemProps = {
   item: SidebarNavItem
   isActive: boolean
   onClick: () => void
+  href?: string
   collapsed?: boolean
   draggable?: boolean
 }
 
-export function SidebarItem({ item, isActive, onClick, collapsed = false, draggable = false }: SidebarItemProps) {
-  const controls = useDragControls()
-  const longPress = useLongPressDrag(controls)
+export function SidebarItem({
+  item,
+  isActive,
+  onClick,
+  href,
+  collapsed = false,
+  draggable = false,
+}: SidebarItemProps) {
+  const interactiveClassName = cn(
+    "group flex w-full min-w-0 items-center rounded-md font-normal",
+    "gap-2.5 text-left text-[13px]",
+    collapsed ? "px-2.5 py-2" : "px-2.5 py-1.5",
+    "transition-[background-color,color,opacity] duration-150 ease-in-out",
+    "cursor-pointer",
+    isActive
+      ? "text-foreground"
+      : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
+  )
 
-  const btn = (
+  const content = (
+    <>
+      <NavIcon type={item.icon} />
+      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+    </>
+  )
+
+  const btn = href ? (
+    <a
+      href={href}
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault()
+        onClick()
+      }}
+      data-testid={`sidebar-nav-${item.id}`}
+      className={interactiveClassName}
+    >
+      {content}
+    </a>
+  ) : (
     <button
       type="button"
       onClick={onClick}
-      className={cn(
-        "group flex w-full min-w-0 items-center rounded-md font-normal",
-        "gap-2.5 text-left text-[13px]",
-        collapsed ? "px-2.5 py-2" : "px-2.5 py-1.5",
-        "transition-[background-color,color,opacity] duration-150 ease-in-out",
-        "cursor-pointer",
-        isActive
-          ? "text-foreground"
-          : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-      )}
+      data-testid={`sidebar-nav-${item.id}`}
+      className={interactiveClassName}
     >
-      <NavIcon type={item.icon} />
-      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+      {content}
     </button>
   )
 
@@ -54,14 +79,11 @@ export function SidebarItem({ item, isActive, onClick, collapsed = false, dragga
   return (
     <Reorder.Item
       value={item.id}
-      dragListener={false}
-      dragControls={controls}
       as="div"
       layout="position"
       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
-      style={{ position: "relative", boxShadow: "none" }}
-      whileDrag={{ boxShadow: "none" }}
-      {...longPress}
+      style={{ position: "relative", boxShadow: "none", cursor: "grab" }}
+      whileDrag={{ boxShadow: "none", cursor: "grabbing" }}
     >
       {btn}
     </Reorder.Item>
@@ -75,7 +97,8 @@ export function GlassTooltip({ label, children, disabled }: { label: string; chi
   const triggerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setMounted(true)
+    const timer = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(timer)
   }, [])
 
   function handleEnter() {

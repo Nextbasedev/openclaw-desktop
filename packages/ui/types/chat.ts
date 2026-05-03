@@ -8,6 +8,7 @@ export type Chat = {
   lastActiveAt?: string
   createdAt: string
   updatedAt: string
+  pendingFork?: boolean
 }
 
 export type ActiveChat = {
@@ -15,4 +16,5 @@ export type ActiveChat = {
   name: string
   sessionKey?: string
   cronJobId?: string
+  cronRunId?: string
 }

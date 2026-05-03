@@ -49,3 +49,17 @@ export function forceBackfill(): { enqueued: number } {
   const result = runBackfillIfNeeded()
   return { enqueued: result.enqueued }
 }
+
+export function enqueueDirtyRows(): { enqueued: number } {
+  const db = getDb()
+  let enqueued = 0
+  const projects = db.prepare("SELECT id FROM projects WHERE sync_dirty = 1 AND deleted_at IS NULL").all() as Array<{ id: string }>
+  const topics = db.prepare("SELECT id FROM topics WHERE sync_dirty = 1 AND deleted_at IS NULL").all() as Array<{ id: string }>
+  const chats = db.prepare("SELECT id FROM chats WHERE sync_dirty = 1 AND deleted_at IS NULL AND session_key IS NOT NULL").all() as Array<{ id: string }>
+
+  for (const row of projects) { enqueue("project", row.id, "upsert"); enqueued += 1 }
+  for (const row of topics) { enqueue("topic", row.id, "upsert"); enqueued += 1 }
+  for (const row of chats) { enqueue("chat", row.id, "upsert"); enqueued += 1 }
+
+  return { enqueued }
+}
