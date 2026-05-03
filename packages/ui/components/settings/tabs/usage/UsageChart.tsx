@@ -15,6 +15,7 @@ import type { DailyEntry } from "./types"
 type UsageChartProps = {
   daily: DailyEntry[]
   lastUpdated: Date | null
+  loading?: boolean
 }
 
 function formatLabel(dateStr: string): string {
@@ -40,6 +41,7 @@ function timeAgo(d: Date): string {
 export function UsageChart({
   daily,
   lastUpdated,
+  loading = false,
 }: UsageChartProps) {
   const chartData = daily.map((d) => ({
     date: d.date,
@@ -50,6 +52,24 @@ export function UsageChart({
 
   return (
     <div className="flex flex-col gap-0 rounded-xl border border-white/[0.06] bg-white/[0.03] p-5 backdrop-blur-xl">
+      {loading ? (
+        <div className="h-[240px] space-y-4 py-3">
+          <div className="ml-auto h-3 w-24 rounded bg-white/[0.06] animate-pulse" />
+          <div className="flex h-[184px] items-end gap-3">
+            {[44, 70, 52, 86, 63, 76, 48, 82, 58, 72, 54, 80].map((height, index) => (
+              <div
+                key={index}
+                className="flex-1 rounded-t-lg bg-white/[0.06] animate-pulse"
+                style={{ height: `${height}%` }}
+              />
+            ))}
+          </div>
+          <div className="flex justify-center gap-6">
+            <div className="h-3 w-20 rounded bg-white/[0.06] animate-pulse" />
+            <div className="h-3 w-24 rounded bg-white/[0.06] animate-pulse" />
+          </div>
+        </div>
+      ) : (
       <div className="h-[240px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
@@ -166,7 +186,8 @@ export function UsageChart({
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      {lastUpdated && (
+      )}
+      {lastUpdated && !loading && (
         <div className="flex justify-end pt-1">
           <span className="text-[10px] text-muted-foreground/50">
             Updated {timeAgo(lastUpdated)}

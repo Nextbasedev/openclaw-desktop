@@ -22,6 +22,7 @@ export function UsageTab() {
     providers,
     daily,
     loading,
+    rangeLoading,
     error,
     lastUpdated,
     refresh,
@@ -80,11 +81,11 @@ export function UsageTab() {
         </div>
       )}
 
-      <UsageStatsCards summary={summary} />
+      <UsageStatsCards summary={summary} loading={rangeLoading} />
 
-      <UsageChart daily={daily} lastUpdated={lastUpdated} />
+      <UsageChart daily={daily} lastUpdated={lastUpdated} loading={rangeLoading} />
 
-      <UsageBreakdown providers={providers} />
+      <UsageBreakdown providers={providers} loading={rangeLoading} />
     </div>
   )
 }
