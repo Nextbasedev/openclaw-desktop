@@ -754,9 +754,20 @@ export function commandRoutes(store: Store) {
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const key = input.sessionKey ? activeSessionKey(s, input.sessionKey) : `agent:main:desktop:${crypto.randomUUID()}`
           const beforeCommandSession = readSessionStoreEntry(key)
+          const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as any : null
+          const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
+          const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
+          const shouldPatchExecPolicy = input.execPolicy === null || execSecurity || execAsk
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
+            if (shouldPatchExecPolicy) {
+              const patch = input.execPolicy === null
+                ? { key, execSecurity: null, execAsk: null }
+                : { key, execSecurity, execAsk }
+              const patched = await gw.request("sessions.patch", patch, 30_000)
+              if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
+            }
             const res = await gw.request("chat.send", {
               sessionKey: key,
               message,

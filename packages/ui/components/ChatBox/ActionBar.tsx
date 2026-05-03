@@ -22,6 +22,7 @@ import {
 import { WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
+import type { ChatAutonomyMode } from "@/lib/chatAttachments"
 
 type ActionBarProps = {
   hasInput: boolean
@@ -31,8 +32,8 @@ type ActionBarProps = {
   onAbort?: () => void
   webSearchEnabled: boolean
   onWebSearchDisable: () => void
-  autonomyMode: "full" | "supervised" | "manual"
-  onAutonomyModeChange: (mode: "full" | "supervised" | "manual") => void
+  autonomyMode: ChatAutonomyMode
+  onAutonomyModeChange: (mode: ChatAutonomyMode) => void
   plusOpen: boolean
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
