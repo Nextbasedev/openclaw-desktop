@@ -48,6 +48,13 @@ function contentText(content: unknown) {
   return typeof content === "string" ? content : ""
 }
 
+function assistantMessageText(message: any) {
+  const text = contentText(message?.content)
+  if (text) return text
+  if (message?.stopReason === "error" && message?.errorMessage) return `Error: ${message.errorMessage}`
+  return ""
+}
+
 function emitToolCallsFromContent(send: (event: string, data: unknown) => void, sessionKey: string, content: unknown) {
   if (!Array.isArray(content)) return
   for (const block of content as any[]) {
@@ -335,7 +342,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
             return
           }
           if (isSubagentKey(messageSessionKey)) return
-          const text = contentText(content)
+          const text = assistantMessageText(payload.message)
           if (payload.message.role === "assistant") {
             emitToolCallsFromContent(send, sessionKey, content)
             send("chat.message", { type: "chat.message", sessionKey, messageId: payload.message.id ?? payload.messageId ?? null, role: payload.message.role, content, text, createdAt: payload.message.createdAt ?? null, model: payload.message.model ?? null, usage: payload.message.usage ?? null, stopReason: payload.message.stopReason ?? null })
@@ -350,7 +357,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           if (isSubagentKey(payload?.sessionKey)) return
           const state = payload?.state
           const content = payload?.message?.content
-          const text = contentText(content)
+          const text = assistantMessageText(payload?.message)
           emitToolCallsFromContent(send, sessionKey, content)
           if (text) send("chat.message", { type: "chat.message", sessionKey, messageId: payload?.runId ?? null, role: "assistant", content, text, createdAt: null, model: payload?.message?.model ?? null, usage: state === "final" ? payload?.usage ?? null : null, stopReason: state === "final" ? payload?.stopReason ?? null : null })
           if (state === "final") send("chat.status", { type: "chat.status", sessionKey, state: "done" })

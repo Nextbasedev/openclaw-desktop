@@ -203,6 +203,28 @@ describe("isTransientSlashCommandHistory", () => {
 })
 
 describe("parseChatHistory", () => {
+  it("renders assistant provider errors even when the assistant content is empty", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "hii" }] },
+      {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "You have hit your ChatGPT usage limit (free plan). Try again in ~5534 min.",
+        provider: "openai-codex",
+        model: "gpt-5.5",
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(parsed.messages[1]?.role, "assistant")
+    assert.equal(
+      parsed.messages[1]?.text,
+      "Error: You have hit your ChatGPT usage limit (free plan). Try again in ~5534 min.",
+    )
+    assert.equal(parsed.messages[1]?.stopReason, "error")
+  })
+
   it("does not create visible messages for gateway-only user entries", () => {
     const parsed = parseChatHistory([
       {
