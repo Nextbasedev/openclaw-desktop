@@ -10,6 +10,7 @@ export type FullTopic = {
   sortOrder: number
   createdAt: string
   updatedAt: string
+  pendingFork?: boolean
 }
 
 export type ActiveTopic = {
