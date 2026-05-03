@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { invoke, streamUrl } from "@/lib/ipc"
+import { invoke } from "@/lib/ipc"
+import { subscribeChatStream } from "@/lib/chatStream"
 import type {
   ToolCall,
   AgentInfo,
@@ -442,21 +443,13 @@ export function useAgentActivity(sessionKey: string | null) {
     }
 
     loadHistory()
-    const source = new EventSource(
-      streamUrl(`/api/stream/chat/${sessionKey}`),
-    )
-
-    const handleTool = (evt: MessageEvent) => {
+    const unsubscribeStream = subscribeChatStream(sessionKey, ({ type, data }) => {
       if (cancelledRef.current) return
-      try {
-        const data = JSON.parse(evt.data)
+      if (type === "chat.tool") {
         processToolEvent(data)
-      } catch {}
-    }
-    const handleStatus = (evt: MessageEvent) => {
-      if (cancelledRef.current) return
-      try {
-        const data = JSON.parse(evt.data)
+        return
+      }
+      if (type === "chat.status") {
         const state = (data.state as string) ?? null
         setStreamStatus(state)
         if (state === "done" || state === "error") {
@@ -468,31 +461,20 @@ export function useAgentActivity(sessionKey: string | null) {
         ) {
           handleStreamResume()
         }
-      } catch {}
-    }
-    const handleAgent = (evt: MessageEvent) => {
-      if (cancelledRef.current) return
-      try {
-        const data = JSON.parse(evt.data)
+        return
+      }
+      if (type === "chat.agent") {
         processAgentEvent(data)
-      } catch {}
-    }
-    const handleMessage = (evt: MessageEvent) => {
-      if (cancelledRef.current) return
-      try {
-        const data = JSON.parse(evt.data)
+        return
+      }
+      if (type === "chat.message") {
         processMessage(data)
-      } catch {}
-    }
-
-    source.addEventListener("chat.tool", handleTool)
-    source.addEventListener("chat.status", handleStatus)
-    source.addEventListener("chat.agent", handleAgent)
-    source.addEventListener("chat.message", handleMessage)
+      }
+    })
 
     return () => {
       cancelledRef.current = true
-      source.close()
+      unsubscribeStream()
       stopAllSubagentPolls()
       if (doneTimerRef.current) {
         clearTimeout(doneTimerRef.current)
