@@ -24,16 +24,20 @@ import {
 } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 
-const DEFAULT_PLAN_MARKDOWN = `# Plan
+const PLAN_SYSTEM_PROMPT = `You are a planning assistant. You help users create detailed plan.md documents.
 
-## Goal
-- 
+If the user's request is clear enough, generate a detailed plan.md in Markdown.
 
-## Steps
-- [ ] 
+The plan MUST include:
+- Title (H1) and brief summary
+- Overview with goals and scope
+- Architecture / Approach
+- Implementation Steps as a checklist with [P1]/[P2]/[P3] priority labels
+- Timeline / Milestones
+- Risks & Mitigations
+- Open Questions
 
-## Notes
-- `
+After generating the plan, stop. Output only the plan.md Markdown.`
 
 type Props = {
   initialPrompt?: string
@@ -58,7 +62,6 @@ export function ChatBox({
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [planEnabled, setPlanEnabled] = React.useState(false)
-  const [planMarkdown, setPlanMarkdown] = React.useState(DEFAULT_PLAN_MARKDOWN)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [autonomyMode, setAutonomyMode] = React.useState<
     "full" | "supervised" | "manual"
@@ -77,7 +80,6 @@ export function ChatBox({
     initialComposerState,
   )
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
-  const planEditorRef = React.useRef<HTMLDivElement>(null)
   const batchRef = React.useRef<ChatComposerSubmit[]>([])
   const batchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const {
@@ -137,13 +139,6 @@ export function ChatBox({
   }, [initialPrompt])
 
   React.useEffect(() => {
-    if (!planEnabled || !planEditorRef.current) return
-    if (!planEditorRef.current.innerText.trim()) {
-      planEditorRef.current.innerText = planMarkdown
-    }
-  }, [planEnabled, planMarkdown])
-
-  React.useEffect(() => {
     if (errorMessage) {
       setAttachmentError(errorMessage)
     }
@@ -164,8 +159,7 @@ export function ChatBox({
     }
   }, [voiceState])
 
-  const hasPlanMarkdown = planEnabled && planMarkdown.trim().length > 0
-  const hasInput = input.trim().length > 0 || hasPlanMarkdown
+  const hasInput = input.trim().length > 0
   const selectedModelRef = sessionModelId ?? currentModel
   const selectedModel = models.find((model) => isActiveModel(selectedModelRef, model))
   const fallbackModel = models.find((model) => model.health?.status !== "unavailable")
@@ -185,17 +179,12 @@ export function ChatBox({
 
   function composedPlanText(promptText: string) {
     if (!planEnabled) return promptText
-    const plan = planMarkdown.trim()
-    if (!plan) return promptText
     return [
-      promptText || "Use this editable plan.md as the task plan.",
+      "Planner system prompt:",
+      PLAN_SYSTEM_PROMPT,
       "",
-      "Editable plan.md:",
-      "```markdown",
-      plan,
-      "```",
-      "",
-      "Follow this plan unless I edit it again.",
+      "User request:",
+      promptText,
     ].join("\n")
   }
 
@@ -502,58 +491,6 @@ export function ChatBox({
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
           />
-
-          <AnimatePresence initial={false}>
-            {planEnabled && (
-              <motion.div
-                initial={{ maxHeight: 0, opacity: 0 }}
-                animate={{ maxHeight: 260, opacity: 1 }}
-                exit={{ maxHeight: 0, opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="overflow-hidden px-3 pb-2"
-              >
-                <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-2.5">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-amber-300/75">
-                      Editable plan.md
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPlanMarkdown(DEFAULT_PLAN_MARKDOWN)
-                        if (planEditorRef.current) planEditorRef.current.innerText = DEFAULT_PLAN_MARKDOWN
-                      }}
-                      className="rounded-md px-2 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                  <div
-                    ref={planEditorRef}
-                    role="textbox"
-                    aria-label="Editable plan markdown"
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={(event) => setPlanMarkdown(event.currentTarget.innerText)}
-                    onKeyDown={(event) => {
-                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                        event.preventDefault()
-                        void handleSend()
-                      }
-                    }}
-                    className={cn(
-                      "max-h-44 min-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2",
-                      "bg-background/55 font-mono text-[12px] leading-5 text-foreground/85 outline-none",
-                      "ring-1 ring-foreground/8 focus:ring-amber-300/25",
-                    )}
-                  />
-                  <p className="mt-2 text-[11px] text-muted-foreground/55">
-                    Edit this markdown before sending. It will be attached to your prompt as the working plan.
-                  </p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {attachmentError && (
             <div className="px-3 pb-1">

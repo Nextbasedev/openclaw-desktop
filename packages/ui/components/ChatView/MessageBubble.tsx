@@ -166,6 +166,78 @@ function BranchNav({
   )
 }
 
+function isPlanMarkdown(text: string) {
+  const trimmed = text.trim()
+  return (
+    trimmed.startsWith("# ") &&
+    /implementation steps|architecture\s*\/\s*approach|risks\s*&\s*mitigations|open questions/i.test(trimmed)
+  )
+}
+
+function PlanArtifact({
+  text,
+  onAction,
+}: {
+  text: string
+  onAction?: (action: "review" | "implement", markdown: string) => void
+}) {
+  const [markdown, setMarkdown] = useState(text)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    setMarkdown(text)
+  }, [text])
+
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.style.height = "auto"
+    ta.style.height = `${Math.min(520, ta.scrollHeight)}px`
+  }, [markdown])
+
+  return (
+    <div className="w-full rounded-2xl border border-amber-400/20 bg-amber-400/[0.035] p-3 shadow-sm">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-300/80">
+            plan.md
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground/55">
+            Editable before review or implementation
+          </p>
+        </div>
+        <CopyButton text={markdown} />
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={markdown}
+        onChange={(event) => setMarkdown(event.target.value)}
+        className={cn(
+          "max-h-[520px] min-h-64 w-full resize-none overflow-y-auto rounded-xl px-3 py-2",
+          "border border-foreground/10 bg-background/60 font-mono text-[12px] leading-5 text-foreground/85 outline-none",
+          "focus:border-amber-300/30 focus:ring-1 focus:ring-amber-300/20",
+        )}
+      />
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => onAction?.("review", markdown)}
+          className="rounded-lg border border-foreground/10 px-3 py-1.5 text-[12px] text-foreground/75 transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          Review
+        </button>
+        <button
+          type="button"
+          onClick={() => onAction?.("implement", markdown)}
+          className="rounded-lg bg-amber-300 px-3 py-1.5 text-[12px] font-medium text-black transition-colors hover:bg-amber-200"
+        >
+          Implement
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function MessageBubble({
   message,
   onEdit,
@@ -178,6 +250,7 @@ export function MessageBubble({
   onExport,
   onTextAnimationComplete,
   onFork,
+  onPlanAction,
   isPinned,
   reaction,
   isGenerating,
@@ -196,6 +269,7 @@ export function MessageBubble({
   onExport?: (messageId: string) => void
   onTextAnimationComplete?: (messageId: string) => void
   onFork?: (messageId: string) => void
+  onPlanAction?: (action: "review" | "implement", markdown: string) => void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -212,6 +286,7 @@ export function MessageBubble({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const hasBranches = message.branches && message.branches.length > 0
+  const showPlanArtifact = !isUser && isPlanMarkdown(message.text)
 
   const startEdit = useCallback(() => {
     setEditText(message.text)
@@ -346,7 +421,9 @@ export function MessageBubble({
                   : "w-full text-foreground",
               )}
             >
-              {isUser ? (
+              {showPlanArtifact ? (
+                <PlanArtifact text={message.text} onAction={onPlanAction} />
+              ) : isUser ? (
                 <p className="whitespace-pre-wrap">{message.text}</p>
               ) : (
                 <MarkdownContent
