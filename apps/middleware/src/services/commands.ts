@@ -114,14 +114,16 @@ function restoreSlashCommandHistoryIfGatewayReset(params: { sessionKey: string; 
 
   fs.copyFileSync(resetFile, previousFile)
   const restoredLines = readJsonl(previousFile)
-  const parentId = restoredLines.at(-1)?.id ?? null
-  const userMessage = commandUserMessage(params.message, parentId)
+  const lastRestored = restoredLines.at(-1)
+  const lastRestoredText = lastRestored?.message?.content?.[0]?.text
+  const hasCommandAlready = lastRestored?.message?.role === "user" && lastRestoredText === params.message.trim()
+  const userMessage = hasCommandAlready ? lastRestored : commandUserMessage(params.message, lastRestored?.id ?? null)
   const outputMessage = {
     ...injectedOutput,
     id: injectedOutput.id ?? crypto.randomUUID().slice(0, 8),
     parentId: userMessage.id,
   }
-  appendJsonl(previousFile, [userMessage, outputMessage])
+  appendJsonl(previousFile, hasCommandAlready ? [outputMessage] : [userMessage, outputMessage])
 
   const store = readJson(params.before.storePath)
   store[params.sessionKey] = {
@@ -144,15 +146,34 @@ function recordSlashCommandInputIfGatewayOnlyAppendedOutput(params: { sessionKey
   const last = lines.at(-1)
   const previous = lines.at(-2)
   const lastMessage = last?.message
-  if (last?.type !== "message" || lastMessage?.role !== "assistant") return null
-  if (lastMessage?.provider !== "openclaw" || lastMessage?.model !== "gateway-injected") return null
+  const lastText = lastMessage?.content?.[0]?.text
+  if (lastMessage?.role === "user" && lastText === params.message.trim()) return null
+
+  if (last?.type !== "message" || lastMessage?.role !== "assistant" || lastMessage?.provider !== "openclaw" || lastMessage?.model !== "gateway-injected") {
+    const userMessage = commandUserMessage(params.message, last?.id ?? null)
+    appendJsonl(file, [userMessage])
+    return { recorded: true, pendingOutput: true, sessionId: (current?.entry as any)?.sessionId, sessionFile: file }
+  }
+
   const previousText = previous?.message?.content?.[0]?.text
   if (previous?.message?.role === "user" && previousText === params.message.trim()) return null
-
   const userMessage = commandUserMessage(params.message, previous?.id ?? null)
   const outputMessage = { ...last, parentId: userMessage.id }
   writeJsonl(file, [...lines.slice(0, -1), userMessage, outputMessage])
   return { recorded: true, sessionId: (current?.entry as any)?.sessionId, sessionFile: file }
+}
+
+function scheduleSlashCommandHistoryRepair(params: { sessionKey: string; message: string; before: ReturnType<typeof readSessionStoreEntry> }) {
+  if (!params.message.trim().startsWith("/")) return
+  const timer = setTimeout(() => {
+    try {
+      restoreSlashCommandHistoryIfGatewayReset(params)
+        ?? recordSlashCommandInputIfGatewayOnlyAppendedOutput({ sessionKey: params.sessionKey, message: params.message })
+    } catch {
+      // Best-effort repair only; chat.send itself already succeeded.
+    }
+  }, 2_500)
+  ;(timer as any).unref?.()
 }
 
 function packageVersion() {
@@ -615,6 +636,7 @@ export function commandRoutes(store: Store) {
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.send failed", "GATEWAY_ERROR")
             const commandHistoryRestore = restoreSlashCommandHistoryIfGatewayReset({ sessionKey: key, message, before: beforeCommandSession })
               ?? recordSlashCommandInputIfGatewayOnlyAppendedOutput({ sessionKey: key, message })
+            scheduleSlashCommandHistoryRepair({ sessionKey: key, message, before: beforeCommandSession })
             return { ok: true, sessionKey: key, commandHistoryRestore, ...((res.payload as object) || {}) }
           } finally {
             gw.close()
