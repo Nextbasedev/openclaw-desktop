@@ -826,11 +826,14 @@ export function commandRoutes(store: Store) {
           const sourceSession = s.sessions.find((session: any) => session.key === sourceKey || session.sessionKey === sourceKey) ?? null
           const agentId = input.agentId || sourceSession?.agentId || agentIdFromSessionKey(sourceKey)
           const key = `agent:${agentId}:fork:${crypto.randomUUID()}`
-          const topicProjectId = sourceSession?.projectId ?? input.projectId ?? null
-          const topicId = sourceSession?.topicId ?? input.topicId ?? null
-          const isTopicFork = Boolean(topicProjectId && topicId)
+          const sourceProjectId = sourceSession?.projectId ?? input.projectId ?? null
+          const sourceTopicId = sourceSession?.topicId ?? input.topicId ?? null
+          const isTopicFork = Boolean(sourceProjectId && sourceTopicId)
+          const sourceTopic = isTopicFork ? s.topics.find((topic: any) => topic.id === sourceTopicId && topic.projectId === sourceProjectId) : null
+          const forkTopicId = isTopicFork ? `topic_${crypto.randomUUID().replace(/-/g, "")}` : null
           const chatId = isTopicFork ? null : `chat_${crypto.randomUUID().replace(/-/g, "")}`
-          let name = String(input.name || `Forked chat ${new Date().toISOString().slice(0, 19).replace("T", " ")}`).trim()
+          const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ")
+          let name = String(input.name || (isTopicFork ? `Fork: ${sourceTopic?.name || sourceSession?.label || "Topic"} ${timestamp}` : `Forked chat ${timestamp}`)).trim()
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             let created: any = null
@@ -857,10 +860,13 @@ export function commandRoutes(store: Store) {
             const createdAt = now()
             const branch = { branchId: crypto.randomUUID(), sourceSessionKey: sourceKey, branchSessionKey: key, branchReason: "fork", createdAt }
             s.commandState.branches.push(branch)
-            s.sessions.push({ key, sessionKey: key, label: name, agentId, status: "idle", hidden: false, projectId: topicProjectId ?? undefined, topicId: topicId ?? undefined, createdAt, updatedAt: createdAt })
+            if (isTopicFork && forkTopicId) {
+              s.topics.push({ id: forkTopicId, projectId: sourceProjectId, name, archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt, updatedAt: createdAt, forkedFromTopicId: sourceTopicId })
+            }
+            s.sessions.push({ key, sessionKey: key, label: name, agentId, status: "idle", hidden: false, projectId: sourceProjectId ?? undefined, topicId: forkTopicId ?? undefined, createdAt, updatedAt: createdAt })
             if (chatId) s.chats.push({ id: chatId, name, sessionKey: key, agentId, archived: false, pinned: false, createdAt, updatedAt: createdAt, lastActiveAt: createdAt })
             save(store, s)
-            return { chatId, projectId: topicProjectId, topicId, sessionKey: key, name, branchSessionKey: key, copiedMessages: copyMessages.filter((m:any) => m && m.role !== "system").length, transcriptPath, branchId: branch.branchId }
+            return { chatId, projectId: sourceProjectId, topicId: forkTopicId, sourceTopicId, sessionKey: key, name, branchSessionKey: key, copiedMessages: copyMessages.filter((m:any) => m && m.role !== "system").length, transcriptPath, branchId: branch.branchId }
           } finally { gw.close() }
         }
         case "middleware_chat_edit_last_preview": {

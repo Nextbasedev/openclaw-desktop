@@ -691,12 +691,18 @@ function AppShell({
   const handleForkNavigate = useCallback(
     (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => {
       setChatRefreshTrigger((n) => n + 1)
-      if (chat.projectId && chat.topicId && activeTopic?.projectId === chat.projectId && activeTopic.id === chat.topicId) {
+      if (chat.projectId && chat.topicId && activeTopic?.projectId === chat.projectId) {
+        const forkTopic = {
+          ...activeTopic,
+          id: chat.topicId,
+          name: chat.name,
+        }
         setActiveChat(null)
-        setActiveTopic(activeTopic)
+        setActiveTopic(forkTopic)
         setActiveSessionKey(chat.sessionKey)
         setActiveSessionTitle(chat.name)
         setInitialMessages(undefined)
+        emit("sidebar:refresh")
         window.history.pushState(null, "", routeUrl(`/${chat.projectId}/${chat.topicId}`))
         return
       }
