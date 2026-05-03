@@ -682,13 +682,6 @@ export function ChatView({
     void navigator.clipboard.writeText(exportMessagesMarkdown([target]))
   }, [messages])
 
-  const handlePlanAction = useCallback((action: "review" | "implement", markdown: string) => {
-    const text = action === "review"
-      ? `Review this edited plan.md. Point out gaps, risks, and improvements before implementation.\n\n\`\`\`markdown\n${markdown}\n\`\`\``
-      : `Implement this edited plan.md. Follow it step by step and report progress.\n\n\`\`\`markdown\n${markdown}\n\`\`\``
-    void wrappedSend({ text })
-  }, [wrappedSend])
-
   const lastEditableUserId = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
       if (renderedMessages[i].role === "user") return renderedMessages[i].messageId
@@ -919,7 +912,6 @@ export function ChatView({
                       onExport={exportOneMessage}
                       onTextAnimationComplete={markTextAnimationComplete}
                       onFork={msg.role === "assistant" ? forkFromMessage : undefined}
-                      onPlanAction={msg.role === "assistant" ? handlePlanAction : undefined}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
