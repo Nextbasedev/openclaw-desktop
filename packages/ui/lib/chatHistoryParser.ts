@@ -60,6 +60,7 @@ export type RawHistoryMessage = {
   content?: string | ContentBlock[]
   createdAt?: string
   model?: string
+  provider?: string
   usage?: ChatMessage["usage"]
   stopReason?: string | null
 }
@@ -149,6 +150,34 @@ export function stripGatewayPrefixes(text: string): string {
 
 export function cleanUserMessageText(text: string): string {
   return stripGatewayPrefixes(stripBootstrap(text))
+}
+
+function isGatewayInjectedCommandOutput(message: RawHistoryMessage) {
+  return (
+    message.role === "assistant" &&
+    message.provider === "openclaw" &&
+    message.model === "gateway-injected"
+  )
+}
+
+function isSlashCommandMessage(message: RawHistoryMessage | undefined) {
+  if (!message || message.role !== "user") return false
+  const text = cleanUserMessageText(message.text || extractText(message.content))
+  return text.trim().startsWith("/")
+}
+
+export function isTransientSlashCommandHistory(raw: RawHistoryMessage[]): boolean {
+  if (raw.length === 0) return false
+  const visible = raw.filter((message) => {
+    if (message.role === "user") {
+      const text = cleanUserMessageText(message.text || extractText(message.content))
+      return text.length > 0
+    }
+    return Boolean(message.text || extractText(message.content) || isGatewayInjectedCommandOutput(message))
+  })
+  const last = visible.at(-1)
+  if (!last || !isGatewayInjectedCommandOutput(last)) return false
+  return !isSlashCommandMessage(visible.at(-2))
 }
 
 export function deduplicateRawMessages(

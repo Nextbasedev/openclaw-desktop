@@ -3,6 +3,7 @@ import { describe, it } from "node:test"
 
 import {
   cleanUserMessageText,
+  isTransientSlashCommandHistory,
   parseChatHistory,
   stripGatewayPrefixes,
 } from "./chatHistoryParser"
@@ -148,6 +149,55 @@ describe("cleanUserMessageText", () => {
         "[media attached: /root/.openclaw/media/inbound/image.png (image/png) | /root/.openclaw/media/inbound/image.png]\n\ncheck this\n\n[Bootstrap truncation warning] truncated",
       ),
       "check this",
+    )
+  })
+})
+
+describe("isTransientSlashCommandHistory", () => {
+  it("treats isolated gateway-injected command output as transient", () => {
+    assert.equal(
+      isTransientSlashCommandHistory([
+        {
+          role: "assistant",
+          provider: "openclaw",
+          model: "gateway-injected",
+          content: [{ type: "text", text: "status output" }],
+        },
+      ]),
+      true,
+    )
+  })
+
+  it("treats gateway-injected command output without slash user bubble as transient", () => {
+    assert.equal(
+      isTransientSlashCommandHistory([
+        { role: "user", content: [{ type: "text", text: "hello" }] },
+        { role: "assistant", content: [{ type: "text", text: "hi" }] },
+        {
+          role: "assistant",
+          provider: "openclaw",
+          model: "gateway-injected",
+          content: [{ type: "text", text: "status output" }],
+        },
+      ]),
+      true,
+    )
+  })
+
+  it("allows stable slash command user bubble followed by command output", () => {
+    assert.equal(
+      isTransientSlashCommandHistory([
+        { role: "user", content: [{ type: "text", text: "hello" }] },
+        { role: "assistant", content: [{ type: "text", text: "hi" }] },
+        { role: "user", content: [{ type: "text", text: "/status" }] },
+        {
+          role: "assistant",
+          provider: "openclaw",
+          model: "gateway-injected",
+          content: [{ type: "text", text: "status output" }],
+        },
+      ]),
+      false,
     )
   })
 })
