@@ -222,10 +222,10 @@ export function ChatBox({
     }, 500)
   }
 
-  function execPolicyForMode(mode: ChatAutonomyMode): ChatExecPolicy | null {
+  function execPolicyForMode(mode: ChatAutonomyMode): ChatExecPolicy {
     if (mode === "full") return { security: "full", ask: "off" }
     if (mode === "supervised") return { security: "allowlist", ask: "on-miss" }
-    return null
+    return { security: "full", ask: "always" }
   }
 
   async function handleSend() {
