@@ -518,14 +518,9 @@ export function ChatBox({
             isGenerating={isGenerating}
             onAbort={onAbort}
             webSearchEnabled={webSearchEnabled}
-            onWebSearchToggle={handleWebSearchToggle}
             onWebSearchDisable={() => setWebSearchEnabled(false)}
             autonomyMode={autonomyMode}
             onAutonomyModeChange={setAutonomyMode}
-            onPauseResume={() => {
-              void onSend?.({ text: isGenerating ? "/pause" : "/resume" })
-              setPlusOpen(false)
-            }}
             plusOpen={plusOpen}
             onPlusOpenChange={setPlusOpen}
             modelOpen={modelOpen}

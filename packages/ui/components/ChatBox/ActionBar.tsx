@@ -26,11 +26,9 @@ type ActionBarProps = {
   isGenerating?: boolean
   onAbort?: () => void
   webSearchEnabled: boolean
-  onWebSearchToggle: () => void
   onWebSearchDisable: () => void
   autonomyMode: "full" | "supervised" | "manual"
   onAutonomyModeChange: (mode: "full" | "supervised" | "manual") => void
-  onPauseResume?: () => void
   plusOpen: boolean
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
@@ -55,11 +53,9 @@ export function ActionBar({
   isGenerating,
   onAbort,
   webSearchEnabled,
-  onWebSearchToggle,
   onWebSearchDisable,
   autonomyMode,
   onAutonomyModeChange,
-  onPauseResume,
   plusOpen,
   onPlusOpenChange,
   modelOpen,
@@ -114,22 +110,6 @@ export function ActionBar({
             >
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
               {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Upload"}
-            </button>
-            <div className="my-1 h-px bg-border" />
-            <button
-              type="button"
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
-              onClick={onWebSearchToggle}
-            >
-              <WebSearchIcon className="size-[18px]" />
-              Web search
-            </button>
-            <button
-              type="button"
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
-              onClick={onPauseResume}
-            >
-              Pause / resume
             </button>
             <div className="my-1 h-px bg-border" />
             {([
