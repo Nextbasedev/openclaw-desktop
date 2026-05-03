@@ -42,11 +42,13 @@ export function UsageStatsCards({
   summary,
   loading = false,
 }: UsageStatsCardsProps) {
+  const visibleTotalTokens = summary.totalInputTokens + summary.totalOutputTokens
+
   return (
     <div className="grid grid-cols-3 gap-3">
       <StatCard
         label="Total Tokens"
-        value={formatTokens(summary.totalTokens)}
+        value={formatTokens(visibleTotalTokens)}
         loading={loading}
       />
       <StatCard
