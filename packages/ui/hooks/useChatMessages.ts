@@ -370,32 +370,38 @@ export function useChatMessages(
 
           if (phase === "spawn_done") {
             const prev = spawnMapRef.current.get(toolCallId)
-            if (prev) {
-              const error = (ev as Record<string, unknown>).error
-              const childKey = extractSubagentSessionKey(ev) ?? prev.sessionKey
-              upsertSpawn({
-                ...prev,
-                sessionKey: childKey,
-                status: error ? "failed" : childKey ? "working" : "linking",
-              })
-            }
+            const error = (ev as Record<string, unknown>).error
+            const childKey = extractSubagentSessionKey(ev) ?? prev?.sessionKey ?? null
+            upsertSpawn({
+              ...(prev ?? {
+                id: `spawn:${toolCallId}`,
+                label: `Sub-agent ${spawnMapRef.current.size + 1}`,
+                task: "",
+                toolCallId,
+              }),
+              sessionKey: childKey,
+              status: error ? "failed" : childKey ? "working" : "linking",
+            })
             break
           }
 
           if (phase === "spawn_linked") {
             const prev = spawnMapRef.current.get(toolCallId)
-            if (prev) {
-              const result = (ev as Record<string, unknown>).result
-              const childKey =
-                extractSubagentSessionKey(result) ??
-                extractSubagentSessionKey(ev)
-              if (childKey) {
-                upsertSpawn({
-                  ...prev,
-                  sessionKey: childKey,
-                  status: "working",
-                })
-              }
+            const result = (ev as Record<string, unknown>).result
+            const childKey =
+              extractSubagentSessionKey(result) ??
+              extractSubagentSessionKey(ev)
+            if (childKey) {
+              upsertSpawn({
+                ...(prev ?? {
+                  id: `spawn:${toolCallId}`,
+                  label: `Sub-agent ${spawnMapRef.current.size + 1}`,
+                  task: "",
+                  toolCallId,
+                }),
+                sessionKey: childKey,
+                status: "working",
+              })
             }
             break
           }

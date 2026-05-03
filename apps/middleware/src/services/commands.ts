@@ -462,9 +462,10 @@ export function commandRoutes(store: Store) {
 
         case "middleware_chat_history": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            const res = await gw.request("chat.history", { sessionKey: activeSessionKey(s, input.sessionKey) }, 30_000)
+            const res = await gw.request("chat.history", { sessionKey: activeSessionKey(s, input.sessionKey) }, timeoutMs)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
             return res.payload
           } finally {
