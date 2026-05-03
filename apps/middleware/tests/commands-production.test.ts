@@ -74,6 +74,28 @@ describe("production command behavior", () => {
     expect(name.body.title).toBe("hello world")
   })
 
+  it("filters project topic sessions instead of returning unrelated sessions", async () => {
+    const root = tempRoot()
+    const app = makeApp(root)
+
+    await auth(request(app).post("/api/sessions")).send({
+      projectId: "project_a",
+      topicId: "topic_a",
+      label: "A",
+    })
+    const target = await auth(request(app).post("/api/sessions")).send({
+      projectId: "project_b",
+      topicId: "topic_b",
+      label: "B",
+    })
+
+    const filtered = await auth(request(app).get("/api/sessions?projectId=project_b&topicId=topic_b"))
+
+    expect(filtered.status).toBe(200)
+    expect(filtered.body.sessions).toHaveLength(1)
+    expect(filtered.body.sessions[0].key).toBe(target.body.session.key)
+  })
+
   it("returns frontend-compatible usage and cron pause shapes", async () => {
     const root = tempRoot()
     vi.stubEnv("HOME", root)

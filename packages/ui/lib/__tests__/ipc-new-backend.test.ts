@@ -60,4 +60,23 @@ describe("new backend IPC routing", () => {
       "http://middleware.test/api/terminal/pty-1/stream?token=tok%20value",
     )
   })
+
+  it("preserves project/topic filters when listing sessions", async () => {
+    mockStorage({
+      "openclaw.middleware.url": "http://middleware.test/",
+      "openclaw.middleware.token": "tok",
+    })
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ sessions: [] }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { invoke } = await import("../ipc")
+    await invoke("middleware_sessions_list", {
+      input: { projectId: "project_1", topicId: "topic_1" },
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://middleware.test/api/sessions?projectId=project_1&topicId=topic_1",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer tok" }) }),
+    )
+  })
 })
