@@ -824,14 +824,20 @@ export function commandRoutes(store: Store) {
         case "middleware_pins_remove": { const key = input.sessionKey || "global"; s.commandState.pins[key] = (s.commandState.pins[key] ?? []).filter((p:any) => p.messageId !== input.messageId && p.id !== input.id); save(store,s); return ok() }
 
         case "middleware_memory_list": {
-          const documents = fs.readdirSync(memoryDir()).map(name => {
+          const documents = fs.readdirSync(memoryDir()).flatMap(name => {
             const full = path.join(memoryDir(), name)
             const stat = fs.statSync(full)
+            if (!stat.isFile() || !name.endsWith(".md")) return []
             return { name, path: `memory/${name}`, size: stat.size }
           })
           return { documents, files: documents }
         }
-        case "middleware_memory_read": return { content: fs.existsSync(safeMemoryPath(input.path)) ? fs.readFileSync(safeMemoryPath(input.path), "utf8") : "" }
+        case "middleware_memory_read": {
+          const filePath = safeMemoryPath(input.path)
+          if (!fs.existsSync(filePath)) return { content: "" }
+          if (!fs.statSync(filePath).isFile()) throw new HttpError(400, "Memory path is a directory", "BAD_REQUEST")
+          return { content: fs.readFileSync(filePath, "utf8") }
+        }
         case "middleware_memory_write": fs.writeFileSync(safeMemoryPath(input.path), input.content ?? ""); return ok({ path: input.path })
         case "middleware_memory_store": { const file = path.join(memoryDir(), `${new Date().toISOString().slice(0,10)}.md`); fs.appendFileSync(file, `\n- ${input.content || input.text || ""}\n`); return ok({ path: path.relative(workspaceRoot(), file) }) }
         case "middleware_memory_recall": { const entries = searchMemory(String(input.query || input.text || "")); return { entries, results: entries } }
