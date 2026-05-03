@@ -29,11 +29,29 @@ function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(f
 function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
 function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
 
+function textFromContent(content: unknown) {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content.map((block: any) => typeof block?.text === "string" ? block.text : "").join("")
+}
+
+function stripBootstrapWarning(text: string) {
+  return text.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
+}
+
 function normalizeHistoryPayload(payload: any) {
   if (!payload || !Array.isArray(payload.messages)) return payload
   return {
     ...payload,
     messages: payload.messages.map((message: any) => {
+      if (message?.role === "user") {
+        const rawText = typeof message.text === "string" ? message.text : textFromContent(message.content)
+        if (rawText.includes("[Bootstrap truncation warning]")) {
+          const text = stripBootstrapWarning(rawText)
+          if (text) return { ...message, text, content: [{ type: "text", text }] }
+        }
+        return message
+      }
       if (message?.role !== "assistant" || message.stopReason !== "error" || !message.errorMessage) return message
       const hasVisibleText =
         typeof message.text === "string" && message.text.trim().length > 0 ||
