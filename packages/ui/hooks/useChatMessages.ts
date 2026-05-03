@@ -785,6 +785,17 @@ export function useChatMessages(
             const rawText = m.text || extractText(m.content)
             const text = rawText ? cleanUserMessageText(rawText) : ""
             const isBootstrapEcho = rawText.includes("[Bootstrap truncation warning]")
+            const hasAssistantBeforeLaterSameUser = (() => {
+              if (!isBootstrapEcho) return false
+              for (const later of raw.slice(rawIdx + 1)) {
+                if (later.role === "user") {
+                  const laterRawText = later.text || extractText(later.content)
+                  if (cleanUserMessageText(laterRawText).trim() === text.trim()) return false
+                }
+                if (later.role === "assistant" && ((later.text || extractText(later.content)).trim() || (later as { errorMessage?: string }).errorMessage)) return true
+              }
+              return false
+            })()
             const hasLaterSameUserText = isBootstrapEcho && raw.slice(rawIdx + 1).some((later) => {
               if (later.role !== "user") return false
               const laterRawText = later.text || extractText(later.content)
@@ -796,7 +807,7 @@ export function useChatMessages(
 
             if (isSubagentAnnounce) {
               if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
-            } else if (text && !hasLaterSameUserText) {
+            } else if (text && (!hasLaterSameUserText || hasAssistantBeforeLaterSameUser)) {
               const reply = extractReplyBlock(text, histMsgs)
               histMsgs.push({
                 messageId: id,
