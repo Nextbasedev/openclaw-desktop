@@ -29,6 +29,27 @@ function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(f
 function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
 function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
 
+function normalizeHistoryPayload(payload: any) {
+  if (!payload || !Array.isArray(payload.messages)) return payload
+  return {
+    ...payload,
+    messages: payload.messages.map((message: any) => {
+      if (message?.role !== "assistant" || message.stopReason !== "error" || !message.errorMessage) return message
+      const hasVisibleText =
+        typeof message.text === "string" && message.text.trim().length > 0 ||
+        typeof message.content === "string" && message.content.trim().length > 0 ||
+        Array.isArray(message.content) && message.content.some((block: any) => typeof block?.text === "string" && block.text.trim().length > 0)
+      if (hasVisibleText) return message
+      const text = `Error: ${message.errorMessage}`
+      return {
+        ...message,
+        text,
+        content: [{ type: "text", text }],
+      }
+    }),
+  }
+}
+
 function sessionsDirForKey(sessionKey: string) {
   const agentId = agentIdFromSessionKey(sessionKey)
   const safeAgentId = /^[A-Za-z0-9_-]+$/.test(agentId) ? agentId : "main"
@@ -614,7 +635,7 @@ export function commandRoutes(store: Store) {
           try {
             const res = await gw.request("chat.history", { sessionKey: activeSessionKey(s, input.sessionKey) }, timeoutMs)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
-            return res.payload
+            return normalizeHistoryPayload(res.payload)
           } finally {
             gw.close()
           }
