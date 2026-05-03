@@ -174,14 +174,21 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_workspace_write":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/file`, { method: "PUT", body: JSON.stringify(input) })
     case "middleware_pty_spawn": {
-      const projectId = localStorage.getItem("openclaw.activeProjectId")
+      const explicitProjectId = typeof input.projectId === "string" && input.projectId.trim()
+        ? input.projectId.trim()
+        : null
+      const fallbackProjectId = typeof window !== "undefined"
+        ? localStorage.getItem("openclaw.activeProjectId")
+        : null
+      const projectId = explicitProjectId ?? fallbackProjectId
+      const { projectId: _projectId, ...spawnInput } = input as Record<string, unknown>
       const endpoint = projectId ? `/api/projects/${projectId}/terminal/spawn` : "/api/terminal/spawn"
       try {
-        const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(endpoint, { method: "POST", body: JSON.stringify(input) })
+        const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(endpoint, { method: "POST", body: JSON.stringify(spawnInput) })
         return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
       } catch (error) {
         if (projectId || !(error instanceof Error) || !error.message.includes("Route not found")) throw error
-        const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>("/api/commands/middleware_pty_spawn_workspace", { method: "POST", body: JSON.stringify({ input }) })
+        const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>("/api/commands/middleware_pty_spawn_workspace", { method: "POST", body: JSON.stringify({ input: spawnInput }) })
         return { ptyId: result.terminalId, cwd: result.cwd, websocketUrl: result.websocketUrl } as T
       }
     }

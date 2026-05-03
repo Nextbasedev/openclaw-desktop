@@ -34,7 +34,10 @@ function middlewareWsUrl(path: string | undefined): string | null {
   return `${base}${path}?token=${encodeURIComponent(connection.token)}`
 }
 
-export function usePty(termRef: React.RefObject<Terminal | null>) {
+export function usePty(
+  termRef: React.RefObject<Terminal | null>,
+  projectId?: string | null,
+) {
   const ptyIdRef = useRef<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const closeStreamRef = useRef<(() => void) | null>(null)
@@ -58,7 +61,7 @@ export function usePty(termRef: React.RefObject<Terminal | null>) {
       if (signal.aborted) return { ptyId: "", cwd: "" } as SpawnResult
 
       const result = await invoke<SpawnResult>("middleware_pty_spawn", {
-        input: { rows, cols },
+        input: { rows, cols, projectId: projectId ?? undefined },
       })
 
       if (signal.aborted) {
@@ -98,7 +101,7 @@ export function usePty(termRef: React.RefObject<Terminal | null>) {
 
       return result
     },
-    [termRef, cleanup],
+    [termRef, cleanup, projectId],
   )
 
   const write = useCallback(async (data: string) => {

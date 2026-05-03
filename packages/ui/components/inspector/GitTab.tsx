@@ -38,14 +38,19 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   const effectiveProjectId = projectId ?? pickedProjectId ?? null
   const effectiveRepoPath = !effectiveProjectId ? pickedRepo?.path ?? null : null
   const skipNextAutoLoadRef = useRef<string | null>(null)
+  const loadSeqRef = useRef(0)
 
   const loadGitTarget = useCallback(async (targetProjectId: string | null, targetRepoPath: string | null = null) => {
     if (!targetProjectId && !targetRepoPath) return
+    const seq = ++loadSeqRef.current
     setLoading(true)
+    setContext(null)
+    setBranches(null)
     try {
       const ctx = targetProjectId
         ? await invoke<GitContextResponse>("middleware_git_status", { input: { projectId: targetProjectId } })
         : await invoke<GitContextResponse>("middleware_git_status_for_repo", { input: { repoPath: targetRepoPath } })
+      if (seq !== loadSeqRef.current) return
       let br: BranchesResponse | null = null
       if (ctx.mode !== "remote") {
         try {
@@ -56,11 +61,14 @@ export function GitTab({ projectId }: { projectId: string | null }) {
           br = null
         }
       }
+      if (seq !== loadSeqRef.current) return
       setContext(ctx)
       setBranches(br)
       setSelectedChangedFile(null)
     } catch { /* ignore */ }
-    finally { setLoading(false) }
+    finally {
+      if (seq === loadSeqRef.current) setLoading(false)
+    }
   }, [])
 
   const load = useCallback(async () => {
