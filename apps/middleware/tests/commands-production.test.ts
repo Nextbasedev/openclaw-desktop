@@ -115,6 +115,32 @@ describe("production command behavior", () => {
     expect(res.body.diff).toContain("large.txt")
   })
 
+  it("resolves git commit details from project repo root", async () => {
+    const workspace = tempRoot()
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ocmw-project-repo-")); tempRoots.push(repo)
+    execFileSync("git", ["init"], { cwd: repo })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: repo })
+    fs.writeFileSync(path.join(repo, "README.md"), "project repo\n")
+    execFileSync("git", ["add", "README.md"], { cwd: repo })
+    execFileSync("git", ["commit", "-m", "project repo commit"], { cwd: repo })
+    const hash = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim()
+    const app = makeApp(workspace)
+    const created = await auth(request(app).post("/api/projects")).send({
+      name: "repo",
+      workspaceRoot: repo,
+      repoRoot: repo,
+    })
+
+    const res = await auth(request(app).post("/api/commands/middleware_git_commit_details")).send({
+      input: { projectId: created.body.project.id, hash },
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.body.diff).toContain("project repo commit")
+    expect(res.body.diff).toContain("README.md")
+  })
+
   it("returns frontend-compatible usage and cron pause shapes", async () => {
     const root = tempRoot()
     vi.stubEnv("HOME", root)
