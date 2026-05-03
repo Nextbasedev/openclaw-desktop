@@ -793,9 +793,24 @@ export function commandRoutes(store: Store) {
             const history = await gw.request<any>("chat.history", { sessionKey: sourceKey, limit: input.limit || 1000 }, 30_000)
             if (!history.ok) throw new HttpError(502, history.error?.message || "chat.history failed", "GATEWAY_ERROR")
             const messages = Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
-            const assistantIndex = messages.findIndex((m:any) => messageIdOf(m) === input.messageId)
+            const gatewayIndex = Number.isInteger(input.gatewayIndex) ? Number(input.gatewayIndex) : -1
+            let assistantIndex = messages.findIndex((m:any) => messageIdOf(m) === input.messageId)
+            if (
+              (assistantIndex === -1 || messages[assistantIndex]?.role !== "assistant") &&
+              gatewayIndex >= 0 &&
+              gatewayIndex < messages.length &&
+              messages[gatewayIndex]?.role === "assistant"
+            ) {
+              assistantIndex = gatewayIndex
+            }
             if (assistantIndex === -1 || messages[assistantIndex]?.role !== "assistant") throw new HttpError(404, "Assistant message not found", "NOT_FOUND")
-            const userIndex = assistantIndex > 0 && messages[assistantIndex - 1]?.role === "user" ? assistantIndex - 1 : -1
+            let userIndex = -1
+            for (let i = assistantIndex - 1; i >= 0; i -= 1) {
+              if (messages[i]?.role === "user") {
+                userIndex = i
+                break
+              }
+            }
             if (userIndex === -1) throw new HttpError(404, "Preceding user message not found", "NOT_FOUND")
             const sourceUser = messages[userIndex]
             const sourceAssistant = messages[assistantIndex]

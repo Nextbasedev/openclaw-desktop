@@ -908,6 +908,7 @@ export async function chatRegenerate(input: {
   sessionKey: string
   messageId: string
   text: string
+  gatewayIndex?: number
 }) {
   const gwKey = resolveGatewayKey(input.sessionKey)
   let history: Awaited<ReturnType<typeof getChatHistory>>
@@ -918,10 +919,25 @@ export async function chatRegenerate(input: {
   }
 
   const messages = ((history.messages ?? []) as HistMsg[]).filter((m) => m.role === "user" || m.role === "assistant")
-  const assistantIdx = messages.findIndex((m) => messageIdOf(m) === input.messageId)
+  const gatewayIndex = Number.isInteger(input.gatewayIndex) ? Number(input.gatewayIndex) : -1
+  let assistantIdx = messages.findIndex((m) => messageIdOf(m) === input.messageId)
+  if (
+    (assistantIdx === -1 || messages[assistantIdx]?.role !== "assistant") &&
+    gatewayIndex >= 0 &&
+    gatewayIndex < messages.length &&
+    messages[gatewayIndex]?.role === "assistant"
+  ) {
+    assistantIdx = gatewayIndex
+  }
   if (assistantIdx === -1) throw new Error("Assistant message not found")
   if (messages[assistantIdx]?.role !== "assistant") throw new Error("Only assistant messages can be regenerated")
-  const userIdx = assistantIdx > 0 && messages[assistantIdx - 1]?.role === "user" ? assistantIdx - 1 : -1
+  let userIdx = -1
+  for (let i = assistantIdx - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      userIdx = i
+      break
+    }
+  }
   if (userIdx === -1) throw new Error("Preceding user message not found")
 
   const sourceUser = messages[userIdx]!

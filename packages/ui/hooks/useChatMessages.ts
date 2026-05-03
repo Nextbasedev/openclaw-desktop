@@ -1288,6 +1288,7 @@ export function useChatMessages(
           input: {
             sessionKey,
             messageId: assistantMessageId,
+            gatewayIndex: currentMessages[assistantIdx]?.gatewayIndex,
             text: resendText,
           },
         })
