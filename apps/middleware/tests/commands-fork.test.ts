@@ -187,7 +187,7 @@ describe("middleware_chat_fork", () => {
     expect(gatewayRequests.find((r) => r.method === "sessions.create")?.params.label).not.toBe("Forked chat")
   })
 
-  it("keeps forks from topic sessions attached to the same project topic", async () => {
+  it("creates forks from topic sessions as new topics in the same project", async () => {
     const root = tempRoot()
     const app = makeApp(root)
     gatewayState.transcriptPath = path.join(root, ".openclaw", "agents", "main", "sessions", "fork-session-id.jsonl")
@@ -207,9 +207,16 @@ describe("middleware_chat_fork", () => {
     const topicSessions = await auth(request(app).get("/api/sessions?projectId=project_ampere&topicId=topic_hello"))
     const chats = await auth(request(app).get("/api/chats"))
 
+    const forkTopics = await auth(request(app).get("/api/topics?projectId=project_ampere"))
+    const forkTopicId = res.body.topicId
+    const forkTopicSessions = await auth(request(app).get(`/api/sessions?projectId=project_ampere&topicId=${forkTopicId}`))
+
     expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ chatId: null, projectId: "project_ampere", topicId: "topic_hello", sessionKey: expect.stringMatching(/^agent:main:fork:/) })
-    expect(topicSessions.body.sessions.map((s: any) => s.sessionKey)).toContain(res.body.sessionKey)
+    expect(res.body).toMatchObject({ chatId: null, projectId: "project_ampere", sourceTopicId: "topic_hello", topicId: expect.stringMatching(/^topic_/), sessionKey: expect.stringMatching(/^agent:main:fork:/) })
+    expect(res.body.topicId).not.toBe("topic_hello")
+    expect(topicSessions.body.sessions.map((s: any) => s.sessionKey)).not.toContain(res.body.sessionKey)
+    expect(forkTopicSessions.body.sessions.map((s: any) => s.sessionKey)).toContain(res.body.sessionKey)
+    expect(forkTopics.body.topics.some((topic: any) => topic.id === forkTopicId && topic.projectId === "project_ampere" && topic.forkedFromTopicId === "topic_hello")).toBe(true)
     expect(chats.body.chats.some((chat: any) => chat.sessionKey === res.body.sessionKey)).toBe(false)
   })
 
