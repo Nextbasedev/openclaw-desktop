@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuFileText, LuX, LuSave, LuPencil } from "react-icons/lu"
+import { LuFileText, LuX, LuSave, LuPencil, LuChevronLeft } from "react-icons/lu"
 
 export type MemoryDocument = {
   path: string
@@ -72,7 +72,7 @@ export function DocView({
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
-          <LuX size={14} /> Close
+          <LuChevronLeft size={14} /> Back
         </button>
         <div className="h-4 w-px bg-border/40" />
         <FileIcon name={doc.name} />
