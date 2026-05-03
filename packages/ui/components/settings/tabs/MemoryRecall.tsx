@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils"
 import { LuBrain, LuSearch, LuChevronDown, LuChevronRight } from "react-icons/lu"
 
 type RecallEntry = {
-  content: string
-  totalScore: number
+  content?: string
+  text?: string
+  totalScore?: number
   category?: string
   date?: string
   importance?: number
@@ -43,12 +44,17 @@ function ScoreBadge({ score }: { score: number }) {
   )
 }
 
+function entryContent(entry: RecallEntry): string {
+  return entry.content ?? entry.text ?? ""
+}
+
 function EntryCard({ entry }: { entry: RecallEntry }) {
   const [expanded, setExpanded] = useState(false)
+  const content = entryContent(entry)
   const preview =
-    entry.content.length > 120
-      ? entry.content.slice(0, 120) + "..."
-      : entry.content
+    content.length > 120
+      ? content.slice(0, 120) + "..."
+      : content
   const cat = entry.category ?? "other"
   const catColor = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.other
 
@@ -70,7 +76,7 @@ function EntryCard({ entry }: { entry: RecallEntry }) {
 
         <div className="flex flex-1 flex-col gap-1.5 min-w-0">
           <p className="text-[12px] leading-relaxed text-foreground/80">
-            {expanded ? entry.content : preview}
+            {expanded ? content : preview}
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
             <span
@@ -81,7 +87,7 @@ function EntryCard({ entry }: { entry: RecallEntry }) {
             >
               {cat}
             </span>
-            <ScoreBadge score={entry.totalScore} />
+            <ScoreBadge score={entry.totalScore ?? 0} />
             {entry.date && (
               <span className="text-[10px] text-muted-foreground/50">
                 {formatDate(entry.date)}
@@ -140,7 +146,7 @@ export function MemoryRecall() {
     if (!query.trim()) return true
     const q = query.toLowerCase()
     return (
-      e.content.toLowerCase().includes(q) ||
+      entryContent(e).toLowerCase().includes(q) ||
       (e.category ?? "").toLowerCase().includes(q) ||
       (e.tags ?? []).some((t) => t.toLowerCase().includes(q))
     )
