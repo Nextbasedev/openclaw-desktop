@@ -29,6 +29,108 @@ function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(f
 function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
 function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
 
+function sessionsDirForKey(sessionKey: string) {
+  const agentId = agentIdFromSessionKey(sessionKey)
+  const safeAgentId = /^[A-Za-z0-9_-]+$/.test(agentId) ? agentId : "main"
+  return path.join(os.homedir(), ".openclaw", "agents", safeAgentId, "sessions")
+}
+
+function sessionsStorePathForKey(sessionKey: string) {
+  return path.join(sessionsDirForKey(sessionKey), "sessions.json")
+}
+
+function readSessionStoreEntry(sessionKey: string) {
+  const storePath = sessionsStorePathForKey(sessionKey)
+  const store = readJson(storePath)
+  const entry = store?.[sessionKey]
+  return entry && typeof entry === "object" ? { storePath, store, entry: { ...entry } } : null
+}
+
+function latestResetTranscript(sessionFile: string) {
+  try {
+    const dir = path.dirname(sessionFile)
+    const prefix = `${path.basename(sessionFile)}.reset.`
+    return fs.readdirSync(dir)
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => path.join(dir, name))
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+function readJsonl(file: string) {
+  try {
+    return fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
+  } catch {
+    return []
+  }
+}
+
+function isIsolatedInjectedCommandTranscript(file: string) {
+  const lines = readJsonl(file)
+  if (lines.length !== 2 || lines[0]?.type !== "session") return null
+  const message = lines[1]?.message
+  if (lines[1]?.type !== "message" || message?.role !== "assistant") return null
+  if (message?.provider !== "openclaw" || message?.model !== "gateway-injected") return null
+  return lines[1]
+}
+
+function appendJsonl(file: string, entries: unknown[]) {
+  fs.appendFileSync(file, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n")
+}
+
+function restoreSlashCommandHistoryIfGatewayReset(params: { sessionKey: string; message: string; before: ReturnType<typeof readSessionStoreEntry> }) {
+  if (!params.message.trim().startsWith("/") || !params.before) return null
+  const current = readSessionStoreEntry(params.sessionKey)
+  const previousEntry = params.before.entry as any
+  const currentEntry = current?.entry as any
+  const previousFile = String(previousEntry.sessionFile || "")
+  const currentFile = String(currentEntry?.sessionFile || "")
+  if (!previousFile || !currentFile || currentFile === previousFile) return null
+
+  const injectedOutput = isIsolatedInjectedCommandTranscript(currentFile)
+  if (!injectedOutput) return null
+  const resetFile = latestResetTranscript(previousFile)
+  if (!resetFile) return null
+
+  fs.copyFileSync(resetFile, previousFile)
+  const restoredLines = readJsonl(previousFile)
+  const parentId = restoredLines.at(-1)?.id ?? null
+  const timestamp = Date.now()
+  const commandMessageId = crypto.randomUUID().slice(0, 8)
+  const outputMessage = {
+    ...injectedOutput,
+    id: injectedOutput.id ?? crypto.randomUUID().slice(0, 8),
+    parentId: commandMessageId,
+  }
+  appendJsonl(previousFile, [
+    {
+      type: "message",
+      id: commandMessageId,
+      parentId,
+      timestamp: new Date(timestamp).toISOString(),
+      message: {
+        role: "user",
+        content: [{ type: "text", text: params.message.trim() }],
+        timestamp,
+      },
+    },
+    outputMessage,
+  ])
+
+  const store = readJson(params.before.storePath)
+  store[params.sessionKey] = {
+    ...previousEntry,
+    sessionId: previousEntry.sessionId,
+    sessionFile: previousFile,
+    updatedAt: timestamp,
+    status: "done",
+  }
+  writeJson(params.before.storePath, store)
+  return { restored: true, sessionId: previousEntry.sessionId, sessionFile: previousFile }
+}
+
 function packageVersion() {
   for (const file of [path.join(process.cwd(), "package.json"), path.join(process.cwd(), "..", "..", "package.json")]) {
     const pkg = readJson(file)
@@ -475,9 +577,10 @@ export function commandRoutes(store: Store) {
         case "middleware_chat_send": {
           const message = String(input.text || input.message || "")
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
+          const key = input.sessionKey ? activeSessionKey(s, input.sessionKey) : `agent:main:desktop:${crypto.randomUUID()}`
+          const beforeCommandSession = readSessionStoreEntry(key)
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            const key = input.sessionKey ? activeSessionKey(s, input.sessionKey) : `agent:main:desktop:${crypto.randomUUID()}`
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
             const res = await gw.request("chat.send", {
               sessionKey: key,
@@ -486,7 +589,8 @@ export function commandRoutes(store: Store) {
               idempotencyKey: crypto.randomUUID(),
             }, input.timeoutMs || 130_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.send failed", "GATEWAY_ERROR")
-            return { ok: true, sessionKey: key, ...((res.payload as object) || {}) }
+            const commandHistoryRestore = restoreSlashCommandHistoryIfGatewayReset({ sessionKey: key, message, before: beforeCommandSession })
+            return { ok: true, sessionKey: key, commandHistoryRestore, ...((res.payload as object) || {}) }
           } finally {
             gw.close()
           }
