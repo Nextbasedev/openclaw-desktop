@@ -134,8 +134,13 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/chats/${input.chatId}`, { method: "DELETE" })
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
-    case "middleware_sessions_list":
-      return middlewareFetch<T>("/api/sessions")
+    case "middleware_sessions_list": {
+      const params = new URLSearchParams()
+      if (input.projectId) params.set("projectId", String(input.projectId))
+      if (input.topicId) params.set("topicId", String(input.topicId))
+      const query = params.toString()
+      return middlewareFetch<T>(`/api/sessions${query ? `?${query}` : ""}`)
+    }
     case "middleware_sessions_create":
       return middlewareFetch<T>("/api/sessions", { method: "POST", body: JSON.stringify(input) })
     case "middleware_repos_recent":

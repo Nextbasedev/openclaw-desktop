@@ -187,7 +187,10 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.delete("/api/chats/:chatId", (req, res) => res.json(records.chatsDelete(req.params.chatId)))
   app.post("/api/chats/:chatId/session", (req, res) => res.json(records.chatsAttachSession(req.params.chatId, String(req.body?.sessionKey ?? ""))))
 
-  app.get("/api/sessions", (_req, res) => res.json(records.sessionsList()))
+  app.get("/api/sessions", (req, res) => res.json(records.sessionsList({
+    projectId: req.query.projectId ? String(req.query.projectId) : undefined,
+    topicId: req.query.topicId ? String(req.query.topicId) : undefined,
+  })))
   app.post("/api/sessions", (req, res) => res.json(records.sessionsCreate(req.body)))
 
   app.get("/api/repos/recent", (_req, res) => res.json(repos.recent()))

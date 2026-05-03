@@ -32,7 +32,14 @@ export function recordRoutes(store: Store) {
     chatsDelete: (chatId: string) => { const s = state(store); s.chats = s.chats.filter((c)=>c.id!==chatId); save(store,s); return { ok: true } },
     chatsAttachSession: (chatId: string, sessionKey: string) => { const s = state(store); const c = s.chats.find((x)=>x.id===chatId); if(!c) throw new HttpError(404,"Chat not found","NOT_FOUND"); c.sessionKey = sessionKey; c.updatedAt = now(); save(store,s); return { chat: c } },
 
-    sessionsList: () => ({ sessions: state(store).sessions.filter((x)=>!x.deleted) }),
+    sessionsList: (filters: { projectId?: string; topicId?: string } = {}) => ({
+      sessions: state(store).sessions.filter((x) => {
+        if (x.deleted) return false
+        if (filters.projectId && x.projectId !== filters.projectId) return false
+        if (filters.topicId && x.topicId !== filters.topicId) return false
+        return true
+      }),
+    }),
     sessionsCreate: (body: any) => { const s = state(store); const key = body.sessionKey || `agent:main:desktop:${crypto.randomUUID()}`; const sess = { key, sessionKey: key, label: body.label || "New Chat", agentId: body.agentId || "main", status: "idle", hidden: false, projectId: body.projectId, topicId: body.topicId, createdAt: now(), updatedAt: now() }; s.sessions.push(sess); save(store,s); return { session: sess } },
   }
 }
