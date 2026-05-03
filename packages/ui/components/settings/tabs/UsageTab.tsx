@@ -81,11 +81,9 @@ export function UsageTab() {
         </div>
       )}
 
-      <div className="space-y-4 rounded-3xl border border-border/50 bg-background/35 p-4">
-        <UsageStatsCards summary={summary} loading={rangeLoading} />
+      <UsageStatsCards summary={summary} loading={rangeLoading} />
 
-        <UsageChart daily={daily} lastUpdated={lastUpdated} loading={rangeLoading} />
-      </div>
+      <UsageChart daily={daily} lastUpdated={lastUpdated} loading={rangeLoading} />
 
       <UsageBreakdown providers={providers} loading={rangeLoading} />
     </div>
