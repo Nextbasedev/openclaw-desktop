@@ -39,6 +39,19 @@ function stripBootstrapWarning(text: string) {
   return text.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 }
 
+function friendlyAssistantError(message: any) {
+  const raw = String(message?.errorMessage || "")
+  const requestId = raw.match(/"request_id"\s*:\s*"([^"]+)"/)?.[1]
+  if (message?.provider === "anthropic" && /OAuth authentication is currently not supported/i.test(raw)) {
+    return `Claude Opus can’t run right now because Anthropic auth is invalid. Add a direct Anthropic API key or pick another model.${requestId ? ` Request: ${requestId}` : ""}`
+  }
+  const usageLimit = raw.match(/You have hit your ChatGPT usage limit \(([^)]+)\)\. Try again in ~([^\.]+)\./i)
+  if (message?.provider === "openai-codex" && usageLimit) {
+    return `GPT-5.5 hit the ChatGPT ${usageLimit[1]} usage limit. Try again in ~${usageLimit[2]} or switch models.`
+  }
+  return `Error: ${raw}`
+}
+
 function normalizeHistoryPayload(payload: any) {
   if (!payload || !Array.isArray(payload.messages)) return payload
   return {
@@ -58,7 +71,7 @@ function normalizeHistoryPayload(payload: any) {
         typeof message.content === "string" && message.content.trim().length > 0 ||
         Array.isArray(message.content) && message.content.some((block: any) => typeof block?.text === "string" && block.text.trim().length > 0)
       if (hasVisibleText) return message
-      const text = `Error: ${message.errorMessage}`
+      const text = friendlyAssistantError(message)
       return {
         ...message,
         text,
@@ -549,6 +562,31 @@ function normalizeModelEntry(value: any) {
   }
 }
 
+function configContains(value: unknown, needle: string): boolean {
+  if (typeof value === "string") return value.includes(needle)
+  if (Array.isArray(value)) return value.some((item) => configContains(item, needle))
+  if (value && typeof value === "object") return Object.values(value).some((item) => configContains(item, needle))
+  return false
+}
+
+function hasDirectProviderKey(provider: string, cfg: any): boolean {
+  if (provider === "anthropic") {
+    return String(process.env.ANTHROPIC_API_KEY || "").startsWith("sk-ant-api-") || configContains(cfg, "sk-ant-api-")
+  }
+  return true
+}
+
+function modelHealth(model: any, cfg: any) {
+  if (model.provider === "anthropic" && !hasDirectProviderKey("anthropic", cfg)) {
+    return {
+      status: "unavailable",
+      reason: "Anthropic OAuth is not supported here. Add a direct sk-ant-api-* key or pick another model.",
+      code: "anthropic_oauth_unsupported",
+    }
+  }
+  return { status: "available" }
+}
+
 function modelsResponse(cfg: any) {
   const refs = modelRefsFromConfig(cfg)
   const defaultsModels = cfg.agents?.defaults?.models
@@ -568,10 +606,11 @@ function modelsResponse(cfg: any) {
     : Array.isArray(cfg.agents?.defaults?.model?.models)
       ? cfg.agents.defaults.model.models
       : refs
-  const models = (rawModels.length ? rawModels : refs).map(normalizeModelEntry)
+  const models = (rawModels.length ? rawModels : refs).map(normalizeModelEntry).map((model: any) => ({ ...model, health: modelHealth(model, cfg) }))
   const currentModel = cfg.agents?.defaults?.model?.primary || (typeof cfg.agents?.defaults?.model === "string" ? cfg.agents.defaults.model : null) || refs[0] || null
   if (currentModel && !models.some((model: any) => `${model.provider}/${model.id}` === currentModel || model.id === currentModel)) {
-    models.unshift(normalizeModelEntry(currentModel))
+    const current = normalizeModelEntry(currentModel)
+    models.unshift({ ...current, health: modelHealth(current, cfg) })
   }
   return { models, currentModel, defaultModel: currentModel }
 }
@@ -645,6 +684,10 @@ export function commandRoutes(store: Store) {
           const cfg = readJson(openclawConfigPath())
           const modelId = String(input.modelId || input.modelRef || "").trim()
           if (!modelId) throw new HttpError(400, "modelId is required", "BAD_REQUEST")
+          const model = modelsResponse(cfg).models.find((item: any) => item.id === modelId || `${item.provider}/${item.id}` === modelId)
+          if (model?.health?.status === "unavailable") {
+            throw new HttpError(409, model.health.reason || "Model is unavailable", "MODEL_UNAVAILABLE")
+          }
           cfg.agents ??= {}; cfg.agents.defaults ??= {}; cfg.agents.defaults.model ??= {}
           if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model }
           cfg.agents.defaults.model.primary = modelId

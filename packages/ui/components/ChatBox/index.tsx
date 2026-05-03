@@ -9,7 +9,7 @@ import { AttachmentPreviewList } from "./AttachmentPreviewList"
 import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
 import { useSlashCommands } from "@/hooks/useSlashCommands"
 import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
-import { useModels } from "@/hooks/useModels"
+import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceInput } from "@/hooks/useVoiceInput"
 import { LuX } from "react-icons/lu"
 import {
@@ -54,6 +54,7 @@ export function ChatBox({
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
+  const [modelNotice, setModelNotice] = React.useState<string | null>(null)
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
   const [slashFilter, setSlashFilter] = React.useState("")
@@ -144,6 +145,22 @@ export function ChatBox({
   }, [voiceState])
 
   const hasInput = input.trim().length > 0
+  const selectedModelRef = sessionModelId ?? currentModel
+  const selectedModel = models.find((model) => isActiveModel(selectedModelRef, model))
+  const fallbackModel = models.find((model) => model.health?.status !== "unavailable")
+  const selectedModelUnavailable = selectedModel?.health?.status === "unavailable"
+
+  async function sendWithHealthyModel(payload: ChatComposerSubmit) {
+    if (selectedModelUnavailable && fallbackModel) {
+      const fallbackRef = `${fallbackModel.provider}/${fallbackModel.id}`
+      setSessionModelId(fallbackRef)
+      setModelNotice(`${selectedModel.name} is unavailable, so this message is using ${fallbackModel.name}.`)
+      await onSend?.({ text: `/model ${fallbackRef}` })
+    } else {
+      setModelNotice(null)
+    }
+    await onSend?.(payload)
+  }
 
   React.useEffect(() => {
     return () => {
@@ -176,7 +193,7 @@ export function ChatBox({
     batchRef.current = []
     dispatchComposer({ type: "batch_flush" })
     try {
-      await onSend?.(payload)
+      await sendWithHealthyModel(payload)
       dispatchComposer({ type: "send_success" })
       clearAttachments()
       setAttachmentError(null)
@@ -221,7 +238,7 @@ export function ChatBox({
     if (isGenerating) {
       dispatchComposer({ type: "restart_start", payload })
       try {
-        await onSend?.(payload)
+        await sendWithHealthyModel(payload)
         dispatchComposer({ type: "send_success" })
         clearAttachments()
         setAttachmentError(null)
@@ -465,6 +482,14 @@ export function ChatBox({
             </div>
           )}
 
+          {modelNotice && (
+            <div className="px-3 pb-1">
+              <p className="text-[12px] text-amber-300/85">
+                {modelNotice}
+              </p>
+            </div>
+          )}
+
           <AnimatePresence initial={false}>
             {voiceState === "listening" && (
               <motion.div
@@ -509,7 +534,7 @@ export function ChatBox({
             modelOpen={modelOpen}
             onModelOpenChange={setModelOpen}
             models={models}
-            currentModelId={sessionModelId ?? currentModel}
+            currentModelId={selectedModelRef}
             modelLoading={modelsLoading}
             modelError={modelsError}
             onModelRefresh={() => {

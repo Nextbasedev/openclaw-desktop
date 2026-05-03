@@ -8,9 +8,14 @@ export type ModelEntry = {
   name: string
   provider: string
   reasoning?: boolean
+  health?: {
+    status: "available" | "unavailable" | "degraded"
+    reason?: string
+    code?: string
+  }
 }
 
-type RawModelEntry = ModelEntry | string | { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean }
+type RawModelEntry = ModelEntry | string | { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean; health?: ModelEntry["health"] }
 
 type ModelsResponse = {
   models?: RawModelEntry[]
@@ -26,13 +31,13 @@ function normalizeModelEntry(entry: RawModelEntry): ModelEntry | null {
     return { id, provider, name: id, reasoning: false }
   }
 
-  const raw = entry as { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean }
+  const raw = entry as { id?: string; name?: string; provider?: string; model?: string; value?: string; reasoning?: boolean; health?: ModelEntry["health"] }
   const ref = String(raw.id || raw.model || raw.value || "")
   if (!ref.trim()) return null
   const [providerFromRef, idFromRef] = ref.includes("/") ? ref.split(/\/(.+)/) : ["custom", ref]
   const provider = String(raw.provider || providerFromRef || "custom")
   const id = String(raw.id || idFromRef || ref)
-  return { id, provider, name: String(raw.name || id), reasoning: Boolean(raw.reasoning) }
+  return { id, provider, name: String(raw.name || id), reasoning: Boolean(raw.reasoning), health: raw.health }
 }
 
 function normalizeModelsResponse(response: ModelsResponse): { models: ModelEntry[]; currentModel: string | null } {
