@@ -20,6 +20,12 @@ export type ChatExecPolicy = {
   ask: "off" | "on-miss" | "always"
 }
 
+export function execPolicyForAutonomyMode(mode: ChatAutonomyMode): ChatExecPolicy {
+  if (mode === "full") return { security: "full", ask: "off" }
+  if (mode === "supervised") return { security: "allowlist", ask: "on-miss" }
+  return { security: "full", ask: "always" }
+}
+
 export type ChatComposerSubmit = {
   text: string
   attachments?: ChatSendAttachment[]

@@ -13,10 +13,10 @@ import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceInput } from "@/hooks/useVoiceInput"
 import { LuX } from "react-icons/lu"
 import {
+  execPolicyForAutonomyMode,
   stripComposerAttachment,
   type ChatAutonomyMode,
   type ChatComposerSubmit,
-  type ChatExecPolicy,
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
 import {
@@ -35,6 +35,7 @@ type Props = {
   onAbort?: () => void
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
+  onAutonomyModeChange?: (mode: ChatAutonomyMode) => void | Promise<void>
 }
 
 export function ChatBox({
@@ -46,6 +47,7 @@ export function ChatBox({
   errorMessage,
   replyTo,
   onCancelReply,
+  onAutonomyModeChange,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -222,10 +224,9 @@ export function ChatBox({
     }, 500)
   }
 
-  function execPolicyForMode(mode: ChatAutonomyMode): ChatExecPolicy {
-    if (mode === "full") return { security: "full", ask: "off" }
-    if (mode === "supervised") return { security: "allowlist", ask: "on-miss" }
-    return { security: "full", ask: "always" }
+  function handleAutonomyModeChange(mode: ChatAutonomyMode) {
+    setAutonomyMode(mode)
+    void onAutonomyModeChange?.(mode)
   }
 
   async function handleSend() {
@@ -238,7 +239,7 @@ export function ChatBox({
         : undefined,
       replyTo: replyTo ?? undefined,
       autonomyMode,
-      execPolicy: execPolicyForMode(autonomyMode),
+      execPolicy: execPolicyForAutonomyMode(autonomyMode),
     }
     setInput("")
     if (textareaRef.current) textareaRef.current.style.height = "auto"
@@ -528,7 +529,7 @@ export function ChatBox({
             webSearchEnabled={webSearchEnabled}
             onWebSearchDisable={() => setWebSearchEnabled(false)}
             autonomyMode={autonomyMode}
-            onAutonomyModeChange={setAutonomyMode}
+            onAutonomyModeChange={handleAutonomyModeChange}
             plusOpen={plusOpen}
             onPlusOpenChange={setPlusOpen}
             modelOpen={modelOpen}
