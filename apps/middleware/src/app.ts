@@ -51,7 +51,14 @@ function contentText(content: unknown) {
 function assistantMessageText(message: any) {
   const text = contentText(message?.content)
   if (text) return text
-  if (message?.stopReason === "error" && message?.errorMessage) return `Error: ${message.errorMessage}`
+  if (message?.stopReason === "error" && message?.errorMessage) {
+    const raw = String(message.errorMessage)
+    const requestId = raw.match(/"request_id"\s*:\s*"([^"]+)"/)?.[1]
+    if (message?.provider === "anthropic" && /OAuth authentication is currently not supported/i.test(raw)) {
+      return `Claude Opus can’t run right now because Anthropic auth is invalid. Add a direct Anthropic API key or pick another model.${requestId ? ` Request: ${requestId}` : ""}`
+    }
+    return `Error: ${raw}`
+  }
   return ""
 }
 
