@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscTerminal } from "react-icons/vsc"
+import { VscLayoutSidebarLeft, VscLayoutSidebarLeftOff, VscLayoutSidebarRightOff, VscLayoutSidebarRight, VscOutput, VscTerminal } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
@@ -11,6 +11,13 @@ import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
 import { invoke } from "@/lib/ipc"
 import type { ActiveChat } from "@/types/chat"
+
+type VersionInfo = {
+    version: string
+    nodeVersion?: string
+    openclawVersion?: string | null
+    source?: string
+}
 
 type HeaderProps = {
     user?: HeaderUser
@@ -22,14 +29,17 @@ type HeaderProps = {
     onToggleTerminal?: () => void
     sidebarOpen?: boolean
     onToggleSidebar?: () => void
+    chatMode?: "simple" | "mission"
+    onChatModeChange?: (mode: "simple" | "mission") => void
     centerLabel?: { project: string; topic: string } | null
     onOpenSettings?: () => void
     onOpenNotifications?: () => void
+    onOpenLogs?: () => void
     onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
 }
 
 const DEFAULT_USER: HeaderUser = {
-    name: "Jarvis",
+    name: "OpenClaw",
 }
 
 export function Header({
@@ -42,22 +52,32 @@ export function Header({
     onToggleTerminal,
     sidebarOpen = true,
     onToggleSidebar,
+    chatMode = "simple",
+    onChatModeChange,
     centerLabel,
     onOpenSettings,
     onOpenNotifications,
+    onOpenLogs,
     onNavigateToChat,
 }: HeaderProps) {
     const platform = usePlatform()
     const [isTauri, setIsTauri] = useState(false)
-    const [appVersion, setAppVersion] = useState<string | null>(null)
+    const [openClawVersion, setOpenClawVersion] = useState<string | null>(null)
+    const [nodeVersion, setNodeVersion] = useState<string | null>(null)
 
     useEffect(() => {
-        setIsTauri(typeof window !== "undefined" && !!window.__TAURI_INTERNALS__)
+        const timer = window.setTimeout(() => {
+            setIsTauri(typeof window !== "undefined" && !!window.__TAURI_INTERNALS__)
+        }, 0)
+        return () => window.clearTimeout(timer)
     }, [])
 
     useEffect(() => {
-        invoke<{ version: string }>("middleware_version_info")
-            .then((res) => setAppVersion(res.version))
+        invoke<VersionInfo>("middleware_version_info")
+            .then((res) => {
+                setOpenClawVersion(res.openclawVersion ?? res.version)
+                setNodeVersion(res.nodeVersion ?? null)
+            })
             .catch(() => {})
     }, [])
 
@@ -69,7 +89,7 @@ export function Header({
     return (
         <header
             className={cn(
-                "relative flex h-9 shrink-0 items-center justify-between",
+                "relative z-50 flex h-9 shrink-0 items-center justify-between",
                 "border-b border-border/50 bg-card",
                 "select-none",
                 showWindowControls ? "pl-3 pr-0" : "px-3",
@@ -98,9 +118,12 @@ export function Header({
                     {user.name}
                 </span>
 
-                {appVersion && (
-                    <span className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner">
-                        v{appVersion}
+                {openClawVersion && (
+                    <span
+                        title={nodeVersion ? `Middleware Node ${nodeVersion}` : undefined}
+                        className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner"
+                    >
+                        v{openClawVersion}
                     </span>
                 )}
             </div>
@@ -110,6 +133,7 @@ export function Header({
                     <>
                         <button
                             type="button"
+                            data-testid="toggle-sidebar"
                             aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
                             title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
                             onClick={onToggleSidebar}
@@ -162,6 +186,21 @@ export function Header({
                             )}
                         >
                             <VscTerminal className="size-4" />
+                        </button>
+
+                        <button
+                            type="button"
+                            aria-label="Open logs"
+                            title="Open logs"
+                            onClick={onOpenLogs}
+                            className={cn(
+                                "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+                                "transition-colors cursor-pointer",
+                                "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            <VscOutput className="size-3.5" />
+                            Logs
                         </button>
 
                         <NotificationPopover onViewAll={onOpenNotifications} onNavigateToChat={onNavigateToChat} />

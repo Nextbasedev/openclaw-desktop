@@ -38,16 +38,18 @@ interface InspectorPanelProps {
   terminalActive?: boolean
   onTerminalActiveChange?: (active: boolean) => void
   sessionKey?: string | null
-  focusActivityTrigger?: number
+  focusedToolCallId?: string | null
+  onClearFocusedToolCall?: () => void
   projectId?: string | null
   activeAgentId?: string | null
   onAgentSelect?: (id: string) => void
 }
 
-export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusActivityTrigger, projectId, activeAgentId, onAgentSelect }: InspectorPanelProps) {
+export function InspectorPanel({ open, onClose, terminalActive, onTerminalActiveChange, sessionKey, focusedToolCallId, onClearFocusedToolCall, projectId, activeAgentId, onAgentSelect }: InspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("activity")
-  const responsiveRef = useRef(getResponsiveDefaults())
-  const [width, setWidth] = useState(responsiveRef.current.default)
+  const responsiveDefaults = getResponsiveDefaults()
+  const responsiveRef = useRef(responsiveDefaults)
+  const [width, setWidth] = useState(responsiveDefaults.default)
   const [isDragging, setIsDragging] = useState(false)
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
 
@@ -72,10 +74,10 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
   } as CSSProperties
 
   useEffect(() => {
-    if (focusActivityTrigger && focusActivityTrigger > 0) {
+    if (focusedToolCallId) {
       setActiveTab("activity")
     }
-  }, [focusActivityTrigger])
+  }, [focusedToolCallId])
 
   useEffect(() => {
     if (terminalActive && open) {
@@ -212,10 +214,10 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-clip">
-          {activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} />}
-          {activeTab === "workspace" && <WorkspaceTab />}
-          {activeTab === "git" && <GitTab projectId={projectId ?? null} />}
-          {activeTab === "terminal" && (
+          {open && activeTab === "activity" && <ActivityTab key={`${projectId ?? "global"}:${sessionKey ?? "none"}`} sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} focusedToolCallId={focusedToolCallId ?? null} onClearFocusedToolCall={onClearFocusedToolCall} />}
+          {open && activeTab === "workspace" && <WorkspaceTab key={projectId ?? "global"} sessionKey={sessionKey ?? null} projectId={projectId ?? null} /> }
+          {open && activeTab === "git" && <GitTab key={projectId ?? "global"} projectId={projectId ?? null} />}
+          {open && activeTab === "terminal" && (
             <div className="flex h-full flex-col overflow-hidden">
               {/* Terminal session tabs */}
               <div
@@ -290,7 +292,11 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
                       zIndex: activeTermId === tab.id ? 1 : 0,
                     }}
                   >
-                    <XTerminal visible={activeTermId === tab.id} />
+                    <XTerminal
+                      key={`${projectId ?? "global"}:${tab.id}`}
+                      visible={activeTermId === tab.id}
+                      projectId={projectId ?? null}
+                    />
                   </div>
                 ))}
               </div>

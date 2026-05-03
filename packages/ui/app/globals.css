@@ -143,6 +143,14 @@
   box-shadow: none;
 }
 
+.no-native-password-reveal::-ms-reveal,
+.no-native-password-reveal::-ms-clear,
+.no-native-password-reveal::-webkit-credentials-auto-fill-button {
+  display: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* ─── Glass Buttons ─── */
 .glass-btn-primary {
   display: inline-flex;
@@ -381,7 +389,7 @@ body {
 .activity-expand {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.2s ease;
+  transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .activity-expand[data-open="true"] {
@@ -392,9 +400,22 @@ body {
   overflow: hidden;
 }
 
+.activity-expand-inner {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.activity-expand[data-open="true"] .activity-expand-inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @keyframes shimmer {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(150%); }
 }
 
 .shimmer-slide {
@@ -408,4 +429,34 @@ body {
 
 .animate-shimmer-text {
   animation: shimmer-text 2.5s ease-in-out infinite;
+}
+
+.streaming-text {
+  transition: height 0.15s ease-out;
+}
+
+.streaming-text > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background-color: currentColor;
+  opacity: 0.7;
+  animation: cursor-blink 0.6s steps(2) infinite;
+}
+
+@keyframes cursor-blink {
+  0%   { opacity: 0.7; }
+  50%  { opacity: 0; }
+  100% { opacity: 0.7; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streaming-text,
+  .streaming-text > :last-child::after {
+    animation: none;
+    transition: none;
+  }
 }

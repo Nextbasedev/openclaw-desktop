@@ -26,7 +26,7 @@ _check() {
   echo ""
 }
 
-echo "=== Jarvis Build Check ==="
+echo "=== OpenClaw Build Check ==="
 echo ""
 
 # TypeScript type checking

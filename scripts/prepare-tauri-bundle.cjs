@@ -9,7 +9,7 @@ const bundledServerDir = path.join(
   "desktop",
   "src-tauri",
   "bundled",
-  "server",
+  "middleware",
 )
 const bundledNodeDir = path.join(bundledServerDir, "bin")
 const bundledNodePath = path.join(
@@ -168,22 +168,16 @@ function main() {
     run(pnpm, ["--filter", "ui", "build"])
   }
 
-  runNode(tscCli, ["-p", path.join("packages", "shared", "tsconfig.json")])
-  runNode(tscCli, ["-p", path.join("packages", "middleware", "tsconfig.json")])
-  run(pnpm, ["--filter", "server", "build"])
+  run(pnpm, ["--filter", "@openclaw/desktop-middleware", "build"])
   run(pnpm, [
     "--filter",
-    "server",
+    "@openclaw/desktop-middleware",
     "deploy",
     "--legacy",
     "--prod",
     bundledServerDir,
   ])
 
-  updateBundledWorkspacePackage("shared")
-  updateBundledWorkspacePackage("middleware")
-  removeBundledWorkspaceLinks(["desktop", "server", "ui"])
-  rebuildTopLevelNodeModules()
   updateServerPackageJson()
 
   fs.mkdirSync(bundledNodeDir, { recursive: true })

@@ -60,15 +60,16 @@ function getTermTheme(resolved: string | undefined): ITheme {
 
 interface XTerminalProps {
   visible: boolean
+  projectId?: string | null
 }
 
-export function XTerminal({ visible }: XTerminalProps) {
+export function XTerminal({ visible, projectId }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const { resolvedTheme } = useTheme()
 
-  const pty = usePty(termRef)
+  const pty = usePty(termRef, projectId)
   const ptyRef = useRef(pty)
   ptyRef.current = pty
 
@@ -92,11 +93,6 @@ export function XTerminal({ visible }: XTerminalProps) {
     term.open(containerRef.current)
     termRef.current = term
     fitRef.current = fit
-
-    requestAnimationFrame(() => {
-      fit.fit()
-      term.focus()
-    })
 
     term.onData((data) => ptyRef.current.write(data))
     term.onResize(({ rows, cols }) => ptyRef.current.resize(rows, cols))
@@ -122,11 +118,20 @@ export function XTerminal({ visible }: XTerminalProps) {
     }
     container.addEventListener("paste", onPaste)
 
-    const { rows, cols } = term
-    ptyRef.current.spawn(rows, cols, signal).catch((err) => {
+    document.fonts.ready.then(() => {
       if (signal.aborted) return
-      term.writeln(`\x1b[31mFailed to spawn shell: ${String(err)}\x1b[0m`)
-      term.writeln("\x1b[90mMake sure the backend server is running (pnpm --filter server dev)\x1b[0m")
+      requestAnimationFrame(() => {
+        if (signal.aborted) return
+        fit.fit()
+        term.focus()
+        const { rows, cols } = term
+        ptyRef.current.spawn(rows, cols, signal).catch((err) => {
+          if (signal.aborted) return
+          const message = err instanceof Error ? err.message : String(err)
+          term.writeln(`\x1b[31mFailed to open terminal: ${message}\x1b[0m`)
+          term.writeln("\x1b[90mCheck that OpenClaw Middleware is connected and the selected workspace still exists.\x1b[0m")
+        })
+      })
     })
 
     const ro = new ResizeObserver(() => {
@@ -146,7 +151,7 @@ export function XTerminal({ visible }: XTerminalProps) {
       ptyRef.current.cleanup()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [projectId])
 
   useEffect(() => {
     if (!termRef.current) return

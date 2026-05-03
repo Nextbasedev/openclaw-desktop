@@ -1,3 +1,4 @@
+import { randomId } from "@/lib/id"
 export const CHAT_ATTACHMENT_LIMITS = {
   maxCount: 10,
   maxSingleBytes: 50 * 1024 * 1024,
@@ -15,6 +16,11 @@ export type ChatSendAttachment = {
 export type ChatComposerSubmit = {
   text: string
   attachments?: ChatSendAttachment[]
+  replyTo?: {
+    messageId: string
+    role: "user" | "assistant"
+    text: string
+  }
 }
 
 export type ChatComposerAttachment = ChatSendAttachment & {
@@ -100,7 +106,7 @@ export async function toChatComposerAttachment(
 
   if (isTextLikeMimeType(mimeType)) {
     return {
-      id: crypto.randomUUID(),
+      id: randomId(),
       name: file.name,
       mimeType,
       content: await file.text(),
@@ -113,7 +119,7 @@ export async function toChatComposerAttachment(
 
   const bytes = new Uint8Array(await file.arrayBuffer())
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     name: file.name,
     mimeType,
     content: bytesToBase64(bytes),

@@ -102,7 +102,8 @@ function buildChatPayload(entityId: string): {
     .prepare(
       `SELECT c.id, c.name, c.session_key, c.agent_id, c.archived, c.pinned,
               c.last_active_at, c.updated_at, c.deleted_at,
-              sm.project_id, sm.topic_id, sm.sort_order_key
+              sm.project_id, sm.topic_id, sm.sort_order_key,
+              sm.label AS gateway_label
        FROM chats c
        LEFT JOIN session_mappings sm ON sm.session_key = c.session_key
        WHERE c.id = ?`,
@@ -121,10 +122,12 @@ function buildChatPayload(entityId: string): {
         project_id: string | null
         topic_id: string | null
         sort_order_key: string | null
+        gateway_label: string | null
       }
     | undefined
   if (!row) return null
   if (!row.project_id) return null
+  const gatewayName = row.gateway_label ?? row.name
   const payload: SyncPayload = {
     schema: 1,
     kind: "chat",
@@ -133,7 +136,7 @@ function buildChatPayload(entityId: string): {
       topicId: row.topic_id ?? undefined,
       chatId: row.id,
     },
-    names: { chatName: row.name },
+    names: { chatName: gatewayName },
     chat: {
       archived: sqlToBool(row.archived),
       pinned: sqlToBool(row.pinned),
@@ -145,22 +148,48 @@ function buildChatPayload(entityId: string): {
     updatedBy: deviceId(),
     deletedAt: row.deleted_at ?? undefined,
   }
-  return { payload, sessionKey: row.session_key, userName: row.name }
+  return { payload, sessionKey: row.session_key, userName: gatewayName }
+}
+
+function clearDirty(task: OutboxRow, pushedAt?: string, sessionKey?: string | null): void {
+  const db = getDb()
+  const updatedAtGuard = pushedAt ? " AND updated_at <= ?" : ""
+  const params = pushedAt ? [pushedAt, task.entity_id] : [task.entity_id]
+
+  if (task.entity_type === "project") {
+    db.prepare(`UPDATE projects SET sync_dirty = 0 WHERE id = ?${updatedAtGuard}`)
+      .run(...(pushedAt ? [task.entity_id, pushedAt] : params))
+    return
+  }
+
+  if (task.entity_type === "topic") {
+    db.prepare(`UPDATE topics SET sync_dirty = 0 WHERE id = ?${updatedAtGuard}`)
+      .run(...(pushedAt ? [task.entity_id, pushedAt] : params))
+    return
+  }
+
+  if (task.entity_type === "chat") {
+    db.prepare(`UPDATE chats SET sync_dirty = 0 WHERE id = ?${updatedAtGuard}`)
+      .run(...(pushedAt ? [task.entity_id, pushedAt] : params))
+    if (sessionKey) {
+      db.prepare(
+        `UPDATE session_mappings SET sync_dirty = 0 WHERE session_key = ?${pushedAt ? " AND updated_at <= ?" : ""}`,
+      ).run(...(pushedAt ? [sessionKey, pushedAt] : [sessionKey]))
+    }
+  }
 }
 
 async function pushOne(task: OutboxRow): Promise<void> {
   if (task.op === "delete") {
     if (task.entity_type === "chat") {
-      const db = getDb()
-      const row = db
-        .prepare("SELECT session_key FROM chats WHERE id = ?")
-        .get(task.entity_id) as { session_key: string | null } | undefined
-      if (row?.session_key) {
+      const sessionKey = getAnchorSessionKey("chat", task.entity_id)
+      if (sessionKey) {
         try {
-          await deleteChatSession(row.session_key)
+          await deleteChatSession(sessionKey)
         } catch {
           // ignore; session may already be gone
         }
+        forgetAnchor("chat", task.entity_id)
       }
       return
     }
@@ -186,6 +215,7 @@ async function pushOne(task: OutboxRow): Promise<void> {
       label: encodeAnchorLabel(payload),
     })
     rememberAnchor("project", task.entity_id, result.sessionKey)
+    clearDirty(task, payload.updatedAt)
     return
   }
 
@@ -199,6 +229,7 @@ async function pushOne(task: OutboxRow): Promise<void> {
       label: encodeAnchorLabel(payload),
     })
     rememberAnchor("topic", task.entity_id, result.sessionKey)
+    clearDirty(task, payload.updatedAt)
     return
   }
 
@@ -209,8 +240,28 @@ async function pushOne(task: OutboxRow): Promise<void> {
       key: built.sessionKey,
       label: encodeSessionLabel(built.userName, built.payload),
     })
+    rememberAnchor("chat", task.entity_id, built.sessionKey)
+    clearDirty(task, built.payload.updatedAt, built.sessionKey)
     return
   }
+}
+
+export async function pushDueTasks(limit = 25): Promise<{ pushed: number; failed: number }> {
+  if (!isGatewayConnected()) return { pushed: 0, failed: 0 }
+  const tasks = claimDueTasks(limit)
+  let pushed = 0
+  let failed = 0
+  for (const task of tasks) {
+    try {
+      await pushOne(task)
+      markDone(task.id)
+      pushed += 1
+    } catch (err) {
+      markFailed(task.id, err instanceof Error ? err.message : String(err))
+      failed += 1
+    }
+  }
+  return { pushed, failed }
 }
 
 async function tick(): Promise<void> {
@@ -219,15 +270,7 @@ async function tick(): Promise<void> {
   if (!isGatewayConnected()) return
   running = true
   try {
-    const tasks = claimDueTasks(25)
-    for (const task of tasks) {
-      try {
-        await pushOne(task)
-        markDone(task.id)
-      } catch (err) {
-        markFailed(task.id, err instanceof Error ? err.message : String(err))
-      }
-    }
+    await pushDueTasks(25)
   } finally {
     running = false
     scheduleNext()

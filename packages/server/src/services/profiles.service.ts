@@ -30,7 +30,7 @@ function fetchProfile(id: string) {
 
 export function profilesList() {
   const db = getDb()
-  const rows = db.prepare(`SELECT ${PROFILE_COLUMNS} FROM profiles ORDER BY updated_at DESC`).all() as ProfileRow[]
+  const rows = db.prepare(`SELECT ${PROFILE_COLUMNS} FROM profiles ORDER BY is_default DESC, updated_at DESC`).all() as ProfileRow[]
   return { profiles: rows.map(profileRowToJson) }
 }
 

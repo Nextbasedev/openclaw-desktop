@@ -1,7 +1,11 @@
 import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
+import { execSync } from "node:child_process"
 import { getDb } from "../db/connection.js"
+import { generateId, nowIso } from "../db/helpers.js"
+import { enqueue } from "../sync/outbox.js"
+import { kickSyncEngine } from "../sync/engine.js"
 
 type RepoEntry = {
   name: string
@@ -145,4 +149,65 @@ export function reposSelect(input: { path: string; name: string }) {
   ).run(normalized, input.name, now)
 
   return { ok: true }
+}
+
+function getWorkspaceRoot(): string {
+  return path.join(os.homedir(), ".openclaw", "workspace")
+}
+
+function repoNameFromUrl(url: string): string {
+  const cleaned = url.replace(/\/+$/, "").replace(/\.git$/, "")
+  const lastSegment = cleaned.split("/").pop() ?? ""
+  return lastSegment || "repo"
+}
+
+export function reposClone(input: {
+  url: string
+  name?: string
+  targetDir?: string
+}): { ok: true; name: string; path: string } {
+  const url = input.url.trim()
+  if (!url) throw new Error("Repository URL is required")
+
+  const repoName = input.name?.trim() || repoNameFromUrl(url)
+  const parentDir = input.targetDir?.trim() || getWorkspaceRoot()
+
+  fs.mkdirSync(parentDir, { recursive: true })
+
+  const dest = path.join(parentDir, repoName)
+  if (fs.existsSync(dest)) {
+    throw new Error(`Directory already exists: ${dest}`)
+  }
+
+  execSync(`git clone ${JSON.stringify(url)} ${JSON.stringify(dest)}`, {
+    timeout: 120_000,
+    stdio: "pipe",
+  })
+
+  const normalizedPath = normalizePath(dest)
+
+  const db = getDb()
+  const now = nowIso()
+  db.prepare(
+    `INSERT INTO recent_repos (path, name, selected_at, use_count)
+     VALUES (?, ?, ?, 1)
+     ON CONFLICT(path) DO UPDATE SET
+       selected_at = excluded.selected_at,
+       use_count = use_count + 1`,
+  ).run(normalizedPath, repoName, now)
+
+  const existing = db
+    .prepare("SELECT COUNT(*) as c FROM projects WHERE name = ? COLLATE NOCASE")
+    .get(repoName) as { c: number }
+
+  if (existing.c === 0) {
+    const id = generateId("proj")
+    db.prepare(
+      "INSERT INTO projects (id, name, profile_id, workspace_root, repo_root, archived, unread_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)",
+    ).run(id, repoName, "default", normalizedPath, normalizedPath, now, now)
+    enqueue("project", id, "upsert")
+    kickSyncEngine()
+  }
+
+  return { ok: true, name: repoName, path: normalizedPath }
 }

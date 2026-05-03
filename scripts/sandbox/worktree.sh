@@ -8,7 +8,7 @@
 #
 # Each worktree gets:
 #   - Isolated git working directory at ../.worktrees/<branch-name>
-#   - Dev server on specified port (default: auto-assigned 3001-3020)
+#   - Dev server on specified port (default: auto-assigned 8787-8806)
 #   - Own node_modules (pnpm install)
 
 set -euo pipefail
@@ -17,15 +17,15 @@ WORKTREE_ROOT="$(git rev-parse --show-toplevel)/../.worktrees"
 ACTION="${1:-list}"
 
 _next_port() {
-  local port=3001
-  while [ $port -le 3020 ]; do
+  local port=8787
+  while [ $port -le 8806 ]; do
     if ! lsof -i ":${port}" >/dev/null 2>&1; then
       echo "$port"
       return
     fi
     port=$((port + 1))
   done
-  echo "ERROR: No free ports in range 3001-3020" >&2
+  echo "ERROR: No free ports in range 8787-8806" >&2
   exit 1
 }
 

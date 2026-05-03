@@ -11,7 +11,7 @@ type Props = {
   onBack: () => void
 }
 
-const SUGGESTIONS = ["Jarvis", "Atlas", "Nova", "Echo", "Sage"]
+const SUGGESTIONS = ["OpenClaw", "Atlas", "Nova", "Echo", "Sage"]
 
 export function BotNameStep({ initialName, getBotName, setBotName, onComplete, onBack }: Props) {
   const [name, setName] = useState(initialName || "")

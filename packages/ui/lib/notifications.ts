@@ -61,7 +61,7 @@ export async function notifyChatComplete(
     console.log("[notifyChatComplete] Windows path — invoking show_reply_notification")
     try {
       await invoke("show_reply_notification", {
-        title: sessionTitle || "Jarvis",
+        title: sessionTitle || "OpenClaw",
         body,
         sessionKey,
       })
@@ -74,7 +74,7 @@ export async function notifyChatComplete(
 
   console.log("[notifyChatComplete] sending standard notification")
   sendNotification({
-    title: sessionTitle || "Jarvis",
+    title: sessionTitle || "OpenClaw",
     body,
   })
   console.log("[notifyChatComplete] standard notification sent")

@@ -1,9 +1,10 @@
+import crypto from "node:crypto"
 import type Database from "better-sqlite3"
 import { listGatewaySessions } from "middleware"
 import { getDb } from "../db/connection.js"
 import { boolToSql, nowIso } from "../db/helpers.js"
 import { decodeLabel, isAnchorKey, type SyncPayload } from "./encoding.js"
-import { rememberAnchor } from "./anchor.js"
+import { forgetAnchor, rememberAnchor } from "./anchor.js"
 
 function tombstoneAt(
   db: Database.Database,
@@ -33,7 +34,25 @@ function applyProject(payload: SyncPayload, sessionKey: string): void {
   rememberAnchor("project", projectId, sessionKey)
 
   if (payload.deletedAt) {
+    const topicIds = db
+      .prepare("SELECT id FROM topics WHERE project_id = ?")
+      .all(projectId) as Array<{ id: string }>
+    const chatIds = db
+      .prepare(
+        `SELECT c.id FROM chats c
+         JOIN session_mappings sm ON sm.session_key = c.session_key
+         WHERE sm.project_id = ?`,
+      )
+      .all(projectId) as Array<{ id: string }>
+    for (const chat of chatIds) forgetAnchor("chat", chat.id)
+    for (const topic of topicIds) forgetAnchor("topic", topic.id)
+    db.prepare(
+      "DELETE FROM chats WHERE session_key IN (SELECT session_key FROM session_mappings WHERE project_id = ?)",
+    ).run(projectId)
+    db.prepare("DELETE FROM session_mappings WHERE project_id = ?").run(projectId)
+    db.prepare("DELETE FROM topics WHERE project_id = ?").run(projectId)
     db.prepare("DELETE FROM projects WHERE id = ?").run(projectId)
+    forgetAnchor("project", projectId)
     return
   }
 
@@ -63,10 +82,9 @@ function applyProject(payload: SyncPayload, sessionKey: string): void {
   if (!isNewer(payload.updatedAt, existing.updated_at)) return
 
   db.prepare(
-    `UPDATE projects SET name = ?, archived = ?, pinned = ?, sort_order = ?,
+    `UPDATE projects SET archived = ?, pinned = ?, sort_order = ?,
      updated_at = ?, updated_by_device = ?, sync_dirty = 0 WHERE id = ?`,
   ).run(
-    payload.names.projectName ?? "Untitled",
     boolToSql(payload.project?.archived ?? false),
     boolToSql(payload.project?.pinned ?? false),
     payload.project?.sortOrderKey ?? null,
@@ -86,7 +104,11 @@ function applyTopic(payload: SyncPayload, sessionKey: string): void {
   rememberAnchor("topic", topicId, sessionKey)
 
   if (payload.deletedAt) {
+    db.prepare(
+      "UPDATE session_mappings SET topic_id = NULL, updated_at = ?, sync_dirty = 0 WHERE topic_id = ?",
+    ).run(payload.deletedAt, topicId)
     db.prepare("DELETE FROM topics WHERE id = ?").run(topicId)
+    forgetAnchor("topic", topicId)
     return
   }
 
@@ -115,18 +137,40 @@ function applyTopic(payload: SyncPayload, sessionKey: string): void {
   if (!isNewer(payload.updatedAt, existing.updated_at)) return
 
   db.prepare(
-    `UPDATE topics SET project_id = ?, name = ?, archived = ?,
+    `UPDATE topics SET project_id = ?, archived = ?,
      sort_order_key = ?, updated_at = ?, updated_by_device = ?, sync_dirty = 0
      WHERE id = ?`,
   ).run(
     payload.ids.projectId,
-    payload.names.topicName ?? "Untitled",
     boolToSql(payload.topic?.archived ?? false),
     payload.topic?.sortOrderKey ?? null,
     payload.updatedAt,
     payload.updatedBy,
     topicId,
   )
+}
+
+const WEAK_NAME_RE = /^(?:[0-9a-f]{8}|[0-9a-f]{12,}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|chat_[0-9a-f]{12,}|sess_[0-9a-f]{12,})$/i
+
+function isWeakName(name: string | null | undefined): boolean {
+  const v = name?.trim()
+  if (!v) return true
+  if (v === "New Chat") return true
+  return WEAK_NAME_RE.test(v)
+}
+
+function resolveChatName(
+  db: Database.Database,
+  chatId: string,
+  incomingName: string | undefined,
+): string {
+  const incoming = incomingName ?? "New Chat"
+  const row = db
+    .prepare("SELECT name FROM chats WHERE id = ?")
+    .get(chatId) as { name: string } | undefined
+  const localName = row?.name
+  if (isWeakName(incoming) && !isWeakName(localName)) return localName!
+  return incoming
 }
 
 function applyChat(payload: SyncPayload, sessionKey: string): void {
@@ -138,12 +182,18 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
 
   if (payload.deletedAt) {
     db.prepare("DELETE FROM chats WHERE id = ?").run(chatId)
+    db.prepare("DELETE FROM session_mappings WHERE session_key = ?").run(sessionKey)
+    forgetAnchor("chat", chatId)
     return
   }
 
   const existingChat = db
     .prepare("SELECT updated_at FROM chats WHERE id = ?")
     .get(chatId) as { updated_at: string } | undefined
+
+  const resolvedName = existingChat
+    ? resolveChatName(db, chatId, payload.names.chatName)
+    : (payload.names.chatName ?? "New Chat")
 
   if (!existingChat) {
     db.prepare(
@@ -152,7 +202,7 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
     ).run(
       chatId,
-      payload.names.chatName ?? "New Chat",
+      resolvedName,
       sessionKey,
       payload.chat?.agentId ?? "main",
       boolToSql(payload.chat?.archived ?? false),
@@ -168,7 +218,7 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
        pinned = ?, last_active_at = ?, updated_at = ?, updated_by_device = ?,
        sync_dirty = 0 WHERE id = ?`,
     ).run(
-      payload.names.chatName ?? "New Chat",
+      resolvedName,
       sessionKey,
       payload.chat?.agentId ?? "main",
       boolToSql(payload.chat?.archived ?? false),
@@ -195,7 +245,7 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
       payload.ids.projectId,
       payload.ids.topicId ?? null,
       payload.chat?.agentId ?? "main",
-      payload.names.chatName ?? "New Chat",
+      resolvedName,
       payload.updatedAt,
       payload.updatedAt,
       payload.chat?.sortOrderKey ?? null,
@@ -209,7 +259,7 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
       payload.ids.projectId,
       payload.ids.topicId ?? null,
       payload.chat?.agentId ?? "main",
-      payload.names.chatName ?? "New Chat",
+      resolvedName,
       payload.updatedAt,
       payload.chat?.sortOrderKey ?? null,
       sessionKey,
@@ -217,12 +267,76 @@ function applyChat(payload: SyncPayload, sessionKey: string): void {
   }
 }
 
+
+function formatBareSessionName(key: string): string {
+  if (key.includes(":telegram:")) return `Telegram ${key.split(":").pop() ?? "Chat"}`
+  if (key.includes(":cron:")) return `Cron ${key.split(":").pop()?.slice(0, 8) ?? "Task"}`
+  return key.split(":").pop() || "Chat"
+}
+
+function importBareSession(
+  db: Database.Database,
+  sessionKey: string,
+  label: string | null,
+  projectId: string,
+  updatedAt: string | null,
+): void {
+  const existingChat = db
+    .prepare("SELECT id FROM chats WHERE session_key = ?")
+    .get(sessionKey) as { id: string } | undefined
+  if (existingChat) return
+
+  const mappedLocal = db
+    .prepare("SELECT session_key FROM session_mappings WHERE session_id = ?")
+    .get(sessionKey) as { session_key: string } | undefined
+  if (mappedLocal) {
+    const linkedChat = db
+      .prepare("SELECT id FROM chats WHERE session_key = ?")
+      .get(mappedLocal.session_key) as { id: string } | undefined
+    if (linkedChat) return
+  }
+
+  const chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
+  const chatName = label || formatBareSessionName(sessionKey)
+  const now = updatedAt ?? nowIso()
+
+  db.prepare(
+    `INSERT INTO chats (id, name, session_key, agent_id, archived, pinned,
+     last_active_at, created_at, updated_at, sync_dirty, updated_by_device)
+     VALUES (?, ?, ?, 'main', 0, 0, ?, ?, ?, 0, '')`,
+  ).run(chatId, chatName, sessionKey, now, now, now)
+
+  db.prepare(
+    `INSERT INTO session_mappings (session_key, session_id, project_id, topic_id,
+     agent_id, label, status, created_at, updated_at, pinned, hidden, source,
+     sync_dirty, sort_order_key)
+     VALUES (?, NULL, ?, NULL, 'main', ?, 'idle', ?, ?, 0, 0, 'gateway', 0, NULL)`,
+  ).run(sessionKey, projectId, chatName, now, now)
+}
+
 export async function pullOnce(): Promise<{ seen: number; applied: number }> {
   const { sessions } = await listGatewaySessions({ limit: 500 })
+  const db = getDb()
   let applied = 0
+  const bareSessions: Array<{
+    key: string
+    label: string | null
+    updatedAt: string | null
+  }> = []
+
   for (const session of sessions) {
+    if (session.key.includes(":cron:")) continue
     const decoded = decodeLabel(session.label)
-    if (!decoded.payload) continue
+    if (!decoded.payload) {
+      if (!isAnchorKey(session.key)) {
+        bareSessions.push({
+          key: session.key,
+          label: decoded.userName || session.label,
+          updatedAt: session.updatedAt ?? null,
+        })
+      }
+      continue
+    }
     const payload = decoded.payload
     try {
       if (payload.kind === "project") applyProject(payload, session.key)
@@ -243,7 +357,32 @@ export async function pullOnce(): Promise<{ seen: number; applied: number }> {
       if (id) rememberAnchor(anchor.kind, id, session.key)
     }
   }
-  const db = getDb()
+
+  if (bareSessions.length > 0) {
+    const existing = db
+      .prepare(
+        "SELECT id FROM projects WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+      )
+      .get() as { id: string } | undefined
+    if (existing) {
+      for (const bare of bareSessions) {
+        try {
+          importBareSession(db, bare.key, bare.label, existing.id, bare.updatedAt)
+          applied += 1
+        } catch {
+          // skip
+        }
+      }
+    }
+  }
+
+  db.prepare(
+    `DELETE FROM projects WHERE name = 'Default' AND profile_id = 'default'
+     AND workspace_root = '' AND deleted_at IS NULL
+     AND id NOT IN (SELECT DISTINCT project_id FROM topics WHERE project_id IS NOT NULL)
+     AND id NOT IN (SELECT DISTINCT project_id FROM session_mappings WHERE project_id IS NOT NULL)`,
+  ).run()
+
   db.prepare(
     "INSERT INTO app_settings (key, value, updated_at) VALUES ('sync.last_sync_at', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
   ).run(nowIso(), nowIso())

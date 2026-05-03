@@ -30,7 +30,7 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
   const topic = topics.find((t) => t.id === topicId)
   if (!topic) return null
 
-  const timeStr = formatCompactTime(topic.updatedAt)
+  const timeStr = topic.pendingFork ? "" : formatCompactTime(topic.updatedAt)
 
   return (
     <Reorder.Item
@@ -43,26 +43,28 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
       className="group/row relative flex items-center rounded-md"
       style={{ position: "relative", boxShadow: "none" }}
       whileDrag={{ boxShadow: "none" }}
-      {...longPress}
+      {...(!topic.pendingFork ? longPress : {})}
     >
       <button
-        onClick={onClick}
+        onClick={topic.pendingFork ? undefined : onClick}
+        disabled={topic.pendingFork}
         className={cn(
           "flex flex-1 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors duration-150",
           isActive ? "bg-foreground/7 text-foreground" : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
         )}
       >
         <span
-          onClick={(e) => { e.stopPropagation(); onPin() }}
+          onClick={(e) => { e.stopPropagation(); if (!topic.pendingFork) onPin() }}
           title={isPinned ? "Unpin" : "Pin"}
           className={cn(
             "flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all duration-150",
-            isPinned
+            topic.pendingFork && "cursor-default opacity-100 text-muted-foreground/50",
+            !topic.pendingFork && (isPinned
               ? isActive ? "text-foreground" : "text-foreground/70"
-              : "opacity-0 group-hover/row:opacity-100 text-muted-foreground/40 hover:text-foreground",
+              : "opacity-0 group-hover/row:opacity-100 text-muted-foreground/40 hover:text-foreground"),
           )}
         >
-          <Icons.Pin size={15} strokeWidth={isPinned ? 2 : 1.5} />
+          {topic.pendingFork ? <span className="size-3 animate-spin rounded-full border border-muted-foreground/20 border-t-muted-foreground/70" /> : <Icons.Pin size={15} strokeWidth={isPinned ? 2 : 1.5} />}
         </span>
         <span className="flex-1 truncate text-[13px] font-light">{topic.name}</span>
       </button>
@@ -74,10 +76,11 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
         )}>
           {timeStr}
         </span>
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        {!topic.pendingFork && <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               title="Topic options"
               className={cn(
                 "absolute flex h-5 w-5 cursor-pointer items-center justify-center rounded transition-all duration-100",
@@ -95,7 +98,7 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
             <MenuAction label="Archive" icon={<Icons.Archive size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onArchive() }} />
             <MenuAction label="Delete" icon={<Icons.Trash size={14} strokeWidth={1.5} />} onClick={() => { setMenuOpen(false); onDelete() }} danger />
           </PopoverContent>
-        </Popover>
+        </Popover>}
       </div>
     </Reorder.Item>
   )

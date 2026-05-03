@@ -4,6 +4,26 @@ import { useState, useEffect } from "react"
 
 export type Platform = "macos" | "windows" | "linux" | "unknown"
 
+type NavigatorWithUserAgentData = Navigator & {
+  userAgentData?: {
+    platform?: string
+  }
+}
+
+function detectPlatform(): Platform {
+  const nav = navigator as NavigatorWithUserAgentData
+  const modern = nav.userAgentData?.platform?.toLowerCase()
+  if (modern?.includes("mac")) return "macos"
+  if (modern?.includes("win")) return "windows"
+  if (modern?.includes("linux")) return "linux"
+
+  const legacy = navigator.platform?.toLowerCase() ?? ""
+  if (legacy.includes("mac")) return "macos"
+  if (legacy.includes("win")) return "windows"
+  if (legacy.includes("linux")) return "linux"
+  return "unknown"
+}
+
 /**
  * Detects the user's operating system at runtime.
  *
@@ -14,21 +34,8 @@ export function usePlatform(): Platform {
   const [platform, setPlatform] = useState<Platform>("unknown")
 
   useEffect(() => {
-    // 1. navigator.userAgentData (modern Chromium-based, including Tauri WebView2)
-    if ("userAgentData" in navigator && (navigator as any).userAgentData?.platform) {
-      const p = (navigator as any).userAgentData.platform.toLowerCase()
-      if (p.includes("mac")) return setPlatform("macos")
-      if (p.includes("win")) return setPlatform("windows")
-      if (p.includes("linux")) return setPlatform("linux")
-    }
-
-    // 2. navigator.platform (legacy fallback)
-    const legacy = navigator.platform?.toLowerCase() ?? ""
-    if (legacy.includes("mac")) return setPlatform("macos")
-    if (legacy.includes("win")) return setPlatform("windows")
-    if (legacy.includes("linux")) return setPlatform("linux")
-
-    setPlatform("unknown")
+    const timer = window.setTimeout(() => setPlatform(detectPlatform()), 0)
+    return () => window.clearTimeout(timer)
   }, [])
 
   return platform

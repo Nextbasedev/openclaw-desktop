@@ -30,22 +30,24 @@ export function ArchiveTab() {
       )
       setArchivedProjects(archived)
 
-      const allTopics: ArchivedTopic[] = []
-      for (const project of projects) {
-        const { topics } = await fetchTopics(project.id)
-        for (const topic of topics) {
-          if (topic.archived) {
-            allTopics.push({ ...topic, projectName: project.name })
-          }
-        }
-      }
+      const topicResults = await Promise.allSettled(
+        projects.map(async (project) => {
+          const { topics } = await fetchTopics(project.id)
+          return topics
+            .filter((topic) => topic.archived)
+            .map((topic) => ({ ...topic, projectName: project.name }))
+        }),
+      )
+      const allTopics = topicResults.flatMap((result) =>
+        result.status === "fulfilled" ? result.value : [],
+      )
       allTopics.sort(
         (a, b) =>
           new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
       )
       setArchivedTopics(allTopics)
     } catch (err) {
-      setError(String(err))
+      setError(err instanceof Error ? err.message : "Failed to load archive")
     } finally {
       setLoading(false)
     }
@@ -63,7 +65,7 @@ export function ArchiveTab() {
       )
       window.dispatchEvent(new CustomEvent("archive-restored"))
     } catch (err) {
-      setError(String(err))
+      setError(err instanceof Error ? err.message : "Failed to restore project")
     }
   }
 
@@ -75,7 +77,7 @@ export function ArchiveTab() {
       )
       window.dispatchEvent(new CustomEvent("archive-restored"))
     } catch (err) {
-      setError(String(err))
+      setError(err instanceof Error ? err.message : "Failed to restore topic")
     }
   }
 

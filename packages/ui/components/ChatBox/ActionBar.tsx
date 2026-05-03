@@ -1,11 +1,16 @@
 "use client"
 
+import * as React from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   PlusSignIcon,
   ArrowDown01Icon,
   AttachmentIcon,
   Cancel01Icon,
+  Tick02Icon,
+  HandHelpingIcon,
+  Shield01Icon,
+  AiSecurity01Icon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -14,7 +19,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon } from "./Icons"
+import { WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
 
@@ -24,17 +29,19 @@ type ActionBarProps = {
   onUploadClick?: () => void
   isGenerating?: boolean
   onAbort?: () => void
-  planEnabled: boolean
-  onPlanToggle: () => void
   webSearchEnabled: boolean
-  onWebSearchToggle: () => void
   onWebSearchDisable: () => void
+  autonomyMode: "full" | "supervised" | "manual"
+  onAutonomyModeChange: (mode: "full" | "supervised" | "manual") => void
   plusOpen: boolean
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
   onModelOpenChange: (open: boolean) => void
   models: ModelEntry[]
   currentModelId: string | null
+  modelLoading?: boolean
+  modelError?: string | null
+  onModelRefresh?: () => void
   onModelSelect: (model: ModelEntry) => void
   isRecording?: boolean
   onVoiceToggle?: () => void
@@ -49,17 +56,19 @@ export function ActionBar({
   onUploadClick,
   isGenerating,
   onAbort,
-  planEnabled,
-  onPlanToggle,
   webSearchEnabled,
-  onWebSearchToggle,
   onWebSearchDisable,
+  autonomyMode,
+  onAutonomyModeChange,
   plusOpen,
   onPlusOpenChange,
   modelOpen,
   onModelOpenChange,
   models,
   currentModelId,
+  modelLoading,
+  modelError,
+  onModelRefresh,
   onModelSelect,
   isRecording,
   onVoiceToggle,
@@ -70,11 +79,36 @@ export function ActionBar({
   const activeModel = models.find((m) => {
     if (!currentModelId) return false
     const bare = currentModelId.includes("/")
-      ? currentModelId.split("/")[1]
+      ? currentModelId.split(/\/(.+)/)[1]
       : currentModelId
-    return m.id === currentModelId || m.id === bare
+    return m.id === currentModelId || `${m.provider}/${m.id}` === currentModelId || m.id === bare
   })
   const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
+  const [permissionsOpen, setPermissionsOpen] = React.useState(false)
+  const permissionOptions = [
+    {
+      mode: "manual" as const,
+      label: "Default permissions",
+      icon: HandHelpingIcon,
+    },
+    {
+      mode: "supervised" as const,
+      label: "Auto-review",
+      icon: Shield01Icon,
+    },
+    {
+      mode: "full" as const,
+      label: "Full access",
+      icon: AiSecurity01Icon,
+    },
+  ]
+  const activePermission = permissionOptions.find((option) => option.mode === autonomyMode) ?? permissionOptions[0]
+  const uniqueModels = models.filter(
+    (m, i, arr) =>
+      arr.findIndex(
+        (x) => x.name.toLowerCase() === m.name.toLowerCase(),
+      ) === i,
+  )
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
@@ -100,15 +134,55 @@ export function ActionBar({
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
               {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Upload"}
             </button>
-            <div className="my-1 h-px bg-border" />
+          </PopoverContent>
+        </Popover>
+
+        {/* Permissions selector */}
+        <Popover open={permissionsOpen} onOpenChange={setPermissionsOpen}>
+          <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
-              onClick={onWebSearchToggle}
+              className="group flex h-8 cursor-pointer items-center gap-2 rounded-full border border-white/5 bg-white/[0.07] px-3 text-[13px] font-medium text-muted-foreground shadow-sm transition-all hover:bg-white/[0.1] hover:text-foreground"
+              aria-label="Permissions mode"
             >
-              <WebSearchIcon className="size-[18px]" />
-              Web search
+              <HugeiconsIcon icon={activePermission.icon} size={17} className="text-foreground/55 transition-colors group-hover:text-foreground/75" />
+              <span className="hidden max-w-[150px] truncate sm:inline">{activePermission.label}</span>
+              <HugeiconsIcon icon={ArrowDown01Icon} size={13} className="text-foreground/45" />
             </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="start"
+            sideOffset={8}
+            className="w-[236px] overflow-hidden rounded-2xl border border-white/10 bg-[#2c2c2c]/95 p-2 shadow-2xl shadow-black/35 backdrop-blur-xl"
+          >
+            <div className="space-y-0.5">
+              {permissionOptions.map((option) => {
+                const selected = autonomyMode === option.mode
+                return (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    onClick={() => {
+                      onAutonomyModeChange(option.mode)
+                      setPermissionsOpen(false)
+                    }}
+                    className={cn(
+                      "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold transition-colors",
+                      selected
+                        ? "text-white"
+                        : "text-white/78 hover:bg-white/[0.06] hover:text-white",
+                    )}
+                  >
+                    <HugeiconsIcon icon={option.icon} size={20} className="shrink-0 text-white/70" />
+                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                    {selected && (
+                      <HugeiconsIcon icon={Tick02Icon} size={19} className="shrink-0 text-white/80" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
           </PopoverContent>
         </Popover>
 
@@ -126,22 +200,6 @@ export function ActionBar({
             Web
           </button>
         )}
-
-        {/* Plan Mode pill */}
-        <button
-          type="button"
-          onClick={onPlanToggle}
-          className={cn(
-            "flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3 transition-all",
-            planEnabled
-              ? "border-foreground/60 bg-secondary text-foreground"
-              : "border-foreground/15 bg-foreground/5 text-foreground shadow-sm hover:bg-foreground/10"
-          )}
-          title={planEnabled ? "Plan Mode: on" : "Plan Mode: off"}
-        >
-          <PlanModeIcon className="size-4" />
-          <span className="text-xs font-medium">Plan</span>
-        </button>
       </div>
 
       {/* Right controls */}
@@ -158,27 +216,71 @@ export function ActionBar({
             </button>
           </PopoverTrigger>
           <PopoverContent side="top" align="end" sideOffset={8} className="w-56 gap-0 p-1.5">
-            {models.map((model) => {
-              const isActive = activeModel?.id === model.id
-              return (
-                <button
-                  key={`${model.provider}/${model.id}`}
-                  type="button"
-                  className={cn(
-                    "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-muted",
-                    isActive
-                      ? "font-medium text-popover-foreground"
-                      : "text-muted-foreground"
-                  )}
-                  onClick={() => onModelSelect(model)}
-                >
-                  {model.name}
-                </button>
-              )
-            })}
-            {models.length === 0 && (
-              <p className="px-3 py-2 text-xs text-muted-foreground">No models available</p>
-            )}
+            <div className="max-h-60 overflow-y-auto">
+              {modelLoading && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  Loading models...
+                </p>
+              )}
+              {modelError && (
+                <div className="px-3 py-2">
+                  <p className="text-xs text-rose-400">Models unavailable</p>
+                  <button
+                    type="button"
+                    onClick={onModelRefresh}
+                    className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              )}
+              {uniqueModels.map((model) => {
+                const isActive = activeModel?.id === model.id
+                const unavailable = model.health?.status === "unavailable"
+                return (
+                  <button
+                    key={`${model.provider}/${model.id}`}
+                    type="button"
+                    disabled={unavailable}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-muted",
+                      unavailable ? "cursor-not-allowed opacity-45 hover:bg-transparent" : "cursor-pointer",
+                      isActive
+                        ? "bg-foreground/10 font-medium text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                    onClick={() => !unavailable && onModelSelect(model)}
+                    title={model.health?.reason}
+                  >
+                    <span className="flex min-w-0 flex-col text-left">
+                      <span className="truncate">{model.name}</span>
+                      {unavailable && (
+                        <span className="truncate text-[10px] font-normal text-amber-300/80">
+                          {model.health?.reason}
+                        </span>
+                      )}
+                    </span>
+                    {isActive && (
+                      <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-white" />
+                    )}
+                  </button>
+                )
+              })}
+              {!modelLoading && !modelError && models.length === 0 && (
+                <div className="px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    No models available
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onModelRefresh}
+                    className="mt-1 cursor-pointer text-xs text-foreground/70 hover:text-foreground"
+                  >
+                    Connect or refresh
+                  </button>
+                </div>
+              )}
+            </div>
           </PopoverContent>
         </Popover>
 
@@ -211,17 +313,18 @@ export function ActionBar({
           )}
         </button>
 
-        {/* Send / Stop button */}
-        {isGenerating ? (
+        {/* Send / Stop controls */}
+        {isGenerating && (
           <button
             type="button"
             onClick={onAbort}
-            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/10 text-foreground shadow-sm transition-all hover:bg-foreground/20"
+            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-all hover:bg-foreground/90"
             aria-label="Stop generating"
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={14} />
+            <StopSquareIcon className="size-6" />
           </button>
-        ) : (
+        )}
+        {(!isGenerating || hasInput) && (
           <button
             type="button"
             onClick={onSend}

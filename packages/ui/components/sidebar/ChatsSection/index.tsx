@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
@@ -21,8 +21,11 @@ type Props = {
   refreshTrigger?: number
 }
 
+const CHAT_INITIAL_LIMIT = 5
+const CHAT_LOAD_STEP = 10
+const MORE_CHATS_ANIMATION_MS = 200
+
 export function ChatsSection({
-  collapsed,
   collapsible = true,
   activeChat,
   onChatSelect,
@@ -31,6 +34,9 @@ export function ChatsSection({
   refreshTrigger = 0,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
+  const [visibleChatLimit, setVisibleChatLimit] = useState(CHAT_INITIAL_LIMIT)
+  const [extraChatsOpen, setExtraChatsOpen] = useState(false)
+  const closeTimerRef = useRef<number | null>(null)
   const showList = !collapsible || isOpen
   const {
     chats,
@@ -42,6 +48,40 @@ export function ChatsSection({
     dialogState,
     dialogActions,
   } = useChatsData(activeChat, onChatClear, refreshTrigger)
+  const chatsById = useMemo(
+    () => new Map(chats.map((chat) => [chat.id, chat])),
+    [chats],
+  )
+  const effectiveVisibleChatLimit = Math.min(
+    visibleChatLimit,
+    sortedChatIds.length,
+  )
+  const hasMoreChats = sortedChatIds.length > effectiveVisibleChatLimit
+  const hasExpandedChats = effectiveVisibleChatLimit > CHAT_INITIAL_LIMIT
+  const visibleExtraChatIds = sortedChatIds.slice(
+    CHAT_INITIAL_LIMIT,
+    effectiveVisibleChatLimit,
+  )
+
+  const handleShowMoreChats = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+
+    setExtraChatsOpen(true)
+    setVisibleChatLimit((currentLimit) =>
+      Math.min(currentLimit + CHAT_LOAD_STEP, sortedChatIds.length),
+    )
+  }
+
+  const handleShowLessChats = () => {
+    setExtraChatsOpen(false)
+    closeTimerRef.current = window.setTimeout(() => {
+      setVisibleChatLimit(CHAT_INITIAL_LIMIT)
+      closeTimerRef.current = null
+    }, MORE_CHATS_ANIMATION_MS)
+  }
 
   return (
     <>
@@ -97,22 +137,23 @@ export function ChatsSection({
 
                 <Reorder.Group
                   axis="y"
-                  values={sortedChatIds}
-                  onReorder={setChatOrder}
+                  values={sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)}
+                  onReorder={(newVisible) => {
+                    const hiddenTail = sortedChatIds.filter((id) => !newVisible.includes(id))
+                    setChatOrder([...newVisible, ...hiddenTail])
+                  }}
                   as="div"
                   className="flex flex-col gap-0.5"
                 >
-                  {sortedChatIds.map((chatId) => {
-                    const chat = chats.find(
-                      (c) => c.id === chatId,
-                    )
+                  {sortedChatIds.slice(0, CHAT_INITIAL_LIMIT).map((chatId) => {
+                    const chat = chatsById.get(chatId)
                     if (!chat) return null
 
                     return (
                       <ChatRow
                         key={chatId}
                         chatId={chatId}
-                        chats={chats}
+                        chat={chat}
                         isActive={activeChat?.id === chatId}
                         isPinned={pinnedChats.has(chatId)}
                         onClick={() =>
@@ -136,6 +177,100 @@ export function ChatsSection({
                     )
                   })}
                 </Reorder.Group>
+                {(hasExpandedChats || sortedChatIds.length > CHAT_INITIAL_LIMIT) && (
+                  <div
+                    aria-hidden={!extraChatsOpen}
+                    className="grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-in-out"
+                    style={{
+                      gridTemplateRows: extraChatsOpen ? "1fr" : "0fr",
+                      opacity: extraChatsOpen ? 1 : 0,
+                    }}
+                  >
+                    <div className="flex min-h-0 flex-col gap-0.5 overflow-hidden">
+                      {visibleExtraChatIds.map((chatId) => {
+                        const chat = chatsById.get(chatId)
+                        if (!chat) return null
+
+                        return (
+                          <ChatRow
+                            key={chatId}
+                            chatId={chatId}
+                            chat={chat}
+                            isActive={activeChat?.id === chatId}
+                            isPinned={pinnedChats.has(chatId)}
+                            disableReorder
+                            onClick={() =>
+                              onChatSelect({
+                                id: chat.id,
+                                name: chatDisplayName(chat),
+                                sessionKey: chat.sessionKey,
+                              })
+                            }
+                            onPin={() => togglePinChat(chatId)}
+                            onRename={() =>
+                              dialogActions.openRename(chat)
+                            }
+                            onArchive={() =>
+                              handleArchiveChat(chatId)
+                            }
+                            onDelete={() =>
+                              dialogActions.openDelete(chat)
+                            }
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+                {sortedChatIds.length > CHAT_INITIAL_LIMIT && (
+                  <div className="mt-0.5 flex items-center gap-1">
+                    {hasMoreChats && (
+                      <button
+                        onClick={handleShowMoreChats}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                      >
+                        <motion.span
+                          animate={{ rotate: 0 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="inline-flex items-center justify-center"
+                        >
+                          <Icons.ChevronDown size={11} />
+                        </motion.span>
+                        See more
+                      </button>
+                    )}
+                    {hasExpandedChats && (
+                      <button
+                        onClick={handleShowLessChats}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                      >
+                        <motion.span
+                          animate={{ rotate: 180 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="inline-flex items-center justify-center"
+                        >
+                          <Icons.ChevronDown size={11} />
+                        </motion.span>
+                        See less
+                      </button>
+                    )}
+                    {!hasMoreChats && !hasExpandedChats && (
+                      <button
+                        onClick={handleShowMoreChats}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                      >
+                        <motion.span
+                          animate={{ rotate: 0 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
+                          className="inline-flex items-center justify-center"
+                        >
+                          <Icons.ChevronDown size={11} />
+                        </motion.span>
+                        See more
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </motion.div>
           )}

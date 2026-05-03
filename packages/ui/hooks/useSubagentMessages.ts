@@ -1,7 +1,9 @@
 "use client"
 
+import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import { cleanUserMessageText } from "@/lib/chatHistoryParser"
 
 export type SubagentToolCall = {
   id: string
@@ -58,13 +60,14 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
         typeof msg.content === "string"
           ? msg.content
           : (msg.text ?? extractText(msg.content))
-      if (!text) continue
+      const visibleText = cleanUserMessageText(text)
+      if (!visibleText) continue
       if (/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) continue
-      if (/agent:main:subagent:[0-9a-f-]{36}/.test(text)) continue
+      if (/agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(visibleText)) continue
       result.push({
-        id: msg.id ?? crypto.randomUUID(),
+        id: msg.id ?? randomId(),
         role: "user",
-        text,
+        text: visibleText,
       })
       pendingToolCalls = []
       resultQueue = []
@@ -79,7 +82,7 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
       for (const b of tcBlocks) {
         if (HIDDEN_TOOLS.has(b.name ?? "")) continue
         const tc: SubagentToolCall = {
-          id: b.id ?? crypto.randomUUID(),
+          id: b.id ?? randomId(),
           name: b.name ?? "unknown",
           status: "success",
         }
@@ -109,7 +112,7 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
           lastEntry.id = msg.id ?? lastEntry.id
         } else {
           result.push({
-            id: msg.id ?? crypto.randomUUID(),
+            id: msg.id ?? randomId(),
             role: "assistant",
             text: text ?? "",
             toolCalls:
@@ -153,16 +156,18 @@ export function useSubagentMessages(
 ) {
   const [messages, setMessages] = useState<SubagentMessage[]>([])
   const [loading, setLoading] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timerRef = useRef<number | null>(null)
   const cancelledRef = useRef(false)
+  const requestSeqRef = useRef(0)
 
-  const fetchMessages = useCallback(async (key: string) => {
+  const fetchMessages = useCallback(async (key: string, timeoutMs = 6_000) => {
+    const requestSeq = ++requestSeqRef.current
     try {
       const history = await invoke<{ messages: RawMsg[] }>(
         "middleware_chat_history",
-        { input: { sessionKey: key } },
+        { input: { sessionKey: key, timeoutMs } },
       )
-      if (cancelledRef.current) return
+      if (cancelledRef.current || requestSeq !== requestSeqRef.current) return
       setMessages(parseMessages(history.messages ?? []))
     } catch {}
   }, [])
@@ -170,34 +175,39 @@ export function useSubagentMessages(
   useEffect(() => {
     cancelledRef.current = false
     if (timerRef.current) {
-      clearTimeout(timerRef.current)
+      window.clearTimeout(timerRef.current)
       timerRef.current = null
     }
     if (!sessionKey) {
-      setMessages([])
-      setLoading(false)
+      const timer = window.setTimeout(() => {
+        setMessages([])
+        setLoading(false)
+      }, 0)
+      timerRef.current = timer
       return
     }
 
     setLoading(true)
-    fetchMessages(sessionKey).then(() => setLoading(false))
+    fetchMessages(sessionKey, 6_000).finally(() => {
+      if (!cancelledRef.current) setLoading(false)
+    })
 
     if (isLive) {
       const poll = () => {
         if (cancelledRef.current) return
-        fetchMessages(sessionKey).then(() => {
+        fetchMessages(sessionKey, 5_000).then(() => {
           if (!cancelledRef.current && isLive) {
-            timerRef.current = setTimeout(poll, 1000)
+            timerRef.current = window.setTimeout(poll, 1000)
           }
         })
       }
-      timerRef.current = setTimeout(poll, 1000)
+      timerRef.current = window.setTimeout(poll, 1000)
     }
 
     return () => {
       cancelledRef.current = true
       if (timerRef.current) {
-        clearTimeout(timerRef.current)
+        window.clearTimeout(timerRef.current)
         timerRef.current = null
       }
     }

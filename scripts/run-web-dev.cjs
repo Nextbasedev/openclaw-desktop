@@ -1,17 +1,14 @@
 const { spawn } = require("node:child_process")
 const http = require("node:http")
+const path = require("node:path")
 
 function checkHttp(url, match) {
   return new Promise((resolve) => {
-    const request = http.get(
-      url,
-      { timeout: 2000 },
-      (response) => {
-        const ok = match(response)
-        response.resume()
-        resolve(ok)
-      },
-    )
+    const request = http.get(url, { timeout: 2000 }, (response) => {
+      const ok = match(response)
+      response.resume()
+      resolve(ok)
+    })
 
     request.on("error", () => resolve(false))
     request.on("timeout", () => {
@@ -27,110 +24,47 @@ function checkNextServer() {
   )
 }
 
-function checkJarvisServer() {
-  return checkHttp("http://127.0.0.1:3001/health", (response) =>
-    response.statusCode === 200,
-  )
-}
+function spawnNode(scriptPath) {
+  const absoluteScriptPath = path.resolve(__dirname, "..", scriptPath)
 
-function spawnPnpm(args) {
-  if (process.platform === "win32") {
-    const command = ["pnpm", ...args].map(quoteWindowsArg).join(" ")
-    return spawn("cmd.exe", ["/d", "/s", "/c", command], {
-      stdio: "inherit",
-      env: process.env,
-    })
-  }
-
-  return spawn("pnpm", args, {
+  return spawn(process.execPath, [absoluteScriptPath], {
     stdio: "inherit",
     env: process.env,
+    cwd: process.cwd(),
   })
 }
 
-function quoteWindowsArg(arg) {
-  if (!/[ \t"]/u.test(arg)) {
-    return arg
-  }
-
-  return `"${arg.replace(/"/g, '\\"')}"`
-}
-
 async function main() {
-  const [nextRunning, serverRunning] = await Promise.all([
-    checkNextServer(),
-    checkJarvisServer(),
-  ])
+  const nextRunning = await checkNextServer()
 
   if (nextRunning) {
     console.log("Reusing existing Next.js dev server on http://localhost:3000")
-  }
-
-  if (serverRunning) {
-    console.log("Reusing existing Jarvis server on http://127.0.0.1:3001")
-  }
-
-  const children = []
-
-  if (!serverRunning) {
-    children.push(spawnPnpm(["--filter", "server", "dev"]))
-  }
-
-  if (!nextRunning) {
-    children.push(spawnPnpm(["--filter", "ui", "dev"]))
-  }
-
-  if (children.length === 0) {
     return
   }
 
-  let settled = false
+  const child = spawnNode("scripts/run-ui-dev.cjs")
 
-  const shutdownChildren = (signal = "SIGTERM") => {
-    for (const child of children) {
-      if (!child.killed) {
-        child.kill(signal)
-      }
+  child.on("exit", (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal)
+      return
     }
-  }
+    process.exit(code ?? 1)
+  })
 
-  for (const child of children) {
-    child.on("exit", (code, signal) => {
-      if (settled) {
-        return
-      }
-
-      settled = true
-      shutdownChildren(signal ?? "SIGTERM")
-
-      if (signal) {
-        process.kill(process.pid, signal)
-        return
-      }
-
-      process.exit(code ?? 1)
-    })
-
-    child.on("error", (error) => {
-      if (settled) {
-        return
-      }
-
-      settled = true
-      shutdownChildren()
-      console.error("Failed to start the local dev stack.")
-      console.error(error.message)
-      process.exit(1)
-    })
-  }
+  child.on("error", (error) => {
+    console.error("Failed to start the UI dev server.")
+    console.error(error.message)
+    process.exit(1)
+  })
 
   process.on("SIGINT", () => {
-    shutdownChildren("SIGINT")
+    child.kill("SIGINT")
     process.exit(130)
   })
 
   process.on("SIGTERM", () => {
-    shutdownChildren("SIGTERM")
+    child.kill("SIGTERM")
     process.exit(143)
   })
 }

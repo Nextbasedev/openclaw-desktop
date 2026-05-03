@@ -9,17 +9,8 @@ import { BranchDropdown } from "./BranchDropdown"
 import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
 import {
   type FileState, type GitFile, type GitContextResponse, type BranchesResponse,
-  STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff,
+  STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type GitDiffResponse,
 } from "./git-helpers"
-
-type ProjectSummary = {
-  id: string
-  name: string
-  profileId?: string
-  workspaceRoot?: string
-  repoRoot?: string | null
-  archived?: boolean
-}
 
 function StateBadge({ state }: { state: FileState }) {
   const config = STATE_CONFIG[state]
@@ -35,6 +26,7 @@ function StateBadge({ state }: { state: FileState }) {
 
 export function GitTab({ projectId }: { projectId: string | null }) {
   const [pickedProjectId, setPickedProjectId] = useState<string | null>(null)
+  const [pickedRepo, setPickedRepo] = useState<{ name: string; path: string } | null>(null)
   const [context, setContext] = useState<GitContextResponse | null>(null)
   const [branches, setBranches] = useState<BranchesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -42,127 +34,114 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   const [switching, setSwitching] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [selectedCommit, setSelectedCommit] = useState<{ hash: string; message: string } | null>(null)
+  const [selectedChangedFile, setSelectedChangedFile] = useState<GitFile | null>(null)
   const effectiveProjectId = projectId ?? pickedProjectId ?? null
+  const effectiveRepoPath = !effectiveProjectId ? pickedRepo?.path ?? null : null
   const skipNextAutoLoadRef = useRef<string | null>(null)
+  const loadSeqRef = useRef(0)
 
-  const loadProject = useCallback(async (targetProjectId: string | null) => {
-    if (!targetProjectId) return
+  const loadGitTarget = useCallback(async (targetProjectId: string | null, targetRepoPath: string | null = null) => {
+    if (!targetProjectId && !targetRepoPath) return
+    const seq = ++loadSeqRef.current
     setLoading(true)
+    setContext(null)
+    setBranches(null)
     try {
-      const [ctx, br] = await Promise.all([
-        invoke<GitContextResponse>("middleware_git_context", {
-          input: { projectId: targetProjectId },
-        }),
-        invoke<BranchesResponse>("middleware_git_branches", {
-          input: { projectId: targetProjectId },
-        }),
-      ])
+      const ctx = targetProjectId
+        ? await invoke<GitContextResponse>("middleware_git_status", { input: { projectId: targetProjectId } })
+        : await invoke<GitContextResponse>("middleware_git_status_for_repo", { input: { repoPath: targetRepoPath } })
+      if (seq !== loadSeqRef.current) return
+      let br: BranchesResponse | null = null
+      if (ctx.mode !== "remote") {
+        try {
+          br = targetProjectId
+            ? await invoke<BranchesResponse>("middleware_git_branches", { input: { projectId: targetProjectId } })
+            : await invoke<BranchesResponse>("middleware_git_branches_for_repo", { input: { repoPath: targetRepoPath } })
+        } catch {
+          br = null
+        }
+      }
+      if (seq !== loadSeqRef.current) return
       setContext(ctx)
       setBranches(br)
+      setSelectedChangedFile(null)
     } catch { /* ignore */ }
-    finally { setLoading(false) }
+    finally {
+      if (seq === loadSeqRef.current) setLoading(false)
+    }
   }, [])
 
   const load = useCallback(async () => {
-    await loadProject(effectiveProjectId)
-  }, [effectiveProjectId, loadProject])
+    await loadGitTarget(effectiveProjectId, effectiveRepoPath)
+  }, [effectiveProjectId, effectiveRepoPath, loadGitTarget])
 
   useEffect(() => {
-    if (!effectiveProjectId) {
+    if (!effectiveProjectId && !effectiveRepoPath) {
       setContext(null)
       setBranches(null)
       setLoading(false)
       return
     }
 
-    if (skipNextAutoLoadRef.current === effectiveProjectId) {
+    const targetKey = effectiveProjectId ?? effectiveRepoPath
+    if (targetKey && skipNextAutoLoadRef.current === targetKey) {
       skipNextAutoLoadRef.current = null
       return
     }
 
-    void loadProject(effectiveProjectId)
-  }, [effectiveProjectId, loadProject])
+    void loadGitTarget(effectiveProjectId, effectiveRepoPath)
+  }, [effectiveProjectId, effectiveRepoPath, loadGitTarget])
 
   const handleSwitchBranch = useCallback(async (branchName: string) => {
-    if (!effectiveProjectId || switching) return
+    if ((!effectiveProjectId && !effectiveRepoPath) || switching) return
     setSwitching(true)
     setBranchDropdown(false)
     try {
-      await invoke("middleware_git_switch_branch", {
-        input: { projectId: effectiveProjectId, branchName },
-      })
+      if (effectiveProjectId) {
+        await invoke("middleware_git_switch_branch", {
+          input: { projectId: effectiveProjectId, branchName },
+        })
+      } else if (effectiveRepoPath) {
+        await invoke("middleware_git_switch_branch_for_repo", {
+          input: { repoPath: effectiveRepoPath, branchName },
+        })
+      }
       await load()
     } catch { /* ignore */ }
     finally { setSwitching(false) }
-  }, [effectiveProjectId, switching, load])
+  }, [effectiveProjectId, effectiveRepoPath, switching, load])
 
   const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
     setRepoPickerOpen(false)
     try {
-      let targetProjectId = effectiveProjectId
-
-      if (!targetProjectId) {
-        const projectList = await invoke<{ projects: ProjectSummary[] }>(
-          "middleware_projects_list",
-        )
-        const matchingProject = (projectList.projects ?? []).find((project) =>
-          !project.archived &&
-          (project.repoRoot === repo.path || project.workspaceRoot === repo.path),
-        )
-
-        if (matchingProject?.id) {
-          targetProjectId = matchingProject.id
-        } else {
-          let profileId = "prof_local_main"
-          try {
-            const profileRes = await invoke<{
-              profiles: Array<{ id: string }>
-            }>("middleware_profiles_list")
-            if (profileRes.profiles?.[0]?.id) {
-              profileId = profileRes.profiles[0].id
-            }
-          } catch {
-            // ignore
-          }
-
-          const created = await invoke<{ project: { id: string } }>(
-            "middleware_projects_create",
-            {
-              input: {
-                name: repo.name,
-                profileId,
-                workspaceRoot: repo.path,
-                repoRoot: repo.path,
-              },
-            },
-          )
-          targetProjectId = created.project.id
-        }
-
-        setLoading(true)
-        skipNextAutoLoadRef.current = targetProjectId
-        setPickedProjectId(targetProjectId)
-      }
-
-      if (!targetProjectId) return
-
-      await invoke("middleware_projects_update", {
-        input: {
-          projectId: targetProjectId,
-          repoRoot: repo.path,
-          workspaceRoot: repo.path,
-        },
-      })
       await invoke("middleware_repos_select", {
         input: { path: repo.path, name: repo.name },
       })
+
       setContext(null)
       setBranches(null)
-      await loadProject(targetProjectId)
-    } catch { /* ignore */ }
-  }, [effectiveProjectId, loadProject])
 
-  if (!effectiveProjectId) {
+      if (effectiveProjectId) {
+        await invoke("middleware_projects_update", {
+          input: {
+            projectId: effectiveProjectId,
+            repoRoot: repo.path,
+            workspaceRoot: repo.path,
+          },
+        })
+        await loadGitTarget(effectiveProjectId, null)
+        return
+      }
+
+      setLoading(true)
+      skipNextAutoLoadRef.current = repo.path
+      setPickedProjectId(null)
+      setPickedRepo(repo)
+      await loadGitTarget(null, repo.path)
+    } catch { /* ignore */ }
+  }, [effectiveProjectId, loadGitTarget])
+
+  if (!effectiveProjectId && !pickedRepo) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-4">
         <VscSourceControl className="size-8 text-muted-foreground/20" />
@@ -228,6 +207,7 @@ export function GitTab({ projectId }: { projectId: string | null }) {
     return (
       <CommitDetailView
         projectId={effectiveProjectId}
+        repoPath={effectiveRepoPath}
         hash={selectedCommit.hash}
         message={selectedCommit.message}
         onBack={() => setSelectedCommit(null)}
@@ -235,12 +215,27 @@ export function GitTab({ projectId }: { projectId: string | null }) {
     )
   }
 
-  const files = (context?.uncommittedChanges ?? [])
-    .map(parseStatusLine)
-    .filter(Boolean) as GitFile[]
+  if (selectedChangedFile) {
+    return (
+      <ChangedFileDiffView
+        projectId={effectiveProjectId}
+        repoPath={effectiveRepoPath}
+        file={selectedChangedFile}
+        onBack={() => setSelectedChangedFile(null)}
+      />
+    )
+  }
+
+  const files = context?.changedFiles?.length
+    ? context.changedFiles
+    : ((context?.uncommittedChanges ?? [])
+      .map(parseStatusLine)
+      .filter(Boolean) as GitFile[])
 
   const commits = (context?.recentCommits ?? []).map(parseCommitLine)
   const allBranches = branches?.local ?? []
+  const totalAdditions = context?.summary?.totalAdditions ?? files.reduce((sum, file) => sum + (file.additions ?? 0), 0)
+  const totalDeletions = context?.summary?.totalDeletions ?? files.reduce((sum, file) => sum + (file.deletions ?? 0), 0)
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -260,15 +255,15 @@ export function GitTab({ projectId }: { projectId: string | null }) {
               )}
             >
               <span className="truncate">
-                {switching ? "Switching…" : (context?.currentBranch ?? "—")}
+                {switching ? "Switching…" : (context?.currentBranch ?? context?.branch ?? "—")}
               </span>
               <LuChevronDown size={12} className="shrink-0 text-muted-foreground" />
             </button>
 
-            {branchDropdown && allBranches.length > 0 && (
+            {branchDropdown && context?.mode !== "remote" && allBranches.length > 0 && (
               <BranchDropdown
                 branches={allBranches}
-                current={context?.currentBranch ?? null}
+                current={context?.currentBranch ?? context?.branch ?? null}
                 onSelect={handleSwitchBranch}
                 onClose={() => setBranchDropdown(false)}
               />
@@ -291,6 +286,18 @@ export function GitTab({ projectId }: { projectId: string | null }) {
           </button>
         </div>
 
+        <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground/60">
+          {context?.mode && (
+            <span className="rounded-full border border-border/30 px-2 py-0.5 uppercase tracking-wide">
+              {context.mode === "remote" ? "Remote OpenClaw" : "Local"}
+            </span>
+          )}
+          {context?.upstream && <span className="truncate">{context.upstream}</span>}
+          {typeof context?.ahead === "number" && typeof context?.behind === "number" && (context.ahead > 0 || context.behind > 0) && (
+            <span>{context.ahead} ahead / {context.behind} behind</span>
+          )}
+        </div>
+
         <div className="mt-3 flex items-center gap-4">
           <div className="flex items-baseline gap-1.5">
             <span className="text-[18px] font-semibold tabular-nums text-foreground">
@@ -298,16 +305,16 @@ export function GitTab({ projectId }: { projectId: string | null }) {
             </span>
             <span className="text-[11px] text-muted-foreground">Files changed</span>
           </div>
-          {(context?.summary?.totalAdditions ?? 0) > 0 && (
+          {totalAdditions > 0 && (
             <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-500">
               <span className="text-[13px] opacity-70">+</span>
-              <span className="tabular-nums">{context?.summary?.totalAdditions}</span>
+              <span className="tabular-nums">{totalAdditions}</span>
             </div>
           )}
-          {(context?.summary?.totalDeletions ?? 0) > 0 && (
+          {totalDeletions > 0 && (
             <div className="flex items-center gap-1 text-[11px] font-medium text-red-500">
               <span className="text-[13px] opacity-70">-</span>
-              <span className="tabular-nums">{context?.summary?.totalDeletions}</span>
+              <span className="tabular-nums">{totalDeletions}</span>
             </div>
           )}
         </div>
@@ -326,9 +333,11 @@ export function GitTab({ projectId }: { projectId: string | null }) {
               const fileName = file.path.split("/").pop() ?? file.path
               const dirPath = file.path.split("/").slice(0, -1).join("/")
               return (
-                <div
+                <button
                   key={file.path}
-                  className="flex items-center gap-2.5 px-4 py-[6px] transition-colors hover:bg-secondary/30"
+                  type="button"
+                  onClick={() => setSelectedChangedFile(file)}
+                  className="flex items-center gap-2.5 px-4 py-[6px] text-left transition-colors hover:bg-secondary/30"
                 >
                   <StateBadge state={file.state} />
                   <div className="flex flex-1 flex-col min-w-0">
@@ -337,7 +346,7 @@ export function GitTab({ projectId }: { projectId: string | null }) {
                       <span className="truncate text-left text-[10px] text-muted-foreground/60">{dirPath}</span>
                     )}
                   </div>
-                </div>
+                </button>
               )
             })}
           </div>
@@ -401,11 +410,13 @@ export function GitTab({ projectId }: { projectId: string | null }) {
 
 function CommitDetailView({
   projectId,
+  repoPath,
   hash,
   message,
   onBack,
 }: {
   projectId: string | null
+  repoPath: string | null
   hash: string
   message: string
   onBack: () => void
@@ -416,11 +427,11 @@ function CommitDetailView({
 
   useEffect(() => {
     async function loadDiff() {
-      if (!projectId) return
+      if (!projectId && !repoPath) { setLoading(false); return }
       setLoading(true)
       try {
         const res = await invoke<{ diff: string }>("middleware_git_commit_details", {
-          input: { projectId, hash },
+          input: { projectId, repoRoot: repoPath, hash },
         })
         const parsed = parseGitShow(res.diff)
         setDiffs(parsed)
@@ -585,6 +596,114 @@ function CommitDetailView({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ChangedFileDiffView({
+  projectId,
+  repoPath,
+  file,
+  onBack,
+}: {
+  projectId: string | null
+  repoPath: string | null
+  file: GitFile
+  onBack: () => void
+}) {
+  const [diff, setDiff] = useState<GitDiffResponse | null>(null)
+  const [parsedDiff, setParsedDiff] = useState<FileDiff | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadDiff() {
+      if (!projectId && !repoPath) return
+      setLoading(true)
+      try {
+        const res = projectId
+          ? await invoke<GitDiffResponse>("middleware_git_diff", {
+            input: { projectId, path: file.path },
+          })
+          : await invoke<GitDiffResponse>("middleware_git_diff_for_repo", {
+            input: { repoPath, path: file.path },
+          })
+        setDiff(res)
+        const parsed = res.patch ? parseGitShow(res.patch) : []
+        setParsedDiff(parsed[0] ?? null)
+      } catch (err) {
+        console.error(err)
+        setDiff(null)
+        setParsedDiff(null)
+      } finally {
+        setLoading(false)
+      }
+    }
+    void loadDiff()
+  }, [projectId, repoPath, file.path])
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-background/50 backdrop-blur-xl">
+      <div className="flex items-center gap-3 border-b border-border/20 px-4 py-3 shrink-0 bg-secondary/5 backdrop-blur-md">
+        <button
+          onClick={onBack}
+          className="rounded-md p-1.5 transition-colors hover:bg-secondary text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <VscArrowLeft size={16} />
+        </button>
+        <StateBadge state={file.state} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[13px] font-bold text-foreground">{file.path}</h3>
+          <p className="text-[10px] text-muted-foreground/50">
+            {diff?.mode === "remote" ? "Remote OpenClaw diff" : "Local workspace diff"}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto bg-black text-[#e6edf3] dark:bg-black">
+        {loading ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="size-5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+          </div>
+        ) : !parsedDiff ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground/60">
+            <VscFile size={40} className="opacity-30" />
+            <p className="text-[13px]">Diff unavailable</p>
+            {diff?.error && <p className="max-w-sm text-[11px]">{diff.error}</p>}
+          </div>
+        ) : (
+          <div className="min-w-max flex flex-col font-mono text-[12px] leading-[1.6]">
+            {parsedDiff.lines.map((line, idx) => {
+              if (line.type === "hunk") {
+                return (
+                  <div key={idx} className="bg-[#161b22] text-[#7d8590] py-1.5 px-4 sticky top-0 z-10 border-y border-white/5 my-2 select-none text-[11px] font-bold opacity-80 backdrop-blur-sm">
+                    {line.content}
+                  </div>
+                )
+              }
+              const isAdd = line.type === "addition"
+              const isDel = line.type === "deletion"
+              return (
+                <div
+                  key={idx}
+                  className={cn(
+                    "flex w-full group transition-colors",
+                    isAdd && "bg-[#2ea04333] hover:bg-[#2ea04344]",
+                    isDel && "bg-[#f8514933] hover:bg-[#f8514944]",
+                    !isAdd && !isDel && "hover:bg-white/5",
+                  )}
+                >
+                  <div className="flex shrink-0 select-none border-r border-white/5 bg-black/40">
+                    <div className={cn("w-10 px-2 text-right text-[10px] tabular-nums", isDel ? "bg-[#f8514944] text-red-300" : "text-muted-foreground opacity-30")}>{line.oldLineNumber ?? ""}</div>
+                    <div className={cn("w-10 px-2 text-right text-[10px] tabular-nums border-l border-white/5", isAdd ? "bg-[#2ea04344] text-emerald-300" : "text-muted-foreground opacity-30")}>{line.newLineNumber ?? ""}</div>
+                  </div>
+                  <div className={cn("w-6 shrink-0 flex items-center justify-center select-none text-[13px] font-bold", isAdd && "text-[#7ee787]", isDel && "text-[#ffa198]", !isAdd && !isDel && "text-muted-foreground/30")}>{isAdd ? "+" : isDel ? "-" : " "}</div>
+                  <div className={cn("flex-1 px-4 whitespace-pre font-medium", isAdd && "text-[#e6ffec]", isDel && "text-[#fff0f0]")}>{line.content}</div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

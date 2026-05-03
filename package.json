@@ -4,7 +4,7 @@
   "private": true,
   "description": "OpenClaw Desktop — Neural Operations Center",
   "scripts": {
-    "dev": "pnpm --filter ui dev",
+    "dev": "node scripts/run-ui-dev.cjs",
     "dev:tauri": "pnpm --filter desktop tauri dev",
     "build": "pnpm --filter ui build",
     "build:tauri": "pnpm --filter desktop tauri build",
@@ -17,9 +17,15 @@
     "typecheck": "pnpm -r typecheck",
     "sandbox:verify": "node scripts/sandbox/verify-ui.mjs",
     "sandbox:routes": "node scripts/sandbox/verify-routes.mjs",
+    "sandbox:notifications": "node scripts/sandbox/verify-notifications-fast.mjs",
     "sandbox:audit": "node scripts/sandbox/audit-ui.mjs",
     "sandbox:cleanup": "node scripts/sandbox/cleanup-audit-data.mjs",
-    "sandbox:check": "./scripts/sandbox/check-build.sh"
+    "sandbox:check": "./scripts/sandbox/check-build.sh",
+    "dev:middleware": "pnpm --filter @openclaw/desktop-middleware dev",
+    "build:middleware": "pnpm --filter @openclaw/desktop-middleware build",
+    "test:middleware": "pnpm --filter @openclaw/desktop-middleware test",
+    "dev:local": "node scripts/dev-local.cjs",
+    "dev:remote": "node scripts/dev-remote.cjs"
   },
   "engines": {
     "node": ">=22",

@@ -1,5 +1,10 @@
 packages:
+  - "apps/*"
   - "packages/*"
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
+  - msw
+  - node-pty
+  - sharp
+  - unrs-resolver

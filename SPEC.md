@@ -1,43 +1,47 @@
 # OpenClaw Desktop — Combined Feature Spec
 
 ## Summary
+
 Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Theme: "Neural Operations Center." Custom frameless window. Two UI modes: Simple (clean chat) and Mission Control (full dashboard). Connects directly to OpenClaw Gateway. Handles installation automatically. Open source after internal validation. v0.1.0 already released (Windows).
 
 ---
 
 ## 💬 Chat & Messaging
-1. [ ] [P0] Real-time chat via WebSocket (Gateway protocol)
-2. [ ] [P0] Streaming responses — "Thinking..." indicator → click to expand live token stream
+
+1. [✔] [P0] Real-time chat via WebSocket (Gateway protocol)
+2. [✔] [P0] Streaming responses — "Thinking..." indicator → click to expand live token stream
 3. [ ] [P0] Tool calls shown beside "Thinking..." (frontend-only parsing)
-4. [ ] [P0] Markdown rendering (code blocks, tables, lists, bold, links)
-5. [ ] [P0] Code syntax highlighting
+4. [✔] [P0] Markdown rendering (code blocks, tables, lists, bold, links)
+5. [✔] [P0] Code syntax highlighting
 6. [ ] [P0] Reply/quote specific messages
-7. [ ] [P1] Image/file rendering inline (screenshots, charts, PDFs, code)
-8. [ ] [P1] Voice messages — waveform + play/pause
-9. [ ] [P1] Global search — Cmd+K across all topics + sessions
+7. [✔] [P1] Image/file rendering inline (screenshots, charts, PDFs, code)
+8. [✔] [P1] Voice messages — waveform + play/pause
+9. [✔] [P1] Global search — Cmd+K across all topics + sessions
 10. [ ] [P1] Pin/bookmark messages — bar at top of chat, click to jump
 11. [ ] [P1] Message actions — copy, reply, react, pin, delete, regenerate, branch, bookmark
 12. [ ] [P1] Text selection → popover → ask follow-up from selection
 13. [ ] [P1] Regenerate = Branch — creates new topic with full context cached
 14. [ ] [P1] Message editing — edit in-place → auto-creates branch
 15. [ ] [P2] Conversation threads — branch off a message into a separate thread
-16. [ ] [P2] Message reactions / quick feedback (👍 👎) sent back to the agent
-17. [ ] [P2] Voice input (speech-to-text)
+16. [✔] [P2] Message reactions / quick feedback (👍 👎) sent back to the agent
+17. [✔] [P2] Voice input (speech-to-text)
 18. [ ] [P2] Export — copy markdown + export .md file
 
 ---
 
 ## ⌨️ Input Bar
+
 19. [ ] [P0] Text input with rich formatting
 20. [ ] [P1] File attachments — drag & drop or click to upload
-21. [ ] [P1] Model selector per message — pick model right in the input bar
-22. [ ] [P1] Slash commands — skill-driven, each skill registers its own
-23. [ ] [P1] @skill mentions — mention a skill directly in input
-24. [ ] [P2] Voice input toggle
+21. [✔] [P1] Model selector per message — pick model right in the input bar
+22. [✔] [P1] Slash commands — skill-driven, each skill registers its own
+23. [✔] [P1] @skill mentions — mention a skill directly in input
+24. [✔] [P2] Voice input toggle
 
 ---
 
 ## ⏹ Interrupt & Merge
+
 25. [ ] [P0] Send message while generating → auto-cancels current, combines both, restarts with full context
 26. [ ] [P0] Rapid messages batch together (500ms debounce)
 27. [ ] [P0] Visual indicator: "⏹ Interrupted — regenerating with your update..."
@@ -45,6 +49,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 👁️ Observability — See What the Agent Is Doing
+
 28. [ ] [P0] Live activity feed — tool calls, file reads/writes, web searches, exec commands streaming real-time
 29. [ ] [P0] Each tool call shows: tool name, input params, output/result, duration, status (running/success/error)
 30. [ ] [P0] Sub-agent tree view — parent-child hierarchy, status (running/done/failed)
@@ -60,6 +65,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🎮 Intervention — Control the Agent Mid-Task
+
 39. [ ] [P0] Pause/resume agent execution
 40. [ ] [P0] Cancel running task / kill sub-agent
 41. [ ] [P1] Approve/deny tool calls before execution (supervised mode)
@@ -73,6 +79,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 📝 Plan Mode — Review & Annotate
+
 48. [ ] [P1] "Review" button on any assistant message (or Cmd+Shift+R)
 49. [ ] [P1] Line-by-line / text-range selection → inline comments (GitHub PR review style)
 50. [ ] [P1] Margin indicators → expand/edit/delete
@@ -81,6 +88,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 📁 Projects & Topics Sidebar
+
 52. [ ] [P0] Arc-style sidebar — Projects as spaces, Topics inside each
 53. [ ] [P0] Cmd+N = new topic, Cmd+Shift+N = new project, Cmd+K = quick switcher
 54. [ ] [P0] Agent sidebar — list of connected agents/instances with status (online/offline/busy)
@@ -94,6 +102,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 📁 File Manager — Full Server Filesystem
+
 61. [ ] [P0] Tree view file browser — navigate full server filesystem
 62. [ ] [P0] File viewer — any text file with syntax highlighting
 63. [ ] [P0] File editor — edit files in-app with save (basic code editor)
@@ -109,6 +118,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 💻 Terminal
+
 72. [ ] [P1] Embedded terminal — full PTY shell access (hidden by default, enable in settings)
 73. [ ] [P1] Multiple terminal tabs
 74. [ ] [P2] Split terminal alongside chat (VS Code bottom panel style)
@@ -117,6 +127,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🧩 Skills Manager
+
 76. [ ] [P1] App store style — featured, categories, trending, detail pages
 77. [ ] [P1] Install → "Try it now" dialog with usage instructions + pre-filled chat button
 78. [ ] [P2] Skill ratings and reviews
@@ -125,6 +136,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🧠 Memory Browser
+
 80. [ ] [P1] View and edit memory files (MEMORY.md, daily logs, etc.) with save to disk
 81. [ ] [P1] Semantic search (same as OpenClaw's memory_search)
 82. [ ] [P2] Settings panel — compact, rebuild MOC, re-index, archive
@@ -132,6 +144,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## ⏰ Cron Panel
+
 83. [ ] [P1] View/manage/delete/run cron jobs
 84. [ ] [P1] Job status and run history
 85. [ ] [P1] Create cron jobs via chat only (panel is view/manage)
@@ -139,6 +152,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🎨 UI Modes & Customization
+
 86. [ ] [P0] Simple Mode (default for beginners) — clean chat, observability hidden. "Show what's happening" toggle
 87. [ ] [P0] Mission Control Mode (power users) — chat + activity feed + sub-agent tree + file browser + context inspector
 88. [ ] [P0] Custom frameless window (no OS title bar)
@@ -150,6 +164,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 📦 Installation & Connection
+
 93. [ ] [P0] One-click installer — .dmg (Mac) / .exe + .msi (Windows) / .AppImage (Linux)
 94. [ ] [P0] First-run onboarding wizard — detect OpenClaw, guide through setup
 95. [ ] [P0] Auto-install OpenClaw — handles Node.js, npm, OpenClaw behind the scenes
@@ -157,13 +172,14 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 97. [ ] [P1] CLI connect — `openclaw desktop connect` from terminal
 98. [ ] [P1] Connection setup — enter Gateway URL + token, or auto-detect local
 99. [ ] [P1] Auto-update — notify + one-click install (Tauri updater)
-100. [ ] [P1] OpenClaw version management — detect, prompt update, handle mismatches
-101. ~~[REMOVED] Offline mode~~
-102. ~~[REMOVED] Backup/restore~~
+100.  [ ] [P1] OpenClaw version management — detect, prompt update, handle mismatches
+101.  ~~[REMOVED] Offline mode~~
+102.  ~~[REMOVED] Backup/restore~~
 
 ---
 
 ## ⚙️ Settings & Configuration
+
 103. [ ] [P0] Agent connection manager — add/edit/remove connections (URL + auth token)
 104. [ ] [P1] Config Editor — JSON editor + validation + diff before save + Apply & Restart
 105. [ ] [P1] Theme — dark mode (default), light mode, system-follow
@@ -176,6 +192,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🔌 Gateway Integration
+
 111. [ ] [P0] WebSocket connection to OpenClaw Gateway
 112. [ ] [P0] Session management — list, create new, resume existing
 113. [ ] [P0] Authentication — token-based
@@ -187,6 +204,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🔔 Notifications & Alerts
+
 118. [ ] [P1] Unified Inbox — one feed: reminders + agent messages + system alerts, filterable by tag
 119. [ ] [P1] Unread indicators — badge on bell + dot on topic names
 120. [ ] [P1] Click → deep link to relevant topic
@@ -198,6 +216,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🔒 Security
+
 125. [ ] [P0] Token storage — system keychain (macOS Keychain, Windows Credential Manager)
 126. [ ] [P0] No telemetry by default — opt-in only
 127. [ ] [P1] TLS verification for remote connections
@@ -207,6 +226,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 📊 Usage & Analytics (Local Only)
+
 130. [ ] [P2] Local usage dashboard — tokens, costs, messages per day/week
 131. [ ] [P2] Per-agent usage breakdown
 132. ~~[REMOVED] Export usage CSV~~
@@ -214,6 +234,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ---
 
 ## 🚀 Distribution & Packaging
+
 133. [ ] [P0] macOS — .dmg, Apple Silicon + Intel universal binary
 134. [ ] [P0] Windows — .exe + .msi installer + portable .zip
 135. [ ] [P0] Linux — .AppImage + .deb
@@ -225,6 +246,7 @@ Tauri 2.0 (Rust) + Next.js 16 + React 19 + TypeScript + shadcn/ui + Tailwind. Th
 ## MVP Scope (v1.0)
 
 All P0 items (~35 items):
+
 - Chat with streaming, tool call visibility, interrupt & merge
 - Full observability — live feed, sub-agent tree, context inspector
 - Arc-style Projects & Topics sidebar
