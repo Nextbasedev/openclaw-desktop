@@ -65,6 +65,35 @@ afterEach(() => {
 })
 
 describe("middleware_chat_send slash command history", () => {
+  it("records the slash command input when gateway appends only the command output", async () => {
+    const root = tempRoot()
+    vi.stubEnv("HOME", root)
+    const sessionKey = "agent:main:desktop:source"
+    const sessionsDir = path.join(root, ".openclaw", "agents", "main", "sessions")
+    fs.mkdirSync(sessionsDir, { recursive: true })
+    const sessionFile = path.join(sessionsDir, "same-session.jsonl")
+    const sessionsJson = path.join(sessionsDir, "sessions.json")
+    fs.writeFileSync(sessionsJson, JSON.stringify({ [sessionKey]: { sessionId: "same-session", sessionFile, updatedAt: 1, status: "done" } }, null, 2))
+    fs.writeFileSync(sessionFile, [
+      JSON.stringify({ type: "session", id: "same-session", version: 3 }),
+      JSON.stringify({ type: "message", id: "u1", parentId: null, message: { role: "user", content: [{ type: "text", text: "hello" }] } }),
+      JSON.stringify({ type: "message", id: "a1", parentId: "u1", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } }),
+    ].join("\n") + "\n")
+
+    gatewayState.onChatSend = () => {
+      fs.appendFileSync(sessionFile, JSON.stringify({ type: "message", id: "status1", parentId: null, message: { role: "assistant", provider: "openclaw", model: "gateway-injected", content: [{ type: "text", text: "status output" }] } }) + "\n")
+    }
+
+    const res = await auth(request(makeApp(root)).post("/api/commands/middleware_chat_send")).send({ input: { sessionKey, text: "/status" } })
+
+    expect(res.status).toBe(200)
+    expect(res.body.commandHistoryRestore).toMatchObject({ recorded: true, sessionId: "same-session", sessionFile })
+    const lines = fs.readFileSync(sessionFile, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    expect(lines.map((line) => line.message?.role).filter(Boolean)).toEqual(["user", "assistant", "user", "assistant"])
+    expect(lines[3]).toMatchObject({ message: { role: "user", content: [{ type: "text", text: "/status" }] } })
+    expect(lines[4]).toMatchObject({ id: "status1", parentId: lines[3].id, message: { role: "assistant", content: [{ type: "text", text: "status output" }] } })
+  })
+
   it("restores the original transcript when a slash command creates a status-only replacement session", async () => {
     const root = tempRoot()
     vi.stubEnv("HOME", root)
