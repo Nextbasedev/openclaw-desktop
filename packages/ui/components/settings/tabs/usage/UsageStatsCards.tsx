@@ -30,7 +30,7 @@ function MiniMetric({
   loading?: boolean
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-border/35 bg-background/35 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md">
+    <div className="min-w-0 rounded-sm border border-border/35 bg-background/35 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md">
       <div className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/58">
         {label}
       </div>
@@ -70,7 +70,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
   const cacheShare = trackedTokens > 0 ? (cacheTokens / trackedTokens) * 100 : 0
 
   return (
-    <section className="min-w-0 rounded-xl border border-border/45 bg-card/75 p-4 shadow-[0_16px_48px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl sm:p-5">
+    <section className="min-w-0 rounded-sm border border-border/45 bg-card/75 p-4 shadow-[0_16px_48px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl sm:p-5">
       <div className="flex min-w-0 flex-col gap-4">
         <div className="grid min-w-0 gap-3 min-[520px]:grid-cols-[1fr_auto] min-[520px]:items-start">
           <div className="min-w-0">
@@ -94,7 +94,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
             )}
           </div>
 
-          <div className="w-full min-w-0 rounded-lg border border-border/35 bg-background/35 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md min-[520px]:w-[132px]">
+          <div className="w-full min-w-0 rounded-sm border border-border/35 bg-background/35 px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md min-[520px]:w-[132px]">
             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/58">
               Spend
             </div>
