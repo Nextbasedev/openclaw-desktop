@@ -108,6 +108,8 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/projects/${input.projectId}`, { method: "PATCH", body: JSON.stringify(input) })
     case "middleware_projects_delete":
       return middlewareFetch<T>(`/api/projects/${input.projectId}`, { method: "DELETE" })
+    case "middleware_projects_archive":
+      return middlewareFetch<T>(`/api/projects/${input.projectId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_topics_list":
       return middlewareFetch<T>(`/api/topics?projectId=${encodeURIComponent(String(input.projectId ?? ""))}`)
     case "middleware_topics_create":
