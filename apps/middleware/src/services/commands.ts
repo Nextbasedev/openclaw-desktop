@@ -867,7 +867,11 @@ export function commandRoutes(store: Store) {
             const history = await gw.request<any>("chat.history", { sessionKey: sourceKey, limit: input.limit || 100 }, 30_000)
             if (!history.ok) throw new HttpError(502, history.error?.message || "chat.history failed", "GATEWAY_ERROR")
             const messages = history?.ok && Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
-            const msgIdx = input.messageId ? messages.findIndex((m:any) => messageIdOf(m) === input.messageId) : -1
+            let msgIdx = input.messageId ? messages.findIndex((m:any) => messageIdOf(m) === input.messageId) : -1
+            const gatewayIndex = Number.isInteger(input.gatewayIndex) ? Number(input.gatewayIndex) : -1
+            if (msgIdx === -1 && gatewayIndex >= 0 && gatewayIndex < messages.length) {
+              msgIdx = gatewayIndex
+            }
             const copyMessages = msgIdx >= 0 ? messages.slice(0, msgIdx + 1) : messages
             const transcriptPath = (created.payload as any)?.entry?.sessionFile
             if (!transcriptPath || typeof transcriptPath !== "string") throw new HttpError(502, "sessions.create did not return entry.sessionFile", "GATEWAY_ERROR")
