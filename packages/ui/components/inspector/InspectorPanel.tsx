@@ -214,8 +214,8 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-clip">
-          {open && activeTab === "activity" && <ActivityTab sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} focusedToolCallId={focusedToolCallId ?? null} onClearFocusedToolCall={onClearFocusedToolCall} />}
-          {open && activeTab === "workspace" && <WorkspaceTab sessionKey={sessionKey ?? null} /> }
+          {open && activeTab === "activity" && <ActivityTab key={`${projectId ?? "global"}:${sessionKey ?? "none"}`} sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} focusedToolCallId={focusedToolCallId ?? null} onClearFocusedToolCall={onClearFocusedToolCall} />}
+          {open && activeTab === "workspace" && <WorkspaceTab key={projectId ?? "global"} sessionKey={sessionKey ?? null} projectId={projectId ?? null} /> }
           {open && activeTab === "git" && <GitTab projectId={projectId ?? null} />}
           {open && activeTab === "terminal" && (
             <div className="flex h-full flex-col overflow-hidden">

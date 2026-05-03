@@ -21,9 +21,9 @@ export type RemoteWorkspaceCapabilities = {
   canDeleteEntry: boolean
 }
 
-function workspaceBasePath(): string {
-  const projectId = typeof window !== "undefined" ? localStorage.getItem("openclaw.activeProjectId") : null
-  return projectId ? `/api/projects/${projectId}/workspace` : "/api/workspace"
+function workspaceBasePath(projectId?: string | null): string {
+  const id = projectId ?? (typeof window !== "undefined" ? localStorage.getItem("openclaw.activeProjectId") : null)
+  return id ? `/api/projects/${id}/workspace` : "/api/workspace"
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -36,13 +36,14 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export async function fetchRemoteWorkspaceTree(input: {
   sessionKey: string
+  projectId?: string | null
   path?: string
   all?: boolean
 }): Promise<{ entries: RemoteWorkspaceEntry[] }> {
   if (getMiddlewareConnection()) {
     const params = new URLSearchParams()
     if (input.path) params.set("path", input.path)
-    return middlewareFetch(`${workspaceBasePath()}/tree?${params.toString()}`)
+    return middlewareFetch(`${workspaceBasePath(input.projectId)}/tree?${params.toString()}`)
   }
   throw new Error("Middleware connection is not configured")
 }
@@ -64,21 +65,23 @@ export async function fetchRemoteWorkspaceCapabilities(_sessionKey: string): Pro
 
 export async function fetchRemoteWorkspaceFile(input: {
   sessionKey: string
+  projectId?: string | null
   path: string
 }): Promise<{ path: string; content: string; encoding: string }> {
   if (getMiddlewareConnection()) {
-    return middlewareFetch(`${workspaceBasePath()}/file?path=${encodeURIComponent(input.path)}`)
+    return middlewareFetch(`${workspaceBasePath(input.projectId)}/file?path=${encodeURIComponent(input.path)}`)
   }
   throw new Error("Middleware connection is not configured")
 }
 
 export async function saveRemoteWorkspaceFile(input: {
   sessionKey: string
+  projectId?: string | null
   path: string
   content: string
 }): Promise<void> {
   if (getMiddlewareConnection()) {
-    await middlewareFetch(`${workspaceBasePath()}/file`, {
+    await middlewareFetch(`${workspaceBasePath(input.projectId)}/file`, {
       method: "PUT",
       body: JSON.stringify({ path: input.path, content: input.content }),
     })
