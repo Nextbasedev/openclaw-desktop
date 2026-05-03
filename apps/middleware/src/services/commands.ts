@@ -388,7 +388,28 @@ function searchMemory(query: string) {
     const content = fs.readFileSync(full, "utf8")
     const lines = content.split("\n")
     lines.forEach((line, index) => {
-      if (!q || line.toLowerCase().includes(q)) entries.push({ path: `memory/${name}`, line: index + 1, text: line })
+      const text = line.trim()
+      if (!text) return
+      const haystack = text.toLowerCase()
+      if (!q || haystack.includes(q)) {
+        const category = /^#+\s/.test(text)
+          ? "decision"
+          : /\b(user|prefers?|requested|wants?|asked|timezone|name)\b/i.test(text)
+            ? "preference"
+            : /\b(root cause|fixed|commit|deployed|verification|lesson|rule)\b/i.test(text)
+              ? "decision"
+              : "fact"
+        const totalScore = q ? Math.min(1, Math.max(0.35, q.length / Math.max(text.length, q.length))) : 0.65
+        entries.push({
+          path: `memory/${name}`,
+          line: index + 1,
+          content: text,
+          text,
+          category,
+          totalScore,
+          tags: [name.replace(/\.md$/, "")],
+        })
+      }
     })
   }
   return entries.slice(0, 50)
