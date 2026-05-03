@@ -22,6 +22,7 @@ import {
   cleanUserMessageText,
   deduplicateRawMessages,
   extractReplyBlock,
+  isTransientSlashCommandHistory,
   parseChatHistory,
 } from "@/lib/chatHistoryParser"
 
@@ -89,10 +90,38 @@ function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
 
 const CHAT_BOOTSTRAP_TTL_MS = 5000
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
+const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
+const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 const chatBootstrapCache = new Map<
   string,
   { expiresAt: number; value: ChatBootstrapData | Promise<ChatBootstrapData> }
 >()
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchChatBootstrap(sessionKey: string): Promise<ChatBootstrapData> {
+  return Promise.all([
+    invoke<{ messages: unknown[] }>("middleware_chat_history", {
+      input: { sessionKey },
+    }),
+    invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
+      input: { sourceSessionKey: sessionKey },
+    }).catch(() => ({ branches: [] })),
+  ]).then(([history, branchData]) => ({ history, branchData }))
+}
+
+async function fetchStableChatBootstrap(sessionKey: string): Promise<ChatBootstrapData> {
+  let latest = await fetchChatBootstrap(sessionKey)
+  for (let attempt = 0; attempt < CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES; attempt++) {
+    const messages = (latest.history.messages as RawMessage[]) || []
+    if (!isTransientSlashCommandHistory(messages)) return latest
+    await delay(CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS)
+    latest = await fetchChatBootstrap(sessionKey)
+  }
+  return latest
+}
 
 async function loadChatBootstrap(
   sessionKey: string
@@ -103,14 +132,7 @@ async function loadChatBootstrap(
     return cached.value instanceof Promise ? await cached.value : cached.value
   }
 
-  const value = Promise.all([
-    invoke<{ messages: unknown[] }>("middleware_chat_history", {
-      input: { sessionKey },
-    }),
-    invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
-      input: { sourceSessionKey: sessionKey },
-    }).catch(() => ({ branches: [] })),
-  ]).then(([history, branchData]) => ({ history, branchData }))
+  const value = fetchStableChatBootstrap(sessionKey)
 
   chatBootstrapCache.set(sessionKey, {
     expiresAt: now + CHAT_BOOTSTRAP_TTL_MS,
