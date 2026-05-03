@@ -400,47 +400,6 @@ body {
   overflow: hidden;
 }
 
-/* ─── Usage Dashboard: token-native neumorphism ─── */
-.usage-neu-shell {
-  background: color-mix(in oklch, var(--card) 86%, var(--background));
-  border: 1px solid color-mix(in oklch, var(--border) 82%, transparent);
-  box-shadow:
-    14px 14px 30px oklch(0 0 0 / 0.26),
-    -10px -10px 24px oklch(1 0 0 / 0.035),
-    inset 1px 1px 0 oklch(1 0 0 / 0.055);
-}
-
-.usage-neu-card {
-  background: color-mix(in oklch, var(--card) 92%, var(--background));
-  border: 1px solid color-mix(in oklch, var(--border) 72%, transparent);
-  box-shadow:
-    10px 10px 22px oklch(0 0 0 / 0.22),
-    -7px -7px 18px oklch(1 0 0 / 0.035),
-    inset 1px 1px 0 oklch(1 0 0 / 0.05);
-}
-
-.usage-neu-inset {
-  background: color-mix(in oklch, var(--background) 76%, var(--card));
-  border: 1px solid color-mix(in oklch, var(--border) 62%, transparent);
-  box-shadow:
-    inset 7px 7px 15px oklch(0 0 0 / 0.24),
-    inset -5px -5px 12px oklch(1 0 0 / 0.035);
-}
-
-:root .usage-neu-shell,
-:root .usage-neu-card {
-  box-shadow:
-    12px 12px 24px oklch(0 0 0 / 0.08),
-    -10px -10px 22px oklch(1 0 0 / 0.8),
-    inset 1px 1px 0 oklch(1 0 0 / 0.7);
-}
-
-:root .usage-neu-inset {
-  box-shadow:
-    inset 7px 7px 15px oklch(0 0 0 / 0.08),
-    inset -5px -5px 12px oklch(1 0 0 / 0.9);
-}
-
 .activity-expand-inner {
   opacity: 0;
   transform: translateY(-4px);

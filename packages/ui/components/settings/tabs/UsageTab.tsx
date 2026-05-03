@@ -46,7 +46,7 @@ export function UsageTab() {
             type="button"
             onClick={refresh}
             disabled={loading}
-            className="usage-neu-card cursor-pointer rounded-lg p-2 text-muted-foreground transition-all hover:text-foreground disabled:opacity-50"
+            className="cursor-pointer rounded-lg border border-border/45 bg-card p-2 text-muted-foreground transition-all hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
             title="Refresh"
           >
             <Icons.Refresh
@@ -55,7 +55,7 @@ export function UsageTab() {
               className={loading ? "animate-spin" : ""}
             />
           </button>
-          <div className="usage-neu-inset flex gap-0 rounded-lg p-0.5">
+          <div className="flex gap-0 rounded-lg border border-border/45 bg-card p-0.5">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
@@ -64,7 +64,7 @@ export function UsageTab() {
                 className={cn(
                   "cursor-pointer rounded-md px-3 py-1.5 text-[11px] font-medium transition-all",
                   period === p.value
-                    ? "usage-neu-card text-foreground"
+                    ? "bg-muted text-foreground shadow-sm"
                     : "text-muted-foreground/60 hover:text-muted-foreground",
                 )}
               >
@@ -81,7 +81,7 @@ export function UsageTab() {
         </div>
       )}
 
-      <div className="usage-neu-shell space-y-3 rounded-3xl p-4">
+      <div className="space-y-4 rounded-3xl border border-border/50 bg-background/35 p-4">
         <UsageStatsCards summary={summary} loading={rangeLoading} />
 
         <UsageChart daily={daily} lastUpdated={lastUpdated} loading={rangeLoading} />
