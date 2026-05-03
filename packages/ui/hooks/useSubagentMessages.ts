@@ -158,14 +158,16 @@ export function useSubagentMessages(
   const [loading, setLoading] = useState(false)
   const timerRef = useRef<number | null>(null)
   const cancelledRef = useRef(false)
+  const requestSeqRef = useRef(0)
 
-  const fetchMessages = useCallback(async (key: string) => {
+  const fetchMessages = useCallback(async (key: string, timeoutMs = 6_000) => {
+    const requestSeq = ++requestSeqRef.current
     try {
       const history = await invoke<{ messages: RawMsg[] }>(
         "middleware_chat_history",
-        { input: { sessionKey: key } },
+        { input: { sessionKey: key, timeoutMs } },
       )
-      if (cancelledRef.current) return
+      if (cancelledRef.current || requestSeq !== requestSeqRef.current) return
       setMessages(parseMessages(history.messages ?? []))
     } catch {}
   }, [])
@@ -186,12 +188,14 @@ export function useSubagentMessages(
     }
 
     setLoading(true)
-    fetchMessages(sessionKey).then(() => setLoading(false))
+    fetchMessages(sessionKey, 6_000).finally(() => {
+      if (!cancelledRef.current) setLoading(false)
+    })
 
     if (isLive) {
       const poll = () => {
         if (cancelledRef.current) return
-        fetchMessages(sessionKey).then(() => {
+        fetchMessages(sessionKey, 5_000).then(() => {
           if (!cancelledRef.current && isLive) {
             timerRef.current = window.setTimeout(poll, 1000)
           }

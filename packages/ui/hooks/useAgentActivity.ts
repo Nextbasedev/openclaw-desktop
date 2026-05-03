@@ -108,7 +108,7 @@ export function useAgentActivity(sessionKey: string | null) {
           messages: RawHistoryMessage[]
         }>(
           "middleware_chat_history",
-          { input: { sessionKey: subKey } },
+          { input: { sessionKey: subKey, timeoutMs: 5_000 } },
         )
         const subParsed = parseHistoryToolCalls(
           subHistory.messages ?? [],
@@ -399,7 +399,7 @@ export function useAgentActivity(sessionKey: string | null) {
           messages: RawHistoryMessage[]
         }>(
           "middleware_chat_history",
-          { input: { sessionKey } },
+          { input: { sessionKey, timeoutMs: 8_000 } },
         )
         if (cancelledRef.current) return
         const parsed = parseHistoryToolCalls(
@@ -415,11 +415,12 @@ export function useAgentActivity(sessionKey: string | null) {
           }
         }
         syncState()
+        setHistoryLoaded(true)
 
         const subFetches = Array.from(
           parsed.subagentSessionKeys.entries(),
         )
-        await Promise.all(
+        void Promise.allSettled(
           subFetches.map(async ([subKey, agentId]) => {
             if (cancelledRef.current) return
             const currentAgent = agentsRef.current.get(agentId)
@@ -432,9 +433,9 @@ export function useAgentActivity(sessionKey: string | null) {
             subKeyToAgentRef.current.set(subKey, agentId)
             await fetchSubagentHistory(subKey, agentId)
           }),
-        )
-
-        setHistoryLoaded(true)
+        ).then(() => {
+          if (!cancelledRef.current) syncState()
+        })
       } catch {
         if (!cancelledRef.current) setHistoryLoaded(true)
       }
