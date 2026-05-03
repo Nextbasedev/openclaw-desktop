@@ -80,6 +80,24 @@ function appendJsonl(file: string, entries: unknown[]) {
   fs.appendFileSync(file, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n")
 }
 
+function writeJsonl(file: string, entries: unknown[]) {
+  fs.writeFileSync(file, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n")
+}
+
+function commandUserMessage(message: string, parentId: string | null, timestamp = Date.now()) {
+  return {
+    type: "message",
+    id: crypto.randomUUID().slice(0, 8),
+    parentId,
+    timestamp: new Date(timestamp).toISOString(),
+    message: {
+      role: "user",
+      content: [{ type: "text", text: message.trim() }],
+      timestamp,
+    },
+  }
+}
+
 function restoreSlashCommandHistoryIfGatewayReset(params: { sessionKey: string; message: string; before: ReturnType<typeof readSessionStoreEntry> }) {
   if (!params.message.trim().startsWith("/") || !params.before) return null
   const current = readSessionStoreEntry(params.sessionKey)
@@ -97,38 +115,44 @@ function restoreSlashCommandHistoryIfGatewayReset(params: { sessionKey: string; 
   fs.copyFileSync(resetFile, previousFile)
   const restoredLines = readJsonl(previousFile)
   const parentId = restoredLines.at(-1)?.id ?? null
-  const timestamp = Date.now()
-  const commandMessageId = crypto.randomUUID().slice(0, 8)
+  const userMessage = commandUserMessage(params.message, parentId)
   const outputMessage = {
     ...injectedOutput,
     id: injectedOutput.id ?? crypto.randomUUID().slice(0, 8),
-    parentId: commandMessageId,
+    parentId: userMessage.id,
   }
-  appendJsonl(previousFile, [
-    {
-      type: "message",
-      id: commandMessageId,
-      parentId,
-      timestamp: new Date(timestamp).toISOString(),
-      message: {
-        role: "user",
-        content: [{ type: "text", text: params.message.trim() }],
-        timestamp,
-      },
-    },
-    outputMessage,
-  ])
+  appendJsonl(previousFile, [userMessage, outputMessage])
 
   const store = readJson(params.before.storePath)
   store[params.sessionKey] = {
     ...previousEntry,
     sessionId: previousEntry.sessionId,
     sessionFile: previousFile,
-    updatedAt: timestamp,
+    updatedAt: (userMessage as any).message.timestamp,
     status: "done",
   }
   writeJson(params.before.storePath, store)
   return { restored: true, sessionId: previousEntry.sessionId, sessionFile: previousFile }
+}
+
+function recordSlashCommandInputIfGatewayOnlyAppendedOutput(params: { sessionKey: string; message: string }) {
+  if (!params.message.trim().startsWith("/")) return null
+  const current = readSessionStoreEntry(params.sessionKey)
+  const file = String((current?.entry as any)?.sessionFile || "")
+  if (!file) return null
+  const lines = readJsonl(file)
+  const last = lines.at(-1)
+  const previous = lines.at(-2)
+  const lastMessage = last?.message
+  if (last?.type !== "message" || lastMessage?.role !== "assistant") return null
+  if (lastMessage?.provider !== "openclaw" || lastMessage?.model !== "gateway-injected") return null
+  const previousText = previous?.message?.content?.[0]?.text
+  if (previous?.message?.role === "user" && previousText === params.message.trim()) return null
+
+  const userMessage = commandUserMessage(params.message, previous?.id ?? null)
+  const outputMessage = { ...last, parentId: userMessage.id }
+  writeJsonl(file, [...lines.slice(0, -1), userMessage, outputMessage])
+  return { recorded: true, sessionId: (current?.entry as any)?.sessionId, sessionFile: file }
 }
 
 function packageVersion() {
@@ -590,6 +614,7 @@ export function commandRoutes(store: Store) {
             }, input.timeoutMs || 130_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.send failed", "GATEWAY_ERROR")
             const commandHistoryRestore = restoreSlashCommandHistoryIfGatewayReset({ sessionKey: key, message, before: beforeCommandSession })
+              ?? recordSlashCommandInputIfGatewayOnlyAppendedOutput({ sessionKey: key, message })
             return { ok: true, sessionKey: key, commandHistoryRestore, ...((res.payload as object) || {}) }
           } finally {
             gw.close()
