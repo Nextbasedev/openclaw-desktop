@@ -58,6 +58,7 @@ export type RawHistoryMessage = {
   role?: string
   text?: string
   content?: string | ContentBlock[]
+  errorMessage?: string | null
   createdAt?: string
   model?: string
   provider?: string
@@ -83,6 +84,15 @@ function toolBlocks(raw: RawHistoryMessage) {
 
 function toolResultText(raw: RawHistoryMessage): string {
   return raw.text || extractText(raw.content)
+}
+
+function visibleMessageText(raw: RawHistoryMessage): string {
+  const text = raw.text || extractText(raw.content)
+  if (text.trim()) return text
+  if (raw.role === "assistant" && raw.stopReason === "error" && raw.errorMessage) {
+    return `Error: ${raw.errorMessage}`
+  }
+  return ""
 }
 
 function inferToolStatus(resultText: string): InlineToolCall["status"] {
@@ -185,7 +195,7 @@ export function deduplicateRawMessages(
 ): RawHistoryMessage[] {
   const result: RawHistoryMessage[] = []
   for (const item of raw) {
-    const currText = (item.text || extractText(item.content)).trim()
+    const currText = visibleMessageText(item).trim()
     if (item.role === "assistant" && !currText && !toolBlocks(item).length) {
       continue
     }
@@ -263,7 +273,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
         }
       }
 
-      const text = (item.text || extractText(item.content)).trim()
+      const text = visibleMessageText(item).trim()
       if (text || pendingToolCalls.length > 0) {
         const last = messages.at(-1)
         if (last?.role === "assistant") {
