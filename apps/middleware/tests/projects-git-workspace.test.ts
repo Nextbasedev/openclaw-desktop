@@ -28,6 +28,12 @@ function createRepo() {
   return root
 }
 
+function commitFile(repo: string, file: string, content: string, message: string) {
+  fs.writeFileSync(path.join(repo, file), content)
+  execFileSync("git", ["add", file], { cwd: repo })
+  execFileSync("git", ["commit", "-m", message], { cwd: repo })
+}
+
 afterEach(() => { for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true }) })
 
 describe("projects/git/workspace", () => {
@@ -60,5 +66,29 @@ describe("projects/git/workspace", () => {
 
     const blocked = await auth(request(app).get(`/api/projects/${projectId}/workspace/file`).query({ path: "../../etc/passwd" }))
     expect(blocked.status).toBe(403)
+  })
+
+  it("shows latest tracked remote commits after refresh without pulling", async () => {
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), "ocmw-remote-")); tempRoots.push(remote)
+    execFileSync("git", ["init", "--bare"], { cwd: remote })
+    const source = createRepo()
+    execFileSync("git", ["remote", "add", "origin", remote], { cwd: source })
+    execFileSync("git", ["push", "-u", "origin", "HEAD:main"], { cwd: source })
+
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), "ocmw-clone-")); tempRoots.push(clone)
+    fs.rmSync(clone, { recursive: true, force: true })
+    execFileSync("git", ["clone", remote, clone])
+    execFileSync("git", ["checkout", "main"], { cwd: clone })
+
+    commitFile(source, "README.md", "hello\nremote\n", "remote latest")
+    execFileSync("git", ["push", "origin", "HEAD:main"], { cwd: source })
+
+    const app = makeApp(clone)
+    const status = await auth(request(app).get("/api/repos/git/status").query({ path: clone }))
+
+    expect(status.status).toBe(200)
+    expect(status.body.behind).toBe(1)
+    expect(status.body.recentCommits[0].message).toBe("remote latest")
+    expect(execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: clone, encoding: "utf8" }).trim()).toBe("init")
   })
 })
