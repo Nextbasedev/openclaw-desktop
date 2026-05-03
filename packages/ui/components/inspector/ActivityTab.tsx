@@ -131,7 +131,7 @@ export function ActivityTab({
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [mainExpanded, setMainExpanded] = useState(true)
-  const [filter, setFilter] = useState<"all" | "success">("all")
+  const [filter, setFilter] = useState<"all" | "success" | "error">("all")
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
 
@@ -419,7 +419,7 @@ export function ActivityTab({
                   </span>
                 )}
                 <div className="ml-auto flex gap-1">
-                  {(["all", "success"] as const).map((f) => (
+                  {(["all", "success", "error"] as const).map((f) => (
                     <button
                       key={f}
                       type="button"
@@ -431,7 +431,7 @@ export function ActivityTab({
                           : "text-muted-foreground/50 hover:text-muted-foreground",
                       )}
                     >
-                      {f === "all" ? "All" : "Success"}
+                      {f === "all" ? "All" : f === "success" ? "Success" : "Error"}
                     </button>
                   ))}
                 </div>
