@@ -530,7 +530,21 @@ function gitCommitDetails(repoRoot: string, commit: string) {
     const remoteName = upstream?.split("/")[0] || "origin"
     try { execFileSync("git", ["fetch", "--prune", remoteName], { cwd, encoding: "utf8", timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }) } catch {}
   }
-  const show = execFileSync("git", ["show", "--format=fuller", "--find-renames", "--find-copies", "--stat", "--patch", sha], { cwd, encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })
+  let show = ""
+  try {
+    show = execFileSync("git", ["show", "--format=fuller", "--find-renames", "--find-copies", "--stat", "--patch", sha], { cwd, encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })
+  } catch (error: any) {
+    if (error?.code !== "ENOBUFS") throw error
+    const header = execFileSync("git", ["show", "--format=fuller", "--stat", "--no-patch", sha], { cwd, encoding: "utf8", timeout: 10_000, maxBuffer: 8 * 1024 * 1024 })
+    const numstat = execFileSync("git", ["show", "--numstat", "--format=", sha], { cwd, encoding: "utf8", timeout: 10_000, maxBuffer: 16 * 1024 * 1024 })
+    const syntheticDiffs = numstat.split("\n").filter(Boolean).map((line) => {
+      const parts = line.split("\t")
+      const filePath = parts.slice(2).join("\t")
+      if (!filePath) return ""
+      return [`diff --git a/${filePath} b/${filePath}`, `--- a/${filePath}`, `+++ b/${filePath}`, "@@ -0,0 +0,0 @@", " Diff preview omitted because this commit is too large to display safely."].join("\n")
+    }).filter(Boolean).join("\n")
+    show = `${header}\n\n${syntheticDiffs}\n`
+  }
   return { diff: show, commit: { sha, text: show } }
 }
 

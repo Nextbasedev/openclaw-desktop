@@ -829,7 +829,21 @@ export function gitCommitDetails(input: { projectId: string; hash: string }) {
   const repoRoot = getEffectiveRepoRoot(input.projectId)
   try {
     const hash = String(input.hash).trim()
-    const diff = gitHelper(["show", "--pretty=format:", hash], repoRoot)
+    let diff = ""
+    try {
+      diff = gitHelper(["show", "--pretty=format:", hash], repoRoot)
+    } catch (err: any) {
+      if (err?.code !== "ENOBUFS") throw err
+      const header = gitHelper(["show", "--format=fuller", "--stat", "--no-patch", hash], repoRoot, 8 * 1024 * 1024)
+      const numstat = gitHelper(["show", "--numstat", "--format=", hash], repoRoot, 16 * 1024 * 1024)
+      const syntheticDiffs = numstat.split("\n").filter(Boolean).map((line) => {
+        const parts = line.split("\t")
+        const filePath = parts.slice(2).join("\t")
+        if (!filePath) return ""
+        return [`diff --git a/${filePath} b/${filePath}`, `--- a/${filePath}`, `+++ b/${filePath}`, "@@ -0,0 +0,0 @@", " Diff preview omitted because this commit is too large to display safely."].join("\n")
+      }).filter(Boolean).join("\n")
+      diff = `${header}\n\n${syntheticDiffs}\n`
+    }
     return { ok: true, diff }
   } catch (err) {
     throw new Error(`Failed to get commit diff: ${err instanceof Error ? err.message : String(err)}`)
