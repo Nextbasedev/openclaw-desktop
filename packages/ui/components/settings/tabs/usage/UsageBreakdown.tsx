@@ -12,7 +12,7 @@ export function UsageBreakdown({
   loading = false,
 }: UsageBreakdownProps) {
   return (
-    <div className="usage-neu-shell overflow-hidden rounded-3xl">
+    <div className="overflow-hidden rounded-3xl border border-border/50 bg-card">
       <div className="px-5 py-3.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
           Provider Status
@@ -24,7 +24,7 @@ export function UsageBreakdown({
           Array.from({ length: 3 }).map((_, index) => (
             <div
               key={index}
-              className="usage-neu-card flex items-center gap-4 rounded-2xl px-5 py-4"
+              className="flex items-center gap-4 rounded-2xl border border-border/40 bg-background/35 px-5 py-4"
             >
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <div className="h-4 w-28 rounded bg-muted/55 animate-pulse" />
@@ -41,7 +41,7 @@ export function UsageBreakdown({
         providers.map((p) => (
           <div
             key={p.provider}
-            className="usage-neu-card flex items-center gap-4 rounded-2xl px-5 py-4"
+            className="flex items-center gap-4 rounded-2xl border border-border/40 bg-background/35 px-5 py-4"
           >
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-[13px] font-semibold text-foreground">
@@ -66,7 +66,7 @@ export function UsageBreakdown({
                         {w.usedPercent}%
                       </span>
                     </div>
-                    <div className="usage-neu-inset h-1.5 w-24 overflow-hidden rounded-full">
+                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted/55">
                       <div
                         className="h-full rounded-full bg-foreground/70 transition-all"
                         style={{
@@ -85,7 +85,7 @@ export function UsageBreakdown({
                   Error
                 </span>
               ) : (
-                <span className="usage-neu-inset rounded-md px-2.5 py-1 text-[11px] font-medium text-foreground/75">
+                <span className="rounded-md border border-border/35 bg-muted/35 px-2.5 py-1 text-[11px] font-medium text-foreground/75">
                   Active
                 </span>
               )}

@@ -51,7 +51,7 @@ export function UsageChart({
   }))
 
   return (
-    <div className="usage-neu-card flex flex-col gap-0 rounded-2xl p-5">
+    <div className="flex flex-col gap-0 rounded-3xl border border-border/50 bg-card p-5 shadow-[0_18px_50px_rgba(0,0,0,0.14)]">
       {loading ? (
         <div className="h-[240px] space-y-4 py-3">
           <div className="ml-auto h-3 w-24 rounded bg-muted/55 animate-pulse" />
