@@ -1231,6 +1231,8 @@ export function useChatMessages(
             replyTo: replyTo
               ? { messageId: replyTo.messageId, snippet: snippet! }
               : undefined,
+            autonomyMode: payload.autonomyMode,
+            execPolicy: payload.execPolicy,
           },
         })
         emit("chat:activity")

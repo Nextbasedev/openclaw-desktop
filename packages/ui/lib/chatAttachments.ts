@@ -13,6 +13,13 @@ export type ChatSendAttachment = {
   size: number
 }
 
+export type ChatAutonomyMode = "full" | "supervised" | "manual"
+
+export type ChatExecPolicy = {
+  security: "allowlist" | "full"
+  ask: "off" | "on-miss"
+}
+
 export type ChatComposerSubmit = {
   text: string
   attachments?: ChatSendAttachment[]
@@ -21,6 +28,8 @@ export type ChatComposerSubmit = {
     role: "user" | "assistant"
     text: string
   }
+  autonomyMode?: ChatAutonomyMode
+  execPolicy?: ChatExecPolicy | null
 }
 
 export type ChatComposerAttachment = ChatSendAttachment & {

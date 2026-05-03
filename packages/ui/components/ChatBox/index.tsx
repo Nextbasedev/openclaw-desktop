@@ -14,7 +14,9 @@ import { useVoiceInput } from "@/hooks/useVoiceInput"
 import { LuX } from "react-icons/lu"
 import {
   stripComposerAttachment,
+  type ChatAutonomyMode,
   type ChatComposerSubmit,
+  type ChatExecPolicy,
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
 import {
@@ -47,9 +49,7 @@ export function ChatBox({
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
-  const [autonomyMode, setAutonomyMode] = React.useState<
-    "full" | "supervised" | "manual"
-  >("full")
+  const [autonomyMode, setAutonomyMode] = React.useState<ChatAutonomyMode>("manual")
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
@@ -222,6 +222,12 @@ export function ChatBox({
     }, 500)
   }
 
+  function execPolicyForMode(mode: ChatAutonomyMode): ChatExecPolicy | null {
+    if (mode === "full") return { security: "full", ask: "off" }
+    if (mode === "supervised") return { security: "allowlist", ask: "on-miss" }
+    return null
+  }
+
   async function handleSend() {
     const text = input.trim()
     if (!text || disabled || isPreparingAttachments) return
@@ -231,6 +237,8 @@ export function ChatBox({
         ? attachments.map(stripComposerAttachment)
         : undefined,
       replyTo: replyTo ?? undefined,
+      autonomyMode,
+      execPolicy: execPolicyForMode(autonomyMode),
     }
     setInput("")
     if (textareaRef.current) textareaRef.current.style.height = "auto"
