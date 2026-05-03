@@ -17,7 +17,7 @@ export type ChatAutonomyMode = "full" | "supervised" | "manual"
 
 export type ChatExecPolicy = {
   security: "allowlist" | "full"
-  ask: "off" | "on-miss"
+  ask: "off" | "on-miss" | "always"
 }
 
 export type ChatComposerSubmit = {
