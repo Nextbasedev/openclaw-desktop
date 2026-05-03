@@ -232,27 +232,109 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       gateway = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
       send("chat.status", { type: "chat.status", sessionKey, state: "connected" })
       await gateway.request("sessions.subscribe", {}, 30_000).catch(() => null)
-      let subscribed = false
       let closed = false
-      let retrySubscribe: NodeJS.Timeout | null = null
-      const subscribeMessages = async () => {
-        if (subscribed || closed) return
-        const response = await gateway?.request("sessions.messages.subscribe", { key: sessionKey }, 30_000).catch(() => null)
-        subscribed = Boolean(response?.ok && (response.payload as any)?.subscribed)
-        if (subscribed && retrySubscribe) clearInterval(retrySubscribe)
+
+      const subscribedMessageKeys = new Set<string>()
+      const pendingMessageKeys = new Set<string>()
+      const subagentKeys = new Set<string>()
+      const spawnQueue: string[] = []
+      const subagentToSpawn = new Map<string, string>()
+      const pendingSubagentKeys: string[] = []
+      const seenToolEvents = new Set<string>()
+
+      const isSubagentKey = (key: unknown): key is string => typeof key === "string" && key.includes(":subagent:")
+      const matchesSession = (key: unknown) => {
+        if (typeof key !== "string") return false
+        return key === sessionKey || key === requestedSessionKey || key.endsWith(sessionKey) || subagentKeys.has(key)
       }
-      await subscribeMessages()
-      retrySubscribe = setInterval(() => { void subscribeMessages() }, 500)
+      const subscribeMessages = async (key: string) => {
+        if (closed || subscribedMessageKeys.has(key) || pendingMessageKeys.has(key)) return
+        pendingMessageKeys.add(key)
+        const response = await gateway?.request("sessions.messages.subscribe", { key }, 30_000).catch(() => null)
+        pendingMessageKeys.delete(key)
+        if (response?.ok && (response.payload as any)?.subscribed) subscribedMessageKeys.add(key)
+      }
+      const emitSpawnLinked = (toolCallId: string, childSessionKey: string) => {
+        send("chat.tool", {
+          type: "chat.tool",
+          sessionKey,
+          phase: "spawn_linked",
+          name: "sessions_spawn",
+          toolCallId,
+          result: JSON.stringify({ childSessionKey }),
+          subagentOf: null,
+        })
+      }
+      const linkSubagent = (key: string, preferredToolCallId?: string | null) => {
+        if (!subagentKeys.has(key)) {
+          subagentKeys.add(key)
+          void subscribeMessages(key)
+        }
+        const existing = subagentToSpawn.get(key)
+        const toolCallId = existing ?? preferredToolCallId ?? (spawnQueue.length > 0 ? spawnQueue.shift()! : null)
+        if (toolCallId && !existing) {
+          subagentToSpawn.set(key, toolCallId)
+          emitSpawnLinked(toolCallId, key)
+        } else if (!toolCallId && !pendingSubagentKeys.includes(key)) {
+          pendingSubagentKeys.push(key)
+        }
+      }
+      const extractSubagentKey = (value: unknown) => {
+        const text = typeof value === "string" ? value : (() => { try { return JSON.stringify(value) } catch { return "" } })()
+        const jsonMatch = text.match(/"childSessionKey"\s*:\s*"([^"]+:subagent:[^"]+)"/)
+        if (jsonMatch?.[1]) return jsonMatch[1]
+        const contextMatch = text.match(/session_key:\s*(agent:[^\s]+:subagent:[^\s]+)/)
+        if (contextMatch?.[1]) return contextMatch[1]
+        const genericMatch = text.match(/(agent:[^\s"']+:subagent:[^\s"']+)/)
+        return genericMatch?.[1] ?? null
+      }
+
+      await subscribeMessages(sessionKey)
+      const retryParentSubscribe = setInterval(() => {
+        if (subscribedMessageKeys.has(sessionKey)) {
+          clearInterval(retryParentSubscribe)
+          return
+        }
+        void subscribeMessages(sessionKey)
+      }, 1_000)
       const stopRetrySubscribe = () => {
         closed = true
-        if (retrySubscribe) clearInterval(retrySubscribe)
+        clearInterval(retryParentSubscribe)
       }
       const off = gateway.on((message) => {
         if (message.type !== "event") return
         const payload = message.payload as any
-        if (payload?.sessionKey && payload.sessionKey !== sessionKey) return
+
+        if (message.event === "session.created" || message.event === "sessions.update") {
+          const key = payload?.key ?? payload?.sessionKey
+          if (isSubagentKey(key)) linkSubagent(key)
+        }
+
         if (message.event === "session.message" && payload?.message) {
+          if (!matchesSession(payload.sessionKey)) return
           const content = payload.message.content
+          const messageSessionKey = payload.sessionKey ?? sessionKey
+          const childKeyFromContent = extractSubagentKey(content)
+          if (childKeyFromContent) linkSubagent(childKeyFromContent)
+          if (payload.message.role === "user") {
+            const announceText = contentText(content)
+            const childKey = extractSubagentKey(announceText)
+            const spawnToolCallId = childKey ? subagentToSpawn.get(childKey) : null
+            if (spawnToolCallId && announceText.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>")) {
+              send("chat.tool", {
+                type: "chat.tool",
+                sessionKey,
+                phase: "spawn_done",
+                name: "sessions_spawn",
+                toolCallId: spawnToolCallId,
+                result: null,
+                error: /status:\s*(error|failed)/.test(announceText) ? "subagent_error" : null,
+                subagentOf: null,
+              })
+            }
+            return
+          }
+          if (isSubagentKey(messageSessionKey)) return
           const text = contentText(content)
           if (payload.message.role === "assistant") {
             emitToolCallsFromContent(send, sessionKey, content)
@@ -260,9 +342,12 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
             send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
           } else {
             emitToolResultFromMessage(send, sessionKey, payload.message)
+            const childKey = extractSubagentKey(content ?? payload.message)
+            if (childKey) linkSubagent(childKey)
           }
         } else if (message.event === "chat") {
-          if (payload?.sessionKey && payload.sessionKey !== sessionKey) return
+          if (payload?.sessionKey && !matchesSession(payload.sessionKey)) return
+          if (isSubagentKey(payload?.sessionKey)) return
           const state = payload?.state
           const content = payload?.message?.content
           const text = contentText(content)
@@ -271,7 +356,50 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           if (state === "final") send("chat.status", { type: "chat.status", sessionKey, state: "done" })
           if (state === "error") send("chat.status", { type: "chat.status", sessionKey, state: "error" })
         } else if (message.event === "session.tool" && payload?.data) {
-          send("chat.tool", { type: "chat.tool", sessionKey, ...payload.data })
+          if (isSubagentKey(payload.sessionKey)) linkSubagent(payload.sessionKey)
+          if (!matchesSession(payload.sessionKey)) return
+
+          const data = payload.data
+          if (data?.name === "sessions_spawn" && data?.phase === "start" && data?.toolCallId) {
+            if (pendingSubagentKeys.length > 0) {
+              const pendingKey = pendingSubagentKeys.shift()!
+              linkSubagent(pendingKey, data.toolCallId)
+            } else if (!spawnQueue.includes(data.toolCallId)) {
+              spawnQueue.push(data.toolCallId)
+            }
+          }
+
+          const isSubagent = isSubagentKey(payload.sessionKey)
+          const spawnToolCallId = isSubagent ? subagentToSpawn.get(payload.sessionKey) : null
+          const eventKey = [payload.sessionKey ?? sessionKey, payload.runId ?? "run", payload.seq ?? data?.toolCallId ?? "tool", data?.phase ?? "phase"].join(":")
+          if (seenToolEvents.has(eventKey)) return
+          seenToolEvents.add(eventKey)
+
+          send("chat.tool", {
+            type: "chat.tool",
+            sessionKey,
+            runId: payload.runId ?? null,
+            verboseLevel: payload.verboseLevel ?? null,
+            phase: data?.phase ?? null,
+            name: data?.name ?? null,
+            toolCallId: data?.toolCallId ?? null,
+            args: data?.args ?? null,
+            partialResult: data?.partialResult ?? null,
+            result: data?.result ?? null,
+            error: data?.error ?? null,
+            subagentOf: spawnToolCallId ? `spawn:${spawnToolCallId}` : null,
+          })
+          if (!isSubagent) {
+            send("chat.status", {
+              type: "chat.status",
+              sessionKey,
+              state: data?.phase === "error" ? "error" : data?.phase === "result" ? "thinking" : "tool_running",
+              label: data?.name ?? null,
+            })
+          }
+        } else if (message.event === "agent") {
+          const eventSessionKey = payload?.sessionKey
+          if (isSubagentKey(eventSessionKey)) linkSubagent(eventSessionKey)
         }
       })
       req.on("close", () => { stopRetrySubscribe(); off(); gateway?.close() })
