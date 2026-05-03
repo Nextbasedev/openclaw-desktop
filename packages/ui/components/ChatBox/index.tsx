@@ -24,21 +24,6 @@ import {
 } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 
-const PLAN_SYSTEM_PROMPT = `You are a planning assistant. You help users create detailed plan.md documents.
-
-If the user's request is clear enough, generate a detailed plan.md in Markdown.
-
-The plan MUST include:
-- Title (H1) and brief summary
-- Overview with goals and scope
-- Architecture / Approach
-- Implementation Steps as a checklist with [P1]/[P2]/[P3] priority labels
-- Timeline / Milestones
-- Risks & Mitigations
-- Open Questions
-
-After generating the plan, stop. Output only the plan.md Markdown.`
-
 type Props = {
   initialPrompt?: string
   errorMessage?: string | null
@@ -61,7 +46,6 @@ export function ChatBox({
   onCancelReply,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
-  const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [autonomyMode, setAutonomyMode] = React.useState<
     "full" | "supervised" | "manual"
@@ -177,17 +161,6 @@ export function ChatBox({
     await onSend?.(payload)
   }
 
-  function composedPlanText(promptText: string) {
-    if (!planEnabled) return promptText
-    return [
-      "Planner system prompt:",
-      PLAN_SYSTEM_PROMPT,
-      "",
-      "User request:",
-      promptText,
-    ].join("\n")
-  }
-
   React.useEffect(() => {
     return () => {
       if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
@@ -250,7 +223,7 @@ export function ChatBox({
   }
 
   async function handleSend() {
-    const text = composedPlanText(input.trim()).trim()
+    const text = input.trim()
     if (!text || disabled || isPreparingAttachments) return
     const payload: ChatComposerSubmit = {
       text,
@@ -544,8 +517,6 @@ export function ChatBox({
             }}
             isGenerating={isGenerating}
             onAbort={onAbort}
-            planEnabled={planEnabled}
-            onPlanToggle={() => setPlanEnabled((prev) => !prev)}
             webSearchEnabled={webSearchEnabled}
             onWebSearchToggle={handleWebSearchToggle}
             onWebSearchDisable={() => setWebSearchEnabled(false)}

@@ -15,7 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
+import { WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
 
@@ -25,8 +25,6 @@ type ActionBarProps = {
   onUploadClick?: () => void
   isGenerating?: boolean
   onAbort?: () => void
-  planEnabled: boolean
-  onPlanToggle: () => void
   webSearchEnabled: boolean
   onWebSearchToggle: () => void
   onWebSearchDisable: () => void
@@ -56,8 +54,6 @@ export function ActionBar({
   onUploadClick,
   isGenerating,
   onAbort,
-  planEnabled,
-  onPlanToggle,
   webSearchEnabled,
   onWebSearchToggle,
   onWebSearchDisable,
@@ -172,22 +168,6 @@ export function ActionBar({
             Web
           </button>
         )}
-
-        {/* Plan Mode pill */}
-        <button
-          type="button"
-          onClick={onPlanToggle}
-          className={cn(
-            "flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3 transition-all",
-            planEnabled
-              ? "border-foreground/60 bg-secondary text-foreground"
-              : "border-foreground/15 bg-foreground/5 text-foreground shadow-sm hover:bg-foreground/10"
-          )}
-          title={planEnabled ? "Plan Mode: on" : "Plan Mode: off"}
-        >
-          <PlanModeIcon className="size-4" />
-          <span className="text-xs font-medium">Plan</span>
-        </button>
       </div>
 
       {/* Right controls */}
