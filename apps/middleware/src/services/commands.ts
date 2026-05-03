@@ -521,6 +521,15 @@ function scanSkills(enabledOverrides: Record<string, boolean> = {}) {
 function gitCommitDetails(repoRoot: string, commit: string) {
   const cwd = repoRoot || workspaceRoot()
   const sha = commit || "HEAD"
+  try {
+    execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd, encoding: "utf8", timeout: 10_000, maxBuffer: 1024 * 1024 })
+  } catch {
+    const upstream = (() => {
+      try { return execFileSync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd, encoding: "utf8", timeout: 10_000 }).trim() } catch { return "" }
+    })()
+    const remoteName = upstream?.split("/")[0] || "origin"
+    try { execFileSync("git", ["fetch", "--prune", remoteName], { cwd, encoding: "utf8", timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }) } catch {}
+  }
   const show = execFileSync("git", ["show", "--format=fuller", "--find-renames", "--find-copies", "--stat", "--patch", sha], { cwd, encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })
   return { diff: show, commit: { sha, text: show } }
 }
@@ -993,7 +1002,12 @@ export function commandRoutes(store: Store) {
         case "middleware_openclaw_bot_name_get": { const botName = readJson(openclawConfigPath()).bot?.name ?? "OpenClaw"; return { botName, name: botName } }
         case "middleware_openclaw_bot_name_set": { const cfg = readJson(openclawConfigPath()); const botName = String(input.botName || input.name || "OpenClaw"); cfg.bot ??= {}; cfg.bot.name = botName; writeJson(openclawConfigPath(), cfg); return ok({ botName, name: botName }) }
         case "middleware_open_url": return ok({ url: input.url })
-        case "middleware_git_commit_details": return gitCommitDetails(String(input.repoRoot || input.cwd || workspaceRoot()), String(input.commit || input.sha || input.hash || "HEAD"))
+        case "middleware_git_commit_details": {
+          const projectId = String(input.projectId || "")
+          const project = projectId ? store.getProject(projectId) : null
+          const repoRoot = String(input.repoRoot || input.cwd || project?.repoRoot || project?.workspaceRoot || workspaceRoot())
+          return gitCommitDetails(repoRoot, String(input.commit || input.sha || input.hash || "HEAD"))
+        }
         case "middleware_projects_archive": { const project = store.updateProject(input.projectId, { archived: input.archived ?? true } as any); return { project } }
         default: throw new HttpError(404, `Unknown middleware command: ${command}`, "UNKNOWN_COMMAND")
       }
