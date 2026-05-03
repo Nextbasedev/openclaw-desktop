@@ -749,6 +749,21 @@ export function commandRoutes(store: Store) {
             gw.close()
           }
         }
+        case "middleware_exec_approval_resolve": {
+          const approvalId = String(input.approvalId || input.id || "").trim()
+          const decision = String(input.decision || "").trim()
+          if (!approvalId) throw new HttpError(400, "approvalId is required", "BAD_REQUEST")
+          if (!["allow-once", "allow-always", "deny"].includes(decision)) throw new HttpError(400, "valid decision is required", "BAD_REQUEST")
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
+          try {
+            const res = await gw.request("exec.approval.resolve", { id: approvalId, decision }, 30_000)
+            if (!res.ok) throw new HttpError(502, res.error?.message || "exec.approval.resolve failed", "GATEWAY_ERROR")
+            return { ok: true, approvalId, decision, ...((res.payload as object) || {}) }
+          } finally {
+            gw.close()
+          }
+        }
+
         case "middleware_chat_exec_policy": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
           const key = activeSessionKey(s, input.sessionKey)
