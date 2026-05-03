@@ -4,6 +4,7 @@ import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
+import { subscribeChatStream } from "@/lib/chatStream"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
@@ -731,7 +732,7 @@ export function useChatMessages(
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     let cancelled = false
-    let eventSource: EventSource | null = null
+    let unsubscribeStream: (() => void) | null = null
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -1072,37 +1073,27 @@ export function useChatMessages(
         setLoading(false)
         forceScrollToBottom(true)
 
-        eventSource = new EventSource(
-          streamUrl(`/api/stream/chat/${sessionKey}`)
+        unsubscribeStream = subscribeChatStream(
+          sessionKey,
+          ({ data }) => {
+            if (cancelled) return
+            handleStreamEvent({ streamId: sessionKey, event: data as StreamEventPayload["event"] })
+          },
+          () => {
+            const current = statusRef.current
+            const activelyWaiting =
+              isSendingRef.current ||
+              current === "thinking" ||
+              current === "tool_running" ||
+              current === "streaming" ||
+              current === "stopping" ||
+              current === "restarting"
+            if (!cancelled && activelyWaiting) {
+              setErrorMessage("Connection to server lost")
+              setStatus("error")
+            }
+          },
         )
-        const handleSSE = (event: MessageEvent) => {
-          if (cancelled) return
-          try {
-            const data = JSON.parse(event.data)
-            handleStreamEvent({ streamId: sessionKey, event: data })
-          } catch {}
-        }
-        eventSource.addEventListener("chat.status", handleSSE)
-        eventSource.addEventListener("chat.message", handleSSE)
-        eventSource.addEventListener("chat.tool", handleSSE)
-        eventSource.addEventListener("chat.error", handleSSE)
-        eventSource.addEventListener("chat.ready", handleSSE)
-        eventSource.addEventListener("stream.error", handleSSE)
-        eventSource.addEventListener("message", handleSSE)
-        eventSource.onerror = () => {
-          const current = statusRef.current
-          const activelyWaiting =
-            isSendingRef.current ||
-            current === "thinking" ||
-            current === "tool_running" ||
-            current === "streaming" ||
-            current === "stopping" ||
-            current === "restarting"
-          if (!cancelled && activelyWaiting) {
-            setErrorMessage("Connection to server lost")
-            setStatus("error")
-          }
-        }
       } catch (e) {
         bootstrapSettled = true
         if (loadingTimeout) {
@@ -1121,7 +1112,7 @@ export function useChatMessages(
     return () => {
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
-      eventSource?.close()
+      unsubscribeStream?.()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)
         subagentPollRef.current = null
