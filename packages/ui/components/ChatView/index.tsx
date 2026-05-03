@@ -939,6 +939,7 @@ export function ChatView({
                       onExport={exportOneMessage}
                       onTextAnimationComplete={markTextAnimationComplete}
                       onFork={msg.role === "assistant" ? forkFromMessage : undefined}
+                      onResolveApproval={resolveExecApproval}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
