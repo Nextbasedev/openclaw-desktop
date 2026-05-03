@@ -44,16 +44,14 @@ export function SubagentBar({
   subagents: SpawnedSubagent[]
   onOpen: (sub: SpawnedSubagent) => void
 }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   const activeCount = subagents.filter((s) => isActiveSubagent(s.status)).length
   const hasActive = activeCount > 0
 
   useEffect(() => {
-    if (!hasActive) return
-    const timer = window.setTimeout(() => setExpanded(true), 0)
-    return () => window.clearTimeout(timer)
-  }, [hasActive])
+    setExpanded(false)
+  }, [subagents.length])
 
   if (subagents.length === 0) return null
 
