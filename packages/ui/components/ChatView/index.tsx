@@ -386,6 +386,16 @@ export function ChatView({
     })
   }, [sessionKey])
 
+  const resolveExecApproval = useCallback(async (
+    approvalId: string,
+    decision: "allow-once" | "allow-always" | "deny",
+  ) => {
+    await invoke("middleware_exec_approval_resolve", {
+      input: { approvalId, decision },
+    })
+    emit("chat:activity")
+  }, [])
+
   const wrappedSend = useCallback(async (payload: ChatComposerSubmit) => {
     const shouldNotifyFirstSend =
       !firstFiredRef.current &&
@@ -895,6 +905,7 @@ export function ChatView({
                           tools={filteredToolCalls}
                           defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
                           onSelectTool={onSelectTool}
+                          onResolveApproval={resolveExecApproval}
                         />
                       </div>
                     )}
@@ -904,6 +915,7 @@ export function ChatView({
                         tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
+                        onResolveApproval={resolveExecApproval}
                       />
                     </div>
                   )}
@@ -949,6 +961,7 @@ export function ChatView({
                         tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
+                        onResolveApproval={resolveExecApproval}
                       />
                     </div>
                   )}
