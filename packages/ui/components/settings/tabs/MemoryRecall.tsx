@@ -8,6 +8,8 @@ import { LuBrain, LuSearch, LuChevronDown, LuChevronRight } from "react-icons/lu
 type RecallEntry = {
   content?: string
   text?: string
+  path?: string
+  line?: number
   totalScore?: number
   category?: string
   date?: string
@@ -102,6 +104,12 @@ function EntryCard({ entry }: { entry: RecallEntry }) {
               </span>
             ))}
           </div>
+          {expanded && (entry.path || entry.line) && (
+            <div className="mt-1 rounded-lg border border-border/30 bg-secondary/20 px-2 py-1.5 text-[10px] text-muted-foreground/70">
+              Source: {entry.path ?? "memory"}
+              {entry.line ? `:${entry.line}` : ""}
+            </div>
+          )}
         </div>
 
         <div className="mt-1 shrink-0 text-muted-foreground/40">
