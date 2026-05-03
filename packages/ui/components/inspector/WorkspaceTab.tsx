@@ -462,6 +462,7 @@ function CodeEditor({
 function FilePreviewPane({
   capabilities,
   sessionKey,
+  projectId,
   filePath,
   fileName,
   compact,
@@ -470,6 +471,7 @@ function FilePreviewPane({
 }: {
   capabilities: RemoteWorkspaceCapabilities | null
   sessionKey?: string | null
+  projectId?: string | null
   filePath: string
   fileName: string
   compact: boolean
@@ -508,6 +510,7 @@ function FilePreviewPane({
 
     const loadContent = fetchRemoteWorkspaceFile({
       sessionKey: sessionKey ?? "",
+      projectId,
       path: filePath,
     }).then((file) => file.content)
 
@@ -525,7 +528,7 @@ function FilePreviewPane({
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [filePath, fileName, sessionKey])
+  }, [filePath, fileName, sessionKey, projectId])
 
   const handleSave = useCallback(async () => {
     if (!canWrite) return
@@ -533,6 +536,7 @@ function FilePreviewPane({
     try {
       await saveRemoteWorkspaceFile({
         sessionKey: sessionKey ?? "",
+        projectId,
         path: filePath,
         content,
       })
@@ -544,7 +548,7 @@ function FilePreviewPane({
     } finally {
       setSaving(false)
     }
-  }, [canWrite, content, filePath, sessionKey])
+  }, [canWrite, content, filePath, sessionKey, projectId])
   const [downloaded, setDownloaded] = useState(false)
 
   const handleDownload = useCallback(() => {
@@ -903,8 +907,10 @@ function getFileSidebarDefaults() {
 
 export function WorkspaceTab({
   sessionKey,
+  projectId,
 }: {
   sessionKey?: string | null
+  projectId?: string | null
 }) {
   const [workspaceSessionKey, setWorkspaceSessionKey] = useState<string | null>(
     globalWorkspaceSessionKeyCache ?? sessionKey ?? null,
@@ -926,6 +932,7 @@ export function WorkspaceTab({
   const previewPaneRef = useRef<HTMLDivElement>(null)
   const [previewCompact, setPreviewCompact] = useState(false)
   const refreshTimeoutRef = useRef<number | null>(null)
+  const loadRequestRef = useRef(0)
   const effectiveSessionKey = workspaceSessionKey ?? sessionKey ?? null
 
   useEffect(() => {
@@ -993,6 +1000,7 @@ export function WorkspaceTab({
   const loadRoot = useCallback(async (root: string, silent = false) => {
     if (!effectiveSessionKey) return
     const activeSessionKey = effectiveSessionKey
+    const requestId = ++loadRequestRef.current
     if (!silent) setTreeLoading(true)
     setTreeError(null)
     try {
@@ -1000,6 +1008,7 @@ export function WorkspaceTab({
         (
           await fetchRemoteWorkspaceTree({
             sessionKey: activeSessionKey,
+            projectId,
             path: root,
           })
         ).entries,
@@ -1014,6 +1023,7 @@ export function WorkspaceTab({
                   (
                     await fetchRemoteWorkspaceTree({
                       sessionKey: activeSessionKey,
+                      projectId,
                       path: node.id,
                     })
                   ).entries,
@@ -1029,13 +1039,15 @@ export function WorkspaceTab({
         )
       }
       const fullTree = await reloadExpanded(rootNodes)
+      if (loadRequestRef.current !== requestId) return
       setTree(fullTree)
     } catch (err) {
+      if (loadRequestRef.current !== requestId) return
       setTreeError(err instanceof Error ? err.message : "Failed to load workspace")
     } finally {
-      if (!silent) setTreeLoading(false)
+      if (loadRequestRef.current === requestId && !silent) setTreeLoading(false)
     }
-  }, [effectiveSessionKey])
+  }, [effectiveSessionKey, projectId])
 
   const scheduleRefresh = useCallback((delayMs = 900) => {
     if (refreshTimeoutRef.current !== null) {
@@ -1060,12 +1072,17 @@ export function WorkspaceTab({
       return
     }
 
+    loadRequestRef.current += 1
+    setTree([])
+    setSelectedId(null)
+    setExpandedIds(new Set())
     setWorkspaceRoot("")
+    setTreeLoading(true)
     void fetchRemoteWorkspaceCapabilities(effectiveSessionKey)
       .then((result) => setCapabilities(result.capabilities))
       .catch(() => setCapabilities(null))
     void loadRoot("")
-  }, [effectiveSessionKey, loadRoot])
+  }, [effectiveSessionKey, projectId, loadRoot])
 
   useEffect(() => {
     return () => {
@@ -1183,6 +1200,7 @@ export function WorkspaceTab({
         (
           await fetchRemoteWorkspaceTree({
             sessionKey: activeSessionKey,
+            projectId,
             path: nodeId,
           })
         ).entries,
@@ -1191,7 +1209,7 @@ export function WorkspaceTab({
     } catch {
       setTree((prev) => updateNodeChildren(prev, nodeId, []))
     }
-  }, [effectiveSessionKey])
+  }, [effectiveSessionKey, projectId])
 
   const handleToggleExpand = useCallback((id: string, open: boolean) => {
     setExpandedIds((prev) => {
@@ -1256,6 +1274,7 @@ export function WorkspaceTab({
       } else {
         await saveRemoteWorkspaceFile({
           sessionKey: effectiveSessionKey,
+          projectId,
           path: targetPath,
           content: "",
         })
@@ -1494,6 +1513,7 @@ export function WorkspaceTab({
           <FilePreviewPane
             capabilities={capabilities}
             sessionKey={effectiveSessionKey}
+            projectId={projectId}
             filePath={selectedId!}
             fileName={selectedNode.name}
             compact={previewCompact}

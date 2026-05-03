@@ -225,6 +225,25 @@ export function ActivityTab({
       ? "Loading"
       : String(totalCount)
 
+  if (sessionKey && !historyLoaded) {
+    return (
+      <div className="flex h-full flex-col gap-3 px-4 py-4">
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground/65">
+          <VscPulse className="size-4 animate-pulse" />
+          Loading activity for this topic…
+        </div>
+        <div className="space-y-2">
+          {[0, 1, 2, 3, 4].map((item) => (
+            <div key={item} className="rounded-xl border border-border/25 bg-card/60 p-3">
+              <div className="h-3 w-32 animate-pulse rounded bg-muted/60" />
+              <div className="mt-2 h-2 w-full animate-pulse rounded bg-muted/40" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   if (!sessionKey) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
