@@ -57,9 +57,9 @@ function inferChildHistoryPhase(
   messages: RawHistoryMessage[],
   calls: ToolCall[],
 ): ChildHistoryPhase {
-  if (calls.some((call) => call.status === "error")) return "failed"
   if (calls.some((call) => call.status === "running")) return "working"
   if (hasYieldTool(messages) || hasAssistantOutput(messages)) return "completed"
+  if (calls.some((call) => call.status === "error")) return "failed"
   return null
 }
 
@@ -269,7 +269,7 @@ export function useAgentActivity(sessionKey: string | null) {
           label: `sub-${subagentOf.slice(-6)}`,
         })
       }
-      if (subagentOf && phase === "error") {
+      if (subagentOf && name === "sessions_yield" && phase === "error") {
         const current = agentsRef.current.get(subagentOf)
         agentsRef.current.set(subagentOf, {
           ...(current ?? {
