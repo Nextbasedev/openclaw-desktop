@@ -23,8 +23,6 @@ export type MiddlewarePairingResult = MiddlewareConnection & {
 const LOCAL_MIDDLEWARE_URLS = [
   "http://127.0.0.1:8787",
   "http://localhost:8787",
-  "http://127.0.0.1:8788",
-  "http://127.0.0.1:8799",
 ]
 
 function trimTrailingSlash(value: string) {
