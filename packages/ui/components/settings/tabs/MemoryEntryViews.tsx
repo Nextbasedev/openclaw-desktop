@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuFileText, LuX, LuSave, LuPencil, LuEye } from "react-icons/lu"
+import { LuFileText, LuX, LuSave, LuPencil } from "react-icons/lu"
 
 export type MemoryDocument = {
   path: string
@@ -113,28 +113,17 @@ export function DocView({
       )}
 
       {isEditing ? (
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-sm">
-            <div className="flex items-center gap-2 border-b border-border/30 px-4 py-3">
-              <LuPencil size={14} className="text-muted-foreground" />
-              <span className="text-[12px] font-medium text-muted-foreground">Write</span>
-            </div>
-            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={true}
-              className={cn(
-                "min-h-[520px] w-full resize-y bg-transparent p-5",
-                "font-sans text-[14px] leading-7 text-foreground/85",
-                "outline-none placeholder:text-muted-foreground/40",
-              )} />
+        <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-sm">
+          <div className="flex items-center gap-2 border-b border-border/30 px-4 py-3">
+            <LuPencil size={14} className="text-muted-foreground" />
+            <span className="text-[12px] font-medium text-muted-foreground">Edit document</span>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-sm">
-            <div className="flex items-center gap-2 border-b border-border/30 px-4 py-3">
-              <LuEye size={14} className="text-muted-foreground" />
-              <span className="text-[12px] font-medium text-muted-foreground">Preview</span>
-            </div>
-            <div className="max-h-[560px] overflow-y-auto p-6">
-              <MarkdownDocument content={draft} />
-            </div>
-          </div>
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={true}
+            className={cn(
+              "min-h-[560px] w-full resize-y bg-transparent p-5",
+              "font-sans text-[14px] leading-7 text-foreground/85",
+              "outline-none placeholder:text-muted-foreground/40",
+            )} />
         </div>
       ) : (
         <div className={cn("rounded-2xl border border-border/50 bg-card/60 shadow-sm", "max-h-[640px] overflow-y-auto p-6")}>
