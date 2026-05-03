@@ -247,6 +247,63 @@ export function useProjectsData(
   }), [loadProjects, loadProjectTopics, projectTopics])
 
   useEffect(() => {
+    return on<any>("fork:create", (event) => {
+      const context = event?.context
+      if (!event || context?.type !== "topic" || !context.projectId) return
+      const projectId = context.projectId
+      if (event.status === "pending") {
+        const now = new Date().toISOString()
+        const placeholder: FullTopic = {
+          id: event.requestId,
+          name: event.name || "Creating fork…",
+          projectId,
+          archived: false,
+          pinned: false,
+          unreadCount: 0,
+          sortOrder: Date.now(),
+          createdAt: now,
+          updatedAt: now,
+          pendingFork: true,
+        }
+        setExpandedProjects((prev) => new Set([...prev, projectId]))
+        setProjectTopics((prev) => ({
+          ...prev,
+          [projectId]: [placeholder, ...(prev[projectId] || []).filter((topic) => topic.id !== event.requestId)],
+        }))
+        setTopicOrder((prev) => ({
+          ...prev,
+          [projectId]: [event.requestId, ...(prev[projectId] || []).filter((id) => id !== event.requestId)],
+        }))
+        return
+      }
+      if (event.status === "resolved") {
+        setProjectTopics((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).map((topic) => topic.id === event.requestId
+            ? { ...topic, id: event.topicId, name: event.name, pendingFork: false, updatedAt: new Date().toISOString() }
+            : topic,
+          ),
+        }))
+        setTopicOrder((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).map((id) => id === event.requestId ? event.topicId : id),
+        }))
+        return
+      }
+      if (event.status === "failed") {
+        setProjectTopics((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).filter((topic) => topic.id !== event.requestId),
+        }))
+        setTopicOrder((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).filter((id) => id !== event.requestId),
+        }))
+      }
+    })
+  }, [])
+
+  useEffect(() => {
     function onArchiveRestored() {
       loadProjects()
       for (const id of Object.keys(projectTopics)) {

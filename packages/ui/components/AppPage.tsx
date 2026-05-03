@@ -704,7 +704,6 @@ function AppShell({
         setActiveSessionKey(chat.sessionKey)
         setActiveSessionTitle(chat.name)
         setInitialMessages(undefined)
-        emit("sidebar:refresh")
         window.history.pushState(null, "", routeUrl(`/${chat.projectId}/${chat.topicId}`))
         return
       }
@@ -1253,6 +1252,7 @@ function MainContent({
           initialMessages={initialMessages}
           onSelectTool={onSelectTool}
           initialPrompt={pendingPrompt ?? undefined}
+          forkContext={activeTopic ? { type: "topic", projectId: activeTopic.projectId, projectName: activeTopic.projectName, topicId: activeTopic.id, topicName: activeTopic.name } : { type: "chat" }}
           onForkNavigate={onForkNavigate}
         />
       </div>

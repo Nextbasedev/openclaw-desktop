@@ -8,6 +8,7 @@ export type Chat = {
   lastActiveAt?: string
   createdAt: string
   updatedAt: string
+  pendingFork?: boolean
 }
 
 export type ActiveChat = {

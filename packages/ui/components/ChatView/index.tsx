@@ -23,6 +23,8 @@ import {
   visibleMessages,
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
+import { emit } from "@/lib/events"
+import { toast } from "react-toastify"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -37,6 +39,7 @@ type Props = {
   initialPrompt?: string
   activeSubagentKey?: string | null
   onSubagentOpen?: (key: string | null) => void
+  forkContext?: { type: "topic"; projectId: string; projectName: string; topicId: string; topicName: string } | { type: "chat" }
   onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
   /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
@@ -159,6 +162,7 @@ export function ChatView({
   initialPrompt,
   activeSubagentKey: externalSubagentKey,
   onSubagentOpen,
+  forkContext,
   onForkNavigate,
   isBackgroundSession = false,
 }: Props) {
@@ -616,6 +620,17 @@ export function ChatView({
   const forkFromMessage = useCallback(async (messageId: string) => {
     const msg = messages.find((m) => m.messageId === messageId)
     if (!msg || msg.gatewayIndex === undefined) return
+    const requestId = `fork-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const optimisticName = forkContext?.type === "topic"
+      ? `Fork: ${forkContext.topicName}`
+      : "Forked chat"
+    emit("fork:create", {
+      status: "pending",
+      requestId,
+      name: optimisticName,
+      context: forkContext ?? { type: "chat" },
+    })
+    const toastId = toast.loading(forkContext?.type === "topic" ? "Creating fork topic…" : "Creating fork chat…")
     try {
       const result = await invoke<{
         chatId?: string | null
@@ -630,6 +645,22 @@ export function ChatView({
           gatewayIndex: msg.gatewayIndex,
         },
       })
+      emit("fork:create", {
+        status: "resolved",
+        requestId,
+        name: result.name,
+        chatId: result.chatId,
+        sessionKey: result.sessionKey,
+        projectId: result.projectId,
+        topicId: result.topicId,
+        context: forkContext ?? { type: "chat" },
+      })
+      toast.update(toastId, {
+        render: forkContext?.type === "topic" ? "Fork topic created" : "Fork chat created",
+        type: "success",
+        isLoading: false,
+        autoClose: 2500,
+      })
       onForkNavigate?.({
         id: result.chatId,
         name: result.name,
@@ -638,9 +669,16 @@ export function ChatView({
         topicId: result.topicId,
       })
     } catch (err) {
+      emit("fork:create", { status: "failed", requestId, context: forkContext ?? { type: "chat" } })
+      toast.update(toastId, {
+        render: "Fork failed",
+        type: "error",
+        isLoading: false,
+        autoClose: 4000,
+      })
       console.error("Fork failed", err)
     }
-  }, [sessionKey, messages, onForkNavigate])
+  }, [sessionKey, messages, forkContext, onForkNavigate])
 
   const exportOneMessage = useCallback((messageId: string) => {
     const target = messages.find((message) => message.messageId === messageId)
