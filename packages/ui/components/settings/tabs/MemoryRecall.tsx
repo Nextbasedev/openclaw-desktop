@@ -1,9 +1,18 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 import { LuBrain, LuSearch, LuChevronDown, LuChevronRight } from "react-icons/lu"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 
 type RecallEntry = {
   content?: string
@@ -50,8 +59,34 @@ function entryContent(entry: RecallEntry): string {
   return entry.content ?? entry.text ?? ""
 }
 
+function memoryTitle(entry: RecallEntry): string {
+  const file = entry.path?.split("/").pop()?.replace(/\.md$/, "")
+  if (!file) return "Memory note"
+  const date = new Date(`${file}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return "Memory note"
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+function MarkdownMemory({ content }: { content: string }) {
+  return (
+    <div className="prose prose-invert max-w-none text-[13px] leading-7 prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-xl prose-h1:text-foreground prose-h2:mt-7 prose-h2:border-b prose-h2:border-border/30 prose-h2:pb-2 prose-h2:text-lg prose-h2:text-foreground prose-h3:text-base prose-h3:text-foreground prose-p:text-foreground/75 prose-strong:text-foreground prose-code:rounded-md prose-code:bg-white/[0.07] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[12px] prose-code:text-violet-200 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-border/40 prose-pre:bg-black/30 prose-blockquote:border-l-violet-400/50 prose-blockquote:text-muted-foreground prose-li:text-foreground/75 prose-hr:border-border/40">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {content || "_This memory note is empty._"}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
 function EntryCard({ entry }: { entry: RecallEntry }) {
   const [expanded, setExpanded] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [documentContent, setDocumentContent] = useState<string | null>(null)
+  const [documentError, setDocumentError] = useState<string | null>(null)
+  const [loadingDocument, setLoadingDocument] = useState(false)
   const content = entryContent(entry)
   const preview =
     content.length > 120
@@ -60,7 +95,25 @@ function EntryCard({ entry }: { entry: RecallEntry }) {
   const cat = entry.category ?? "other"
   const catColor = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.other
 
+  async function openMemoryNote() {
+    setDialogOpen(true)
+    if (!entry.path || documentContent || loadingDocument) return
+    setLoadingDocument(true)
+    setDocumentError(null)
+    try {
+      const res = await invoke<{ content: string }>("middleware_memory_read", {
+        input: { path: entry.path },
+      })
+      setDocumentContent(res.content ?? "")
+    } catch (err) {
+      setDocumentError(String(err))
+    } finally {
+      setLoadingDocument(false)
+    }
+  }
+
   return (
+    <>
     <div
       className={cn(
         "rounded-xl border border-border/30 bg-card transition-colors",
@@ -104,12 +157,6 @@ function EntryCard({ entry }: { entry: RecallEntry }) {
               </span>
             ))}
           </div>
-          {expanded && (entry.path || entry.line) && (
-            <div className="mt-1 rounded-lg border border-border/30 bg-secondary/20 px-2 py-1.5 text-[10px] text-muted-foreground/70">
-              Source: {entry.path ?? "memory"}
-              {entry.line ? `:${entry.line}` : ""}
-            </div>
-          )}
         </div>
 
         <div className="mt-1 shrink-0 text-muted-foreground/40">
@@ -120,7 +167,40 @@ function EntryCard({ entry }: { entry: RecallEntry }) {
           )}
         </div>
       </button>
+      {expanded && entry.path && (
+        <div className="border-t border-border/30 px-4 pb-3 pt-2">
+          <button
+            type="button"
+            onClick={openMemoryNote}
+            className="rounded-lg bg-secondary/40 px-3 py-1.5 text-[11px] font-medium text-foreground/80 transition-colors hover:bg-secondary/70 hover:text-foreground"
+          >
+            Open full memory note
+          </button>
+        </div>
+      )}
     </div>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <DialogContent className="max-h-[82vh] overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b border-border/30 px-6 py-4 pr-12">
+          <DialogTitle className="text-[16px] font-semibold text-foreground">
+            {memoryTitle(entry)}
+          </DialogTitle>
+          <DialogDescription className="text-[12px] text-muted-foreground">
+            Full memory note, rendered for reading.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[calc(82vh-104px)] overflow-y-auto px-6 py-5">
+          {loadingDocument ? (
+            <p className="text-[13px] text-muted-foreground">Opening memory note...</p>
+          ) : documentError ? (
+            <p className="text-[13px] text-destructive">{documentError}</p>
+          ) : (
+            <MarkdownMemory content={documentContent ?? content} />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
 
