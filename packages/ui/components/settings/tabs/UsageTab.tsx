@@ -81,9 +81,11 @@ export function UsageTab() {
         </div>
       )}
 
-      <UsageStatsCards summary={summary} loading={rangeLoading} />
+      <div className="space-y-3 rounded-3xl border border-white/[0.06] bg-white/[0.025] p-4 shadow-sm shadow-black/10 backdrop-blur-xl">
+        <UsageStatsCards summary={summary} loading={rangeLoading} />
 
-      <UsageChart daily={daily} lastUpdated={lastUpdated} loading={rangeLoading} />
+        <UsageChart daily={daily} lastUpdated={lastUpdated} loading={rangeLoading} />
+      </div>
 
       <UsageBreakdown providers={providers} loading={rangeLoading} />
     </div>
