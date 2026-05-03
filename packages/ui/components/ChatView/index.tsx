@@ -169,7 +169,7 @@ export function ChatView({
   const {
     messages, status, statusLabel, loading, loadError, errorMessage,
     isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
-    handleSend, handleAbort, handleEdit, handleRegenerate, editPreview, selectEditBranch, switchBranch,
+    handleSend, handleAbort, handleEdit, editPreview, selectEditBranch, switchBranch,
     markTextAnimationComplete, pendingTools, spawnedSubagents,
   } = useChatMessages(sessionKey, initialMessages)
 
@@ -613,10 +613,6 @@ export function ChatView({
     [sessionKey, feedbackTargetId],
   )
 
-  const regenerateFromMessage = useCallback((messageId: string) => {
-    handleRegenerate(messageId)
-  }, [handleRegenerate])
-
   const forkFromMessage = useCallback(async (messageId: string) => {
     const msg = messages.find((m) => m.messageId === messageId)
     if (!msg || msg.gatewayIndex === undefined) return
@@ -912,7 +908,6 @@ export function ChatView({
                       onReply={replyToMessage}
                       onPin={togglePin}
                       onDelete={deleteMessage}
-                      onRegenerate={msg.role === "assistant" && msg.messageId === lastAssistantId ? regenerateFromMessage : undefined}
                       onReact={msg.role === "assistant" ? reactToMessage : undefined}
                       onExport={exportOneMessage}
                       onTextAnimationComplete={markTextAnimationComplete}
