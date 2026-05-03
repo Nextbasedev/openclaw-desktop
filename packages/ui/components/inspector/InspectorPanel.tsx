@@ -216,7 +216,7 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
         <div className="min-h-0 flex-1 overflow-clip">
           {open && activeTab === "activity" && <ActivityTab key={`${projectId ?? "global"}:${sessionKey ?? "none"}`} sessionKey={sessionKey ?? null} activeAgentId={activeAgentId ?? null} onAgentSelect={onAgentSelect} focusedToolCallId={focusedToolCallId ?? null} onClearFocusedToolCall={onClearFocusedToolCall} />}
           {open && activeTab === "workspace" && <WorkspaceTab key={projectId ?? "global"} sessionKey={sessionKey ?? null} projectId={projectId ?? null} /> }
-          {open && activeTab === "git" && <GitTab projectId={projectId ?? null} />}
+          {open && activeTab === "git" && <GitTab key={projectId ?? "global"} projectId={projectId ?? null} />}
           {open && activeTab === "terminal" && (
             <div className="flex h-full flex-col overflow-hidden">
               {/* Terminal session tabs */}
@@ -292,7 +292,11 @@ export function InspectorPanel({ open, onClose, terminalActive, onTerminalActive
                       zIndex: activeTermId === tab.id ? 1 : 0,
                     }}
                   >
-                    <XTerminal visible={activeTermId === tab.id} />
+                    <XTerminal
+                      key={`${projectId ?? "global"}:${tab.id}`}
+                      visible={activeTermId === tab.id}
+                      projectId={projectId ?? null}
+                    />
                   </div>
                 ))}
               </div>

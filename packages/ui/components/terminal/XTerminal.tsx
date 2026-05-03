@@ -60,15 +60,16 @@ function getTermTheme(resolved: string | undefined): ITheme {
 
 interface XTerminalProps {
   visible: boolean
+  projectId?: string | null
 }
 
-export function XTerminal({ visible }: XTerminalProps) {
+export function XTerminal({ visible, projectId }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const { resolvedTheme } = useTheme()
 
-  const pty = usePty(termRef)
+  const pty = usePty(termRef, projectId)
   const ptyRef = useRef(pty)
   ptyRef.current = pty
 
@@ -150,7 +151,7 @@ export function XTerminal({ visible }: XTerminalProps) {
       ptyRef.current.cleanup()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [projectId])
 
   useEffect(() => {
     if (!termRef.current) return
