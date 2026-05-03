@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { execFileSync } from "node:child_process"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import request from "supertest"
 import { createApp } from "../src/app.js"
@@ -94,6 +95,24 @@ describe("production command behavior", () => {
     expect(filtered.status).toBe(200)
     expect(filtered.body.sessions).toHaveLength(1)
     expect(filtered.body.sessions[0].key).toBe(target.body.session.key)
+  })
+
+  it("returns large git commit details without hitting the default exec buffer", async () => {
+    const root = tempRoot()
+    execFileSync("git", ["init"], { cwd: root })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: root })
+    fs.writeFileSync(path.join(root, "large.txt"), `${"x".repeat(2 * 1024 * 1024)}\n`)
+    execFileSync("git", ["add", "large.txt"], { cwd: root })
+    execFileSync("git", ["commit", "-m", "large commit"], { cwd: root })
+
+    const res = await auth(request(makeApp(root)).post("/api/commands/middleware_git_commit_details")).send({
+      input: { repoRoot: root, commit: "HEAD" },
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.body.diff).toContain("diff --git")
+    expect(res.body.diff).toContain("large.txt")
   })
 
   it("returns frontend-compatible usage and cron pause shapes", async () => {

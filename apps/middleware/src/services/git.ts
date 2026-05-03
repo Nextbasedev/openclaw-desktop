@@ -3,7 +3,7 @@ import type { Store, Project } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 
 function repo(project: Project) { return project.repoRoot || project.workspaceRoot }
-function git(cwd: string, args: string[]) { return execFileSync("git", args, { cwd, encoding: "utf8", timeout: 10000 }).trim() }
+function git(cwd: string, args: string[]) { return execFileSync("git", args, { cwd, encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 }).trim() }
 function tryGit(cwd: string, args: string[]) { try { return git(cwd, args) } catch { return null } }
 
 function fileState(status: string) {

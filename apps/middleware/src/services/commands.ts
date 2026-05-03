@@ -521,7 +521,7 @@ function scanSkills(enabledOverrides: Record<string, boolean> = {}) {
 function gitCommitDetails(repoRoot: string, commit: string) {
   const cwd = repoRoot || workspaceRoot()
   const sha = commit || "HEAD"
-  const show = execFileSync("git", ["show", "--format=fuller", "--find-renames", "--find-copies", "--stat", "--patch", sha], { cwd, encoding: "utf8", timeout: 10_000 })
+  const show = execFileSync("git", ["show", "--format=fuller", "--find-renames", "--find-copies", "--stat", "--patch", sha], { cwd, encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })
   return { diff: show, commit: { sha, text: show } }
 }
 
