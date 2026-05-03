@@ -12,7 +12,7 @@ export function UsageBreakdown({
   loading = false,
 }: UsageBreakdownProps) {
   return (
-    <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-xl">
+    <div className="usage-neu-shell overflow-hidden rounded-3xl">
       <div className="px-5 py-3.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
           Provider Status
@@ -24,24 +24,24 @@ export function UsageBreakdown({
           Array.from({ length: 3 }).map((_, index) => (
             <div
               key={index}
-              className="flex items-center gap-4 rounded-xl border border-white/[0.06] bg-white/[0.03] px-5 py-4 backdrop-blur-xl"
+              className="usage-neu-card flex items-center gap-4 rounded-2xl px-5 py-4"
             >
               <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <div className="h-4 w-28 rounded bg-white/[0.06] animate-pulse" />
-                <div className="h-3 w-16 rounded bg-white/[0.06] animate-pulse" />
+                <div className="h-4 w-28 rounded bg-muted/55 animate-pulse" />
+                <div className="h-3 w-16 rounded bg-muted/55 animate-pulse" />
               </div>
               <div className="flex flex-col gap-2">
-                <div className="h-3 w-24 rounded bg-white/[0.06] animate-pulse" />
-                <div className="h-1 w-24 rounded-full bg-white/[0.06] animate-pulse" />
+                <div className="h-3 w-24 rounded bg-muted/55 animate-pulse" />
+                <div className="h-1 w-24 rounded-full bg-muted/55 animate-pulse" />
               </div>
-              <div className="h-6 w-14 rounded-md bg-white/[0.06] animate-pulse" />
+              <div className="h-6 w-14 rounded-md bg-muted/55 animate-pulse" />
             </div>
           ))
         ) : (
         providers.map((p) => (
           <div
             key={p.provider}
-            className="flex items-center gap-4 rounded-xl border border-white/[0.06] bg-white/[0.03] px-5 py-4 backdrop-blur-xl"
+            className="usage-neu-card flex items-center gap-4 rounded-2xl px-5 py-4"
           >
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-[13px] font-semibold text-foreground">
@@ -66,9 +66,9 @@ export function UsageBreakdown({
                         {w.usedPercent}%
                       </span>
                     </div>
-                    <div className="h-1 w-24 overflow-hidden rounded-full bg-white/[0.06]">
+                    <div className="usage-neu-inset h-1.5 w-24 overflow-hidden rounded-full">
                       <div
-                        className="h-full rounded-full bg-emerald-400/80 transition-all"
+                        className="h-full rounded-full bg-foreground/70 transition-all"
                         style={{
                           width: `${Math.min(w.usedPercent, 100)}%`,
                         }}
@@ -81,11 +81,11 @@ export function UsageBreakdown({
 
             <div className="ml-2 flex-shrink-0">
               {p.error ? (
-                <span className="rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-400">
+                <span className="rounded-md border border-destructive/25 bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive">
                   Error
                 </span>
               ) : (
-                <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
+                <span className="usage-neu-inset rounded-md px-2.5 py-1 text-[11px] font-medium text-foreground/75">
                   Active
                 </span>
               )}

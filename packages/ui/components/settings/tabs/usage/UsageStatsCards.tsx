@@ -18,31 +18,22 @@ function MetricCard({
   label,
   value,
   detail,
-  tone = "neutral",
   loading,
 }: {
   label: string
   value: string
   detail?: string
-  tone?: "neutral" | "green" | "amber" | "violet"
   loading?: boolean
 }) {
-  const toneClasses = {
-    neutral: "from-white/[0.055] to-white/[0.025] border-white/[0.07]",
-    green: "from-emerald-400/[0.105] to-white/[0.025] border-emerald-300/[0.12]",
-    amber: "from-amber-300/[0.105] to-white/[0.025] border-amber-300/[0.12]",
-    violet: "from-violet-400/[0.105] to-white/[0.025] border-violet-300/[0.12]",
-  }[tone]
-
   return (
-    <div className={`rounded-2xl border bg-gradient-to-br ${toneClasses} px-5 py-4 shadow-sm shadow-black/10 backdrop-blur-xl`}>
+    <div className="usage-neu-card rounded-2xl px-5 py-4">
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
         {label}
       </span>
       {loading ? (
         <div className="mt-3 space-y-2">
-          <div className="h-7 w-24 rounded-md bg-white/[0.07] animate-pulse" />
-          <div className="h-3 w-32 rounded-md bg-white/[0.05] animate-pulse" />
+          <div className="h-7 w-24 rounded-md bg-muted/60 animate-pulse" />
+          <div className="h-3 w-32 rounded-md bg-muted/45 animate-pulse" />
         </div>
       ) : (
         <>
@@ -82,26 +73,25 @@ export function UsageStatsCards({
         label="Conversation Tokens"
         value={formatTokens(visibleTotalTokens)}
         detail="Input + output only"
-        tone="violet"
         loading={loading}
       />
 
-      <div className="rounded-2xl border border-white/[0.07] bg-gradient-to-br from-white/[0.055] to-white/[0.025] px-5 py-4 shadow-sm shadow-black/10 backdrop-blur-xl">
+      <div className="usage-neu-card rounded-2xl px-5 py-4">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
           Input / Output
         </span>
         {loading ? (
           <div className="mt-3 space-y-3">
-            <div className="h-7 w-36 rounded-md bg-white/[0.07] animate-pulse" />
-            <div className="h-2 w-full rounded-full bg-white/[0.05] animate-pulse" />
+            <div className="h-7 w-36 rounded-md bg-muted/60 animate-pulse" />
+            <div className="h-2 w-full rounded-full bg-muted/45 animate-pulse" />
           </div>
         ) : (
           <>
             <div className="mt-2 text-2xl font-semibold tracking-tight text-foreground tabular-nums">
               {formatTokens(summary.totalInputTokens)} <span className="text-muted-foreground/35">/</span> {formatTokens(summary.totalOutputTokens)}
             </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.055]">
-              <div className="h-full rounded-full bg-gradient-to-r from-zinc-300/70 to-emerald-300/80" style={{ width: `${Math.min(inputShare + outputShare, 100)}%` }} />
+            <div className="usage-neu-inset mt-3 h-2 overflow-hidden rounded-full">
+              <div className="h-full rounded-full bg-foreground/70" style={{ width: `${Math.min(inputShare + outputShare, 100)}%` }} />
             </div>
             <div className="mt-2 flex justify-between text-[11px] text-muted-foreground/65">
               <span>{formatPercent(inputShare)} input</span>
@@ -111,16 +101,16 @@ export function UsageStatsCards({
         )}
       </div>
 
-      <div className="rounded-2xl border border-amber-300/[0.12] bg-gradient-to-br from-amber-300/[0.105] to-white/[0.025] px-5 py-4 shadow-sm shadow-black/10 backdrop-blur-xl">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-100/65">
+      <div className="usage-neu-card rounded-2xl px-5 py-4">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
           Cache Tokens
         </span>
         {loading ? (
           <div className="mt-3 space-y-3">
-            <div className="h-7 w-28 rounded-md bg-white/[0.07] animate-pulse" />
+            <div className="h-7 w-28 rounded-md bg-muted/60 animate-pulse" />
             <div className="grid grid-cols-2 gap-2">
-              <div className="h-10 rounded-lg bg-white/[0.05] animate-pulse" />
-              <div className="h-10 rounded-lg bg-white/[0.05] animate-pulse" />
+              <div className="h-10 rounded-lg bg-muted/45 animate-pulse" />
+              <div className="h-10 rounded-lg bg-muted/45 animate-pulse" />
             </div>
           </div>
         ) : (
@@ -132,11 +122,11 @@ export function UsageStatsCards({
               {formatPercent(cacheShare)} of tracked tokens came from cache
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-xl border border-white/[0.06] bg-black/[0.12] px-3 py-2">
+              <div className="usage-neu-inset rounded-xl px-3 py-2">
                 <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/50">Read</div>
                 <div className="mt-1 text-sm font-medium tabular-nums text-foreground/90">{formatTokens(summary.cacheReadTokens)}</div>
               </div>
-              <div className="rounded-xl border border-white/[0.06] bg-black/[0.12] px-3 py-2">
+              <div className="usage-neu-inset rounded-xl px-3 py-2">
                 <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/50">Write</div>
                 <div className="mt-1 text-sm font-medium tabular-nums text-foreground/90">{formatTokens(summary.cacheWriteTokens)}</div>
               </div>
@@ -149,7 +139,6 @@ export function UsageStatsCards({
         label="Cost"
         value={`$${summary.totalCost.toFixed(2)}`}
         detail={`${formatTokens(allTrackedTokens)} tracked total`}
-        tone="green"
         loading={loading}
       />
     </div>

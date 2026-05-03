@@ -46,7 +46,7 @@ export function UsageTab() {
             type="button"
             onClick={refresh}
             disabled={loading}
-            className="cursor-pointer rounded-lg border border-white/[0.06] bg-white/[0.03] p-2 text-muted-foreground transition-all hover:bg-white/[0.06] hover:text-foreground disabled:opacity-50"
+            className="usage-neu-card cursor-pointer rounded-lg p-2 text-muted-foreground transition-all hover:text-foreground disabled:opacity-50"
             title="Refresh"
           >
             <Icons.Refresh
@@ -55,7 +55,7 @@ export function UsageTab() {
               className={loading ? "animate-spin" : ""}
             />
           </button>
-          <div className="flex gap-0 rounded-lg border border-white/[0.06] bg-white/[0.03] p-0.5">
+          <div className="usage-neu-inset flex gap-0 rounded-lg p-0.5">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
@@ -64,7 +64,7 @@ export function UsageTab() {
                 className={cn(
                   "cursor-pointer rounded-md px-3 py-1.5 text-[11px] font-medium transition-all",
                   period === p.value
-                    ? "bg-white/[0.08] text-foreground shadow-sm"
+                    ? "usage-neu-card text-foreground"
                     : "text-muted-foreground/60 hover:text-muted-foreground",
                 )}
               >
@@ -76,12 +76,12 @@ export function UsageTab() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 backdrop-blur-xl">
-          <p className="text-[12px] text-red-400">{error}</p>
+        <div className="rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3">
+          <p className="text-[12px] text-destructive">{error}</p>
         </div>
       )}
 
-      <div className="space-y-3 rounded-3xl border border-white/[0.06] bg-white/[0.025] p-4 shadow-sm shadow-black/10 backdrop-blur-xl">
+      <div className="usage-neu-shell space-y-3 rounded-3xl p-4">
         <UsageStatsCards summary={summary} loading={rangeLoading} />
 
         <UsageChart daily={daily} lastUpdated={lastUpdated} loading={rangeLoading} />

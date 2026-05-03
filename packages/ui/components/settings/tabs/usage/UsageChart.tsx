@@ -51,22 +51,22 @@ export function UsageChart({
   }))
 
   return (
-    <div className="flex flex-col gap-0 rounded-xl border border-white/[0.06] bg-white/[0.03] p-5 backdrop-blur-xl">
+    <div className="usage-neu-card flex flex-col gap-0 rounded-2xl p-5">
       {loading ? (
         <div className="h-[240px] space-y-4 py-3">
-          <div className="ml-auto h-3 w-24 rounded bg-white/[0.06] animate-pulse" />
+          <div className="ml-auto h-3 w-24 rounded bg-muted/55 animate-pulse" />
           <div className="flex h-[184px] items-end gap-3">
             {[44, 70, 52, 86, 63, 76, 48, 82, 58, 72, 54, 80].map((height, index) => (
               <div
                 key={index}
-                className="flex-1 rounded-t-lg bg-white/[0.06] animate-pulse"
+                className="flex-1 rounded-t-lg bg-muted/55 animate-pulse"
                 style={{ height: `${height}%` }}
               />
             ))}
           </div>
           <div className="flex justify-center gap-6">
-            <div className="h-3 w-20 rounded bg-white/[0.06] animate-pulse" />
-            <div className="h-3 w-24 rounded bg-white/[0.06] animate-pulse" />
+            <div className="h-3 w-20 rounded bg-muted/55 animate-pulse" />
+            <div className="h-3 w-24 rounded bg-muted/55 animate-pulse" />
           </div>
         </div>
       ) : (
@@ -86,12 +86,12 @@ export function UsageChart({
               >
                 <stop
                   offset="0%"
-                  stopColor="#a1a1aa"
+                  stopColor="var(--muted-foreground)"
                   stopOpacity={0.3}
                 />
                 <stop
                   offset="100%"
-                  stopColor="#a1a1aa"
+                  stopColor="var(--muted-foreground)"
                   stopOpacity={0.02}
                 />
               </linearGradient>
@@ -99,13 +99,13 @@ export function UsageChart({
             <CartesianGrid
               strokeDasharray="3 3"
               vertical={false}
-              stroke="rgba(255,255,255,0.04)"
+              stroke="var(--border)"
             />
             <XAxis
               dataKey="label"
               tick={{
                 fontSize: 11,
-                fill: "rgba(255,255,255,0.35)",
+                fill: "var(--muted-foreground)",
               }}
               tickLine={false}
               axisLine={false}
@@ -114,7 +114,7 @@ export function UsageChart({
             <YAxis
               tick={{
                 fontSize: 11,
-                fill: "rgba(255,255,255,0.35)",
+                fill: "var(--muted-foreground)",
               }}
               tickLine={false}
               axisLine={false}
@@ -122,15 +122,15 @@ export function UsageChart({
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "rgba(24,24,27,0.95)",
-                border: "1px solid rgba(255,255,255,0.1)",
+                backgroundColor: "var(--popover)",
+                border: "1px solid var(--border)",
                 borderRadius: "8px",
                 fontSize: "12px",
                 backdropFilter: "blur(12px)",
               }}
-              itemStyle={{ color: "#fafafa" }}
+              itemStyle={{ color: "var(--foreground)" }}
               labelStyle={{
-                color: "#fafafa",
+                color: "var(--foreground)",
                 fontWeight: 600,
                 marginBottom: 4,
               }}
@@ -155,7 +155,7 @@ export function UsageChart({
             <Area
               type="monotone"
               dataKey="inputTokens"
-              stroke="#a1a1aa"
+              stroke="var(--muted-foreground)"
               strokeWidth={2}
               fill="url(#inputGrad)"
               name="inputTokens"
@@ -163,7 +163,7 @@ export function UsageChart({
             <Area
               type="monotone"
               dataKey="outputTokens"
-              stroke="#4ade80"
+              stroke="var(--chart-2)"
               strokeWidth={2}
               fill="transparent"
               name="outputTokens"
@@ -180,7 +180,7 @@ export function UsageChart({
               iconSize={6}
               wrapperStyle={{
                 fontSize: "11px",
-                color: "rgba(255,255,255,0.5)",
+                color: "var(--muted-foreground)",
               }}
             />
           </AreaChart>
