@@ -166,6 +166,27 @@ describe("middleware_chat_fork", () => {
     expect(lines[2]).toMatchObject({ id: "assistant-line-id", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } })
   })
 
+  it("copies only history up to the clicked message using gatewayIndex fallback", async () => {
+    const root = tempRoot()
+    gatewayState.transcriptPath = path.join(root, ".openclaw", "agents", "main", "sessions", "fork-session-id.jsonl")
+    fs.mkdirSync(path.dirname(gatewayState.transcriptPath), { recursive: true })
+    fs.writeFileSync(gatewayState.transcriptPath, JSON.stringify({ type: "session", version: 1, id: "fork-session-id" }) + "\n")
+    gatewayState.sourceMessages = [
+      { role: "user", content: [{ type: "text", text: "first" }], __openclaw: { id: "u1" } },
+      { role: "assistant", content: [{ type: "text", text: "first answer" }], __openclaw: { id: "a1" } },
+      { role: "user", content: [{ type: "text", text: "second" }], __openclaw: { id: "u2" } },
+      { role: "assistant", content: [{ type: "text", text: "second answer" }], __openclaw: { id: "a2" } },
+    ]
+
+    const res = await auth(request(makeApp(root)).post("/api/commands/middleware_chat_fork")).send({ input: { sessionKey: "agent:main:desktop:source", messageId: "ui-only-id", gatewayIndex: 1 } })
+
+    expect(res.status).toBe(200)
+    expect(res.body.copiedMessages).toBe(2)
+    const lines = fs.readFileSync(gatewayState.transcriptPath, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    expect(lines.map((line) => line.id)).toEqual(["fork-session-id", "u1", "a1"])
+    expect(lines.some((line) => line.id === "u2" || line.id === "a2")).toBe(false)
+  })
+
   it("uses a unique default fork label and retries label collisions", async () => {
     const root = tempRoot()
     gatewayState.transcriptPath = path.join(root, ".openclaw", "agents", "main", "sessions", "fork-session-id.jsonl")
