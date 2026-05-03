@@ -78,11 +78,10 @@ export default function ConnectPage() {
         try {
           const health = await testMiddlewareConnection(saved)
           if (!health.openclaw?.connected) {
-            clearMiddlewareConnection()
             setSessionConnected(false)
-            setStatus(statusFromConnection(false))
+            setStatus(statusFromConnection(false, saved.url, saved.token))
             setConnectResult(null)
-            setDetectMessage({ ok: false, text: "Middleware is running, but OpenClaw is not. Start OpenClaw locally, then retry." })
+            setDetectMessage({ ok: false, text: "Saved Middleware is reachable, but OpenClaw is not connected there. The saved URL/token were kept; retry after OpenClaw starts." })
             return
           }
           setStatus(statusFromConnection(true, saved.url, saved.token))
@@ -90,11 +89,10 @@ export default function ConnectPage() {
           setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
           return
         } catch {
-          clearMiddlewareConnection()
           setSessionConnected(false)
-          setStatus(statusFromConnection(false))
+          setStatus(statusFromConnection(false, saved.url, saved.token))
           setConnectResult(null)
-          setDetectMessage({ ok: false, text: "Saved workspace connection is no longer available. Start OpenClaw locally, or pair a server." })
+          setDetectMessage({ ok: false, text: "Saved Middleware could not be reached on reload. The saved URL/token were kept; check the URL/network or retry." })
           return
         }
       }
