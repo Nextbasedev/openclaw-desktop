@@ -17,6 +17,9 @@ import {
   LuThumbsUp,
   LuX,
   LuGitFork,
+  LuLoader,
+  LuShieldCheck,
+  LuTerminal,
 } from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -25,6 +28,120 @@ import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
+
+type ApprovalDecision = "allow-once" | "allow-always" | "deny"
+
+type ApprovalPrompt = {
+  id: string
+  command?: string
+  decisions: ApprovalDecision[]
+}
+
+function parseApprovalPrompt(text: string): ApprovalPrompt | null {
+  if (!text.includes("/approve")) return null
+  if (!/Approval (needed|required)/i.test(text)) return null
+
+  const approveMatch = text.match(/\/approve(?:@[^\s]+)?\s+([^\s]+)\s+([^\n]+)/i)
+  const id = approveMatch?.[1]?.trim()
+  if (!id) return null
+
+  const rawDecisionText = approveMatch?.[2] ?? "allow-once|deny"
+  const parsedDecisions = rawDecisionText
+    .split(/\||\s+/)
+    .map((item) => item.trim().toLowerCase())
+    .map((item) => item === "always" ? "allow-always" : item)
+    .filter((item): item is ApprovalDecision =>
+      item === "allow-once" || item === "allow-always" || item === "deny",
+    )
+
+  const decisions = Array.from(new Set<ApprovalDecision>([
+    ...parsedDecisions,
+    "deny",
+  ]))
+
+  const fencedCommand = text.match(/Pending command:\s*```(?:sh|bash|shell)?\s*\n([\s\S]*?)\n```/i)?.[1]
+    ?? text.match(/Command:\s*```(?:sh|bash|shell)?\s*\n([\s\S]*?)\n```/i)?.[1]
+  const plainCommand = text.match(/Approval needed to run:\s*\n+(?:Shell|Bash|sh)?\s*\n+([\s\S]*?)\n+Reply with:/i)?.[1]
+
+  return {
+    id,
+    command: (fencedCommand ?? plainCommand)?.trim(),
+    decisions,
+  }
+}
+
+function approvalDecisionLabel(decision: ApprovalDecision) {
+  if (decision === "allow-once") return "Approve once"
+  if (decision === "allow-always") return "Always allow"
+  return "Decline"
+}
+
+function ApprovalPromptCard({
+  approval,
+  onResolve,
+}: {
+  approval: ApprovalPrompt
+  onResolve?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
+}) {
+  const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
+  const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
+
+  async function resolve(decision: ApprovalDecision) {
+    if (!onResolve || resolving || resolved) return
+    setResolving(decision)
+    try {
+      await onResolve(approval.id, decision)
+      setResolved(decision)
+    } finally {
+      setResolving(null)
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-amber-400/15 bg-amber-400/[0.035] p-3">
+      <div className="mb-2 flex items-center gap-2 text-[13px] font-medium text-amber-200/90">
+        <LuShieldCheck className="size-4" />
+        Command approval required
+      </div>
+      {approval.command && (
+        <div className="mb-3 overflow-hidden rounded-lg border border-border/20 bg-black/30">
+          <div className="flex items-center gap-1.5 border-b border-border/15 px-2.5 py-1.5 text-[11px] text-muted-foreground/60">
+            <LuTerminal className="size-3.5" />
+            Shell
+          </div>
+          <pre className="max-h-40 overflow-auto px-3 py-2 text-[12px] leading-relaxed text-foreground/80">
+            {approval.command}
+          </pre>
+        </div>
+      )}
+      {resolved ? (
+        <div className="text-[12px] text-muted-foreground">
+          {resolved === "deny" ? "Declined" : "Approved"}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {approval.decisions.map((decision) => (
+            <button
+              key={decision}
+              type="button"
+              disabled={!onResolve || Boolean(resolving)}
+              onClick={() => void resolve(decision)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                decision === "deny"
+                  ? "bg-red-400/10 text-red-300 hover:bg-red-400/15"
+                  : "bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/15",
+              )}
+            >
+              {resolving === decision && <LuLoader className="size-3 animate-spin" />}
+              {approvalDecisionLabel(decision)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function CopyButton({ text, className: cls }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false)
@@ -178,6 +295,7 @@ export function MessageBubble({
   onExport,
   onTextAnimationComplete,
   onFork,
+  onResolveApproval,
   isPinned,
   reaction,
   isGenerating,
@@ -196,6 +314,7 @@ export function MessageBubble({
   onExport?: (messageId: string) => void
   onTextAnimationComplete?: (messageId: string) => void
   onFork?: (messageId: string) => void
+  onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -212,6 +331,7 @@ export function MessageBubble({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const hasBranches = message.branches && message.branches.length > 0
+  const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
 
   const startEdit = useCallback(() => {
     setEditText(message.text)
@@ -348,6 +468,11 @@ export function MessageBubble({
             >
               {isUser ? (
                 <p className="whitespace-pre-wrap">{message.text}</p>
+              ) : approvalPrompt ? (
+                <ApprovalPromptCard
+                  approval={approvalPrompt}
+                  onResolve={onResolveApproval}
+                />
               ) : (
                 <MarkdownContent
                   text={message.text}
