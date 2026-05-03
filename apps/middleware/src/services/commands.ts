@@ -823,9 +823,13 @@ export function commandRoutes(store: Store) {
         case "middleware_chat_fork": {
           const sourceKey = input.sessionKey
           if (!sourceKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
-          const agentId = input.agentId || agentIdFromSessionKey(sourceKey)
+          const sourceSession = s.sessions.find((session: any) => session.key === sourceKey || session.sessionKey === sourceKey) ?? null
+          const agentId = input.agentId || sourceSession?.agentId || agentIdFromSessionKey(sourceKey)
           const key = `agent:${agentId}:fork:${crypto.randomUUID()}`
-          const chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
+          const topicProjectId = sourceSession?.projectId ?? input.projectId ?? null
+          const topicId = sourceSession?.topicId ?? input.topicId ?? null
+          const isTopicFork = Boolean(topicProjectId && topicId)
+          const chatId = isTopicFork ? null : `chat_${crypto.randomUUID().replace(/-/g, "")}`
           let name = String(input.name || `Forked chat ${new Date().toISOString().slice(0, 19).replace("T", " ")}`).trim()
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
@@ -850,9 +854,13 @@ export function commandRoutes(store: Store) {
             const transcriptPath = (created.payload as any)?.entry?.sessionFile
             if (!transcriptPath || typeof transcriptPath !== "string") throw new HttpError(502, "sessions.create did not return entry.sessionFile", "GATEWAY_ERROR")
             copyHistoryMessagesToTranscript(transcriptPath, copyMessages)
-            const branch = { branchId: crypto.randomUUID(), sourceSessionKey: sourceKey, branchSessionKey: key, branchReason: "fork", createdAt: now() }
-            s.commandState.branches.push(branch); s.chats.push({ id: chatId, name, sessionKey: key, agentId, archived: false, pinned: false, createdAt: now(), updatedAt: now(), lastActiveAt: now() }); save(store, s)
-            return { chatId, sessionKey: key, name, branchSessionKey: key, copiedMessages: copyMessages.filter((m:any) => m && m.role !== "system").length, transcriptPath, branchId: branch.branchId }
+            const createdAt = now()
+            const branch = { branchId: crypto.randomUUID(), sourceSessionKey: sourceKey, branchSessionKey: key, branchReason: "fork", createdAt }
+            s.commandState.branches.push(branch)
+            s.sessions.push({ key, sessionKey: key, label: name, agentId, status: "idle", hidden: false, projectId: topicProjectId ?? undefined, topicId: topicId ?? undefined, createdAt, updatedAt: createdAt })
+            if (chatId) s.chats.push({ id: chatId, name, sessionKey: key, agentId, archived: false, pinned: false, createdAt, updatedAt: createdAt, lastActiveAt: createdAt })
+            save(store, s)
+            return { chatId, projectId: topicProjectId, topicId, sessionKey: key, name, branchSessionKey: key, copiedMessages: copyMessages.filter((m:any) => m && m.role !== "system").length, transcriptPath, branchId: branch.branchId }
           } finally { gw.close() }
         }
         case "middleware_chat_edit_last_preview": {
