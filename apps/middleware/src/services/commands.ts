@@ -515,10 +515,13 @@ function gitCommitDetails(repoRoot: string, commit: string) {
 function modelRefsFromConfig(cfg: any): string[] {
   const defaults = cfg.agents?.defaults ?? {}
   const modelMapRefs = defaults.models && !Array.isArray(defaults.models) && typeof defaults.models === "object"
-    ? Object.values(defaults.models).flatMap((value: any) => {
+    ? Object.entries(defaults.models).flatMap(([key, value]: [string, any]) => {
         if (typeof value === "string") return [value]
         if (Array.isArray(value)) return value
-        if (value && typeof value === "object") return [value.primary, value.model, ...(Array.isArray(value.fallbacks) ? value.fallbacks : [])]
+        if (value && typeof value === "object") {
+          const refs = [value.primary, value.model, ...(Array.isArray(value.fallbacks) ? value.fallbacks : [])].filter(Boolean)
+          return refs.length > 0 ? refs : [key]
+        }
         return []
       })
     : []
@@ -557,6 +560,7 @@ function modelsResponse(cfg: any) {
           if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? { provider, id: item.includes("/") ? item.split(/\/(.+)/)[1] : item, name: item } : { provider, ...item })
           if (value && typeof value === "object") {
             const candidates = [value.primary, value.model, ...(Array.isArray(value.fallbacks) ? value.fallbacks : [])].filter(Boolean)
+            if (candidates.length === 0) return [provider]
             return candidates.map((item) => ({ provider, id: String(item).includes("/") ? String(item).split(/\/(.+)/)[1] : String(item), name: String(item) }))
           }
           return []
