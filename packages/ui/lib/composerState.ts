@@ -44,10 +44,14 @@ export function composeBatch(batch: ChatComposerSubmit[]): ChatComposerSubmit {
     .join("\n\n")
   const attachments = batch.flatMap((item) => item.attachments ?? [])
   const replyTo = batch.find((item) => item.replyTo)?.replyTo
+  const latestPolicy = [...batch].reverse().find((item) => "execPolicy" in item)
+  const latestMode = [...batch].reverse().find((item) => item.autonomyMode)
   return {
     text,
     attachments: attachments.length > 0 ? attachments : undefined,
     replyTo,
+    autonomyMode: latestMode?.autonomyMode,
+    execPolicy: latestPolicy?.execPolicy,
   }
 }
 

@@ -13,7 +13,9 @@ import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceInput } from "@/hooks/useVoiceInput"
 import { LuX } from "react-icons/lu"
 import {
+  execPolicyForAutonomyMode,
   stripComposerAttachment,
+  type ChatAutonomyMode,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
@@ -24,21 +26,6 @@ import {
 } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 
-const PLAN_SYSTEM_PROMPT = `You are a planning assistant. You help users create detailed plan.md documents.
-
-If the user's request is clear enough, generate a detailed plan.md in Markdown.
-
-The plan MUST include:
-- Title (H1) and brief summary
-- Overview with goals and scope
-- Architecture / Approach
-- Implementation Steps as a checklist with [P1]/[P2]/[P3] priority labels
-- Timeline / Milestones
-- Risks & Mitigations
-- Open Questions
-
-After generating the plan, stop. Output only the plan.md Markdown.`
-
 type Props = {
   initialPrompt?: string
   errorMessage?: string | null
@@ -48,6 +35,7 @@ type Props = {
   onAbort?: () => void
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
+  onAutonomyModeChange?: (mode: ChatAutonomyMode) => void | Promise<void>
 }
 
 export function ChatBox({
@@ -59,13 +47,11 @@ export function ChatBox({
   errorMessage,
   replyTo,
   onCancelReply,
+  onAutonomyModeChange,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
-  const [planEnabled, setPlanEnabled] = React.useState(false)
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
-  const [autonomyMode, setAutonomyMode] = React.useState<
-    "full" | "supervised" | "manual"
-  >("full")
+  const [autonomyMode, setAutonomyMode] = React.useState<ChatAutonomyMode>("manual")
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
@@ -177,17 +163,6 @@ export function ChatBox({
     await onSend?.(payload)
   }
 
-  function composedPlanText(promptText: string) {
-    if (!planEnabled) return promptText
-    return [
-      "Planner system prompt:",
-      PLAN_SYSTEM_PROMPT,
-      "",
-      "User request:",
-      promptText,
-    ].join("\n")
-  }
-
   React.useEffect(() => {
     return () => {
       if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
@@ -249,8 +224,13 @@ export function ChatBox({
     }, 500)
   }
 
+  function handleAutonomyModeChange(mode: ChatAutonomyMode) {
+    setAutonomyMode(mode)
+    void onAutonomyModeChange?.(mode)
+  }
+
   async function handleSend() {
-    const text = composedPlanText(input.trim()).trim()
+    const text = input.trim()
     if (!text || disabled || isPreparingAttachments) return
     const payload: ChatComposerSubmit = {
       text,
@@ -258,6 +238,8 @@ export function ChatBox({
         ? attachments.map(stripComposerAttachment)
         : undefined,
       replyTo: replyTo ?? undefined,
+      autonomyMode,
+      execPolicy: execPolicyForAutonomyMode(autonomyMode),
     }
     setInput("")
     if (textareaRef.current) textareaRef.current.style.height = "auto"
@@ -544,17 +526,10 @@ export function ChatBox({
             }}
             isGenerating={isGenerating}
             onAbort={onAbort}
-            planEnabled={planEnabled}
-            onPlanToggle={() => setPlanEnabled((prev) => !prev)}
             webSearchEnabled={webSearchEnabled}
-            onWebSearchToggle={handleWebSearchToggle}
             onWebSearchDisable={() => setWebSearchEnabled(false)}
             autonomyMode={autonomyMode}
-            onAutonomyModeChange={setAutonomyMode}
-            onPauseResume={() => {
-              void onSend?.({ text: isGenerating ? "/pause" : "/resume" })
-              setPlusOpen(false)
-            }}
+            onAutonomyModeChange={handleAutonomyModeChange}
             plusOpen={plusOpen}
             onPlusOpenChange={setPlusOpen}
             modelOpen={modelOpen}

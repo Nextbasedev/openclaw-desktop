@@ -749,14 +749,58 @@ export function commandRoutes(store: Store) {
             gw.close()
           }
         }
+        case "middleware_exec_approval_resolve": {
+          const approvalId = String(input.approvalId || input.id || "").trim()
+          const decision = String(input.decision || "").trim()
+          if (!approvalId) throw new HttpError(400, "approvalId is required", "BAD_REQUEST")
+          if (!["allow-once", "allow-always", "deny"].includes(decision)) throw new HttpError(400, "valid decision is required", "BAD_REQUEST")
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
+          try {
+            const res = await gw.request("exec.approval.resolve", { id: approvalId, decision }, 30_000)
+            if (!res.ok) throw new HttpError(502, res.error?.message || "exec.approval.resolve failed", "GATEWAY_ERROR")
+            return { ok: true, approvalId, decision, ...((res.payload as object) || {}) }
+          } finally {
+            gw.close()
+          }
+        }
+
+        case "middleware_chat_exec_policy": {
+          if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          const key = activeSessionKey(s, input.sessionKey)
+          const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as any : null
+          const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
+          const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
+          if (!execSecurity || !execAsk) throw new HttpError(400, "valid execPolicy is required", "BAD_REQUEST")
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
+          try {
+            await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
+            const patched = await gw.request("sessions.patch", { key, execSecurity, execAsk }, 30_000)
+            if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
+            return { ok: true, sessionKey: key, autonomyMode: input.autonomyMode, execPolicy: { security: execSecurity, ask: execAsk }, ...((patched.payload as object) || {}) }
+          } finally {
+            gw.close()
+          }
+        }
+
         case "middleware_chat_send": {
           const message = String(input.text || input.message || "")
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const key = input.sessionKey ? activeSessionKey(s, input.sessionKey) : `agent:main:desktop:${crypto.randomUUID()}`
           const beforeCommandSession = readSessionStoreEntry(key)
+          const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as any : null
+          const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
+          const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
+          const shouldPatchExecPolicy = input.execPolicy === null || execSecurity || execAsk
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
+            if (shouldPatchExecPolicy) {
+              const patch = input.execPolicy === null
+                ? { key, execSecurity: null, execAsk: null }
+                : { key, execSecurity, execAsk }
+              const patched = await gw.request("sessions.patch", patch, 30_000)
+              if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
+            }
             const res = await gw.request("chat.send", {
               sessionKey: key,
               message,

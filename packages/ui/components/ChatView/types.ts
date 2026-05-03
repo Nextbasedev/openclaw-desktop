@@ -24,6 +24,13 @@ export type InlineToolCall = {
   status: "running" | "success" | "error"
   duration?: string
   startedAt?: number
+  resultText?: string
+  approval?: {
+    id: string
+    slug?: string
+    command?: string
+    allowedDecisions: Array<"allow-once" | "allow-always" | "deny">
+  }
 }
 
 export type MessageBranch = {

@@ -69,6 +69,28 @@ function rawToChatMessage(raw: RawMessage, fallbackRole: "user" | "assistant"): 
   }
 }
 
+function parseExecApproval(text: string): InlineToolCall["approval"] | undefined {
+  if (!text.includes("Approval required")) return undefined
+  const fullMatch = text.match(/Approval required \(id\s+([^,\s)]+),\s+full\s+([^)]+)\)/i)
+  const slug = fullMatch?.[1]?.trim()
+  const id = fullMatch?.[2]?.trim() || slug
+  if (!id) return undefined
+  const command = text.match(/Command:\s*```(?:sh)?\s*\n([\s\S]*?)\n```/i)?.[1]?.trim()
+  const replyLine = text.match(/Reply with:\s*\/approve\s+\S+\s+([^\n]+)/i)?.[1] ?? "allow-once|deny"
+  const allowedDecisions = replyLine
+    .split("|")
+    .map((item) => item.trim())
+    .filter((item): item is "allow-once" | "allow-always" | "deny" =>
+      item === "allow-once" || item === "allow-always" || item === "deny",
+    )
+  return {
+    id,
+    slug,
+    command,
+    allowedDecisions: allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"],
+  }
+}
+
 function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   if (a.text.trim() !== b.text.trim()) return false
@@ -482,10 +504,13 @@ export function useChatMessages(
             const duration = call.startedAt
               ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
               : undefined
+            const resultText = extractText((ev as Record<string, unknown>).result as ContentBlock[] | string | undefined)
             pendingToolMapRef.current.set(toolCallId, {
               ...call,
               status: phase === "error" ? "error" : "success",
               duration,
+              resultText: resultText || call.resultText,
+              approval: resultText ? parseExecApproval(resultText) ?? call.approval : call.approval,
             })
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
@@ -959,6 +984,8 @@ export function useChatMessages(
             if (resultQueue.length > 0) {
               matchedCall = resultQueue.shift()!
               if (resultText) {
+                matchedCall.resultText = resultText
+                matchedCall.approval = parseExecApproval(resultText) ?? matchedCall.approval
                 try {
                   const parsed = JSON.parse(resultText)
                   matchedCall.status =
@@ -1231,6 +1258,8 @@ export function useChatMessages(
             replyTo: replyTo
               ? { messageId: replyTo.messageId, snippet: snippet! }
               : undefined,
+            autonomyMode: payload.autonomyMode,
+            execPolicy: payload.execPolicy,
           },
         })
         emit("chat:activity")
