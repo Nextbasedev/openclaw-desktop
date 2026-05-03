@@ -5,13 +5,17 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import request from "supertest"
 
 const gatewayRequests = vi.hoisted(() => [] as Array<{ method: string; params: any }>)
-const gatewayState = vi.hoisted(() => ({ transcriptPath: "", sourceMessages: [] as any[], chatSendPayload: {} as any, onChatSend: null as null | (() => void) }))
+const gatewayState = vi.hoisted(() => ({ transcriptPath: "", sourceMessages: [] as any[], chatSendPayload: {} as any, onChatSend: null as null | (() => void), failNextCreateLabel: null as string | null }))
 
 vi.mock("../src/services/gateway.js", () => ({
   connectGateway: vi.fn(async () => ({
     request: vi.fn(async (method: string, params: any) => {
       gatewayRequests.push({ method, params })
       if (method === "sessions.create") {
+        if (gatewayState.failNextCreateLabel && params.label === gatewayState.failNextCreateLabel) {
+          gatewayState.failNextCreateLabel = null
+          return { ok: false, error: { message: `label already in use: ${params.label}` } }
+        }
         return {
           ok: true,
           payload: {
@@ -60,6 +64,7 @@ afterEach(() => {
   gatewayState.sourceMessages = []
   gatewayState.chatSendPayload = {}
   gatewayState.onChatSend = null
+  gatewayState.failNextCreateLabel = null
   vi.unstubAllEnvs()
   for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
@@ -159,6 +164,27 @@ describe("middleware_chat_fork", () => {
     expect(lines[1].message).not.toHaveProperty("__openclaw")
     expect(lines[1].message).not.toHaveProperty("messageId")
     expect(lines[2]).toMatchObject({ id: "assistant-line-id", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } })
+  })
+
+  it("uses a unique default fork label and retries label collisions", async () => {
+    const root = tempRoot()
+    gatewayState.transcriptPath = path.join(root, ".openclaw", "agents", "main", "sessions", "fork-session-id.jsonl")
+    fs.mkdirSync(path.dirname(gatewayState.transcriptPath), { recursive: true })
+    fs.writeFileSync(gatewayState.transcriptPath, JSON.stringify({ type: "session", version: 1, id: "fork-session-id" }) + "\n")
+    gatewayState.sourceMessages = [
+      { role: "user", content: [{ type: "text", text: "hello" }], __openclaw: { id: "u1" } },
+    ]
+    gatewayState.failNextCreateLabel = "Forked chat"
+
+    const explicit = await auth(request(makeApp(root)).post("/api/commands/middleware_chat_fork")).send({ input: { sessionKey: "agent:main:desktop:source", name: "Forked chat" } })
+    expect(explicit.status).toBe(200)
+    expect(explicit.body.name).toBe("Forked chat (2)")
+
+    gatewayRequests.length = 0
+    const implicit = await auth(request(makeApp(root)).post("/api/commands/middleware_chat_fork")).send({ input: { sessionKey: "agent:main:desktop:source" } })
+    expect(implicit.status).toBe(200)
+    expect(implicit.body.name).toMatch(/^Forked chat \d{4}-\d{2}-\d{2}/)
+    expect(gatewayRequests.find((r) => r.method === "sessions.create")?.params.label).not.toBe("Forked chat")
   })
 
   it("creates a side-by-side regenerate branch without mutating the original transcript", async () => {

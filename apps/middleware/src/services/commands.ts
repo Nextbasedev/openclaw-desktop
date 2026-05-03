@@ -826,11 +826,22 @@ export function commandRoutes(store: Store) {
           const agentId = input.agentId || agentIdFromSessionKey(sourceKey)
           const key = `agent:${agentId}:fork:${crypto.randomUUID()}`
           const chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
-          const name = input.name || "Forked chat"
+          let name = String(input.name || `Forked chat ${new Date().toISOString().slice(0, 19).replace("T", " ")}`).trim()
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            const created = await gw.request<any>("sessions.create", { key, agentId, label: name, parentSessionKey: sourceKey }, 30_000)
-            if (!created.ok) throw new HttpError(502, created.error?.message || "sessions.create failed", "GATEWAY_ERROR")
+            let created: any = null
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              const label = attempt === 0 ? name : `${name} (${attempt + 1})`
+              created = await gw.request<any>("sessions.create", { key, agentId, label, parentSessionKey: sourceKey }, 30_000)
+              if (created.ok) {
+                name = label
+                break
+              }
+              const message = created.error?.message || "sessions.create failed"
+              if (!/label already in use/i.test(message) || attempt === 2) {
+                throw new HttpError(502, message, "GATEWAY_ERROR")
+              }
+            }
             const history = await gw.request<any>("chat.history", { sessionKey: sourceKey, limit: input.limit || 100 }, 30_000)
             if (!history.ok) throw new HttpError(502, history.error?.message || "chat.history failed", "GATEWAY_ERROR")
             const messages = history?.ok && Array.isArray((history.payload as any)?.messages) ? (history.payload as any).messages : []
