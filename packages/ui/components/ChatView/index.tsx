@@ -13,7 +13,11 @@ import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
-import type { ChatComposerSubmit } from "@/lib/chatAttachments"
+import {
+  execPolicyForAutonomyMode,
+  type ChatAutonomyMode,
+  type ChatComposerSubmit,
+} from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import {
   exportMessagesMarkdown,
@@ -372,6 +376,26 @@ export function ChatView({
     activeSubagent?.task?.trim() || "Run the delegated sub-agent task."
 
   const firstFiredRef = useRef(false)
+  const handleAutonomyModeChange = useCallback(async (mode: ChatAutonomyMode) => {
+    await invoke("middleware_chat_exec_policy", {
+      input: {
+        sessionKey,
+        autonomyMode: mode,
+        execPolicy: execPolicyForAutonomyMode(mode),
+      },
+    })
+  }, [sessionKey])
+
+  const resolveExecApproval = useCallback(async (
+    approvalId: string,
+    decision: "allow-once" | "allow-always" | "deny",
+  ) => {
+    await invoke("middleware_exec_approval_resolve", {
+      input: { approvalId, decision },
+    })
+    emit("chat:activity")
+  }, [])
+
   const wrappedSend = useCallback(async (payload: ChatComposerSubmit) => {
     const shouldNotifyFirstSend =
       !firstFiredRef.current &&
@@ -682,13 +706,6 @@ export function ChatView({
     void navigator.clipboard.writeText(exportMessagesMarkdown([target]))
   }, [messages])
 
-  const handlePlanAction = useCallback((action: "review" | "implement", markdown: string) => {
-    const text = action === "review"
-      ? `Review this edited plan.md. Point out gaps, risks, and improvements before implementation.\n\n\`\`\`markdown\n${markdown}\n\`\`\``
-      : `Implement this edited plan.md. Follow it step by step and report progress.\n\n\`\`\`markdown\n${markdown}\n\`\`\``
-    void wrappedSend({ text })
-  }, [wrappedSend])
-
   const lastEditableUserId = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
       if (renderedMessages[i].role === "user") return renderedMessages[i].messageId
@@ -752,6 +769,7 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onAutonomyModeChange={handleAutonomyModeChange}
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -887,6 +905,7 @@ export function ChatView({
                           tools={filteredToolCalls}
                           defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
                           onSelectTool={onSelectTool}
+                          onResolveApproval={resolveExecApproval}
                         />
                       </div>
                     )}
@@ -896,6 +915,7 @@ export function ChatView({
                         tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
+                        onResolveApproval={resolveExecApproval}
                       />
                     </div>
                   )}
@@ -919,7 +939,7 @@ export function ChatView({
                       onExport={exportOneMessage}
                       onTextAnimationComplete={markTextAnimationComplete}
                       onFork={msg.role === "assistant" ? forkFromMessage : undefined}
-                      onPlanAction={msg.role === "assistant" ? handlePlanAction : undefined}
+                      onResolveApproval={resolveExecApproval}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
@@ -942,6 +962,7 @@ export function ChatView({
                         tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
+                        onResolveApproval={resolveExecApproval}
                       />
                     </div>
                   )}
@@ -996,6 +1017,7 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onAutonomyModeChange={handleAutonomyModeChange}
         />
       </div>
     </div>

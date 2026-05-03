@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   PlusSignIcon,
@@ -7,6 +8,9 @@ import {
   AttachmentIcon,
   Cancel01Icon,
   Tick02Icon,
+  HandHelpingIcon,
+  Shield01Icon,
+  AiSecurity01Icon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -15,9 +19,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { PlanModeIcon, WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
+import { WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
+import type { ChatAutonomyMode } from "@/lib/chatAttachments"
 
 type ActionBarProps = {
   hasInput: boolean
@@ -25,14 +30,10 @@ type ActionBarProps = {
   onUploadClick?: () => void
   isGenerating?: boolean
   onAbort?: () => void
-  planEnabled: boolean
-  onPlanToggle: () => void
   webSearchEnabled: boolean
-  onWebSearchToggle: () => void
   onWebSearchDisable: () => void
-  autonomyMode: "full" | "supervised" | "manual"
-  onAutonomyModeChange: (mode: "full" | "supervised" | "manual") => void
-  onPauseResume?: () => void
+  autonomyMode: ChatAutonomyMode
+  onAutonomyModeChange: (mode: ChatAutonomyMode) => void
   plusOpen: boolean
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
@@ -56,14 +57,10 @@ export function ActionBar({
   onUploadClick,
   isGenerating,
   onAbort,
-  planEnabled,
-  onPlanToggle,
   webSearchEnabled,
-  onWebSearchToggle,
   onWebSearchDisable,
   autonomyMode,
   onAutonomyModeChange,
-  onPauseResume,
   plusOpen,
   onPlusOpenChange,
   modelOpen,
@@ -88,6 +85,25 @@ export function ActionBar({
     return m.id === currentModelId || `${m.provider}/${m.id}` === currentModelId || m.id === bare
   })
   const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
+  const [permissionsOpen, setPermissionsOpen] = React.useState(false)
+  const permissionOptions = [
+    {
+      mode: "manual" as const,
+      label: "Default permissions",
+      icon: HandHelpingIcon,
+    },
+    {
+      mode: "supervised" as const,
+      label: "Auto-review",
+      icon: Shield01Icon,
+    },
+    {
+      mode: "full" as const,
+      label: "Full access",
+      icon: AiSecurity01Icon,
+    },
+  ]
+  const activePermission = permissionOptions.find((option) => option.mode === autonomyMode) ?? permissionOptions[0]
   const uniqueModels = models.filter(
     (m, i, arr) =>
       arr.findIndex(
@@ -119,42 +135,55 @@ export function ActionBar({
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
               {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Upload"}
             </button>
-            <div className="my-1 h-px bg-border" />
+          </PopoverContent>
+        </Popover>
+
+        {/* Permissions selector */}
+        <Popover open={permissionsOpen} onOpenChange={setPermissionsOpen}>
+          <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
-              onClick={onWebSearchToggle}
+              className="group flex h-8 cursor-pointer items-center gap-2 rounded-full border border-white/5 bg-white/[0.07] px-3 text-[13px] font-medium text-muted-foreground shadow-sm transition-all hover:bg-white/[0.1] hover:text-foreground"
+              aria-label="Permissions mode"
             >
-              <WebSearchIcon className="size-[18px]" />
-              Web search
+              <HugeiconsIcon icon={activePermission.icon} size={17} className="text-foreground/55 transition-colors group-hover:text-foreground/75" />
+              <span className="hidden max-w-[150px] truncate sm:inline">{activePermission.label}</span>
+              <HugeiconsIcon icon={ArrowDown01Icon} size={13} className="text-foreground/45" />
             </button>
-            <button
-              type="button"
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
-              onClick={onPauseResume}
-            >
-              Pause / resume
-            </button>
-            <div className="my-1 h-px bg-border" />
-            {([
-              ["full", "Full Auto"],
-              ["supervised", "Supervised"],
-              ["manual", "Manual Approval"],
-            ] as const).map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted",
-                  autonomyMode === mode
-                    ? "text-popover-foreground"
-                    : "text-muted-foreground",
-                )}
-                onClick={() => onAutonomyModeChange(mode)}
-              >
-                {label}
-              </button>
-            ))}
+          </PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="start"
+            sideOffset={8}
+            className="w-[236px] overflow-hidden rounded-2xl border border-white/10 bg-[#2c2c2c]/95 p-2 shadow-2xl shadow-black/35 backdrop-blur-xl"
+          >
+            <div className="space-y-0.5">
+              {permissionOptions.map((option) => {
+                const selected = autonomyMode === option.mode
+                return (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    onClick={() => {
+                      onAutonomyModeChange(option.mode)
+                      setPermissionsOpen(false)
+                    }}
+                    className={cn(
+                      "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold transition-colors",
+                      selected
+                        ? "text-white"
+                        : "text-white/78 hover:bg-white/[0.06] hover:text-white",
+                    )}
+                  >
+                    <HugeiconsIcon icon={option.icon} size={20} className="shrink-0 text-white/70" />
+                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                    {selected && (
+                      <HugeiconsIcon icon={Tick02Icon} size={19} className="shrink-0 text-white/80" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
           </PopoverContent>
         </Popover>
 
@@ -172,22 +201,6 @@ export function ActionBar({
             Web
           </button>
         )}
-
-        {/* Plan Mode pill */}
-        <button
-          type="button"
-          onClick={onPlanToggle}
-          className={cn(
-            "flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3 transition-all",
-            planEnabled
-              ? "border-foreground/60 bg-secondary text-foreground"
-              : "border-foreground/15 bg-foreground/5 text-foreground shadow-sm hover:bg-foreground/10"
-          )}
-          title={planEnabled ? "Plan Mode: on" : "Plan Mode: off"}
-        >
-          <PlanModeIcon className="size-4" />
-          <span className="text-xs font-medium">Plan</span>
-        </button>
       </div>
 
       {/* Right controls */}
