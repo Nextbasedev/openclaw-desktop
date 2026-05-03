@@ -22,6 +22,7 @@ export type ParsedUsage = {
   providers: ProviderStatus[]
   daily: DailyEntry[]
   loading: boolean
+  rangeLoading: boolean
   error: string | null
   lastUpdated: Date | null
 }
@@ -41,17 +42,25 @@ export function useUsageData(period: UsagePeriod) {
     providers: [],
     daily: [],
     loading: true,
+    rangeLoading: true,
     error: null,
     lastUpdated: null,
   })
+  const loadedPeriodRef = useRef<UsagePeriod | null>(null)
 
   const periodRef = useRef(period)
   periodRef.current = period
 
   const fetchAll = useCallback(async () => {
-    setData((prev) => ({ ...prev, loading: true, error: null }))
+    const requestedPeriod = periodRef.current
+    setData((prev) => ({
+      ...prev,
+      loading: true,
+      rangeLoading: loadedPeriodRef.current !== requestedPeriod,
+      error: null,
+    }))
     try {
-      const days = PERIOD_DAYS[periodRef.current]
+      const days = PERIOD_DAYS[requestedPeriod]
       const [usageRes, dailyRes] = await Promise.all([
         invoke<UsageResponse>("middleware_usage", {
           input: { days },
@@ -61,11 +70,13 @@ export function useUsageData(period: UsagePeriod) {
         }),
       ])
 
+      loadedPeriodRef.current = requestedPeriod
       setData({
         summary: usageRes.summary,
         providers: usageRes.providers,
         daily: dailyRes.daily,
         loading: false,
+        rangeLoading: false,
         error: null,
         lastUpdated: new Date(),
       })
@@ -73,6 +84,7 @@ export function useUsageData(period: UsagePeriod) {
       setData((prev) => ({
         ...prev,
         loading: false,
+        rangeLoading: false,
         error:
           err instanceof Error
             ? err.message
