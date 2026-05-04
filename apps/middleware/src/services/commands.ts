@@ -7,6 +7,7 @@ import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
+import { voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
 function now() { return new Date().toISOString() }
 function state(store: Store): any {
@@ -813,6 +814,12 @@ export function commandRoutes(store: Store) {
           cfg.agents.defaults.model.primary = modelId
           writeJson(openclawConfigPath(), cfg)
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
+        }
+        case "middleware_voice_settings_get": {
+          return voiceSettingsPayload()
+        }
+        case "middleware_voice_settings_set": {
+          return { settings: writeVoiceSettings(input), options: voiceSettingsPayload().options }
         }
         case "middleware_usage": {
           const requestedDays = usageNumber(input.days) || 30
