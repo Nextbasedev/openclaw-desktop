@@ -168,7 +168,7 @@ export function NewEntry({ onBack }: { onBack: () => void }) {
           <div className="flex flex-wrap gap-1.5">
             {categories.map((c) => (
               <button key={c} type="button" onClick={() => setCategory(c)} className={cn(
-                "rounded-lg px-3 py-1.5 text-[12px] capitalize transition-colors",
+                "rounded-md px-3 py-1.5 text-[12px] capitalize transition-colors",
                 c === category
                   ? "bg-foreground/10 text-foreground ring-1 ring-foreground/20"
                   : "bg-card text-muted-foreground ring-1 ring-border/30 hover:bg-muted/20",
@@ -181,7 +181,7 @@ export function NewEntry({ onBack }: { onBack: () => void }) {
           <textarea value={content} onChange={(e) => setContent(e.target.value)}
             placeholder="What should the agent remember?"
             className={cn(
-              "min-h-[200px] w-full rounded-xl border border-border/50 bg-[#0a0a0c] p-4",
+              "min-h-[200px] w-full rounded-md border border-border/50 bg-[#0a0a0c] p-4",
               "font-mono text-[12px] leading-relaxed text-foreground/90",
               "outline-none placeholder:text-muted-foreground/40 focus:border-foreground/20 resize-y",
             )} />
@@ -196,7 +196,7 @@ export function NewEntry({ onBack }: { onBack: () => void }) {
 
       <div className="flex items-center gap-2">
         <button type="button" onClick={handleStore} disabled={saving || !content.trim()} className={cn(
-          "flex items-center gap-1.5 rounded-lg px-4 py-2",
+          "flex items-center gap-1.5 rounded-md px-4 py-2",
           "text-[13px] font-medium text-foreground",
           "bg-foreground/10 ring-1 ring-border/40 transition-colors hover:bg-foreground/15",
           (saving || !content.trim()) && "opacity-40 pointer-events-none",

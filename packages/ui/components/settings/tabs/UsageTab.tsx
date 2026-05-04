@@ -32,11 +32,11 @@ export function UsageTab() {
     <div className="flex min-w-0 flex-col gap-4 pb-8">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-card/70 text-muted-foreground shadow-sm backdrop-blur-md">
+          {/* <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-card/70 text-muted-foreground shadow-sm backdrop-blur-md">
             <Icons.Automations size={14} strokeWidth={1.7} />
-          </div>
+          </div> */}
           <div className="min-w-0">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
+            <span className="block text-[16px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
               Token Usage
             </span>
             <span className="block truncate text-[12px] text-muted-foreground/50">

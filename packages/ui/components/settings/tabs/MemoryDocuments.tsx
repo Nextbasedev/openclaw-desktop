@@ -18,11 +18,14 @@ type ViewState =
   | { mode: "edit"; doc: MemoryDocument; content: string }
   | { mode: "new" }
 
+const PAGE_SIZE = 20
+
 export function MemoryDocuments() {
   const [docs, setDocs] = useState<MemoryDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [page, setPage] = useState(1)
   const [view, setView] = useState<ViewState>({ mode: "list" })
 
   const load = useCallback(async () => {
@@ -45,10 +48,18 @@ export function MemoryDocuments() {
     load()
   }, [load])
 
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
   const filtered = docs.filter((d) => {
     if (!query.trim()) return true
     return d.name.toLowerCase().includes(query.toLowerCase())
   })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * PAGE_SIZE
+  const pageDocs = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
   async function openDoc(doc: MemoryDocument) {
     try {
@@ -138,7 +149,7 @@ export function MemoryDocuments() {
 
       {!loading && !error && filtered.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
-          {filtered.map((doc, idx) => (
+          {pageDocs.map((doc, idx) => (
             <button
               key={doc.path}
               type="button"
@@ -161,6 +172,45 @@ export function MemoryDocuments() {
               <LuChevronRight size={14} className="shrink-0 text-muted-foreground/40" />
             </button>
           ))}
+        </div>
+      )}
+
+      {!loading && !error && filtered.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-muted-foreground/50">
+            Showing {pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={currentPage === 1}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px]",
+                "text-muted-foreground ring-1 ring-border/40 transition-colors hover:bg-muted/20 hover:text-foreground",
+                currentPage === 1 && "pointer-events-none opacity-40",
+              )}
+            >
+              <LuChevronRight size={13} className="rotate-180" />
+              Prev
+            </button>
+            <span className="px-2 text-[11px] text-muted-foreground/60">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              disabled={currentPage === totalPages}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px]",
+                "text-muted-foreground ring-1 ring-border/40 transition-colors hover:bg-muted/20 hover:text-foreground",
+                currentPage === totalPages && "pointer-events-none opacity-40",
+              )}
+            >
+              Next
+              <LuChevronRight size={13} />
+            </button>
+          </div>
         </div>
       )}
 
