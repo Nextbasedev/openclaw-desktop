@@ -61,7 +61,17 @@ try {
   const result = runPnpm(["exec", "next", "build"])
 
   if (result.error) throw result.error
-  if (result.status !== 0) process.exitCode = result.status ?? 1
+  if (result.status !== 0) {
+    process.exitCode = result.status ?? 1
+  } else {
+    const outDir = path.join(uiDir, "out")
+    const indexHtml = path.join(outDir, "index.html")
+    const notFoundHtml = path.join(outDir, "404.html")
+    if (fs.existsSync(indexHtml)) {
+      fs.copyFileSync(indexHtml, notFoundHtml)
+      fs.writeFileSync(path.join(outDir, "_redirects"), "/* /index.html 200\n")
+    }
+  }
 } finally {
   restore()
 }
