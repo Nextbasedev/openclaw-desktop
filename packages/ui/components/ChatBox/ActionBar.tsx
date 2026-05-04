@@ -8,9 +8,6 @@ import {
   AttachmentIcon,
   Cancel01Icon,
   Tick02Icon,
-  HandHelpingIcon,
-  Shield01Icon,
-  AiSecurity01Icon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -22,7 +19,6 @@ import {
 import { WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
-import type { ChatAutonomyMode } from "@/lib/chatAttachments"
 
 type ActionBarProps = {
   hasInput: boolean
@@ -32,8 +28,6 @@ type ActionBarProps = {
   onAbort?: () => void
   webSearchEnabled: boolean
   onWebSearchDisable: () => void
-  autonomyMode: ChatAutonomyMode
-  onAutonomyModeChange: (mode: ChatAutonomyMode) => void
   plusOpen: boolean
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
@@ -59,8 +53,6 @@ export function ActionBar({
   onAbort,
   webSearchEnabled,
   onWebSearchDisable,
-  autonomyMode,
-  onAutonomyModeChange,
   plusOpen,
   onPlusOpenChange,
   modelOpen,
@@ -85,25 +77,6 @@ export function ActionBar({
     return m.id === currentModelId || `${m.provider}/${m.id}` === currentModelId || m.id === bare
   })
   const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
-  const [permissionsOpen, setPermissionsOpen] = React.useState(false)
-  const permissionOptions = [
-    {
-      mode: "manual" as const,
-      label: "Default permissions",
-      icon: HandHelpingIcon,
-    },
-    {
-      mode: "supervised" as const,
-      label: "Auto-review",
-      icon: Shield01Icon,
-    },
-    {
-      mode: "full" as const,
-      label: "Full access",
-      icon: AiSecurity01Icon,
-    },
-  ]
-  const activePermission = permissionOptions.find((option) => option.mode === autonomyMode) ?? permissionOptions[0]
   const uniqueModels = models.filter(
     (m, i, arr) =>
       arr.findIndex(
@@ -135,55 +108,6 @@ export function ActionBar({
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
               {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
             </button>
-          </PopoverContent>
-        </Popover>
-
-        {/* Permissions selector */}
-        <Popover open={permissionsOpen} onOpenChange={setPermissionsOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="group flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.08] px-2.5 text-[12px] font-medium text-muted-foreground shadow-sm backdrop-blur-md transition-all hover:bg-white/[0.12] hover:text-foreground"
-              aria-label="Permissions mode"
-            >
-              <HugeiconsIcon icon={activePermission.icon} size={15} className="text-foreground/55 transition-colors group-hover:text-foreground/75" />
-              <span className="hidden max-w-[132px] truncate sm:inline">{activePermission.label}</span>
-              <HugeiconsIcon icon={ArrowDown01Icon} size={12} className="text-foreground/45" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent
-            side="top"
-            align="start"
-            sideOffset={8}
-            className="w-[218px] overflow-hidden rounded-xl border border-border/50 bg-popover/70 p-1.5 text-popover-foreground shadow-2xl shadow-black/35 ring-1 ring-foreground/10 backdrop-blur-xl backdrop-saturate-150"
-          >
-            <div className="space-y-0.5">
-              {permissionOptions.map((option) => {
-                const selected = autonomyMode === option.mode
-                return (
-                  <button
-                    key={option.mode}
-                    type="button"
-                    onClick={() => {
-                      onAutonomyModeChange(option.mode)
-                      setPermissionsOpen(false)
-                    }}
-                    className={cn(
-                      "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-semibold transition-colors",
-                      selected
-                        ? "text-foreground"
-                        : "text-muted-foreground hover:bg-muted/45 hover:text-foreground",
-                    )}
-                  >
-                    <HugeiconsIcon icon={option.icon} size={17} className="shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                    {selected && (
-                      <HugeiconsIcon icon={Tick02Icon} size={16} className="shrink-0 text-foreground/80" />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
           </PopoverContent>
         </Popover>
 
