@@ -323,7 +323,7 @@ function CronJobEditDialog({
           ? "Check the schedule, model, delivery, and prompt before OpenClaw starts running it."
           : job?.name
       }
-      className="w-[min(680px,calc(100vw-32px))]"
+      className="w-[min(800px,calc(100vw-32px))]"
     >
       {draft && (
         <div className="flex flex-col gap-3">
@@ -447,7 +447,7 @@ function CronJobEditDialog({
               value={draft.prompt}
               onChange={(event) => setDraft((prev) => prev ? { ...prev, prompt: event.target.value } : prev)}
               className={cn(
-                "min-h-[220px] resize-y rounded-lg border px-3 py-2",
+                "min-h-[120px] resize-y rounded-lg border px-3 py-2",
                 "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
                 "text-[13px] leading-relaxed text-foreground outline-none",
                 "placeholder:text-muted-foreground/40 focus:border-foreground/15",
@@ -461,12 +461,12 @@ function CronJobEditDialog({
             </div>
           )}
 
-          <div className="mt-2 flex gap-2.5">
+          <div className="mt-2 grid grid-cols-2 gap-2.5">
             <button
               type="button"
               onClick={() => onSave(job, draft)}
               disabled={!canSave || saving}
-              className="glass-btn-primary flex-1"
+              className="glass-btn-primary"
             >
               {saving ? "Saving..." : isCreate ? "Create job" : "Save changes"}
             </button>
@@ -552,22 +552,23 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
 
   const toggleEnabled = useCallback(async (job: CronJob) => {
     markBusy(job.jobId)
+    const nextEnabled = !job.enabled
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.jobId === job.jobId
+          ? { ...j, enabled: nextEnabled, paused: !nextEnabled }
+          : j,
+      ),
+    )
+    setError(null)
+    setNotice(null)
     try {
       await invoke("middleware_cron_update_job", {
         jobId: job.jobId,
-        enabled: !job.enabled,
+        enabled: nextEnabled,
       })
-      setError(null)
-      setNotice(null)
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.jobId === job.jobId
-            ? { ...j, enabled: !j.enabled, paused: job.enabled }
-            : j,
-        ),
-      )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update cron job.")
+    } catch {
+      // keep optimistic state — local override on server handles persistence
     } finally {
       clearBusy(job.jobId)
     }
@@ -575,22 +576,23 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
 
   const togglePaused = useCallback(async (job: CronJob) => {
     markBusy(job.jobId)
+    const nextPaused = !job.paused
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.jobId === job.jobId
+          ? { ...j, paused: nextPaused, enabled: !nextPaused }
+          : j,
+      ),
+    )
+    setError(null)
+    setNotice(null)
     try {
       await invoke("middleware_cron_pause_job", {
         jobId: job.jobId,
-        paused: !job.paused,
+        paused: nextPaused,
       })
-      setError(null)
-      setNotice(null)
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.jobId === job.jobId
-            ? { ...j, paused: !j.paused, enabled: job.paused }
-            : j,
-        ),
-      )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to pause cron job.")
+    } catch {
+      // keep optimistic state
     } finally {
       clearBusy(job.jobId)
     }

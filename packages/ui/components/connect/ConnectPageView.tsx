@@ -128,8 +128,8 @@ export function ConnectPageView({
   const missingConfig = !url.trim() || !token.trim()
 
   return (
-    <div className="flex min-h-svh items-center justify-center overflow-y-auto bg-background p-4 sm:p-6">
-      <div className="w-full max-w-[720px] space-y-4">
+    <div className="min-h-0 h-full w-full overflow-y-auto bg-background px-4 py-4 sm:px-6 sm:py-6">
+      <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col justify-center gap-4">
         <div className={cn("overflow-hidden p-6 sm:p-8", GLASS_POPOVER)}>
           <div className="mx-auto max-w-[560px] space-y-6">
             <header className="space-y-3 text-center">

@@ -337,6 +337,35 @@ export async function chatSend(input: {
     } catch {}
   }
 
+  if (validatedAttachments && validatedAttachments.length > 0) {
+    try {
+      const db = getDb()
+      const stmt = db.prepare(
+        "INSERT OR REPLACE INTO message_attachments (id, session_key, message_text_hash, name, mime_type, content, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      const ts = nowIso()
+      const textHash = crypto
+        .createHash("sha256")
+        .update(input.text.slice(0, 200))
+        .digest("hex")
+        .slice(0, 16)
+      for (const att of validatedAttachments) {
+        if (att.content) {
+          stmt.run(
+            generateId("att"),
+            input.sessionKey,
+            textHash,
+            att.name,
+            att.mimeType,
+            att.content,
+            att.size ?? null,
+            ts,
+          )
+        }
+      }
+    } catch {}
+  }
+
   return result
 }
 
@@ -574,30 +603,88 @@ export async function chatHistory(input: { sessionKey: string }) {
     created_at: string
   }>
 
-  if (edits.length === 0) return { ...history, messages: msgs }
+  if (edits.length > 0) {
+    for (const edit of edits) {
+      const sourceIdx = msgs.findIndex(
+        (m) => m.id === edit.source_message_id,
+      )
+      if (sourceIdx === -1) continue
 
-  for (const edit of edits) {
-    const sourceIdx = msgs.findIndex(
-      (m) => m.id === edit.source_message_id,
-    )
-    if (sourceIdx === -1) continue
+      let editIdx = -1
+      for (let i = sourceIdx + 1; i < msgs.length; i++) {
+        const m = msgs[i]
+        if (
+          m.role === "user" &&
+          m.createdAt &&
+          m.createdAt >= edit.created_at
+        ) {
+          editIdx = i
+          break
+        }
+      }
+      if (editIdx === -1) continue
 
-    let editIdx = -1
-    for (let i = sourceIdx + 1; i < msgs.length; i++) {
-      const m = msgs[i]
-      if (
-        m.role === "user" &&
-        m.createdAt &&
-        m.createdAt >= edit.created_at
-      ) {
-        editIdx = i
-        break
+      msgs = [...msgs.slice(0, sourceIdx), ...msgs.slice(editIdx)]
+    }
+  }
+
+  try {
+    const attAliasKeys = sessionAliasKeys(input.sessionKey, gwKey)
+    const attPlaceholders = attAliasKeys.map(() => "?").join(", ")
+    const storedAttachments = db
+      .prepare(
+        `SELECT message_text_hash, name, mime_type, content, size FROM message_attachments WHERE session_key IN (${attPlaceholders})`,
+      )
+      .all(...attAliasKeys) as Array<{
+      message_text_hash: string
+      name: string
+      mime_type: string
+      content: string
+      size: number | null
+    }>
+
+    if (storedAttachments.length > 0) {
+      const attByHash = new Map<string, typeof storedAttachments>()
+      for (const att of storedAttachments) {
+        const list = attByHash.get(att.message_text_hash) ?? []
+        list.push(att)
+        attByHash.set(att.message_text_hash, list)
+      }
+
+      type MsgWithAtt = HistMsg & { attachments?: Array<{ name: string; mimeType: string; content?: string; size?: number }> }
+      for (const msg of msgs) {
+        if (msg.role !== "user") continue
+        const rawText = typeof msg.text === "string" ? msg.text : ""
+        if (!rawText) continue
+        const hash = crypto
+          .createHash("sha256")
+          .update(rawText.slice(0, 200))
+          .digest("hex")
+          .slice(0, 16)
+        const stored = attByHash.get(hash)
+        if (!stored) continue
+
+        const m = msg as MsgWithAtt
+        const existing = m.attachments
+        if (existing && Array.isArray(existing) && existing.length > 0) {
+          for (const att of existing) {
+            if (att.content) continue
+            const match = stored.find(
+              (s) => s.name === att.name && s.mime_type === att.mimeType,
+            )
+            if (match) att.content = match.content
+          }
+        } else {
+          m.attachments = stored.map((s) => ({
+            name: s.name,
+            mimeType: s.mime_type,
+            content: s.content,
+            size: s.size ?? undefined,
+          }))
+        }
       }
     }
-    if (editIdx === -1) continue
-
-    msgs = [...msgs.slice(0, sourceIdx), ...msgs.slice(editIdx)]
-  }
+  } catch {}
 
   return { ...history, messages: msgs }
 }

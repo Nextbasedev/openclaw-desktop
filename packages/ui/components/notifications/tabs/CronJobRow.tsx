@@ -312,7 +312,7 @@ export function CronJobRow({
         />
         {!confirmDelete ? (
           <ActionButton
-            icon={Icons.Close}
+            icon={Icons.Trash}
             label="Delete"
             disabled={busy}
             onClick={() => setConfirmDelete(true)}
