@@ -189,6 +189,92 @@ function restoreSlashCommandHistoryIfGatewayReset(params: { sessionKey: string; 
   return { restored: true, sessionId: previousEntry.sessionId, sessionFile: previousFile }
 }
 
+type ChatSendAttachment = {
+  name: string
+  mimeType: string
+  content?: string
+  encoding?: "utf-8" | "base64"
+  size?: number
+}
+
+type GatewayAttachment = {
+  fileName: string
+  mimeType: string
+  content?: string
+}
+
+const TEXT_ATTACHMENT_MIME_TYPES = new Set([
+  "application/json",
+  "application/javascript",
+  "application/typescript",
+  "application/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "image/svg+xml",
+])
+const MAX_EMBEDDED_ATTACHMENT_CHARS = 120_000
+const MAX_TOTAL_EMBEDDED_ATTACHMENT_CHARS = 300_000
+
+function isTextAttachment(mimeType: string): boolean {
+  return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
+}
+
+function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
+  if (!attachment.content) return null
+  if (attachment.encoding === "base64") {
+    try { return Buffer.from(attachment.content, "base64").toString("utf8") } catch { return null }
+  }
+  return attachment.content
+}
+
+function normalizeImageAttachment(attachment: ChatSendAttachment): GatewayAttachment {
+  return {
+    fileName: attachment.name,
+    mimeType: attachment.mimeType,
+    content: attachment.encoding === "base64"
+      ? attachment.content
+      : Buffer.from(attachment.content ?? "", "utf8").toString("base64"),
+  }
+}
+
+function prepareMessageAndAttachments(message: string, raw: unknown): { message: string; attachments?: GatewayAttachment[] } {
+  if (!Array.isArray(raw) || raw.length === 0) return { message }
+
+  const gatewayAttachments: GatewayAttachment[] = []
+  const embedded: string[] = []
+  let embeddedChars = 0
+
+  for (const item of raw) {
+    const attachment = item as ChatSendAttachment
+    if (attachment.mimeType?.startsWith("image/") && attachment.content) {
+      gatewayAttachments.push(normalizeImageAttachment(attachment))
+      continue
+    }
+
+    if (attachment.mimeType && isTextAttachment(attachment.mimeType)) {
+      const decoded = decodeAttachmentText(attachment)
+      if (decoded !== null) {
+        const remaining = MAX_TOTAL_EMBEDDED_ATTACHMENT_CHARS - embeddedChars
+        const clipped = decoded.slice(0, Math.max(0, Math.min(MAX_EMBEDDED_ATTACHMENT_CHARS, remaining)))
+        embeddedChars += clipped.length
+        embedded.push(
+          `<attached-file name="${attachment.name}" mime="${attachment.mimeType}">\n${clipped}${decoded.length > clipped.length ? "\n[Attachment truncated]" : ""}\n</attached-file>`,
+        )
+        continue
+      }
+    }
+
+    embedded.push(
+      `[Attached file: ${attachment.name ?? "unnamed"} (${attachment.mimeType || "unknown mime"}, ${attachment.size ?? "unknown"} bytes). This file type is not directly readable by the current gateway.]`,
+    )
+  }
+
+  return {
+    message: embedded.length > 0 ? `${message}\n\n${embedded.join("\n\n")}` : message,
+    attachments: gatewayAttachments.length > 0 ? gatewayAttachments : undefined,
+  }
+}
+
 function recordSlashCommandInputIfGatewayOnlyAppendedOutput(params: { sessionKey: string; message: string }) {
   if (!params.message.trim().startsWith("/")) return null
   const current = readSessionStoreEntry(params.sessionKey)
@@ -801,16 +887,14 @@ export function commandRoutes(store: Store) {
               const patched = await gw.request("sessions.patch", patch, 30_000)
               if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
             }
-            const sendParams: Record<string, unknown> = {
+            const prepared = prepareMessageAndAttachments(message, input.attachments)
+            const res = await gw.request("chat.send", {
               sessionKey: key,
-              message,
+              message: prepared.message,
               timeoutMs: input.timeoutMs || 120_000,
               idempotencyKey: crypto.randomUUID(),
-            }
-            if (Array.isArray(input.attachments) && input.attachments.length > 0) {
-              sendParams.attachments = input.attachments
-            }
-            const res = await gw.request("chat.send", sendParams, input.timeoutMs || 130_000)
+              ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
+            }, input.timeoutMs || 130_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.send failed", "GATEWAY_ERROR")
             const commandHistoryRestore = restoreSlashCommandHistoryIfGatewayReset({ sessionKey: key, message, before: beforeCommandSession })
               ?? recordSlashCommandInputIfGatewayOnlyAppendedOutput({ sessionKey: key, message })

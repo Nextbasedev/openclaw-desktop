@@ -735,25 +735,106 @@ export async function getChatHistory(sessionKey: string) {
   }
 }
 
+type ChatSendAttachment = {
+  name: string
+  mimeType: string
+  content?: string
+  encoding?: "utf-8" | "base64"
+  size?: number
+}
+
+type GatewayAttachment = {
+  fileName: string
+  mimeType: string
+  content?: string
+}
+
+const TEXT_ATTACHMENT_MIME_TYPES = new Set([
+  "application/json",
+  "application/javascript",
+  "application/typescript",
+  "application/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "image/svg+xml",
+])
+const MAX_EMBEDDED_ATTACHMENT_CHARS = 120_000
+const MAX_TOTAL_EMBEDDED_ATTACHMENT_CHARS = 300_000
+
+function isTextAttachment(mimeType: string): boolean {
+  return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
+}
+
+function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
+  if (!attachment.content) return null
+  if (attachment.encoding === "base64") {
+    try { return Buffer.from(attachment.content, "base64").toString("utf8") } catch { return null }
+  }
+  return attachment.content
+}
+
+function normalizeImageAttachment(attachment: ChatSendAttachment): GatewayAttachment {
+  const content = attachment.encoding === "base64"
+    ? attachment.content
+    : Buffer.from(attachment.content ?? "", "utf8").toString("base64")
+  return {
+    fileName: attachment.name,
+    mimeType: attachment.mimeType,
+    content,
+  }
+}
+
+function prepareMessageAndAttachments(input: { text: string; attachments?: ChatSendAttachment[] }): { text: string; attachments?: GatewayAttachment[] } {
+  if (!input.attachments || input.attachments.length === 0) return { text: input.text }
+
+  const gatewayAttachments: GatewayAttachment[] = []
+  const embedded: string[] = []
+  let embeddedChars = 0
+
+  for (const attachment of input.attachments) {
+    if (attachment.mimeType.startsWith("image/") && attachment.content) {
+      gatewayAttachments.push(normalizeImageAttachment(attachment))
+      continue
+    }
+
+    if (isTextAttachment(attachment.mimeType)) {
+      const decoded = decodeAttachmentText(attachment)
+      if (decoded !== null) {
+        const remaining = MAX_TOTAL_EMBEDDED_ATTACHMENT_CHARS - embeddedChars
+        const clipped = decoded.slice(0, Math.max(0, Math.min(MAX_EMBEDDED_ATTACHMENT_CHARS, remaining)))
+        embeddedChars += clipped.length
+        embedded.push(
+          `<attached-file name="${attachment.name}" mime="${attachment.mimeType}">\n${clipped}${decoded.length > clipped.length ? "\n[Attachment truncated]" : ""}\n</attached-file>`,
+        )
+        continue
+      }
+    }
+
+    embedded.push(
+      `[Attached file: ${attachment.name} (${attachment.mimeType || "unknown mime"}, ${attachment.size ?? "unknown"} bytes). This file type is not directly readable by the current gateway.]`,
+    )
+  }
+
+  return {
+    text: embedded.length > 0 ? `${input.text}\n\n${embedded.join("\n\n")}` : input.text,
+    attachments: gatewayAttachments.length > 0 ? gatewayAttachments : undefined,
+  }
+}
+
 export async function sendChatMessage(input: {
   sessionKey: string
   text: string
   timeoutMs?: number
   regenerate?: boolean
   replyTo?: { messageId: string; snippet: string }
-  attachments?: Array<{
-    name: string
-    mimeType: string
-    content?: string
-    encoding?: "utf-8" | "base64"
-    size?: number
-  }>
+  attachments?: ChatSendAttachment[]
 }) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals"] })
   try {
+    const prepared = prepareMessageAndAttachments(input)
     const params: Record<string, unknown> = {
       sessionKey: input.sessionKey,
-      message: input.text,
+      message: prepared.text,
       timeoutMs: input.timeoutMs ?? 60_000,
       idempotencyKey: crypto.randomUUID(),
     }
@@ -763,8 +844,8 @@ export async function sendChatMessage(input: {
     if (input.replyTo) {
       params.replyTo = input.replyTo
     }
-    if (input.attachments && input.attachments.length > 0) {
-      params.attachments = input.attachments
+    if (prepared.attachments && prepared.attachments.length > 0) {
+      params.attachments = prepared.attachments
     }
     const response = await gateway.request<{ runId?: string; status?: string }>("chat.send", params, 65_000)
     if (!response.ok) throw new Error(response.error?.message ?? "chat.send failed")
