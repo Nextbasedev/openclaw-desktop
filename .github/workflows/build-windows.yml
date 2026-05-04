@@ -3,9 +3,6 @@ name: Build Windows installer
 on:
   workflow_dispatch:
   push:
-    branches:
-      - dev-dixit
-      - main
     tags:
       - "v*"
 
