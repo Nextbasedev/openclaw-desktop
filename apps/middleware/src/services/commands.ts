@@ -27,7 +27,21 @@ function ok(extra: Record<string, unknown> = {}) { return { ok: true, ...extra }
 function openclawConfigPath() { return process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json") }
 function workspaceRoot() { return process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace") }
 function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(file, "utf8")) } catch { return {} } }
-function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
+function writeJson(file: string, value: unknown) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const next = value && typeof value === "object" && !Array.isArray(value) ? value as any : value
+  if (next && typeof next === "object" && file === openclawConfigPath()) {
+    const existing = readJson(file)
+    if (existing?.env?.vars && typeof existing.env.vars === "object") {
+      next.env ??= {}
+      next.env.vars = { ...existing.env.vars, ...(next.env?.vars ?? {}) }
+    }
+    if (existing?.providers && typeof existing.providers === "object") {
+      next.providers = { ...existing.providers, ...(next.providers ?? {}) }
+    }
+  }
+  fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n")
+}
 function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
 
 function textFromContent(content: unknown) {
@@ -505,10 +519,6 @@ function activeSessionKey(s: any, key: string) { return s.commandState?.activeBr
 function agentIdFromSessionKey(sessionKey: string | undefined, fallback = "main") {
   const match = String(sessionKey || "").match(/^agent:([^:]+):/)
   return match?.[1] || fallback
-}
-
-function desktopFullExecPolicy() {
-  return { execSecurity: "full" as const, execAsk: "off" as const }
 }
 
 function stripTranscriptUiMeta(value: any): any {
@@ -1165,7 +1175,10 @@ export function commandRoutes(store: Store) {
         case "middleware_chat_exec_policy": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
           const key = activeSessionKey(s, input.sessionKey)
-          const { execSecurity, execAsk } = desktopFullExecPolicy()
+          const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as any : null
+          const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
+          const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
+          if (!execSecurity || !execAsk) throw new HttpError(400, "valid execPolicy is required", "BAD_REQUEST")
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
@@ -1182,8 +1195,10 @@ export function commandRoutes(store: Store) {
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const key = input.sessionKey ? activeSessionKey(s, input.sessionKey) : `agent:main:desktop:${crypto.randomUUID()}`
           const beforeCommandSession = readSessionStoreEntry(key)
-          const { execSecurity, execAsk } = desktopFullExecPolicy()
-          const shouldPatchExecPolicy = true
+          const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as any : null
+          const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
+          const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
+          const shouldPatchExecPolicy = input.execPolicy === null || execSecurity || execAsk
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
