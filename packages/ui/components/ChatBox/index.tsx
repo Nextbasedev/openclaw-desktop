@@ -11,6 +11,7 @@ import { useSlashCommands } from "@/hooks/useSlashCommands"
 import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
+import { invoke } from "@/lib/ipc"
 import { LuX } from "react-icons/lu"
 import {
   execPolicyForAutonomyMode,
@@ -24,6 +25,14 @@ import {
   initialComposerState,
 } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
+
+type VoiceSettingsPayload = {
+  settings?: {
+    enabled?: boolean
+    provider?: string
+    model?: string
+  }
+}
 
 type Props = {
   initialPrompt?: string
@@ -102,7 +111,7 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
-  const { state: voiceState, isSupported: voiceSupported, toggle: toggleVoice } = useVoiceRecorder({
+  const { state: voiceState, isSupported: recorderSupported, toggle: toggleVoice } = useVoiceRecorder({
     onAudioFile: async (file) => {
       await processFiles([file])
     },
@@ -110,6 +119,43 @@ export function ChatBox({
       setAttachmentError(message)
     },
   })
+  const [voiceModelActive, setVoiceModelActive] = React.useState(false)
+  const [voiceStatusLoading, setVoiceStatusLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadVoiceStatus() {
+      setVoiceStatusLoading(true)
+      try {
+        const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_get")
+        if (cancelled) return
+        const settings = payload.settings
+        setVoiceModelActive(Boolean(
+          settings?.enabled !== false &&
+          settings?.provider &&
+          settings.provider !== "auto" &&
+          settings.model,
+        ))
+      } catch {
+        if (!cancelled) setVoiceModelActive(false)
+      } finally {
+        if (!cancelled) setVoiceStatusLoading(false)
+      }
+    }
+    void loadVoiceStatus()
+    window.addEventListener("openclaw:voice-settings-changed", loadVoiceStatus)
+    return () => {
+      cancelled = true
+      window.removeEventListener("openclaw:voice-settings-changed", loadVoiceStatus)
+    }
+  }, [])
+
+  const voiceSupported = recorderSupported && voiceModelActive
+  const voiceDisabledReason = !recorderSupported
+    ? "Voice input not supported in this app window"
+    : voiceStatusLoading
+      ? "Checking voice model setup…"
+      : "Set an active voice provider and audio model in Settings → Voice"
 
   React.useEffect(() => {
     if (initialPrompt != null) {
@@ -512,6 +558,7 @@ export function ChatBox({
             isRecording={voiceState === "recording"}
             onVoiceToggle={toggleVoice}
             voiceSupported={voiceSupported}
+            voiceDisabledReason={voiceDisabledReason}
             attachmentCount={attachments.length}
             disableUpload={disabled || isPreparingAttachments}
           />
