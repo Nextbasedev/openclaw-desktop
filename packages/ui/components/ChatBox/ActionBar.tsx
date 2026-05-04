@@ -41,6 +41,7 @@ type ActionBarProps = {
   isRecording?: boolean
   onVoiceToggle?: () => void
   voiceSupported?: boolean
+  voiceDisabledReason?: string
   attachmentCount?: number
   disableUpload?: boolean
 }
@@ -66,6 +67,7 @@ export function ActionBar({
   isRecording,
   onVoiceToggle,
   voiceSupported = true,
+  voiceDisabledReason,
   attachmentCount = 0,
   disableUpload = false,
 }: ActionBarProps) {
@@ -216,7 +218,7 @@ export function ActionBar({
           aria-label={isRecording ? "Stop recording" : "Voice input"}
           title={
             !voiceSupported
-              ? "Voice input not supported in this browser"
+              ? voiceDisabledReason || "Voice input not supported in this browser"
               : isRecording
                 ? "Stop recording"
                 : "Voice input"

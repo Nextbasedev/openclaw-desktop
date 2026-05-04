@@ -231,6 +231,7 @@ export function VoiceTab() {
       setVoiceSettingsAvailable(true)
       setSettings(payload.settings)
       setOptions(payload.options?.length ? payload.options : options)
+      window.dispatchEvent(new CustomEvent("openclaw:voice-settings-changed"))
       setStatus({ tone: "success", message: "Saved. New voice messages will use this transcription setup." })
     } catch (error) {
       if (isUnknownVoiceCommand(error)) {
@@ -297,6 +298,7 @@ export function VoiceTab() {
       })
       if (voiceSettingsAvailable) {
         await save(current)
+        window.dispatchEvent(new CustomEvent("openclaw:voice-settings-changed"))
         setAccessStatus({ tone: "success", message: "Provider access and voice settings saved." })
       } else {
         setAccessStatus({ tone: "success", message: "Provider access saved. Pull the latest Desktop build to enable voice model selection." })
@@ -402,7 +404,7 @@ export function VoiceTab() {
             </div>
           )}
 
-          <div className={cn((!voiceSettingsAvailable || current.provider === "auto") && "opacity-60")}>
+          <div className={cn(current.provider === "auto" && "opacity-60")}>
             <label className="block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
               Audio model
             </label>
@@ -410,14 +412,20 @@ export function VoiceTab() {
               <div className="relative">
                 <select
                   value={current.provider === "auto" ? "auto" : current.model}
-                  disabled={!voiceSettingsAvailable || loading || saving || current.provider === "auto"}
+                  disabled={loading || saving || current.provider === "auto"}
                   onChange={(event) => {
                     if (event.target.value === "__custom") {
                       setCustomModelOpen(true)
                       return
                     }
                     setCustomModelOpen(false)
-                    void save({ ...current, model: event.target.value })
+                    const next = { ...current, model: event.target.value }
+                    setSettings(next)
+                    if (voiceSettingsAvailable) {
+                      void save(next)
+                    } else {
+                      setStatus({ tone: "muted", message: "Audio model selected. Add provider access below; saving voice model requires the latest Desktop backend." })
+                    }
                   }}
                   className="h-9 w-full appearance-none rounded-md border border-border/60 bg-background/70 px-3 pr-9 text-[13px] text-foreground outline-none transition-colors focus:border-foreground/30 disabled:opacity-60"
                 >
@@ -437,7 +445,7 @@ export function VoiceTab() {
               {current.provider !== "auto" && (
                 <button
                   type="button"
-                  disabled={!voiceSettingsAvailable || loading || saving}
+                  disabled={loading || saving}
                   onClick={() => setCustomModelOpen((open) => !open)}
                   className="rounded-md border border-border/50 px-3 py-2 text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:opacity-60"
                 >
@@ -448,9 +456,17 @@ export function VoiceTab() {
             {customModelOpen && current.provider !== "auto" && (
               <input
                 value={current.model}
-                disabled={!voiceSettingsAvailable || loading || saving}
+                disabled={loading || saving}
                 onChange={(event) => setSettings({ ...current, model: event.target.value })}
-                onBlur={(event) => { void save({ ...current, model: event.target.value }) }}
+                onBlur={(event) => {
+                  const next = { ...current, model: event.target.value }
+                  if (voiceSettingsAvailable) {
+                    void save(next)
+                  } else {
+                    setSettings(next)
+                    setStatus({ tone: "muted", message: "Custom audio model selected. Add provider access below; saving voice model requires the latest Desktop backend." })
+                  }
+                }}
                 className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
                 placeholder="custom-audio-model-id"
               />
