@@ -157,11 +157,20 @@ export function ConnectPageView({
                   <ChoiceScreen onSelect={onSetupModeChange} />
                 ) : setupMode === "local" ? (
                   <LocalOpenClawPanel
+                    url={url}
+                    token={token}
+                    showToken={showToken}
                     busy={busy}
+                    saving={saving}
+                    missingConfig={missingConfig}
                     loadingStatus={loadingStatus}
                     detectMessage={detectMessage}
                     onBack={() => onSetupModeChange("choice")}
                     onDetect={() => onAutoDetectChange(true)}
+                    onUrlChange={onUrlChange}
+                    onTokenChange={onTokenChange}
+                    onShowTokenChange={onShowTokenChange}
+                    onSave={onSave}
                   />
                 ) : (
                   <VpsOpenClawPanel
@@ -284,17 +293,35 @@ function ModeCard({
 }
 
 function LocalOpenClawPanel({
+  url,
+  token,
+  showToken,
   busy,
+  saving,
+  missingConfig,
   loadingStatus,
   detectMessage,
   onBack,
   onDetect,
+  onUrlChange,
+  onTokenChange,
+  onShowTokenChange,
+  onSave,
 }: {
+  url: string
+  token: string
+  showToken: boolean
   busy: boolean
+  saving: boolean
+  missingConfig: boolean
   loadingStatus: boolean
   detectMessage: DetectMessage | null
   onBack: () => void
   onDetect: () => void
+  onUrlChange: (value: string) => void
+  onTokenChange: (value: string) => void
+  onShowTokenChange: (show: boolean) => void
+  onSave: () => void
 }) {
   const checking = busy || loadingStatus
   return (
@@ -309,8 +336,30 @@ function LocalOpenClawPanel({
       </div>
       <StatusMessage message={detectMessage} fallback="Checking for local OpenClaw..." />
       <Button type="button" onClick={onDetect} disabled={checking} className="w-full">
-        {checking ? "Checking..." : "Retry detection"}
+        {checking ? "Checking..." : "Start / detect local backend"}
       </Button>
+      <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+        <p className="text-xs font-medium text-zinc-300">If auto-pairing asks for a code</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+          Paste the local Middleware URL and pairing code here. This is only a fallback; normal local setup should auto-detect.
+        </p>
+        <div className="mt-3 space-y-3">
+          <ManualFields
+            url={url}
+            token={token}
+            showToken={showToken}
+            disabled={busy}
+            tokenLabel="Pairing code"
+            tokenPlaceholder="ABC-123"
+            onUrlChange={onUrlChange}
+            onTokenChange={onTokenChange}
+            onShowTokenChange={onShowTokenChange}
+          />
+          <Button onClick={onSave} disabled={busy || missingConfig} className="w-full" size="sm">
+            {saving ? "Pairing..." : "Pair local backend"}
+          </Button>
+        </div>
+      </div>
       <PromptBox
         title="If OpenClaw is not running, ask your local OpenClaw:"
         prompt={LOCAL_OPENCLAW_PROMPT}
