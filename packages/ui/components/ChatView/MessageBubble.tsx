@@ -14,7 +14,6 @@ import {
   LuRefreshCw,
   LuReply,
   LuThumbsDown,
-  LuThumbsUp,
   LuX,
   LuGitFork,
   LuLoader,
@@ -537,30 +536,6 @@ export function MessageBubble({
                 {onReact && (
                   <div className="flex items-center gap-0.5">
                     <AnimatePresence mode="popLayout" initial={false}>
-                      {(reaction === "up" || !reaction) && (
-                        <motion.button
-                          key="up"
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.8 }}
-                          type="button"
-                          onClick={() => onReact(message.messageId, "up")}
-                          className={cn(
-                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
-                            reaction === "up"
-                              ? "text-white"
-                              : "text-foreground/30 hover:text-white"
-                          )}
-                          aria-label="Helpful"
-                        >
-                          {reaction === "up" ? (
-                            <LuThumbsUp className="size-3.5 fill-white" />
-                          ) : (
-                            <LuThumbsUp className="size-3.5" />
-                          )}
-                        </motion.button>
-                      )}
-
                       {(reaction === "down" || !reaction) && (
                         <motion.button
                           key="down"
