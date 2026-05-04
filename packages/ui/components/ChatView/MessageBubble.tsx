@@ -317,7 +317,7 @@ export function MessageBubble({
   onTextAnimationComplete?: (messageId: string) => void
   onFork?: (messageId: string) => void
   onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
-  onAskSelectedText?: (text: string) => void
+  onAskSelectedText?: (messageId: string, text: string) => void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -417,10 +417,10 @@ export function MessageBubble({
 
   const askAboutSelection = useCallback(() => {
     if (!selectionAction?.text) return
-    onAskSelectedText?.(selectionAction.text)
+    onAskSelectedText?.(message.messageId, selectionAction.text)
     window.getSelection()?.removeAllRanges()
     setSelectionAction(null)
-  }, [onAskSelectedText, selectionAction?.text])
+  }, [message.messageId, onAskSelectedText, selectionAction?.text])
 
   useEffect(() => {
     if (isUser || !onAskSelectedText) return
