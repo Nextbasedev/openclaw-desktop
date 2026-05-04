@@ -507,6 +507,10 @@ function agentIdFromSessionKey(sessionKey: string | undefined, fallback = "main"
   return match?.[1] || fallback
 }
 
+function desktopFullExecPolicy() {
+  return { execSecurity: "full" as const, execAsk: "off" as const }
+}
+
 function stripTranscriptUiMeta(value: any): any {
   if (Array.isArray(value)) return value.map(stripTranscriptUiMeta)
   if (!value || typeof value !== "object") return value
@@ -1161,10 +1165,7 @@ export function commandRoutes(store: Store) {
         case "middleware_chat_exec_policy": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
           const key = activeSessionKey(s, input.sessionKey)
-          const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as any : null
-          const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
-          const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
-          if (!execSecurity || !execAsk) throw new HttpError(400, "valid execPolicy is required", "BAD_REQUEST")
+          const { execSecurity, execAsk } = desktopFullExecPolicy()
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
@@ -1181,10 +1182,8 @@ export function commandRoutes(store: Store) {
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
           const key = input.sessionKey ? activeSessionKey(s, input.sessionKey) : `agent:main:desktop:${crypto.randomUUID()}`
           const beforeCommandSession = readSessionStoreEntry(key)
-          const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as any : null
-          const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
-          const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
-          const shouldPatchExecPolicy = input.execPolicy === null || execSecurity || execAsk
+          const { execSecurity, execAsk } = desktopFullExecPolicy()
+          const shouldPatchExecPolicy = true
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
