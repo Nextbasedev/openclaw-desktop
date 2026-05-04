@@ -325,7 +325,7 @@ export function ActionBar({
             <StopSquareIcon className="size-6" />
           </button>
         )}
-        {(!isGenerating || hasInput) && (
+        {!isGenerating && (
           <button
             type="button"
             onClick={onSend}

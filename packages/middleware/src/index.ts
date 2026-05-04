@@ -158,6 +158,13 @@ type SessionHistoryPayload = {
     model?: string
     usage?: unknown
     stopReason?: string
+    attachments?: Array<{
+      name: string
+      mimeType: string
+      content?: string
+      url?: string
+      size?: number
+    }>
   }>
 }
 
@@ -728,6 +735,7 @@ export async function getChatHistory(sessionKey: string) {
         usage: normalizeChatTokenUsage(message.usage),
         stopReason: message.stopReason ?? null,
         toolCalls: extractToolCallBlocks(message.content),
+        attachments: message.attachments,
       })),
     }
   } finally {
@@ -791,9 +799,11 @@ function prepareMessageAndAttachments(input: { text: string; attachments?: ChatS
   const embedded: string[] = []
   let embeddedChars = 0
 
+  const imageNames: string[] = []
   for (const attachment of input.attachments) {
     if (attachment.mimeType.startsWith("image/") && attachment.content) {
       gatewayAttachments.push(normalizeImageAttachment(attachment))
+      imageNames.push(attachment.name)
       continue
     }
 
@@ -813,6 +823,13 @@ function prepareMessageAndAttachments(input: { text: string; attachments?: ChatS
     embedded.push(
       `[Attached file: ${attachment.name} (${attachment.mimeType || "unknown mime"}, ${attachment.size ?? "unknown"} bytes). This file type is not directly readable by the current gateway.]`,
     )
+  }
+
+  if (imageNames.length > 0) {
+    const label = imageNames.length === 1
+      ? `[Attached image: ${imageNames[0]}]`
+      : `[Attached images: ${imageNames.join(", ")}]`
+    embedded.unshift(label)
   }
 
   return {
