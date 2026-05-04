@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { invoke } from "@/lib/ipc"
-import { openEventStream } from "@/lib/ipc"
+import { invoke, openEventStream } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
+import { notify, ensureNotificationPermission } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import type { ActiveChat } from "@/types/chat"
 import {
@@ -86,10 +86,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   })
 }
 
-function showBrowserNotification(event: CronRunEvent) {
+function showCronNotification(event: CronRunEvent) {
   if (typeof window === "undefined") return
-  if (!("Notification" in window)) return
-  if (Notification.permission !== "granted") return
 
   const title = event.name ?? `Cron Job ${event.jobId.slice(0, 8)}`
   const isError = event.type === "cron.run.failed"
@@ -99,7 +97,7 @@ function showBrowserNotification(event: CronRunEvent) {
       ? "Completed successfully"
       : "Started running"
 
-  new Notification(title, { body, silent: false })
+  void notify({ title, body })
 }
 
 function statusIcon(type: CronRunEvent["type"]) {
@@ -195,6 +193,10 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
   }, [open])
 
   useEffect(() => {
+    void ensureNotificationPermission()
+  }, [])
+
+  useEffect(() => {
     const cleanup = openEventStream(
       "/api/stream/cron",
       (evt: MessageEvent) => {
@@ -210,7 +212,7 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
             event.type === "cron.run.failed"
           ) {
             setBadgeCount((c) => c + 1)
-            showBrowserNotification(event)
+            showCronNotification(event)
           }
         } catch {
           // ignore malformed events

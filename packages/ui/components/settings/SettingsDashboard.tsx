@@ -9,11 +9,6 @@ import { ArchiveTab } from "./tabs/ArchiveTab"
 import { MemoryTab } from "./tabs/MemoryTab"
 import { UsageTab } from "./tabs/UsageTab"
 import { cn } from "@/lib/utils"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 
 type SettingSection = "usage" | "memory" | "archive" | "appearance" | "help" | "shortcuts"
 
@@ -50,6 +45,7 @@ type SettingsDashboardProps = {
 export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
   const [activeSection, setActiveSection] = React.useState<SettingSection>("memory")
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
 
   function handleSidebarClick(id: SettingSection) {
     setActiveSection(id)
@@ -57,42 +53,22 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 justify-center gap-3 px-2 pt-6 min-[720px]:gap-5 min-[720px]:px-3 min-[720px]:pt-8 lg:gap-10 lg:pt-10">
-      <nav className="flex w-12 shrink-0 flex-col px-1 py-5 min-[720px]:w-[180px] min-[720px]:px-3 min-[720px]:py-6">
+    <div className="flex h-full w-full min-w-0 flex-col items-center px-2 pt-6 min-[720px]:px-3 min-[720px]:pt-8 lg:pt-10">
+      <nav className="w-full max-w-2xl px-2">
         {onBack && (
-          <RailTooltip label="Back">
-            <button
-              onClick={onBack}
-              aria-label="Back"
-              className="group mb-4 flex cursor-pointer items-center justify-center gap-2 rounded-md px-0 py-2 text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground min-[720px]:justify-start min-[720px]:px-2.5 min-[720px]:py-1.5"
-            >
-              <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
-              <span className="hidden min-[720px]:inline">Back</span>
-            </button>
-          </RailTooltip>
+          <button
+            onClick={onBack}
+            aria-label="Back"
+            className="group mb-4 flex cursor-pointer items-center gap-2 rounded-md text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
+            <span>Back</span>
+          </button>
         )}
 
-        {SECTION_GROUPS.map((group) => (
-          <div key={group.label} className="mb-3">
-            <p className="mb-1.5 hidden px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 min-[720px]:block">
-              {group.label}
-            </p>
-            <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <SidebarButton
-                  key={item.id}
-                  item={item}
-                  isActive={activeSection === item.id}
-                  onClick={() => handleSidebarClick(item.id)}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-
-        <div className="mt-auto pt-3">
-          {FOOTER_ITEMS.map((item) => (
-            <SidebarButton
+        <div className="flex flex-wrap gap-2 pb-2">
+          {topNavItems.map((item) => (
+            <TopNavButton
               key={item.id}
               item={item}
               isActive={activeSection === item.id}
@@ -102,7 +78,7 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
         </div>
       </nav>
 
-      <div ref={scrollRef} className="my-2 mx-2 min-w-0 flex-1 overflow-y-auto scrollbar-hide md:my-4 lg:my-6 max-w-xl">
+      <div ref={scrollRef} className="my-2 mx-2 w-full max-w-2xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
         {activeSection === "usage" && <UsageTab />}
 
         {activeSection === "memory" && <MemoryTab />}
@@ -119,7 +95,7 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
   )
 }
 
-function SidebarButton({
+function TopNavButton({
   item,
   isActive,
   onClick,
@@ -129,39 +105,20 @@ function SidebarButton({
   onClick: () => void
 }) {
   const Icon = item.icon
-  const button = (
+  return (
     <button
       type="button"
       onClick={onClick}
       aria-label={item.label}
       className={cn(
-        "flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-md px-0 py-2 text-left text-[14px] transition-colors min-[720px]:justify-start min-[720px]:px-2.5",
+        "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-left text-[14px] transition-colors",
         isActive
-          ? "bg-foreground/5 text-foreground"
-          : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+          ? "border-foreground/25 bg-foreground/5 text-foreground"
+          : "border-border/50 text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
       )}
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
-      <span className="hidden truncate min-[720px]:inline">{item.label}</span>
+      <span className="truncate">{item.label}</span>
     </button>
-  )
-
-  return <RailTooltip label={item.label}>{button}</RailTooltip>
-}
-
-function RailTooltip({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="right" sideOffset={8} className="min-[720px]:hidden">
-        {label}
-      </TooltipContent>
-    </Tooltip>
   )
 }
