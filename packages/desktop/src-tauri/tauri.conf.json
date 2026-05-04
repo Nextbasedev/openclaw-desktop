@@ -32,6 +32,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": [
       "bundled/middleware/**/*"
     ],
@@ -43,5 +44,12 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3RUMzNzM1MkFFNjA5MEUKUldRT0NlWXFOVGZzbDB4RXExQXlYRFpUSTNpb1pXUXFUSXdjOUw0cnVoSFRBeUJySjVYZE1BS24K",
+      "endpoints": [
+        "https://github.com/Nextbasedev/openclaw-desktop/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }
