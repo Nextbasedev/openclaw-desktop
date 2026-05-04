@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
 import { checkGatewayOrRedirect } from "@/lib/toast"
+import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
@@ -245,6 +246,22 @@ export function useProjectsData(
     loadProjects()
     for (const id of Object.keys(projectTopics)) loadProjectTopics(id, true)
   }), [loadProjects, loadProjectTopics, projectTopics])
+
+  useEffect(() => {
+    function clearMiddlewareScopedProjects() {
+      setProjects([])
+      setProjectTopics({})
+      setProjectOrder([])
+      setTopicOrder({})
+      setPinnedProjects(new Set())
+      setPinnedTopics(new Set())
+      setExpandedProjects(new Set())
+      setLoadingProject(null)
+      void loadProjects()
+    }
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, clearMiddlewareScopedProjects)
+    return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, clearMiddlewareScopedProjects)
+  }, [loadProjects])
 
   useEffect(() => {
     return on<any>("fork:create", (event) => {
