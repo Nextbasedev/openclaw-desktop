@@ -23,6 +23,7 @@ import * as connect from "../services/connect.service.js"
 import * as terminal from "../services/terminal.service.js"
 import * as ptyService from "../services/pty.service.js"
 import * as models from "../services/models.service.js"
+import * as voiceSettings from "../services/voice-settings.service.js"
 import * as repos from "../services/repos.service.js"
 import * as workspace from "../services/workspace.service.js"
 import * as version from "../services/version.service.js"
@@ -259,6 +260,10 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_models_list: () => models.modelsList(),
   middleware_models_auth_status: () => models.modelsAuthStatus(),
   middleware_models_set_default: (i) => models.modelsSetDefault(i as { modelId: string }),
+
+  // Voice settings
+  middleware_voice_settings_get: () => voiceSettings.voiceSettingsGet(),
+  middleware_voice_settings_set: (i) => voiceSettings.voiceSettingsSet(i as Parameters<typeof voiceSettings.voiceSettingsSet>[0]),
 
   // Repos
   middleware_repos_scan: (i) => repos.reposScan(i as { extraPaths?: string[] } | undefined),

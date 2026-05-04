@@ -1,6 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { LuCheck, LuChevronDown, LuInfo, LuMic, LuSettings2 } from "react-icons/lu"
+
+import { cn } from "@/lib/utils"
 import { invoke } from "@/lib/ipc"
 
 type VoiceProvider = "auto" | "openai" | "groq" | "deepgram" | "google" | "mistral"
@@ -33,27 +36,68 @@ const FALLBACK_OPTIONS: VoiceOption[] = [
   { provider: "mistral", model: "voxtral-mini-latest", label: "Mistral - voxtral-mini-latest" },
 ]
 
+const PROVIDER_COPY: Record<VoiceProvider, { name: string; note: string; initial: string }> = {
+  auto: {
+    name: "Auto",
+    note: "Recommended. Gateway tries configured providers, then local STT fallbacks.",
+    initial: "A",
+  },
+  openai: {
+    name: "OpenAI",
+    note: "Use when an OpenAI API key is configured.",
+    initial: "O",
+  },
+  groq: {
+    name: "Groq",
+    note: "Fast Whisper transcription with a Groq key.",
+    initial: "G",
+  },
+  deepgram: {
+    name: "Deepgram",
+    note: "Dedicated speech-to-text provider for voice-heavy use.",
+    initial: "D",
+  },
+  google: {
+    name: "Google",
+    note: "Gemini audio transcription through Google credentials.",
+    initial: "G",
+  },
+  mistral: {
+    name: "Mistral",
+    note: "Voxtral transcription through a Mistral key.",
+    initial: "M",
+  },
+}
+
+const defaultSettings: VoiceSettings = {
+  enabled: true,
+  provider: "auto",
+  model: "",
+  language: "",
+  echoTranscript: false,
+}
+
 function optionValue(option: VoiceOption) {
   return option.provider === "auto" ? "auto" : `${option.provider}/${option.model}`
 }
 
-function parseOptionValue(value: string, options: VoiceOption[]): Pick<VoiceSettings, "provider" | "model"> {
-  if (value === "auto") return { provider: "auto", model: "" }
-  const match = options.find((option) => optionValue(option) === value)
-  if (match) return { provider: match.provider, model: match.model }
-  const [provider, ...modelParts] = value.split("/")
-  return {
-    provider: (["openai", "groq", "deepgram", "google", "mistral"].includes(provider) ? provider : "auto") as VoiceProvider,
-    model: modelParts.join("/"),
-  }
+function currentValue(settings: VoiceSettings) {
+  return settings.provider === "auto" ? "auto" : `${settings.provider}/${settings.model}`
+}
+
+function statusClass(tone: "muted" | "success" | "error") {
+  if (tone === "error") return "border-red-500/20 bg-red-500/10 text-red-400"
+  if (tone === "success") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+  return "border-border/40 bg-foreground/[0.04] text-muted-foreground"
 }
 
 export function VoiceTab() {
   const [settings, setSettings] = React.useState<VoiceSettings | null>(null)
   const [options, setOptions] = React.useState<VoiceOption[]>(FALLBACK_OPTIONS)
+  const [advancedOpen, setAdvancedOpen] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
-  const [status, setStatus] = React.useState<string | null>(null)
+  const [status, setStatus] = React.useState<{ tone: "muted" | "success" | "error"; message: string } | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -67,8 +111,8 @@ export function VoiceTab() {
         setStatus(null)
       } catch (error) {
         if (cancelled) return
-        setSettings({ enabled: true, provider: "auto", model: "", language: "", echoTranscript: false })
-        setStatus(error instanceof Error ? error.message : "Could not load voice settings")
+        setSettings(defaultSettings)
+        setStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not load voice settings" })
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -80,105 +124,189 @@ export function VoiceTab() {
   async function save(next: VoiceSettings) {
     setSettings(next)
     setSaving(true)
-    setStatus("Saving voice model...")
+    setStatus({ tone: "muted", message: "Saving voice settings..." })
     try {
       const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_set", { input: next })
       setSettings(payload.settings)
       setOptions(payload.options?.length ? payload.options : options)
-      setStatus("Voice model saved. New voice messages will use this transcription model.")
+      setStatus({ tone: "success", message: "Saved. New voice messages will use this transcription setup." })
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not save voice settings")
+      setStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not save voice settings" })
     } finally {
       setSaving(false)
     }
   }
 
-  const current = settings ?? { enabled: true, provider: "auto", model: "", language: "", echoTranscript: false }
-  const selectedValue = current.provider === "auto" ? "auto" : `${current.provider}/${current.model}`
+  const current = settings ?? defaultSettings
+  const selectedValue = currentValue(current)
+  const selectedMeta = PROVIDER_COPY[current.provider]
+  const selectedModel = current.provider === "auto" ? "Gateway fallback chain" : current.model
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5 pb-8">
       <div>
         <h2 className="text-lg font-semibold text-foreground">Voice</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Choose the speech-to-text model used when you send voice messages.
+          Speech-to-text settings for chat mic messages.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-border/50 bg-card">
-        <div className="px-5 py-4">
-          <h3 className="text-[13px] font-medium text-foreground">Voice model</h3>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-            Desktop records audio and Gateway transcribes it before the chat model responds.
-          </p>
+      <section className="overflow-hidden rounded-lg border border-border/50 bg-card/70">
+        <div className="flex items-start gap-3 border-b border-border/35 bg-foreground/[0.035] px-4 py-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/50 bg-background/70 text-muted-foreground">
+            <LuMic size={17} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h3 className="text-[14px] font-medium text-foreground">Current transcription</h3>
+              {saving && <span className="text-[11px] text-muted-foreground">Saving…</span>}
+            </div>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+              <span className="text-foreground">{selectedMeta.name}</span>
+              <span className="mx-1.5 text-muted-foreground/40">·</span>
+              <span className="font-mono text-[11px]">{selectedModel}</span>
+            </p>
+          </div>
+        </div>
 
-          <label className="mt-4 block text-[12px] font-medium text-muted-foreground">
-            Transcription provider
-          </label>
-          <select
-            value={selectedValue}
-            disabled={loading || saving}
-            onChange={(event) => {
-              const selected = parseOptionValue(event.target.value, options)
-              void save({ ...current, ...selected })
-            }}
-            className="mt-2 w-full rounded-md border border-border/60 bg-background px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-foreground/30 disabled:opacity-60"
-          >
-            {options.map((option) => (
-              <option key={optionValue(option)} value={optionValue(option)}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <div className="divide-y divide-border/30">
+          {options.map((option) => {
+            const value = optionValue(option)
+            const selected = selectedValue === value
+            const copy = PROVIDER_COPY[option.provider]
 
-          {current.provider !== "auto" && (
-            <div className="mt-4">
+            return (
+              <button
+                key={value}
+                type="button"
+                disabled={loading || saving}
+                onClick={() => { void save({ ...current, provider: option.provider, model: option.model }) }}
+                className={cn(
+                  "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors disabled:pointer-events-none disabled:opacity-60",
+                  selected ? "bg-foreground/[0.055]" : "hover:bg-foreground/[0.035]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-8 shrink-0 items-center justify-center rounded-md border text-[12px] font-semibold",
+                    selected
+                      ? "border-foreground/25 bg-foreground text-background"
+                      : "border-border/50 bg-background/50 text-muted-foreground",
+                  )}
+                >
+                  {selected ? <LuCheck size={14} /> : copy.initial}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="text-[13px] font-medium text-foreground">{copy.name}</span>
+                    <span className="truncate font-mono text-[11px] text-muted-foreground/70">
+                      {option.model || "automatic"}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-[12px] leading-relaxed text-muted-foreground">
+                    {copy.note}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border/50 bg-card/70">
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((open) => !open)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.035]"
+        >
+          <span className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+            <LuSettings2 size={15} />
+            Advanced options
+          </span>
+          <LuChevronDown
+            size={15}
+            className={cn("text-muted-foreground transition-transform", advancedOpen && "rotate-180")}
+          />
+        </button>
+
+        {advancedOpen && (
+          <div className="space-y-4 border-t border-border/35 px-4 py-4">
+            {current.provider !== "auto" && (
               <label className="block text-[12px] font-medium text-muted-foreground">
                 Model ID
+                <input
+                  value={current.model}
+                  disabled={loading || saving}
+                  onChange={(event) => setSettings({ ...current, model: event.target.value })}
+                  onBlur={(event) => { void save({ ...current, model: event.target.value }) }}
+                  className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
+                  placeholder="model-name"
+                />
               </label>
-              <input
-                value={current.model}
-                disabled={loading || saving}
-                onChange={(event) => setSettings({ ...current, model: event.target.value })}
-                onBlur={() => { void save(current) }}
-                className="mt-2 w-full rounded-md border border-border/60 bg-background px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-foreground/30 disabled:opacity-60"
-                placeholder="model-name"
-              />
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-[12px] font-medium text-muted-foreground">
+                Language hint
+                <input
+                  value={current.language}
+                  disabled={loading || saving}
+                  onChange={(event) => setSettings({ ...current, language: event.target.value })}
+                  onBlur={(event) => { void save({ ...current, language: event.target.value }) }}
+                  className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
+                  placeholder="auto, en, hi..."
+                />
+              </label>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-foreground/[0.035] px-3 py-2.5">
+                <div>
+                  <p className="text-[12px] font-medium text-foreground">Echo transcript</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Show transcript in chat.</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={current.echoTranscript}
+                  disabled={loading || saving}
+                  onClick={() => { void save({ ...current, echoTranscript: !current.echoTranscript }) }}
+                  className={cn(
+                    "relative inline-flex h-[22px] w-[40px] shrink-0 items-center rounded-full transition-colors disabled:opacity-60",
+                    current.echoTranscript ? "bg-foreground" : "bg-muted",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "block size-[18px] rounded-full bg-background shadow-sm transition-transform",
+                      current.echoTranscript ? "translate-x-5" : "translate-x-0.5",
+                    )}
+                  />
+                </button>
+              </div>
             </div>
-          )}
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <label className="block text-[12px] font-medium text-muted-foreground">
-              Language hint
-              <input
-                value={current.language}
-                disabled={loading || saving}
-                onChange={(event) => setSettings({ ...current, language: event.target.value })}
-                onBlur={() => { void save(current) }}
-                className="mt-2 w-full rounded-md border border-border/60 bg-background px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-foreground/30 disabled:opacity-60"
-                placeholder="auto, en, hi..."
-              />
-            </label>
-
-            <label className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-muted/10 px-3 py-3 text-[12px] font-medium text-muted-foreground">
-              Echo transcript in chat
-              <input
-                type="checkbox"
-                checked={current.echoTranscript}
-                disabled={loading || saving}
-                onChange={(event) => { void save({ ...current, echoTranscript: event.target.checked }) }}
-                className="size-4 accent-foreground"
-              />
-            </label>
           </div>
+        )}
+      </section>
 
-          {status && (
-            <p className="mt-4 text-[12px] leading-relaxed text-muted-foreground">
-              {status}
+      <section className="rounded-lg border border-border/50 bg-foreground/[0.035] px-4 py-3">
+        <div className="flex gap-3">
+          <LuInfo size={15} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 text-[12px] leading-relaxed text-muted-foreground">
+            <p className="font-medium text-foreground">How user sets it</p>
+            <p className="mt-1">
+              Add the provider API key in OpenClaw onboarding/config, then select that provider here. Auto needs no extra choice and uses Gateway fallback.
             </p>
-          )}
+            <p className="mt-2 truncate">
+              Saved in <code className="text-foreground">~/.openclaw/openclaw.json</code> → <code className="text-foreground">tools.media.audio</code>
+            </p>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {status && (
+        <div className={cn("rounded-md border px-3 py-2 text-[12px]", statusClass(status.tone))}>
+          {status.message}
+        </div>
+      )}
     </div>
   )
 }
