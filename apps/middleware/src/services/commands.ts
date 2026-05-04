@@ -29,6 +29,73 @@ function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(f
 function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
 function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
 
+function msToIso(val: unknown): string {
+  if (typeof val === "number" && val > 0) return new Date(val).toISOString()
+  if (typeof val === "string" && val) return val
+  return ""
+}
+
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${ms / 1000}s`
+  if (ms < 3_600_000) return `${ms / 60_000}m`
+  if (ms < 86_400_000) return `${ms / 3_600_000}h`
+  return `${ms / 86_400_000}d`
+}
+
+function inferCronScheduleType(schedule: string): "at" | "every" | "cron" {
+  if (!schedule) return "cron"
+  if (/^\d+[smhd]$/.test(schedule)) return "every"
+  if (/^\d{4}-\d{2}/.test(schedule)) return "at"
+  return "cron"
+}
+
+function normalizeCronJob(raw: Record<string, unknown>) {
+  const params = (raw.params ?? {}) as Record<string, unknown>
+  const payload = (raw.payload ?? {}) as Record<string, unknown>
+  const delivery = (raw.delivery ?? {}) as Record<string, unknown>
+  const scheduleRaw = raw.schedule
+  const scheduleObj = (typeof scheduleRaw === "object" && scheduleRaw !== null ? scheduleRaw : {}) as Record<string, unknown>
+  const kind = String(scheduleObj.kind ?? "")
+  let schedule = typeof scheduleRaw === "string" ? scheduleRaw : ""
+  if (kind === "every" && scheduleObj.everyMs) schedule = formatMs(Number(scheduleObj.everyMs))
+  else if (kind === "at" && scheduleObj.at) schedule = String(scheduleObj.at)
+  else if (kind === "cron" && scheduleObj.expr) schedule = String(scheduleObj.expr)
+  const scheduleType = kind === "at" || kind === "every" || kind === "cron" ? kind : inferCronScheduleType(schedule)
+  return {
+    ...raw,
+    id: String(raw.id ?? raw.jobId ?? ""),
+    jobId: String(raw.jobId ?? raw.id ?? ""),
+    name: String(raw.name ?? ""),
+    schedule,
+    scheduleType,
+    timezone: scheduleObj.timezone ? String(scheduleObj.timezone) : scheduleObj.tz ? String(scheduleObj.tz) : raw.timezone ? String(raw.timezone) : null,
+    session: String(raw.sessionTarget ?? payload.session ?? params.session ?? "isolated"),
+    task: String(payload.task ?? raw.task ?? ""),
+    message: payload.message ? String(payload.message) : params.message ? String(params.message) : null,
+    model: payload.model ? String(payload.model) : null,
+    thinking: payload.thinking ? String(payload.thinking) : null,
+    enabled: Boolean(raw.enabled ?? true),
+    paused: Boolean(raw.paused ?? raw.enabled === false),
+    deliveryMode: delivery.mode ? String(delivery.mode) : null,
+    deliveryChannel: delivery.channel ? String(delivery.channel) : null,
+    deliveryTo: delivery.to ? String(delivery.to) : null,
+    createdAt: msToIso(raw.createdAt ?? raw.createdAtMs),
+    updatedAt: msToIso(raw.updatedAt ?? raw.updatedAtMs ?? raw.createdAt ?? raw.createdAtMs),
+  }
+}
+
+async function listGatewayCronJobs() {
+  const gw = await connectGateway(["operator.read"])
+  try {
+    const res = await gw.request<{ jobs?: Record<string, unknown>[] }>("cron.list", { includeDisabled: true }, 30_000)
+    if (!res.ok) throw new HttpError(502, res.error?.message || "cron.list failed", "GATEWAY_ERROR")
+    return { jobs: (res.payload?.jobs ?? []).map(normalizeCronJob) }
+  } finally {
+    gw.close()
+  }
+}
+
 function textFromContent(content: unknown) {
   if (typeof content === "string") return content
   if (!Array.isArray(content)) return ""
@@ -1000,7 +1067,7 @@ export function commandRoutes(store: Store) {
         case "middleware_memory_store": { const file = path.join(memoryDir(), `${new Date().toISOString().slice(0,10)}.md`); fs.appendFileSync(file, `\n- ${input.content || input.text || ""}\n`); return ok({ path: path.relative(workspaceRoot(), file) }) }
         case "middleware_memory_recall": { const entries = searchMemory(String(input.query || input.text || "")); return { entries, results: entries } }
 
-        case "middleware_cron_list_jobs": return { jobs: s.commandState.cronJobs }
+        case "middleware_cron_list_jobs": return listGatewayCronJobs()
         case "middleware_cron_create_job": { const paused = input.paused ?? !(input.enabled ?? false); const job = { id: crypto.randomUUID(), jobId: crypto.randomUUID(), ...input, enabled: input.enabled ?? !paused, paused, status: paused ? "paused" : "active", createdAt: now(), updatedAt: now() }; s.commandState.cronJobs.push(job); save(store,s); return { job, jobId: job.jobId } }
         case "middleware_cron_get_job": return { job: s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)) ?? null }
         case "middleware_cron_update_job": { const job = s.commandState.cronJobs.find((j:any)=>j.jobId===(input.jobId || input.id) || j.id===(input.jobId || input.id)); if (!job) throw new HttpError(404, "Cron job not found", "NOT_FOUND"); Object.assign(job, input, { updatedAt: now() }); if ("enabled" in input || "paused" in input) { const paused = "paused" in input ? Boolean(input.paused) : !Boolean(input.enabled); job.paused = paused; job.enabled = "enabled" in input ? Boolean(input.enabled) : !paused; job.status = job.paused ? "paused" : "active" } save(store,s); return { job } }
