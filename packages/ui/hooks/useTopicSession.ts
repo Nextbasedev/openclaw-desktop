@@ -19,7 +19,8 @@ export function useTopicSession(
       setError(null)
       return
     }
-    if (resolvedRef.current === activeTopic.id) return
+    const scopeKey = `${activeTopic.projectId}:${activeTopic.id}`
+    if (resolvedRef.current === scopeKey) return
 
     let cancelled = false
     setResolving(true)
@@ -35,7 +36,7 @@ export function useTopicSession(
 
         const sessions = (result.sessions || []).filter((s) => !s.hidden)
         if (sessions.length > 0) {
-          resolvedRef.current = activeTopic!.id
+          resolvedRef.current = scopeKey
           onSessionResolved(sessions[0].key, sessions[0].label)
           return
         }
