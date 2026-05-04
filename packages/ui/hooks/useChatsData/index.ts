@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
+import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -83,6 +84,21 @@ export function useChatsData(
   }, [loadChats, refreshTrigger])
 
   useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
+
+  useEffect(() => {
+    function clearMiddlewareScopedChats() {
+      setChats([])
+      setChatOrder([])
+      setPinnedChats(new Set())
+      setRenameOpen(false)
+      setRenameTarget(null)
+      setDeleteOpen(false)
+      setDeleteTarget(null)
+      void loadChats()
+    }
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, clearMiddlewareScopedChats)
+    return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, clearMiddlewareScopedChats)
+  }, [loadChats])
 
   useEffect(() => {
     return on<any>("fork:create", (event) => {

@@ -1,5 +1,9 @@
 const URL_KEY = "openclaw.middleware.url"
 const TOKEN_KEY = "openclaw.middleware.token"
+const ACTIVE_PROJECT_KEY = "openclaw.activeProjectId"
+
+export const MIDDLEWARE_CONNECTION_CHANGED_EVENT = "openclaw:middleware-connection-changed"
+export const MIDDLEWARE_DISCONNECTED_EVENT = "openclaw:middleware-disconnected"
 
 export type MiddlewareConnection = {
   url: string
@@ -37,18 +41,35 @@ export function getMiddlewareConnection(): MiddlewareConnection | null {
   return { url, token }
 }
 
+function clearWorkspaceScopeCache() {
+  try { localStorage.removeItem(ACTIVE_PROJECT_KEY) } catch {}
+}
+
 export function saveMiddlewareConnection(input: MiddlewareConnection) {
   if (typeof window === "undefined") return
-  localStorage.setItem(URL_KEY, trimTrailingSlash(input.url))
-  localStorage.setItem(TOKEN_KEY, input.token.trim())
+  const next = { url: trimTrailingSlash(input.url), token: input.token.trim() }
+  const previous = getMiddlewareConnection()
+  const changed = previous?.url !== next.url || previous?.token !== next.token
+  localStorage.setItem(URL_KEY, next.url)
+  localStorage.setItem(TOKEN_KEY, next.token)
   localStorage.setItem("jarvis.gatewayActive", "true")
+  if (changed) {
+    clearWorkspaceScopeCache()
+    window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: next.url } }))
+  }
 }
 
 export function clearMiddlewareConnection() {
   if (typeof window === "undefined") return
+  const previous = getMiddlewareConnection()
   localStorage.removeItem(URL_KEY)
   localStorage.removeItem(TOKEN_KEY)
   localStorage.setItem("jarvis.gatewayActive", "false")
+  clearWorkspaceScopeCache()
+  if (previous) {
+    window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: previous.url } }))
+    window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: null } }))
+  }
 }
 
 export async function middlewareFetch<T>(path: string, init: RequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
