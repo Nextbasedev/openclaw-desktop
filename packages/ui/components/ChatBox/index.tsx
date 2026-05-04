@@ -150,12 +150,10 @@ export function ChatBox({
     }
   }, [])
 
-  const voiceSupported = recorderSupported && voiceModelActive
-  const voiceDisabledReason = !recorderSupported
-    ? "Voice input not supported in this app window"
-    : voiceStatusLoading
-      ? "Checking voice model setup…"
-      : "Set an active voice provider and audio model in Settings → Voice"
+  const voiceSupported = !voiceStatusLoading && voiceModelActive
+  const voiceDisabledReason = voiceStatusLoading
+    ? "Checking voice model setup…"
+    : "Set an active voice provider and audio model in Settings → Voice"
 
   React.useEffect(() => {
     if (initialPrompt != null) {
