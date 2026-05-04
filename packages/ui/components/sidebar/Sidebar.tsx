@@ -169,7 +169,7 @@ export function Sidebar({
           "z-40",
           "border-r border-border/50",
           uniqueSidebarBg
-            ? "bg-[#F4F7FF] dark:bg-[#0D1424]"
+            ? "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]"
             : "bg-white dark:bg-[#151518]",
           "shadow-none transition-[width,transform,opacity] duration-200 ease-out",
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",

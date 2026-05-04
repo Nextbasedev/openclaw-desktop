@@ -801,12 +801,16 @@ export function commandRoutes(store: Store) {
               const patched = await gw.request("sessions.patch", patch, 30_000)
               if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
             }
-            const res = await gw.request("chat.send", {
+            const sendParams: Record<string, unknown> = {
               sessionKey: key,
               message,
               timeoutMs: input.timeoutMs || 120_000,
               idempotencyKey: crypto.randomUUID(),
-            }, input.timeoutMs || 130_000)
+            }
+            if (Array.isArray(input.attachments) && input.attachments.length > 0) {
+              sendParams.attachments = input.attachments
+            }
+            const res = await gw.request("chat.send", sendParams, input.timeoutMs || 130_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.send failed", "GATEWAY_ERROR")
             const commandHistoryRestore = restoreSlashCommandHistoryIfGatewayReset({ sessionKey: key, message, before: beforeCommandSession })
               ?? recordSlashCommandInputIfGatewayOnlyAppendedOutput({ sessionKey: key, message })

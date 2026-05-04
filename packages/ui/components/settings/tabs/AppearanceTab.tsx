@@ -19,40 +19,36 @@ function Switch({ checked, onCheckedChange }: { checked: boolean, onCheckedChang
   )
 }
 
-function rgbToHex(rgb: string) {
-  const match = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-  if (!match) return rgb
-  const r = parseInt(match[1]).toString(16).padStart(2, "0")
-  const g = parseInt(match[2]).toString(16).padStart(2, "0")
-  const b = parseInt(match[3]).toString(16).padStart(2, "0")
-  return `#${r}${g}${b}`.toUpperCase()
-}
-
-function getHexColor(cssStr: string): string {
-  if (typeof document === "undefined") return cssStr
+function resolveTokenToHex(token: string): string {
+  if (typeof document === "undefined") return token
   try {
+    // 1. Let the browser's CSS engine resolve the custom property
+    const el = document.createElement("div")
+    el.style.cssText = `position:fixed;opacity:0;pointer-events:none;background-color:var(${token})`
+    document.body.appendChild(el)
+    const computed = getComputedStyle(el).backgroundColor
+    document.body.removeChild(el)
+    
+    if (!computed || computed === "rgba(0, 0, 0, 0)") return token
+
+    // 2. Render the computed color string to a 1x1 canvas to extract exact RGB pixels
+    // This handles any modern CSS color format (oklch, color(), lab, etc.) natively
     const canvas = document.createElement("canvas")
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return cssStr
+    canvas.width = 1
+    canvas.height = 1
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })
+    if (!ctx) return computed
 
-    ctx.fillStyle = "#123456"
-    ctx.fillStyle = cssStr
+    ctx.fillStyle = computed
+    ctx.fillRect(0, 0, 1, 1)
+    
+    const data = ctx.getImageData(0, 0, 1, 1).data
+    if (data[3] === 0) return computed // fully transparent / invalid
 
-    let result = ctx.fillStyle
-
-    if (result === "#123456" && cssStr !== "#123456") {
-      ctx.fillStyle = `hsl(${cssStr.replace(/ /g, ", ")})`
-      result = ctx.fillStyle
-      if (result === "#123456") return cssStr
-    }
-
-    if (result.startsWith("rgb")) {
-      return rgbToHex(result)
-    }
-
-    return result.toUpperCase()
+    const toHex = (n: number) => n.toString(16).padStart(2, "0")
+    return `#${toHex(data[0])}${toHex(data[1])}${toHex(data[2])}`
   } catch {
-    return cssStr
+    return token
   }
 }
 
@@ -91,25 +87,24 @@ const colorTokens = [
 
 export function AppearanceTab() {
   const { resolvedTheme } = useTheme()
-  const [tokenValues, setTokenValues] = useState<Record<string, string>>({})
+  const [hexValues, setHexValues] = useState<Record<string, string>>({})
   const [isTranslucent, setIsTranslucent] = useState(() => {
     if (typeof window === "undefined") return false
     return localStorage.getItem("openclaw.uniqueSidebarBg") === "true"
   })
 
   useEffect(() => {
+    // rAF ensures styles are committed before we read computed values
     const frame = requestAnimationFrame(() => {
-      const styles = getComputedStyle(document.documentElement)
-      setTokenValues(
+      setHexValues(
         Object.fromEntries(
           colorTokens.map((item) => [
             item.token,
-            styles.getPropertyValue(item.token).trim(),
+            resolveTokenToHex(item.token),
           ]),
         ),
       )
     })
-
     return () => cancelAnimationFrame(frame)
   }, [resolvedTheme])
 
@@ -139,8 +134,7 @@ export function AppearanceTab() {
 
         <div className="mt-4 overflow-hidden rounded-md border border-border/50 bg-foreground/5">
           {colorTokens.map((item, index) => {
-            const rawValue = tokenValues[item.token] || `var(${item.token})`
-            const hexValue = tokenValues[item.token] ? getHexColor(tokenValues[item.token]) : rawValue
+            const hexValue = hexValues[item.token] || "…"
 
             return (
               <div
