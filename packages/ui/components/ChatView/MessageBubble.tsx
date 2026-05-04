@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 import {
   LuCheck,
@@ -421,6 +422,27 @@ export function MessageBubble({
     setSelectionAction(null)
   }, [onAskSelectedText, selectionAction?.text])
 
+  useEffect(() => {
+    if (isUser || !onAskSelectedText) return
+
+    const handlePointerUp = () => {
+      window.setTimeout(updateSelectionAction, 0)
+    }
+    const handleSelectionChange = () => {
+      const selection = window.getSelection()
+      if (!selection?.toString().trim()) setSelectionAction(null)
+    }
+
+    document.addEventListener("mouseup", handlePointerUp)
+    document.addEventListener("touchend", handlePointerUp)
+    document.addEventListener("selectionchange", handleSelectionChange)
+    return () => {
+      document.removeEventListener("mouseup", handlePointerUp)
+      document.removeEventListener("touchend", handlePointerUp)
+      document.removeEventListener("selectionchange", handleSelectionChange)
+    }
+  }, [isUser, onAskSelectedText, updateSelectionAction])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -539,18 +561,19 @@ export function MessageBubble({
               )}
               {!isUser && <RichContentPreview message={message} />}
             </div>
-            {selectionAction && !isUser && onAskSelectedText && (
+            {selectionAction && !isUser && onAskSelectedText && createPortal(
               <button
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={askAboutSelection}
-                className="fixed z-50 inline-flex -translate-x-1/2 -translate-y-full cursor-pointer items-center gap-2 rounded-2xl border border-border/50 bg-background/95 px-4 py-2 text-[13px] font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-colors hover:bg-muted/80"
+                className="fixed z-[9999] inline-flex -translate-x-1/2 -translate-y-full cursor-pointer items-center gap-2 rounded-2xl border border-border/50 bg-background/95 px-4 py-2 text-[13px] font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-colors hover:bg-muted/80"
                 style={{ left: selectionAction.left, top: selectionAction.top }}
                 aria-label="Ask OpenClaw about selected text"
               >
                 <LuQuote className="size-4" />
                 Ask OpenClaw
-              </button>
+              </button>,
+              document.body,
             )}
           </>
         )}
