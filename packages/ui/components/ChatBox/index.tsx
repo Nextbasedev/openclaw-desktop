@@ -55,7 +55,6 @@ export function ChatBox({
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
-  const [modelNotice, setModelNotice] = React.useState<string | null>(null)
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
   const [slashFilter, setSlashFilter] = React.useState("")
@@ -147,22 +146,6 @@ export function ChatBox({
 
   const hasInput = input.trim().length > 0
   const selectedModelRef = sessionModelId ?? currentModel
-  const selectedModel = models.find((model) => isActiveModel(selectedModelRef, model))
-  const fallbackModel = models.find((model) => model.health?.status !== "unavailable")
-  const selectedModelUnavailable = selectedModel?.health?.status === "unavailable"
-
-  async function sendWithHealthyModel(payload: ChatComposerSubmit) {
-    if (selectedModelUnavailable && fallbackModel) {
-      const fallbackRef = `${fallbackModel.provider}/${fallbackModel.id}`
-      setSessionModelId(fallbackRef)
-      setModelNotice(`${selectedModel.name} is unavailable, so this message is using ${fallbackModel.name}.`)
-      await onSend?.({ text: `/model ${fallbackRef}` })
-    } else {
-      setModelNotice(null)
-    }
-    await onSend?.(payload)
-  }
-
   React.useEffect(() => {
     return () => {
       if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
@@ -194,7 +177,7 @@ export function ChatBox({
     batchRef.current = []
     dispatchComposer({ type: "batch_flush" })
     try {
-      await sendWithHealthyModel(payload)
+      await onSend?.(payload)
       dispatchComposer({ type: "send_success" })
       clearAttachments()
       setAttachmentError(null)
@@ -246,7 +229,7 @@ export function ChatBox({
     if (isGenerating) {
       dispatchComposer({ type: "restart_start", payload })
       try {
-        await sendWithHealthyModel(payload)
+        await onSend?.(payload)
         dispatchComposer({ type: "send_success" })
         clearAttachments()
         setAttachmentError(null)
@@ -486,14 +469,6 @@ export function ChatBox({
             <div className="px-3 pb-1">
               <p className="text-[12px] text-blue-300/80">
                 Interrupted — regenerating with your update...
-              </p>
-            </div>
-          )}
-
-          {modelNotice && (
-            <div className="px-3 pb-1">
-              <p className="text-[12px] text-amber-300/85">
-                {modelNotice}
               </p>
             </div>
           )}
