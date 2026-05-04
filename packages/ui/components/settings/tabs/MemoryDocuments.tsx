@@ -102,7 +102,7 @@ export function MemoryDocuments() {
           type="button"
           onClick={() => setView({ mode: "new" })}
           className={cn(
-            "flex items-center gap-1.5 rounded-lg px-3 py-1.5",
+            "flex items-center gap-1.5 rounded-md px-3 py-1.5",
             "text-[12px] font-medium text-foreground",
             "bg-foreground/5 ring-1 ring-border/40",
             "transition-colors hover:bg-foreground/10",
@@ -123,7 +123,7 @@ export function MemoryDocuments() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter memory files..."
           className={cn(
-            "h-9 w-full rounded-lg border border-border/50 bg-card pl-9 pr-3",
+            "h-9 w-full rounded-md border border-border/50 bg-card pl-9 pr-3",
             "text-[13px] text-foreground outline-none",
             "placeholder:text-muted-foreground/60 focus:border-foreground/20",
           )}
@@ -133,13 +133,13 @@ export function MemoryDocuments() {
       {loading && <ListSkeleton />}
 
       {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
 
       {!loading && !error && filtered.length === 0 && (
-        <div className="rounded-xl border border-border/50 bg-card px-5 py-10 text-center">
+        <div className="rounded-md border border-border/50 bg-card px-5 py-10 text-center">
           <LuFileText size={22} className="mx-auto mb-2 text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">
             {query ? "No matching files." : "No memory files found."}
@@ -148,7 +148,7 @@ export function MemoryDocuments() {
       )}
 
       {!loading && !error && filtered.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+        <div className="overflow-hidden rounded-md border border-border/50 bg-card">
           {pageDocs.map((doc, idx) => (
             <button
               key={doc.path}
@@ -225,7 +225,7 @@ function ListSkeleton() {
   return (
     <div className="animate-pulse space-y-1.5">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-[52px] rounded-xl border border-border/30 bg-card" />
+        <div key={i} className="h-[52px] rounded-md border border-border/30 bg-card" />
       ))}
     </div>
   )

@@ -102,7 +102,7 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
         </div>
       </nav>
 
-      <div ref={scrollRef} className="my-2 min-w-0 flex-1 overflow-y-auto scrollbar-hide md:my-4 lg:my-6 max-w-xl">
+      <div ref={scrollRef} className="my-2 mx-2 min-w-0 flex-1 overflow-y-auto scrollbar-hide md:my-4 lg:my-6 max-w-xl">
         {activeSection === "usage" && <UsageTab />}
 
         {activeSection === "memory" && <MemoryTab />}

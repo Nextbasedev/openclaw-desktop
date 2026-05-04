@@ -169,8 +169,8 @@ export function Sidebar({
           "z-40",
           "border-r border-border/50",
           uniqueSidebarBg
-            ? "bg-[var(--sidebar-unique)]"
-            : "bg-card/70 backdrop-blur-xl",
+            ? "bg-[#F4F7FF] dark:bg-[#0D1424]"
+            : "bg-white dark:bg-[#151518]",
           "shadow-none transition-[width,transform,opacity] duration-200 ease-out",
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",
           collapsed
