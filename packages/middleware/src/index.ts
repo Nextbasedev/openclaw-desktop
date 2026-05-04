@@ -752,7 +752,7 @@ type ChatSendAttachment = {
 }
 
 type GatewayAttachment = {
-  type: "image"
+  type: "image" | "audio"
   fileName: string
   mimeType: string
   content?: string
@@ -772,6 +772,10 @@ const MAX_TOTAL_EMBEDDED_ATTACHMENT_CHARS = 300_000
 
 function isTextAttachment(mimeType: string): boolean {
   return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
+}
+
+function isAudioAttachment(mimeType: string): boolean {
+  return mimeType.startsWith("audio/")
 }
 
 function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
@@ -794,6 +798,18 @@ function normalizeImageAttachment(attachment: ChatSendAttachment): GatewayAttach
   }
 }
 
+function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttachment {
+  const content = attachment.encoding === "base64"
+    ? attachment.content
+    : Buffer.from(attachment.content ?? "", "utf8").toString("base64")
+  return {
+    type: "audio",
+    fileName: attachment.name,
+    mimeType: attachment.mimeType,
+    content,
+  }
+}
+
 function prepareMessageAndAttachments(input: { text: string; attachments?: ChatSendAttachment[] }): { text: string; attachments?: GatewayAttachment[] } {
   if (!input.attachments || input.attachments.length === 0) return { text: input.text }
 
@@ -802,10 +818,17 @@ function prepareMessageAndAttachments(input: { text: string; attachments?: ChatS
   let embeddedChars = 0
 
   const imageNames: string[] = []
+  const audioNames: string[] = []
   for (const attachment of input.attachments) {
     if (attachment.mimeType.startsWith("image/") && attachment.content) {
       gatewayAttachments.push(normalizeImageAttachment(attachment))
       imageNames.push(attachment.name)
+      continue
+    }
+
+    if (isAudioAttachment(attachment.mimeType) && attachment.content) {
+      gatewayAttachments.push(normalizeAudioAttachment(attachment))
+      audioNames.push(attachment.name)
       continue
     }
 
@@ -831,6 +854,13 @@ function prepareMessageAndAttachments(input: { text: string; attachments?: ChatS
     const label = imageNames.length === 1
       ? `[Attached image: ${imageNames[0]}]`
       : `[Attached images: ${imageNames.join(", ")}]`
+    embedded.unshift(label)
+  }
+
+  if (audioNames.length > 0) {
+    const label = audioNames.length === 1
+      ? `[Attached audio: ${audioNames[0]}]`
+      : `[Attached audio files: ${audioNames.join(", ")}]`
     embedded.unshift(label)
   }
 
