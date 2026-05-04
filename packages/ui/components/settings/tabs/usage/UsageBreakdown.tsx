@@ -11,88 +11,101 @@ export function UsageBreakdown({
   providers,
   loading = false,
 }: UsageBreakdownProps) {
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-0 rounded-md border border-border/40 bg-card/40 dark:bg-[#121212] overflow-hidden">
+        <div className="border-b border-border/40 bg-card/40 dark:bg-[#121212] px-5 py-4">
+          <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="flex flex-col gap-3 p-5">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between rounded-[10px] border border-border/40 bg-background/50 dark:bg-[#0A0A0A] px-5 py-4"
+            >
+              <div className="flex flex-col gap-2">
+                <div className="h-4 w-32 animate-pulse rounded-md bg-muted" />
+                <div className="h-2.5 w-16 animate-pulse rounded-md bg-muted" />
+              </div>
+              <div className="flex items-center gap-6">
+                <div className="flex flex-col gap-2">
+                  <div className="h-2.5 w-24 animate-pulse rounded-md bg-muted" />
+                  <div className="h-1.5 w-32 animate-pulse rounded-md bg-muted" />
+                </div>
+                <div className="h-6 w-14 animate-pulse rounded-md bg-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="overflow-hidden rounded-3xl border border-border/50 bg-card">
-      <div className="px-5 py-3.5">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+    <div className="flex flex-col gap-0 rounded-md border border-border/40 bg-card/40 dark:bg-[#121212] overflow-hidden">
+      <div className="border-b border-border/40 px-5 py-4">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Provider Status
         </span>
       </div>
 
-      <div className="flex flex-col gap-3 px-5 pb-5">
-        {loading ? (
-          Array.from({ length: 3 }).map((_, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-4 rounded-2xl border border-border/40 bg-background/35 px-5 py-4"
-            >
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <div className="h-4 w-28 rounded bg-muted/55 animate-pulse" />
-                <div className="h-3 w-16 rounded bg-muted/55 animate-pulse" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <div className="h-3 w-24 rounded bg-muted/55 animate-pulse" />
-                <div className="h-1 w-24 rounded-full bg-muted/55 animate-pulse" />
-              </div>
-              <div className="h-6 w-14 rounded-md bg-muted/55 animate-pulse" />
-            </div>
-          ))
-        ) : (
-        providers.map((p) => (
+      <div className="flex flex-col gap-3 p-5">
+        {providers.map((p) => (
           <div
             key={p.provider}
-            className="flex items-center gap-4 rounded-2xl border border-border/40 bg-background/35 px-5 py-4"
+            className="flex flex-col gap-4 rounded-[10px] border border-border/40 px-5 py-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
           >
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="text-[13px] font-semibold text-foreground">
+            <div className="flex flex-col gap-1">
+              <span className="text-[14px] font-semibold text-foreground">
                 {p.displayName}
               </span>
               {p.plan && (
-                <span className="text-[11px] text-muted-foreground/60">
+                <span className="text-[12px] text-muted-foreground">
                   {p.plan}
                 </span>
               )}
             </div>
 
-            {p.windows.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {p.windows.map((w) => (
-                  <div key={w.label} className="flex flex-col gap-1">
-                    <div className="flex items-center justify-between gap-6">
-                      <span className="text-[11px] text-muted-foreground/60">
-                        {w.label}
-                      </span>
-                      <span className="text-[11px] tabular-nums text-foreground/70">
-                        {w.usedPercent}%
-                      </span>
+            <div className="flex items-center justify-between sm:justify-end gap-6 sm:gap-8 w-full sm:w-auto mt-2 sm:mt-0">
+              {p.windows.length > 0 && (
+                <div className="flex flex-1 sm:flex-initial flex-col gap-3">
+                  {p.windows.map((w) => (
+                    <div key={w.label} className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-6">
+                        <span className="text-[12px] text-muted-foreground">
+                          {w.label}
+                        </span>
+                        <span className="tabular-nums text-[12px] font-semibold text-foreground/80">
+                          {w.usedPercent}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-border sm:w-32">
+                        <div
+                          className="h-full rounded-full bg-[#3b82f6] transition-all"
+                          style={{
+                            width: `${Math.min(w.usedPercent, 100)}%`,
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted/55">
-                      <div
-                        className="h-full rounded-full bg-foreground/70 transition-all"
-                        style={{
-                          width: `${Math.min(w.usedPercent, 100)}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="ml-2 flex-shrink-0">
-              {p.error ? (
-                <span className="rounded-md border border-destructive/25 bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive">
-                  Error
-                </span>
-              ) : (
-                <span className="rounded-md border border-border/35 bg-muted/35 px-2.5 py-1 text-[11px] font-medium text-foreground/75">
-                  Active
-                </span>
+                  ))}
+                </div>
               )}
+
+              <div className="flex-shrink-0 self-end sm:self-auto pb-[2px] sm:pb-0">
+                {p.error ? (
+                  <span className="rounded-[4px] border border-red-500/20 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500 dark:text-red-400">
+                    Error
+                  </span>
+                ) : (
+                  <span className="rounded-[4px] border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-500">
+                    Active
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        ))
-        )}
+        ))}
       </div>
     </div>
   )

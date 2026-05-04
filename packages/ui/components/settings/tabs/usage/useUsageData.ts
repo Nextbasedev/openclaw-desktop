@@ -36,6 +36,39 @@ const EMPTY_SUMMARY: UsageSummary = {
   totalTokens: 0,
 }
 
+function fillMissingDays(daily: DailyEntry[], days: number): DailyEntry[] {
+  if (days <= 0) return daily
+  
+  const result: DailyEntry[] = []
+  const today = new Date()
+  
+  const dataMap = new Map(daily.map(d => [d.date, d]))
+  
+  // Create an array of exactly 'days' length ending today
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(today.getDate() - i)
+    // Get YYYY-MM-DD in local timezone
+    const dateStr = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0]
+    
+    if (dataMap.has(dateStr)) {
+      result.push(dataMap.get(dateStr)!)
+    } else {
+      result.push({
+        date: dateStr,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        total_tokens: 0,
+        cost_usd: 0,
+      })
+    }
+  }
+  
+  return result
+}
+
 export function useUsageData(period: UsagePeriod) {
   const [data, setData] = useState<ParsedUsage>({
     summary: EMPTY_SUMMARY,
@@ -71,10 +104,16 @@ export function useUsageData(period: UsagePeriod) {
       ])
 
       loadedPeriodRef.current = requestedPeriod
+      
+      // Zero-fill the daily array so the chart width properly reflects the requested period (e.g. 7d vs 30d)
+      // For a 24h period we'll pad it to at least 2 days so Recharts can draw a line instead of a single dot.
+      const displayDays = Math.max(2, days)
+      const filledDaily = fillMissingDays(dailyRes.daily, displayDays)
+
       setData({
         summary: usageRes.summary,
         providers: usageRes.providers,
-        daily: dailyRes.daily,
+        daily: filledDaily,
         loading: false,
         rangeLoading: false,
         error: null,

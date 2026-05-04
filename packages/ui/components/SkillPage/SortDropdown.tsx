@@ -65,8 +65,9 @@ export function SortDropdown({
         <div
           className={cn(
             "absolute right-0 top-[calc(100%+6px)] z-50 min-w-[180px]",
-            "overflow-hidden rounded-xl border border-white/[0.12] p-1",
-            "bg-white/[0.06] shadow-xl shadow-black/30 backdrop-blur-2xl",
+            "rounded-[14px] p-1.5",
+            "bg-[var(--glass-bg)] backdrop-blur-[32px] backdrop-saturate-[180%]",
+            "border border-border/15 shadow-xl shadow-black/30",
           )}
         >
           {SORT_OPTIONS.map((opt) => (
@@ -78,11 +79,11 @@ export function SortDropdown({
                 setOpen(false)
               }}
               className={cn(
-                "flex w-full items-center rounded-lg px-3 py-2 text-[13px]",
+                "flex w-full items-center rounded-[8px] px-3 py-2 text-[13px]",
                 "transition-colors",
                 opt.value === value
-                  ? "bg-white/[0.12] text-foreground"
-                  : "text-foreground/80 hover:bg-white/[0.08] hover:text-foreground",
+                  ? "bg-foreground/10 text-foreground font-medium"
+                  : "text-foreground/80 hover:bg-foreground/5 hover:text-foreground",
               )}
             >
               {opt.label}

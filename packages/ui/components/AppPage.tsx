@@ -92,8 +92,8 @@ export default function Page() {
   useEffect(() => {
     async function checkToken() {
       try {
-        const s = await invoke<{ gatewayToken?: string }>("middleware_connect_status", { input: {} })
-        setHasToken(!!s.gatewayToken)
+        const s = await invoke<{ gatewayToken?: string; hasConnection?: boolean }>("middleware_connect_status", { input: {} })
+        setHasToken(!!s.gatewayToken && !!s.hasConnection)
       } catch {
         setHasToken(false)
       }
@@ -1032,7 +1032,9 @@ function AppShell({
   }, [activeTopic, quickSending])
 
   const handleTabChange = useCallback((tab: string) => {
-    if (tab !== "connect") {
+    if (tab === "connect") {
+      setConnectAutoOpenEnabled(true)
+    } else {
       setConnectAutoOpenEnabled(false)
     }
     if (tab === "chat") {

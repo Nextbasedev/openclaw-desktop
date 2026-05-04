@@ -40,7 +40,7 @@ export function KeyboardShortcutsTab({ onBack }: KeyboardShortcutsTabProps) {
             <button
               type="button"
               onClick={onBack}
-              className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 py-1.5 text-[14px]  transition-colors  hover:text-foreground"
+              className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[14px]  transition-colors  hover:text-foreground"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               Back
@@ -52,7 +52,7 @@ export function KeyboardShortcutsTab({ onBack }: KeyboardShortcutsTabProps) {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+      <div className="overflow-hidden rounded-md border border-border/50 bg-card">
         <div className="flex items-center gap-4 border-b border-border/50 bg-muted/20 px-5 py-2.5">
           <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Command</span>
           <span className="w-[140px] text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Keybinding</span>

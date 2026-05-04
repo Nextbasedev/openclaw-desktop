@@ -9,7 +9,7 @@ import type {
 import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey } from "./subagentSession"
 
-const BLOCKQUOTE_RE = /^((?:> .+\n?)+)\n\n([\s\S]+)$/
+const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
 
 export function extractReplyBlock(
   text: string,
@@ -27,7 +27,7 @@ function extractReplyFromText(
 
   const quoted = match[1]
     .split("\n")
-    .map((line) => line.replace(/^> /, ""))
+    .map((line) => line.replace(/^>\s?/, ""))
     .join("\n")
     .trim()
   const displayText = match[2].trim()
@@ -170,6 +170,16 @@ function isGatewayInjectedCommandOutput(message: RawHistoryMessage) {
   )
 }
 
+export function isAbortedGatewayArtifact(message: RawHistoryMessage) {
+  if (!isGatewayInjectedCommandOutput(message)) return false
+  const text = visibleMessageText(message).toLowerCase()
+  return (
+    text.includes("aborted") ||
+    text.includes("operation was aborted") ||
+    text.includes("agent failed before reply")
+  )
+}
+
 function isSlashCommandMessage(message: RawHistoryMessage | undefined) {
   if (!message || message.role !== "user") return false
   const text = cleanUserMessageText(message.text || extractText(message.content))
@@ -195,6 +205,7 @@ export function deduplicateRawMessages(
 ): RawHistoryMessage[] {
   const result: RawHistoryMessage[] = []
   for (const item of raw) {
+    if (isAbortedGatewayArtifact(item)) continue
     const currText = visibleMessageText(item).trim()
     if (item.role === "assistant" && !currText && !toolBlocks(item).length) {
       continue
