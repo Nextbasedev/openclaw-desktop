@@ -180,7 +180,7 @@ export function CronScheduleEditor({
       />
 
       {mode === "interval" && (
-        <div className="grid gap-2 sm:grid-cols-[1fr_160px]">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
           <input
             type="number"
             min={1}
@@ -211,7 +211,7 @@ export function CronScheduleEditor({
       )}
 
       {mode === "weekly" && (
-        <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
           <CronOptionSelect
             value={dayOfWeek}
             options={weekdayOptions}
@@ -230,7 +230,7 @@ export function CronScheduleEditor({
       )}
 
       {mode === "monthly" && (
-        <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
           <input
             type="number"
             min={1}
@@ -276,7 +276,7 @@ export function CronScheduleEditor({
 
       <p
         className={cn(
-          "rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2",
+          "rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2",
           "text-[11px] text-muted-foreground",
         )}
         title={schedule}

@@ -14,6 +14,7 @@ import {
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import {
   Popover,
   PopoverContent,
@@ -103,7 +104,6 @@ export function ActionBar({
       icon: AiSecurity01Icon,
     },
   ]
-  const activePermission = permissionOptions.find((option) => option.mode === autonomyMode) ?? permissionOptions[0]
   const uniqueModels = models.filter(
     (m, i, arr) =>
       arr.findIndex(
@@ -113,27 +113,42 @@ export function ActionBar({
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
-      <div className="flex items-center gap-0.5 sm:gap-1">
+      <div className="flex items-center gap-1.5">
         {/* + menu */}
         <Popover open={plusOpen} onOpenChange={onPlusOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-foreground/15 bg-foreground/5 text-foreground shadow-sm transition-all hover:bg-foreground/10"
+              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/12 bg-white/[0.06] text-foreground/88 shadow-[0_10px_30px_-18px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl transition-all hover:border-white/18 hover:bg-white/[0.1] hover:text-foreground"
               aria-label="Add"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={19} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" sideOffset={8} className="w-56 gap-0 p-1.5">
+          <PopoverContent
+            side="top"
+            align="start"
+            sideOffset={10}
+            className={cn(
+              "w-[190px] gap-0 py-2 px-2 shadow-2xl shadow-black/40 ring-1 ring-white/6",
+              GLASS_POPOVER,
+            )}
+          >
             <button
               type="button"
               onClick={onUploadClick}
               disabled={disableUpload}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
+              className="flex w-full cursor-pointer items-center gap-1 text-sm font-medium text-popover-foreground transition-all disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <HugeiconsIcon icon={AttachmentIcon} size={16} />
-              {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-black/10 text-foreground/75">
+                <HugeiconsIcon icon={AttachmentIcon} size={16} />
+              </span>
+              <span className="min-w-0 flex flex-1 flex-col">
+                <span className="truncate">
+                  {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
+                </span>
+                
+              </span>
             </button>
           </PopoverContent>
         </Popover>
@@ -141,7 +156,7 @@ export function ActionBar({
         {/* Permissions selector */}
         <Popover open={permissionsOpen} onOpenChange={setPermissionsOpen}>
           <PopoverTrigger asChild>
-            <button
+            {/* <button
               type="button"
               className="group flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.08] px-2.5 text-[12px] font-medium text-muted-foreground shadow-sm backdrop-blur-md transition-all hover:bg-white/[0.12] hover:text-foreground"
               aria-label="Permissions mode"
@@ -149,13 +164,16 @@ export function ActionBar({
               <HugeiconsIcon icon={activePermission.icon} size={15} className="text-foreground/55 transition-colors group-hover:text-foreground/75" />
               <span className="hidden max-w-[132px] truncate sm:inline">{activePermission.label}</span>
               <HugeiconsIcon icon={ArrowDown01Icon} size={12} className="text-foreground/45" />
-            </button>
+            </button> */}
           </PopoverTrigger>
           <PopoverContent
             side="top"
             align="start"
-            sideOffset={8}
-            className="w-[218px] overflow-hidden rounded-xl border border-border/50 bg-popover/70 p-1.5 text-popover-foreground shadow-2xl shadow-black/35 ring-1 ring-foreground/10 backdrop-blur-xl backdrop-saturate-150"
+            sideOffset={10}
+            className={cn(
+              "w-[218px] overflow-hidden p-1.5 text-popover-foreground shadow-2xl shadow-black/35 ring-1 ring-foreground/10",
+              GLASS_POPOVER,
+            )}
           >
             <div className="space-y-0.5">
               {permissionOptions.map((option) => {

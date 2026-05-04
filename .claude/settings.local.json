@@ -105,7 +105,8 @@
       "Bash(xargs wc *)",
       "PowerShell(pnpm typecheck *)",
       "PowerShell(pnpm *)",
-      "Skill(schedule)"
+      "Skill(schedule)",
+      "PowerShell(Get-NetTCPConnection *)"
     ]
   }
 }
