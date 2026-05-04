@@ -424,10 +424,15 @@ export function ChatView({
     })
   }, [messages])
 
-  const askAboutSelectedText = useCallback((text: string) => {
+  const askAboutSelectedText = useCallback((messageId: string, text: string) => {
     const selected = text.trim()
     if (!selected) return
-    setComposerSeed(`Ask OpenClaw about this selected text:\n\n${selected}`)
+    setReplyTo({
+      messageId: `${messageId}:selection`,
+      role: "assistant",
+      text: selected,
+    })
+    setComposerSeed("")
   }, [])
 
   const cancelReply = useCallback(() => {
