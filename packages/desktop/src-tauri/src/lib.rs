@@ -35,10 +35,9 @@ pub fn run() {
             .build(),
         )?;
       }
-      backend::ensure_backend(&app.handle())
-        .map_err(|err| -> Box<dyn std::error::Error> {
-          std::io::Error::other(err).into()
-        })?;
+      if let Err(err) = backend::ensure_backend(&app.handle()) {
+        eprintln!("OpenClaw middleware startup failed; continuing so the UI can recover: {err}");
+      }
       Ok(())
     })
     .build(tauri::generate_context!())
