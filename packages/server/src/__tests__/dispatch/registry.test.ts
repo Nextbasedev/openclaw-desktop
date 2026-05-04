@@ -44,6 +44,11 @@ describe("command registry", () => {
     expect(commandRegistry.middleware_environment_detect).toBeDefined()
   })
 
+  it("has all voice settings commands", () => {
+    expect(commandRegistry.middleware_voice_settings_get).toBeDefined()
+    expect(commandRegistry.middleware_voice_settings_set).toBeDefined()
+  })
+
   it("has all project commands", () => {
     expect(commandRegistry.middleware_projects_list).toBeDefined()
     expect(commandRegistry.middleware_projects_create).toBeDefined()
