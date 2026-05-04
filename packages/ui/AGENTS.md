@@ -5,7 +5,7 @@ These rules apply to frontend work in `packages/ui`.
 Before coding any UI/frontend change:
 
 1. Inspect the existing design, theme, layout, and nearby components first.
-2. Use these skills/workflows before coding UI changes:
+2. Use the `codex-ui` skill before coding UI changes. It combines:
    - `frontend` — React/Next/Tailwind frontend patterns
    - `superdesign` — modern UI design guidance
    - `ui-audit` — checks hierarchy, spacing, accessibility, and cognitive load
