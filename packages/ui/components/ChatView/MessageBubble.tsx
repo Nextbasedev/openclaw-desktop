@@ -104,7 +104,7 @@ function ApprovalPromptCard({
         Command approval required
       </div>
       {approval.command && (
-        <div className="mb-3 overflow-hidden rounded-lg border border-border/20 bg-black/30">
+        <div className="mb-3 overflow-hidden rounded-md border border-border/20 bg-black/30">
           <div className="flex items-center gap-1.5 border-b border-border/15 px-2.5 py-1.5 text-[11px] text-muted-foreground/60">
             <LuTerminal className="size-3.5" />
             Shell
@@ -127,7 +127,7 @@ function ApprovalPromptCard({
               disabled={!onResolve || Boolean(resolving)}
               onClick={() => void resolve(decision)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                 decision === "deny"
                   ? "bg-red-400/10 text-red-300 hover:bg-red-400/15"
                   : "bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/15",
@@ -421,7 +421,7 @@ export function MessageBubble({
           </button>
         )}
         {isUser && editing ? (
-          <div className="flex w-full min-w-[280px] flex-col gap-2 rounded-2xl border border-border/30 bg-foreground/5 p-3">
+          <div className="flex w-full min-w-[280px] flex-col gap-2 rounded-md border border-border/30 bg-foreground/5 p-3">
             <textarea
               ref={textareaRef}
               value={editText}

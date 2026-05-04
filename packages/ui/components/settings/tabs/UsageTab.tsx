@@ -36,7 +36,7 @@ export function UsageTab() {
             <Icons.Automations size={14} strokeWidth={1.7} />
           </div> */}
           <div className="min-w-0">
-            <span className="block text-[16px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
+            <span className="block text-[16px] font-semibold uppercase tracking-[0.14em] text-white">
               Token Usage
             </span>
             <span className="block truncate text-[12px] text-muted-foreground/50">
@@ -58,7 +58,7 @@ export function UsageTab() {
               className={loading ? "animate-spin" : ""}
             />
           </button>
-          <div className="flex min-w-0 gap-0 rounded-lg border border-border/45 bg-card/70 p-0.5 shadow-sm backdrop-blur-md">
+          <div className="flex min-w-0 gap-0 rounded-lg border border-border/45 bg-card/70 p-0.5 backdrop-blur-md">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
