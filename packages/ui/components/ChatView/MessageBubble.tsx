@@ -12,6 +12,7 @@ import {
   LuPenLine,
   LuPin,
   LuRefreshCw,
+  LuQuote,
   LuReply,
   LuThumbsDown,
   LuX,
@@ -295,6 +296,7 @@ export function MessageBubble({
   onTextAnimationComplete,
   onFork,
   onResolveApproval,
+  onAskSelectedText,
   isPinned,
   reaction,
   isGenerating,
@@ -314,6 +316,7 @@ export function MessageBubble({
   onTextAnimationComplete?: (messageId: string) => void
   onFork?: (messageId: string) => void
   onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
+  onAskSelectedText?: (text: string) => void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -327,7 +330,13 @@ export function MessageBubble({
     !isUser && (Boolean(isActivelyStreaming) || Boolean(message.animateText))
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
+  const [selectionAction, setSelectionAction] = useState<{
+    text: string
+    left: number
+    top: number
+  } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const messageBodyRef = useRef<HTMLDivElement>(null)
 
   const hasBranches = message.branches && message.branches.length > 0
   const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
@@ -368,6 +377,49 @@ export function MessageBubble({
       onPopoverOpenChange?.(false)
     }
   }, [hideAssistantActions, popoverOpen, onPopoverOpenChange])
+
+  const updateSelectionAction = useCallback(() => {
+    if (isUser || !onAskSelectedText || !messageBodyRef.current) return
+
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim()
+    if (!selection || !selectedText || selection.rangeCount === 0) {
+      setSelectionAction(null)
+      return
+    }
+
+    const body = messageBodyRef.current
+    const anchorNode = selection.anchorNode
+    const focusNode = selection.focusNode
+    if (
+      !anchorNode ||
+      !focusNode ||
+      !body.contains(anchorNode) ||
+      !body.contains(focusNode)
+    ) {
+      setSelectionAction(null)
+      return
+    }
+
+    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    if (!rect.width && !rect.height) {
+      setSelectionAction(null)
+      return
+    }
+
+    setSelectionAction({
+      text: selectedText,
+      left: rect.left + rect.width / 2,
+      top: Math.max(12, rect.top - 14),
+    })
+  }, [isUser, onAskSelectedText])
+
+  const askAboutSelection = useCallback(() => {
+    if (!selectionAction?.text) return
+    onAskSelectedText?.(selectionAction.text)
+    window.getSelection()?.removeAllRanges()
+    setSelectionAction(null)
+  }, [onAskSelectedText, selectionAction?.text])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -458,6 +510,9 @@ export function MessageBubble({
               </div>
             )}
             <div
+              ref={messageBodyRef}
+              onMouseUp={updateSelectionAction}
+              onKeyUp={updateSelectionAction}
               className={cn(
                 "min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed",
                 isUser
@@ -484,6 +539,19 @@ export function MessageBubble({
               )}
               {!isUser && <RichContentPreview message={message} />}
             </div>
+            {selectionAction && !isUser && onAskSelectedText && (
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={askAboutSelection}
+                className="fixed z-50 inline-flex -translate-x-1/2 -translate-y-full cursor-pointer items-center gap-2 rounded-2xl border border-border/50 bg-background/95 px-4 py-2 text-[13px] font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-colors hover:bg-muted/80"
+                style={{ left: selectionAction.left, top: selectionAction.top }}
+                aria-label="Ask OpenClaw about selected text"
+              >
+                <LuQuote className="size-4" />
+                Ask OpenClaw
+              </button>
+            )}
           </>
         )}
         {isUser ? (
