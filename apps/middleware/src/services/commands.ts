@@ -599,6 +599,27 @@ function firstTextContent(content: unknown) {
   return content.map((block: any) => typeof block?.text === "string" ? block.text : "").join(" ")
 }
 
+function parseConversationInfo(text: string) {
+  const match = text.match(/Conversation info \(untrusted metadata\):\s*```json\s*([\s\S]*?)\s*```/i)
+  if (!match) return null
+  try { return JSON.parse(match[1]) } catch { return null }
+}
+
+function telegramMetaFromMessages(messages: any[]) {
+  for (const message of messages) {
+    const meta = parseConversationInfo(firstTextContent(message?.content))
+    if (!meta) continue
+    return {
+      groupSubject: String(meta.group_subject || "").trim(),
+      topicName: String(meta.topic_name || "").trim(),
+      topicId: String(meta.topic_id || "").trim(),
+      conversationLabel: String(meta.conversation_label || "").trim(),
+      sender: String(meta.sender || "").trim(),
+    }
+  }
+  return null
+}
+
 function transcriptMessagesFromJsonl(sessionFile: string) {
   return readJsonl(sessionFile)
     .filter((line: any) => line?.type === "message" || line?.message?.role)
@@ -671,11 +692,12 @@ function scanTelegramSessions(s: any, input: any = {}) {
       if (!parsed) return null
       const sourceSessionFile = String(entry?.sessionFile || "")
       const messages = sourceSessionFile ? transcriptMessagesFromJsonl(sourceSessionFile) : []
+      const telegramMeta = telegramMetaFromMessages(messages)
       const lastPreview = lastUserMessagePreview(messages)
       const fallback = parsed.kind === "direct"
-        ? "Telegram direct"
-        : telegramTopicFallback(entry, parsed.topicId)
-      const proposedName = uniqueName(titleFromLastUser(messages, fallback), usedNames)
+        ? (telegramMeta?.sender || "Telegram direct")
+        : (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId))
+      const proposedName = uniqueName(parsed.kind === "group" ? fallback : titleFromLastUser(messages, fallback), usedNames)
       return {
         sourceSessionKey,
         sourceSessionId: String(entry?.sessionId || ""),
@@ -686,7 +708,7 @@ function scanTelegramSessions(s: any, input: any = {}) {
         updatedAt: typeof entry?.updatedAt === "number" ? entry.updatedAt : null,
         chatType: parsed.kind,
         groupId: parsed.kind === "group" ? parsed.groupId : undefined,
-        groupName: parsed.kind === "group" ? telegramGroupName(entry, parsed.groupId) : undefined,
+        groupName: parsed.kind === "group" ? (telegramMeta?.groupSubject || telegramGroupName(entry, parsed.groupId)) : undefined,
         topicId: parsed.kind === "group" ? parsed.topicId : undefined,
         topicName: parsed.kind === "group" ? proposedName : undefined,
         alreadyImported: Boolean(migration.imports[sourceSessionKey]),
