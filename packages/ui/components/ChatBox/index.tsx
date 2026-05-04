@@ -13,7 +13,9 @@ import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceInput } from "@/hooks/useVoiceInput"
 import { LuX } from "react-icons/lu"
 import {
+  execPolicyForAutonomyMode,
   stripComposerAttachment,
+  type ChatAutonomyMode,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
@@ -33,6 +35,7 @@ type Props = {
   onAbort?: () => void
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
+  onAutonomyModeChange?: (mode: ChatAutonomyMode) => void | Promise<void>
 }
 
 export function ChatBox({
@@ -44,12 +47,11 @@ export function ChatBox({
   errorMessage,
   replyTo,
   onCancelReply,
+  onAutonomyModeChange,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
-  const [autonomyMode, setAutonomyMode] = React.useState<
-    "full" | "supervised" | "manual"
-  >("full")
+  const [autonomyMode, setAutonomyMode] = React.useState<ChatAutonomyMode>("manual")
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
@@ -222,6 +224,11 @@ export function ChatBox({
     }, 500)
   }
 
+  function handleAutonomyModeChange(mode: ChatAutonomyMode) {
+    setAutonomyMode(mode)
+    void onAutonomyModeChange?.(mode)
+  }
+
   async function handleSend() {
     const text = input.trim()
     if (!text || disabled || isPreparingAttachments) return
@@ -231,6 +238,8 @@ export function ChatBox({
         ? attachments.map(stripComposerAttachment)
         : undefined,
       replyTo: replyTo ?? undefined,
+      autonomyMode,
+      execPolicy: execPolicyForAutonomyMode(autonomyMode),
     }
     setInput("")
     if (textareaRef.current) textareaRef.current.style.height = "auto"
@@ -520,7 +529,7 @@ export function ChatBox({
             webSearchEnabled={webSearchEnabled}
             onWebSearchDisable={() => setWebSearchEnabled(false)}
             autonomyMode={autonomyMode}
-            onAutonomyModeChange={setAutonomyMode}
+            onAutonomyModeChange={handleAutonomyModeChange}
             plusOpen={plusOpen}
             onPlusOpenChange={setPlusOpen}
             modelOpen={modelOpen}

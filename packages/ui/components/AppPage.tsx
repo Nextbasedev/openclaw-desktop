@@ -24,6 +24,7 @@ import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { emit } from "@/lib/events"
+import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
@@ -100,9 +101,16 @@ export default function Page() {
     function onMiddlewareConnected() {
       setHasToken(true)
     }
+    function onMiddlewareDisconnected() {
+      setHasToken(false)
+    }
     window.addEventListener("openclaw:middleware-connected", onMiddlewareConnected)
+    window.addEventListener(MIDDLEWARE_DISCONNECTED_EVENT, onMiddlewareDisconnected)
     checkToken()
-    return () => window.removeEventListener("openclaw:middleware-connected", onMiddlewareConnected)
+    return () => {
+      window.removeEventListener("openclaw:middleware-connected", onMiddlewareConnected)
+      window.removeEventListener(MIDDLEWARE_DISCONNECTED_EVENT, onMiddlewareDisconnected)
+    }
   }, [])
 
   useEffect(() => {
@@ -274,6 +282,30 @@ function AppShell({
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
   }, [])
+
+  useEffect(() => {
+    function resetMiddlewareScopedUi() {
+      routeRequestRef.current += 1
+      resolvedChatCacheRef.current.clear()
+      clearConversationState()
+      setBackgroundSessionKey(null)
+      setBackgroundSessionTitle(null)
+      prevActiveSessionKeyRef.current = null
+      prevActiveSessionTitleRef.current = null
+      lastActiveSessionKeyRef.current = null
+      setCronConversationTarget(null)
+      setPendingPrompt(null)
+      setComposerError(null)
+      setFocusedToolCallId(null)
+      setActiveTab("chat")
+      setChatRefreshTrigger((n) => n + 1)
+      try { localStorage.removeItem("openclaw.activeProjectId") } catch {}
+      if (getRoutePath() !== "/") window.history.replaceState(null, "", routeUrl("/"))
+      emit("sidebar:refresh")
+    }
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
+    return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
+  }, [clearConversationState])
 
   const activateRoute = useCallback(async (route: ParsedRoute) => {
     routeRequestRef.current += 1
