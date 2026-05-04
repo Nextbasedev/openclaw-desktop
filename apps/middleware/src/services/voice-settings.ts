@@ -23,10 +23,16 @@ const DEFAULT_MODELS: Record<Exclude<VoiceModelProvider, "auto">, string> = {
 export const VOICE_MODEL_OPTIONS = [
   { provider: "auto", model: "", label: "Auto - best available" },
   { provider: "openai", model: DEFAULT_MODELS.openai, label: "OpenAI - gpt-4o-transcribe" },
+  { provider: "openai", model: "gpt-4o-mini-transcribe", label: "OpenAI - gpt-4o-mini-transcribe" },
+  { provider: "openai", model: "whisper-1", label: "OpenAI - whisper-1" },
   { provider: "groq", model: DEFAULT_MODELS.groq, label: "Groq - whisper-large-v3-turbo" },
+  { provider: "groq", model: "whisper-large-v3", label: "Groq - whisper-large-v3" },
   { provider: "deepgram", model: DEFAULT_MODELS.deepgram, label: "Deepgram - nova-3" },
+  { provider: "deepgram", model: "nova-2", label: "Deepgram - nova-2" },
   { provider: "google", model: DEFAULT_MODELS.google, label: "Google - gemini-3-flash-preview" },
+  { provider: "google", model: "gemini-2.5-flash", label: "Google - gemini-2.5-flash" },
   { provider: "mistral", model: DEFAULT_MODELS.mistral, label: "Mistral - voxtral-mini-latest" },
+  { provider: "mistral", model: "voxtral-small-latest", label: "Mistral - voxtral-small-latest" },
 ] as const
 
 export function openclawConfigPath() {
