@@ -396,7 +396,7 @@ export function MessageBubble({
         isUser ? "justify-end" : "justify-start",
       )}
     >
-      <div className={cn("flex min-w-0 max-w-[85%] flex-col", isUser ? "items-end" : "w-[85%] items-start")}>
+      <div className={cn("flex min-w-0 max-w-[85%] flex-col overflow-hidden", isUser ? "items-end" : "w-[85%] items-start")}>
         {message.replyTo && (
           <button
             type="button"
@@ -460,14 +460,14 @@ export function MessageBubble({
             )}
             <div
               className={cn(
-                "min-w-0 max-w-full text-[14px] leading-relaxed",
+                "min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed",
                 isUser
                   ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
                   : "w-full text-foreground",
               )}
             >
               {isUser ? (
-                <p className="whitespace-pre-wrap">{message.text}</p>
+                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.text}</p>
               ) : approvalPrompt ? (
                 <ApprovalPromptCard
                   approval={approvalPrompt}

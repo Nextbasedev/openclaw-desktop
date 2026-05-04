@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { LuCheck, LuChevronDown, LuInfo, LuMic, LuSettings2 } from "react-icons/lu"
+import { LuCheck, LuChevronDown, LuInfo, LuMic, LuSettings2, LuSparkles } from "react-icons/lu"
+import { SiDeepgram, SiGooglegemini, SiMistralai, SiOpenai } from "react-icons/si"
 
 import { cn } from "@/lib/utils"
 import { invoke } from "@/lib/ipc"
@@ -30,42 +31,50 @@ type VoiceSettingsPayload = {
 const FALLBACK_OPTIONS: VoiceOption[] = [
   { provider: "auto", model: "", label: "Auto - best available" },
   { provider: "openai", model: "gpt-4o-transcribe", label: "OpenAI - gpt-4o-transcribe" },
+  { provider: "openai", model: "gpt-4o-mini-transcribe", label: "OpenAI - gpt-4o-mini-transcribe" },
+  { provider: "openai", model: "whisper-1", label: "OpenAI - whisper-1" },
   { provider: "groq", model: "whisper-large-v3-turbo", label: "Groq - whisper-large-v3-turbo" },
+  { provider: "groq", model: "whisper-large-v3", label: "Groq - whisper-large-v3" },
   { provider: "deepgram", model: "nova-3", label: "Deepgram - nova-3" },
+  { provider: "deepgram", model: "nova-2", label: "Deepgram - nova-2" },
   { provider: "google", model: "gemini-3-flash-preview", label: "Google - gemini-3-flash-preview" },
+  { provider: "google", model: "gemini-2.5-flash", label: "Google - gemini-2.5-flash" },
   { provider: "mistral", model: "voxtral-mini-latest", label: "Mistral - voxtral-mini-latest" },
+  { provider: "mistral", model: "voxtral-small-latest", label: "Mistral - voxtral-small-latest" },
 ]
 
-const PROVIDER_COPY: Record<VoiceProvider, { name: string; note: string; initial: string }> = {
+const PROVIDER_ORDER: VoiceProvider[] = ["auto", "openai", "groq", "deepgram", "google", "mistral"]
+
+const PROVIDER_COPY: Record<VoiceProvider, { name: string; note: string; defaultModel: string }> = {
   auto: {
     name: "Auto",
-    note: "Recommended. Gateway tries configured providers, then local STT fallbacks.",
-    initial: "A",
+    note: "Gateway fallback chain",
+    defaultModel: "",
   },
   openai: {
     name: "OpenAI",
-    note: "Use when an OpenAI API key is configured.",
-    initial: "O",
+    note: "Uses your OpenAI key",
+    defaultModel: "gpt-4o-transcribe",
   },
   groq: {
     name: "Groq",
-    note: "Fast Whisper transcription with a Groq key.",
-    initial: "G",
+    note: "Fast Whisper STT",
+    defaultModel: "whisper-large-v3-turbo",
   },
   deepgram: {
     name: "Deepgram",
-    note: "Dedicated speech-to-text provider for voice-heavy use.",
-    initial: "D",
+    note: "Dedicated STT",
+    defaultModel: "nova-3",
   },
   google: {
     name: "Google",
-    note: "Gemini audio transcription through Google credentials.",
-    initial: "G",
+    note: "Gemini audio",
+    defaultModel: "gemini-3-flash-preview",
   },
   mistral: {
     name: "Mistral",
-    note: "Voxtral transcription through a Mistral key.",
-    initial: "M",
+    note: "Voxtral audio",
+    defaultModel: "voxtral-mini-latest",
   },
 }
 
@@ -77,12 +86,28 @@ const defaultSettings: VoiceSettings = {
   echoTranscript: false,
 }
 
-function optionValue(option: VoiceOption) {
-  return option.provider === "auto" ? "auto" : `${option.provider}/${option.model}`
+function ProviderLogo({ provider, selected }: { provider: VoiceProvider; selected?: boolean }) {
+  const className = cn("size-4", selected ? "text-background" : "text-foreground/80")
+  if (provider === "openai") return <SiOpenai className={className} />
+  if (provider === "deepgram") return <SiDeepgram className={className} />
+  if (provider === "google") return <SiGooglegemini className={className} />
+  if (provider === "mistral") return <SiMistralai className={className} />
+  if (provider === "auto") return <LuSparkles className={className} />
+  return <span className={cn("text-[11px] font-semibold", selected ? "text-background" : "text-foreground/80")}>G</span>
 }
 
-function currentValue(settings: VoiceSettings) {
-  return settings.provider === "auto" ? "auto" : `${settings.provider}/${settings.model}`
+function uniqueProviders(options: VoiceOption[]): VoiceProvider[] {
+  const available = new Set(options.map((option) => option.provider))
+  return PROVIDER_ORDER.filter((provider) => provider === "auto" || available.has(provider))
+}
+
+function modelsForProvider(options: VoiceOption[], provider: VoiceProvider, currentModel: string): VoiceOption[] {
+  if (provider === "auto") return []
+  const providerOptions = options.filter((option) => option.provider === provider && option.model)
+  if (currentModel && !providerOptions.some((option) => option.model === currentModel)) {
+    return [...providerOptions, { provider, model: currentModel, label: `${PROVIDER_COPY[provider].name} - ${currentModel}` }]
+  }
+  return providerOptions
 }
 
 function statusClass(tone: "muted" | "success" | "error") {
@@ -91,10 +116,16 @@ function statusClass(tone: "muted" | "success" | "error") {
   return "border-border/40 bg-foreground/[0.04] text-muted-foreground"
 }
 
+function isUnknownVoiceCommand(error: unknown) {
+  return error instanceof Error && error.message.includes("Unknown middleware command: middleware_voice_settings")
+}
+
 export function VoiceTab() {
   const [settings, setSettings] = React.useState<VoiceSettings | null>(null)
   const [options, setOptions] = React.useState<VoiceOption[]>(FALLBACK_OPTIONS)
   const [advancedOpen, setAdvancedOpen] = React.useState(false)
+  const [customModelOpen, setCustomModelOpen] = React.useState(false)
+  const [voiceSettingsAvailable, setVoiceSettingsAvailable] = React.useState(true)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [status, setStatus] = React.useState<{ tone: "muted" | "success" | "error"; message: string } | null>(null)
@@ -106,13 +137,21 @@ export function VoiceTab() {
       try {
         const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_get")
         if (cancelled) return
+        setVoiceSettingsAvailable(true)
         setSettings(payload.settings)
         setOptions(payload.options?.length ? payload.options : FALLBACK_OPTIONS)
+        setCustomModelOpen(false)
         setStatus(null)
       } catch (error) {
         if (cancelled) return
-        setSettings(defaultSettings)
-        setStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not load voice settings" })
+        if (isUnknownVoiceCommand(error)) {
+          setVoiceSettingsAvailable(false)
+          setSettings(null)
+          setStatus({ tone: "error", message: "Voice is not set in this Desktop build. Update/rebuild Desktop so voice settings commands are available." })
+        } else {
+          setSettings(defaultSettings)
+          setStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not load voice settings" })
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -122,25 +161,39 @@ export function VoiceTab() {
   }, [])
 
   async function save(next: VoiceSettings) {
+    if (!voiceSettingsAvailable) {
+      setStatus({ tone: "error", message: "Voice is not set in this Desktop build. Update/rebuild Desktop before choosing a voice provider." })
+      return
+    }
     setSettings(next)
     setSaving(true)
     setStatus({ tone: "muted", message: "Saving voice settings..." })
     try {
       const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_set", { input: next })
+      setVoiceSettingsAvailable(true)
       setSettings(payload.settings)
       setOptions(payload.options?.length ? payload.options : options)
       setStatus({ tone: "success", message: "Saved. New voice messages will use this transcription setup." })
     } catch (error) {
-      setStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not save voice settings" })
+      if (isUnknownVoiceCommand(error)) {
+        setVoiceSettingsAvailable(false)
+        setSettings(null)
+        setStatus({ tone: "error", message: "Voice is not set in this Desktop build. Update/rebuild Desktop so voice settings commands are available." })
+      } else {
+        setStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not save voice settings" })
+      }
     } finally {
       setSaving(false)
     }
   }
 
   const current = settings ?? defaultSettings
-  const selectedValue = currentValue(current)
-  const selectedMeta = PROVIDER_COPY[current.provider]
-  const selectedModel = current.provider === "auto" ? "Gateway fallback chain" : current.model
+  const providers = uniqueProviders(options)
+  const modelOptions = modelsForProvider(options, current.provider, current.model)
+  const selectedMeta = voiceSettingsAvailable ? PROVIDER_COPY[current.provider] : null
+  const selectedModel = voiceSettingsAvailable
+    ? current.provider === "auto" ? "Automatic fallback" : current.model
+    : "Update/rebuild required"
 
   return (
     <div className="flex flex-col gap-5 pb-8">
@@ -162,54 +215,117 @@ export function VoiceTab() {
               {saving && <span className="text-[11px] text-muted-foreground">Saving…</span>}
             </div>
             <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-              <span className="text-foreground">{selectedMeta.name}</span>
+              <span className="text-foreground">{selectedMeta?.name ?? "Voice is not set"}</span>
               <span className="mx-1.5 text-muted-foreground/40">·</span>
               <span className="font-mono text-[11px]">{selectedModel}</span>
             </p>
           </div>
         </div>
 
-        <div className="divide-y divide-border/30">
-          {options.map((option) => {
-            const value = optionValue(option)
-            const selected = selectedValue === value
-            const copy = PROVIDER_COPY[option.provider]
-
-            return (
-              <button
-                key={value}
-                type="button"
-                disabled={loading || saving}
-                onClick={() => { void save({ ...current, provider: option.provider, model: option.model }) }}
-                className={cn(
-                  "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors disabled:pointer-events-none disabled:opacity-60",
-                  selected ? "bg-foreground/[0.055]" : "hover:bg-foreground/[0.035]",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-md border text-[12px] font-semibold",
-                    selected
-                      ? "border-foreground/25 bg-foreground text-background"
-                      : "border-border/50 bg-background/50 text-muted-foreground",
-                  )}
-                >
-                  {selected ? <LuCheck size={14} /> : copy.initial}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="text-[13px] font-medium text-foreground">{copy.name}</span>
-                    <span className="truncate font-mono text-[11px] text-muted-foreground/70">
-                      {option.model || "automatic"}
+        <div className="space-y-4 p-4">
+          <div>
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+              Audio provider
+            </p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {providers.map((provider) => {
+                const selected = voiceSettingsAvailable && current.provider === provider
+                const copy = PROVIDER_COPY[provider]
+                return (
+                  <button
+                    key={provider}
+                    type="button"
+                    disabled={!voiceSettingsAvailable || loading || saving}
+                    onClick={() => {
+                      const model = provider === "auto" ? "" : copy.defaultModel
+                      setCustomModelOpen(false)
+                      void save({ ...current, provider, model })
+                    }}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors disabled:pointer-events-none disabled:opacity-60",
+                      selected
+                        ? "border-foreground/25 bg-foreground text-background"
+                        : "border-border/50 bg-background/45 text-foreground hover:bg-foreground/[0.04]",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex size-7 shrink-0 items-center justify-center rounded-md border",
+                        selected ? "border-background/20 bg-background/10" : "border-border/45 bg-foreground/[0.035]",
+                      )}
+                    >
+                      <ProviderLogo provider={provider} selected={selected} />
                     </span>
-                  </span>
-                  <span className="mt-0.5 block text-[12px] leading-relaxed text-muted-foreground">
-                    {copy.note}
-                  </span>
-                </span>
-              </button>
-            )
-          })}
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-medium">{copy.name}</span>
+                      <span className={cn("block truncate text-[10px]", selected ? "text-background/70" : "text-muted-foreground")}>{copy.note}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {!voiceSettingsAvailable && (
+            <div className="rounded-md border border-border/50 bg-background/45 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
+              Voice is not set for this Desktop build yet. Pull the latest changes and rebuild/reinstall Desktop to enable voice provider and model selection.
+            </div>
+          )}
+
+          <div className={cn((!voiceSettingsAvailable || current.provider === "auto") && "opacity-60")}>
+            <label className="block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+              Audio model
+            </label>
+            <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+              <div className="relative">
+                <select
+                  value={current.provider === "auto" ? "auto" : current.model}
+                  disabled={!voiceSettingsAvailable || loading || saving || current.provider === "auto"}
+                  onChange={(event) => {
+                    if (event.target.value === "__custom") {
+                      setCustomModelOpen(true)
+                      return
+                    }
+                    setCustomModelOpen(false)
+                    void save({ ...current, model: event.target.value })
+                  }}
+                  className="h-9 w-full appearance-none rounded-md border border-border/60 bg-background/70 px-3 pr-9 text-[13px] text-foreground outline-none transition-colors focus:border-foreground/30 disabled:opacity-60"
+                >
+                  {current.provider === "auto" ? (
+                    <option value="auto">Automatic fallback chain</option>
+                  ) : (
+                    <>
+                      {modelOptions.map((option) => (
+                        <option key={`${option.provider}/${option.model}`} value={option.model}>{option.model}</option>
+                      ))}
+                      <option value="__custom">Custom model ID…</option>
+                    </>
+                  )}
+                </select>
+                <LuChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              </div>
+              {current.provider !== "auto" && (
+                <button
+                  type="button"
+                  disabled={!voiceSettingsAvailable || loading || saving}
+                  onClick={() => setCustomModelOpen((open) => !open)}
+                  className="rounded-md border border-border/50 px-3 py-2 text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:opacity-60"
+                >
+                  Custom
+                </button>
+              )}
+            </div>
+            {customModelOpen && current.provider !== "auto" && (
+              <input
+                value={current.model}
+                disabled={!voiceSettingsAvailable || loading || saving}
+                onChange={(event) => setSettings({ ...current, model: event.target.value })}
+                onBlur={(event) => { void save({ ...current, model: event.target.value }) }}
+                className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
+                placeholder="custom-audio-model-id"
+              />
+            )}
+          </div>
         </div>
       </section>
 
@@ -231,26 +347,12 @@ export function VoiceTab() {
 
         {advancedOpen && (
           <div className="space-y-4 border-t border-border/35 px-4 py-4">
-            {current.provider !== "auto" && (
-              <label className="block text-[12px] font-medium text-muted-foreground">
-                Model ID
-                <input
-                  value={current.model}
-                  disabled={loading || saving}
-                  onChange={(event) => setSettings({ ...current, model: event.target.value })}
-                  onBlur={(event) => { void save({ ...current, model: event.target.value }) }}
-                  className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
-                  placeholder="model-name"
-                />
-              </label>
-            )}
-
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-[12px] font-medium text-muted-foreground">
                 Language hint
                 <input
                   value={current.language}
-                  disabled={loading || saving}
+                  disabled={!voiceSettingsAvailable || loading || saving}
                   onChange={(event) => setSettings({ ...current, language: event.target.value })}
                   onBlur={(event) => { void save({ ...current, language: event.target.value }) }}
                   className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
@@ -267,7 +369,7 @@ export function VoiceTab() {
                   type="button"
                   role="switch"
                   aria-checked={current.echoTranscript}
-                  disabled={loading || saving}
+                  disabled={!voiceSettingsAvailable || loading || saving}
                   onClick={() => { void save({ ...current, echoTranscript: !current.echoTranscript }) }}
                   className={cn(
                     "relative inline-flex h-[22px] w-[40px] shrink-0 items-center rounded-full transition-colors disabled:opacity-60",
@@ -293,7 +395,7 @@ export function VoiceTab() {
           <div className="min-w-0 text-[12px] leading-relaxed text-muted-foreground">
             <p className="font-medium text-foreground">How user sets it</p>
             <p className="mt-1">
-              Add the provider API key in OpenClaw onboarding/config, then select that provider here. Auto needs no extra choice and uses Gateway fallback.
+              Add the provider API key in OpenClaw onboarding/config, then choose the audio provider and model here. If this page says voice is not set, update/rebuild Desktop first; otherwise Auto uses Gateway fallback.
             </p>
             <p className="mt-2 truncate">
               Saved in <code className="text-foreground">~/.openclaw/openclaw.json</code> → <code className="text-foreground">tools.media.audio</code>

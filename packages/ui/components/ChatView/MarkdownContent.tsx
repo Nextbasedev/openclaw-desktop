@@ -69,7 +69,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
   const code = children.replace(/\n$/, "")
   const displayLang = langDisplayName(language)
   return (
-    <div className="group/code relative my-2 min-w-0 overflow-clip rounded-xl border border-border/20 bg-[#1a1a1e]">
+    <div className="group/code relative my-2 max-w-full min-w-0 overflow-hidden rounded-xl border border-border/20 bg-[#1a1a1e]">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/15 bg-[#252529] px-4 py-2">
         <span className="flex items-center gap-2 text-[12px] font-medium text-foreground/60">
           <LanguageIcon lang={language} className="size-4" />
@@ -78,7 +78,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
         <CopyBtn text={code} />
       </div>
       {language ? (
-        <div className="w-full overflow-x-auto rounded-b-xl px-4 py-4">
+        <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
           <SyntaxHighlighter
             style={cleanStyle}
             language={language}
@@ -96,7 +96,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
           </SyntaxHighlighter>
         </div>
       ) : (
-        <div className="w-full overflow-x-auto rounded-b-xl px-4 py-4">
+        <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
           <pre className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6] text-foreground/80">{code}</pre>
         </div>
       )}
@@ -115,15 +115,15 @@ const mdComponents = {
       if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
       return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
     }
-    return <code className="rounded-md bg-foreground/[0.07] px-1.5 py-0.5 text-[0.85em] font-mono text-foreground/90" {...rest}>{children}</code>
+    return <code className="break-words rounded-md bg-foreground/[0.07] px-1.5 py-0.5 text-[0.85em] font-mono text-foreground/90 [overflow-wrap:anywhere]" {...rest}>{children}</code>
   },
   table({ children }: { children?: React.ReactNode }) {
-    return (<div className="my-3 overflow-hidden rounded-xl border border-border/25 bg-foreground/2"><div className="overflow-x-auto"><table className="w-full border-collapse text-[13px]">{children}</table></div></div>)
+    return (<div className="my-3 max-w-full overflow-hidden rounded-xl border border-border/25 bg-foreground/2"><div className="max-w-full overflow-x-auto"><table className="w-full border-collapse text-[13px]">{children}</table></div></div>)
   },
   thead({ children }: { children?: React.ReactNode }) { return <thead className="border-b border-border/30 bg-foreground/5">{children}</thead> },
   tr({ children }: { children?: React.ReactNode }) { return <tr className="border-b border-border/10 last:border-0 transition-colors hover:bg-foreground/2">{children}</tr> },
   th({ children }: { children?: React.ReactNode }) { return <th className="px-3 py-2 text-left text-[12px] font-semibold text-foreground/80">{children}</th> },
-  td({ children }: { children?: React.ReactNode }) { return <td className="px-3 py-2 text-foreground/70">{children}</td> },
+  td({ children }: { children?: React.ReactNode }) { return <td className="break-words px-3 py-2 text-foreground/70 [overflow-wrap:anywhere]">{children}</td> },
   a({ href, children }: { href?: string; children?: React.ReactNode }) {
     return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline decoration-blue-400/30 underline-offset-2 transition-colors hover:text-blue-300 hover:decoration-blue-300/50">{children}</a>
   },
@@ -131,10 +131,10 @@ const mdComponents = {
   h2({ children }: { children?: React.ReactNode }) { return <h2 className="mb-2.5 mt-5 border-b border-border/15 pb-1.5 text-[16px] font-semibold text-foreground first:mt-0">{children}</h2> },
   h3({ children }: { children?: React.ReactNode }) { return <h3 className="mb-2 mt-4 text-[15px] font-semibold text-foreground first:mt-0">{children}</h3> },
   h4({ children }: { children?: React.ReactNode }) { return <h4 className="mb-1.5 mt-3 text-[14px] font-medium text-foreground first:mt-0">{children}</h4> },
-  p({ children }: { children?: React.ReactNode }) { return <p className="my-2.5 leading-[1.75] text-foreground/85 first:mt-0 last:mb-0">{children}</p> },
+  p({ children }: { children?: React.ReactNode }) { return <p className="my-2.5 break-words leading-[1.75] text-foreground/85 [overflow-wrap:anywhere] first:mt-0 last:mb-0">{children}</p> },
   ul({ children }: { children?: React.ReactNode }) { return <ul className="my-2.5 list-disc space-y-1.5 pl-5 text-foreground/85 marker:text-foreground/30">{children}</ul> },
   ol({ children }: { children?: React.ReactNode }) { return <ol className="my-2.5 list-decimal space-y-2 pl-5 text-foreground/85 marker:text-foreground/50 marker:font-semibold">{children}</ol> },
-  li({ children }: { children?: React.ReactNode }) { return <li className="pl-1 leading-[1.75] [&>ol]:my-1 [&>p]:my-1 [&>ul]:my-1">{children}</li> },
+  li({ children }: { children?: React.ReactNode }) { return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p]:my-1 [&>ul]:my-1">{children}</li> },
   blockquote({ children }: { children?: React.ReactNode }) { return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{children}</blockquote> },
   hr() { return <hr className="my-5 border-border/25" /> },
   strong({ children }: { children?: React.ReactNode }) { return <strong className="font-semibold text-foreground">{children}</strong> },
@@ -238,7 +238,7 @@ export function MarkdownContent({
   )
 
   return (
-    <div className={cn("prose-chat max-w-full min-w-0", isRevealing && "streaming-text", className)}>
+    <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]", isRevealing && "streaming-text", className)}>
       {parts.map((part, i) =>
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />
