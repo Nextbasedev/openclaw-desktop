@@ -198,6 +198,7 @@ type ChatSendAttachment = {
 }
 
 type GatewayAttachment = {
+  type: "image"
   fileName: string
   mimeType: string
   content?: string
@@ -229,6 +230,7 @@ function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
 
 function normalizeImageAttachment(attachment: ChatSendAttachment): GatewayAttachment {
   return {
+    type: "image",
     fileName: attachment.name,
     mimeType: attachment.mimeType,
     content: attachment.encoding === "base64"
@@ -244,10 +246,12 @@ function prepareMessageAndAttachments(message: string, raw: unknown): { message:
   const embedded: string[] = []
   let embeddedChars = 0
 
+  const imageNames: string[] = []
   for (const item of raw) {
     const attachment = item as ChatSendAttachment
     if (attachment.mimeType?.startsWith("image/") && attachment.content) {
       gatewayAttachments.push(normalizeImageAttachment(attachment))
+      imageNames.push(attachment.name ?? "image")
       continue
     }
 
@@ -267,6 +271,12 @@ function prepareMessageAndAttachments(message: string, raw: unknown): { message:
     embedded.push(
       `[Attached file: ${attachment.name ?? "unnamed"} (${attachment.mimeType || "unknown mime"}, ${attachment.size ?? "unknown"} bytes). This file type is not directly readable by the current gateway.]`,
     )
+  }
+
+  if (imageNames.length > 0) {
+    embedded.unshift(imageNames.length === 1
+      ? `[Attached image: ${imageNames[0]}]`
+      : `[Attached images: ${imageNames.join(", ")}]`)
   }
 
   return {
