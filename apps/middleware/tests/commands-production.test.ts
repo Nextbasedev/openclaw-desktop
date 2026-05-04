@@ -164,3 +164,42 @@ describe("production command behavior", () => {
     expect(resumed.body.job).toMatchObject({ paused: false, enabled: true, status: "active" })
   })
 })
+
+it("persists provider API key and voice settings through command endpoints", async () => {
+  const root = tempRoot()
+  const configPath = path.join(root, ".openclaw", "openclaw.json")
+  vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath)
+  const app = makeApp(root)
+
+  const details = await auth(request(app).post("/api/commands/middleware_onboarding_provider_details")).send({ input: { providerId: "groq" } })
+  expect(details.status).toBe(200)
+  expect(details.body.provider.submit.payloadShape.values.fields.credentials[0]).toMatchObject({ envVar: "GROQ_API_KEY", required: true })
+
+  const access = await auth(request(app).post("/api/commands/middleware_onboarding_provider_submit")).send({
+    input: {
+      providerId: "groq",
+      authMethod: "api-key",
+      values: { "api-key": "gsk_fake_wrong_key_for_e2e" },
+      setDefault: false,
+    },
+  })
+  expect(access.status).toBe(200)
+  expect(access.body.saved.envVars).toEqual(["GROQ_API_KEY"])
+
+  const voice = await auth(request(app).post("/api/commands/middleware_voice_settings_set")).send({
+    input: {
+      provider: "groq",
+      model: "whisper-large-v3-turbo",
+      language: "en",
+      echoTranscript: false,
+    },
+  })
+  expect(voice.status).toBe(200)
+  expect(voice.body.settings).toMatchObject({ provider: "groq", model: "whisper-large-v3-turbo" })
+
+  const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"))
+  expect(cfg.env.vars.GROQ_API_KEY).toBe("gsk_fake_wrong_key_for_e2e")
+  expect(cfg.tools.media.audio.models).toEqual([
+    { type: "provider", provider: "groq", model: "whisper-large-v3-turbo" },
+  ])
+})
