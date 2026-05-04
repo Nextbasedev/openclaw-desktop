@@ -726,6 +726,33 @@ function ensureImportedGroupProject(store: Store, s: any, sourceGroupId: string,
   return project
 }
 
+async function createMigratedGatewaySession(
+  gw: NonNullable<Awaited<ReturnType<typeof connectGateway>>>,
+  params: { key: string; agentId: string; label: string; parentSessionKey: string },
+) {
+  let lastError = "sessions.create failed"
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const label = attempt === 0 ? params.label : `${params.label} (${attempt + 1})`
+    const key = attempt === 0 ? params.key : `agent:${params.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`
+    const created = await gw.request<any>("sessions.create", {
+      key,
+      agentId: params.agentId,
+      label,
+      parentSessionKey: params.parentSessionKey,
+    }, 30_000)
+    if (created.ok) {
+      return {
+        created,
+        desktopSessionKey: key,
+        label,
+      }
+    }
+    lastError = created.error?.message || lastError
+    if (!/label already in use/i.test(lastError)) break
+  }
+  throw new Error(lastError)
+}
+
 async function importTelegramSessions(store: Store, s: any, input: any = {}) {
   const scan = scanTelegramSessions(s, input)
   const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0
@@ -753,9 +780,13 @@ async function importTelegramSessions(store: Store, s: any, input: any = {}) {
         continue
       }
       try {
-        const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`
-        const created = await gw!.request<any>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label: session.proposedName, parentSessionKey: session.sourceSessionKey }, 30_000)
-        if (!created.ok) throw new Error(created.error?.message || "sessions.create failed")
+        const initialSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`
+        const { created, desktopSessionKey, label } = await createMigratedGatewaySession(gw!, {
+          key: initialSessionKey,
+          agentId: parsed.agentId,
+          label: session.proposedName,
+          parentSessionKey: session.sourceSessionKey,
+        })
         const transcriptPath = (created.payload as any)?.entry?.sessionFile
         if (!transcriptPath || typeof transcriptPath !== "string") throw new Error("sessions.create did not return entry.sessionFile")
         copyHistoryMessagesToTranscript(transcriptPath, sourceMessages)
@@ -768,14 +799,14 @@ async function importTelegramSessions(store: Store, s: any, input: any = {}) {
           const project = ensureImportedGroupProject(store, s, parsed.groupId, session.groupName || `Telegram group ${parsed.groupId}`)
           projectId = project.id
           topicId = `topic_${crypto.randomUUID().replace(/-/g, "")}`
-          s.topics.push({ id: topicId, projectId, name: session.proposedName || telegramTopicFallback({}, parsed.topicId), archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } })
-          s.sessions.push({ key: desktopSessionKey, sessionKey: desktopSessionKey, label: session.proposedName, agentId: parsed.agentId, status: "idle", hidden: false, projectId, topicId, createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
+          s.topics.push({ id: topicId, projectId, name: label || telegramTopicFallback({}, parsed.topicId), archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } })
+          s.sessions.push({ key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, projectId, topicId, createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
         } else {
           chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
-          s.chats.push({ id: chatId, name: session.proposedName, sessionKey: desktopSessionKey, agentId: parsed.agentId, archived: false, pinned: false, createdAt, updatedAt: createdAt, lastActiveAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
+          s.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, archived: false, pinned: false, createdAt, updatedAt: createdAt, lastActiveAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
         }
-        migration.imports[session.sourceSessionKey] = { desktopSessionKey, chatId, projectId, topicId, name: session.proposedName, importedAt: createdAt }
-        imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, name: session.proposedName, copiedMessages: sourceMessages.filter((m:any) => m.role !== "system").length, transcriptPath })
+        migration.imports[session.sourceSessionKey] = { desktopSessionKey, chatId, projectId, topicId, name: label, importedAt: createdAt }
+        imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, name: label, copiedMessages: sourceMessages.filter((m:any) => m.role !== "system").length, transcriptPath })
       } catch (error) {
         failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) })
       }
