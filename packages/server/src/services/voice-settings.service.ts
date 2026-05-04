@@ -49,7 +49,18 @@ function readJson(file: string): any {
 
 function writeJson(file: string, value: unknown) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n")
+  const next = value && typeof value === "object" && !Array.isArray(value) ? value as any : value
+  if (next && typeof next === "object" && file === openclawConfigPath()) {
+    const existing = readJson(file)
+    if (existing?.env?.vars && typeof existing.env.vars === "object") {
+      next.env ??= {}
+      next.env.vars = { ...existing.env.vars, ...(next.env?.vars ?? {}) }
+    }
+    if (existing?.providers && typeof existing.providers === "object") {
+      next.providers = { ...existing.providers, ...(next.providers ?? {}) }
+    }
+  }
+  fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n")
 }
 
 function normalizeProvider(value: unknown): VoiceModelProvider {
