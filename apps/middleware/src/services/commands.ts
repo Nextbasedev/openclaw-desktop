@@ -24,7 +24,7 @@ function state(store: Store): any {
 }
 function save(store: Store, s: any) { (store as any).write(s) }
 function ok(extra: Record<string, unknown> = {}) { return { ok: true, ...extra } }
-function openclawConfigPath() { return path.join(os.homedir(), ".openclaw", "openclaw.json") }
+function openclawConfigPath() { return process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json") }
 function workspaceRoot() { return process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace") }
 function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(file, "utf8")) } catch { return {} } }
 function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
@@ -975,17 +975,70 @@ function modelsResponse(cfg: any) {
   return { models, currentModel, defaultModel: currentModel }
 }
 
+const PROVIDER_API_KEY_ENV: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  groq: "GROQ_API_KEY",
+  deepgram: "DEEPGRAM_API_KEY",
+  google: "GEMINI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+}
+
 function providerSummary(id: string) {
+  const envVar = PROVIDER_API_KEY_ENV[id]
+  const displayName = id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  const credentials = envVar
+    ? [{
+        key: "api-key",
+        label: `${displayName} API key`,
+        help: `Saved as ${envVar}`,
+        group: "credentials",
+        authMethod: "api-key",
+        inputKind: "secret",
+        required: true,
+        sensitive: true,
+        envVar,
+      }]
+    : []
   return {
     id,
     pluginId: id,
-    displayName: id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    displayName,
     category: id.includes("ollama") || id.includes("local") ? "local" : "core",
-    authEnvVars: [],
+    authEnvVars: envVar ? [envVar] : [],
     authMethods: ["api-key"],
     authChoices: [],
-    submit: { payloadShape: { values: { fields: { credentials: [], config: [] } } } },
+    submit: { payloadShape: { values: { fields: { credentials, config: [] } } } },
   }
+}
+
+function saveProviderAccess(input: any) {
+  const providerId = String(input.providerId || "").trim()
+  if (!providerId) throw new HttpError(400, "providerId is required", "BAD_REQUEST")
+  const authMethod = String(input.authMethod || "api-key")
+  const values = input.values && typeof input.values === "object" ? input.values : {}
+  const envVar = PROVIDER_API_KEY_ENV[providerId]
+  const cfg = readJson(openclawConfigPath())
+  cfg.env ??= {}
+  cfg.env.vars ??= {}
+  const savedEnvVars: string[] = []
+  if (envVar) {
+    const raw = values["api-key"] ?? values.apiKey ?? values.token ?? values.key ?? values[envVar]
+    const apiKey = typeof raw === "string" ? raw.trim() : ""
+    if (!apiKey) throw new HttpError(400, `${envVar} is required`, "BAD_REQUEST")
+    cfg.env.vars[envVar] = apiKey
+    savedEnvVars.push(envVar)
+  }
+  cfg.providers ??= {}
+  cfg.providers[providerId] ??= {}
+  cfg.providers[providerId].authMethod = authMethod
+  writeJson(openclawConfigPath(), cfg)
+  return ok({
+    providerId,
+    authMethod,
+    nextStep: "model",
+    saved: { envVars: savedEnvVars, configPaths: [], setDefault: input.setDefault ?? false },
+    provider: providerSummary(providerId),
+  })
 }
 
 function modelContract(cfg: any, providerId?: string | null) {
@@ -1430,7 +1483,7 @@ export function commandRoutes(store: Store) {
           return { providers, count: providers.length }
         }
         case "middleware_onboarding_provider_details": return { provider: providerSummary(String(input.providerId || "custom")) }
-        case "middleware_onboarding_provider_submit": return ok({ nextStep: "model" })
+        case "middleware_onboarding_provider_submit": return saveProviderAccess(input)
         case "middleware_onboarding_model_submit": {
           const cfg = readJson(openclawConfigPath())
           const modelRef = String(input.modelRef || input.modelId || "").trim()
