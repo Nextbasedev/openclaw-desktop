@@ -424,6 +424,12 @@ export function ChatView({
     })
   }, [messages])
 
+  const askAboutSelectedText = useCallback((text: string) => {
+    const selected = text.trim()
+    if (!selected) return
+    setComposerSeed(`Ask OpenClaw about this selected text:\n\n${selected}`)
+  }, [])
+
   const cancelReply = useCallback(() => {
     setReplyTo(null)
     dispatchMessageAction((prev) =>
@@ -928,6 +934,7 @@ export function ChatView({
                       onTextAnimationComplete={markTextAnimationComplete}
                       onFork={msg.role === "assistant" ? forkFromMessage : undefined}
                       onResolveApproval={resolveExecApproval}
+                      onAskSelectedText={msg.role === "assistant" ? askAboutSelectedText : undefined}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
