@@ -133,7 +133,7 @@ export function ActionBar({
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
             >
               <HugeiconsIcon icon={AttachmentIcon} size={16} />
-              {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Upload"}
+              {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
             </button>
           </PopoverContent>
         </Popover>
@@ -143,19 +143,19 @@ export function ActionBar({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="group flex h-8 cursor-pointer items-center gap-2 rounded-full border border-white/5 bg-white/[0.07] px-3 text-[13px] font-medium text-muted-foreground shadow-sm transition-all hover:bg-white/[0.1] hover:text-foreground"
+              className="group flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.08] px-2.5 text-[12px] font-medium text-muted-foreground shadow-sm backdrop-blur-md transition-all hover:bg-white/[0.12] hover:text-foreground"
               aria-label="Permissions mode"
             >
-              <HugeiconsIcon icon={activePermission.icon} size={17} className="text-foreground/55 transition-colors group-hover:text-foreground/75" />
-              <span className="hidden max-w-[150px] truncate sm:inline">{activePermission.label}</span>
-              <HugeiconsIcon icon={ArrowDown01Icon} size={13} className="text-foreground/45" />
+              <HugeiconsIcon icon={activePermission.icon} size={15} className="text-foreground/55 transition-colors group-hover:text-foreground/75" />
+              <span className="hidden max-w-[132px] truncate sm:inline">{activePermission.label}</span>
+              <HugeiconsIcon icon={ArrowDown01Icon} size={12} className="text-foreground/45" />
             </button>
           </PopoverTrigger>
           <PopoverContent
             side="top"
             align="start"
             sideOffset={8}
-            className="w-[236px] overflow-hidden rounded-2xl border border-white/10 bg-[#2c2c2c]/95 p-2 shadow-2xl shadow-black/35 backdrop-blur-xl"
+            className="w-[218px] overflow-hidden rounded-xl border border-border/50 bg-popover/70 p-1.5 text-popover-foreground shadow-2xl shadow-black/35 ring-1 ring-foreground/10 backdrop-blur-xl backdrop-saturate-150"
           >
             <div className="space-y-0.5">
               {permissionOptions.map((option) => {
@@ -169,16 +169,16 @@ export function ActionBar({
                       setPermissionsOpen(false)
                     }}
                     className={cn(
-                      "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold transition-colors",
+                      "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-semibold transition-colors",
                       selected
-                        ? "text-white"
-                        : "text-white/78 hover:bg-white/[0.06] hover:text-white",
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:bg-muted/45 hover:text-foreground",
                     )}
                   >
-                    <HugeiconsIcon icon={option.icon} size={20} className="shrink-0 text-white/70" />
+                    <HugeiconsIcon icon={option.icon} size={17} className="shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
                     {selected && (
-                      <HugeiconsIcon icon={Tick02Icon} size={19} className="shrink-0 text-white/80" />
+                      <HugeiconsIcon icon={Tick02Icon} size={16} className="shrink-0 text-foreground/80" />
                     )}
                   </button>
                 )

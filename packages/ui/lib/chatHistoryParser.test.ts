@@ -273,4 +273,30 @@ describe("parseChatHistory", () => {
       "you have ngix setup>\nwhich is forwarding the traffics?",
     )
   })
+
+  it("restores reply previews from markdown quotes with blank quoted lines", () => {
+    const assistantText =
+      "First assistant line.\n\nSecond assistant paragraph with enough text to represent a stored reply preview."
+    const userText = "Continue from that reply with a fresh question."
+    const parsed = parseChatHistory([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        text: assistantText,
+      },
+      {
+        id: "user-1",
+        role: "user",
+        text: `> First assistant line.\n>\n> Second assistant paragraph with enough text to represent a stored reply preview.\n\n${userText}`,
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(parsed.messages[1]?.text, userText)
+    assert.deepEqual(parsed.messages[1]?.replyTo, {
+      messageId: "assistant-1",
+      role: "assistant",
+      text: assistantText,
+    })
+  })
 })

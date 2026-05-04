@@ -23,8 +23,8 @@ function getResponsiveDefaults() {
   const vw = window.innerWidth
   if (vw < 768) return { min: 260, max: Math.min(vw * 0.82, 420), default: 260 }
   if (vw < 1024) return { min: 320, max: 520, default: 320 }
-  if (vw < 1440) return { min: 480, max: 760, default: 480 }
-  return { min: 520, max: 860, default: 520 }
+  if (vw < 1440) return { min: 420, max: 760, default: 420 }
+  return { min: 460, max: 860, default: 460 }
 }
 
 type TerminalTab = {

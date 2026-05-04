@@ -121,8 +121,8 @@ export function getLastSessionStatus(
 }
 
 const MAX_ATTACHMENTS = 10
-const MAX_SINGLE_ATTACHMENT_BYTES = 50 * 1024 * 1024
-const MAX_TOTAL_ATTACHMENT_BYTES = 100 * 1024 * 1024
+const MAX_SINGLE_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const MAX_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 type Attachment = {
   name: string
@@ -162,12 +162,12 @@ function validateAttachments(
 
     if (size > MAX_SINGLE_ATTACHMENT_BYTES) {
       throw new Error(
-        `Attachment "${att.name}" exceeds 50 MB limit`,
+        `Attachment "${att.name}" exceeds 10 MB limit`,
       )
     }
     totalBytes += size
     if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
-      throw new Error("Total attachment size exceeds 100 MB limit")
+      throw new Error("Total attachment size exceeds 10 MB limit")
     }
     validated.push({
       name: att.name,

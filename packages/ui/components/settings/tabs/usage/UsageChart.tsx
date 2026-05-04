@@ -51,145 +51,134 @@ export function UsageChart({
   }))
 
   return (
-    <div className="flex flex-col gap-0 rounded-3xl border border-border/50 bg-card p-5 shadow-[0_18px_50px_rgba(0,0,0,0.14)]">
+    <div className="flex w-full flex-col gap-3 rounded-md border border-border/40 bg-card/40 dark:bg-[#121212] p-5">
       {loading ? (
-        <div className="h-[240px] space-y-4 py-3">
-          <div className="ml-auto h-3 w-24 rounded bg-muted/55 animate-pulse" />
-          <div className="flex h-[184px] items-end gap-3">
-            {[44, 70, 52, 86, 63, 76, 48, 82, 58, 72, 54, 80].map((height, index) => (
-              <div
-                key={index}
-                className="flex-1 rounded-t-lg bg-muted/55 animate-pulse"
-                style={{ height: `${height}%` }}
-              />
-            ))}
-          </div>
-          <div className="flex justify-center gap-6">
-            <div className="h-3 w-20 rounded bg-muted/55 animate-pulse" />
-            <div className="h-3 w-24 rounded bg-muted/55 animate-pulse" />
-          </div>
+        <div className="flex h-[230px] w-full flex-col gap-3 sm:h-[250px]">
+          <div className="h-full w-full animate-pulse rounded-[10px] bg-muted" />
         </div>
       ) : (
-      <div className="h-[240px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
-            data={chartData}
-            margin={{ top: 8, right: 8, bottom: 0, left: -20 }}
-          >
-            <defs>
-              <linearGradient
-                id="inputGrad"
-                x1="0"
-                y1="0"
-                x2="0"
-                y2="1"
-              >
-                <stop
-                  offset="0%"
-                  stopColor="var(--muted-foreground)"
-                  stopOpacity={0.3}
-                />
-                <stop
-                  offset="100%"
-                  stopColor="var(--muted-foreground)"
-                  stopOpacity={0.02}
-                />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              vertical={false}
-              stroke="var(--border)"
-            />
-            <XAxis
-              dataKey="label"
-              tick={{
-                fontSize: 11,
-                fill: "var(--muted-foreground)",
-              }}
-              tickLine={false}
-              axisLine={false}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              tick={{
-                fontSize: 11,
-                fill: "var(--muted-foreground)",
-              }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={formatTokens}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "var(--popover)",
-                border: "1px solid var(--border)",
-                borderRadius: "8px",
-                fontSize: "12px",
-                backdropFilter: "blur(12px)",
-              }}
-              itemStyle={{ color: "var(--foreground)" }}
-              labelStyle={{
-                color: "var(--foreground)",
-                fontWeight: 600,
-                marginBottom: 4,
-              }}
-              labelFormatter={(_, payload) => {
-                if (payload?.[0]?.payload?.date) {
-                  const d = new Date(
-                    payload[0].payload.date + "T00:00:00",
-                  )
-                  return d.toLocaleDateString("en-US", {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                  })
+        <div className="h-[230px] min-w-0 sm:h-[250px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart
+              data={chartData}
+              margin={{ top: 8, right: 4, bottom: 0, left: -18 }}
+            >
+              <defs>
+                <linearGradient
+                  id="inputGrad"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop
+                    offset="0%"
+                    stopColor="#10b981"
+                    stopOpacity={0.25}
+                  />
+                  <stop
+                    offset="100%"
+                    stopColor="#10b981"
+                    stopOpacity={0.01}
+                  />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                stroke="var(--color-border)"
+              />
+              <XAxis
+                dataKey="label"
+                tick={{
+                  fontSize: 11,
+                  fill: "var(--color-muted-foreground)",
+                }}
+                tickLine={false}
+                axisLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tick={{
+                  fontSize: 11,
+                  fill: "var(--color-muted-foreground)",
+                }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={formatTokens}
+              />
+              <Tooltip
+                cursor={{ stroke: 'var(--color-border)', strokeWidth: 1 }}
+                content={({ active, payload, label }) => {
+                  if (active && payload && payload.length) {
+                    let formattedDate = label
+                    if (payload[0]?.payload?.date) {
+                      const d = new Date(payload[0].payload.date + "T00:00:00")
+                      formattedDate = d.toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })
+                    }
+
+                    return (
+                      <div className="flex flex-col gap-2 rounded-xl border border-border/15 bg-[var(--glass-bg)] px-4 py-3 shadow-xl shadow-black/40 dark:shadow-black/60 backdrop-blur-[32px] backdrop-saturate-[180%]">
+                        <span className="text-[13px] font-bold text-foreground mb-1">
+                          {formattedDate}
+                        </span>
+                        {payload.map((entry, index) => (
+                          <div key={index} className="text-[13px] text-foreground/90">
+                            {entry.name === "inputTokens" ? "Input" : "Output"} : {formatTokens(Number(entry.value))}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }
+                  return null
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="inputTokens"
+                stroke="#10b981"
+                strokeWidth={2}
+                fill="url(#inputGrad)"
+                name="inputTokens"
+                dot={false}
+                activeDot={{ r: 4, fill: "#10b981", stroke: "var(--color-card)", strokeWidth: 2 }}
+              />
+              <Area
+                type="monotone"
+                dataKey="outputTokens"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                fill="transparent"
+                name="outputTokens"
+                dot={false}
+                activeDot={{ r: 4, fill: "#3b82f6", stroke: "var(--color-card)", strokeWidth: 2 }}
+              />
+              <Legend
+                verticalAlign="bottom"
+                height={28}
+                formatter={(value: string) =>
+                  value === "inputTokens"
+                    ? "Input tokens"
+                    : "Output tokens"
                 }
-                return String(_)
-              }}
-              formatter={(value, name) => [
-                formatTokens(Number(value)),
-                name === "inputTokens" ? "Input" : "Output",
-              ]}
-            />
-            <Area
-              type="monotone"
-              dataKey="inputTokens"
-              stroke="var(--muted-foreground)"
-              strokeWidth={2}
-              fill="url(#inputGrad)"
-              name="inputTokens"
-            />
-            <Area
-              type="monotone"
-              dataKey="outputTokens"
-              stroke="var(--chart-2)"
-              strokeWidth={2}
-              fill="transparent"
-              name="outputTokens"
-            />
-            <Legend
-              verticalAlign="bottom"
-              height={28}
-              formatter={(value: string) =>
-                value === "inputTokens"
-                  ? "Input tokens"
-                  : "Output tokens"
-              }
-              iconType="circle"
-              iconSize={6}
-              wrapperStyle={{
-                fontSize: "11px",
-                color: "var(--muted-foreground)",
-              }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+                iconType="circle"
+                iconSize={6}
+                wrapperStyle={{
+                  fontSize: "11px",
+                  color: "var(--color-muted-foreground)",
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       )}
       {lastUpdated && !loading && (
         <div className="flex justify-end pt-1">
-          <span className="text-[10px] text-muted-foreground/50">
+          <span className="text-[11px] text-muted-foreground">
             Updated {timeAgo(lastUpdated)}
           </span>
         </div>
