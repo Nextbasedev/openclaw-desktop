@@ -7,6 +7,7 @@ import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
+import { voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
 function now() { return new Date().toISOString() }
 function state(store: Store): any {
@@ -198,7 +199,7 @@ type ChatSendAttachment = {
 }
 
 type GatewayAttachment = {
-  type: "image"
+  type: "image" | "audio"
   fileName: string
   mimeType: string
   content?: string
@@ -220,6 +221,10 @@ function isTextAttachment(mimeType: string): boolean {
   return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
 }
 
+function isAudioAttachment(mimeType: string): boolean {
+  return mimeType.startsWith("audio/")
+}
+
 function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
   if (!attachment.content) return null
   if (attachment.encoding === "base64") {
@@ -239,6 +244,17 @@ function normalizeImageAttachment(attachment: ChatSendAttachment): GatewayAttach
   }
 }
 
+function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttachment {
+  return {
+    type: "audio",
+    fileName: attachment.name,
+    mimeType: attachment.mimeType,
+    content: attachment.encoding === "base64"
+      ? attachment.content
+      : Buffer.from(attachment.content ?? "", "utf8").toString("base64"),
+  }
+}
+
 function prepareMessageAndAttachments(message: string, raw: unknown): { message: string; attachments?: GatewayAttachment[] } {
   if (!Array.isArray(raw) || raw.length === 0) return { message }
 
@@ -247,11 +263,18 @@ function prepareMessageAndAttachments(message: string, raw: unknown): { message:
   let embeddedChars = 0
 
   const imageNames: string[] = []
+  const audioNames: string[] = []
   for (const item of raw) {
     const attachment = item as ChatSendAttachment
     if (attachment.mimeType?.startsWith("image/") && attachment.content) {
       gatewayAttachments.push(normalizeImageAttachment(attachment))
       imageNames.push(attachment.name ?? "image")
+      continue
+    }
+
+    if (attachment.mimeType && isAudioAttachment(attachment.mimeType) && attachment.content) {
+      gatewayAttachments.push(normalizeAudioAttachment(attachment))
+      audioNames.push(attachment.name ?? "audio")
       continue
     }
 
@@ -279,11 +302,19 @@ function prepareMessageAndAttachments(message: string, raw: unknown): { message:
       : `[Attached images: ${imageNames.join(", ")}]`)
   }
 
+  if (audioNames.length > 0) {
+    embedded.unshift(audioNames.length === 1
+      ? `[Attached audio: ${audioNames[0]}]`
+      : `[Attached audio files: ${audioNames.join(", ")}]`)
+  }
+
   return {
     message: embedded.length > 0 ? `${message}\n\n${embedded.join("\n\n")}` : message,
     attachments: gatewayAttachments.length > 0 ? gatewayAttachments : undefined,
   }
 }
+
+export const prepareMessageAndAttachmentsForTest = prepareMessageAndAttachments
 
 function recordSlashCommandInputIfGatewayOnlyAppendedOutput(params: { sessionKey: string; message: string }) {
   if (!params.message.trim().startsWith("/")) return null
@@ -783,6 +814,12 @@ export function commandRoutes(store: Store) {
           cfg.agents.defaults.model.primary = modelId
           writeJson(openclawConfigPath(), cfg)
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
+        }
+        case "middleware_voice_settings_get": {
+          return voiceSettingsPayload()
+        }
+        case "middleware_voice_settings_set": {
+          return { settings: writeVoiceSettings(input), options: voiceSettingsPayload().options }
         }
         case "middleware_usage": {
           const requestedDays = usageNumber(input.days) || 30
