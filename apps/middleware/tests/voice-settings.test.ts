@@ -74,4 +74,20 @@ describe("voice settings", () => {
       echoTranscript: false,
     })
   })
+
+  it("preserves existing provider env vars when saving voice settings", () => {
+    fs.writeFileSync(configPath, JSON.stringify({
+      env: { vars: { GROQ_API_KEY: "gsk_existing_key" } },
+      providers: { groq: { authMethod: "api-key" } },
+    }))
+
+    writeVoiceSettings({ provider: "groq", model: "whisper-large-v3-turbo" })
+
+    const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"))
+    expect(cfg.env.vars.GROQ_API_KEY).toBe("gsk_existing_key")
+    expect(cfg.providers.groq.authMethod).toBe("api-key")
+    expect(cfg.tools.media.audio.models).toEqual([
+      { type: "provider", provider: "groq", model: "whisper-large-v3-turbo" },
+    ])
+  })
 })

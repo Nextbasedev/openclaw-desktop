@@ -203,3 +203,27 @@ it("persists provider API key and voice settings through command endpoints", asy
     { type: "provider", provider: "groq", model: "whisper-large-v3-turbo" },
   ])
 })
+
+it("keeps saved Groq key when voice settings are saved afterwards", async () => {
+  const root = tempRoot()
+  const configPath = path.join(root, ".openclaw", "openclaw.json")
+  vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath)
+  const app = makeApp(root)
+
+  await auth(request(app).post("/api/commands/middleware_onboarding_provider_submit")).send({
+    input: {
+      providerId: "groq",
+      authMethod: "api-key",
+      values: { "api-key": "gsk_fake_wrong_key_for_race" },
+      setDefault: false,
+    },
+  })
+  await auth(request(app).post("/api/commands/middleware_voice_settings_set")).send({
+    input: { provider: "groq", model: "whisper-large-v3-turbo" },
+  })
+
+  const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"))
+  expect(cfg.env.vars.GROQ_API_KEY).toBe("gsk_fake_wrong_key_for_race")
+  expect(cfg.providers.groq.authMethod).toBe("api-key")
+})
+
