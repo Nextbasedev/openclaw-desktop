@@ -2,6 +2,14 @@ name: Build Windows installer
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional release tag to publish updater files, e.g. v0.1.1"
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -30,13 +38,47 @@ jobs:
 
       - run: pnpm build:tauri
         env:
-          # Tauri NSIS bundler downloads its toolchain on first run
-          TAURI_SIGNING_PRIVATE_KEY: ""
+          # Required for Tauri updater signatures. Configure in GitHub repo secrets.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Create updater manifest
+        if: ${{ inputs.release_tag != '' }}
+        run: node scripts/create-updater-manifest.cjs
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APP_VERSION: ${{ inputs.release_tag }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: jarvis-windows-installers
           path: |
             packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            packages/desktop/src-tauri/target/release/bundle/nsis/*.sig
             packages/desktop/src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
+            packages/desktop/src-tauri/target/release/bundle/msi/*.sig
+            packages/desktop/src-tauri/target/release/bundle/latest.json
+          if-no-files-found: warn
+
+      - name: Publish manual release
+        if: ${{ inputs.release_tag != '' }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(
+            packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            packages/desktop/src-tauri/target/release/bundle/nsis/*.sig
+            packages/desktop/src-tauri/target/release/bundle/msi/*.msi
+            packages/desktop/src-tauri/target/release/bundle/msi/*.sig
+            packages/desktop/src-tauri/target/release/bundle/latest.json
+          )
+          if gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1; then
+            gh release upload "${{ inputs.release_tag }}" "${files[@]}" --clobber
+          else
+            gh release create "${{ inputs.release_tag }}" \
+              --title "OpenClaw Desktop ${{ inputs.release_tag }}" \
+              --notes "Manual OpenClaw Desktop release ${{ inputs.release_tag }}" \
+              "${files[@]}"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
