@@ -49,7 +49,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   if (loading && !flowState) {
     return (
-      <div className="flex h-svh flex-col bg-background">
+      <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
         <Header minimal />
         <div className="flex flex-1 items-center justify-center">
           <div className="flex items-center gap-3">
@@ -63,7 +63,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   if (error && !flowState) {
     return (
-      <div className="flex h-svh flex-col bg-background">
+      <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
         <Header minimal />
         <div className="flex flex-1 items-center justify-center">
           <div className="max-w-md space-y-4 text-center">
@@ -84,7 +84,7 @@ export function OnboardingWizard({ onComplete }: Props) {
   const activeIndex = STEP_IDS.indexOf(activeStep as (typeof STEP_IDS)[number])
 
   return (
-    <div className="flex h-svh flex-col bg-background">
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header minimal />
 
       <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto overflow-x-hidden px-6">
