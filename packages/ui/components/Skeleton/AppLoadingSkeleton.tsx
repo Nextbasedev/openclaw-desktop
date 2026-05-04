@@ -1,6 +1,6 @@
 export function AppLoadingSkeleton() {
   return (
-    <div className="flex h-svh flex-col bg-background">
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       {/* Header skeleton */}
       <div className="flex h-12 items-center border-b border-border/40 px-4">
         <div className="h-4 w-20 animate-pulse rounded bg-muted/25" />

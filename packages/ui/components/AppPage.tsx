@@ -1079,7 +1079,7 @@ function AppShell({
   }, [onDeleteAccount, onResetOnboarding])
 
   return (
-    <div className="flex h-svh flex-col bg-background">
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
