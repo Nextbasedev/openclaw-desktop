@@ -237,29 +237,20 @@ export function ActionBar({
               )}
               {uniqueModels.map((model) => {
                 const isActive = activeModel?.id === model.id
-                const unavailable = model.health?.status === "unavailable"
                 return (
                   <button
                     key={`${model.provider}/${model.id}`}
                     type="button"
-                    disabled={unavailable}
                     className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-muted",
-                      unavailable ? "cursor-not-allowed opacity-45 hover:bg-transparent" : "cursor-pointer",
+                      "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-muted",
                       isActive
                         ? "bg-foreground/10 font-medium text-foreground"
                         : "text-muted-foreground"
                     )}
-                    onClick={() => !unavailable && onModelSelect(model)}
-                    title={model.health?.reason}
+                    onClick={() => onModelSelect(model)}
                   >
                     <span className="flex min-w-0 flex-col text-left">
                       <span className="truncate">{model.name}</span>
-                      {unavailable && (
-                        <span className="truncate text-[10px] font-normal text-amber-300/80">
-                          {model.health?.reason}
-                        </span>
-                      )}
                     </span>
                     {isActive && (
                       <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-white" />
