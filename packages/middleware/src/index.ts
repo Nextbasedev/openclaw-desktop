@@ -752,6 +752,7 @@ type ChatSendAttachment = {
 }
 
 type GatewayAttachment = {
+  type: "image"
   fileName: string
   mimeType: string
   content?: string
@@ -786,6 +787,7 @@ function normalizeImageAttachment(attachment: ChatSendAttachment): GatewayAttach
     ? attachment.content
     : Buffer.from(attachment.content ?? "", "utf8").toString("base64")
   return {
+    type: "image",
     fileName: attachment.name,
     mimeType: attachment.mimeType,
     content,
