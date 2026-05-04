@@ -172,6 +172,18 @@ export function initDb(db: Database.Database): void {
       UNIQUE(session_key, message_id)
     );
     CREATE INDEX IF NOT EXISTS idx_pinned_messages_session ON pinned_messages(session_key);
+
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      id TEXT PRIMARY KEY,
+      session_key TEXT NOT NULL,
+      message_text_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      content TEXT NOT NULL,
+      size INTEGER,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_attachments_lookup ON message_attachments(session_key, message_text_hash);
   `);
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [

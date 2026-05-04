@@ -123,10 +123,6 @@ export default function Page() {
     return <AppLoadingSkeleton />
   }
 
-  if (!hasToken) {
-    return <ConnectPage />
-  }
-
   return (
     <AppShell
       onResetOnboarding={() => setOnboardingDone(false)}
@@ -165,10 +161,10 @@ function AppShell({
     Boolean(initialConnect),
   )
   const [activeTab, setActiveTab] = useState(() => {
-    if (typeof window === "undefined") return "chat"
+    if (typeof window === "undefined") return initialConnect ? "connect" : "chat"
     const route = parseRoute(getRoutePath())
     if (route.kind === "tab") return route.tab
-    return "chat"
+    return initialConnect ? "connect" : "chat"
   })
 
   const prevTabRef = useRef("chat")

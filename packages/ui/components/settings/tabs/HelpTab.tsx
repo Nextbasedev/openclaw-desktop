@@ -11,7 +11,7 @@ type HelpLink = {
 }
 
 const HELP_LINKS: HelpLink[] = [
-  { label: "GitHub", description: "Report issues and view source", url: "https://github.com/nextbaseparadox-star/openclaw-desktop", icon: LuGithub },
+  { label: "GitHub", description: "Report issues and view source", url: "https://github.com/Nextbasedev/openclaw-desktop", icon: LuGithub },
   { label: "Keyboard Shortcuts", description: "View all shortcuts", url: "#", icon: LuKeyboard },
 ]
 
