@@ -14,8 +14,6 @@ import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
 import {
-  execPolicyForAutonomyMode,
-  type ChatAutonomyMode,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
@@ -376,15 +374,6 @@ export function ChatView({
     activeSubagent?.task?.trim() || "Run the delegated sub-agent task."
 
   const firstFiredRef = useRef(false)
-  const handleAutonomyModeChange = useCallback(async (mode: ChatAutonomyMode) => {
-    await invoke("middleware_chat_exec_policy", {
-      input: {
-        sessionKey,
-        autonomyMode: mode,
-        execPolicy: execPolicyForAutonomyMode(mode),
-      },
-    })
-  }, [sessionKey])
 
   const resolveExecApproval = useCallback(async (
     approvalId: string,
@@ -769,7 +758,6 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
-          onAutonomyModeChange={handleAutonomyModeChange}
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -1017,7 +1005,6 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
-          onAutonomyModeChange={handleAutonomyModeChange}
         />
       </div>
     </div>
