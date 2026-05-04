@@ -10,7 +10,7 @@ import { SlashCommandMenu, getFilteredCommands } from "./SlashCommandMenu"
 import { useSlashCommands } from "@/hooks/useSlashCommands"
 import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
-import { useVoiceInput } from "@/hooks/useVoiceInput"
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
 import { LuX } from "react-icons/lu"
 import {
   execPolicyForAutonomyMode,
@@ -102,14 +102,12 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
-  const { state: voiceState, interimTranscript, isSupported: voiceSupported, toggle: toggleVoice } = useVoiceInput({
-    onTranscript: (text) => {
-      setInput((prev) => {
-        const separator = prev.length > 0 && !prev.endsWith(" ") ? " " : ""
-        return prev + separator + text
-      })
-      // Auto-resize textarea as text grows
-      requestAnimationFrame(() => autoResize())
+  const { state: voiceState, isSupported: voiceSupported, toggle: toggleVoice } = useVoiceRecorder({
+    onAudioFile: async (file) => {
+      await processFiles([file])
+    },
+    onError: (message) => {
+      setAttachmentError(message)
     },
   })
 
@@ -133,14 +131,14 @@ export function ChatBox({
     }
   }, [initialPrompt, autoResize])
 
-  // Focus back to textarea after voice input stops
+  // Focus back to textarea after voice recording stops
   React.useEffect(() => {
     if (voiceState === "idle") {
       textareaRef.current?.focus()
     }
   }, [voiceState])
 
-  const hasInput = input.trim().length > 0
+  const hasInput = input.trim().length > 0 || attachments.length > 0
   const selectedModelRef = sessionModelId ?? currentModel
   React.useEffect(() => {
     return () => {
@@ -205,9 +203,9 @@ export function ChatBox({
 
   async function handleSend() {
     const text = input.trim()
-    if (!text || disabled || isPreparingAttachments) return
+    if ((!text && attachments.length === 0) || disabled || isPreparingAttachments) return
     const payload: ChatComposerSubmit = {
-      text,
+      text: text || "Please transcribe and respond to the attached audio.",
       attachments: attachments.length > 0
         ? attachments.map(stripComposerAttachment)
         : undefined,
@@ -465,7 +463,7 @@ export function ChatBox({
           )}
 
           <AnimatePresence initial={false}>
-            {voiceState === "listening" && (
+            {(voiceState === "recording" || voiceState === "processing") && (
               <motion.div
                 initial={{ maxHeight: 0, opacity: 0 }}
                 animate={{ maxHeight: 40, opacity: 1 }}
@@ -474,7 +472,7 @@ export function ChatBox({
                 className="overflow-hidden"
               >
                 <div className="px-3 pb-1 text-[13px] text-muted-foreground/60 italic">
-                  {interimTranscript || "Listening…"}
+                  {voiceState === "processing" ? "Attaching voice…" : "Recording voice…"}
                   <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-muted-foreground/40 align-middle" />
                 </div>
               </motion.div>
@@ -511,7 +509,7 @@ export function ChatBox({
               void onSend?.({ text: `/model ${modelId}` })
               setModelOpen(false)
             }}
-            isRecording={voiceState === "listening"}
+            isRecording={voiceState === "recording"}
             onVoiceToggle={toggleVoice}
             voiceSupported={voiceSupported}
             attachmentCount={attachments.length}
