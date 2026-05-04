@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
+import { cacheAttachments, mergeAttachmentsWithCache } from "@/lib/attachmentCache"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
@@ -835,6 +836,18 @@ export function useChatMessages(
               if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
             } else if (text && (!hasLaterSameUserText || hasAssistantBeforeLaterSameUser)) {
               const reply = extractReplyBlock(text, histMsgs)
+              const rawAttachments = m.attachments
+              const resolvedAttachments = rawAttachments && rawAttachments.length > 0
+                ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments)
+                : rawAttachments
+              if (resolvedAttachments && resolvedAttachments.length > 0) {
+                cacheAttachments(sessionKey, id, resolvedAttachments.filter((a) => a.content).map((a) => ({
+                  name: a.name,
+                  mimeType: a.mimeType,
+                  content: a.content!,
+                  size: a.size,
+                })))
+              }
               histMsgs.push({
                 messageId: id,
                 role: "user",
@@ -845,7 +858,7 @@ export function useChatMessages(
                 stopReason: m.stopReason,
                 replyTo: reply?.replyTo,
                 gatewayIndex: rawIdx,
-                attachments: m.attachments,
+                attachments: resolvedAttachments,
               })
             }
             pendingToolCalls = []
@@ -1224,6 +1237,20 @@ export function useChatMessages(
         ? `> ${snippet.split("\n").join("\n> ")}\n\n${trimmed}`
         : trimmed
 
+      const messageAttachments = payload.attachments?.map((a) => ({
+        name: a.name,
+        mimeType: a.mimeType,
+        content: a.content,
+        size: a.size,
+      }))
+      if (messageAttachments && messageAttachments.length > 0) {
+        cacheAttachments(sessionKey, optimisticId, messageAttachments.map((a) => ({
+          name: a.name,
+          mimeType: a.mimeType,
+          content: a.content,
+          size: a.size,
+        })))
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -1233,12 +1260,7 @@ export function useChatMessages(
           createdAt: new Date().toISOString(),
           isOptimistic: true,
           replyTo,
-          attachments: payload.attachments?.map((a) => ({
-            name: a.name,
-            mimeType: a.mimeType,
-            content: a.content,
-            size: a.size,
-          })),
+          attachments: messageAttachments,
         },
       ])
       setStatus("thinking")
