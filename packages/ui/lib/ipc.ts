@@ -121,7 +121,7 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_topics_archive":
       return middlewareFetch<T>(`/api/topics/${input.topicId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_list":
-      return middlewareFetch<T>("/api/chats")
+      return middlewareFetch<T>(`/api/chats${input.archived ? "?archived=true" : ""}`)
     case "middleware_chats_create":
       return middlewareFetch<T>("/api/chats", { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_update":
@@ -181,7 +181,8 @@ async function invokeRemoteMiddleware<T>(
         ? localStorage.getItem("openclaw.activeProjectId")
         : null
       const projectId = explicitProjectId ?? fallbackProjectId
-      const { projectId: _projectId, ...spawnInput } = input as Record<string, unknown>
+      const spawnInput = { ...input }
+      delete spawnInput.projectId
       const endpoint = projectId ? `/api/projects/${projectId}/terminal/spawn` : "/api/terminal/spawn"
       try {
         const result = await middlewareFetch<{ terminalId: string; cwd: string; websocketUrl?: string }>(endpoint, { method: "POST", body: JSON.stringify(spawnInput) })

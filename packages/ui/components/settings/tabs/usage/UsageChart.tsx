@@ -51,22 +51,71 @@ export function UsageChart({
   }))
 
   return (
-    <div className="flex min-w-0 flex-col gap-0 rounded-xl border border-border/45 bg-card/75 p-4 shadow-[0_16px_48px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl sm:p-5">
+    <div className="flex min-w-0 flex-col gap-0 rounded-xl border border-border/45 bg-card/75 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl sm:p-5">
       {loading ? (
-        <div className="h-[230px] space-y-4 py-3 sm:h-[250px]">
-          <div className="ml-auto h-3 w-24 max-w-full animate-pulse rounded bg-muted/55" />
-          <div className="flex h-[174px] min-w-0 items-end gap-2 sm:h-[194px] sm:gap-3">
-            {[44, 70, 52, 86, 63, 76, 48, 82, 58, 72, 54, 80].map((height, index) => (
-              <div
-                key={index}
-                className="min-w-0 flex-1 animate-pulse rounded-t bg-muted/55"
-                style={{ height: `${height}%` }}
-              />
-            ))}
-          </div>
-          <div className="flex justify-center gap-6">
-            <div className="h-3 w-20 animate-pulse rounded bg-muted/55" />
-            <div className="h-3 w-24 animate-pulse rounded bg-muted/55" />
+        <div className="h-[230px] min-w-0 animate-pulse sm:h-[250px]">
+          <div className="relative h-full min-w-0 px-1 pb-8 pl-9 pt-3">
+            <div className="absolute inset-x-9 bottom-9 top-4">
+              {[0, 1, 2, 3, 4].map((line) => (
+                <div
+                  key={line}
+                  className="absolute left-0 right-0 border-t border-dashed border-border/60"
+                  style={{ top: `${line * 25}%` }}
+                />
+              ))}
+              <svg
+                aria-hidden="true"
+                className="absolute inset-0 size-full overflow-visible"
+                preserveAspectRatio="none"
+                viewBox="0 0 100 100"
+              >
+                <path
+                  d="M0 98 C12 86 24 78 34 64 C48 44 60 24 75 12 C84 5 91 14 100 98"
+                  fill="none"
+                  stroke="var(--muted-foreground)"
+                  strokeLinecap="round"
+                  strokeWidth="1.4"
+                  opacity="0.45"
+                />
+                <path
+                  d="M0 98 C16 96 26 94 40 95 C54 97 67 93 79 92 C88 92 94 94 100 98"
+                  fill="none"
+                  stroke="var(--chart-2)"
+                  strokeLinecap="round"
+                  strokeWidth="1.4"
+                  opacity="0.65"
+                />
+              </svg>
+            </div>
+
+            <div className="absolute bottom-8 left-0 top-2 flex flex-col justify-between text-[11px] text-muted-foreground/55">
+              <span>20.0M</span>
+              <span>15.0M</span>
+              <span>10.0M</span>
+              <span>5.0M</span>
+              <span>0</span>
+            </div>
+
+            <div className="absolute bottom-4 left-9 right-3 flex justify-between text-[11px] text-muted-foreground/55">
+              <span>Apr 30</span>
+              <span>May 1</span>
+              <span>May 2</span>
+              <span>May 3</span>
+              <span>May 4</span>
+            </div>
+
+            <div className="absolute bottom-0 left-1/2 flex -translate-x-1/2 items-center gap-4 text-[11px] text-muted-foreground/60">
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-muted-foreground/70" />
+                Input tokens
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-chart-2" />
+                Output tokens
+              </span>
+            </div>
+
+            <div className="absolute bottom-0 right-1 h-3 w-20 rounded bg-muted/55" />
           </div>
         </div>
       ) : (

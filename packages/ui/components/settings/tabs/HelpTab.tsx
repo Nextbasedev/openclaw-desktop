@@ -41,7 +41,7 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-sm border border-border/50 ">
+      <div className="overflow-hidden rounded-md border border-border/50 ">
         {links.map((link, idx) => {
           const Icon = link.icon
           const isExternal = link.url.startsWith("http")

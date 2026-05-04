@@ -12,7 +12,7 @@ export function UsageBreakdown({
   loading = false,
 }: UsageBreakdownProps) {
   return (
-    <div className="min-w-0 overflow-hidden rounded-xl border border-border/45 bg-card/75 shadow-[0_16px_48px_rgba(0,0,0,0.14),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
+    <div className="min-w-0 overflow-hidden rounded-xl border border-border/45 bg-card/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
       <div className="border-b border-border/35 px-4 py-3.5 sm:px-5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/65">
           Provider Status

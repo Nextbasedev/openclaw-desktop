@@ -35,6 +35,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: "text-zinc-400 bg-zinc-400/10",
 }
 
+const PAGE_SIZE = 20
+
 function ScoreBadge({ score }: { score: number }) {
   const pct = Math.round(score * 100)
   const color =
@@ -209,6 +211,7 @@ export function MemoryRecall() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [page, setPage] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -230,6 +233,10 @@ export function MemoryRecall() {
     load()
   }, [load])
 
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
   const filtered = entries.filter((e) => {
     if (!query.trim()) return true
     const q = query.toLowerCase()
@@ -239,6 +246,10 @@ export function MemoryRecall() {
       (e.tags ?? []).some((t) => t.toLowerCase().includes(q))
     )
   })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * PAGE_SIZE
+  const pageEntries = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
   return (
     <div className="flex flex-col gap-5">
@@ -288,9 +299,51 @@ export function MemoryRecall() {
 
       {!loading && !error && filtered.length > 0 && (
         <div className="flex flex-col gap-2">
-          {filtered.map((entry, idx) => (
-            <EntryCard key={`${entry.date ?? idx}-${idx}`} entry={entry} />
+          {pageEntries.map((entry, idx) => (
+            <EntryCard
+              key={`${entry.date ?? pageStart + idx}-${pageStart + idx}`}
+              entry={entry}
+            />
           ))}
+        </div>
+      )}
+
+      {!loading && !error && filtered.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-muted-foreground/50">
+            Showing {pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={currentPage === 1}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px]",
+                "text-muted-foreground ring-1 ring-border/40 transition-colors hover:bg-muted/20 hover:text-foreground",
+                currentPage === 1 && "pointer-events-none opacity-40",
+              )}
+            >
+              <LuChevronRight size={13} className="rotate-180" />
+              Prev
+            </button>
+            <span className="px-2 text-[11px] text-muted-foreground/60">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              disabled={currentPage === totalPages}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px]",
+                "text-muted-foreground ring-1 ring-border/40 transition-colors hover:bg-muted/20 hover:text-foreground",
+                currentPage === totalPages && "pointer-events-none opacity-40",
+              )}
+            >
+              Next
+              <LuChevronRight size={13} />
+            </button>
+          </div>
         </div>
       )}
 
