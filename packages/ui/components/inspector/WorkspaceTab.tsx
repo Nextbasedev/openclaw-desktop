@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react"
-import { on } from "@/lib/events"
+import { emit, on } from "@/lib/events"
 import { cn } from "@/lib/utils"
 import {
   VscFolder,
@@ -57,6 +57,7 @@ import {
 } from "./workspace-api"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
+import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
 
 /* ── Types ── */
 
@@ -885,6 +886,12 @@ const FILE_SIDEBAR_MIN = 140
 const FILE_SIDEBAR_MAX = 260
 const FILE_SIDEBAR_DEFAULT = 180
 
+function isMissingWorkspaceError(message: string | null): boolean {
+  if (!message) return false
+  const lower = message.toLowerCase()
+  return lower.includes("enoent") || lower.includes("no such file") || lower.includes("not found") || lower.includes("does not exist")
+}
+
 function getFileSidebarDefaults() {
   if (typeof window === "undefined") {
     return {
@@ -929,6 +936,8 @@ export function WorkspaceTab({
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   const [newItemType, setNewItemType] = useState<"file" | "folder" | null>(null)
   const [newItemName, setNewItemName] = useState("")
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+  const [repairingWorkspace, setRepairingWorkspace] = useState(false)
   const previewPaneRef = useRef<HTMLDivElement>(null)
   const [previewCompact, setPreviewCompact] = useState(false)
   const refreshTimeoutRef = useRef<number | null>(null)
@@ -1309,6 +1318,34 @@ export function WorkspaceTab({
     }
   }, [loadRoot, workspaceRoot])
 
+  const handleWorkspaceRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
+    if (!projectId) return
+    setRepairingWorkspace(true)
+    try {
+      await invoke("middleware_projects_update", {
+        input: {
+          projectId,
+          workspaceRoot: repo.path,
+          repoRoot: repo.path,
+        },
+      })
+      setRepoPickerOpen(false)
+      setTreeError(null)
+      setTree([])
+      setSelectedId(null)
+      setExpandedIds(new Set())
+      setWorkspaceRoot("")
+      await loadRoot("", false)
+      emit("sidebar:refresh")
+    } catch (err) {
+      setTreeError(err instanceof Error ? err.message : "Failed to update project folder")
+    } finally {
+      setRepairingWorkspace(false)
+    }
+  }, [loadRoot, projectId])
+
+  const missingWorkspace = isMissingWorkspaceError(treeError)
+
   return (
     <div className="relative flex h-full overflow-hidden">
       {/* New item dialog — centered at top of full workspace */}
@@ -1370,6 +1407,12 @@ export function WorkspaceTab({
           </div>
         </div>
       )}
+
+      <RepoPickerDialog
+        open={repoPickerOpen}
+        onClose={() => setRepoPickerOpen(false)}
+        onSelect={handleWorkspaceRepoSelect}
+      />
 
       {/* Left: file tree sidebar */}
       <div 
@@ -1460,19 +1503,45 @@ export function WorkspaceTab({
               </div>
             </div>
               ) : treeError ? (
-            <div className="px-3 py-4 text-center">
-              <p className="text-[11px] text-red-400">{treeError}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  if (workspaceRoot !== null && effectiveSessionKey) {
-                    void loadRoot(workspaceRoot, true)
-                  }
-                }}
-                className="mt-2 text-[11px] text-muted-foreground underline"
-              >
-                Retry
-              </button>
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+              <VscFolder className="size-8 text-muted-foreground/25" />
+              <p className="text-[12px] font-medium text-foreground/80">
+                {missingWorkspace ? "Project folder not found" : "Workspace could not load"}
+              </p>
+              <p className="max-w-[260px] text-[11px] leading-relaxed text-muted-foreground/55">
+                {missingWorkspace
+                  ? "The saved folder path is missing or unavailable. Choose the project folder again to reopen the file explorer."
+                  : treeError}
+              </p>
+              <div className="mt-1 flex items-center gap-2">
+                {projectId && (
+                  <button
+                    type="button"
+                    onClick={() => setRepoPickerOpen(true)}
+                    className="rounded-md bg-white px-2.5 py-1 text-[11px] font-medium text-black transition-colors hover:bg-white/90 disabled:opacity-50"
+                    disabled={repairingWorkspace}
+                  >
+                    {repairingWorkspace ? "Updating..." : "Choose folder"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (workspaceRoot !== null && effectiveSessionKey) {
+                      void loadRoot(workspaceRoot, true)
+                    }
+                  }}
+                  className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                >
+                  Retry
+                </button>
+              </div>
+              {!missingWorkspace && treeError && (
+                <details className="mt-1 max-w-[280px] text-left text-[10px] text-muted-foreground/45">
+                  <summary className="cursor-pointer text-center">Details</summary>
+                  <p className="mt-1 break-words">{treeError}</p>
+                </details>
+              )}
             </div>
               ) : tree.length === 0 ? (
             <div className="px-3 py-4 text-center">
