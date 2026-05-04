@@ -50,7 +50,7 @@
 
 /* ─── Glassmorphism Variables ─── */
 :root {
-  --glass-bg: oklch(0.99 0 0 / 0.84);
+  --glass-bg: oklch(0.99 0 0 / 0.9);
   --glass-border: oklch(0 0 0 / 0.07);
   --glass-shadow: oklch(0 0 0 / 0.1);
   --glass-input-bg: oklch(0 0 0 / 0.03);
@@ -60,7 +60,7 @@
 }
 
 .dark {
-  --glass-bg: oklch(0.19 0.005 286 / 0.88);
+  --glass-bg: oklch(0.19 0.005 286 / 0.94);
   --glass-border: oklch(1 0 0 / 0.1);
   --glass-shadow: oklch(0 0 0 / 0.55);
   --glass-input-bg: oklch(1 0 0 / 0.04);
@@ -85,8 +85,13 @@
 }
 
 @keyframes glass-overlay-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 /* ─── Glass Dialog Panel ─── */
@@ -113,6 +118,7 @@
     opacity: 0;
     transform: scale(0.95) translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -158,7 +164,7 @@
   justify-content: center;
   gap: 6px;
   background: var(--foreground);
-  color: #000;
+  color: #fff;
   border: 1px solid transparent;
   border-radius: 10px;
   padding: 9px 20px;
@@ -170,9 +176,22 @@
   user-select: none;
 }
 
-.glass-btn-primary:hover:not(:disabled) { opacity: 1; }
-.glass-btn-primary:active:not(:disabled) { transform: scale(0.98); }
-.glass-btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+.glass-btn-primary:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.glass-btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.glass-btn-primary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.dark .glass-btn-primary {
+  color: #000;
+}
 
 .glass-btn-secondary {
   display: inline-flex;
@@ -191,7 +210,9 @@
   user-select: none;
 }
 
-.glass-btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+.glass-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
 
 .glass-btn-danger {
   display: inline-flex;
@@ -211,9 +232,18 @@
   user-select: none;
 }
 
-.glass-btn-danger:hover:not(:disabled) { background: #dc2626; }
-.glass-btn-danger:active:not(:disabled) { transform: scale(0.98); }
-.glass-btn-danger:disabled { opacity: 0.35; cursor: not-allowed; }
+.glass-btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.glass-btn-danger:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.glass-btn-danger:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 
 /* ─── Light Mode ─── */
 :root {
@@ -247,6 +277,7 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.705 0.015 286.067);
+  --sidebar-unique: oklch(0.965 0.012 255);
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
 }
@@ -284,6 +315,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
+  --sidebar-unique: oklch(0.18 0.022 265);
 }
 
 @layer base {
@@ -304,6 +336,7 @@
   .scrollbar-hide {
     scrollbar-width: none;
   }
+
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
@@ -361,19 +394,36 @@ body {
 }
 
 @keyframes marquee-scroll {
-  0% { transform: translate3d(0, 0, 0); }
-  100% { transform: translate3d(-50%, 0, 0); }
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
 }
 
 /* ─── Activity Panel ─── */
 @keyframes activity-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes activity-shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 .activity-item {
@@ -396,7 +446,7 @@ body {
   grid-template-rows: 1fr;
 }
 
-.activity-expand > div {
+.activity-expand>div {
   overflow: hidden;
 }
 
@@ -414,8 +464,13 @@ body {
 }
 
 @keyframes shimmer {
-  0%   { transform: translateX(-150%); }
-  100% { transform: translateX(150%); }
+  0% {
+    transform: translateX(-150%);
+  }
+
+  100% {
+    transform: translateX(150%);
+  }
 }
 
 .shimmer-slide {
@@ -423,8 +478,13 @@ body {
 }
 
 @keyframes shimmer-text {
-  0%   { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 .animate-shimmer-text {
@@ -435,7 +495,7 @@ body {
   transition: height 0.15s ease-out;
 }
 
-.streaming-text > :last-child::after {
+.streaming-text> :last-child::after {
   content: "";
   display: inline-block;
   width: 2px;
@@ -448,14 +508,23 @@ body {
 }
 
 @keyframes cursor-blink {
-  0%   { opacity: 0.7; }
-  50%  { opacity: 0; }
-  100% { opacity: 0.7; }
+  0% {
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 0.7;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .streaming-text,
-  .streaming-text > :last-child::after {
+  .streaming-text> :last-child::after {
     animation: none;
     transition: none;
   }

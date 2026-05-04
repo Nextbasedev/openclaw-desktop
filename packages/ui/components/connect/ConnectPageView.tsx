@@ -133,7 +133,7 @@ export function ConnectPageView({
         <div className={cn("overflow-hidden p-6 sm:p-8", GLASS_POPOVER)}>
           <div className="mx-auto max-w-[560px] space-y-6">
             <header className="space-y-3 text-center">
-              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-white/10 bg-white/5">
                 <HugeiconsIcon icon={ServerStack01Icon} size={22} className="text-zinc-200" />
               </div>
               <div>
@@ -266,14 +266,14 @@ function ModeCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-2xl border p-4 text-left transition-all",
+        "rounded-md border p-4 text-left transition-all",
         active
           ? "border-emerald-500/40 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]"
           : "border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.04]",
       )}
     >
       <div className="flex items-center gap-3">
-        <div className={cn("flex size-9 items-center justify-center rounded-xl", active ? "bg-emerald-500/15 text-emerald-300" : "bg-white/5 text-zinc-400")}>
+        <div className={cn("flex size-9 items-center justify-center rounded-md", active ? "bg-emerald-500/15 text-emerald-300" : "bg-white/5 text-zinc-400")}>
           <HugeiconsIcon icon={icon} size={18} />
         </div>
         <p className="text-sm font-medium text-zinc-100">{title}</p>

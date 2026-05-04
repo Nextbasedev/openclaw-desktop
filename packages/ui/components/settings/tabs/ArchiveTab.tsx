@@ -8,6 +8,8 @@ import {
   type Project,
 } from "@/lib/api/projects"
 import { fetchTopics, archiveTopic, type Topic } from "@/lib/api/topics"
+import { archiveChat, fetchChats } from "@/lib/api/chats"
+import type { Chat } from "@/types/chat"
 import { emit, on } from "@/lib/events"
 
 type ArchivedTopic = Topic & { projectName: string }
@@ -15,6 +17,7 @@ type ArchivedTopic = Topic & { projectName: string }
 export function ArchiveTab() {
   const [archivedProjects, setArchivedProjects] = useState<Project[]>([])
   const [archivedTopics, setArchivedTopics] = useState<ArchivedTopic[]>([])
+  const [archivedChats, setArchivedChats] = useState<Chat[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,6 +26,14 @@ export function ArchiveTab() {
     setError(null)
     try {
       const { projects } = await fetchProjects()
+      const { chats } = await fetchChats(true)
+      const archivedChatItems = chats.filter((chat) => chat.archived)
+      archivedChatItems.sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      )
+      setArchivedChats(archivedChatItems)
+
       const archived = projects.filter((p) => p.archived)
       archived.sort(
         (a, b) =>
@@ -57,13 +68,21 @@ export function ArchiveTab() {
     load()
   }, [load])
 
+  useEffect(() => on("archive:changed", load), [load])
+
+  function notifyArchiveRestored() {
+    window.dispatchEvent(new CustomEvent("archive-restored"))
+    emit("archive:changed")
+    emit("sidebar:refresh")
+  }
+
   async function handleRestoreProject(projectId: string) {
     try {
       await archiveProject(projectId, false)
       setArchivedProjects((prev) =>
         prev.filter((item) => item.id !== projectId),
       )
-      window.dispatchEvent(new CustomEvent("archive-restored"))
+      notifyArchiveRestored()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to restore project")
     }
@@ -75,9 +94,21 @@ export function ArchiveTab() {
       setArchivedTopics((prev) =>
         prev.filter((item) => item.id !== topicId),
       )
-      window.dispatchEvent(new CustomEvent("archive-restored"))
+      notifyArchiveRestored()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to restore topic")
+    }
+  }
+
+  async function handleRestoreChat(chatId: string) {
+    try {
+      await archiveChat(chatId, false)
+      setArchivedChats((prev) =>
+        prev.filter((item) => item.id !== chatId),
+      )
+      notifyArchiveRestored()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to restore chat")
     }
   }
 
@@ -91,14 +122,16 @@ export function ArchiveTab() {
   }
 
   const isEmpty =
-    archivedProjects.length === 0 && archivedTopics.length === 0
+    archivedProjects.length === 0 &&
+    archivedTopics.length === 0 &&
+    archivedChats.length === 0
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-lg font-semibold text-foreground">Archive</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Archived projects and topics. Restore anytime.
+          Archived chats, projects, and topics. Restore anytime.
         </p>
       </div>
 
@@ -131,12 +164,48 @@ export function ArchiveTab() {
         </div>
       )}
 
+      {!loading && !error && archivedChats.length > 0 && (
+        <div>
+          <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+            Chats
+          </p>
+          <div className="overflow-hidden rounded-md border border-border/50 bg-card">
+            {archivedChats.map((item, idx) => (
+              <div
+                key={item.id}
+                className={`flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/10 ${idx > 0 ? "border-t border-border/20" : ""}`}
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+                  <LuArchive size={14} />
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-[13px] font-medium text-foreground">
+                    {item.name}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {formatDate(item.updatedAt)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRestoreChat(item.id)}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                >
+                  <LuRotateCcw size={13} />
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!loading && !error && archivedProjects.length > 0 && (
         <div>
           <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
             Projects
           </p>
-          <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+          <div className="overflow-hidden rounded-md border border-border/50 bg-card">
             {archivedProjects.map((item, idx) => (
               <div
                 key={item.id}
@@ -172,7 +241,7 @@ export function ArchiveTab() {
           <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
             Topics
           </p>
-          <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+          <div className="overflow-hidden rounded-md border border-border/50 bg-card">
             {archivedTopics.map((item, idx) => (
               <div
                 key={item.id}

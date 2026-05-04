@@ -10,9 +10,23 @@ import { invoke } from "@/lib/ipc"
 
 let permissionCache: boolean | null = null
 
+function isTauriRuntime(): boolean {
+  if (typeof window === "undefined") return false
+  return Boolean((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__)
+}
+
+function canUseBrowserNotifications(): boolean {
+  return typeof window !== "undefined" && "Notification" in window
+}
+
 async function checkPermission(): Promise<boolean> {
   if (permissionCache !== null) return permissionCache
-  const granted = await isPermissionGranted()
+  if (isTauriRuntime()) {
+    const granted = await isPermissionGranted()
+    permissionCache = granted
+    return granted
+  }
+  const granted = canUseBrowserNotifications() && Notification.permission === "granted"
   permissionCache = granted
   return granted
 }
@@ -20,7 +34,16 @@ async function checkPermission(): Promise<boolean> {
 export async function ensureNotificationPermission(): Promise<boolean> {
   const granted = await checkPermission()
   if (granted) return true
-  const result = await requestPermission()
+  if (isTauriRuntime()) {
+    const result = await requestPermission()
+    permissionCache = result === "granted"
+    return permissionCache
+  }
+  if (!canUseBrowserNotifications()) {
+    permissionCache = false
+    return false
+  }
+  const result = await Notification.requestPermission()
   permissionCache = result === "granted"
   return permissionCache
 }
@@ -28,13 +51,19 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 export async function notify(options: NotificationOptions): Promise<void> {
   const hasPermission = await ensureNotificationPermission()
   if (!hasPermission) return
-  sendNotification(options)
+  if (isTauriRuntime()) {
+    sendNotification(options)
+    return
+  }
+  if (canUseBrowserNotifications()) {
+    new Notification(options.title, { body: options.body })
+  }
 }
 
 function isWindowsTauri(): boolean {
   if (typeof window === "undefined") return false
   const w = window as unknown as Record<string, unknown>
-  if (!w.__TAURI_INTERNALS__) return false
+  if (!isTauriRuntime()) return false
   return navigator.userAgent.includes("Windows") || (w.__TAURI_PLATFORM__ as string) === "windows"
 }
 
@@ -73,7 +102,7 @@ export async function notifyChatComplete(
   }
 
   console.log("[notifyChatComplete] sending standard notification")
-  sendNotification({
+  await notify({
     title: sessionTitle || "OpenClaw",
     body,
   })
@@ -101,7 +130,7 @@ if (typeof window !== "undefined") {
       return
     }
     console.log("[testStandard] sending...")
-    sendNotification({ title: title || "Standard Test", body: body || "This is a standard notification" })
+    await notify({ title: title || "Standard Test", body: body || "This is a standard notification" })
     console.log("[testStandard] sent")
   }
 

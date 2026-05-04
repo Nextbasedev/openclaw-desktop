@@ -35,6 +35,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: "text-zinc-400 bg-zinc-400/10",
 }
 
+const PAGE_SIZE = 20
+
 function ScoreBadge({ score }: { score: number }) {
   const pct = Math.round(score * 100)
   const color =
@@ -114,92 +116,92 @@ function EntryCard({ entry }: { entry: RecallEntry }) {
 
   return (
     <>
-    <div
-      className={cn(
-        "rounded-xl border border-border/30 bg-card transition-colors",
-        "hover:border-border/50",
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => setExpanded((p) => !p)}
-        className="flex w-full items-start gap-3 px-4 py-3 text-left"
+      <div
+        className={cn(
+          "rounded-xl border border-border/30 bg-card transition-colors",
+          "hover:border-border/50",
+        )}
       >
-        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary/40">
-          <LuBrain size={13} className="text-muted-foreground" />
-        </div>
-
-        <div className="flex flex-1 flex-col gap-1.5 min-w-0">
-          <p className="text-[12px] leading-relaxed text-foreground/80">
-            {expanded ? content : preview}
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span
-              className={cn(
-                "rounded-md px-1.5 py-0.5 text-[10px] font-medium capitalize",
-                catColor,
-              )}
-            >
-              {cat}
-            </span>
-            <ScoreBadge score={entry.totalScore ?? 0} />
-            {entry.date && (
-              <span className="text-[10px] text-muted-foreground/50">
-                {formatDate(entry.date)}
-              </span>
-            )}
-            {entry.tags?.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-md bg-secondary/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-              >
-                {tag}
-              </span>
-            ))}
+        <button
+          type="button"
+          onClick={() => setExpanded((p) => !p)}
+          className="flex w-full items-start gap-3 px-4 py-3 text-left"
+        >
+          <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary/40">
+            <LuBrain size={13} className="text-muted-foreground" />
           </div>
-        </div>
 
-        <div className="mt-1 shrink-0 text-muted-foreground/40">
-          {expanded ? (
-            <LuChevronDown size={13} />
-          ) : (
-            <LuChevronRight size={13} />
-          )}
-        </div>
-      </button>
-      {expanded && entry.path && (
-        <div className="border-t border-border/30 px-4 pb-3 pt-2">
-          <button
-            type="button"
-            onClick={openMemoryNote}
-            className="rounded-lg bg-secondary/40 px-3 py-1.5 text-[11px] font-medium text-foreground/80 transition-colors hover:bg-secondary/70 hover:text-foreground"
-          >
-            Open full memory note
-          </button>
-        </div>
-      )}
-    </div>
-    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-      <DialogContent className="max-h-[82vh] overflow-hidden p-0 sm:max-w-3xl">
-        <DialogHeader className="border-b border-border/30 px-6 py-4 pr-12">
-          <DialogTitle className="text-[16px] font-semibold text-foreground">
-            {memoryTitle(entry)}
-          </DialogTitle>
-          <DialogDescription className="text-[12px] text-muted-foreground">
-            Full memory note, rendered for reading.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="max-h-[calc(82vh-104px)] overflow-y-auto px-6 py-5">
-          {loadingDocument ? (
-            <p className="text-[13px] text-muted-foreground">Opening memory note...</p>
-          ) : documentError ? (
-            <p className="text-[13px] text-destructive">{documentError}</p>
-          ) : (
-            <MarkdownMemory content={documentContent ?? content} />
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+          <div className="flex flex-1 flex-col gap-1.5 min-w-0">
+            <p className="text-[12px] leading-relaxed text-foreground/80">
+              {expanded ? content : preview}
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  "rounded-md px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                  catColor,
+                )}
+              >
+                {cat}
+              </span>
+              <ScoreBadge score={entry.totalScore ?? 0} />
+              {entry.date && (
+                <span className="text-[10px] text-muted-foreground/50">
+                  {formatDate(entry.date)}
+                </span>
+              )}
+              {entry.tags?.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-md bg-secondary/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-1 shrink-0 text-muted-foreground/40">
+            {expanded ? (
+              <LuChevronDown size={13} />
+            ) : (
+              <LuChevronRight size={13} />
+            )}
+          </div>
+        </button>
+        {expanded && entry.path && (
+          <div className="border-t border-border/30 px-4 pb-3 pt-2">
+            <button
+              type="button"
+              onClick={openMemoryNote}
+              className="rounded-lg bg-secondary/40 px-3 py-1.5 text-[11px] font-medium text-foreground/80 transition-colors hover:bg-secondary/70 hover:text-foreground"
+            >
+              Open full memory note
+            </button>
+          </div>
+        )}
+      </div>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-h-[82vh] overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="border-b border-border/30 px-6 py-4 pr-12">
+            <DialogTitle className="text-[16px] font-semibold text-foreground">
+              {memoryTitle(entry)}
+            </DialogTitle>
+            <DialogDescription className="text-[12px] text-muted-foreground">
+              Full memory note, rendered for reading.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[calc(82vh-104px)] overflow-y-auto px-6 py-5">
+            {loadingDocument ? (
+              <p className="text-[13px] text-muted-foreground">Opening memory note...</p>
+            ) : documentError ? (
+              <p className="text-[13px] text-destructive">{documentError}</p>
+            ) : (
+              <MarkdownMemory content={documentContent ?? content} />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
@@ -209,6 +211,7 @@ export function MemoryRecall() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [page, setPage] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -230,6 +233,10 @@ export function MemoryRecall() {
     load()
   }, [load])
 
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
   const filtered = entries.filter((e) => {
     if (!query.trim()) return true
     const q = query.toLowerCase()
@@ -239,6 +246,10 @@ export function MemoryRecall() {
       (e.tags ?? []).some((t) => t.toLowerCase().includes(q))
     )
   })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * PAGE_SIZE
+  const pageEntries = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
   return (
     <div className="flex flex-col gap-5">
@@ -256,7 +267,7 @@ export function MemoryRecall() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search recall entries..."
           className={cn(
-            "h-9 w-full rounded-lg border border-border/50 bg-card pl-9 pr-3",
+            "h-9 w-full rounded-md border border-border/50 bg-card pl-9 pr-3",
             "text-[13px] text-foreground outline-none",
             "placeholder:text-muted-foreground/60 focus:border-foreground/20",
           )}
@@ -288,9 +299,51 @@ export function MemoryRecall() {
 
       {!loading && !error && filtered.length > 0 && (
         <div className="flex flex-col gap-2">
-          {filtered.map((entry, idx) => (
-            <EntryCard key={`${entry.date ?? idx}-${idx}`} entry={entry} />
+          {pageEntries.map((entry, idx) => (
+            <EntryCard
+              key={`${entry.date ?? pageStart + idx}-${pageStart + idx}`}
+              entry={entry}
+            />
           ))}
+        </div>
+      )}
+
+      {!loading && !error && filtered.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-muted-foreground/50">
+            Showing {pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={currentPage === 1}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px]",
+                "text-muted-foreground ring-1 ring-border/40 transition-colors hover:bg-muted/20 hover:text-foreground",
+                currentPage === 1 && "pointer-events-none opacity-40",
+              )}
+            >
+              <LuChevronRight size={13} className="rotate-180" />
+              Prev
+            </button>
+            <span className="px-2 text-[11px] text-muted-foreground/60">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              disabled={currentPage === totalPages}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px]",
+                "text-muted-foreground ring-1 ring-border/40 transition-colors hover:bg-muted/20 hover:text-foreground",
+                currentPage === totalPages && "pointer-events-none opacity-40",
+              )}
+            >
+              Next
+              <LuChevronRight size={13} />
+            </button>
+          </div>
         </div>
       )}
 

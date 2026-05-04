@@ -20,7 +20,7 @@ export function MaintenanceTab({ onSignOut, onDeleteAccount }: MaintenanceTabPro
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+      <div className="overflow-hidden rounded-md border border-border/50 bg-card">
         <div className="px-5 py-4">
           <h3 className="text-[13px] font-medium text-foreground">Sign Out</h3>
           <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">

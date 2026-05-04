@@ -179,7 +179,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.delete("/api/topics/:topicId", (req, res) => res.json(records.topicsDelete(req.params.topicId)))
   app.post("/api/topics/:topicId/archive", (req, res) => res.json(records.topicsArchive(req.params.topicId, req.body?.archived ?? true)))
 
-  app.get("/api/chats", (_req, res) => res.json(records.chatsList()))
+  app.get("/api/chats", (req, res) => res.json(records.chatsList({ archived: req.query.archived === "true" })))
   app.post("/api/chats", (req, res) => res.json(records.chatsCreate(req.body)))
   app.patch("/api/chats/:chatId", (req, res) => res.json(records.chatsUpdate(req.params.chatId, req.body)))
   app.post("/api/chats/:chatId/rename", (req, res) => res.json(records.chatsRename(req.params.chatId, String(req.body?.name ?? "New Chat"))))

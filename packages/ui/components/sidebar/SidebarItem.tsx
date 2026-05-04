@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
-import { Reorder } from "framer-motion"
+import { Reorder, useDragControls } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 
@@ -27,6 +27,7 @@ export function SidebarItem({
   collapsed = false,
   draggable = false,
 }: SidebarItemProps) {
+  const dragControls = useDragControls()
   const interactiveClassName = cn(
     "group flex w-full min-w-0 items-center rounded-md font-normal",
     "gap-2.5 text-left text-[13px]",
@@ -48,6 +49,7 @@ export function SidebarItem({
   const btn = href ? (
     <a
       href={href}
+      draggable={false}
       onClick={(event: MouseEvent<HTMLAnchorElement>) => {
         event.preventDefault()
         onClick()
@@ -80,10 +82,13 @@ export function SidebarItem({
     <Reorder.Item
       value={item.id}
       as="div"
+      dragControls={dragControls}
+      dragListener={false}
       layout="position"
       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
-      style={{ position: "relative", boxShadow: "none", cursor: "grab" }}
+      style={{ position: "relative", boxShadow: "none", cursor: "grab", touchAction: "none" }}
       whileDrag={{ boxShadow: "none", cursor: "grabbing" }}
+      onPointerDown={(event) => dragControls.start(event)}
     >
       {btn}
     </Reorder.Item>

@@ -49,7 +49,7 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
   if (typeof window === "undefined") return
   const next = { url: trimTrailingSlash(input.url), token: input.token.trim() }
   const previous = getMiddlewareConnection()
-  const changed = previous?.url !== next.url || previous?.token !== next.token
+  const changed = previous?.url !== next.url
   localStorage.setItem(URL_KEY, next.url)
   localStorage.setItem(TOKEN_KEY, next.token)
   localStorage.setItem("jarvis.gatewayActive", "true")

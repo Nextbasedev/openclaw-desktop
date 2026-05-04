@@ -1,8 +1,8 @@
 import { randomId } from "@/lib/id"
 export const CHAT_ATTACHMENT_LIMITS = {
   maxCount: 10,
-  maxSingleBytes: 50 * 1024 * 1024,
-  maxTotalBytes: 100 * 1024 * 1024,
+  maxSingleBytes: 10 * 1024 * 1024,
+  maxTotalBytes: 10 * 1024 * 1024,
 } as const
 
 export type ChatSendAttachment = {

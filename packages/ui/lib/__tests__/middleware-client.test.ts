@@ -6,11 +6,18 @@ import {
   testMiddlewareConnection,
   claimMiddlewarePairing,
   detectLocalMiddleware,
+  MIDDLEWARE_CONNECTION_CHANGED_EVENT,
 } from "../middleware-client"
 
 function mockStorage() {
   const data = new Map<string, string>()
-  vi.stubGlobal("window", globalThis)
+  const eventTarget = new EventTarget()
+  vi.stubGlobal("window", {
+    ...globalThis,
+    addEventListener: eventTarget.addEventListener.bind(eventTarget),
+    removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+    dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+  })
   Object.defineProperty(globalThis, "localStorage", {
     value: {
       getItem: (key: string) => data.get(key) ?? null,
@@ -32,6 +39,16 @@ describe("middleware onboarding client", () => {
     expect(getMiddlewareConnection()).toEqual({ url: "http://server:8787", token: "abc" })
     clearMiddlewareConnection()
     expect(getMiddlewareConnection()).toBeNull()
+  })
+
+  it("does not emit workspace reset when only the token changes for the same middleware URL", () => {
+    const listener = vi.fn()
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, listener)
+    saveMiddlewareConnection({ url: "http://127.0.0.1:8787", token: "old-token" })
+    saveMiddlewareConnection({ url: "http://127.0.0.1:8787/", token: "new-token" })
+    expect(getMiddlewareConnection()).toEqual({ url: "http://127.0.0.1:8787", token: "new-token" })
+    expect(listener).toHaveBeenCalledTimes(1)
+    window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, listener)
   })
 
   it("tests health and protected version endpoint", async () => {
