@@ -1251,6 +1251,22 @@ export function commandRoutes(store: Store) {
           }
         }
 
+        case "middleware_chat_model_set": {
+          if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          const modelId = String(input.modelId || input.modelRef || input.model || "").trim()
+          if (!modelId) throw new HttpError(400, "modelId is required", "BAD_REQUEST")
+          const key = activeSessionKey(s, input.sessionKey)
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
+          try {
+            await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
+            const patched = await gw.request("sessions.patch", { key, model: modelId }, 30_000)
+            if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
+            return { ok: true, sessionKey: key, modelId, currentModel: modelId, ...((patched.payload as object) || {}) }
+          } finally {
+            gw.close()
+          }
+        }
+
         case "middleware_chat_send": {
           const message = String(input.text || input.message || "")
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")

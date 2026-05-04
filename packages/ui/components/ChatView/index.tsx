@@ -385,6 +385,13 @@ export function ChatView({
     emit("chat:activity")
   }, [])
 
+  const handleSessionModelSelect = useCallback(async (modelId: string) => {
+    await invoke("middleware_chat_model_set", {
+      input: { sessionKey, modelId },
+    })
+    emit("chat:activity")
+  }, [sessionKey])
+
   const wrappedSend = useCallback(async (payload: ChatComposerSubmit) => {
     const shouldNotifyFirstSend =
       !firstFiredRef.current &&
@@ -769,6 +776,7 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onModelSelect={handleSessionModelSelect}
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -1017,6 +1025,7 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onModelSelect={handleSessionModelSelect}
         />
       </div>
     </div>

@@ -43,6 +43,7 @@ type Props = {
   onAbort?: () => void
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
+  onModelSelect?: (modelId: string) => void | Promise<void>
 }
 
 export function ChatBox({
@@ -54,6 +55,7 @@ export function ChatBox({
   errorMessage,
   replyTo,
   onCancelReply,
+  onModelSelect,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -550,8 +552,14 @@ export function ChatBox({
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
               setSessionModelId(modelId)
-              void onSend?.({ text: `/model ${modelId}` })
               setModelOpen(false)
+              const applyModel = onModelSelect
+                ? onModelSelect(modelId)
+                : invoke("middleware_models_set_default", { input: { modelId } }).then(() => reloadModels())
+              Promise.resolve(applyModel).catch((error) => {
+                setAttachmentError(error instanceof Error ? error.message : "Failed to switch model")
+                setSessionModelId(null)
+              })
             }}
             isRecording={voiceState === "recording"}
             onVoiceToggle={toggleVoice}
