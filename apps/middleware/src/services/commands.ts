@@ -1200,11 +1200,18 @@ export function commandRoutes(store: Store) {
 
         case "middleware_chat_history": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          const key = activeSessionKey(s, input.sessionKey)
+          const localEntry = readSessionStoreEntry(key)
+          const sessionFile = String(localEntry?.entry?.sessionFile || "")
+          if (sessionFile && fs.existsSync(sessionFile)) {
+            return normalizeHistoryPayload({ messages: transcriptMessagesFromJsonl(sessionFile) })
+          }
+
           const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
+          const limit = Math.max(1, Math.min(Number(input.limit) || 1000, 1000))
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            const limit = Math.max(1, Math.min(Number(input.limit) || 5000, 20_000))
-            const res = await gw.request("chat.history", { sessionKey: activeSessionKey(s, input.sessionKey), limit }, timeoutMs)
+            const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
             return normalizeHistoryPayload(res.payload)
           } finally {
