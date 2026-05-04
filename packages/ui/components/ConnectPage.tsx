@@ -45,6 +45,20 @@ function isLikelyPairingCode(value: string): boolean {
   return /^[A-Z0-9]{4,16}$/i.test(compact) && !compact.toLowerCase().startsWith("sk")
 }
 
+function isLoopbackMiddlewareUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0.0.0.0"
+  } catch {
+    return false
+  }
+}
+
+function isPairingOrAuthError(err: unknown): boolean {
+  const lower = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return lower.includes("pairing") || lower.includes("invalid token") || lower.includes("unauthorized") || lower.includes("forbidden")
+}
+
 function humanConnectionError(err: unknown, targetUrl: string): string {
   const message = err instanceof Error ? err.message : String(err)
   if (message.toLowerCase().includes("failed to fetch")) {
@@ -87,11 +101,19 @@ export default function ConnectPage() {
           setSessionConnected(true)
           setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
           return
-        } catch {
+        } catch (err) {
           setSessionConnected(false)
           setStatus(statusFromConnection(false, saved.url, saved.token))
           setConnectResult(null)
-          setDetectMessage({ ok: false, text: "Saved Middleware could not be reached on reload. The saved URL/token were kept; check the URL/network or retry." })
+          const localSaved = isLoopbackMiddlewareUrl(saved.url)
+          setSetupMode(localSaved ? "local" : "remote")
+          if (isPairingOrAuthError(err)) setToken("")
+          setDetectMessage({
+            ok: false,
+            text: localSaved
+              ? "Local Middleware needs to pair again. Try auto-detect; if it still asks for a code, paste the local pairing code below."
+              : "Saved Middleware needs to pair again. Paste the Middleware URL and pairing code.",
+          })
           return
         }
       }
@@ -213,7 +235,7 @@ export default function ConnectPage() {
         setDetectMessage(null)
         setError(null)
         setConnectResult(null)
-        if (mode === "local" && !url.trim()) setUrl("http://127.0.0.1:8787")
+        if (mode === "local") setUrl(url.trim() || "http://127.0.0.1:8787")
       }}
       onAutoDetectChange={async () => {
         setDetectMessage({ ok: true, text: "Checking for a local Middleware..." })
