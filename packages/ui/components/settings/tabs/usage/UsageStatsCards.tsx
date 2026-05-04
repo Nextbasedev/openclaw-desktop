@@ -15,38 +15,43 @@ function formatPercent(value: number): string {
 }
 
 function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-muted/55 ${className}`} />
+  return <div className={`animate-pulse rounded-md bg-muted ${className}`} />
 }
 
 function MiniMetric({
   label,
   value,
   helper,
-  loading,
+  className = "",
 }: {
   label: string
   value: string
   helper?: string
-  loading?: boolean
+  className?: string
 }) {
   return (
-    <div className="rounded-xl border border-border/35 bg-background/35 px-4 py-3">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/60">
+    <div className={`flex min-w-0 flex-col p-5 bg-card/40 dark:bg-[#121212] ${className}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      {loading ? (
-        <div className="mt-2 space-y-2">
-          <Skeleton className="h-5 w-20" />
-          <Skeleton className="h-3 w-24" />
+      <div className="mt-3 truncate text-[22px] font-semibold tabular-nums tracking-tight text-foreground">
+        {value}
+      </div>
+      {helper && (
+        <div className="mt-1 text-[12px] text-muted-foreground">
+          {helper}
         </div>
-      ) : (
-        <>
-          <div className="mt-1.5 text-lg font-semibold tabular-nums tracking-tight text-foreground">
-            {value}
-          </div>
-          {helper && <div className="mt-0.5 text-[11px] text-muted-foreground/60">{helper}</div>}
-        </>
       )}
+    </div>
+  )
+}
+
+function MiniMetricSkeleton({ className = "" }: { className?: string }) {
+  return (
+    <div className={`flex h-[98px] min-w-0 flex-col p-5 bg-card/40 dark:bg-[#121212] ${className}`}>
+      <Skeleton className="h-3 w-16" />
+      <Skeleton className="mt-4 h-7 w-20" />
+      <Skeleton className="mt-2 h-3 w-24" />
     </div>
   )
 }
@@ -57,6 +62,41 @@ type UsageStatsCardsProps = {
 }
 
 export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsProps) {
+  if (loading) {
+    return (
+      <section className="flex flex-col rounded-md border border-border/40 overflow-hidden bg-card/40 dark:bg-[#121212]">
+        <div className="p-6">
+          <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
+            <div className="flex flex-col gap-1.5">
+              <Skeleton className="h-3 w-24 mb-1" />
+              <Skeleton className="h-[52px] w-48 mt-1" />
+              <Skeleton className="h-4 w-64 mt-1.5" />
+            </div>
+            <div className="flex h-[104px] min-w-[150px] flex-col rounded-md border border-border/40 bg-transparent p-5">
+              <Skeleton className="h-3 w-12" />
+              <Skeleton className="mt-4 h-8 w-24" />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 mt-8">
+            <Skeleton className="h-2.5 w-full rounded-full" />
+            <div className="flex gap-6 mt-1">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border/40">
+          <MiniMetricSkeleton className="border-b border-r border-border/40 lg:border-b-0" />
+          <MiniMetricSkeleton className="border-b border-border/40 lg:border-b-0 lg:border-r" />
+          <MiniMetricSkeleton className="border-r border-border/40" />
+          <MiniMetricSkeleton />
+        </div>
+      </section>
+    )
+  }
+
   const conversationTokens = summary.totalInputTokens + summary.totalOutputTokens
   const cacheTokens = summary.cacheReadTokens + summary.cacheWriteTokens
   const trackedTokens = conversationTokens + cacheTokens
@@ -66,91 +106,79 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
   const cacheShare = trackedTokens > 0 ? (cacheTokens / trackedTokens) * 100 : 0
 
   return (
-    <section className="rounded-3xl border border-border/50 bg-card p-5 shadow-[0_18px_48px_rgba(0,0,0,0.14)]">
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/60">
+    <section className="flex flex-col rounded-md border border-border/40 overflow-hidden bg-card/40 dark:bg-[#121212]">
+      <div className="p-6">
+        <div className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between">
+          <div className="flex flex-col gap-1.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Usage overview
             </div>
-            {loading ? (
-              <div className="mt-3 space-y-2">
-                <Skeleton className="h-10 w-44" />
-                <Skeleton className="h-3 w-64 max-w-full" />
-              </div>
-            ) : (
-              <>
-                <div className="mt-1.5 text-4xl font-semibold tracking-[-0.045em] text-foreground tabular-nums">
-                  {formatTokens(trackedTokens)}
-                </div>
-                <p className="mt-1 max-w-md text-[12px] leading-5 text-muted-foreground/65">
-                  Total tracked tokens. Conversation and cache are shown separately so the math is clear.
-                </p>
-              </>
-            )}
+            <div className="mt-1 tabular-nums text-[34px] font-semibold leading-tight tracking-tight text-foreground">
+              {formatTokens(trackedTokens)}
+            </div>
+            <div className="text-[14px] text-muted-foreground">
+              Total tracked tokens across all usage
+            </div>
           </div>
 
-          <div className="min-w-[140px] rounded-2xl border border-border/40 bg-background/40 px-4 py-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/60">
+          <div className="flex min-w-[150px] flex-col rounded-md border border-border/40 bg-transparent p-5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Spend
             </div>
-            {loading ? (
-              <Skeleton className="mt-2 h-7 w-24" />
-            ) : (
-              <div className="mt-1 text-2xl font-semibold tracking-tight text-foreground tabular-nums">
-                ${summary.totalCost.toFixed(2)}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div>
-          {loading ? (
-            <Skeleton className="h-3 w-full rounded-full" />
-          ) : (
-            <div className="h-3 overflow-hidden rounded-full bg-muted/50">
-              <div
-                className="float-left h-full bg-foreground/75"
-                style={{ width: `${Math.min(conversationShare, 100)}%` }}
-              />
-              <div
-                className="h-full bg-muted-foreground/45"
-                style={{ width: `${Math.min(cacheShare, 100)}%` }}
-              />
+            <div className="mt-2 tabular-nums text-[24px] font-semibold tracking-tight text-foreground">
+              ${summary.totalCost.toFixed(2)}
             </div>
-          )}
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground/65">
-            <span>Conversation {loading ? "—" : formatPercent(conversationShare)}</span>
-            <span>Cache {loading ? "—" : formatPercent(cacheShare)}</span>
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MiniMetric
-            label="Conversation"
-            value={formatTokens(conversationTokens)}
-            helper="Input + output"
-            loading={loading}
-          />
-          <MiniMetric
-            label="Input"
-            value={formatTokens(summary.totalInputTokens)}
-            helper={`${formatPercent(inputShare)} of conversation`}
-            loading={loading}
-          />
-          <MiniMetric
-            label="Output"
-            value={formatTokens(summary.totalOutputTokens)}
-            helper={`${formatPercent(outputShare)} of conversation`}
-            loading={loading}
-          />
-          <MiniMetric
-            label="Cache"
-            value={formatTokens(cacheTokens)}
-            helper={`${formatTokens(summary.cacheReadTokens)} read · ${formatTokens(summary.cacheWriteTokens)} write`}
-            loading={loading}
-          />
+        <div className="flex flex-col gap-4 mt-8">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-border">
+            <div
+              className="float-left h-full bg-[#10b981] transition-all"
+              style={{ width: `${Math.min(conversationShare, 100)}%` }}
+            />
+            <div
+              className="h-full bg-[#3b82f6] transition-all"
+              style={{ width: `${Math.min(cacheShare, 100)}%` }}
+            />
+          </div>
+          <div className="flex gap-6 text-[13px] text-muted-foreground">
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#10b981]" />
+              Conversation {formatPercent(conversationShare)}
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#3b82f6]" />
+              Cache {formatPercent(cacheShare)}
+            </span>
+          </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border/40">
+        <MiniMetric
+          label="Conversation"
+          value={formatTokens(conversationTokens)}
+          helper="Input + output"
+          className="border-b border-r border-border/40 lg:border-b-0"
+        />
+        <MiniMetric
+          label="Input"
+          value={formatTokens(summary.totalInputTokens)}
+          helper={`${formatPercent(inputShare)} of conv.`}
+          className="border-b border-border/40 lg:border-b-0 lg:border-r"
+        />
+        <MiniMetric
+          label="Output"
+          value={formatTokens(summary.totalOutputTokens)}
+          helper={`${formatPercent(outputShare)} of conv.`}
+          className="border-r border-border/40"
+        />
+        <MiniMetric
+          label="Cache"
+          value={formatTokens(cacheTokens)}
+          helper={`${formatTokens(summary.cacheReadTokens)} r · ${formatTokens(summary.cacheWriteTokens)} w`}
+        />
       </div>
     </section>
   )

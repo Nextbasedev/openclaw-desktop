@@ -100,7 +100,8 @@
       "PowerShell(Get-Content \"C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Temp\\\\openclaw\\\\openclaw-2026-05-01.log\" -Tail 5 | ForEach-Object { $json = $_ | ConvertFrom-Json; \"$\\($json._meta.date\\) [$\\($json._meta.logLevelName\\)] $\\($json.'0'\\) $\\($json.'1'\\)\" })",
       "PowerShell(curl.exe -s -X POST \"http://127.0.0.1:4000/api/ipc/middleware_terminal_create\" -H \"Content-Type: application/json\" -d '{\\\\\"input\\\\\":{\\\\\"projectId\\\\\":\\\\\"test\\\\\"}}')",
       "PowerShell(curl.exe -s -X POST \"http://127.0.0.1:4000/api/ipc/middleware_terminal_list\" -H \"Content-Type: application/json\" -d '{\\\\\"input\\\\\":{\\\\\"projectId\\\\\":\\\\\"default\\\\\"}}')",
-      "PowerShell(curl.exe -s -X POST \"http://127.0.0.1:4000/api/ipc/middleware_terminal_create\" -H \"Content-Type: application/json\" -d '{\\\\\"input\\\\\":{\\\\\"projectId\\\\\":\\\\\"default\\\\\",\\\\\"title\\\\\":\\\\\"Test Terminal\\\\\"}}')"
+      "PowerShell(curl.exe -s -X POST \"http://127.0.0.1:4000/api/ipc/middleware_terminal_create\" -H \"Content-Type: application/json\" -d '{\\\\\"input\\\\\":{\\\\\"projectId\\\\\":\\\\\"default\\\\\",\\\\\"title\\\\\":\\\\\"Test Terminal\\\\\"}}')",
+      "Bash(npx --no tsc --noEmit)"
     ]
   }
 }

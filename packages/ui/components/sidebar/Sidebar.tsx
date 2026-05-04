@@ -24,6 +24,8 @@ const NAV_HREFS: Record<string, string> = {
   connect: "/connect",
 }
 
+const UNIQUE_SIDEBAR_BG_KEY = "openclaw.uniqueSidebarBg"
+
 type SidebarProps = {
   className?: string
   width?: number
@@ -65,6 +67,10 @@ export function Sidebar({
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [uniqueSidebarBg, setUniqueSidebarBg] = useState(() => {
+    if (typeof window === "undefined") return false
+    return localStorage.getItem(UNIQUE_SIDEBAR_BG_KEY) === "true"
+  })
   const [chatsPopoverOpen, setChatsPopoverOpen] = useState(false)
   const [projectsPopoverOpen, setProjectsPopoverOpen] = useState(false)
   const prevCollapsed = useRef(collapsed)
@@ -85,11 +91,31 @@ export function Sidebar({
   }, [])
 
   useEffect(() => {
+    function syncSidebarBackground(event?: Event) {
+      if (event instanceof CustomEvent && typeof event.detail === "boolean") {
+        setUniqueSidebarBg(event.detail)
+        return
+      }
+      setUniqueSidebarBg(localStorage.getItem(UNIQUE_SIDEBAR_BG_KEY) === "true")
+    }
+
+    window.addEventListener("appearance:sidebar-bg", syncSidebarBackground)
+    window.addEventListener("storage", syncSidebarBackground)
+    return () => {
+      window.removeEventListener("appearance:sidebar-bg", syncSidebarBackground)
+      window.removeEventListener("storage", syncSidebarBackground)
+    }
+  }, [])
+
+  useEffect(() => {
     if (prevCollapsed.current === collapsed) return
     prevCollapsed.current = collapsed
     if (!collapsed) {
-      if (chatsPopoverOpen) setChatsPopoverOpen(false)
-      if (projectsPopoverOpen) setProjectsPopoverOpen(false)
+      const frame = window.requestAnimationFrame(() => {
+        if (chatsPopoverOpen) setChatsPopoverOpen(false)
+        if (projectsPopoverOpen) setProjectsPopoverOpen(false)
+      })
+      return () => window.cancelAnimationFrame(frame)
     }
   }, [chatsPopoverOpen, collapsed, projectsPopoverOpen])
 
@@ -141,7 +167,10 @@ export function Sidebar({
           "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden",
           "w-[var(--sidebar-width)]",
           "z-40",
-          "border-r border-border/50 bg-card/70 backdrop-blur-xl",
+          "border-r border-border/50",
+          uniqueSidebarBg
+            ? "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]"
+            : "bg-white dark:bg-[#151518]",
           "shadow-none transition-[width,transform,opacity] duration-200 ease-out",
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:h-svh max-md:w-[var(--sidebar-mobile-width)] max-md:shadow-xl",
           collapsed
@@ -150,7 +179,12 @@ export function Sidebar({
           className,
         )}
       >
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] opacity-60 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]" />
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.04)_100%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,rgba(255,255,255,0.02)_100%)]",
+            uniqueSidebarBg ? "opacity-0" : "opacity-60",
+          )}
+        />
 
         <nav className={cn(
           "relative z-10 flex-1 py-3",

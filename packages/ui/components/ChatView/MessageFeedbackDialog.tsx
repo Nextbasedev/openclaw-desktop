@@ -87,7 +87,7 @@ export function MessageFeedbackDialog({ open, onClose, onSubmit }: Props) {
             onChange={(e) => setDetails(e.target.value)}
             placeholder="Share details (optional)"
             className={cn(
-              "min-h-[120px] w-full resize-none rounded-[16px] border border-white/5 bg-white/[0.02] p-2",
+              "min-h-[120px] w-full resize-none rounded-md border border-white/5 bg-white/[0.02] p-2",
               "text-[14px] text-white/90 placeholder:text-white/20",
               "focus:border-white/10 focus:bg-white/[0.04] focus:outline-none focus:ring-0 transition-all"
             )}
@@ -107,7 +107,7 @@ export function MessageFeedbackDialog({ open, onClose, onSubmit }: Props) {
               onClick={handleSubmit}
               disabled={selectedTags.length === 0 && !details.trim()}
               className={cn(
-                "rounded-full px-8 py-2.5 text-[14px] font-semibold transition-all duration-300",
+                "rounded-md px-8 py-2.5 text-[14px] font-semibold transition-all duration-300",
                 selectedTags.length > 0 || details.trim()
                   ? "bg-white text-black hover:bg-white/90 active:scale-95"
                   : "bg-white/5 text-white/20 cursor-not-allowed"

@@ -24,7 +24,7 @@ export function recordRoutes(store: Store) {
     topicsDelete: (topicId: string) => { const s = state(store); s.topics = s.topics.filter((t)=>t.id!==topicId); save(store,s); return { ok: true } },
     topicsArchive: (topicId: string, archived = true) => { const s = state(store); const t = s.topics.find((x)=>x.id===topicId); if(!t) throw new HttpError(404,"Topic not found","NOT_FOUND"); t.archived = archived; t.updatedAt = now(); save(store,s); return { ok: true, topicId, archived } },
 
-    chatsList: () => ({ chats: state(store).chats.filter((c)=>!c.deleted) }),
+    chatsList: (filters: { archived?: boolean } = {}) => ({ chats: state(store).chats.filter((c)=>!c.deleted && Boolean(c.archived) === Boolean(filters.archived)) }),
     chatsCreate: (body: any) => { const s = state(store); const c = { id: id("chat"), name: body.name || "New Chat", sessionKey: body.sessionKey, agentId: body.agentId || "main", archived: false, pinned: false, createdAt: now(), updatedAt: now(), lastActiveAt: now() }; s.chats.push(c); save(store,s); return { chat: c } },
     chatsUpdate: (chatId: string, body: any) => { const s = state(store); const c = s.chats.find((x)=>x.id===chatId); if(!c) throw new HttpError(404,"Chat not found","NOT_FOUND"); Object.assign(c, body, { updatedAt: now() }); save(store,s); return { chat: c } },
     chatsRename: (chatId: string, name: string) => { const s = state(store); const c = s.chats.find((x)=>x.id===chatId); if(!c) throw new HttpError(404,"Chat not found","NOT_FOUND"); c.name = name; c.updatedAt = now(); save(store,s); return { chat: c } },
