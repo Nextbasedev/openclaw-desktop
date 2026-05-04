@@ -538,6 +538,241 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: any[]
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 })
 }
 
+function migrationState(s: any) {
+  s.commandState.telegramMigration ??= { imports: {}, groups: {} }
+  s.commandState.telegramMigration.imports ??= {}
+  s.commandState.telegramMigration.groups ??= {}
+  return s.commandState.telegramMigration
+}
+
+function gatewaySessionsIndexPath(agentId = "main") {
+  return path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions", "sessions.json")
+}
+
+function readGatewaySessionsIndex(agentId = "main") {
+  return readJson(gatewaySessionsIndexPath(agentId))
+}
+
+function parseTelegramSessionKey(key: string) {
+  const direct = key.match(/^agent:([^:]+):telegram:direct:([^:]+)$/)
+  if (direct) return { kind: "direct" as const, agentId: direct[1] || "main", userId: direct[2] || "" }
+  const group = key.match(/^agent:([^:]+):telegram:group:([^:]+)(?::topic:(\d+))?$/)
+  if (group) return { kind: "group" as const, agentId: group[1] || "main", groupId: group[2] || "", topicId: group[3] || null }
+  return null
+}
+
+function parseJarvisLabel(label: unknown): any | null {
+  if (typeof label !== "string") return null
+  const marker = "\0JRV1\0"
+  const index = label.indexOf(marker)
+  if (index === -1) return null
+  try { return JSON.parse(label.slice(index + marker.length)) } catch { return null }
+}
+
+function cleanImportedName(text: string) {
+  return text
+    .replace(/```json\s*\{[\s\S]*?\}\s*```/g, " ")
+    .replace(/^System \(untrusted\):.*$/gmi, " ")
+    .replace(/^Conversation info \(untrusted metadata\):[\s\S]*?\n\s*$/gmi, " ")
+    .replace(/^Sender \(untrusted metadata\):[\s\S]*?\n\s*$/gmi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function firstTextContent(content: unknown) {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content.map((block: any) => typeof block?.text === "string" ? block.text : "").join(" ")
+}
+
+function transcriptMessagesFromJsonl(sessionFile: string) {
+  return readJsonl(sessionFile)
+    .filter((line: any) => line?.type === "message" || line?.message?.role)
+    .map((line: any) => {
+      const message = line.message ?? line
+      return {
+        ...message,
+        timestamp: message.timestamp ?? line.timestamp,
+        __openclaw: { id: line.id, seq: line.seq },
+      }
+    })
+    .filter((message: any) => message?.role)
+}
+
+function lastUserMessagePreview(messages: any[]) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message?.role !== "user") continue
+    const cleaned = cleanImportedName(messageBody(message) || firstTextContent(message.content))
+    if (cleaned) return cleaned
+  }
+  return null
+}
+
+function titleFromLastUser(messages: any[], fallback: string) {
+  const preview = lastUserMessagePreview(messages)
+  return (preview ? preview.slice(0, 15).trim() : fallback).trim() || fallback
+}
+
+function uniqueName(base: string, used: Set<string>) {
+  const root = (base || "Telegram import").trim() || "Telegram import"
+  let name = root
+  let n = 2
+  while (used.has(name.toLowerCase())) {
+    name = `${root} (${n})`
+    n += 1
+  }
+  used.add(name.toLowerCase())
+  return name
+}
+
+function telegramGroupName(entry: any, groupId: string) {
+  const jarvis = parseJarvisLabel(entry?.label)
+  const candidates = [
+    entry?.subject,
+    entry?.origin?.label?.split(" id:")?.[0],
+    jarvis?.names?.projectName,
+    entry?.displayName?.replace(/^telegram:g-/, "").replace(/-/g, " "),
+  ].map((value) => String(value || "").trim()).filter(Boolean)
+  return candidates[0] || `Telegram group ${groupId}`
+}
+
+function telegramTopicFallback(entry: any, topicId: string | null) {
+  const jarvis = parseJarvisLabel(entry?.label)
+  const jarvisName = String(jarvis?.names?.chatName || jarvis?.names?.topicName || "").trim()
+  if (jarvisName && !/^Telegram\s+[-\d]+$/i.test(jarvisName)) return jarvisName
+  if (topicId) return `Topic ${topicId}`
+  return "General"
+}
+
+function scanTelegramSessions(s: any, input: any = {}) {
+  const agentId = String(input.agentId || "main")
+  const index = readGatewaySessionsIndex(agentId)
+  const migration = migrationState(s)
+  const limit = Math.max(0, Number(input.limit || 0))
+  const usedNames = new Set<string>()
+  const sessions = Object.entries(index)
+    .map(([sourceSessionKey, entry]: [string, any]) => {
+      const parsed = parseTelegramSessionKey(sourceSessionKey)
+      if (!parsed) return null
+      const sourceSessionFile = String(entry?.sessionFile || "")
+      const messages = sourceSessionFile ? transcriptMessagesFromJsonl(sourceSessionFile) : []
+      const lastPreview = lastUserMessagePreview(messages)
+      const fallback = parsed.kind === "direct"
+        ? "Telegram direct"
+        : telegramTopicFallback(entry, parsed.topicId)
+      const proposedName = uniqueName(titleFromLastUser(messages, fallback), usedNames)
+      return {
+        sourceSessionKey,
+        sourceSessionId: String(entry?.sessionId || ""),
+        sourceSessionFile,
+        proposedName,
+        messageCount: messages.filter((message: any) => message?.role && message.role !== "system").length,
+        lastUserMessagePreview: lastPreview,
+        updatedAt: typeof entry?.updatedAt === "number" ? entry.updatedAt : null,
+        chatType: parsed.kind,
+        groupId: parsed.kind === "group" ? parsed.groupId : undefined,
+        groupName: parsed.kind === "group" ? telegramGroupName(entry, parsed.groupId) : undefined,
+        topicId: parsed.kind === "group" ? parsed.topicId : undefined,
+        topicName: parsed.kind === "group" ? proposedName : undefined,
+        alreadyImported: Boolean(migration.imports[sourceSessionKey]),
+      }
+    })
+    .filter(Boolean) as any[]
+  const selected = limit > 0 ? sessions.slice(0, limit) : sessions
+  const groups = new Map<string, any>()
+  for (const session of selected) {
+    if (session.chatType !== "group") continue
+    const current = groups.get(session.groupId) ?? { groupId: session.groupId, name: session.groupName, topics: 0 }
+    current.topics += 1
+    groups.set(session.groupId, current)
+  }
+  return {
+    sessions: selected,
+    summary: {
+      total: selected.length,
+      direct: selected.filter((session) => session.chatType === "direct").length,
+      groups: groups.size,
+      topics: selected.filter((session) => session.chatType === "group").length,
+      alreadyImported: selected.filter((session) => session.alreadyImported).length,
+    },
+    groups: [...groups.values()],
+  }
+}
+
+function ensureImportedGroupProject(store: Store, s: any, sourceGroupId: string, name: string) {
+  const migration = migrationState(s)
+  const existingProjectId = migration.groups[sourceGroupId]?.projectId
+  const existing = existingProjectId ? s.projects.find((project: any) => project.id === existingProjectId) : null
+  if (existing) return existing
+  const createdAt = now()
+  const project = { id: `proj_${crypto.randomUUID().replace(/-/g, "")}`, name, workspaceRoot: workspaceRoot(), repoRoot: null, pinned: false, archived: false, createdAt, updatedAt: createdAt }
+  s.projects.push(project)
+  migration.groups[sourceGroupId] = { projectId: project.id, name, importedAt: now() }
+  return project
+}
+
+async function importTelegramSessions(store: Store, s: any, input: any = {}) {
+  const scan = scanTelegramSessions(s, input)
+  const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0
+    ? new Set(input.sourceSessionKeys.map(String))
+    : null
+  const dryRun = Boolean(input.dryRun)
+  const skipAlreadyImported = input.skipAlreadyImported !== false
+  const migration = migrationState(s)
+  const imported: any[] = []
+  const skipped: any[] = []
+  const failed: any[] = []
+  const gw = dryRun ? null : await connectGateway(["operator.read", "operator.write", "operator.admin"])
+  try {
+    for (const session of scan.sessions) {
+      if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue
+      const parsed = parseTelegramSessionKey(session.sourceSessionKey)
+      if (!parsed) continue
+      if (skipAlreadyImported && migration.imports[session.sourceSessionKey]) {
+        skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported" })
+        continue
+      }
+      const sourceMessages = transcriptMessagesFromJsonl(session.sourceSessionFile)
+      if (dryRun) {
+        imported.push({ sourceSessionKey: session.sourceSessionKey, name: session.proposedName, copiedMessages: sourceMessages.filter((m:any) => m.role !== "system").length, dryRun: true })
+        continue
+      }
+      try {
+        const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`
+        const created = await gw!.request<any>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label: session.proposedName, parentSessionKey: session.sourceSessionKey }, 30_000)
+        if (!created.ok) throw new Error(created.error?.message || "sessions.create failed")
+        const transcriptPath = (created.payload as any)?.entry?.sessionFile
+        if (!transcriptPath || typeof transcriptPath !== "string") throw new Error("sessions.create did not return entry.sessionFile")
+        copyHistoryMessagesToTranscript(transcriptPath, sourceMessages)
+
+        const createdAt = now()
+        let chatId: string | null = null
+        let projectId: string | null = null
+        let topicId: string | null = null
+        if (parsed.kind === "group") {
+          const project = ensureImportedGroupProject(store, s, parsed.groupId, session.groupName || `Telegram group ${parsed.groupId}`)
+          projectId = project.id
+          topicId = `topic_${crypto.randomUUID().replace(/-/g, "")}`
+          s.topics.push({ id: topicId, projectId, name: session.proposedName || telegramTopicFallback({}, parsed.topicId), archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } })
+          s.sessions.push({ key: desktopSessionKey, sessionKey: desktopSessionKey, label: session.proposedName, agentId: parsed.agentId, status: "idle", hidden: false, projectId, topicId, createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
+        } else {
+          chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
+          s.chats.push({ id: chatId, name: session.proposedName, sessionKey: desktopSessionKey, agentId: parsed.agentId, archived: false, pinned: false, createdAt, updatedAt: createdAt, lastActiveAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
+        }
+        migration.imports[session.sourceSessionKey] = { desktopSessionKey, chatId, projectId, topicId, name: session.proposedName, importedAt: createdAt }
+        imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, name: session.proposedName, copiedMessages: sourceMessages.filter((m:any) => m.role !== "system").length, transcriptPath })
+      } catch (error) {
+        failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    if (!dryRun) save(store, s)
+    return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } }
+  } finally {
+    gw?.close()
+  }
+}
+
 function searchMemory(query: string) {
   const q = query.trim().toLowerCase()
   const entries: any[] = []
@@ -840,6 +1075,8 @@ export function commandRoutes(store: Store) {
         case "middleware_autonaming_quick": { const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat"; return { name, title: name } }
         case "middleware_message_feedback": { s.commandState.feedback.push({ id: crypto.randomUUID(), ...input, createdAt: now() }); save(store, s); return ok() }
         case "middleware_message_feedback_delete": { s.commandState.feedback = s.commandState.feedback.filter((f:any) => f.message_id !== input.message_id && f.messageId !== input.messageId); save(store, s); return ok() }
+        case "middleware_migration_telegram_scan": return scanTelegramSessions(s, input)
+        case "middleware_migration_telegram_import": return importTelegramSessions(store, s, input)
 
         case "middleware_chat_history": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
