@@ -8,9 +8,10 @@ import { KeyboardShortcutsTab } from "./tabs/KeyboardShortcutsTab"
 import { ArchiveTab } from "./tabs/ArchiveTab"
 import { MemoryTab } from "./tabs/MemoryTab"
 import { UsageTab } from "./tabs/UsageTab"
+import { VoiceTab } from "./tabs/VoiceTab"
 import { cn } from "@/lib/utils"
 
-type SettingSection = "usage" | "memory" | "archive" | "appearance" | "help" | "shortcuts"
+type SettingSection = "usage" | "memory" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -30,6 +31,7 @@ const SECTION_GROUPS: SectionGroup[] = [
     label: "System",
     items: [
       { id: "appearance", label: "Appearance", icon: Icons.Settings },
+      { id: "voice", label: "Voice", icon: Icons.Automations },
     ],
   },
 ]
@@ -86,6 +88,8 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
         {activeSection === "archive" && <ArchiveTab />}
 
         {activeSection === "appearance" && <AppearanceTab />}
+
+        {activeSection === "voice" && <VoiceTab />}
 
         {activeSection === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
 

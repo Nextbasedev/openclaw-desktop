@@ -7,13 +7,13 @@ type TrafficLightsProps = {
 }
 
 export function TrafficLights({ className }: TrafficLightsProps) {
-  const handleAction = async (action: "minimize" | "maximize" | "close") => {
+  const handleAction = async (action: "minimize" | "fullscreen" | "close") => {
     if (typeof window !== "undefined" && window.__TAURI_INTERNALS__) {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window")
         const appWindow = getCurrentWindow()
         if (action === "minimize") await appWindow.minimize()
-        else if (action === "maximize") await appWindow.toggleMaximize()
+        else if (action === "fullscreen") await appWindow.setFullscreen(!(await appWindow.isFullscreen()))
         else if (action === "close") await appWindow.close()
       } catch (err) {
         console.error("Tauri IPC error:", err)
@@ -69,8 +69,8 @@ export function TrafficLights({ className }: TrafficLightsProps) {
 
       <button
         type="button"
-        aria-label="Maximize"
-        onClick={() => handleAction("maximize")}
+        aria-label="Toggle fullscreen"
+        onClick={() => handleAction("fullscreen")}
         className={cn(
           "group relative flex size-[12px] items-center justify-center rounded-full transition-all cursor-pointer",
           "border border-[#1AAB29] bg-[#27C93F] active:brightness-90",
