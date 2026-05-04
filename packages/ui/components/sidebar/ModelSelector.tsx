@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuCheck, LuSearch, LuTriangleAlert } from "react-icons/lu"
+import { LuCheck, LuSearch } from "react-icons/lu"
 import { GlassDialog } from "@/components/ui/GlassDialog"
 import { useModels, isActiveModel } from "@/hooks/useModels"
 
@@ -33,8 +33,6 @@ export function ModelSelector({ open, onOpenChange }: Props) {
   }, [reload, open])
 
   async function handleSelect(modelId: string) {
-    const model = models.find((m) => `${m.provider}/${m.id}` === modelId || m.id === modelId)
-    if (model?.health?.status === "unavailable") return
     setSaving(true)
     try {
       await invoke("middleware_models_set_default", {
@@ -117,12 +115,11 @@ export function ModelSelector({ open, onOpenChange }: Props) {
         )}
         {!loading && !error && filtered.map((model) => {
           const active = isActiveModel(current, model)
-          const unavailable = model.health?.status === "unavailable"
           return (
             <button
               key={`${model.provider}/${model.id}`}
               type="button"
-              disabled={saving || unavailable}
+              disabled={saving}
               onClick={() =>
                 handleSelect(`${model.provider}/${model.id}`)
               }
@@ -130,7 +127,6 @@ export function ModelSelector({ open, onOpenChange }: Props) {
                 "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
                 "transition-colors",
                 saving && "opacity-50",
-                unavailable && "cursor-not-allowed opacity-45",
                 active
                   ? "bg-foreground/8 text-foreground"
                   : "text-foreground/80 hover:bg-foreground/5 hover:text-foreground",
@@ -141,10 +137,9 @@ export function ModelSelector({ open, onOpenChange }: Props) {
                   <span className="truncate text-[13px] font-medium">
                     {model.name}
                   </span>
-                  {unavailable && <LuTriangleAlert size={12} className="shrink-0 text-amber-400/80" />}
                 </div>
-                <span className={cn("text-[10px]", unavailable ? "text-amber-300/80" : "text-muted-foreground/50")}>
-                  {unavailable ? model.health?.reason : model.reasoning ? "reasoning" : model.provider}
+                <span className="text-[10px] text-muted-foreground/50">
+                  {model.reasoning ? "reasoning" : model.provider}
                 </span>
               </div>
               {active && (

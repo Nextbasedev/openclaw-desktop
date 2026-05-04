@@ -671,31 +671,6 @@ function normalizeModelEntry(value: any) {
   }
 }
 
-function configContains(value: unknown, needle: string): boolean {
-  if (typeof value === "string") return value.includes(needle)
-  if (Array.isArray(value)) return value.some((item) => configContains(item, needle))
-  if (value && typeof value === "object") return Object.values(value).some((item) => configContains(item, needle))
-  return false
-}
-
-function hasDirectProviderKey(provider: string, cfg: any): boolean {
-  if (provider === "anthropic") {
-    return String(process.env.ANTHROPIC_API_KEY || "").startsWith("sk-ant-api-") || configContains(cfg, "sk-ant-api-")
-  }
-  return true
-}
-
-function modelHealth(model: any, cfg: any) {
-  if (model.provider === "anthropic" && !hasDirectProviderKey("anthropic", cfg)) {
-    return {
-      status: "unavailable",
-      reason: "Anthropic OAuth is not supported here. Add a direct sk-ant-api-* key or pick another model.",
-      code: "anthropic_oauth_unsupported",
-    }
-  }
-  return { status: "available" }
-}
-
 function modelsResponse(cfg: any) {
   const refs = modelRefsFromConfig(cfg)
   const defaultsModels = cfg.agents?.defaults?.models
@@ -715,11 +690,11 @@ function modelsResponse(cfg: any) {
     : Array.isArray(cfg.agents?.defaults?.model?.models)
       ? cfg.agents.defaults.model.models
       : refs
-  const models = (rawModels.length ? rawModels : refs).map(normalizeModelEntry).map((model: any) => ({ ...model, health: modelHealth(model, cfg) }))
+  const models = (rawModels.length ? rawModels : refs).map(normalizeModelEntry)
   const currentModel = cfg.agents?.defaults?.model?.primary || (typeof cfg.agents?.defaults?.model === "string" ? cfg.agents.defaults.model : null) || refs[0] || null
   if (currentModel && !models.some((model: any) => `${model.provider}/${model.id}` === currentModel || model.id === currentModel)) {
     const current = normalizeModelEntry(currentModel)
-    models.unshift({ ...current, health: modelHealth(current, cfg) })
+    models.unshift(current)
   }
   return { models, currentModel, defaultModel: currentModel }
 }
@@ -793,10 +768,6 @@ export function commandRoutes(store: Store) {
           const cfg = readJson(openclawConfigPath())
           const modelId = String(input.modelId || input.modelRef || "").trim()
           if (!modelId) throw new HttpError(400, "modelId is required", "BAD_REQUEST")
-          const model = modelsResponse(cfg).models.find((item: any) => item.id === modelId || `${item.provider}/${item.id}` === modelId)
-          if (model?.health?.status === "unavailable") {
-            throw new HttpError(409, model.health.reason || "Model is unavailable", "MODEL_UNAVAILABLE")
-          }
           cfg.agents ??= {}; cfg.agents.defaults ??= {}; cfg.agents.defaults.model ??= {}
           if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model }
           cfg.agents.defaults.model.primary = modelId
