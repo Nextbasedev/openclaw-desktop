@@ -98,12 +98,12 @@ export function useChatComposerAttachments({
 
       for (const file of nextFiles) {
         if (file.size > CHAT_ATTACHMENT_LIMITS.maxSingleBytes) {
-          errors.push(`"${file.name}" exceeds the 50 MB limit.`)
+          errors.push(`"${file.name}" exceeds the 10 MB limit.`)
           continue
         }
 
         if (totalBytes + file.size > CHAT_ATTACHMENT_LIMITS.maxTotalBytes) {
-          errors.push("Total attachment size cannot exceed 100 MB.")
+          errors.push("Total attachment size cannot exceed 10 MB.")
           continue
         }
 
