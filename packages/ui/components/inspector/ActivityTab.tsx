@@ -8,16 +8,17 @@ import { useAgentActivity } from "@/hooks/useAgentActivity"
 import { SubagentChatView } from "./SubagentChatView"
 import type { AgentNode } from "./activity-types"
 
-const AGENT_SIDEBAR_MIN = 156
-const AGENT_SIDEBAR_MAX = 260
-const AGENT_SIDEBAR_DEFAULT = 180
+const AGENT_SIDEBAR_MIN = 136
+const AGENT_SIDEBAR_MAX = 240
+const AGENT_SIDEBAR_DEFAULT = 156
+const AGENT_SIDEBAR_COMPACT = 48
 
 function getAgentSidebarDefaults() {
   if (typeof window === "undefined") {
     return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
   }
   if (window.innerWidth < 768) {
-    return { min: 120, max: 176, default: 136 }
+    return { min: 104, max: 168, default: 120 }
   }
   return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
 }
@@ -190,6 +191,8 @@ export function ActivityTab({
   const selectedIsSubagent = Boolean(selectedNode && selectedNode.id !== "root")
   const mainNode = tree[0] ?? null
   const childCount = mainNode?.children?.length ?? 0
+  const hasSubagents = childCount > 0
+  const effectiveSidebarWidth = hasSubagents ? sidebarWidth : AGENT_SIDEBAR_COMPACT
 
   const totalEvents = useMemo(() => {
     const count = (ns: AgentNode[]): number =>
@@ -257,34 +260,50 @@ export function ActivityTab({
 
   return (
     <div className="relative flex h-full overflow-hidden">
-      <div className="flex shrink-0 flex-col" style={{ width: sidebarWidth }}>
+      <div
+        className={cn(
+          "flex shrink-0 flex-col border-r border-border/20 transition-[width] duration-200 ease-out",
+          !hasSubagents && "items-center",
+        )}
+        style={{ width: effectiveSidebarWidth }}
+      >
         <div className="flex h-7 shrink-0 items-center justify-between border-b border-border/30 px-2">
           <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-white">
             <span className="flex shrink-0 items-center justify-center text-white">
               <AgentHeaderIcon />
             </span>
-            <span className="truncate">Agents</span>
+            {hasSubagents && <span className="truncate">Agents</span>}
           </div>
-          <span className="inline-flex shrink-0 items-center rounded-full border border-white/8 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-foreground/55">
-            {subagentCount}
-          </span>
+          {hasSubagents && (
+            <span className="inline-flex shrink-0 items-center rounded-full border border-white/8 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-foreground/55">
+              {subagentCount}
+            </span>
+          )}
         </div>
 
-        <div className="border-b border-border/30 px-2 py-1.5">
-          <div className="flex items-center gap-1.5 text-[11px] text-foreground/70">
+        <div className={cn("border-b border-border/30 px-2 py-1.5", !hasSubagents && "flex w-full justify-center")}>
+          <div
+            className={cn(
+              "flex items-center gap-1.5 text-[11px] text-foreground/70",
+              !hasSubagents && "justify-center",
+            )}
+            title={isLive ? "Session active" : "Session idle"}
+          >
             <span
               className={cn(
                 "size-1.5 shrink-0 rounded-full",
                 isLive ? "bg-amber-400" : "bg-muted-foreground/40",
               )}
             />
-            <span className="truncate">
-              {isLive ? "Session active" : "Session idle"}
-            </span>
+            {hasSubagents && (
+              <span className="truncate">
+                {isLive ? "Session active" : "Session idle"}
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-1.5 py-2">
+        <div className={cn("flex-1 overflow-y-auto py-2", hasSubagents ? "px-1.5" : "w-full px-1")}>
           {mainNode && (
             <div>
               <button
@@ -294,28 +313,41 @@ export function ActivityTab({
                   setMainExpanded((p) => !p)
                 }}
                 className={cn(
-                  "flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left transition-colors cursor-pointer",
+                  "relative flex w-full items-center gap-1.5 rounded-lg text-left transition-colors cursor-pointer",
+                  hasSubagents ? "px-1.5 py-1.5" : "justify-center px-0 py-2",
                   selectedId === "root"
                     ? "bg-white/[0.04]"
                     : "hover:bg-white/[0.02]",
                 )}
+                title="Main agent"
               >
-                {mainExpanded ? (
-                  <VscChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
+                {hasSubagents ? (
+                  mainExpanded ? (
+                    <VscChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
+                  ) : (
+                    <VscChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+                  )
                 ) : (
-                  <VscChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+                  <span className="size-2 rounded-full bg-blue-400" />
                 )}
-                <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-foreground">
-                  Main
-                </span>
-                {childCount > 0 && (
-                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
-                    {childCount}
+                {hasSubagents && (
+                  <>
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-foreground">
+                      Main
+                    </span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
+                      {childCount}
+                    </span>
+                  </>
+                )}
+                {!hasSubagents && totalEvents > 0 && (
+                  <span className="absolute mt-7 rounded-full border border-white/10 bg-card px-1 text-[9px] font-semibold tabular-nums text-muted-foreground">
+                    {totalEvents > 99 ? "99+" : totalEvents}
                   </span>
                 )}
               </button>
 
-              {mainExpanded &&
+              {hasSubagents && mainExpanded &&
                 mainNode.children &&
                 mainNode.children.length > 0 && (
                   <div className="ml-3 mt-1">
@@ -360,20 +392,22 @@ export function ActivityTab({
           )}
         </div>
 
-        <div className="border-t border-border/30 px-2 py-2">
+        <div className={cn("border-t border-border/30 px-2 py-2", !hasSubagents && "w-full")}>
           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span className="truncate">Activity</span>
-            <span className="shrink-0 tabular-nums text-foreground/40">
+            {hasSubagents && <span className="truncate">Activity</span>}
+            <span className={cn("shrink-0 tabular-nums text-foreground/40", !hasSubagents && "mx-auto")} title={`${totalEvents} activity events`}>
               {totalEvents}
             </span>
           </div>
         </div>
       </div>
 
-      <div
-        onMouseDown={handleDragStart}
-        className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
-      />
+      {hasSubagents && (
+        <div
+          onMouseDown={handleDragStart}
+          className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
+        />
+      )}
 
       <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#121212]">
         {!historyLoaded ? (
