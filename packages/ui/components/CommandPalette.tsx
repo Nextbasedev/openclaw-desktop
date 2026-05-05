@@ -365,7 +365,7 @@ function PromptMarquee({
               "shrink-0 cursor-pointer whitespace-nowrap rounded-full border px-3.5 py-1.5",
               "border-border/70 bg-muted/65 text-[12px] font-medium text-muted-foreground shadow-sm",
               "dark:border-white/[0.10] dark:bg-white/[0.045] dark:text-white/58",
-              "transition-[background-color,border-color,color,box-shadow] duration-150 ease-out hover:border-primary/30 hover:bg-primary/10 hover:text-primary hover:shadow-sm hover:ring-1 hover:ring-primary/15",
+              "transition-[background-color,color] duration-150 ease-out hover:bg-muted hover:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-white",
             )}
           >
             {s.chip}
