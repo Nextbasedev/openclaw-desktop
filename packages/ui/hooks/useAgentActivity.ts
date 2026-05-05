@@ -307,6 +307,13 @@ export function useAgentActivity(sessionKey: string | null) {
           input: data.args as Record<string, unknown> | undefined,
           startedAt: Date.now(),
         })
+      } else if (phase === "update") {
+        const call = existing ?? fallback
+        map.set(toolCallId, {
+          ...call,
+          status: "running",
+          output: stringifyToolOutput(data.partialResult ?? data.output ?? data.content ?? data.details) ?? call.output,
+        })
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
         const duration = call.startedAt
