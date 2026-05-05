@@ -6,11 +6,12 @@ import { AppearanceTab } from "./tabs/AppearanceTab"
 import { HelpTab } from "./tabs/HelpTab"
 import { KeyboardShortcutsTab } from "./tabs/KeyboardShortcutsTab"
 import { ArchiveTab } from "./tabs/ArchiveTab"
-import { MemoryTab } from "./tabs/MemoryTab"
+import { ConfigTab } from "./tabs/ConfigTab"
 import { UsageTab } from "./tabs/UsageTab"
+import { VoiceTab } from "./tabs/VoiceTab"
 import { cn } from "@/lib/utils"
 
-type SettingSection = "usage" | "memory" | "archive" | "appearance" | "help" | "shortcuts"
+type SettingSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -22,7 +23,7 @@ const SECTION_GROUPS: SectionGroup[] = [
     label: "Personal",
     items: [
       { id: "usage", label: "Usage", icon: Icons.Automations },
-      { id: "memory", label: "Memory", icon: Icons.Memory },
+      { id: "config", label: "Config", icon: Icons.Settings },
       { id: "archive", label: "Archive", icon: Icons.File },
     ],
   },
@@ -30,6 +31,7 @@ const SECTION_GROUPS: SectionGroup[] = [
     label: "System",
     items: [
       { id: "appearance", label: "Appearance", icon: Icons.Settings },
+      { id: "voice", label: "Voice", icon: Icons.Automations },
     ],
   },
 ]
@@ -43,7 +45,7 @@ type SettingsDashboardProps = {
 }
 
 export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
-  const [activeSection, setActiveSection] = React.useState<SettingSection>("memory")
+  const [activeSection, setActiveSection] = React.useState<SettingSection>("config")
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
 
@@ -81,11 +83,13 @@ export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
       <div ref={scrollRef} className="my-2 mx-2 w-full max-w-2xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
         {activeSection === "usage" && <UsageTab />}
 
-        {activeSection === "memory" && <MemoryTab />}
+        {activeSection === "config" && <ConfigTab />}
 
         {activeSection === "archive" && <ArchiveTab />}
 
         {activeSection === "appearance" && <AppearanceTab />}
+
+        {activeSection === "voice" && <VoiceTab />}
 
         {activeSection === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
 

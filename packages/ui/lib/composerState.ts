@@ -6,21 +6,17 @@ export type ComposerPhase =
   | "failed"
   | "stopping"
   | "restarting"
-  | "batched"
 
 export type ComposerState = {
   phase: ComposerPhase
   pendingText: string
   pendingAttachments: ChatComposerSubmit["attachments"]
-  batch: ChatComposerSubmit[]
   error: string | null
   interrupted: boolean
 }
 
 export type ComposerAction =
   | { type: "send_start"; payload: ChatComposerSubmit; generating: boolean }
-  | { type: "batch_add"; payload: ChatComposerSubmit }
-  | { type: "batch_flush" }
   | { type: "send_success" }
   | { type: "send_failed"; error: string }
   | { type: "stop_start" }
@@ -32,27 +28,8 @@ export const initialComposerState: ComposerState = {
   phase: "idle",
   pendingText: "",
   pendingAttachments: undefined,
-  batch: [],
   error: null,
   interrupted: false,
-}
-
-export function composeBatch(batch: ChatComposerSubmit[]): ChatComposerSubmit {
-  const text = batch
-    .map((item) => item.text.trim())
-    .filter(Boolean)
-    .join("\n\n")
-  const attachments = batch.flatMap((item) => item.attachments ?? [])
-  const replyTo = batch.find((item) => item.replyTo)?.replyTo
-  const latestPolicy = [...batch].reverse().find((item) => "execPolicy" in item)
-  const latestMode = [...batch].reverse().find((item) => item.autonomyMode)
-  return {
-    text,
-    attachments: attachments.length > 0 ? attachments : undefined,
-    replyTo,
-    autonomyMode: latestMode?.autonomyMode,
-    execPolicy: latestPolicy?.execPolicy,
-  }
 }
 
 export function composerReducer(
@@ -67,29 +44,6 @@ export function composerReducer(
       pendingAttachments: action.payload.attachments,
       error: null,
       interrupted: action.generating,
-    }
-  }
-
-  if (action.type === "batch_add") {
-    return {
-      ...state,
-      phase: "batched",
-      batch: [...state.batch, action.payload],
-      pendingText: action.payload.text,
-      pendingAttachments: action.payload.attachments,
-      error: null,
-    }
-  }
-
-  if (action.type === "batch_flush") {
-    const payload = composeBatch(state.batch)
-    return {
-      ...state,
-      phase: "sending",
-      pendingText: payload.text,
-      pendingAttachments: payload.attachments,
-      batch: [],
-      error: null,
     }
   }
 
