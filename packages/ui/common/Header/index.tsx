@@ -213,9 +213,9 @@ export function Header({
                         event.stopPropagation()
                         onNewChat()
                       }}
-                      className="mb-[8px] ml-2 mr-3 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/48 transition-colors hover:bg-white/[0.08] hover:text-foreground/86 dark:text-white/48 dark:hover:bg-white/[0.09] dark:hover:text-white/86"
+                      className="mb-[8px] ml-1.5 mr-3 flex h-6 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/38 transition-colors hover:bg-white/[0.055] hover:text-foreground/72 dark:text-white/40 dark:hover:bg-white/[0.06] dark:hover:text-white/76"
                     >
-                      <VscAdd className="size-4" />
+                      <VscAdd className="size-3.5" />
                     </button>
                   )}
                 </div>
