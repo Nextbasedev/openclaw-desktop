@@ -7,7 +7,7 @@ import { ToolCallRow, StatusBadge, TREE_DOT_COLORS, COUNT_BADGE_COLORS } from ".
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import { SubagentChatView } from "./SubagentChatView"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import type { AgentNode, ToolCall, ToolCallStatus } from "./activity-types"
+import type { AgentNode, ToolCallStatus } from "./activity-types"
 
 const MAX_VISIBLE_SUBAGENT_TABS = 4
 
@@ -30,15 +30,6 @@ function flattenAgents(nodes: AgentNode[]): AgentNode[] {
   for (const node of nodes) {
     if (node.id !== "root") result.push(node)
     if (node.children?.length) result.push(...flattenAgents(node.children))
-  }
-  return result
-}
-
-function flattenToolCalls(nodes: AgentNode[]): ToolCall[] {
-  const result: ToolCall[] = []
-  for (const node of nodes) {
-    result.push(...node.calls)
-    if (node.children?.length) result.push(...flattenToolCalls(node.children))
   }
   return result
 }
@@ -249,22 +240,16 @@ export function ActivityTab({
     return count(tree)
   }, [tree])
 
-  const selectedCalls = useMemo(() => {
-    if (!selectedNode) return []
-    return selectedNode.id === "root"
-      ? flattenToolCalls(tree)
-      : selectedNode.calls
-  }, [selectedNode, tree])
-
   const filteredCalls = useMemo(() => {
-    if (filter === "all") return selectedCalls
-    return selectedCalls.filter((c) => c.status === filter)
-  }, [selectedCalls, filter])
+    if (!selectedNode) return []
+    if (filter === "all") return selectedNode.calls
+    return selectedNode.calls.filter((c) => c.status === filter)
+  }, [selectedNode, filter])
 
   const runningCount =
-    selectedCalls.filter((c) => c.status === "running")
-      .length
-  const totalCount = selectedCalls.length
+    selectedNode?.calls.filter((c) => c.status === "running")
+      .length ?? 0
+  const totalCount = selectedNode?.calls.length ?? 0
   const totalLabel =
     selectedIsSubagent && selectedSubagentSessionKey && totalCount === 0
       ? "Loading"
