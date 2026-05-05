@@ -192,7 +192,7 @@ export function Header({
                       target.scrollLeft += event.deltaY
                     }
                   }}
-                  className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden scroll-smooth scrollbar-hide"
+                  className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden scroll-smooth px-1 scrollbar-hide"
                 >
                   {visibleTabs.map((tab) => (
                     <HeaderTab
@@ -213,9 +213,9 @@ export function Header({
                         event.stopPropagation()
                         onNewChat()
                       }}
-                      className="mb-[7px] ml-2 mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/45 transition-colors hover:bg-foreground/[0.06] hover:text-foreground/80 dark:text-white/45 dark:hover:bg-white/[0.07] dark:hover:text-white/82"
+                      className="mb-[5px] ml-1.5 mr-2 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/46 transition-colors hover:bg-white/[0.07] hover:text-foreground/82 dark:text-white/46 dark:hover:bg-white/[0.08] dark:hover:text-white/84"
                     >
-                      <VscAdd className="size-3.5" />
+                      <VscAdd className="size-4" />
                     </button>
                   )}
                 </div>
@@ -390,34 +390,34 @@ function HeaderTab({
       type="button"
       onClick={onSelect}
       className={cn(
-        "group relative mb-[3px] flex h-[30px] w-40 shrink-0 items-center gap-1.5 rounded-t-xl border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
+        "group relative mb-0 flex h-[34px] w-44 shrink-0 items-center gap-2 overflow-hidden rounded-t-[13px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
         activeAndFocused
-          ? "z-10 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-1px_10px_rgba(0,0,0,0.18)]"
+          ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-8px_18px_rgba(0,0,0,0.22)]"
           : isActive
-            ? "z-10 border-white/8 bg-background/70 text-foreground/72 shadow-[0_1px_0_0_var(--background)]"
-            : "border-transparent bg-black/[0.16] text-foreground/56 hover:bg-white/[0.035] hover:text-foreground/74 dark:bg-white/[0.025] dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/76",
+            ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
+            : "mb-[4px] h-[30px] border-white/[0.035] bg-white/[0.035] text-foreground/56 hover:bg-white/[0.06] hover:text-foreground/76 dark:border-white/[0.035] dark:bg-white/[0.035] dark:text-white/58 dark:hover:bg-white/[0.065] dark:hover:text-white/78",
       )}
     >
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute -left-2 bottom-0 h-3 w-2 rounded-br-xl border-b border-r opacity-0",
-          activeAndFocused && "border-white/10 opacity-100",
+          "pointer-events-none absolute -left-2.5 bottom-0 h-3.5 w-2.5 rounded-br-[13px] border-b border-r opacity-0",
+          activeAndFocused && "border-white/10 bg-card opacity-100",
         )}
       />
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute -right-2 bottom-0 h-3 w-2 rounded-bl-xl border-b border-l opacity-0",
-          activeAndFocused && "border-white/10 opacity-100",
+          "pointer-events-none absolute -right-2.5 bottom-0 h-3.5 w-2.5 rounded-bl-[13px] border-b border-l opacity-0",
+          activeAndFocused && "border-white/10 bg-card opacity-100",
         )}
       />
       <div
         className={cn(
-          "flex size-4.5 shrink-0 items-center justify-center rounded-full",
+          "flex size-5 shrink-0 items-center justify-center rounded-full",
           isActive
-            ? "bg-foreground/[0.06] text-foreground/58 dark:bg-white/[0.06] dark:text-white/62"
-            : "bg-transparent text-foreground/34 dark:text-white/36",
+            ? "bg-foreground/[0.055] text-foreground/58 dark:bg-white/[0.055] dark:text-white/62"
+            : "bg-transparent text-foreground/34 dark:text-white/38",
         )}
       >
         {tab.kind === "topic" ? (
@@ -440,8 +440,8 @@ function HeaderTab({
             className={cn(
               "truncate text-[10.5px]",
               isActive
-                ? "text-foreground/36 dark:text-white/38"
-                : "text-foreground/28 dark:text-white/28",
+                ? "text-foreground/34 dark:text-white/36"
+                : "text-foreground/24 dark:text-white/26",
             )}
           >
             {tab.subtitle}
@@ -453,10 +453,10 @@ function HeaderTab({
             className={cn(
               "truncate text-[11.5px] font-medium",
               activeAndFocused
-                ? "text-foreground/86 dark:text-white/88"
+                ? "text-foreground/88 dark:text-white/90"
                 : isActive
-                  ? "text-foreground/66 dark:text-white/68"
-                  : "text-foreground/64 dark:text-white/66",
+                  ? "text-foreground/68 dark:text-white/70"
+                  : "text-foreground/62 dark:text-white/64",
             )}
           >
             {tab.title}
@@ -478,7 +478,7 @@ function HeaderTab({
           }
         }}
         className={cn(
-          "ml-1 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors",
+          "ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 transition-colors group-hover:opacity-100",
           isActive
             ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
             : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
