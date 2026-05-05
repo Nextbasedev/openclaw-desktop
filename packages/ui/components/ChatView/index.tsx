@@ -456,7 +456,7 @@ export function ChatView({
     })
   }, [messages])
 
-  const askAboutSelectedText = useCallback((messageId: string, text: string) => {
+  const askAboutSelectedText = useCallback((messageId: string, text: string, comment?: string) => {
     const selected = text.trim()
     if (!selected) return
     setReplyTo({
@@ -464,7 +464,7 @@ export function ChatView({
       role: "assistant",
       text: selected,
     })
-    setComposerSeed("")
+    setComposerSeed(comment?.trim() ?? "")
   }, [])
 
   const cancelReply = useCallback(() => {

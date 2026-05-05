@@ -13,7 +13,8 @@ import {
   LuPenLine,
   LuPin,
   LuRefreshCw,
-  LuQuote,
+  LuArrowUp,
+  LuPaperclip,
   LuReply,
   LuThumbsDown,
   LuX,
@@ -317,7 +318,7 @@ export function MessageBubble({
   onTextAnimationComplete?: (messageId: string) => void
   onFork?: (messageId: string) => void
   onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
-  onAskSelectedText?: (messageId: string, text: string) => void
+  onAskSelectedText?: (messageId: string, text: string, comment?: string) => void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -336,8 +337,10 @@ export function MessageBubble({
     left: number
     top: number
   } | null>(null)
+  const [selectionComment, setSelectionComment] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messageBodyRef = useRef<HTMLDivElement>(null)
+  const selectionComposerRef = useRef<HTMLDivElement>(null)
 
   const hasBranches = message.branches && message.branches.length > 0
   const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
@@ -413,14 +416,26 @@ export function MessageBubble({
       left: rect.left + rect.width / 2,
       top: Math.max(12, rect.top - 14),
     })
+    setSelectionComment("")
   }, [isUser, onAskSelectedText])
+
+  const closeSelectionComposer = useCallback(() => {
+    window.getSelection()?.removeAllRanges()
+    setSelectionAction(null)
+    setSelectionComment("")
+  }, [])
 
   const askAboutSelection = useCallback(() => {
     if (!selectionAction?.text) return
+    onAskSelectedText?.(message.messageId, selectionAction.text, selectionComment.trim())
+    closeSelectionComposer()
+  }, [closeSelectionComposer, message.messageId, onAskSelectedText, selectionAction?.text, selectionComment])
+
+  const attachWithSelectionContext = useCallback(() => {
+    if (!selectionAction?.text) return
     onAskSelectedText?.(message.messageId, selectionAction.text)
-    window.getSelection()?.removeAllRanges()
-    setSelectionAction(null)
-  }, [message.messageId, onAskSelectedText, selectionAction?.text])
+    closeSelectionComposer()
+  }, [closeSelectionComposer, message.messageId, onAskSelectedText, selectionAction?.text])
 
   useEffect(() => {
     if (isUser || !onAskSelectedText) return
@@ -429,6 +444,7 @@ export function MessageBubble({
       window.setTimeout(updateSelectionAction, 0)
     }
     const handleSelectionChange = () => {
+      if (selectionComposerRef.current?.contains(document.activeElement)) return
       const selection = window.getSelection()
       if (!selection?.toString().trim()) setSelectionAction(null)
     }
@@ -562,17 +578,45 @@ export function MessageBubble({
               {!isUser && <RichContentPreview message={message} />}
             </div>
             {selectionAction && !isUser && onAskSelectedText && createPortal(
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={askAboutSelection}
-                className="fixed z-[9999] inline-flex -translate-x-1/2 -translate-y-full cursor-pointer items-center gap-2 rounded-2xl border border-border/50 bg-background/95 px-4 py-2 text-[13px] font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-colors hover:bg-muted/80"
+              <div
+                ref={selectionComposerRef}
+                className="fixed z-[9999] flex w-[min(380px,calc(100vw-32px))] -translate-x-1/2 -translate-y-full items-center gap-2 rounded-[18px] border border-white/12 bg-[#202020]/95 px-3 py-2 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl"
                 style={{ left: selectionAction.left, top: selectionAction.top }}
-                aria-label="Ask OpenClaw about selected text"
               >
-                <LuQuote className="size-4" />
-                Ask OpenClaw
-              </button>,
+                <input
+                  value={selectionComment}
+                  onChange={(event) => setSelectionComment(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      askAboutSelection()
+                    }
+                    if (event.key === "Escape") {
+                      closeSelectionComposer()
+                    }
+                  }}
+                  placeholder="Add a comment..."
+                  className="min-w-0 flex-1 bg-transparent px-1 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/65"
+                  aria-label="Add a comment about selected text"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={attachWithSelectionContext}
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+                  aria-label="Attach file with selected text context"
+                >
+                  <LuPaperclip className="size-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={askAboutSelection}
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+                  aria-label="Send comment"
+                >
+                  <LuArrowUp className="size-4" />
+                </button>
+              </div>,
               document.body,
             )}
           </>
