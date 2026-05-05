@@ -213,9 +213,9 @@ export function Header({
                         event.stopPropagation()
                         onNewChat()
                       }}
-                      className="mx-1 mb-[5px] flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/42 transition-colors hover:bg-foreground/[0.06] hover:text-foreground/78 dark:text-white/42 dark:hover:bg-white/[0.06] dark:hover:text-white/78"
+                      className="mb-[7px] ml-2 mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/45 transition-colors hover:bg-foreground/[0.06] hover:text-foreground/80 dark:text-white/45 dark:hover:bg-white/[0.07] dark:hover:text-white/82"
                     >
-                      <VscAdd className="size-4" />
+                      <VscAdd className="size-3.5" />
                     </button>
                   )}
                 </div>
@@ -390,20 +390,34 @@ function HeaderTab({
       type="button"
       onClick={onSelect}
       className={cn(
-        "group relative flex h-[34px] w-42 shrink-0 items-center gap-1 border-x border-t px-3 pb-[7px] pt-[7px] text-left transition-[background-color,border-color,box-shadow] duration-200",
+        "group relative mb-[3px] flex h-[30px] w-40 shrink-0 items-center gap-1.5 rounded-t-xl border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
         activeAndFocused
-          ? "rounded-t-lg border-border/50 bg-background shadow-[0_1px_0_0_var(--background)]"
+          ? "z-10 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-1px_10px_rgba(0,0,0,0.18)]"
           : isActive
-            ? "rounded-t-lg border-border/30 bg-background/60 shadow-[0_1px_0_0_var(--background)]"
-            : "rounded-t-lg border-transparent bg-transparent text-foreground/65 hover:bg-foreground/[0.045] dark:text-white/68 dark:hover:bg-white/[0.05]",
+            ? "z-10 border-white/8 bg-background/70 text-foreground/72 shadow-[0_1px_0_0_var(--background)]"
+            : "border-transparent bg-black/[0.16] text-foreground/56 hover:bg-white/[0.035] hover:text-foreground/74 dark:bg-white/[0.025] dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/76",
       )}
     >
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute -left-2 bottom-0 h-3 w-2 rounded-br-xl border-b border-r opacity-0",
+          activeAndFocused && "border-white/10 opacity-100",
+        )}
+      />
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute -right-2 bottom-0 h-3 w-2 rounded-bl-xl border-b border-l opacity-0",
+          activeAndFocused && "border-white/10 opacity-100",
+        )}
+      />
       <div
         className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-md",
+          "flex size-4.5 shrink-0 items-center justify-center rounded-full",
           isActive
-            ? "bg-foreground/[0.06] text-foreground/55 dark:bg-white/[0.06] dark:text-white/60"
-            : "bg-transparent text-foreground/35 dark:text-white/38",
+            ? "bg-foreground/[0.06] text-foreground/58 dark:bg-white/[0.06] dark:text-white/62"
+            : "bg-transparent text-foreground/34 dark:text-white/36",
         )}
       >
         {tab.kind === "topic" ? (
@@ -424,10 +438,10 @@ function HeaderTab({
         <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           <span
             className={cn(
-              "truncate text-[11px]",
+              "truncate text-[10.5px]",
               isActive
-                ? "text-foreground/38 dark:text-white/40"
-                : "text-foreground/30 dark:text-white/30",
+                ? "text-foreground/36 dark:text-white/38"
+                : "text-foreground/28 dark:text-white/28",
             )}
           >
             {tab.subtitle}
@@ -439,10 +453,10 @@ function HeaderTab({
             className={cn(
               "truncate text-[11.5px] font-medium",
               activeAndFocused
-                ? "text-foreground/78 dark:text-white/82"
+                ? "text-foreground/86 dark:text-white/88"
                 : isActive
-                  ? "text-foreground/60 dark:text-white/65"
-                  : "text-foreground/68 dark:text-white/72",
+                  ? "text-foreground/66 dark:text-white/68"
+                  : "text-foreground/64 dark:text-white/66",
             )}
           >
             {tab.title}
