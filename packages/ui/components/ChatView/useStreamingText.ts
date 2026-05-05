@@ -2,18 +2,39 @@
 
 import { useEffect, useRef, useState } from "react"
 
-function charsForFrame(total: number): number {
-  if (total <= 80) return 2
-  if (total <= 160) return 3
-  if (total <= 320) return 5
-  if (total <= 640) return 9
-  return 14
+const MAX_VISIBLE_LAG = 1_800
+const MIN_FRAME_MS = 16
+
+export function charsPerSecondForBacklog(backlog: number): number {
+  if (backlog > 2_400) return 2_400
+  if (backlog > 1_200) return 1_600
+  if (backlog > 640) return 950
+  if (backlog > 320) return 620
+  if (backlog > 120) return 360
+  if (backlog > 40) return 220
+  return 120
 }
 
-function frameDelayMs(total: number): number {
-  if (total <= 80) return 24
-  if (total <= 160) return 20
-  return 16
+export function nextRevealLength({
+  currentLength,
+  targetLength,
+  elapsedMs,
+}: {
+  currentLength: number
+  targetLength: number
+  elapsedMs: number
+}): number {
+  if (currentLength >= targetLength) return targetLength
+
+  const backlog = targetLength - currentLength
+  const rate = charsPerSecondForBacklog(backlog)
+  const frameChars = Math.max(1, Math.floor((rate * elapsedMs) / 1000))
+  const catchUpFloor = backlog > MAX_VISIBLE_LAG
+    ? backlog - MAX_VISIBLE_LAG
+    : 0
+  const step = Math.max(frameChars, catchUpFloor)
+
+  return Math.min(targetLength, currentLength + step)
 }
 
 function shouldReduceMotion(): boolean {
@@ -43,6 +64,7 @@ export function useStreamingText(
 
   useEffect(() => {
     let cancelled = false
+
     const commitState = (next: string, revealing: boolean) => {
       queueMicrotask(() => {
         if (cancelled) return
@@ -51,13 +73,17 @@ export function useStreamingText(
       })
     }
 
+    const stopAnimation = () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+
     targetRef.current = target
     const reduceMotion = shouldReduceMotion()
     const canAnimate = Boolean(streaming && !reduceMotion)
 
     if (reduceMotion) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
+      stopAnimation()
       displayRef.current = target
       revealActiveRef.current = false
       commitState(target, false)
@@ -67,8 +93,7 @@ export function useStreamingText(
     }
 
     if (!target.startsWith(displayRef.current)) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
+      stopAnimation()
       lastFrameAtRef.current = 0
       const next = canAnimate ? "" : target
       displayRef.current = next
@@ -83,8 +108,9 @@ export function useStreamingText(
     }
 
     function step(now: number) {
-      const current = displayRef.current
       const latestTarget = targetRef.current
+      const current = displayRef.current
+
       if (current.length >= latestTarget.length) {
         rafRef.current = null
         revealActiveRef.current = false
@@ -93,21 +119,22 @@ export function useStreamingText(
         return
       }
 
-      const elapsed = now - lastFrameAtRef.current
-      const minFrameMs = frameDelayMs(latestTarget.length)
-      if (elapsed < minFrameMs) {
-        rafRef.current = requestAnimationFrame(step)
-        return
-      }
+      const previousFrame = lastFrameAtRef.current || now - MIN_FRAME_MS
+      const elapsed = Math.max(MIN_FRAME_MS, now - previousFrame)
       lastFrameAtRef.current = now
+      const nextLength = nextRevealLength({
+        currentLength: current.length,
+        targetLength: latestTarget.length,
+        elapsedMs: elapsed,
+      })
+      const next = latestTarget.slice(0, nextLength)
 
-      const next = latestTarget.slice(
-        0,
-        current.length + charsForFrame(latestTarget.length),
-      )
-      displayRef.current = next
-      setDisplay(next)
-      setIsRevealing(true)
+      if (next !== current) {
+        displayRef.current = next
+        setDisplay(next)
+        setIsRevealing(true)
+      }
+
       rafRef.current = requestAnimationFrame(step)
     }
 
@@ -122,10 +149,7 @@ export function useStreamingText(
 
     return () => {
       cancelled = true
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
+      stopAnimation()
     }
   }, [target, streaming])
 
