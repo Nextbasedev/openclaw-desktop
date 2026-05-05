@@ -1,27 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
-import { VscChevronDown, VscChevronRight, VscPulse } from "react-icons/vsc"
+import { VscChevronDown, VscPulse, VscSearch } from "react-icons/vsc"
 import { ToolCallRow, StatusBadge, TREE_DOT_COLORS, COUNT_BADGE_COLORS } from "./ActivityNodes"
 import { useAgentActivity } from "@/hooks/useAgentActivity"
 import { SubagentChatView } from "./SubagentChatView"
-import type { AgentNode } from "./activity-types"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import type { AgentNode, ToolCallStatus } from "./activity-types"
 
-const AGENT_SIDEBAR_MIN = 136
-const AGENT_SIDEBAR_MAX = 240
-const AGENT_SIDEBAR_DEFAULT = 156
-const AGENT_SIDEBAR_COMPACT = 48
-
-function getAgentSidebarDefaults() {
-  if (typeof window === "undefined") {
-    return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
-  }
-  if (window.innerWidth < 768) {
-    return { min: 104, max: 168, default: 120 }
-  }
-  return { min: AGENT_SIDEBAR_MIN, max: AGENT_SIDEBAR_MAX, default: AGENT_SIDEBAR_DEFAULT }
-}
+const MAX_VISIBLE_SUBAGENT_TABS = 4
 
 function findNode(
   nodes: AgentNode[],
@@ -37,46 +25,87 @@ function findNode(
   return null
 }
 
-function AgentTreeItem({
+function flattenAgents(nodes: AgentNode[]): AgentNode[] {
+  const result: AgentNode[] = []
+  for (const node of nodes) {
+    if (node.id !== "root") result.push(node)
+    if (node.children?.length) result.push(...flattenAgents(node.children))
+  }
+  return result
+}
+
+function latestActivityAt(node: AgentNode): number {
+  const callTimes = node.calls.map((call) => call.startedAt ?? 0)
+  const childTimes = (node.children ?? []).map(latestActivityAt)
+  return Math.max(0, ...callTimes, ...childTimes)
+}
+
+function statusRank(status: ToolCallStatus): number {
+  if (status === "running") return 0
+  if (status === "error") return 1
+  return 2
+}
+
+function sortAgentsForTabs(agents: AgentNode[]): AgentNode[] {
+  return [...agents].sort((a, b) => {
+    const byStatus = statusRank(a.status) - statusRank(b.status)
+    if (byStatus !== 0) return byStatus
+
+    const byRecent = latestActivityAt(b) - latestActivityAt(a)
+    if (byRecent !== 0) return byRecent
+
+    return a.label.localeCompare(b.label)
+  })
+}
+
+function makeVisibleAgents(
+  sortedAgents: AgentNode[],
+  selectedId: string,
+): AgentNode[] {
+  const selected = sortedAgents.find((agent) => agent.id === selectedId)
+  const visible = sortedAgents.slice(0, MAX_VISIBLE_SUBAGENT_TABS)
+
+  if (!selected || visible.some((agent) => agent.id === selected.id)) {
+    return visible
+  }
+
+  return [selected, ...visible.filter((agent) => agent.id !== selected.id)].slice(
+    0,
+    MAX_VISIBLE_SUBAGENT_TABS,
+  )
+}
+
+function AgentTab({
   node,
-  isActive,
+  active,
   onSelect,
 }: {
   node: AgentNode
-  isActive: boolean
+  active: boolean
   onSelect: (id: string) => void
 }) {
   return (
     <button
       type="button"
       onClick={() => onSelect(node.id)}
+      title={node.description || node.label}
       className={cn(
-        "flex min-w-0 w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition-all cursor-pointer",
-        isActive
-          ? "border-white/[0.14] bg-white/5"
-          : "border-transparent hover:bg-white/3",
+        "inline-flex h-8 max-w-[132px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors",
+        active
+          ? "border-white/15 bg-white/[0.08] text-foreground"
+          : "border-white/8 bg-white/[0.025] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
       )}
     >
+      <span className={cn("size-1.5 shrink-0 rounded-full", TREE_DOT_COLORS[node.status])} />
+      <span className="min-w-0 truncate">
+        {node.id === "root" ? "Main" : node.label}
+      </span>
       <span
         className={cn(
-          "mt-1.5 size-2 shrink-0 rounded-full",
-          TREE_DOT_COLORS[node.status],
-        )}
-      />
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <span className="block truncate text-[12px] font-medium text-foreground">
-          {node.label}
-        </span>
-        {node.description && (
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground/60">
-            {node.description}
-          </p>
-        )}
-      </div>
-      <span
-        className={cn(
-          "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-          COUNT_BADGE_COLORS[node.status],
+          "shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold tabular-nums",
+          node.id === "root"
+            ? "border border-white/10 bg-white/[0.04] text-foreground/55"
+            : COUNT_BADGE_COLORS[node.status],
         )}
       >
         {node.calls.length}
@@ -85,35 +114,90 @@ function AgentTreeItem({
   )
 }
 
-function AgentHeaderIcon() {
+function MoreAgentsPopover({
+  agents,
+  selectedId,
+  onSelect,
+}: {
+  agents: AgentNode[]
+  selectedId: string
+  onSelect: (id: string) => void
+}) {
+  const [query, setQuery] = useState("")
+  const filteredAgents = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return agents
+    return agents.filter((agent) => {
+      return (
+        agent.label.toLowerCase().includes(q) ||
+        agent.description?.toLowerCase().includes(q) ||
+        agent.status.includes(q)
+      )
+    })
+  }, [agents, query])
+
+  if (agents.length === 0) return null
+
   return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 1.5 14 14"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      className="h-[18px] w-[18px]"
-    >
-      <g clipPath="url(#agent-header-icon-clip)">
-        <path d="M10.5007 3.8335H3.50065C2.85632 3.8335 2.33398 4.35583 2.33398 5.00016V12.0002C2.33398 12.6445 2.85632 13.1668 3.50065 13.1668H10.5007C11.145 13.1668 11.6673 12.6445 11.6673 12.0002V5.00016C11.6673 4.35583 11.145 3.8335 10.5007 3.8335Z" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M8.16667 6.75H5.83333C5.51117 6.75 5.25 7.01117 5.25 7.33333V9.66667C5.25 9.98883 5.51117 10.25 5.83333 10.25H8.16667C8.48883 10.25 8.75 9.98883 8.75 9.66667V7.33333C8.75 7.01117 8.48883 6.75 8.16667 6.75Z" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M8.75 2.6665V3.83317" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M8.75 13.1665V14.3332" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M1.16602 10.25H2.33268" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M1.16602 6.75H2.33268" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M11.666 10.25H12.8327" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M11.666 6.75H12.8327" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M5.25 2.6665V3.83317" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M5.25 13.1665V14.3332" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" />
-      </g>
-      <defs>
-        <clipPath id="agent-header-icon-clip">
-          <rect width="14" height="14" fill="white" transform="translate(0 1.5)" />
-        </clipPath>
-      </defs>
-    </svg>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-white/8 bg-white/[0.025] px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
+        >
+          More
+          <span className="rounded bg-white/[0.06] px-1 py-0.5 text-[10px] tabular-nums">
+            {agents.length}
+          </span>
+          <VscChevronDown className="size-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 gap-2 rounded-xl border border-white/10 bg-[#151515] p-2 shadow-2xl">
+        <div className="flex h-8 items-center gap-2 rounded-lg border border-white/8 bg-black/20 px-2">
+          <VscSearch className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search subagents…"
+            className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground/55"
+          />
+        </div>
+
+        <div className="max-h-72 overflow-y-auto pr-1">
+          {filteredAgents.map((agent) => (
+            <button
+              key={agent.id}
+              type="button"
+              onClick={() => onSelect(agent.id)}
+              className={cn(
+                "flex w-full cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-left transition-colors",
+                selectedId === agent.id
+                  ? "bg-white/[0.08]"
+                  : "hover:bg-white/[0.045]",
+              )}
+            >
+              <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", TREE_DOT_COLORS[agent.status])} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-medium text-foreground">
+                  {agent.label}
+                </span>
+                <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/60">
+                  {agent.description || agent.status}
+                </span>
+              </span>
+              <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums", COUNT_BADGE_COLORS[agent.status])}>
+                {agent.calls.length}
+              </span>
+            </button>
+          ))}
+          {filteredAgents.length === 0 && (
+            <div className="px-2 py-8 text-center text-[11px] text-muted-foreground">
+              No matching subagents
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -131,56 +215,9 @@ export function ActivityTab({
   onClearFocusedToolCall?: () => void
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
-  const [mainExpanded, setMainExpanded] = useState(true)
   const [filter, setFilter] = useState<"all" | "success" | "error">("all")
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
-
-  const agentSidebarDefaults = getAgentSidebarDefaults()
-  const agentSidebarRef = useRef(agentSidebarDefaults)
-  const [sidebarWidth, setSidebarWidth] = useState(agentSidebarDefaults.default)
-  const [isDragging, setIsDragging] = useState(false)
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
-
-  useEffect(() => {
-    function onResize() {
-      const next = getAgentSidebarDefaults()
-      agentSidebarRef.current = next
-      setSidebarWidth((prev) => Math.min(next.max, Math.max(next.min, prev)))
-    }
-    window.addEventListener("resize", onResize)
-    return () => window.removeEventListener("resize", onResize)
-  }, [])
-
-  const handleDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      dragRef.current = { startX: e.clientX, startWidth: sidebarWidth }
-      setIsDragging(true)
-    },
-    [sidebarWidth],
-  )
-
-  useEffect(() => {
-    if (!isDragging) return
-    function onMouseMove(e: MouseEvent) {
-      if (!dragRef.current) return
-      const delta = e.clientX - dragRef.current.startX
-      const { min, max } = agentSidebarRef.current
-      const newWidth = Math.min(max, Math.max(min, dragRef.current.startWidth + delta))
-      setSidebarWidth(newWidth)
-    }
-    function onMouseUp() {
-      setIsDragging(false)
-      dragRef.current = null
-    }
-    document.addEventListener("mousemove", onMouseMove)
-    document.addEventListener("mouseup", onMouseUp)
-    return () => {
-      document.removeEventListener("mousemove", onMouseMove)
-      document.removeEventListener("mouseup", onMouseUp)
-    }
-  }, [isDragging])
 
   const selectedId = activeAgentId ?? "root"
   const selectedNode = findNode(tree, selectedId) ?? tree[0] ?? null
@@ -189,25 +226,25 @@ export function ActivityTab({
       ? agentToSessionKey.get(selectedNode.id) ?? null
       : null
   const selectedIsSubagent = Boolean(selectedNode && selectedNode.id !== "root")
+
   const mainNode = tree[0] ?? null
-  const childCount = mainNode?.children?.length ?? 0
-  const hasSubagents = childCount > 0
-  const effectiveSidebarWidth = hasSubagents ? sidebarWidth : AGENT_SIDEBAR_COMPACT
+  const allSubagents = useMemo(() => sortAgentsForTabs(flattenAgents(tree)), [tree])
+  const visibleSubagents = useMemo(
+    () => makeVisibleAgents(allSubagents, selectedId),
+    [allSubagents, selectedId],
+  )
+  const overflowSubagents = useMemo(() => {
+    const visibleIds = new Set(visibleSubagents.map((agent) => agent.id))
+    return allSubagents.filter((agent) => !visibleIds.has(agent.id))
+  }, [allSubagents, visibleSubagents])
+
+  const runningSubagentCount = allSubagents.filter((agent) => agent.status === "running").length
+  const errorSubagentCount = allSubagents.filter((agent) => agent.status === "error").length
 
   const totalEvents = useMemo(() => {
     const count = (ns: AgentNode[]): number =>
       ns.reduce(
         (s, n) => s + n.calls.length + count(n.children ?? []),
-        0,
-      )
-    return count(tree)
-  }, [tree])
-
-  const subagentCount = useMemo(() => {
-    const count = (ns: AgentNode[]): number =>
-      ns.reduce(
-        (s, n) =>
-          s + (n.id === "root" ? 0 : 1) + count(n.children ?? []),
         0,
       )
     return count(tree)
@@ -259,271 +296,165 @@ export function ActivityTab({
   }
 
   return (
-    <div className="relative flex h-full overflow-hidden">
-      <div
-        className={cn(
-          "flex shrink-0 flex-col border-r border-border/20 transition-[width] duration-200 ease-out",
-          !hasSubagents && "items-center",
-        )}
-        style={{ width: effectiveSidebarWidth }}
-      >
-        <div className="flex h-7 shrink-0 items-center justify-between border-b border-border/30 px-2">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-white">
-            <span className="flex shrink-0 items-center justify-center text-white">
-              <AgentHeaderIcon />
-            </span>
-            {hasSubagents && <span className="truncate">Agents</span>}
-          </div>
-          {hasSubagents && (
-            <span className="inline-flex shrink-0 items-center rounded-full border border-white/8 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-medium tabular-nums text-foreground/55">
-              {subagentCount}
-            </span>
-          )}
-        </div>
-
-        <div className={cn("border-b border-border/30 px-2 py-1.5", !hasSubagents && "flex w-full justify-center")}>
-          <div
-            className={cn(
-              "flex items-center gap-1.5 text-[11px] text-foreground/70",
-              !hasSubagents && "justify-center",
-            )}
-            title={isLive ? "Session active" : "Session idle"}
-          >
-            <span
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                isLive ? "bg-amber-400" : "bg-muted-foreground/40",
-              )}
-            />
-            {hasSubagents && (
-              <span className="truncate">
-                {isLive ? "Session active" : "Session idle"}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className={cn("flex-1 overflow-y-auto py-2", hasSubagents ? "px-1.5" : "w-full px-1")}>
+    <section className="flex h-full min-w-0 flex-col overflow-hidden bg-[#121212]">
+      <div className="shrink-0 border-b border-border/30 bg-card/50 px-3 py-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
           {mainNode && (
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  onAgentSelect?.("root")
-                  setMainExpanded((p) => !p)
-                }}
-                className={cn(
-                  "relative flex w-full items-center gap-1.5 rounded-lg text-left transition-colors cursor-pointer",
-                  hasSubagents ? "px-1.5 py-1.5" : "justify-center px-0 py-2",
-                  selectedId === "root"
-                    ? "bg-white/[0.04]"
-                    : "hover:bg-white/[0.02]",
-                )}
-                title="Main agent"
-              >
-                {hasSubagents ? (
-                  mainExpanded ? (
-                    <VscChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
-                  ) : (
-                    <VscChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
-                  )
-                ) : (
-                  <span className="size-2 rounded-full bg-blue-400" />
-                )}
-                {hasSubagents && (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-foreground">
-                      Main
-                    </span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
-                      {childCount}
-                    </span>
-                  </>
-                )}
-                {!hasSubagents && totalEvents > 0 && (
-                  <span className="absolute mt-7 rounded-full border border-white/10 bg-card px-1 text-[9px] font-semibold tabular-nums text-muted-foreground">
-                    {totalEvents > 99 ? "99+" : totalEvents}
-                  </span>
-                )}
-              </button>
-
-              {hasSubagents && mainExpanded &&
-                mainNode.children &&
-                mainNode.children.length > 0 && (
-                  <div className="ml-3 mt-1">
-                    {mainNode.children.map((child, index, arr) => {
-                      const isLast = index === arr.length - 1
-                      return (
-                        <div
-                          key={child.id}
-                          className={cn(
-                            "relative pl-2.5",
-                            !isLast && "pb-1",
-                          )}
-                        >
-                          {isLast ? (
-                            <span
-                              aria-hidden
-                              className="pointer-events-none absolute left-0 top-0 h-4.5 w-2.5 rounded-bl-sm border-b border-l border-white/10"
-                            />
-                          ) : (
-                            <>
-                              <span
-                                aria-hidden
-                                className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-white/10"
-                              />
-                              <span
-                                aria-hidden
-                                className="pointer-events-none absolute left-0 top-4.5 h-px w-2.5 bg-white/10"
-                              />
-                            </>
-                          )}
-                          <AgentTreeItem
-                            node={child}
-                            isActive={selectedId === child.id}
-                            onSelect={(id) => onAgentSelect?.(id)}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-            </div>
+            <AgentTab
+              node={mainNode}
+              active={selectedId === "root"}
+              onSelect={(id) => onAgentSelect?.(id)}
+            />
           )}
+          {visibleSubagents.map((agent) => (
+            <AgentTab
+              key={agent.id}
+              node={agent}
+              active={selectedId === agent.id}
+              onSelect={(id) => onAgentSelect?.(id)}
+            />
+          ))}
+          <MoreAgentsPopover
+            agents={overflowSubagents}
+            selectedId={selectedId}
+            onSelect={(id) => onAgentSelect?.(id)}
+          />
         </div>
 
-        <div className={cn("border-t border-border/30 px-2 py-2", !hasSubagents && "w-full")}>
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            {hasSubagents && <span className="truncate">Activity</span>}
-            <span className={cn("shrink-0 tabular-nums text-foreground/40", !hasSubagents && "mx-auto")} title={`${totalEvents} activity events`}>
-              {totalEvents}
-            </span>
-          </div>
+        <div className="mt-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/65">
+          <span className={cn("size-1.5 shrink-0 rounded-full", isLive ? "bg-amber-400" : "bg-muted-foreground/40")} />
+          <span>{isLive ? "Live" : "Idle"}</span>
+          <span className="text-muted-foreground/30">/</span>
+          <span>{allSubagents.length} subagents</span>
+          {runningSubagentCount > 0 && (
+            <>
+              <span className="text-muted-foreground/30">/</span>
+              <span className="text-amber-300">{runningSubagentCount} running</span>
+            </>
+          )}
+          {errorSubagentCount > 0 && (
+            <>
+              <span className="text-muted-foreground/30">/</span>
+              <span className="text-rose-300">{errorSubagentCount} errors</span>
+            </>
+          )}
+          <span className="ml-auto shrink-0 tabular-nums text-foreground/40">
+            {totalEvents} events
+          </span>
         </div>
       </div>
 
-      {hasSubagents && (
-        <div
-          onMouseDown={handleDragStart}
-          className="w-[3px] shrink-0 cursor-col-resize bg-transparent"
-        />
-      )}
-
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#121212]">
-        {!historyLoaded ? (
-          <div className="flex-1 px-3 py-4">
-            <div className="mb-4 space-y-2 border-b border-border/30 px-2 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="h-4 w-24 animate-pulse rounded bg-secondary/50" />
-                <div className="h-4 w-14 animate-pulse rounded-full bg-secondary/30" />
-              </div>
-              <div className="flex items-center gap-4 pt-1">
-                <div className="h-3 w-16 animate-pulse rounded bg-secondary/40" />
-                <div className="ml-auto flex gap-1">
-                  <div className="h-5 w-10 animate-pulse rounded-md bg-secondary/30" />
-                  <div className="h-5 w-14 animate-pulse rounded-md bg-secondary/20" />
-                </div>
-              </div>
+      {!historyLoaded ? (
+        <div className="flex-1 px-3 py-4">
+          <div className="mb-4 space-y-2 border-b border-border/30 px-2 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="h-4 w-24 animate-pulse rounded bg-secondary/50" />
+              <div className="h-4 w-14 animate-pulse rounded-full bg-secondary/30" />
             </div>
-            <div className="space-y-2">
-              {[28, 20, 32, 18, 24, 22, 26, 20].map((w, i) => (
-                <div key={i} className="flex items-center gap-3 px-1.5 py-1">
-                  <div
-                    className="flex h-7 animate-pulse items-center rounded-md bg-secondary/40"
-                    style={{ width: `${w * 4}px` }}
-                  />
-                  <div className="ml-auto flex items-center gap-3">
-                    <div className="h-3 w-10 animate-pulse rounded bg-secondary/25" />
-                    <div className="h-3 w-12 animate-pulse rounded bg-secondary/20" />
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center gap-4 pt-1">
+              <div className="h-3 w-16 animate-pulse rounded bg-secondary/40" />
+              <div className="ml-auto flex gap-1">
+                <div className="h-5 w-10 animate-pulse rounded-md bg-secondary/30" />
+                <div className="h-5 w-14 animate-pulse rounded-md bg-secondary/20" />
+              </div>
             </div>
           </div>
-        ) : !selectedNode ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2">
-            <VscPulse className="size-5 text-muted-foreground/40" />
-            <p className="text-[11px] text-muted-foreground">
-              No activity
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="border-b border-border/30 px-5 py-4">
-              <div className="flex items-center gap-3">
-                <h3 className="text-[14px] font-semibold text-foreground">
-                  {selectedNode.id === "root"
-                    ? "Main agent"
-                    : selectedNode.label}
-                </h3>
-                <StatusBadge status={selectedNode.status} />
-              </div>
-              <div className="mt-3 flex items-center gap-4">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Total{" "}
-                  <span className="text-foreground/70">
-                    {totalLabel}
-                  </span>
-                </span>
-                {runningCount > 0 && (
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
-                    Running{" "}
-                    <span>{runningCount}</span>
-                  </span>
-                )}
-                <div className="ml-auto flex gap-1">
-                  {(["all", "success", "error"] as const).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => setFilter(f)}
-                      className={cn(
-                        "rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors cursor-pointer",
-                        filter === f
-                          ? "bg-white/[0.08] text-foreground"
-                          : "text-muted-foreground/50 hover:text-muted-foreground",
-                      )}
-                    >
-                      {f === "all" ? "All" : f === "success" ? "Success" : "Error"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-              {selectedSubagentSessionKey && (
-                <div className="mb-3 overflow-hidden rounded-xl border border-border/30 bg-[#121212]">
-                  <SubagentChatView
-                    sessionKey={selectedSubagentSessionKey}
-                    isLive={selectedNode.status === "running"}
-                  />
-                </div>
-              )}
-              {filteredCalls.map((call) => (
-                <ToolCallRow
-                  key={call.id}
-                  call={call}
-                  focused={call.id === focusedToolCallId}
-                  onFocusHandled={onClearFocusedToolCall}
+          <div className="space-y-2">
+            {[28, 20, 32, 18, 24, 22, 26, 20].map((w, i) => (
+              <div key={i} className="flex items-center gap-3 px-1.5 py-1">
+                <div
+                  className="flex h-7 animate-pulse items-center rounded-md bg-secondary/40"
+                  style={{ width: `${w * 4}px` }}
                 />
-              ))}
-              {filteredCalls.length === 0 && !selectedSubagentSessionKey && (
-                <div className="flex min-h-28 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
-                  <p className="text-[11px] text-muted-foreground">
-                    {selectedIsSubagent
-                      ? "Waiting for sub-agent activity..."
-                      : "No tool activity for this agent yet"}
-                  </p>
+                <div className="ml-auto flex items-center gap-3">
+                  <div className="h-3 w-10 animate-pulse rounded bg-secondary/25" />
+                  <div className="h-3 w-12 animate-pulse rounded bg-secondary/20" />
                 </div>
-              )}
-              <div ref={bottomRef} className="h-px" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : !selectedNode ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2">
+          <VscPulse className="size-5 text-muted-foreground/40" />
+          <p className="text-[11px] text-muted-foreground">
+            No activity
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="border-b border-border/30 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <h3 className="min-w-0 truncate text-[14px] font-semibold text-foreground">
+                {selectedNode.id === "root"
+                  ? "Main agent"
+                  : selectedNode.label}
+              </h3>
+              <StatusBadge status={selectedNode.status} />
             </div>
-          </>
-        )}
-      </section>
+            <div className="mt-3 flex items-center gap-4">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Total{" "}
+                <span className="text-foreground/70">
+                  {totalLabel}
+                </span>
+              </span>
+              {runningCount > 0 && (
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
+                  Running{" "}
+                  <span>{runningCount}</span>
+                </span>
+              )}
+              <div className="ml-auto flex gap-1">
+                {(["all", "success", "error"] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFilter(f)}
+                    className={cn(
+                      "cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
+                      filter === f
+                        ? "bg-white/[0.08] text-foreground"
+                        : "text-muted-foreground/50 hover:text-muted-foreground",
+                    )}
+                  >
+                    {f === "all" ? "All" : f === "success" ? "Success" : "Error"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
-      {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
-    </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+            {selectedSubagentSessionKey && (
+              <div className="mb-3 overflow-hidden rounded-xl border border-border/30 bg-[#121212]">
+                <SubagentChatView
+                  sessionKey={selectedSubagentSessionKey}
+                  isLive={selectedNode.status === "running"}
+                />
+              </div>
+            )}
+            {filteredCalls.map((call) => (
+              <ToolCallRow
+                key={call.id}
+                call={call}
+                focused={call.id === focusedToolCallId}
+                onFocusHandled={onClearFocusedToolCall}
+              />
+            ))}
+            {filteredCalls.length === 0 && !selectedSubagentSessionKey && (
+              <div className="flex min-h-28 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedIsSubagent
+                    ? "Waiting for sub-agent activity..."
+                    : "No tool activity for this agent yet"}
+                </p>
+              </div>
+            )}
+            <div ref={bottomRef} className="h-px" />
+          </div>
+        </>
+      )}
+    </section>
   )
 }
