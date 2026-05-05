@@ -11,6 +11,7 @@ import { LuCopy, LuCheck } from "react-icons/lu"
 import { LanguageIcon } from "@/components/icons/LanguageIcon"
 import { MermaidBlock } from "./MermaidBlock"
 import { useStreamingText } from "./useStreamingText"
+import { openExternalUrl } from "@/lib/ipc"
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -125,7 +126,25 @@ const mdComponents = {
   th({ children }: { children?: React.ReactNode }) { return <th className="px-3 py-2 text-left text-[12px] font-semibold text-foreground/80">{children}</th> },
   td({ children }: { children?: React.ReactNode }) { return <td className="break-words px-3 py-2 text-foreground/70 [overflow-wrap:anywhere]">{children}</td> },
   a({ href, children }: { href?: string; children?: React.ReactNode }) {
-    return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline decoration-blue-400/30 underline-offset-2 transition-colors hover:text-blue-300 hover:decoration-blue-300/50">{children}</a>
+    const safeHref = typeof href === "string" ? href : ""
+    const canOpen = /^(https?:|mailto:|tel:)/i.test(safeHref)
+    return (
+      <a
+        href={safeHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(event) => {
+          if (!canOpen) return
+          event.preventDefault()
+          openExternalUrl(safeHref).catch(() => {
+            window.open(safeHref, "_blank", "noopener,noreferrer")
+          })
+        }}
+        className="cursor-pointer text-blue-400 underline decoration-blue-400/30 underline-offset-2 transition-colors hover:text-blue-300 hover:decoration-blue-300/50"
+      >
+        {children}
+      </a>
+    )
   },
   h1({ children }: { children?: React.ReactNode }) { return <h1 className="mb-3 mt-6 border-b border-border/20 pb-2 text-[18px] font-bold text-foreground first:mt-0">{children}</h1> },
   h2({ children }: { children?: React.ReactNode }) { return <h2 className="mb-2.5 mt-5 border-b border-border/15 pb-1.5 text-[16px] font-semibold text-foreground first:mt-0">{children}</h2> },
