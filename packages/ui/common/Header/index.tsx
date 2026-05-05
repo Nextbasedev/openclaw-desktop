@@ -395,7 +395,7 @@ function HeaderTab({
           ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-6px_16px_rgba(0,0,0,0.2)]"
           : isActive
             ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
-            : "mb-[7px] h-[28px] rounded-[9px] border-white/[0.035] bg-white/[0.045] text-foreground/56 hover:bg-white/[0.07] hover:text-foreground/78 dark:border-white/[0.035] dark:bg-white/[0.045] dark:text-white/58 dark:hover:bg-white/[0.075] dark:hover:text-white/80",
+            : "mb-[7px] h-[28px] rounded-[9px] border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
       )}
     >
       <div
