@@ -128,8 +128,8 @@ export function Header({
   return (
     <header
       className={cn(
-        "relative z-50 flex h-9 shrink-0 items-center",
-        "bg-card",
+        "relative z-50 flex h-11 shrink-0 items-center",
+        "bg-[#151515]",
         "select-none",
         className,
       )}
@@ -139,32 +139,39 @@ export function Header({
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-border/50" />
 
-      {/* Left: app name + version — minWidth matches sidebar so tabs align with content panes */}
+      {/* Left: browser chrome. When tabs are visible, keep this compact so tabs start after traffic lights. */}
       <div
-        className="relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3"
-        style={sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
+        className={cn(
+          "relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3",
+          hasVisibleTabs ? "min-w-[84px]" : "",
+        )}
+        style={!hasVisibleTabs && sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
       >
         {showTrafficLights && <TrafficLights />}
 
-        <span className="text-[13px] font-medium text-foreground">
-          {user.name}
-        </span>
+        {!hasVisibleTabs && (
+          <>
+            <span className="text-[13px] font-medium text-foreground">
+              {user.name}
+            </span>
 
-        {openClawVersion && (
-          <span
-            title={
-              nodeVersion ? `Middleware Node ${nodeVersion}` : undefined
-            }
-            className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner"
-          >
-            v{openClawVersion}
-          </span>
+            {openClawVersion && (
+              <span
+                title={
+                  nodeVersion ? `Middleware Node ${nodeVersion}` : undefined
+                }
+                className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner"
+              >
+                v{openClawVersion}
+              </span>
+            )}
+          </>
         )}
       </div>
 
       {/* Middle: tabs — flex-1 matches content area width, paddingRight keeps tabs visible */}
       {hasVisibleTabs && editorGroups ? (
-        <div className="relative z-10 flex min-w-0 flex-1 items-end self-end">
+        <div className="relative z-10 flex min-w-0 flex-1 items-end self-stretch pt-2">
           {editorGroups.groups.map((group, groupIndex) => {
             const visibleTabs = group.tabs.filter((t) => t.kind !== "draft")
             if (visibleTabs.length === 0) return null
@@ -176,7 +183,7 @@ export function Header({
                 className="flex min-w-0 flex-1 items-end"
                 style={
                   isLastGroup && rightClusterWidth > 0
-                    ? { paddingRight: rightClusterWidth + 8 }
+                    ? { paddingRight: rightClusterWidth + 12 }
                     : undefined
                 }
               >
@@ -192,7 +199,7 @@ export function Header({
                       target.scrollLeft += event.deltaY
                     }
                   }}
-                  className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden scroll-smooth px-1 scrollbar-hide"
+                  className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden scroll-smooth px-1 scrollbar-hide"
                 >
                   {visibleTabs.map((tab) => (
                     <HeaderTab
@@ -213,7 +220,7 @@ export function Header({
                         event.stopPropagation()
                         onNewChat()
                       }}
-                      className="mb-[5px] ml-1.5 mr-2 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/46 transition-colors hover:bg-white/[0.07] hover:text-foreground/82 dark:text-white/46 dark:hover:bg-white/[0.08] dark:hover:text-white/84"
+                      className="mb-[8px] ml-2 mr-3 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/48 transition-colors hover:bg-white/[0.08] hover:text-foreground/86 dark:text-white/48 dark:hover:bg-white/[0.09] dark:hover:text-white/86"
                     >
                       <VscAdd className="size-4" />
                     </button>
@@ -228,7 +235,7 @@ export function Header({
       )}
 
       {/* Right: action icons — absolute so they don't shrink the tab area */}
-      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-card pl-2", showWindowControls ? "pr-0" : "pr-3")}>
+      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
             {showSplitButton && (
@@ -390,31 +397,31 @@ function HeaderTab({
       type="button"
       onClick={onSelect}
       className={cn(
-        "group relative mb-0 flex h-[34px] w-44 shrink-0 items-center gap-2 overflow-hidden rounded-t-[13px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
+        "group relative mb-0 flex h-[36px] w-46 shrink-0 items-center gap-2 overflow-visible rounded-t-[14px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
         activeAndFocused
-          ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-8px_18px_rgba(0,0,0,0.22)]"
+          ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-10px_20px_rgba(0,0,0,0.24)]"
           : isActive
             ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
-            : "mb-[4px] h-[30px] border-white/[0.035] bg-white/[0.035] text-foreground/56 hover:bg-white/[0.06] hover:text-foreground/76 dark:border-white/[0.035] dark:bg-white/[0.035] dark:text-white/58 dark:hover:bg-white/[0.065] dark:hover:text-white/78",
+            : "mb-[7px] h-[29px] border-white/[0.035] bg-white/[0.045] text-foreground/56 hover:bg-white/[0.07] hover:text-foreground/78 dark:border-white/[0.035] dark:bg-white/[0.045] dark:text-white/58 dark:hover:bg-white/[0.075] dark:hover:text-white/80",
       )}
     >
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute -left-2.5 bottom-0 h-3.5 w-2.5 rounded-br-[13px] border-b border-r opacity-0",
-          activeAndFocused && "border-white/10 bg-card opacity-100",
+          "pointer-events-none absolute -left-3 bottom-0 h-4 w-3 rounded-br-[14px] border-b border-r opacity-0",
+          activeAndFocused && "border-white/10 bg-[#151515] opacity-100",
         )}
       />
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute -right-2.5 bottom-0 h-3.5 w-2.5 rounded-bl-[13px] border-b border-l opacity-0",
-          activeAndFocused && "border-white/10 bg-card opacity-100",
+          "pointer-events-none absolute -right-3 bottom-0 h-4 w-3 rounded-bl-[14px] border-b border-l opacity-0",
+          activeAndFocused && "border-white/10 bg-[#151515] opacity-100",
         )}
       />
       <div
         className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-full",
+          "relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full",
           isActive
             ? "bg-foreground/[0.055] text-foreground/58 dark:bg-white/[0.055] dark:text-white/62"
             : "bg-transparent text-foreground/34 dark:text-white/38",
@@ -434,7 +441,7 @@ function HeaderTab({
           />
         )}
       </div>
-      <div className="min-w-0 flex-1 overflow-hidden">
+      <div className="relative z-10 min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           <span
             className={cn(
@@ -478,7 +485,7 @@ function HeaderTab({
           }
         }}
         className={cn(
-          "ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 transition-colors group-hover:opacity-100",
+          "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 transition-colors group-hover:opacity-100",
           isActive
             ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
             : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
