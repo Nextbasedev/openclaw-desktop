@@ -20,7 +20,6 @@ import {
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
 import {
-  composeBatch,
   composerReducer,
   initialComposerState,
 } from "@/lib/composerState"
@@ -74,8 +73,6 @@ export function ChatBox({
     initialComposerState,
   )
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
-  const batchRef = React.useRef<ChatComposerSubmit[]>([])
-  const batchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const {
     commands,
     installedSkills,
@@ -189,12 +186,6 @@ export function ChatBox({
 
   const hasInput = input.trim().length > 0 || attachments.length > 0
   const selectedModelRef = sessionModelId ?? currentModel
-  React.useEffect(() => {
-    return () => {
-      if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
-    }
-  }, [])
-
   function updateSlashMenu(value: string) {
     const match = value.match(/^([/@])(\S*)$/)
     if (match) {
@@ -212,42 +203,6 @@ export function ChatBox({
     setInput(`${commandPrefix}${cmd.name} `)
     setSlashMenuOpen(false)
     textareaRef.current?.focus()
-  }
-
-  async function flushBatch() {
-    const payload = composeBatch(batchRef.current)
-    if (!payload.text.trim()) return
-    batchRef.current = []
-    dispatchComposer({ type: "batch_flush" })
-    try {
-      await onSend?.(payload)
-      dispatchComposer({ type: "send_success" })
-      clearAttachments()
-      setAttachmentError(null)
-      setSlashMenuOpen(false)
-      if (textareaRef.current) textareaRef.current.style.height = "auto"
-    } catch {
-      setInput(payload.text)
-      dispatchComposer({
-        type: "send_failed",
-        error: "Message failed to send. Try again.",
-      })
-      setAttachmentError("Message failed to send. Try again.")
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        autoResize()
-      })
-    }
-  }
-
-  function queueSend(payload: ChatComposerSubmit) {
-    batchRef.current = [...batchRef.current, payload]
-    dispatchComposer({ type: "batch_add", payload })
-    if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
-    batchTimerRef.current = setTimeout(() => {
-      batchTimerRef.current = null
-      void flushBatch()
-    }, 500)
   }
 
   async function handleSend() {
@@ -290,7 +245,25 @@ export function ChatBox({
       }
       return
     }
-    queueSend(payload)
+    dispatchComposer({ type: "send_start", payload, generating: false })
+    try {
+      await onSend?.(payload)
+      dispatchComposer({ type: "send_success" })
+      clearAttachments()
+      setAttachmentError(null)
+      setSlashMenuOpen(false)
+    } catch {
+      setInput(payload.text)
+      dispatchComposer({
+        type: "send_failed",
+        error: "Message failed to send. Try again.",
+      })
+      setAttachmentError("Message failed to send. Try again.")
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        autoResize()
+      })
+    }
   }
 
   function handleWebSearchToggle() {
