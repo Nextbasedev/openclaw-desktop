@@ -128,7 +128,13 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
-  const { state: voiceState, isSupported: recorderSupported, toggle: toggleVoice } = useVoiceRecorder({
+  const {
+    state: voiceState,
+    isSupported: recorderSupported,
+    start: startVoice,
+    stop: stopVoice,
+    toggle: toggleVoice,
+  } = useVoiceRecorder({
     onAudioFile: async (file) => {
       const attachment = await toChatComposerAttachment(file)
       try {
@@ -211,6 +217,76 @@ export function ChatBox({
     }
     toggleVoice()
   }
+
+  function handleVoiceStart() {
+    if (!recorderSupported) {
+      setAttachmentError("Voice recording is not supported in this app window")
+      return
+    }
+    if (!voiceConfigured) {
+      setVoiceSetupOpen(true)
+      return
+    }
+    if (voiceState === "idle" || voiceState === "error") {
+      void startVoice()
+    }
+  }
+
+  function handleVoiceStop() {
+    if (voiceState === "recording") {
+      stopVoice()
+    }
+  }
+
+  const voiceShortcutRef = React.useRef({ pushToTalkActive: false, ctrlTapCandidate: false })
+
+  React.useEffect(() => {
+    function isPushToTalkEvent(event: KeyboardEvent) {
+      return event.code === "Space" && (event.metaKey || event.getModifierState("Meta"))
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.repeat) return
+      const shortcut = voiceShortcutRef.current
+
+      if (event.key === "Control" && !event.metaKey && !event.altKey && !event.shiftKey) {
+        shortcut.ctrlTapCandidate = true
+        return
+      }
+      if (shortcut.ctrlTapCandidate && event.key !== "Control") {
+        shortcut.ctrlTapCandidate = false
+      }
+
+      if (isPushToTalkEvent(event)) {
+        event.preventDefault()
+        shortcut.pushToTalkActive = true
+        handleVoiceStart()
+      }
+    }
+
+    function onKeyUp(event: KeyboardEvent) {
+      const shortcut = voiceShortcutRef.current
+
+      if ((event.code === "Space" || event.key === "Meta") && shortcut.pushToTalkActive) {
+        event.preventDefault()
+        shortcut.pushToTalkActive = false
+        handleVoiceStop()
+        return
+      }
+
+      if (event.key === "Control" && shortcut.ctrlTapCandidate) {
+        shortcut.ctrlTapCandidate = false
+        handleVoiceToggle()
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keyup", onKeyUp)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+    }
+  }, [handleVoiceStart, handleVoiceStop, handleVoiceToggle])
 
   React.useEffect(() => {
     if (initialPrompt != null) {
