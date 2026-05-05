@@ -35,7 +35,7 @@ export function SubagentCard({
         <span
           className={cn(
             hasActive &&
-              "bg-gradient-to-r from-foreground/60 via-blue-400/80 to-foreground/60 bg-[length:200%_100%] bg-clip-text text-transparent animate-shimmer-text",
+              "bg-gradient-to-r from-foreground/60 via-white/90 to-foreground/60 bg-[length:200%_100%] bg-clip-text text-transparent animate-shimmer-text",
           )}
         >
           {label}

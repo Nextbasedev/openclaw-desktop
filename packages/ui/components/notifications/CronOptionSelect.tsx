@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 
 export type CronOption = {
   value: string
@@ -47,10 +48,10 @@ export function CronOptionSelect({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          "flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3",
+          "flex h-10 w-full items-center justify-between gap-2 rounded-md border px-3",
           "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
-          "text-left text-[13px] text-foreground outline-none transition-colors",
-          "hover:border-foreground/15 focus:border-foreground/20",
+          "text-left text-[13px] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none transition-colors",
+          "hover:border-white/15 hover:bg-white/[0.06] focus:border-white/20",
           disabled && "cursor-not-allowed opacity-60",
         )}
       >
@@ -71,8 +72,9 @@ export function CronOptionSelect({
           role="listbox"
           className={cn(
             "absolute left-0 right-0 top-[calc(100%+6px)] z-[80]",
-            "max-h-56 overflow-y-auto rounded-lg border p-1 shadow-2xl",
-            "border-white/10 bg-[#171719] text-foreground",
+            "max-h-56 overflow-y-auto rounded-md p-1.5 shadow-2xl shadow-black/40",
+            "ring-1 ring-white/6 text-foreground",
+            GLASS_POPOVER,
           )}
         >
           {options.map((option) => {

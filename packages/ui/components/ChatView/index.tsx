@@ -803,6 +803,7 @@ export function ChatView({
           onCancelReply={cancelReply}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
+          glowOnMount
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">

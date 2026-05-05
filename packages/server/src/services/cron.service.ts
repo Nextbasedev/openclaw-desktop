@@ -80,6 +80,7 @@ const activeRuns = new Map<string, CronRun>()
 const localJobOverrides = new Map<string, Partial<CronJob>>()
 const lastRunCache = new Map<string, { run: CronRun | null; cachedAt: number }>()
 const parentSessionKeys = new Map<string, string>()
+const deletedJobIds = new Set<string>()
 const LAST_RUN_CACHE_TTL_MS = 30_000
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -305,7 +306,13 @@ export async function cronListJobs() {
     { includeDisabled: true },
   )
   if (!res.ok) throw new Error(res.error?.message ?? "cron.list failed")
-  const jobs = (res.payload?.jobs ?? []).map(normalizeJob).map(applyLocalJobOverride)
+  const jobs = (res.payload?.jobs ?? [])
+    .map(normalizeJob)
+    .filter((job) => job.jobId && !deletedJobIds.has(job.jobId))
+    .map((job) => {
+      deletedJobIds.delete(job.jobId)
+      return applyLocalJobOverride(job)
+    })
   await Promise.all(jobs.map(async (job) => {
     if (!job.jobId) return
     const cached = lastRunCache.get(job.jobId)
@@ -432,6 +439,7 @@ export async function cronCreateJob(input: CreateCronJobInput) {
   const res = await gw.request<Record<string, unknown>>("cron.add", gwParams)
   if (!res.ok) throw new Error(res.error?.message ?? "cron.add failed")
   const job = normalizeJob(res.payload ?? {})
+  deletedJobIds.delete(job.jobId)
   if (input.parentSessionKey && job.jobId) {
     parentSessionKeys.set(job.jobId, input.parentSessionKey)
     localJobOverrides.set(job.jobId, {
@@ -577,6 +585,8 @@ export async function cronUpdateJob(input: {
   }
   const payload = (res.payload?.job ?? res.payload ?? {}) as Record<string, unknown>
   const returnedJob = normalizeJob(payload)
+  deletedJobIds.delete(input.jobId)
+  if (returnedJob.jobId) deletedJobIds.delete(returnedJob.jobId)
   const localOverride = localOverrideFromUpdate(input)
   const previousOverride = localJobOverrides.get(input.jobId) ?? {}
   localJobOverrides.set(input.jobId, { ...previousOverride, ...localOverride })
@@ -597,11 +607,35 @@ export async function cronUpdateJob(input: {
 
 export async function cronDeleteJob(input: { jobId: string }) {
   const gw = await ensureGatewayClient()
-  const res = await gw.request("cron.remove", { id: input.jobId })
-  if (!res.ok) throw new Error(res.error?.message ?? "cron.remove failed")
+  const errors: string[] = []
+
+  let res = await gw.request("cron.remove", { id: input.jobId })
+  if (!res.ok) errors.push(res.error?.message ?? "cron.remove id failed")
+
+  if (!res.ok) {
+    res = await gw.request("cron.remove", { jobId: input.jobId })
+    if (!res.ok) errors.push(res.error?.message ?? "cron.remove jobId failed")
+  }
+
+  if (!res.ok) {
+    res = await gw.request("cron.delete", { id: input.jobId })
+    if (!res.ok) errors.push(res.error?.message ?? "cron.delete id failed")
+  }
+
+  if (!res.ok) {
+    res = await gw.request("cron.delete", { jobId: input.jobId })
+    if (!res.ok) errors.push(res.error?.message ?? "cron.delete jobId failed")
+  }
+
+  if (!res.ok) {
+    throw new Error(errors[0] ?? res.error?.message ?? "cron.remove failed")
+  }
+
+  deletedJobIds.add(input.jobId)
   localJobOverrides.delete(input.jobId)
   lastRunCache.delete(input.jobId)
   activeRuns.delete(input.jobId)
+  parentSessionKeys.delete(input.jobId)
   return { deleted: true, jobId: input.jobId }
 }
 

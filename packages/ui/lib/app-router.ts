@@ -45,6 +45,7 @@ export function routeUrl(path: string): string {
 function shouldRewriteUrl(url: unknown): url is string {
   if (!shouldUseHashRoutes() || typeof url !== "string" || !url) return false
   if (url.startsWith("#")) return false
+  if (url.includes("#/")) return false
 
   let pathname = url
   try {
