@@ -348,12 +348,12 @@ async function prepareMessageAndAttachments(message: string, raw: unknown, cfg =
           `<attached-audio-transcript name="${attachment.name ?? "audio"}" mime="${audioMimeTypeForAttachment(attachment)}">\n${transcript}\n</attached-audio-transcript>`,
         )
       } else {
-        // Keep the raw audio in the RPC payload as a best-effort fallback for
-        // future gateway builds, but make the prompt explicit so the agent does
-        // not waste time looking for a local file path that was never stored.
-        gatewayAttachments.push(normalizeAudioAttachment(attachment))
+        // Do not forward raw audio to chat.send: current gateway attachment
+        // parsing is image-oriented and drops video/webm recorder blobs before
+        // the agent can use them. If transcription is unavailable, keep this as
+        // prompt text only so the agent does not search for a nonexistent file.
         embedded.push(
-          `[Audio transcription unavailable for ${attachment.name ?? "audio"}. The Desktop middleware received the file, but this gateway build may not consume raw audio attachments directly.]`,
+          `[Audio transcription unavailable for ${attachment.name ?? "audio"}. Configure a Voice provider/API key in Settings → Voice, then retry the recording.]`,
         )
       }
       continue
