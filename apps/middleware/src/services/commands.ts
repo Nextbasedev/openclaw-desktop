@@ -7,7 +7,7 @@ import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
-import { voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
+import { readVoiceSettings, voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
 function now() { return new Date().toISOString() }
 function state(store: Store): any {
@@ -24,10 +24,24 @@ function state(store: Store): any {
 }
 function save(store: Store, s: any) { (store as any).write(s) }
 function ok(extra: Record<string, unknown> = {}) { return { ok: true, ...extra } }
-function openclawConfigPath() { return path.join(os.homedir(), ".openclaw", "openclaw.json") }
+function openclawConfigPath() { return process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json") }
 function workspaceRoot() { return process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace") }
 function readJson(file: string): any { try { return JSON.parse(fs.readFileSync(file, "utf8")) } catch { return {} } }
-function writeJson(file: string, value: unknown) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n") }
+function writeJson(file: string, value: unknown) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const next = value && typeof value === "object" && !Array.isArray(value) ? value as any : value
+  if (next && typeof next === "object" && file === openclawConfigPath()) {
+    const existing = readJson(file)
+    if (existing?.env?.vars && typeof existing.env.vars === "object") {
+      next.env ??= {}
+      next.env.vars = { ...existing.env.vars, ...(next.env?.vars ?? {}) }
+    }
+    if (existing?.providers && typeof existing.providers === "object") {
+      next.providers = { ...existing.providers, ...(next.providers ?? {}) }
+    }
+  }
+  fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n")
+}
 function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
 
 function textFromContent(content: unknown) {
@@ -255,7 +269,50 @@ function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttach
   }
 }
 
-function prepareMessageAndAttachments(message: string, raw: unknown): { message: string; attachments?: GatewayAttachment[] } {
+function apiKeyForProvider(cfg: any, provider: string): string {
+  const envVar = PROVIDER_API_KEY_ENV[provider]
+  if (!envVar) return ""
+  return String(cfg?.env?.vars?.[envVar] || process.env[envVar] || "").trim()
+}
+
+async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = readJson(openclawConfigPath())): Promise<string | null> {
+  if (!attachment.content) return null
+  const settings = readVoiceSettings(cfg)
+  if (settings.enabled === false) return null
+  const provider = settings.provider === "auto" ? "groq" : settings.provider
+  const apiKey = apiKeyForProvider(cfg, provider)
+  if (!apiKey) return null
+  if (provider !== "groq" && provider !== "openai") return null
+
+  const audio = attachment.encoding === "base64"
+    ? Buffer.from(attachment.content, "base64")
+    : Buffer.from(attachment.content, "utf8")
+  if (audio.length === 0) return null
+
+  const form = new FormData()
+  form.set("file", new Blob([audio], { type: attachment.mimeType || "audio/webm" }), attachment.name || "voice.webm")
+  form.set("model", settings.model || (provider === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-transcribe"))
+  if (settings.language) form.set("language", settings.language)
+
+  const endpoint = provider === "groq"
+    ? "https://api.groq.com/openai/v1/audio/transcriptions"
+    : "https://api.openai.com/v1/audio/transcriptions"
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  })
+  if (!response.ok) return null
+  const payload = await response.json().catch(() => null) as { text?: unknown; transcript?: unknown } | null
+  const text = typeof payload?.text === "string"
+    ? payload.text
+    : typeof payload?.transcript === "string"
+      ? payload.transcript
+      : ""
+  return text.trim() || null
+}
+
+async function prepareMessageAndAttachments(message: string, raw: unknown, cfg = readJson(openclawConfigPath())): Promise<{ message: string; attachments?: GatewayAttachment[] }> {
   if (!Array.isArray(raw) || raw.length === 0) return { message }
 
   const gatewayAttachments: GatewayAttachment[] = []
@@ -273,8 +330,21 @@ function prepareMessageAndAttachments(message: string, raw: unknown): { message:
     }
 
     if (attachment.mimeType && isAudioAttachment(attachment.mimeType) && attachment.content) {
-      gatewayAttachments.push(normalizeAudioAttachment(attachment))
       audioNames.push(attachment.name ?? "audio")
+      const transcript = await transcribeAudioAttachment(attachment, cfg).catch(() => null)
+      if (transcript) {
+        embedded.push(
+          `<attached-audio-transcript name="${attachment.name ?? "audio"}" mime="${attachment.mimeType}">\n${transcript}\n</attached-audio-transcript>`,
+        )
+      } else {
+        // Keep the raw audio in the RPC payload as a best-effort fallback for
+        // future gateway builds, but make the prompt explicit so the agent does
+        // not waste time looking for a local file path that was never stored.
+        gatewayAttachments.push(normalizeAudioAttachment(attachment))
+        embedded.push(
+          `[Audio transcription unavailable for ${attachment.name ?? "audio"}. The Desktop middleware received the file, but this gateway build may not consume raw audio attachments directly.]`,
+        )
+      }
       continue
     }
 
@@ -538,6 +608,294 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: any[]
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 })
 }
 
+function migrationState(s: any) {
+  s.commandState.telegramMigration ??= { imports: {}, groups: {} }
+  s.commandState.telegramMigration.imports ??= {}
+  s.commandState.telegramMigration.groups ??= {}
+  return s.commandState.telegramMigration
+}
+
+function gatewaySessionsIndexPath(agentId = "main") {
+  return path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions", "sessions.json")
+}
+
+function readGatewaySessionsIndex(agentId = "main") {
+  return readJson(gatewaySessionsIndexPath(agentId))
+}
+
+function parseTelegramSessionKey(key: string) {
+  const direct = key.match(/^agent:([^:]+):telegram:direct:([^:]+)$/)
+  if (direct) return { kind: "direct" as const, agentId: direct[1] || "main", userId: direct[2] || "" }
+  const group = key.match(/^agent:([^:]+):telegram:group:([^:]+)(?::topic:(\d+))?$/)
+  if (group) return { kind: "group" as const, agentId: group[1] || "main", groupId: group[2] || "", topicId: group[3] || null }
+  return null
+}
+
+function parseJarvisLabel(label: unknown): any | null {
+  if (typeof label !== "string") return null
+  const marker = "\0JRV1\0"
+  const index = label.indexOf(marker)
+  if (index === -1) return null
+  try { return JSON.parse(label.slice(index + marker.length)) } catch { return null }
+}
+
+function cleanImportedName(text: string) {
+  return text
+    .replace(/```json\s*\{[\s\S]*?\}\s*```/g, " ")
+    .replace(/^System \(untrusted\):.*$/gmi, " ")
+    .replace(/^Conversation info \(untrusted metadata\):[\s\S]*?\n\s*$/gmi, " ")
+    .replace(/^Sender \(untrusted metadata\):[\s\S]*?\n\s*$/gmi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function firstTextContent(content: unknown) {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content.map((block: any) => typeof block?.text === "string" ? block.text : "").join(" ")
+}
+
+function parseConversationInfo(text: string) {
+  const match = text.match(/Conversation info \(untrusted metadata\):\s*```json\s*([\s\S]*?)\s*```/i)
+  if (!match) return null
+  try { return JSON.parse(match[1]) } catch { return null }
+}
+
+function telegramMetaFromMessages(messages: any[]) {
+  for (const message of messages) {
+    const meta = parseConversationInfo(firstTextContent(message?.content))
+    if (!meta) continue
+    return {
+      groupSubject: String(meta.group_subject || "").trim(),
+      topicName: String(meta.topic_name || "").trim(),
+      topicId: String(meta.topic_id || "").trim(),
+      conversationLabel: String(meta.conversation_label || "").trim(),
+      sender: String(meta.sender || "").trim(),
+    }
+  }
+  return null
+}
+
+function transcriptMessagesFromJsonl(sessionFile: string) {
+  return readJsonl(sessionFile)
+    .filter((line: any) => line?.type === "message" || line?.message?.role)
+    .map((line: any) => {
+      const message = line.message ?? line
+      return {
+        ...message,
+        timestamp: message.timestamp ?? line.timestamp,
+        __openclaw: { id: line.id, seq: line.seq },
+      }
+    })
+    .filter((message: any) => message?.role)
+}
+
+function lastUserMessagePreview(messages: any[]) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message?.role !== "user") continue
+    const cleaned = cleanImportedName(messageBody(message) || firstTextContent(message.content))
+    if (cleaned) return cleaned
+  }
+  return null
+}
+
+function titleFromLastUser(messages: any[], fallback: string) {
+  const preview = lastUserMessagePreview(messages)
+  return (preview ? preview.slice(0, 15).trim() : fallback).trim() || fallback
+}
+
+function uniqueName(base: string, used: Set<string>) {
+  const root = (base || "Telegram import").trim() || "Telegram import"
+  let name = root
+  let n = 2
+  while (used.has(name.toLowerCase())) {
+    name = `${root} (${n})`
+    n += 1
+  }
+  used.add(name.toLowerCase())
+  return name
+}
+
+function telegramGroupName(entry: any, groupId: string) {
+  const jarvis = parseJarvisLabel(entry?.label)
+  const candidates = [
+    entry?.subject,
+    entry?.origin?.label?.split(" id:")?.[0],
+    jarvis?.names?.projectName,
+    entry?.displayName?.replace(/^telegram:g-/, "").replace(/-/g, " "),
+  ].map((value) => String(value || "").trim()).filter(Boolean)
+  return candidates[0] || `Telegram group ${groupId}`
+}
+
+function telegramTopicFallback(entry: any, topicId: string | null) {
+  const jarvis = parseJarvisLabel(entry?.label)
+  const jarvisName = String(jarvis?.names?.chatName || jarvis?.names?.topicName || "").trim()
+  if (jarvisName && !/^Telegram\s+[-\d]+$/i.test(jarvisName)) return jarvisName
+  if (topicId) return `Topic ${topicId}`
+  return "General"
+}
+
+function scanTelegramSessions(s: any, input: any = {}) {
+  const agentId = String(input.agentId || "main")
+  const index = readGatewaySessionsIndex(agentId)
+  const migration = migrationState(s)
+  const limit = Math.max(0, Number(input.limit || 0))
+  const usedNames = new Set<string>()
+  const sessions = Object.entries(index)
+    .map(([sourceSessionKey, entry]: [string, any]) => {
+      const parsed = parseTelegramSessionKey(sourceSessionKey)
+      if (!parsed) return null
+      const sourceSessionFile = String(entry?.sessionFile || "")
+      const messages = sourceSessionFile ? transcriptMessagesFromJsonl(sourceSessionFile) : []
+      const telegramMeta = telegramMetaFromMessages(messages)
+      const lastPreview = lastUserMessagePreview(messages)
+      const fallback = parsed.kind === "direct"
+        ? (telegramMeta?.sender || "Telegram direct")
+        : (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId))
+      const proposedName = uniqueName(parsed.kind === "group" ? fallback : titleFromLastUser(messages, fallback), usedNames)
+      return {
+        sourceSessionKey,
+        sourceSessionId: String(entry?.sessionId || ""),
+        sourceSessionFile,
+        proposedName,
+        messageCount: messages.filter((message: any) => message?.role && message.role !== "system").length,
+        lastUserMessagePreview: lastPreview,
+        updatedAt: typeof entry?.updatedAt === "number" ? entry.updatedAt : null,
+        chatType: parsed.kind,
+        groupId: parsed.kind === "group" ? parsed.groupId : undefined,
+        groupName: parsed.kind === "group" ? (telegramMeta?.groupSubject || telegramGroupName(entry, parsed.groupId)) : undefined,
+        topicId: parsed.kind === "group" ? parsed.topicId : undefined,
+        topicName: parsed.kind === "group" ? proposedName : undefined,
+        alreadyImported: Boolean(migration.imports[sourceSessionKey]),
+      }
+    })
+    .filter(Boolean) as any[]
+  const selected = limit > 0 ? sessions.slice(0, limit) : sessions
+  const groups = new Map<string, any>()
+  for (const session of selected) {
+    if (session.chatType !== "group") continue
+    const current = groups.get(session.groupId) ?? { groupId: session.groupId, name: session.groupName, topics: 0 }
+    current.topics += 1
+    groups.set(session.groupId, current)
+  }
+  return {
+    sessions: selected,
+    summary: {
+      total: selected.length,
+      direct: selected.filter((session) => session.chatType === "direct").length,
+      groups: groups.size,
+      topics: selected.filter((session) => session.chatType === "group").length,
+      alreadyImported: selected.filter((session) => session.alreadyImported).length,
+    },
+    groups: [...groups.values()],
+  }
+}
+
+function ensureImportedGroupProject(store: Store, s: any, sourceGroupId: string, name: string) {
+  const migration = migrationState(s)
+  const existingProjectId = migration.groups[sourceGroupId]?.projectId
+  const existing = existingProjectId ? s.projects.find((project: any) => project.id === existingProjectId) : null
+  if (existing) return existing
+  const createdAt = now()
+  const project = { id: `proj_${crypto.randomUUID().replace(/-/g, "")}`, name, workspaceRoot: workspaceRoot(), repoRoot: null, pinned: false, archived: false, createdAt, updatedAt: createdAt }
+  s.projects.push(project)
+  migration.groups[sourceGroupId] = { projectId: project.id, name, importedAt: now() }
+  return project
+}
+
+async function createMigratedGatewaySession(
+  gw: NonNullable<Awaited<ReturnType<typeof connectGateway>>>,
+  params: { key: string; agentId: string; label: string; parentSessionKey: string },
+) {
+  let lastError = "sessions.create failed"
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const label = attempt === 0 ? params.label : `${params.label} (${attempt + 1})`
+    const key = attempt === 0 ? params.key : `agent:${params.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`
+    const created = await gw.request<any>("sessions.create", {
+      key,
+      agentId: params.agentId,
+      label,
+      parentSessionKey: params.parentSessionKey,
+    }, 30_000)
+    if (created.ok) {
+      return {
+        created,
+        desktopSessionKey: key,
+        label,
+      }
+    }
+    lastError = created.error?.message || lastError
+    if (!/label already in use/i.test(lastError)) break
+  }
+  throw new Error(lastError)
+}
+
+async function importTelegramSessions(store: Store, s: any, input: any = {}) {
+  const scan = scanTelegramSessions(s, input)
+  const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0
+    ? new Set(input.sourceSessionKeys.map(String))
+    : null
+  const dryRun = Boolean(input.dryRun)
+  const skipAlreadyImported = input.skipAlreadyImported !== false
+  const migration = migrationState(s)
+  const imported: any[] = []
+  const skipped: any[] = []
+  const failed: any[] = []
+  const gw = dryRun ? null : await connectGateway(["operator.read", "operator.write", "operator.admin"])
+  try {
+    for (const session of scan.sessions) {
+      if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue
+      const parsed = parseTelegramSessionKey(session.sourceSessionKey)
+      if (!parsed) continue
+      if (skipAlreadyImported && migration.imports[session.sourceSessionKey]) {
+        skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported" })
+        continue
+      }
+      const sourceMessages = transcriptMessagesFromJsonl(session.sourceSessionFile)
+      if (dryRun) {
+        imported.push({ sourceSessionKey: session.sourceSessionKey, name: session.proposedName, copiedMessages: sourceMessages.filter((m:any) => m.role !== "system").length, dryRun: true })
+        continue
+      }
+      try {
+        const initialSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`
+        const { created, desktopSessionKey, label } = await createMigratedGatewaySession(gw!, {
+          key: initialSessionKey,
+          agentId: parsed.agentId,
+          label: session.proposedName,
+          parentSessionKey: session.sourceSessionKey,
+        })
+        const transcriptPath = (created.payload as any)?.entry?.sessionFile
+        if (!transcriptPath || typeof transcriptPath !== "string") throw new Error("sessions.create did not return entry.sessionFile")
+        copyHistoryMessagesToTranscript(transcriptPath, sourceMessages)
+
+        const createdAt = now()
+        let chatId: string | null = null
+        let projectId: string | null = null
+        let topicId: string | null = null
+        if (parsed.kind === "group") {
+          const project = ensureImportedGroupProject(store, s, parsed.groupId, session.groupName || `Telegram group ${parsed.groupId}`)
+          projectId = project.id
+          topicId = `topic_${crypto.randomUUID().replace(/-/g, "")}`
+          s.topics.push({ id: topicId, projectId, name: label || telegramTopicFallback({}, parsed.topicId), archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } })
+          s.sessions.push({ key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, projectId, topicId, createdAt, updatedAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
+        } else {
+          chatId = `chat_${crypto.randomUUID().replace(/-/g, "")}`
+          s.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, archived: false, pinned: false, createdAt, updatedAt: createdAt, lastActiveAt: createdAt, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } })
+        }
+        migration.imports[session.sourceSessionKey] = { desktopSessionKey, chatId, projectId, topicId, name: label, importedAt: createdAt }
+        imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, name: label, copiedMessages: sourceMessages.filter((m:any) => m.role !== "system").length, transcriptPath })
+      } catch (error) {
+        failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    if (!dryRun) save(store, s)
+    return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } }
+  } finally {
+    gw?.close()
+  }
+}
+
 function searchMemory(query: string) {
   const q = query.trim().toLowerCase()
   const entries: any[] = []
@@ -740,17 +1098,70 @@ function modelsResponse(cfg: any) {
   return { models, currentModel, defaultModel: currentModel }
 }
 
+const PROVIDER_API_KEY_ENV: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  groq: "GROQ_API_KEY",
+  deepgram: "DEEPGRAM_API_KEY",
+  google: "GEMINI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+}
+
 function providerSummary(id: string) {
+  const envVar = PROVIDER_API_KEY_ENV[id]
+  const displayName = id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  const credentials = envVar
+    ? [{
+        key: "api-key",
+        label: `${displayName} API key`,
+        help: `Saved as ${envVar}`,
+        group: "credentials",
+        authMethod: "api-key",
+        inputKind: "secret",
+        required: true,
+        sensitive: true,
+        envVar,
+      }]
+    : []
   return {
     id,
     pluginId: id,
-    displayName: id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    displayName,
     category: id.includes("ollama") || id.includes("local") ? "local" : "core",
-    authEnvVars: [],
+    authEnvVars: envVar ? [envVar] : [],
     authMethods: ["api-key"],
     authChoices: [],
-    submit: { payloadShape: { values: { fields: { credentials: [], config: [] } } } },
+    submit: { payloadShape: { values: { fields: { credentials, config: [] } } } },
   }
+}
+
+function saveProviderAccess(input: any) {
+  const providerId = String(input.providerId || "").trim()
+  if (!providerId) throw new HttpError(400, "providerId is required", "BAD_REQUEST")
+  const authMethod = String(input.authMethod || "api-key")
+  const values = input.values && typeof input.values === "object" ? input.values : {}
+  const envVar = PROVIDER_API_KEY_ENV[providerId]
+  const cfg = readJson(openclawConfigPath())
+  cfg.env ??= {}
+  cfg.env.vars ??= {}
+  const savedEnvVars: string[] = []
+  if (envVar) {
+    const raw = values["api-key"] ?? values.apiKey ?? values.token ?? values.key ?? values[envVar]
+    const apiKey = typeof raw === "string" ? raw.trim() : ""
+    if (!apiKey) throw new HttpError(400, `${envVar} is required`, "BAD_REQUEST")
+    cfg.env.vars[envVar] = apiKey
+    savedEnvVars.push(envVar)
+  }
+  cfg.providers ??= {}
+  cfg.providers[providerId] ??= {}
+  cfg.providers[providerId].authMethod = authMethod
+  writeJson(openclawConfigPath(), cfg)
+  return ok({
+    providerId,
+    authMethod,
+    nextStep: "model",
+    saved: { envVars: savedEnvVars, configPaths: [], setDefault: input.setDefault ?? false },
+    provider: providerSummary(providerId),
+  })
 }
 
 function modelContract(cfg: any, providerId?: string | null) {
@@ -840,13 +1251,23 @@ export function commandRoutes(store: Store) {
         case "middleware_autonaming_quick": { const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat"; return { name, title: name } }
         case "middleware_message_feedback": { s.commandState.feedback.push({ id: crypto.randomUUID(), ...input, createdAt: now() }); save(store, s); return ok() }
         case "middleware_message_feedback_delete": { s.commandState.feedback = s.commandState.feedback.filter((f:any) => f.message_id !== input.message_id && f.messageId !== input.messageId); save(store, s); return ok() }
+        case "middleware_migration_telegram_scan": return scanTelegramSessions(s, input)
+        case "middleware_migration_telegram_import": return importTelegramSessions(store, s, input)
 
         case "middleware_chat_history": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          const key = activeSessionKey(s, input.sessionKey)
+          const localEntry = readSessionStoreEntry(key)
+          const sessionFile = String(localEntry?.entry?.sessionFile || "")
+          if (sessionFile && fs.existsSync(sessionFile)) {
+            return normalizeHistoryPayload({ messages: transcriptMessagesFromJsonl(sessionFile) })
+          }
+
           const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
+          const limit = Math.max(1, Math.min(Number(input.limit) || 1000, 1000))
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
-            const res = await gw.request("chat.history", { sessionKey: activeSessionKey(s, input.sessionKey) }, timeoutMs)
+            const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
             return normalizeHistoryPayload(res.payload)
           } finally {
@@ -886,6 +1307,22 @@ export function commandRoutes(store: Store) {
           }
         }
 
+        case "middleware_chat_model_set": {
+          if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
+          const modelId = String(input.modelId || input.modelRef || input.model || "").trim()
+          if (!modelId) throw new HttpError(400, "modelId is required", "BAD_REQUEST")
+          const key = activeSessionKey(s, input.sessionKey)
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
+          try {
+            await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
+            const patched = await gw.request("sessions.patch", { key, model: modelId }, 30_000)
+            if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
+            return { ok: true, sessionKey: key, modelId, currentModel: modelId, ...((patched.payload as object) || {}) }
+          } finally {
+            gw.close()
+          }
+        }
+
         case "middleware_chat_send": {
           const message = String(input.text || input.message || "")
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
@@ -905,7 +1342,7 @@ export function commandRoutes(store: Store) {
               const patched = await gw.request("sessions.patch", patch, 30_000)
               if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
             }
-            const prepared = prepareMessageAndAttachments(message, input.attachments)
+            const prepared = await prepareMessageAndAttachments(message, input.attachments)
             const res = await gw.request("chat.send", {
               sessionKey: key,
               message: prepared.message,
@@ -1193,7 +1630,7 @@ export function commandRoutes(store: Store) {
           return { providers, count: providers.length }
         }
         case "middleware_onboarding_provider_details": return { provider: providerSummary(String(input.providerId || "custom")) }
-        case "middleware_onboarding_provider_submit": return ok({ nextStep: "model" })
+        case "middleware_onboarding_provider_submit": return saveProviderAccess(input)
         case "middleware_onboarding_model_submit": {
           const cfg = readJson(openclawConfigPath())
           const modelRef = String(input.modelRef || input.modelId || "").trim()
