@@ -35,6 +35,8 @@ import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
+
+type SettingsSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
@@ -487,16 +489,28 @@ function AppShell({
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
-  const openSettings = useCallback(() => {
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("config")
+
+  const openSettings = useCallback((section: SettingsSection = "config") => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     previousContentPathRef.current = getRoutePath()
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
+    setSettingsInitialSection(section)
     setActiveTab("settings")
     clearConversationState()
     window.history.pushState(null, "", routeUrl("/settings"))
   }, [activeTab, clearConversationState])
+
+  useEffect(() => {
+    function handleOpenSettings(event: Event) {
+      const detail = (event as CustomEvent<{ section?: SettingsSection }>).detail
+      openSettings(detail?.section ?? "config")
+    }
+    window.addEventListener("openclaw:open-settings", handleOpenSettings)
+    return () => window.removeEventListener("openclaw:open-settings", handleOpenSettings)
+  }, [openSettings])
 
   const openNotifications = useCallback(() => {
     setConnectAutoOpenEnabled(false)
@@ -1149,6 +1163,7 @@ function AppShell({
               sessionResolving={sessionResolving}
               sessionError={sessionError}
               onSettingsBack={handleSettingsBack}
+              settingsInitialSection={settingsInitialSection}
               onFirstMessageSent={handleFirstMessageSent}
               onQuickSend={handleQuickSend}
               quickSending={quickSending}
@@ -1225,6 +1240,7 @@ function MainContent({
   sessionResolving,
   sessionError,
   onSettingsBack,
+  settingsInitialSection,
   onFirstMessageSent,
   onQuickSend,
   quickSending,
@@ -1250,6 +1266,7 @@ function MainContent({
   sessionResolving: boolean
   sessionError: string | null
   onSettingsBack: () => void
+  settingsInitialSection: SettingsSection
   onFirstMessageSent: (text: string) => void
   onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
@@ -1265,7 +1282,7 @@ function MainContent({
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
-        <SettingsDashboard onBack={onSettingsBack} />
+        <SettingsDashboard onBack={onSettingsBack} initialSection={settingsInitialSection} />
       </div>
     )
   }
