@@ -315,7 +315,8 @@ async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = r
   const form = new FormData()
   form.set("file", new Blob([audio], { type: audioMimeTypeForAttachment(attachment) || "audio/webm" }), attachment.name || "voice.webm")
   form.set("model", settings.model || (provider === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-transcribe"))
-  if (settings.language) form.set("language", settings.language)
+  const language = settings.language.trim().toLowerCase()
+  if (language) form.set("language", language)
 
   const endpoint = provider === "groq"
     ? "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -325,7 +326,15 @@ async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = r
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   })
-  if (!response.ok) return null
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null
+    const message = typeof errorPayload?.error?.message === "string"
+      ? errorPayload.error.message
+      : typeof errorPayload?.message === "string"
+        ? errorPayload.message
+        : `HTTP ${response.status}`
+    throw new HttpError(502, `Voice transcription failed: ${message}`, "VOICE_TRANSCRIPTION_FAILED")
+  }
   const payload = await response.json().catch(() => null) as { text?: unknown; transcript?: unknown } | null
   const text = typeof payload?.text === "string"
     ? payload.text
