@@ -286,6 +286,18 @@ function apiKeyForProvider(cfg: any, provider: string): string {
   return String(cfg?.env?.vars?.[envVar] || process.env[envVar] || "").trim()
 }
 
+function voiceSettingsPayloadWithStatus() {
+  const cfg = readJson(openclawConfigPath())
+  const payload = voiceSettingsPayload()
+  const provider = payload.settings.provider
+  return {
+    ...payload,
+    status: {
+      apiKeyConfigured: provider !== "auto" && Boolean(apiKeyForProvider(cfg, provider)),
+    },
+  }
+}
+
 async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = readJson(openclawConfigPath())): Promise<string | null> {
   if (!attachment.content) return null
   const settings = readVoiceSettings(cfg)
@@ -303,7 +315,8 @@ async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = r
   const form = new FormData()
   form.set("file", new Blob([audio], { type: audioMimeTypeForAttachment(attachment) || "audio/webm" }), attachment.name || "voice.webm")
   form.set("model", settings.model || (provider === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-transcribe"))
-  if (settings.language) form.set("language", settings.language)
+  const language = settings.language.trim().toLowerCase()
+  if (language) form.set("language", language)
 
   const endpoint = provider === "groq"
     ? "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -313,7 +326,15 @@ async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = r
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   })
-  if (!response.ok) return null
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null
+    const message = typeof errorPayload?.error?.message === "string"
+      ? errorPayload.error.message
+      : typeof errorPayload?.message === "string"
+        ? errorPayload.message
+        : `HTTP ${response.status}`
+    throw new HttpError(502, `Voice transcription failed: ${message}`, "VOICE_TRANSCRIPTION_FAILED")
+  }
   const payload = await response.json().catch(() => null) as { text?: unknown; transcript?: unknown } | null
   const text = typeof payload?.text === "string"
     ? payload.text
@@ -1238,10 +1259,22 @@ export function commandRoutes(store: Store) {
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
         }
         case "middleware_voice_settings_get": {
-          return voiceSettingsPayload()
+          return voiceSettingsPayloadWithStatus()
         }
         case "middleware_voice_settings_set": {
-          return { settings: writeVoiceSettings(input), options: voiceSettingsPayload().options }
+          writeVoiceSettings(input)
+          return voiceSettingsPayloadWithStatus()
+        }
+        case "middleware_voice_transcribe": {
+          const attachment = input.attachment as ChatSendAttachment | undefined
+          if (!attachment?.content || !attachment.mimeType || !isAudioAttachment(attachment)) {
+            throw new HttpError(400, "audio attachment is required", "BAD_REQUEST")
+          }
+          const transcript = await transcribeAudioAttachment(attachment)
+          if (!transcript) {
+            throw new HttpError(400, "Voice transcription is not configured. Add a Voice provider/API key in Settings → Voice.", "VOICE_TRANSCRIPTION_UNAVAILABLE")
+          }
+          return { transcript }
         }
         case "middleware_usage": {
           const requestedDays = usageNumber(input.days) || 30

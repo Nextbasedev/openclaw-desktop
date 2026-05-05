@@ -35,6 +35,7 @@ import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
+import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 import { InspectorView, type InspectorTabId } from "@/components/inspector/InspectorView"
 import { cn } from "@/lib/utils"
 import {
@@ -44,6 +45,8 @@ import {
   findTabInGroups,
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
+
+type SettingsSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
 const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
@@ -635,7 +638,9 @@ function AppShell({
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
-  const openSettings = useCallback(() => {
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("config")
+
+  const openSettings = useCallback((section: SettingsSection = "config") => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     const currentPath = getRoutePath()
@@ -644,11 +649,21 @@ function AppShell({
     }
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
+    setSettingsInitialSection(section)
     setActiveTab("settings")
     clearConversationState()
     settingsPushedRef.current = true
     window.history.pushState(null, "", routeUrl("/settings"))
   }, [activeTab, clearConversationState])
+
+  useEffect(() => {
+    function handleOpenSettings(event: Event) {
+      const detail = (event as CustomEvent<{ section?: SettingsSection }>).detail
+      openSettings(detail?.section ?? "config")
+    }
+    window.addEventListener("openclaw:open-settings", handleOpenSettings)
+    return () => window.removeEventListener("openclaw:open-settings", handleOpenSettings)
+  }, [openSettings])
 
   const openNotifications = useCallback(() => {
     setConnectAutoOpenEnabled(false)
@@ -1560,7 +1575,7 @@ function AppShell({
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <main className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
-            {effectiveActiveTab === "chat" ? (
+{effectiveActiveTab === "chat" ? (
               editorGroups.groups.length === 1 ? (
                 <MainContent
                   activeTab={effectiveActiveTab}
@@ -1576,6 +1591,7 @@ function AppShell({
                   sessionResolving={sessionResolving}
                   sessionError={sessionError}
                   onSettingsBack={handleSettingsBack}
+                  settingsInitialSection={settingsInitialSection}
                   onFirstMessageSent={handleFirstMessageSent}
                   onQuickSend={handleQuickSend}
                   quickSending={quickSending}
@@ -1624,6 +1640,7 @@ function AppShell({
                 sessionResolving={sessionResolving}
                 sessionError={sessionError}
                 onSettingsBack={handleSettingsBack}
+                settingsInitialSection={settingsInitialSection}
                 onFirstMessageSent={handleFirstMessageSent}
                 onQuickSend={handleQuickSend}
                 quickSending={quickSending}
@@ -1715,6 +1732,7 @@ function MainContent({
   sessionResolving,
   sessionError,
   onSettingsBack,
+  settingsInitialSection,
   onFirstMessageSent,
   onQuickSend,
   quickSending,
@@ -1740,6 +1758,7 @@ function MainContent({
   sessionResolving: boolean
   sessionError: string | null
   onSettingsBack: () => void
+  settingsInitialSection: SettingsSection
   onFirstMessageSent: (text: string) => void
   onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
@@ -1755,7 +1774,7 @@ function MainContent({
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
-        <SettingsDashboard onBack={onSettingsBack} />
+        <SettingsDashboard onBack={onSettingsBack} initialSection={settingsInitialSection} />
       </div>
     )
   }
