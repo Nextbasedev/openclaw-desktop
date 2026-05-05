@@ -440,11 +440,13 @@ export function MessageBubble({
   useEffect(() => {
     if (isUser || !onAskSelectedText) return
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null
+      if (target && selectionComposerRef.current?.contains(target)) return
       window.setTimeout(updateSelectionAction, 0)
     }
     const handleSelectionChange = () => {
-      if (selectionComposerRef.current?.contains(document.activeElement)) return
+      if (selectionComposerRef.current || selectionAction) return
       const selection = window.getSelection()
       if (!selection?.toString().trim()) setSelectionAction(null)
     }
@@ -598,7 +600,6 @@ export function MessageBubble({
                   placeholder="Add a comment..."
                   className="min-w-0 flex-1 bg-transparent px-1 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/65"
                   aria-label="Add a comment about selected text"
-                  autoFocus
                 />
                 <button
                   type="button"
