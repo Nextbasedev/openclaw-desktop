@@ -248,6 +248,7 @@ export function ChatView({
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
+  const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const messageContentRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(messages.length)
@@ -386,13 +387,37 @@ export function ChatView({
   }, [])
 
   const handleSessionModelSelect = useCallback(async (modelId: string) => {
-    await invoke("middleware_chat_model_set", {
-      input: { sessionKey, modelId },
-    })
-    emit("chat:activity")
+    const toastId = toast.loading(`Switching model to ${modelId}…`)
+    setModelSwitching(true)
+    try {
+      await invoke("middleware_chat_model_set", {
+        input: { sessionKey, modelId },
+      })
+      emit("chat:activity")
+      toast.update(toastId, {
+        render: `Switched model to ${modelId}`,
+        type: "success",
+        isLoading: false,
+        autoClose: 1800,
+      })
+    } catch (error) {
+      toast.update(toastId, {
+        render: error instanceof Error ? error.message : "Failed to switch model",
+        type: "error",
+        isLoading: false,
+        autoClose: 3500,
+      })
+      throw error
+    } finally {
+      setModelSwitching(false)
+    }
   }, [sessionKey])
 
   const wrappedSend = useCallback(async (payload: ChatComposerSubmit) => {
+    if (modelSwitching) {
+      toast.info("Switching model… please wait before sending.")
+      return
+    }
     const shouldNotifyFirstSend =
       !firstFiredRef.current &&
       messages.length === 0 &&
@@ -407,7 +432,7 @@ export function ChatView({
     )
     setReplyTo(null)
     setComposerSeed("")
-  }, [handleSend, messages.length, onFirstMessageSent])
+  }, [handleSend, messages.length, modelSwitching, onFirstMessageSent])
 
   const renderedMessages = useMemo(
     () => visibleMessages(messages, messageActionState),
@@ -777,6 +802,7 @@ export function ChatView({
           replyTo={replyTo}
           onCancelReply={cancelReply}
           onModelSelect={handleSessionModelSelect}
+          modelSwitching={modelSwitching}
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -1026,6 +1052,7 @@ export function ChatView({
           replyTo={replyTo}
           onCancelReply={cancelReply}
           onModelSelect={handleSessionModelSelect}
+          modelSwitching={modelSwitching}
         />
       </div>
     </div>

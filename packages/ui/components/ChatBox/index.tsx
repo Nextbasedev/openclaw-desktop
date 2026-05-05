@@ -44,6 +44,7 @@ type Props = {
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
   onModelSelect?: (modelId: string) => void | Promise<void>
+  modelSwitching?: boolean
 }
 
 export function ChatBox({
@@ -56,6 +57,7 @@ export function ChatBox({
   replyTo,
   onCancelReply,
   onModelSelect,
+  modelSwitching = false,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -95,6 +97,7 @@ export function ChatBox({
   }, [])
   const [isDragOver, setIsDragOver] = React.useState(false)
   const dragCounterRef = React.useRef(0)
+  const isComposerDisabled = Boolean(disabled || modelSwitching)
   const {
     attachments,
     attachmentError,
@@ -107,7 +110,7 @@ export function ChatBox({
     handleFileChange,
     processFiles,
   } = useChatComposerAttachments({
-    disabled,
+    disabled: isComposerDisabled,
     onFilesProcessed: () => {
       setPlusOpen(false)
       textareaRef.current?.focus()
@@ -249,7 +252,11 @@ export function ChatBox({
 
   async function handleSend() {
     const text = input.trim()
-    if ((!text && attachments.length === 0) || disabled || isPreparingAttachments) return
+    if (modelSwitching) {
+      setAttachmentError("Switching model… please wait")
+      return
+    }
+    if ((!text && attachments.length === 0) || isComposerDisabled || isPreparingAttachments) return
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
       attachments: attachments.length > 0
@@ -319,7 +326,7 @@ export function ChatBox({
     e.stopPropagation()
     dragCounterRef.current = 0
     setIsDragOver(false)
-    if (disabled || isPreparingAttachments) return
+    if (isComposerDisabled || isPreparingAttachments) return
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) {
       void processFiles(files)
@@ -337,7 +344,7 @@ export function ChatBox({
     }
     if (files.length > 0) {
       e.preventDefault()
-      if (disabled || isPreparingAttachments) return
+      if (isComposerDisabled || isPreparingAttachments) return
       void processFiles(files)
     }
   }
@@ -486,7 +493,7 @@ export function ChatBox({
             }}
             placeholder="Message... (type / for commands)"
             rows={1}
-            disabled={disabled}
+            disabled={isComposerDisabled}
             className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
@@ -528,6 +535,10 @@ export function ChatBox({
           <ActionBar
             hasInput={hasInput}
             onSend={() => {
+              if (modelSwitching) {
+                setAttachmentError("Switching model… please wait")
+                return
+              }
               void handleSend()
             }}
             onUploadClick={() => {
@@ -566,7 +577,7 @@ export function ChatBox({
             voiceSupported={voiceSupported}
             voiceDisabledReason={voiceDisabledReason}
             attachmentCount={attachments.length}
-            disableUpload={disabled || isPreparingAttachments}
+            disableUpload={isComposerDisabled || isPreparingAttachments}
           />
         </div>
       </div>
