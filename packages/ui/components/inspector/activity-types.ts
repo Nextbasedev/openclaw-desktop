@@ -112,6 +112,12 @@ function resultTextFromMessage(msg: RawHistoryMessage): string {
   return ""
 }
 
+function visibleTextFromMessage(msg: RawHistoryMessage): string {
+  if (typeof msg.text === "string" && msg.text) return msg.text
+  if (typeof msg.content === "string") return msg.content
+  return extractResultText(msg.content)
+}
+
 export type HistoryParseResult = {
   calls: ToolCall[]
   agents: Map<string, AgentInfo>
@@ -130,9 +136,7 @@ export function parseHistoryToolCalls(
   let currentSubagentId: string | null = null
 
   for (const msg of messages) {
-    const text = typeof msg.content === "string"
-      ? msg.content
-      : (msg.text ?? "")
+    const text = visibleTextFromMessage(msg)
 
     if (msg.role === "user" && text) {
       const completed = /\bstatus:\s*completed successfully\b/i.test(text)
