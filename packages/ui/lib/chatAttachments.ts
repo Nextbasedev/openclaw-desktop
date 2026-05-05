@@ -74,7 +74,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ts: "application/typescript",
   txt: "text/plain",
   wav: "audio/wav",
-  webm: "video/webm",
+  webm: "audio/webm",
   xml: "application/xml",
   yaml: "application/yaml",
   yml: "application/yaml",
