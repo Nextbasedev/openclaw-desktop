@@ -12,7 +12,6 @@ export type { Project, FullTopic, ActiveTopic }
 export type DialogState = {
   createProjectOpen: boolean
   newProjectName: string
-  newProjectPath: string
   creatingProject: boolean
   projectError: string
   projectNameRef: React.RefObject<HTMLInputElement | null>
@@ -41,14 +40,11 @@ export type DialogState = {
   deleteTopicOpen: boolean
   deleteTopicTarget: FullTopic | null
   deletingTopic: boolean
-
-  repoPickerOpen: boolean
 }
 
 export type DialogActions = {
   setCreateProjectOpen: (v: boolean) => void
   setNewProjectName: (v: string) => void
-  setNewProjectPath: (v: string) => void
   openCreateProject: () => void
   handleCreateProject: () => Promise<void>
 
@@ -74,9 +70,6 @@ export type DialogActions = {
   setDeleteTopicOpen: (v: boolean) => void
   openDeleteTopic: (topic: FullTopic) => void
   handleDeleteTopic: () => Promise<void>
-
-  setRepoPickerOpen: (v: boolean) => void
-  handleRepoSelect: (repo: { name: string; path: string }) => void
 }
 
 export function useProjectsData(
@@ -99,7 +92,6 @@ export function useProjectsData(
 
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState("")
-  const [newProjectPath, setNewProjectPath] = useState("")
   const [creatingProject, setCreatingProject] = useState(false)
   const [projectError, setProjectError] = useState("")
   const projectNameRef = useRef<HTMLInputElement>(null)
@@ -136,21 +128,6 @@ export function useProjectsData(
   )
   const [deletingTopic, setDeletingTopic] = useState(false)
 
-  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
-
-  const handleRepoSelect = useCallback(
-    async (repo: { name: string; path: string }) => {
-      setNewProjectPath(repo.path)
-      if (!newProjectName.trim()) setNewProjectName(repo.name)
-      setRepoPickerOpen(false)
-      try {
-        await invoke("middleware_repos_select", {
-          input: { path: repo.path, name: repo.name },
-        })
-      } catch {}
-    },
-    [newProjectName]
-  )
 
   const loadProjects = useCallback(async () => {
     try {
@@ -382,7 +359,6 @@ export function useProjectsData(
 
   const openCreateProject = useCallback(() => {
     setNewProjectName("")
-    setNewProjectPath("")
     setProjectError("")
     setCreateProjectOpen(true)
   }, [])
@@ -411,8 +387,8 @@ export function useProjectsData(
           input: {
             name: newProjectName.trim(),
             profileId,
-            workspaceRoot: newProjectPath || workspaceRoot,
-            repoRoot: newProjectPath || null,
+            workspaceRoot,
+            repoRoot: null,
           },
         }
       )
@@ -427,7 +403,6 @@ export function useProjectsData(
       )
 
       setNewProjectName("")
-      setNewProjectPath("")
       setCreateProjectOpen(false)
       await loadProjects()
 
@@ -462,7 +437,7 @@ export function useProjectsData(
     } finally {
       setCreatingProject(false)
     }
-  }, [newProjectName, newProjectPath, loadProjects, onTopicSelect])
+  }, [newProjectName, loadProjects, onTopicSelect])
 
   const openCreateTopic = useCallback((project: Project) => {
     setCreateTopicForProject(project)
@@ -636,7 +611,6 @@ export function useProjectsData(
   const dialogState: DialogState = {
     createProjectOpen,
     newProjectName,
-    newProjectPath,
     creatingProject,
     projectError,
     projectNameRef,
@@ -660,13 +634,11 @@ export function useProjectsData(
     deleteTopicOpen,
     deleteTopicTarget,
     deletingTopic,
-    repoPickerOpen,
   }
 
   const dialogActions: DialogActions = {
     setCreateProjectOpen,
     setNewProjectName,
-    setNewProjectPath,
     openCreateProject,
     handleCreateProject,
     setCreateTopicOpen,
@@ -687,8 +659,6 @@ export function useProjectsData(
     setDeleteTopicOpen,
     openDeleteTopic,
     handleDeleteTopic,
-    setRepoPickerOpen,
-    handleRepoSelect,
   }
 
   return {

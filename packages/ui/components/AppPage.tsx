@@ -377,10 +377,10 @@ function AppShell({
       setComposerError(null)
       setActiveTab("chat")
       try { localStorage.setItem("openclaw.activeProjectId", route.projectId) } catch {}
-      setActiveTopic(null)
+      setActiveTopic((prev) =>
+        prev?.projectId === route.projectId && prev.id === route.topicId ? prev : null,
+      )
       setActiveChat(null)
-      setActiveSessionKey(null)
-      setActiveSessionTitle(null)
       setInitialMessages(undefined)
 
       try {
@@ -414,12 +414,29 @@ function AppShell({
           return
         }
 
-        setActiveTopic({
+        const nextTopic = {
           id: topic.id,
           name: topic.name,
           projectId: project.id,
           projectName: project.name,
+        }
+        setActiveTopic(nextTopic)
+
+        const sessionResult = await invoke<{
+          sessions: { key: string; label: string; hidden: boolean }[]
+        }>("middleware_sessions_list", {
+          input: { projectId: route.projectId, topicId: route.topicId },
         })
+        if (!isCurrentPath()) return
+
+        const session = (sessionResult.sessions || []).find((s) => !s.hidden)
+        if (session) {
+          setActiveSessionKey(session.key)
+          setActiveSessionTitle(session.label?.trim() || nextTopic.name)
+        } else {
+          setActiveSessionKey(null)
+          setActiveSessionTitle(null)
+        }
       } catch {
         if (isCurrentPath()) {
           clearConversationState()
@@ -1079,7 +1096,7 @@ function AppShell({
   }, [onDeleteAccount, onResetOnboarding])
 
   return (
-    <div className="flex h-svh flex-col bg-background">
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}

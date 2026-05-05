@@ -23,7 +23,7 @@ export type ChatExecPolicy = {
 export function execPolicyForAutonomyMode(mode: ChatAutonomyMode): ChatExecPolicy {
   if (mode === "full") return { security: "full", ask: "off" }
   if (mode === "supervised") return { security: "allowlist", ask: "on-miss" }
-  return { security: "full", ask: "always" }
+  return { security: "full", ask: "off" }
 }
 
 export type ChatComposerSubmit = {

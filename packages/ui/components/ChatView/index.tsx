@@ -14,8 +14,6 @@ import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
 import {
-  execPolicyForAutonomyMode,
-  type ChatAutonomyMode,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
@@ -250,6 +248,7 @@ export function ChatView({
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
+  const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const messageContentRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(messages.length)
@@ -376,15 +375,6 @@ export function ChatView({
     activeSubagent?.task?.trim() || "Run the delegated sub-agent task."
 
   const firstFiredRef = useRef(false)
-  const handleAutonomyModeChange = useCallback(async (mode: ChatAutonomyMode) => {
-    await invoke("middleware_chat_exec_policy", {
-      input: {
-        sessionKey,
-        autonomyMode: mode,
-        execPolicy: execPolicyForAutonomyMode(mode),
-      },
-    })
-  }, [sessionKey])
 
   const resolveExecApproval = useCallback(async (
     approvalId: string,
@@ -396,7 +386,38 @@ export function ChatView({
     emit("chat:activity")
   }, [])
 
+  const handleSessionModelSelect = useCallback(async (modelId: string) => {
+    const toastId = toast.loading(`Switching model to ${modelId}…`)
+    setModelSwitching(true)
+    try {
+      await invoke("middleware_chat_model_set", {
+        input: { sessionKey, modelId },
+      })
+      emit("chat:activity")
+      toast.update(toastId, {
+        render: `Switched model to ${modelId}`,
+        type: "success",
+        isLoading: false,
+        autoClose: 1800,
+      })
+    } catch (error) {
+      toast.update(toastId, {
+        render: error instanceof Error ? error.message : "Failed to switch model",
+        type: "error",
+        isLoading: false,
+        autoClose: 3500,
+      })
+      throw error
+    } finally {
+      setModelSwitching(false)
+    }
+  }, [sessionKey])
+
   const wrappedSend = useCallback(async (payload: ChatComposerSubmit) => {
+    if (modelSwitching) {
+      toast.info("Switching model… please wait before sending.")
+      return
+    }
     const shouldNotifyFirstSend =
       !firstFiredRef.current &&
       messages.length === 0 &&
@@ -411,7 +432,7 @@ export function ChatView({
     )
     setReplyTo(null)
     setComposerSeed("")
-  }, [handleSend, messages.length, onFirstMessageSent])
+  }, [handleSend, messages.length, modelSwitching, onFirstMessageSent])
 
   const renderedMessages = useMemo(
     () => visibleMessages(messages, messageActionState),
@@ -434,6 +455,17 @@ export function ChatView({
       text: target.text,
     })
   }, [messages])
+
+  const askAboutSelectedText = useCallback((messageId: string, text: string) => {
+    const selected = text.trim()
+    if (!selected) return
+    setReplyTo({
+      messageId: `${messageId}:selection`,
+      role: "assistant",
+      text: selected,
+    })
+    setComposerSeed("")
+  }, [])
 
   const cancelReply = useCallback(() => {
     setReplyTo(null)
@@ -769,7 +801,8 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
-          onAutonomyModeChange={handleAutonomyModeChange}
+          onModelSelect={handleSessionModelSelect}
+          modelSwitching={modelSwitching}
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -940,6 +973,7 @@ export function ChatView({
                       onTextAnimationComplete={markTextAnimationComplete}
                       onFork={msg.role === "assistant" ? forkFromMessage : undefined}
                       onResolveApproval={resolveExecApproval}
+                      onAskSelectedText={msg.role === "assistant" ? askAboutSelectedText : undefined}
                       isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
@@ -1017,7 +1051,8 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
-          onAutonomyModeChange={handleAutonomyModeChange}
+          onModelSelect={handleSessionModelSelect}
+          modelSwitching={modelSwitching}
         />
       </div>
     </div>

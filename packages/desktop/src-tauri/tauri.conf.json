@@ -19,6 +19,7 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
+        "maximized": true,
         "decorations": false,
         "transparent": false,
         "center": true,
@@ -32,6 +33,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": [
       "bundled/middleware/**/*"
     ],
@@ -41,7 +43,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "infoPlist": "Info.plist"
+    }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3RUMzNzM1MkFFNjA5MEUKUldRT0NlWXFOVGZzbDB4RXExQXlYRFpUSTNpb1pXUXFUSXdjOUw0cnVoSFRBeUJySjVYZE1BS24K",
+      "endpoints": [
+        "https://github.com/Nextbasedev/openclaw-desktop/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }

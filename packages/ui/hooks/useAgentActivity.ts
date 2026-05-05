@@ -40,6 +40,12 @@ function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   })
 }
 
+function stringifyToolOutput(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (value == null) return undefined
+  try { return JSON.stringify(value, null, 2) } catch { return String(value) }
+}
+
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
   return messages.some((message) => {
     if (message.role !== "assistant") return false
@@ -301,20 +307,23 @@ export function useAgentActivity(sessionKey: string | null) {
           input: data.args as Record<string, unknown> | undefined,
           startedAt: Date.now(),
         })
+      } else if (phase === "update") {
+        const call = existing ?? fallback
+        map.set(toolCallId, {
+          ...call,
+          status: "running",
+          output: stringifyToolOutput(data.partialResult ?? data.output ?? data.content ?? data.details) ?? call.output,
+        })
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
         const duration = call.startedAt
           ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
           : undefined
-        const result = data.result
+        const result = data.result ?? data.output ?? data.content ?? data.details
         const output =
           phase === "error"
             ? ((data.error as string) ?? "Unknown error")
-            : typeof result === "string"
-              ? result
-              : result != null
-                ? JSON.stringify(result, null, 2)
-                : undefined
+            : stringifyToolOutput(result)
         map.set(toolCallId, {
           ...call,
           status: phase === "error" ? "error" : "success",

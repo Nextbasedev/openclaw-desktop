@@ -8,9 +8,6 @@ import {
   AttachmentIcon,
   Cancel01Icon,
   Tick02Icon,
-  HandHelpingIcon,
-  Shield01Icon,
-  AiSecurity01Icon,
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
@@ -23,7 +20,6 @@ import {
 import { WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import { VoiceWaveIcon } from "./VoiceWaveIcon"
 import type { ModelEntry } from "@/hooks/useModels"
-import type { ChatAutonomyMode } from "@/lib/chatAttachments"
 
 type ActionBarProps = {
   hasInput: boolean
@@ -33,8 +29,6 @@ type ActionBarProps = {
   onAbort?: () => void
   webSearchEnabled: boolean
   onWebSearchDisable: () => void
-  autonomyMode: ChatAutonomyMode
-  onAutonomyModeChange: (mode: ChatAutonomyMode) => void
   plusOpen: boolean
   onPlusOpenChange: (open: boolean) => void
   modelOpen: boolean
@@ -48,6 +42,7 @@ type ActionBarProps = {
   isRecording?: boolean
   onVoiceToggle?: () => void
   voiceSupported?: boolean
+  voiceDisabledReason?: string
   attachmentCount?: number
   disableUpload?: boolean
 }
@@ -60,8 +55,6 @@ export function ActionBar({
   onAbort,
   webSearchEnabled,
   onWebSearchDisable,
-  autonomyMode,
-  onAutonomyModeChange,
   plusOpen,
   onPlusOpenChange,
   modelOpen,
@@ -75,6 +68,7 @@ export function ActionBar({
   isRecording,
   onVoiceToggle,
   voiceSupported = true,
+  voiceDisabledReason,
   attachmentCount = 0,
   disableUpload = false,
 }: ActionBarProps) {
@@ -86,24 +80,6 @@ export function ActionBar({
     return m.id === currentModelId || `${m.provider}/${m.id}` === currentModelId || m.id === bare
   })
   const modelLabel = activeModel?.name ?? currentModelId ?? "Select model"
-  const [permissionsOpen, setPermissionsOpen] = React.useState(false)
-  const permissionOptions = [
-    {
-      mode: "manual" as const,
-      label: "Default permissions",
-      icon: HandHelpingIcon,
-    },
-    {
-      mode: "supervised" as const,
-      label: "Auto-review",
-      icon: Shield01Icon,
-    },
-    {
-      mode: "full" as const,
-      label: "Full access",
-      icon: AiSecurity01Icon,
-    },
-  ]
   const uniqueModels = models.filter(
     (m, i, arr) =>
       arr.findIndex(
@@ -150,58 +126,6 @@ export function ActionBar({
                 
               </span>
             </button>
-          </PopoverContent>
-        </Popover>
-
-        {/* Permissions selector */}
-        <Popover open={permissionsOpen} onOpenChange={setPermissionsOpen}>
-          <PopoverTrigger asChild>
-            {/* <button
-              type="button"
-              className="group flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.08] px-2.5 text-[12px] font-medium text-muted-foreground shadow-sm backdrop-blur-md transition-all hover:bg-white/[0.12] hover:text-foreground"
-              aria-label="Permissions mode"
-            >
-              <HugeiconsIcon icon={activePermission.icon} size={15} className="text-foreground/55 transition-colors group-hover:text-foreground/75" />
-              <span className="hidden max-w-[132px] truncate sm:inline">{activePermission.label}</span>
-              <HugeiconsIcon icon={ArrowDown01Icon} size={12} className="text-foreground/45" />
-            </button> */}
-          </PopoverTrigger>
-          <PopoverContent
-            side="top"
-            align="start"
-            sideOffset={10}
-            className={cn(
-              "w-[218px] overflow-hidden p-1.5 text-popover-foreground shadow-2xl shadow-black/35 ring-1 ring-foreground/10",
-              GLASS_POPOVER,
-            )}
-          >
-            <div className="space-y-0.5">
-              {permissionOptions.map((option) => {
-                const selected = autonomyMode === option.mode
-                return (
-                  <button
-                    key={option.mode}
-                    type="button"
-                    onClick={() => {
-                      onAutonomyModeChange(option.mode)
-                      setPermissionsOpen(false)
-                    }}
-                    className={cn(
-                      "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-semibold transition-colors",
-                      selected
-                        ? "text-foreground"
-                        : "text-muted-foreground hover:bg-muted/45 hover:text-foreground",
-                    )}
-                  >
-                    <HugeiconsIcon icon={option.icon} size={17} className="shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                    {selected && (
-                      <HugeiconsIcon icon={Tick02Icon} size={16} className="shrink-0 text-foreground/80" />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
           </PopoverContent>
         </Popover>
 
@@ -255,29 +179,20 @@ export function ActionBar({
               )}
               {uniqueModels.map((model) => {
                 const isActive = activeModel?.id === model.id
-                const unavailable = model.health?.status === "unavailable"
                 return (
                   <button
                     key={`${model.provider}/${model.id}`}
                     type="button"
-                    disabled={unavailable}
                     className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-muted",
-                      unavailable ? "cursor-not-allowed opacity-45 hover:bg-transparent" : "cursor-pointer",
+                      "flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors hover:bg-muted",
                       isActive
                         ? "bg-foreground/10 font-medium text-foreground"
                         : "text-muted-foreground"
                     )}
-                    onClick={() => !unavailable && onModelSelect(model)}
-                    title={model.health?.reason}
+                    onClick={() => onModelSelect(model)}
                   >
                     <span className="flex min-w-0 flex-col text-left">
                       <span className="truncate">{model.name}</span>
-                      {unavailable && (
-                        <span className="truncate text-[10px] font-normal text-amber-300/80">
-                          {model.health?.reason}
-                        </span>
-                      )}
                     </span>
                     {isActive && (
                       <HugeiconsIcon icon={Tick02Icon} size={14} className="shrink-0 text-white" />
@@ -319,7 +234,7 @@ export function ActionBar({
           aria-label={isRecording ? "Stop recording" : "Voice input"}
           title={
             !voiceSupported
-              ? "Voice input not supported in this browser"
+              ? voiceDisabledReason || "Voice input not supported in this browser"
               : isRecording
                 ? "Stop recording"
                 : "Voice input"
