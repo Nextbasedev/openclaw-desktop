@@ -838,8 +838,10 @@ function prepareMessageAndAttachments(input: { text: string; attachments?: ChatS
     }
 
     if (isAudioAttachment(attachment) && attachment.content) {
-      gatewayAttachments.push(normalizeAudioAttachment(attachment))
       audioNames.push(attachment.name)
+      embedded.push(
+        `[Audio attachment received: ${attachment.name}. Configure Desktop middleware voice transcription before forwarding audio to the agent.]`,
+      )
       continue
     }
 

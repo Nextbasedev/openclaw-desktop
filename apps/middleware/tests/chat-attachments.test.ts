@@ -6,7 +6,7 @@ describe("chat attachment preparation", () => {
     vi.restoreAllMocks()
   })
 
-  it("forwards audio attachments to the gateway instead of marking them unreadable", async () => {
+  it("does not forward raw audio attachments to gateway image parsing when transcription is unavailable", async () => {
     const audioBase64 = Buffer.from("fake webm audio").toString("base64")
 
     const prepared = await prepareMessageAndAttachmentsForTest("please transcribe", [
@@ -20,15 +20,9 @@ describe("chat attachment preparation", () => {
     ], {})
 
     expect(prepared.message).toContain("[Attached audio: voice.webm]")
+    expect(prepared.message).toContain("Audio transcription unavailable")
     expect(prepared.message).not.toContain("not directly readable")
-    expect(prepared.attachments).toEqual([
-      {
-        type: "audio",
-        fileName: "voice.webm",
-        mimeType: "audio/webm",
-        content: audioBase64,
-      },
-    ])
+    expect(prepared.attachments).toBeUndefined()
   })
 
   it("embeds an audio transcript when the configured provider succeeds", async () => {
