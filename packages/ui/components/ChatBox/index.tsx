@@ -11,6 +11,7 @@ import { useSlashCommands } from "@/hooks/useSlashCommands"
 import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
+import { invoke } from "@/lib/ipc"
 import { LuX } from "react-icons/lu"
 import {
   execPolicyForAutonomyMode,
@@ -19,11 +20,18 @@ import {
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
 import {
-  composeBatch,
   composerReducer,
   initialComposerState,
 } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
+
+type VoiceSettingsPayload = {
+  settings?: {
+    enabled?: boolean
+    provider?: string
+    model?: string
+  }
+}
 
 type Props = {
   initialPrompt?: string
@@ -34,6 +42,8 @@ type Props = {
   onAbort?: () => void
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
+  onModelSelect?: (modelId: string) => void | Promise<void>
+  modelSwitching?: boolean
 }
 
 export function ChatBox({
@@ -45,6 +55,8 @@ export function ChatBox({
   errorMessage,
   replyTo,
   onCancelReply,
+  onModelSelect,
+  modelSwitching = false,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -61,8 +73,6 @@ export function ChatBox({
     initialComposerState,
   )
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
-  const batchRef = React.useRef<ChatComposerSubmit[]>([])
-  const batchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const {
     commands,
     installedSkills,
@@ -84,6 +94,7 @@ export function ChatBox({
   }, [])
   const [isDragOver, setIsDragOver] = React.useState(false)
   const dragCounterRef = React.useRef(0)
+  const isComposerDisabled = Boolean(disabled || modelSwitching)
   const {
     attachments,
     attachmentError,
@@ -96,13 +107,13 @@ export function ChatBox({
     handleFileChange,
     processFiles,
   } = useChatComposerAttachments({
-    disabled,
+    disabled: isComposerDisabled,
     onFilesProcessed: () => {
       setPlusOpen(false)
       textareaRef.current?.focus()
     },
   })
-  const { state: voiceState, isSupported: voiceSupported, toggle: toggleVoice } = useVoiceRecorder({
+  const { state: voiceState, isSupported: recorderSupported, toggle: toggleVoice } = useVoiceRecorder({
     onAudioFile: async (file) => {
       await processFiles([file])
     },
@@ -110,6 +121,43 @@ export function ChatBox({
       setAttachmentError(message)
     },
   })
+  const [voiceModelActive, setVoiceModelActive] = React.useState(false)
+  const [voiceStatusLoading, setVoiceStatusLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadVoiceStatus() {
+      setVoiceStatusLoading(true)
+      try {
+        const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_get")
+        if (cancelled) return
+        const settings = payload.settings
+        setVoiceModelActive(Boolean(
+          settings?.enabled !== false &&
+          settings?.provider &&
+          settings.provider !== "auto" &&
+          settings.model,
+        ))
+      } catch {
+        if (!cancelled) setVoiceModelActive(false)
+      } finally {
+        if (!cancelled) setVoiceStatusLoading(false)
+      }
+    }
+    void loadVoiceStatus()
+    window.addEventListener("openclaw:voice-settings-changed", loadVoiceStatus)
+    return () => {
+      cancelled = true
+      window.removeEventListener("openclaw:voice-settings-changed", loadVoiceStatus)
+    }
+  }, [])
+
+  const voiceSupported = recorderSupported && !voiceStatusLoading && voiceModelActive
+  const voiceDisabledReason = !recorderSupported
+    ? "Voice recording is not supported in this app window"
+    : voiceStatusLoading
+      ? "Checking voice model setup…"
+      : "Set an active voice provider and audio model in Settings → Voice"
 
   React.useEffect(() => {
     if (initialPrompt != null) {
@@ -140,12 +188,6 @@ export function ChatBox({
 
   const hasInput = input.trim().length > 0 || attachments.length > 0
   const selectedModelRef = sessionModelId ?? currentModel
-  React.useEffect(() => {
-    return () => {
-      if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
-    }
-  }, [])
-
   function updateSlashMenu(value: string) {
     const match = value.match(/^([/@])(\S*)$/)
     if (match) {
@@ -165,45 +207,13 @@ export function ChatBox({
     textareaRef.current?.focus()
   }
 
-  async function flushBatch() {
-    const payload = composeBatch(batchRef.current)
-    if (!payload.text.trim()) return
-    batchRef.current = []
-    dispatchComposer({ type: "batch_flush" })
-    try {
-      await onSend?.(payload)
-      dispatchComposer({ type: "send_success" })
-      clearAttachments()
-      setAttachmentError(null)
-      setSlashMenuOpen(false)
-      if (textareaRef.current) textareaRef.current.style.height = "auto"
-    } catch {
-      setInput(payload.text)
-      dispatchComposer({
-        type: "send_failed",
-        error: "Message failed to send. Try again.",
-      })
-      setAttachmentError("Message failed to send. Try again.")
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        autoResize()
-      })
-    }
-  }
-
-  function queueSend(payload: ChatComposerSubmit) {
-    batchRef.current = [...batchRef.current, payload]
-    dispatchComposer({ type: "batch_add", payload })
-    if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
-    batchTimerRef.current = setTimeout(() => {
-      batchTimerRef.current = null
-      void flushBatch()
-    }, 500)
-  }
-
   async function handleSend() {
     const text = input.trim()
-    if ((!text && attachments.length === 0) || disabled || isPreparingAttachments) return
+    if (modelSwitching) {
+      setAttachmentError("Switching model… please wait")
+      return
+    }
+    if ((!text && attachments.length === 0) || isComposerDisabled || isPreparingAttachments) return
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
       attachments: attachments.length > 0
@@ -237,7 +247,25 @@ export function ChatBox({
       }
       return
     }
-    queueSend(payload)
+    dispatchComposer({ type: "send_start", payload, generating: false })
+    try {
+      await onSend?.(payload)
+      dispatchComposer({ type: "send_success" })
+      clearAttachments()
+      setAttachmentError(null)
+      setSlashMenuOpen(false)
+    } catch {
+      setInput(payload.text)
+      dispatchComposer({
+        type: "send_failed",
+        error: "Message failed to send. Try again.",
+      })
+      setAttachmentError("Message failed to send. Try again.")
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        autoResize()
+      })
+    }
   }
 
   function handleWebSearchToggle() {
@@ -273,7 +301,7 @@ export function ChatBox({
     e.stopPropagation()
     dragCounterRef.current = 0
     setIsDragOver(false)
-    if (disabled || isPreparingAttachments) return
+    if (isComposerDisabled || isPreparingAttachments) return
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) {
       void processFiles(files)
@@ -291,7 +319,7 @@ export function ChatBox({
     }
     if (files.length > 0) {
       e.preventDefault()
-      if (disabled || isPreparingAttachments) return
+      if (isComposerDisabled || isPreparingAttachments) return
       void processFiles(files)
     }
   }
@@ -440,7 +468,7 @@ export function ChatBox({
             }}
             placeholder="Message... (type / for commands)"
             rows={1}
-            disabled={disabled}
+            disabled={isComposerDisabled}
             className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
@@ -482,6 +510,10 @@ export function ChatBox({
           <ActionBar
             hasInput={hasInput}
             onSend={() => {
+              if (modelSwitching) {
+                setAttachmentError("Switching model… please wait")
+                return
+              }
               void handleSend()
             }}
             onUploadClick={() => {
@@ -506,14 +538,21 @@ export function ChatBox({
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
               setSessionModelId(modelId)
-              void onSend?.({ text: `/model ${modelId}` })
               setModelOpen(false)
+              const applyModel = onModelSelect
+                ? onModelSelect(modelId)
+                : invoke("middleware_models_set_default", { input: { modelId } }).then(() => reloadModels())
+              Promise.resolve(applyModel).catch((error) => {
+                setAttachmentError(error instanceof Error ? error.message : "Failed to switch model")
+                setSessionModelId(null)
+              })
             }}
             isRecording={voiceState === "recording"}
             onVoiceToggle={toggleVoice}
             voiceSupported={voiceSupported}
+            voiceDisabledReason={voiceDisabledReason}
             attachmentCount={attachments.length}
-            disableUpload={disabled || isPreparingAttachments}
+            disableUpload={isComposerDisabled || isPreparingAttachments}
           />
         </div>
       </div>

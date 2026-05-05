@@ -167,6 +167,8 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
 
   app.get("/api/version", (_req, res) => res.json({ ok: true, version, service: "openclaw-middleware" }))
   app.post("/api/commands/:command", async (req, res, next) => { try { res.json(await commands.handle(req.params.command, req.body?.input ?? req.body ?? {})) } catch (error) { next(error) } })
+  app.get("/api/migration/telegram/scan", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_scan", { limit: req.query.limit ? Number(req.query.limit) : undefined })) } catch (error) { next(error) } })
+  app.post("/api/migration/telegram/import", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_import", req.body ?? {})) } catch (error) { next(error) } })
 
   app.get("/api/projects", (_req, res) => res.json(projects.list()))
   app.post("/api/projects", (req, res) => res.json(projects.create(req.body)))
