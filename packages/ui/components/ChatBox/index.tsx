@@ -47,6 +47,11 @@ type VoiceTranscribePayload = {
   transcript?: string
 }
 
+function isVoiceConfigurationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "")
+  return /not configured|configure voice|add a voice provider|no api key|api key found/i.test(message)
+}
+
 type Props = {
   initialPrompt?: string
   errorMessage?: string | null
@@ -152,7 +157,9 @@ export function ChatBox({
           textareaRef.current?.focus()
         })
       } catch (error) {
-        setVoiceSetupOpen(true)
+        if (isVoiceConfigurationError(error)) {
+          setVoiceSetupOpen(true)
+        }
         setAttachmentError(error instanceof Error ? error.message : "Voice transcription is not configured")
       }
     },
