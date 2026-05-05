@@ -130,10 +130,30 @@ export function parseHistoryToolCalls(
   let currentSubagentId: string | null = null
 
   for (const msg of messages) {
+    const text = typeof msg.content === "string"
+      ? msg.content
+      : (msg.text ?? "")
+
+    if (msg.role === "user" && text) {
+      const completed = /\bstatus:\s*completed successfully\b/i.test(text)
+      const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(text)
+      if (completed || failed) {
+        for (const key of extractSubagentSessionKeys(text)) {
+          const agentId = subagentSessionKeys.get(key)
+          if (!agentId) continue
+          const current = agents.get(agentId)
+          if (current) {
+            agents.set(agentId, {
+              ...current,
+              phase: failed ? "error" : "done",
+              sessionKey: key,
+            })
+          }
+        }
+      }
+    }
+
     if (msg.role === "assistant") {
-      const text = typeof msg.content === "string"
-        ? msg.content
-        : (msg.text ?? "")
       const keys = extractSubagentSessionKeys(text)
       for (const key of keys) {
         if (!subagentSessionKeys.has(key) && spawnOrder.length > 0) {
