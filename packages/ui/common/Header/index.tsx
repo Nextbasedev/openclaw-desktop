@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import {
+  VscAdd,
   VscClose,
   VscLayoutSidebarLeft,
   VscLayoutSidebarRight,
@@ -41,6 +42,7 @@ type HeaderProps = {
   editorGroups?: EditorGroupsState | null
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
+  onNewChat?: () => void
   showSplitButton?: boolean
   splitActive?: boolean
   onToggleSplit?: () => void
@@ -70,6 +72,7 @@ export function Header({
   editorGroups = null,
   onSelectChatTab,
   onCloseChatTab,
+  onNewChat,
   showSplitButton = false,
   splitActive = false,
   onToggleSplit,
@@ -201,6 +204,20 @@ export function Header({
                       onClose={() => onCloseChatTab?.(tab.id)}
                     />
                   ))}
+                  {isFocusedGroup && onNewChat && (
+                    <button
+                      type="button"
+                      aria-label="New chat"
+                      title="New chat"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onNewChat()
+                      }}
+                      className="mx-1 mb-[5px] flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/42 transition-colors hover:bg-foreground/[0.06] hover:text-foreground/78 dark:text-white/42 dark:hover:bg-white/[0.06] dark:hover:text-white/78"
+                    >
+                      <VscAdd className="size-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             )
