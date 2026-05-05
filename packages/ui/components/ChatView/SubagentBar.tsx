@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   isActiveSubagent,
@@ -13,8 +13,8 @@ function StatusDot({ status }: { status: SpawnedSubagent["status"] }) {
   if (status === "spawning" || status === "linking" || status === "working") {
     return (
       <span className="relative flex size-2">
-        <span className="absolute inset-0 animate-ping rounded-full bg-blue-400/60" />
-        <span className="relative size-2 rounded-full bg-blue-400" />
+        <span className="absolute inset-0 animate-ping rounded-full bg-amber-400/60" />
+        <span className="relative size-2 rounded-full bg-amber-400" />
       </span>
     )
   }
@@ -32,7 +32,7 @@ function statusLabel(sub: SpawnedSubagent) {
 function ShimmerBar() {
   return (
     <div className="absolute inset-0 overflow-hidden rounded-xl">
-      <div className="shimmer-slide absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-blue-400/[0.06] to-transparent" />
+      <div className="shimmer-slide absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
     </div>
   )
 }
@@ -45,13 +45,28 @@ export function SubagentBar({
   onOpen: (sub: SpawnedSubagent) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [contentHeight, setContentHeight] = useState(0)
+  const contentRef = useRef<HTMLDivElement | null>(null)
 
   const activeCount = subagents.filter((s) => isActiveSubagent(s.status)).length
   const hasActive = activeCount > 0
 
   useEffect(() => {
-    setExpanded(false)
-  }, [subagents.length])
+    const node = contentRef.current
+    if (!node || typeof ResizeObserver === "undefined") return
+
+    const updateHeight = () => setContentHeight(node.scrollHeight)
+    updateHeight()
+
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(node)
+    window.addEventListener("resize", updateHeight)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", updateHeight)
+    }
+  }, [subagents])
 
   if (subagents.length === 0) return null
 
@@ -65,7 +80,7 @@ export function SubagentBar({
         className={cn(
           "relative overflow-hidden rounded-xl border transition-all duration-200",
           hasActive
-            ? "border-blue-400/20 bg-blue-400/[0.03]"
+            ? "border-foreground/15 bg-foreground/[0.03]"
             : "border-border/20 bg-card/50",
         )}
       >
@@ -78,7 +93,12 @@ export function SubagentBar({
           onClick={() => setExpanded((p) => !p)}
           className="relative flex w-full items-center gap-2.5 px-3.5 py-2.5 cursor-pointer"
         >
-          <VscHubot className={cn("size-4 shrink-0", hasActive ? "text-blue-400/70" : "text-muted-foreground/50")} />
+          <VscHubot
+            className={cn(
+              "size-4 shrink-0",
+              hasActive ? "text-foreground/70" : "text-muted-foreground/50",
+            )}
+          />
           <span className="flex-1 text-left text-[12px] font-medium text-foreground/80">
             {subagents.length} background agent{subagents.length !== 1 ? "s" : ""}
             {hasActive && (
@@ -95,11 +115,21 @@ export function SubagentBar({
         </button>
 
         <div
-          className="grid transition-[grid-template-rows] duration-200 ease-in-out"
-          style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+          className="overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out"
+          style={{
+            maxHeight: expanded ? `${contentHeight}px` : "0px",
+            opacity: expanded ? 1 : 0,
+          }}
         >
-          <div className="overflow-hidden">
-            <div className="border-t border-border/10 px-1 py-1">
+          <div
+            ref={contentRef}
+            className={cn(
+              "px-1 py-1 transition-[transform,opacity,border-color] duration-300 ease-in-out",
+              expanded
+                ? "translate-y-0 border-t border-border/10 opacity-100"
+                : "-translate-y-1 border-t border-transparent opacity-0",
+            )}
+          >
               {subagents.map((sub) => (
                 <div
                   key={sub.id}
@@ -139,7 +169,6 @@ export function SubagentBar({
                   </button>
                 </div>
               ))}
-            </div>
           </div>
         </div>
       </div>
