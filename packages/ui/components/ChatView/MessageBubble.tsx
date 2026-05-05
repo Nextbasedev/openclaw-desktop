@@ -337,10 +337,17 @@ export function MessageBubble({
     left: number
     top: number
   } | null>(null)
+  const [selectionRects, setSelectionRects] = useState<Array<{
+    left: number
+    top: number
+    width: number
+    height: number
+  }>>([])
   const [selectionComment, setSelectionComment] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messageBodyRef = useRef<HTMLDivElement>(null)
   const selectionComposerRef = useRef<HTMLDivElement>(null)
+  const selectionRangeRef = useRef<Range | null>(null)
 
   const hasBranches = message.branches && message.branches.length > 0
   const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
@@ -405,12 +412,20 @@ export function MessageBubble({
       return
     }
 
-    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    const range = selection.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
     if (!rect.width && !rect.height) {
       setSelectionAction(null)
       return
     }
 
+    selectionRangeRef.current = range.cloneRange()
+    setSelectionRects(Array.from(range.getClientRects()).map((lineRect) => ({
+      left: lineRect.left,
+      top: lineRect.top,
+      width: lineRect.width,
+      height: lineRect.height,
+    })))
     setSelectionAction({
       text: selectedText,
       left: rect.left + rect.width / 2,
@@ -419,8 +434,28 @@ export function MessageBubble({
     setSelectionComment("")
   }, [isUser, onAskSelectedText])
 
+  const refreshPersistentSelection = useCallback(() => {
+    const range = selectionRangeRef.current
+    if (!range) return
+    const rect = range.getBoundingClientRect()
+    if (!rect.width && !rect.height) return
+    setSelectionRects(Array.from(range.getClientRects()).map((lineRect) => ({
+      left: lineRect.left,
+      top: lineRect.top,
+      width: lineRect.width,
+      height: lineRect.height,
+    })))
+    setSelectionAction((current) => current ? {
+      ...current,
+      left: rect.left + rect.width / 2,
+      top: Math.max(12, rect.top - 14),
+    } : current)
+  }, [])
+
   const closeSelectionComposer = useCallback(() => {
     window.getSelection()?.removeAllRanges()
+    selectionRangeRef.current = null
+    setSelectionRects([])
     setSelectionAction(null)
     setSelectionComment("")
   }, [])
@@ -436,6 +471,16 @@ export function MessageBubble({
     onAskSelectedText?.(message.messageId, selectionAction.text)
     closeSelectionComposer()
   }, [closeSelectionComposer, message.messageId, onAskSelectedText, selectionAction?.text])
+
+  useEffect(() => {
+    if (!selectionAction) return
+    window.addEventListener("resize", refreshPersistentSelection)
+    window.addEventListener("scroll", refreshPersistentSelection, true)
+    return () => {
+      window.removeEventListener("resize", refreshPersistentSelection)
+      window.removeEventListener("scroll", refreshPersistentSelection, true)
+    }
+  }, [refreshPersistentSelection, selectionAction])
 
   useEffect(() => {
     if (isUser || !onAskSelectedText) return
@@ -579,6 +624,23 @@ export function MessageBubble({
               )}
               {!isUser && <RichContentPreview message={message} />}
             </div>
+            {selectionAction && selectionRects.length > 0 && createPortal(
+              <div className="pointer-events-none fixed inset-0 z-[9998]">
+                {selectionRects.map((rect, index) => (
+                  <span
+                    key={`${rect.left}-${rect.top}-${index}`}
+                    className="fixed rounded-[3px] bg-sky-400/35 ring-1 ring-sky-300/20"
+                    style={{
+                      left: rect.left,
+                      top: rect.top,
+                      width: rect.width,
+                      height: rect.height,
+                    }}
+                  />
+                ))}
+              </div>,
+              document.body,
+            )}
             {selectionAction && !isUser && onAskSelectedText && createPortal(
               <div
                 ref={selectionComposerRef}
