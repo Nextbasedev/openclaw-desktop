@@ -100,16 +100,6 @@ function AgentTab({
       <span className="min-w-0 truncate">
         {node.id === "root" ? "Main" : node.label}
       </span>
-      <span
-        className={cn(
-          "shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold tabular-nums",
-          node.id === "root"
-            ? "border border-white/10 bg-white/[0.04] text-foreground/55"
-            : COUNT_BADGE_COLORS[node.status],
-        )}
-      >
-        {node.calls.length}
-      </span>
     </button>
   )
 }
