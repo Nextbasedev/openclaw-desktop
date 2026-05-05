@@ -7,7 +7,7 @@ import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
-import { voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
+import { readVoiceSettings, voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
 function now() { return new Date().toISOString() }
 function state(store: Store): any {
@@ -269,7 +269,50 @@ function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttach
   }
 }
 
-function prepareMessageAndAttachments(message: string, raw: unknown): { message: string; attachments?: GatewayAttachment[] } {
+function apiKeyForProvider(cfg: any, provider: string): string {
+  const envVar = PROVIDER_API_KEY_ENV[provider]
+  if (!envVar) return ""
+  return String(cfg?.env?.vars?.[envVar] || process.env[envVar] || "").trim()
+}
+
+async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = readJson(openclawConfigPath())): Promise<string | null> {
+  if (!attachment.content) return null
+  const settings = readVoiceSettings(cfg)
+  if (settings.enabled === false) return null
+  const provider = settings.provider === "auto" ? "groq" : settings.provider
+  const apiKey = apiKeyForProvider(cfg, provider)
+  if (!apiKey) return null
+  if (provider !== "groq" && provider !== "openai") return null
+
+  const audio = attachment.encoding === "base64"
+    ? Buffer.from(attachment.content, "base64")
+    : Buffer.from(attachment.content, "utf8")
+  if (audio.length === 0) return null
+
+  const form = new FormData()
+  form.set("file", new Blob([audio], { type: attachment.mimeType || "audio/webm" }), attachment.name || "voice.webm")
+  form.set("model", settings.model || (provider === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-transcribe"))
+  if (settings.language) form.set("language", settings.language)
+
+  const endpoint = provider === "groq"
+    ? "https://api.groq.com/openai/v1/audio/transcriptions"
+    : "https://api.openai.com/v1/audio/transcriptions"
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  })
+  if (!response.ok) return null
+  const payload = await response.json().catch(() => null) as { text?: unknown; transcript?: unknown } | null
+  const text = typeof payload?.text === "string"
+    ? payload.text
+    : typeof payload?.transcript === "string"
+      ? payload.transcript
+      : ""
+  return text.trim() || null
+}
+
+async function prepareMessageAndAttachments(message: string, raw: unknown, cfg = readJson(openclawConfigPath())): Promise<{ message: string; attachments?: GatewayAttachment[] }> {
   if (!Array.isArray(raw) || raw.length === 0) return { message }
 
   const gatewayAttachments: GatewayAttachment[] = []
@@ -287,8 +330,21 @@ function prepareMessageAndAttachments(message: string, raw: unknown): { message:
     }
 
     if (attachment.mimeType && isAudioAttachment(attachment.mimeType) && attachment.content) {
-      gatewayAttachments.push(normalizeAudioAttachment(attachment))
       audioNames.push(attachment.name ?? "audio")
+      const transcript = await transcribeAudioAttachment(attachment, cfg).catch(() => null)
+      if (transcript) {
+        embedded.push(
+          `<attached-audio-transcript name="${attachment.name ?? "audio"}" mime="${attachment.mimeType}">\n${transcript}\n</attached-audio-transcript>`,
+        )
+      } else {
+        // Keep the raw audio in the RPC payload as a best-effort fallback for
+        // future gateway builds, but make the prompt explicit so the agent does
+        // not waste time looking for a local file path that was never stored.
+        gatewayAttachments.push(normalizeAudioAttachment(attachment))
+        embedded.push(
+          `[Audio transcription unavailable for ${attachment.name ?? "audio"}. The Desktop middleware received the file, but this gateway build may not consume raw audio attachments directly.]`,
+        )
+      }
       continue
     }
 
@@ -1286,7 +1342,7 @@ export function commandRoutes(store: Store) {
               const patched = await gw.request("sessions.patch", patch, 30_000)
               if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
             }
-            const prepared = prepareMessageAndAttachments(message, input.attachments)
+            const prepared = await prepareMessageAndAttachments(message, input.attachments)
             const res = await gw.request("chat.send", {
               sessionKey: key,
               message: prepared.message,
