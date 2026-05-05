@@ -1,11 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Reorder, useDragControls } from "framer-motion"
+import { Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { useLongPressDrag } from "@/hooks/useLongPressDrag"
+import { dragCursorHandlers } from "@/hooks/useDragCursor"
 import { MenuAction } from "./MenuAction"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { SortableTopicRow } from "./SortableTopicRow"
@@ -44,8 +44,6 @@ export function SortableProjectRow({
   onArchiveProject, onDeleteProject, onTopicSelect, onPinTopic, onRenameTopic, onArchiveTopic, onDeleteTopic, onTopicReorder,
   disableReorder,
 }: Props) {
-  const controls = useDragControls()
-  const longPress = useLongPressDrag(controls)
   const [menuOpen, setMenuOpen] = useState(false)
   const project = projects.find((p) => p.id === projectId)
   if (!project) return null
@@ -147,15 +145,13 @@ export function SortableProjectRow({
   return (
     <Reorder.Item
       value={projectId}
-      dragListener={false}
-      dragControls={controls}
       as="div"
       layout="position"
       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
       className="flex flex-col"
       style={{ position: "relative", boxShadow: "none" }}
       whileDrag={{ boxShadow: "none" }}
-      {...longPress}
+      {...dragCursorHandlers}
     >
       {rowContent}
     </Reorder.Item>

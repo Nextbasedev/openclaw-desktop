@@ -19,9 +19,14 @@ export function Footer({ className, onToggleTerminal }: FooterProps) {
   const isMac = platform === "macos"
   const modKey = isMac ? "⌘" : "Ctrl"
   const [modelDialogOpen, setModelDialogOpen] = useState(false)
-  const { models, currentModel } = useModels()
+  const { models, currentModel, reload } = useModels()
   const activeModel = models.find((m) => isActiveModel(currentModel, m))
   const modelLabel = activeModel?.name ?? currentModel ?? "Select model"
+
+  function handleModelDialogChange(open: boolean) {
+    setModelDialogOpen(open)
+    if (!open) reload()
+  }
 
   return (
     <footer
@@ -59,7 +64,7 @@ export function Footer({ className, onToggleTerminal }: FooterProps) {
         />
       </div>
 
-      <ModelSelector open={modelDialogOpen} onOpenChange={setModelDialogOpen} />
+      <ModelSelector open={modelDialogOpen} onOpenChange={handleModelDialogChange} />
     </footer>
   )
 }

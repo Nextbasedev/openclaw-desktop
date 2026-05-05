@@ -1,11 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Reorder, useDragControls } from "framer-motion"
+import { Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { useLongPressDrag } from "@/hooks/useLongPressDrag"
+import { dragCursorHandlers } from "@/hooks/useDragCursor"
 import { MenuAction } from "./MenuAction"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { formatCompactTime } from "@/utils/formatCompactTime"
@@ -24,8 +24,6 @@ type Props = {
 }
 
 export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick, onPin, onRename, onArchive, onDelete }: Props) {
-  const controls = useDragControls()
-  const longPress = useLongPressDrag(controls)
   const [menuOpen, setMenuOpen] = useState(false)
   const topic = topics.find((t) => t.id === topicId)
   if (!topic) return null
@@ -35,15 +33,14 @@ export function SortableTopicRow({ topicId, topics, isActive, isPinned, onClick,
   return (
     <Reorder.Item
       value={topicId}
-      dragListener={false}
-      dragControls={controls}
       as="div"
       layout="position"
       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
       className="group/row relative flex items-center rounded-md"
       style={{ position: "relative", boxShadow: "none" }}
       whileDrag={{ boxShadow: "none" }}
-      {...(!topic.pendingFork ? longPress : {})}
+      dragListener={!topic.pendingFork}
+      {...dragCursorHandlers}
     >
       <button
         onClick={topic.pendingFork ? undefined : onClick}

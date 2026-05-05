@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Reorder, useDragControls } from "framer-motion"
+import { Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import {
   Popover,
@@ -9,7 +9,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { useLongPressDrag } from "@/hooks/useLongPressDrag"
+import { dragCursorHandlers } from "@/hooks/useDragCursor"
 import { MenuAction } from "../ProjectsSection/MenuAction"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { formatCompactTime } from "@/utils/formatCompactTime"
@@ -41,8 +41,6 @@ export function ChatRow({
   onDelete,
   disableReorder,
 }: Props) {
-  const controls = useDragControls()
-  const longPress = useLongPressDrag(controls)
   const [menuOpen, setMenuOpen] = useState(false)
 
   const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.updatedAt)
@@ -176,8 +174,6 @@ export function ChatRow({
   return (
     <Reorder.Item
       value={chatId}
-      dragListener={false}
-      dragControls={controls}
       as="div"
       layout="position"
       transition={{
@@ -190,7 +186,8 @@ export function ChatRow({
       className="group/row relative flex min-w-0 items-center rounded-md"
       style={{ position: "relative", boxShadow: "none" }}
       whileDrag={{ boxShadow: "none" }}
-      {...(!chat.pendingFork ? longPress : {})}
+      dragListener={!chat.pendingFork}
+      {...dragCursorHandlers}
     >
       {rowContent}
     </Reorder.Item>

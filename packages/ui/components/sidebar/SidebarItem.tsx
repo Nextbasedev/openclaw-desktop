@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
-import { Reorder, useDragControls } from "framer-motion"
+import { Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import { dragCursorHandlers } from "@/hooks/useDragCursor"
 
 export type SidebarNavItem = {
   id: string
@@ -27,7 +28,6 @@ export function SidebarItem({
   collapsed = false,
   draggable = false,
 }: SidebarItemProps) {
-  const dragControls = useDragControls()
   const interactiveClassName = cn(
     "group flex w-full min-w-0 items-center rounded-md font-normal",
     "gap-2.5 text-left text-[13px]",
@@ -82,13 +82,11 @@ export function SidebarItem({
     <Reorder.Item
       value={item.id}
       as="div"
-      dragControls={dragControls}
-      dragListener={false}
       layout="position"
       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
       style={{ position: "relative", boxShadow: "none", cursor: "grab", touchAction: "none" }}
-      whileDrag={{ boxShadow: "none", cursor: "grabbing" }}
-      onPointerDown={(event) => dragControls.start(event)}
+      whileDrag={{ boxShadow: "none" }}
+      {...dragCursorHandlers}
     >
       {btn}
     </Reorder.Item>
