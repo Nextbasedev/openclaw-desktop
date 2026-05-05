@@ -106,7 +106,9 @@
       "PowerShell(pnpm typecheck *)",
       "PowerShell(pnpm *)",
       "Skill(schedule)",
-      "PowerShell(Get-NetTCPConnection *)"
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(grep -n \"key=\\\\`\" packages/ui/components/AppPage.tsx)",
+      "Bash(npx -p typescript tsc --noEmit --pretty false)"
     ]
   }
 }

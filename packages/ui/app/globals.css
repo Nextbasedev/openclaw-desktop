@@ -525,11 +525,70 @@ body {
   }
 }
 
+/* ─── ChatBox Border Glow ─── */
+@property --glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes chatbox-glow-spin {
+  0% {
+    --glow-angle: 0deg;
+  }
+
+  100% {
+    --glow-angle: 360deg;
+  }
+}
+
+@keyframes chatbox-glow-fade {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.chatbox-glow {
+  position: relative;
+}
+
+.chatbox-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 25px;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--glow-angle),
+    transparent 0%,
+    rgba(56, 189, 248, 0.5) 10%,
+    rgba(168, 85, 247, 0.4) 20%,
+    rgba(56, 189, 248, 0.5) 30%,
+    transparent 40%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation:
+    chatbox-glow-spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards,
+    chatbox-glow-fade 0.6s ease-out 1.2s forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .streaming-text,
   .streaming-text> :last-child::after {
     animation: none;
     transition: none;
+  }
+
+  .chatbox-glow::before {
+    animation: none;
+    opacity: 0;
   }
 }

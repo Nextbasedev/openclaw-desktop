@@ -44,6 +44,7 @@ type Props = {
   onCancelReply?: () => void
   onModelSelect?: (modelId: string) => void | Promise<void>
   modelSwitching?: boolean
+  glowOnMount?: boolean
 }
 
 export function ChatBox({
@@ -57,6 +58,7 @@ export function ChatBox({
   onCancelReply,
   onModelSelect,
   modelSwitching = false,
+  glowOnMount = false,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -338,6 +340,7 @@ export function ChatBox({
         onDrop={handleDrop}
         className={cn(
           "relative flex flex-col rounded-[24px] border bg-white/[0.04] shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
+          glowOnMount && "chatbox-glow",
           isFocused
             ? "border-white/18 ring-1 ring-white/10"
             : "border-white/10",
@@ -464,7 +467,7 @@ export function ChatBox({
                 void handleSend()
               }
             }}
-            placeholder="Message... (type / for commands)"
+            placeholder="Message... (type / for commands and @ for skills)"
             rows={1}
             disabled={isComposerDisabled}
             className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
