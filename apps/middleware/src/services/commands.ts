@@ -235,8 +235,19 @@ function isTextAttachment(mimeType: string): boolean {
   return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
 }
 
-function isAudioAttachment(mimeType: string): boolean {
-  return mimeType.startsWith("audio/")
+function isVoiceWebmAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  const name = String(attachment.name || "").toLowerCase()
+  return mimeType === "video/webm" && /^voice-.*\.webm$/.test(name)
+}
+
+function isAudioAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  return mimeType.startsWith("audio/") || isVoiceWebmAttachment(attachment)
+}
+
+function audioMimeTypeForAttachment(attachment: ChatSendAttachment): string {
+  return isVoiceWebmAttachment(attachment) ? "audio/webm" : attachment.mimeType
 }
 
 function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
@@ -262,7 +273,7 @@ function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttach
   return {
     type: "audio",
     fileName: attachment.name,
-    mimeType: attachment.mimeType,
+    mimeType: audioMimeTypeForAttachment(attachment),
     content: attachment.encoding === "base64"
       ? attachment.content
       : Buffer.from(attachment.content ?? "", "utf8").toString("base64"),
@@ -290,7 +301,7 @@ async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = r
   if (audio.length === 0) return null
 
   const form = new FormData()
-  form.set("file", new Blob([audio], { type: attachment.mimeType || "audio/webm" }), attachment.name || "voice.webm")
+  form.set("file", new Blob([audio], { type: audioMimeTypeForAttachment(attachment) || "audio/webm" }), attachment.name || "voice.webm")
   form.set("model", settings.model || (provider === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-transcribe"))
   if (settings.language) form.set("language", settings.language)
 
@@ -329,12 +340,12 @@ async function prepareMessageAndAttachments(message: string, raw: unknown, cfg =
       continue
     }
 
-    if (attachment.mimeType && isAudioAttachment(attachment.mimeType) && attachment.content) {
+    if (attachment.mimeType && isAudioAttachment(attachment) && attachment.content) {
       audioNames.push(attachment.name ?? "audio")
       const transcript = await transcribeAudioAttachment(attachment, cfg).catch(() => null)
       if (transcript) {
         embedded.push(
-          `<attached-audio-transcript name="${attachment.name ?? "audio"}" mime="${attachment.mimeType}">\n${transcript}\n</attached-audio-transcript>`,
+          `<attached-audio-transcript name="${attachment.name ?? "audio"}" mime="${audioMimeTypeForAttachment(attachment)}">\n${transcript}\n</attached-audio-transcript>`,
         )
       } else {
         // Keep the raw audio in the RPC payload as a best-effort fallback for
