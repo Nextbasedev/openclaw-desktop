@@ -61,6 +61,35 @@ describe("chat attachment preparation", () => {
     expect(prepared.attachments).toBeUndefined()
   })
 
+  it("treats Desktop voice webm blobs classified as video/webm as audio", async () => {
+    const audioBase64 = Buffer.from("fake webm audio").toString("base64")
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "video webm voice transcript" }),
+    } as Response)
+
+    const prepared = await prepareMessageAndAttachmentsForTest("please transcribe", [
+      {
+        name: "voice-2026-05-05T04-47-57-621Z.webm",
+        mimeType: "video/webm",
+        content: audioBase64,
+        encoding: "base64",
+        size: 15,
+      },
+    ], {
+      env: { vars: { GROQ_API_KEY: "test-key" } },
+      tools: { media: { audio: { enabled: true, models: [{ provider: "groq", model: "whisper-large-v3-turbo" }] } } },
+    })
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    const file = body.get("file") as File
+    expect(file.type).toBe("audio/webm")
+    expect(prepared.message).toContain("[Attached audio: voice-2026-05-05T04-47-57-621Z.webm]")
+    expect(prepared.message).toContain("mime=\"audio/webm\"")
+    expect(prepared.message).toContain("video webm voice transcript")
+    expect(prepared.attachments).toBeUndefined()
+  })
+
   it("keeps unsupported binary attachments as clear notes", async () => {
     const prepared = await prepareMessageAndAttachmentsForTest("inspect", [
       {

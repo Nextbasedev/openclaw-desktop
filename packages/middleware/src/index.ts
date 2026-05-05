@@ -774,8 +774,19 @@ function isTextAttachment(mimeType: string): boolean {
   return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
 }
 
-function isAudioAttachment(mimeType: string): boolean {
-  return mimeType.startsWith("audio/")
+function isVoiceWebmAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  const name = String(attachment.name || "").toLowerCase()
+  return mimeType === "video/webm" && /^voice-.*\.webm$/.test(name)
+}
+
+function isAudioAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  return mimeType.startsWith("audio/") || isVoiceWebmAttachment(attachment)
+}
+
+function audioMimeTypeForAttachment(attachment: ChatSendAttachment): string {
+  return isVoiceWebmAttachment(attachment) ? "audio/webm" : attachment.mimeType
 }
 
 function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
@@ -805,7 +816,7 @@ function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttach
   return {
     type: "audio",
     fileName: attachment.name,
-    mimeType: attachment.mimeType,
+    mimeType: audioMimeTypeForAttachment(attachment),
     content,
   }
 }
@@ -826,7 +837,7 @@ function prepareMessageAndAttachments(input: { text: string; attachments?: ChatS
       continue
     }
 
-    if (isAudioAttachment(attachment.mimeType) && attachment.content) {
+    if (isAudioAttachment(attachment) && attachment.content) {
       gatewayAttachments.push(normalizeAudioAttachment(attachment))
       audioNames.push(attachment.name)
       continue
