@@ -42,12 +42,18 @@ const FOOTER_ITEMS: Array<{ id: SettingSection; label: string; icon: React.Eleme
 
 type SettingsDashboardProps = {
   onBack?: () => void
+  initialSection?: SettingSection
 }
 
-export function SettingsDashboard({ onBack }: SettingsDashboardProps) {
-  const [activeSection, setActiveSection] = React.useState<SettingSection>("config")
+export function SettingsDashboard({ onBack, initialSection = "config" }: SettingsDashboardProps) {
+  const [activeSection, setActiveSection] = React.useState<SettingSection>(initialSection)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
+
+  React.useEffect(() => {
+    setActiveSection(initialSection)
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [initialSection])
 
   function handleSidebarClick(id: SettingSection) {
     setActiveSection(id)

@@ -286,6 +286,18 @@ function apiKeyForProvider(cfg: any, provider: string): string {
   return String(cfg?.env?.vars?.[envVar] || process.env[envVar] || "").trim()
 }
 
+function voiceSettingsPayloadWithStatus() {
+  const cfg = readJson(openclawConfigPath())
+  const payload = voiceSettingsPayload()
+  const provider = payload.settings.provider
+  return {
+    ...payload,
+    status: {
+      apiKeyConfigured: provider !== "auto" && Boolean(apiKeyForProvider(cfg, provider)),
+    },
+  }
+}
+
 async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = readJson(openclawConfigPath())): Promise<string | null> {
   if (!attachment.content) return null
   const settings = readVoiceSettings(cfg)
@@ -1238,10 +1250,22 @@ export function commandRoutes(store: Store) {
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
         }
         case "middleware_voice_settings_get": {
-          return voiceSettingsPayload()
+          return voiceSettingsPayloadWithStatus()
         }
         case "middleware_voice_settings_set": {
-          return { settings: writeVoiceSettings(input), options: voiceSettingsPayload().options }
+          writeVoiceSettings(input)
+          return voiceSettingsPayloadWithStatus()
+        }
+        case "middleware_voice_transcribe": {
+          const attachment = input.attachment as ChatSendAttachment | undefined
+          if (!attachment?.content || !attachment.mimeType || !isAudioAttachment(attachment)) {
+            throw new HttpError(400, "audio attachment is required", "BAD_REQUEST")
+          }
+          const transcript = await transcribeAudioAttachment(attachment)
+          if (!transcript) {
+            throw new HttpError(400, "Voice transcription is not configured. Add a Voice provider/API key in Settings → Voice.", "VOICE_TRANSCRIPTION_UNAVAILABLE")
+          }
+          return { transcript }
         }
         case "middleware_usage": {
           const requestedDays = usageNumber(input.days) || 30
