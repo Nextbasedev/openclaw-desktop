@@ -820,8 +820,6 @@ export function ChatView({
   const lastTwoAssistantIds = new Set(
     assistantMessages.slice(-2).map((m) => m.messageId),
   )
-  const lastAssistantId = assistantMessages.at(-1)?.messageId
-
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
     tools.filter((t) => t.tool !== "sessions_spawn" && t.tool !== "subagents" && t.tool !== "sessions_yield")
 
@@ -842,6 +840,27 @@ export function ChatView({
       }
     }
     return matched
+  }
+
+  const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
+  const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
+  let nearestUserId: string | null = null
+
+  for (const msg of renderedMessages) {
+    if (msg.role === "user") {
+      nearestUserId = msg.messageId
+      continue
+    }
+
+    const msgSubagents = getSubagentsForMessage(msg.toolCalls)
+    if (msgSubagents.length === 0) continue
+
+    if (nearestUserId) {
+      const existing = subagentsByTriggerUserId.get(nearestUserId) ?? []
+      subagentsByTriggerUserId.set(nearestUserId, [...existing, ...msgSubagents])
+    } else {
+      orphanSubagentsByAssistantId.set(msg.messageId, msgSubagents)
+    }
   }
 
   return (
@@ -921,12 +940,17 @@ export function ChatView({
                 : undefined
               const filteredPending = toolCallsWithoutSpawn(pendingTools)
 
-              const msgSubagents = getSubagentsForMessage(msg.toolCalls)
-              const liveSubagents = (isLast && isGenerating)
+              const anchoredUserSubagents = msg.role === "user"
+                ? subagentsByTriggerUserId.get(msg.messageId) ?? []
+                : []
+              const orphanAssistantSubagents = msg.role === "assistant"
+                ? orphanSubagentsByAssistantId.get(msg.messageId) ?? []
+                : []
+              const liveSubagents = (msg.role === "user" && isLast && isGenerating)
                 ? getSubagentsForMessage(pendingTools)
                 : []
-              const allSubagents = msgSubagents.length > 0
-                ? msgSubagents
+              const userSubagents = anchoredUserSubagents.length > 0
+                ? anchoredUserSubagents
                 : liveSubagents
 
               return (
@@ -953,10 +977,10 @@ export function ChatView({
                       />
                     </div>
                   )}
-                  {msg.role === "assistant" && allSubagents.length > 0 && (
+                  {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
                     <div className="mb-2">
                       <SubagentCard
-                        subagents={allSubagents}
+                        subagents={orphanAssistantSubagents}
                         onOpen={openSubagent}
                       />
                     </div>
@@ -983,10 +1007,10 @@ export function ChatView({
                       onPopoverOpenChange={(open) => setActivePopoverId(open ? msg.messageId : null)}
                     />
                   )}
-                  {msg.role === "user" && allSubagents.length > 0 && (
+                  {msg.role === "user" && userSubagents.length > 0 && (
                     <div className="mt-3">
                       <SubagentCard
-                        subagents={allSubagents}
+                        subagents={userSubagents}
                         onOpen={openSubagent}
                       />
                     </div>
