@@ -44,6 +44,7 @@ type Props = {
   onCancelReply?: () => void
   onModelSelect?: (modelId: string) => void | Promise<void>
   modelSwitching?: boolean
+  glowOnMount?: boolean
 }
 
 export function ChatBox({
@@ -57,6 +58,7 @@ export function ChatBox({
   onCancelReply,
   onModelSelect,
   modelSwitching = false,
+  glowOnMount = false,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -339,10 +341,11 @@ export function ChatBox({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
-          "relative flex flex-col rounded-2xl border bg-card transition-all",
+          "relative flex flex-col rounded-[24px] border bg-white/[0.04] shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
+          glowOnMount && "chatbox-glow",
           isFocused
-            ? "border-foreground/25 shadow-[0_0_0_1px_hsl(var(--border))] ring-1 ring-ring/10"
-            : "border-border/50",
+            ? "border-white/18 ring-1 ring-white/10"
+            : "border-white/10",
           isDragOver && "border-primary/50 ring-2 ring-primary/20",
         )}
       >
@@ -362,7 +365,7 @@ export function ChatBox({
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="overflow-hidden"
             >
-              <div className="flex items-start gap-2 border-b border-border/30 px-3 pb-2 pt-2.5 bg-[#252529] rounded-t-xl">
+              <div className="flex items-start gap-2 rounded-t-[22px] border-b border-white/8 bg-white/[0.03] px-3 pb-2 pt-2.5">
                 <div className="min-w-0 flex-1">
                   <span className="text-[11px] font-medium text-muted-foreground/70">
                     {replyTo.role === "user" ? "You" : "Assistant"}
@@ -466,7 +469,7 @@ export function ChatBox({
                 void handleSend()
               }
             }}
-            placeholder="Message... (type / for commands)"
+            placeholder="Message... (type / for commands and @ for skills)"
             rows={1}
             disabled={isComposerDisabled}
             className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"

@@ -616,7 +616,7 @@ export function MessageBubble({
           </div>
         ) : (
           !hideAssistantActions && (
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-0">
               {formatTime(message.createdAt) && (
                 <span className="text-[10px] text-muted-foreground/40">
                   {formatTime(message.createdAt)}

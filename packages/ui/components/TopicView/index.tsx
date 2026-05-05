@@ -116,7 +116,7 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
     return (
       <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
         <AnimatedGreeting />
-        <ChatBox onSend={handleFirstMessage} disabled={sending} />
+        <ChatBox onSend={handleFirstMessage} disabled={sending} glowOnMount />
         {sendError && (
           <div className="mx-auto w-full max-w-3xl px-4">
             <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-center">

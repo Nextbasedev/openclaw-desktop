@@ -1,7 +1,7 @@
 "use client"
 
 import { randomId } from "@/lib/id"
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, useReducer } from "react"
 import { invoke } from "@/lib/ipc"
 import { Header } from "@/common/Header"
 import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
@@ -35,9 +35,23 @@ import { useTheme } from "next-themes"
 import { AppLoadingSkeleton } from "@/components/Skeleton/AppLoadingSkeleton"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
-import { VscLayoutSidebarRightOff } from "react-icons/vsc"
+import { InspectorView, type InspectorTabId } from "@/components/inspector/InspectorView"
+import { cn } from "@/lib/utils"
+import {
+  editorGroupsReducer,
+  createInitialState,
+  getFocusedGroup,
+  findTabInGroups,
+} from "@/lib/editorGroups"
+import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
+const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
+  "git",
+  "workspace",
+  "activity",
+  "terminal",
+])
 const CRON_SESSION_TARGETS = new Set(["isolated", "main", "current"])
 
 function isRealChatSessionKey(sessionKey: string | null | undefined): sessionKey is string {
@@ -46,6 +60,12 @@ function isRealChatSessionKey(sessionKey: string | null | undefined): sessionKey
 
 function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
   return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
+}
+
+function isUndecidedChatTitle(value: string | null | undefined): boolean {
+  if (!value) return true
+  const normalized = value.trim().toLowerCase()
+  return normalized === "" || normalized === "opening chat..." || normalized === "opening chat…"
 }
 
 type CronConversationTarget = {
@@ -59,6 +79,7 @@ type CronConversationTarget = {
 type ParsedRoute =
   | { kind: "chat"; chatId: string }
   | { kind: "topic"; projectId: string; topicId: string }
+  | { kind: "inspector"; tab: InspectorTabId }
   | { kind: "tab"; tab: string }
   | { kind: "home" }
 
@@ -68,16 +89,45 @@ function parseRoute(pathname: string): ParsedRoute {
     if (TABS.has(segments[0])) return { kind: "tab", tab: segments[0] }
     return { kind: "chat", chatId: segments[0] }
   }
+  if (
+    segments.length === 2 &&
+    segments[0] === "inspector" &&
+    INSPECTOR_ROUTE_TABS.has(segments[1] as InspectorTabId)
+  ) {
+    return { kind: "inspector", tab: segments[1] as InspectorTabId }
+  }
   if (segments.length === 2 && segments[0] && segments[1]) {
     return { kind: "topic", projectId: segments[0], topicId: segments[1] }
   }
   return { kind: "home" }
 }
 
+function isSettingsRoute(pathname: string): boolean {
+  const route = parseRoute(pathname)
+  return route.kind === "tab" && route.tab === "settings"
+}
+
+function isNotificationsRoute(pathname: string): boolean {
+  const route = parseRoute(pathname)
+  return route.kind === "tab" && route.tab === "notifications"
+}
+
+function isInspectorRoute(pathname: string): boolean {
+  return parseRoute(pathname).kind === "inspector"
+}
+
+function fallbackPathForTab(tab: string): string {
+  if (tab === "skill") return "/skill"
+  if (tab === "connect") return "/connect"
+  if (tab === "notifications") return "/notifications"
+  return "/"
+}
+
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 220
 const SIDEBAR_COLLAPSED = 56
+const INSPECTOR_DEFAULT_WIDTH = 460
 
 export default function Page() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
@@ -153,6 +203,7 @@ function AppShell({
   const [logsOpen, setLogsOpen] = useState(false)
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
+  const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   )
@@ -160,12 +211,31 @@ function AppShell({
   const [connectAutoOpenEnabled, setConnectAutoOpenEnabled] = useState(() =>
     Boolean(initialConnect),
   )
+  const [fullWindowInspectorTab, setFullWindowInspectorTab] =
+    useState<InspectorTabId>("activity")
+  const [fullScreenInspectorMounted, setFullScreenInspectorMounted] = useState(() => {
+    if (typeof window === "undefined") return false
+    return parseRoute(getRoutePath()).kind === "inspector"
+  })
+  const [fullScreenInspectorVisible, setFullScreenInspectorVisible] = useState(() => {
+    if (typeof window === "undefined") return false
+    return parseRoute(getRoutePath()).kind === "inspector"
+  })
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window === "undefined") return initialConnect ? "connect" : "chat"
     const route = parseRoute(getRoutePath())
+    if (route.kind === "inspector") return "inspector"
     if (route.kind === "tab") return route.tab
     return initialConnect ? "connect" : "chat"
   })
+  const effectiveActiveTab =
+    activeTab === "connect" &&
+    !connectAutoOpenEnabled &&
+    typeof window !== "undefined" &&
+    getRoutePath() === "/"
+      ? "chat"
+      : activeTab
+  const fullScreenInspectorOpen = activeTab === "inspector"
 
   const prevTabRef = useRef("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
@@ -249,6 +319,11 @@ function AppShell({
   }, [activeSessionKey, activeSessionTitle])
 
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
+  const [editorGroups, dispatchGroups] = useReducer(
+    editorGroupsReducer,
+    undefined,
+    () => createInitialState(),
+  )
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
   const activeChatRef = useRef<ActiveChat | null>(null)
   const resolvedChatCacheRef = useRef(new Map<
@@ -256,6 +331,70 @@ function AppShell({
     { chat: ActiveChat; sessionKey: string; title: string }
   >())
   activeChatRef.current = activeChat
+
+  const focusedGroup = getFocusedGroup(editorGroups)
+  const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
+  const totalNonDraftTabs = allTabs.filter((t) => t.kind !== "draft").length
+
+  useEffect(() => {
+    if (effectiveActiveTab !== "chat") return
+
+    if (activeTopic) {
+      const tabId = `topic:${activeTopic.projectId}:${activeTopic.id}`
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: {
+          id: tabId,
+          title: activeTopic.name,
+          subtitle: activeTopic.projectName,
+          kind: "topic",
+        },
+      })
+      return
+    }
+
+    if (activeChat) {
+      const tabId = `chat:${activeChat.id}`
+      const title = isUndecidedChatTitle(activeChat.name) ? "New Chat" : activeChat.name
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: {
+          id: tabId,
+          title,
+          subtitle: "Chat",
+          kind: "chat",
+        },
+      })
+      return
+    }
+
+    const hasDraft = allTabs.some((t) => t.id === "draft")
+    if (!hasDraft) {
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: { id: "draft", title: "New Chat", subtitle: "Chat", kind: "draft" },
+      })
+    } else {
+      dispatchGroups({
+        type: "SET_ACTIVE_TAB",
+        groupId: editorGroups.focusedGroupId,
+        tabId: "draft",
+      })
+    }
+  }, [activeChat, activeTopic, effectiveActiveTab])
+
+  useEffect(() => {
+    if (!activeSessionKey || !activeChat) return
+    dispatchGroups({
+      type: "SET_SESSION_DATA",
+      groupId: editorGroups.focusedGroupId,
+      sessionData: {
+        chat: activeChat,
+        sessionKey: activeSessionKey,
+        title: activeSessionTitle ?? activeChat.name,
+      },
+    })
+  }, [activeSessionKey, activeChat, activeSessionTitle, editorGroups.focusedGroupId])
 
   type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true; attachments?: Array<{ name: string; mimeType: string; content?: string; size?: number }> }
   const [initialMessages, setInitialMessages] = useState<OptimisticMsg[] | undefined>()
@@ -268,6 +407,7 @@ function AppShell({
   const isResizing = useRef(false)
   const routeRequestRef = useRef(0)
   const previousContentPathRef = useRef("/")
+  const settingsPushedRef = useRef(false)
 
   const { resolvedTheme, setTheme } = useTheme()
 
@@ -305,6 +445,14 @@ function AppShell({
 
   const activateRoute = useCallback(async (route: ParsedRoute) => {
     routeRequestRef.current += 1
+
+    if (route.kind === "inspector") {
+      setPendingPrompt(null)
+      setComposerError(null)
+      setFullWindowInspectorTab(route.tab)
+      setActiveTab("inspector")
+      return
+    }
 
     if (route.kind === "tab") {
       setPendingPrompt(null)
@@ -490,18 +638,25 @@ function AppShell({
   const openSettings = useCallback(() => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
-    previousContentPathRef.current = getRoutePath()
+    const currentPath = getRoutePath()
+    if (!isSettingsRoute(currentPath)) {
+      previousContentPathRef.current = currentPath
+    }
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
     setActiveTab("settings")
     clearConversationState()
+    settingsPushedRef.current = true
     window.history.pushState(null, "", routeUrl("/settings"))
   }, [activeTab, clearConversationState])
 
   const openNotifications = useCallback(() => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
-    previousContentPathRef.current = getRoutePath()
+    const currentPath = getRoutePath()
+    if (!isNotificationsRoute(currentPath)) {
+      previousContentPathRef.current = currentPath
+    }
     prevTabRef.current = activeTab === "notifications" ? "chat" : activeTab
     setComposerError(null)
     setActiveTab("notifications")
@@ -509,9 +664,40 @@ function AppShell({
     window.history.pushState(null, "", routeUrl("/notifications"))
   }, [activeTab, clearConversationState])
 
+  const openInspectorFullWindow = useCallback((tab: InspectorTabId) => {
+    setConnectAutoOpenEnabled(false)
+    routeRequestRef.current += 1
+    const currentPath = getRoutePath()
+    if (!isInspectorRoute(currentPath)) {
+      previousContentPathRef.current = currentPath
+    }
+    prevTabRef.current = activeTab === "inspector" ? "chat" : activeTab
+    setComposerError(null)
+    setFullWindowInspectorTab(tab)
+    setActiveTab("inspector")
+    window.history.pushState(null, "", routeUrl(`/inspector/${tab}`))
+  }, [activeTab])
+
+  const handleInspectorTabChange = useCallback((tab: InspectorTabId) => {
+    setFullWindowInspectorTab(tab)
+    window.history.replaceState(null, "", routeUrl(`/inspector/${tab}`))
+  }, [])
+
   const handleSettingsBack = useCallback(() => {
-    const url = previousContentPathRef.current || "/"
-    window.history.pushState(null, "", routeUrl(url))
+    if (settingsPushedRef.current) {
+      settingsPushedRef.current = false
+      window.history.back()
+      return
+    }
+    const previousPath = previousContentPathRef.current
+    const url =
+      previousPath &&
+      !isSettingsRoute(previousPath) &&
+      !isNotificationsRoute(previousPath)
+        ? previousPath
+        : fallbackPathForTab(prevTabRef.current)
+
+    window.history.replaceState(null, "", routeUrl(url))
     void activateRoute(parseRoute(url))
   }, [activateRoute])
   const toggleTheme = useCallback(() => {
@@ -784,6 +970,233 @@ function AppShell({
     clearConversationState()
     window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState])
+
+  const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
+
+  useEffect(() => {
+    if (activeTopic) {
+      const tabId = `topic:${activeTopic.projectId}:${activeTopic.id}`
+      tabDataRef.current.set(tabId, { topic: activeTopic })
+    }
+    if (activeChat) {
+      const tabId = `chat:${activeChat.id}`
+      tabDataRef.current.set(tabId, { chat: activeChat })
+    }
+  }, [activeChat, activeTopic])
+
+  const switchToGroupSession = useCallback((groupId: "group-1" | "group-2") => {
+    if (activeSessionKey && activeChat) {
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: editorGroups.focusedGroupId,
+        sessionData: {
+          chat: activeChat,
+          sessionKey: activeSessionKey,
+          title: activeSessionTitle ?? activeChat.name,
+        },
+      })
+    }
+    dispatchGroups({ type: "SET_FOCUS", groupId })
+
+    const targetGroup = editorGroups.groups.find((g) => g.id === groupId)
+    if (targetGroup?.sessionData) {
+      setActiveTopic(null)
+      setActiveChat(targetGroup.sessionData.chat)
+      setActiveSessionKey(targetGroup.sessionData.sessionKey)
+      setActiveSessionTitle(targetGroup.sessionData.title)
+      setInitialMessages(undefined)
+      setPendingPrompt(null)
+      setComposerError(null)
+      window.history.replaceState(
+        null,
+        "",
+        routeUrl(`/${targetGroup.sessionData.chat.id}`),
+      )
+    }
+  }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
+
+  const handleEditorTabSelect = useCallback((groupId: "group-1" | "group-2", tabId: string) => {
+    dispatchGroups({ type: "SET_ACTIVE_TAB", groupId, tabId })
+
+    if (groupId !== editorGroups.focusedGroupId) {
+      switchToGroupSession(groupId)
+      return
+    }
+
+    if (tabId === focusedGroup.activeTabId) return
+
+    const data = tabDataRef.current.get(tabId)
+    if (tabId === "draft") {
+      handleNewChat()
+      return
+    }
+    if (data?.topic) {
+      handleTopicSelect(data.topic)
+      return
+    }
+    if (data?.chat) {
+      const cached = resolvedChatCacheRef.current.get(data.chat.id)
+      if (cached) {
+        setActiveTopic(null)
+        setActiveChat(cached.chat)
+        setActiveSessionKey(cached.sessionKey)
+        setActiveSessionTitle(cached.title)
+        setInitialMessages(undefined)
+        setPendingPrompt(null)
+        setComposerError(null)
+        window.history.replaceState(null, "", routeUrl(`/${cached.chat.id}`))
+      } else {
+        void handleChatSelect(data.chat)
+      }
+    }
+  }, [editorGroups, focusedGroup.activeTabId, switchToGroupSession, handleChatSelect, handleNewChat, handleTopicSelect])
+
+  const handleEditorTabClose = useCallback((tabId: string) => {
+    const location = findTabInGroups(editorGroups, tabId)
+    if (!location) return
+
+    const isSplit = editorGroups.groups.length > 1
+    const isLastInGroup = location.group.tabs.filter((t) => t.id !== tabId).length === 0
+    const isFocusedActive =
+      location.group.id === editorGroups.focusedGroupId &&
+      location.group.activeTabId === tabId
+
+    dispatchGroups({ type: "REMOVE_TAB", tabId })
+
+    if (isSplit && isLastInGroup) {
+      const otherGroup = editorGroups.groups.find((g) => g.id !== location.group.id)
+      if (otherGroup?.sessionData) {
+        setActiveTopic(null)
+        setActiveChat(otherGroup.sessionData.chat)
+        setActiveSessionKey(otherGroup.sessionData.sessionKey)
+        setActiveSessionTitle(otherGroup.sessionData.title)
+        setInitialMessages(undefined)
+        setPendingPrompt(null)
+        setComposerError(null)
+        window.history.replaceState(
+          null,
+          "",
+          routeUrl(`/${otherGroup.sessionData.chat.id}`),
+        )
+      }
+      return
+    }
+
+    if (!isFocusedActive) return
+
+    const remaining = location.group.tabs.filter((t) => t.id !== tabId)
+    const fallback = remaining[remaining.length - 1]
+    if (!fallback || fallback.kind === "draft") {
+      handleNewChat()
+      return
+    }
+    const data = tabDataRef.current.get(fallback.id)
+    if (data?.topic) {
+      handleTopicSelect(data.topic)
+      return
+    }
+    if (data?.chat) {
+      const cached = resolvedChatCacheRef.current.get(data.chat.id)
+      if (cached) {
+        setActiveTopic(null)
+        setActiveChat(cached.chat)
+        setActiveSessionKey(cached.sessionKey)
+        setActiveSessionTitle(cached.title)
+        setInitialMessages(undefined)
+        setPendingPrompt(null)
+        setComposerError(null)
+        window.history.replaceState(null, "", routeUrl(`/${cached.chat.id}`))
+      } else {
+        void handleChatSelect(data.chat)
+      }
+    }
+  }, [editorGroups, handleChatSelect, handleNewChat, handleTopicSelect])
+
+  const handleFocusGroup = useCallback((groupId: "group-1" | "group-2") => {
+    if (groupId === editorGroups.focusedGroupId) return
+    switchToGroupSession(groupId)
+  }, [editorGroups.focusedGroupId, switchToGroupSession])
+
+  const handleToggleSplit = useCallback(() => {
+    if (editorGroups.groups.length > 1) {
+      const keepGroup = editorGroups.groups.find((g) => g.id === "group-1")
+      const keepSession = keepGroup?.sessionData
+      dispatchGroups({ type: "CLOSE_GROUP", groupId: "group-2" })
+      if (keepSession) {
+        setActiveTopic(null)
+        setActiveChat(keepSession.chat)
+        setActiveSessionKey(keepSession.sessionKey)
+        setActiveSessionTitle(keepSession.title)
+        setInitialMessages(undefined)
+        setPendingPrompt(null)
+        setComposerError(null)
+        window.history.replaceState(
+          null,
+          "",
+          routeUrl(`/${keepSession.chat.id}`),
+        )
+      }
+      return
+    }
+
+    const focused = getFocusedGroup(editorGroups)
+    if (activeSessionKey && activeChat) {
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: focused.id,
+        sessionData: {
+          chat: activeChat,
+          sessionKey: activeSessionKey,
+          title: activeSessionTitle ?? activeChat.name,
+        },
+      })
+    }
+
+    const otherTab = focused.tabs.find(
+      (tab) => tab.id !== focused.activeTabId && tab.kind !== "draft",
+    )
+    if (!otherTab) return
+
+    const data = tabDataRef.current.get(otherTab.id)
+    if (data?.chat) {
+      const cached = resolvedChatCacheRef.current.get(data.chat.id)
+      if (cached) {
+        dispatchGroups({
+          type: "SPLIT_TAB",
+          tabId: otherTab.id,
+          sessionData: cached,
+        })
+        setActiveTopic(null)
+        setActiveChat(cached.chat)
+        setActiveSessionKey(cached.sessionKey)
+        setActiveSessionTitle(cached.title)
+        setInitialMessages(undefined)
+        setPendingPrompt(null)
+        setComposerError(null)
+      } else {
+        dispatchGroups({ type: "SPLIT_TAB", tabId: otherTab.id, sessionData: null })
+        ensureChatSession(data.chat)
+          .then((resolved) => {
+            resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
+            dispatchGroups({
+              type: "SET_SESSION_DATA",
+              groupId: "group-2",
+              sessionData: resolved,
+            })
+            setActiveTopic(null)
+            setActiveChat(resolved.chat)
+            setActiveSessionKey(resolved.sessionKey)
+            setActiveSessionTitle(resolved.title)
+            setInitialMessages(undefined)
+            setPendingPrompt(null)
+            setComposerError(null)
+          })
+          .catch(() => {})
+      }
+    } else {
+      dispatchGroups({ type: "SPLIT_TAB", tabId: otherTab.id, sessionData: null })
+    }
+  }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
 
   const handleSessionNavigate = useCallback(async (sessionKey?: string) => {
     setConnectAutoOpenEnabled(false)
@@ -1069,21 +1482,29 @@ function AppShell({
     clearConversationState()
   }, [handleNewChat, clearConversationState])
 
-  const effectiveActiveTab =
-    activeTab === "connect" &&
-    !connectAutoOpenEnabled &&
-    typeof window !== "undefined" &&
-    getRoutePath() === "/"
-      ? "chat"
-      : activeTab
+  useEffect(() => {
+    if (fullScreenInspectorOpen) {
+      setFullScreenInspectorMounted(true)
+      const frame = window.requestAnimationFrame(() => {
+        setFullScreenInspectorVisible(true)
+      })
+      return () => window.cancelAnimationFrame(frame)
+    }
 
-  const centerLabel = effectiveActiveTab === "chat"
-    ? activeTopic
-      ? { project: activeTopic.projectName, topic: activeTopic.name }
-      : activeChat
-        ? { project: "Chat", topic: activeChat.name }
-        : null
-    : null
+    setFullScreenInspectorVisible(false)
+    const timeout = window.setTimeout(() => {
+      setFullScreenInspectorMounted(false)
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [fullScreenInspectorOpen])
+
+  useEffect(() => {
+    if (!fullScreenInspectorMounted) {
+      setFullScreenInspectorVisible(false)
+      return
+    }
+  }, [fullScreenInspectorMounted])
 
   const handleSignOut = useCallback(async () => {
     await onSignOut()
@@ -1096,7 +1517,7 @@ function AppShell({
   }, [onDeleteAccount, onResetOnboarding])
 
   return (
-    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
+    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
@@ -1104,9 +1525,13 @@ function AppShell({
         onToggleTerminal={toggleTerminal}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
-        chatMode={chatMode}
-        onChatModeChange={setChatModePersisted}
-        centerLabel={centerLabel}
+        sidebarReservedWidth={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+        editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
+        onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
+        onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
+        showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
+        splitActive={editorGroups.groups.length > 1}
+        onToggleSplit={handleToggleSplit}
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
         onOpenLogs={openLogs}
@@ -1135,36 +1560,84 @@ function AppShell({
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <main className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
-            <MainContent
-              activeTab={effectiveActiveTab}
-              activeTopic={activeTopic}
-              activeChat={activeChat}
-              activeSessionKey={activeSessionKey}
-              lastActiveSessionKey={lastActiveSessionKeyRef.current}
-              cronConversationTarget={cronConversationTarget}
-              activeSessionTitle={activeSessionTitle}
-              onSignOut={handleSignOut}
-              onDeleteAccount={handleDeleteAccount}
-              flowState={flowState}
-              sessionResolving={sessionResolving}
-              sessionError={sessionError}
-              onSettingsBack={handleSettingsBack}
-              onFirstMessageSent={handleFirstMessageSent}
-              onQuickSend={handleQuickSend}
-              quickSending={quickSending}
-              initialMessages={initialMessages}
-              onSelectTool={handleSelectTool}
-              pendingPrompt={pendingPrompt}
-              composerError={composerError}
-              onTopicQuickSend={handleTopicQuickSend}
-              onDraftPrompt={handlePromptDraft}
-              onNavigateToChat={handleCronJobNavigate}
-              onForkNavigate={handleForkNavigate}
-            />
-            {/* Keep the previous session alive in the background so it can
-                finish generating and trigger a notification after the user
-                switches to another session or page. */}
-            {backgroundSessionKey && backgroundSessionKey !== activeSessionKey && (
+            {effectiveActiveTab === "chat" ? (
+              editorGroups.groups.length === 1 ? (
+                <MainContent
+                  activeTab={effectiveActiveTab}
+                  activeTopic={activeTopic}
+                  activeChat={activeChat}
+                  activeSessionKey={activeSessionKey}
+                  lastActiveSessionKey={lastActiveSessionKeyRef.current}
+                  cronConversationTarget={cronConversationTarget}
+                  activeSessionTitle={activeSessionTitle}
+                  onSignOut={handleSignOut}
+                  onDeleteAccount={handleDeleteAccount}
+                  flowState={flowState}
+                  sessionResolving={sessionResolving}
+                  sessionError={sessionError}
+                  onSettingsBack={handleSettingsBack}
+                  onFirstMessageSent={handleFirstMessageSent}
+                  onQuickSend={handleQuickSend}
+                  quickSending={quickSending}
+                  initialMessages={initialMessages}
+                  onSelectTool={handleSelectTool}
+                  pendingPrompt={pendingPrompt}
+                  composerError={composerError}
+                  onTopicQuickSend={handleTopicQuickSend}
+                  onDraftPrompt={handlePromptDraft}
+                  onNavigateToChat={handleCronJobNavigate}
+                  onForkNavigate={handleForkNavigate}
+                />
+              ) : (
+                <EditorGroupsContainer
+                  state={editorGroups}
+                  onFocusGroup={handleFocusGroup}
+                  renderContent={(groupId) => {
+                    const group = editorGroups.groups.find((g) => g.id === groupId)
+                    const groupSessionData = group?.sessionData
+                    if (groupSessionData) {
+                      return (
+                        <ChatView
+                          key={`pane:${groupSessionData.chat.id}:${groupSessionData.sessionKey}`}
+                          sessionKey={groupSessionData.sessionKey}
+                          sessionTitle={groupSessionData.title}
+                          forkContext={{ type: "chat" }}
+                        />
+                      )
+                    }
+                    return <ChatLoadingSkeleton />
+                  }}
+                />
+              )
+            ) : (
+              <MainContent
+                activeTab={effectiveActiveTab}
+                activeTopic={activeTopic}
+                activeChat={activeChat}
+                activeSessionKey={activeSessionKey}
+                lastActiveSessionKey={lastActiveSessionKeyRef.current}
+                cronConversationTarget={cronConversationTarget}
+                activeSessionTitle={activeSessionTitle}
+                onSignOut={handleSignOut}
+                onDeleteAccount={handleDeleteAccount}
+                flowState={flowState}
+                sessionResolving={sessionResolving}
+                sessionError={sessionError}
+                onSettingsBack={handleSettingsBack}
+                onFirstMessageSent={handleFirstMessageSent}
+                onQuickSend={handleQuickSend}
+                quickSending={quickSending}
+                initialMessages={initialMessages}
+                onSelectTool={handleSelectTool}
+                pendingPrompt={pendingPrompt}
+                composerError={composerError}
+                onTopicQuickSend={handleTopicQuickSend}
+                onDraftPrompt={handlePromptDraft}
+                onNavigateToChat={handleCronJobNavigate}
+                onForkNavigate={handleForkNavigate}
+              />
+            )}
+            {backgroundSessionKey && backgroundSessionKey !== activeSessionKey && !editorGroups.groups.some((g) => g.sessionData?.sessionKey === backgroundSessionKey) && (
               <div className="hidden">
                 <ChatView
                   sessionKey={backgroundSessionKey}
@@ -1179,6 +1652,8 @@ function AppShell({
         <InspectorPanel
           open={inspectorOpen}
           onClose={toggleInspector}
+          onOpenFullWindow={openInspectorFullWindow}
+          onWidthChange={setInspectorWidth}
           terminalActive={terminalActive}
           onTerminalActiveChange={setTerminalActive}
           sessionKey={activeSessionKey}
@@ -1194,6 +1669,21 @@ function AppShell({
         terminalOpen={terminalActive}
         onToggleTerminal={toggleTerminal}
       />
+
+      {fullScreenInspectorMounted && (
+        <FullScreenInspectorOverlay
+          open={fullScreenInspectorVisible}
+          activeTab={fullWindowInspectorTab}
+          onTabChange={handleInspectorTabChange}
+          onClose={handleSettingsBack}
+          leftOffset={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+          collapsedWidth={inspectorWidth}
+          sessionKey={activeSessionKey}
+          projectId={activeTopic?.projectId ?? null}
+          activeAgentId={activeAgentId}
+          onAgentSelect={setActiveAgentId}
+        />
+      )}
 
       <CommandPalette
         open={commandPaletteOpen}
@@ -1284,6 +1774,8 @@ function MainContent({
     )
   }
 
+  if (activeTab === "inspector") return null
+
   if (activeSessionKey && (activeTopic || activeChat)) {
     return (
       <div className="flex h-full w-full">
@@ -1335,6 +1827,7 @@ function MainContent({
           errorMessage={composerError}
           onSend={onTopicQuickSend}
           disabled={quickSending}
+          glowOnMount
         />
       </div>
     )
@@ -1352,6 +1845,74 @@ function MainContent({
         errorMessage={composerError}
         onSend={onQuickSend}
         disabled={quickSending}
+        glowOnMount
+      />
+    </div>
+  )
+}
+
+function FullScreenInspectorOverlay({
+  open,
+  activeTab,
+  onTabChange,
+  onClose,
+  leftOffset,
+  collapsedWidth,
+  sessionKey,
+  projectId,
+  activeAgentId,
+  onAgentSelect,
+}: {
+  open: boolean
+  activeTab: InspectorTabId
+  onTabChange: (tab: InspectorTabId) => void
+  onClose: () => void
+  leftOffset: number
+  collapsedWidth: number
+  sessionKey: string | null
+  projectId: string | null
+  activeAgentId: string | null
+  onAgentSelect: (id: string) => void
+}) {
+  const [collapsedScale, setCollapsedScale] = useState(0.35)
+
+  useEffect(() => {
+    function updateScale() {
+      const availableWidth = Math.max(1, window.innerWidth - leftOffset)
+      const nextScale = Math.min(1, Math.max(0.2, collapsedWidth / availableWidth))
+      setCollapsedScale(nextScale)
+    }
+
+    updateScale()
+    window.addEventListener("resize", updateScale)
+    return () => window.removeEventListener("resize", updateScale)
+  }, [collapsedWidth, leftOffset])
+
+  return (
+    <div
+      style={{
+        left: `${leftOffset}px`,
+        transformOrigin: "right center",
+        transform: open ? "scaleX(1)" : `scaleX(${collapsedScale})`,
+      }}
+      className={cn(
+        "absolute right-0 top-9 bottom-[26px] z-40 overflow-hidden border-l border-border/50 bg-card shadow-2xl",
+        "transition-[opacity,transform] duration-300 ease-in-out will-change-transform",
+        open
+          ? "opacity-100"
+          : "pointer-events-none opacity-100",
+      )}
+    >
+      <InspectorView
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        onClose={onClose}
+        closeVariant="collapse"
+        sessionKey={sessionKey}
+        projectId={projectId}
+        activeAgentId={activeAgentId}
+        onAgentSelect={onAgentSelect}
+        className="h-full"
       />
     </div>
   )
