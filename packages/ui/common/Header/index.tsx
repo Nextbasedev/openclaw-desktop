@@ -139,33 +139,26 @@ export function Header({
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-border/50" />
 
-      {/* Left: browser chrome. When tabs are visible, keep this compact so tabs start after traffic lights. */}
+      {/* Left: app identity */}
       <div
-        className={cn(
-          "relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3",
-          hasVisibleTabs ? "min-w-[84px]" : "",
-        )}
-        style={!hasVisibleTabs && sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
+        className="relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3"
+        style={sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
       >
         {showTrafficLights && <TrafficLights />}
 
-        {!hasVisibleTabs && (
-          <>
-            <span className="text-[13px] font-medium text-foreground">
-              {user.name}
-            </span>
+        <span className="text-[13px] font-medium text-foreground">
+          {user.name}
+        </span>
 
-            {openClawVersion && (
-              <span
-                title={
-                  nodeVersion ? `Middleware Node ${nodeVersion}` : undefined
-                }
-                className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner"
-              >
-                v{openClawVersion}
-              </span>
-            )}
-          </>
+        {openClawVersion && (
+          <span
+            title={
+              nodeVersion ? `Middleware Node ${nodeVersion}` : undefined
+            }
+            className="rounded-[28px] border border-[#0E283D] bg-linear-to-br from-[#0E283D] to-[#154F6F] px-2.5 py-0.5 text-[10px] font-bold text-white shadow-inner"
+          >
+            v{openClawVersion}
+          </span>
         )}
       </div>
 
@@ -397,28 +390,14 @@ function HeaderTab({
       type="button"
       onClick={onSelect}
       className={cn(
-        "group relative mb-0 flex h-[36px] w-46 shrink-0 items-center gap-2 overflow-visible rounded-t-[14px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
+        "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
         activeAndFocused
-          ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-10px_20px_rgba(0,0,0,0.24)]"
+          ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-6px_16px_rgba(0,0,0,0.2)]"
           : isActive
             ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
-            : "mb-[7px] h-[29px] border-white/[0.035] bg-white/[0.045] text-foreground/56 hover:bg-white/[0.07] hover:text-foreground/78 dark:border-white/[0.035] dark:bg-white/[0.045] dark:text-white/58 dark:hover:bg-white/[0.075] dark:hover:text-white/80",
+            : "mb-[7px] h-[28px] rounded-[9px] border-white/[0.035] bg-white/[0.045] text-foreground/56 hover:bg-white/[0.07] hover:text-foreground/78 dark:border-white/[0.035] dark:bg-white/[0.045] dark:text-white/58 dark:hover:bg-white/[0.075] dark:hover:text-white/80",
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute -left-3 bottom-0 h-4 w-3 rounded-br-[14px] border-b border-r opacity-0",
-          activeAndFocused && "border-white/10 bg-[#151515] opacity-100",
-        )}
-      />
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute -right-3 bottom-0 h-4 w-3 rounded-bl-[14px] border-b border-l opacity-0",
-          activeAndFocused && "border-white/10 bg-[#151515] opacity-100",
-        )}
-      />
       <div
         className={cn(
           "relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full",
