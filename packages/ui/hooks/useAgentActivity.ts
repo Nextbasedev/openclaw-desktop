@@ -64,9 +64,9 @@ function inferChildHistoryPhase(
   messages: RawHistoryMessage[],
   calls: ToolCall[],
 ): ChildHistoryPhase {
-  if (calls.some((call) => call.status === "running")) return "working"
   if (hasYieldTool(messages) || hasAssistantOutput(messages)) return "completed"
   if (calls.some((call) => call.status === "error")) return "failed"
+  if (calls.some((call) => call.status === "running")) return "working"
   return null
 }
 
@@ -197,7 +197,7 @@ export function useAgentActivity(sessionKey: string | null) {
     if (currentAgent) {
       agentsRef.current.set(agentId, {
         ...currentAgent,
-        phase: currentAgent.phase === "done" ? "start" : currentAgent.phase,
+        phase: currentAgent.phase,
         sessionKey: subKey,
       })
     }
