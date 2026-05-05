@@ -41,9 +41,6 @@ type VoiceSettingsPayload = {
     provider?: string
     model?: string
   }
-  status?: {
-    apiKeyConfigured?: boolean
-  }
 }
 
 type VoiceTranscribePayload = {
@@ -158,7 +155,6 @@ export function ChatBox({
     },
   })
   const [voiceModelActive, setVoiceModelActive] = React.useState(false)
-  const [voiceApiKeyConfigured, setVoiceApiKeyConfigured] = React.useState(false)
   const [voiceStatusLoading, setVoiceStatusLoading] = React.useState(true)
 
   React.useEffect(() => {
@@ -175,11 +171,9 @@ export function ChatBox({
           settings.provider !== "auto" &&
           settings.model,
         ))
-        setVoiceApiKeyConfigured(Boolean(payload.status?.apiKeyConfigured))
       } catch {
         if (!cancelled) {
           setVoiceModelActive(false)
-          setVoiceApiKeyConfigured(false)
         }
       } finally {
         if (!cancelled) setVoiceStatusLoading(false)
@@ -193,15 +187,13 @@ export function ChatBox({
     }
   }, [])
 
-  const voiceConfigured = !voiceStatusLoading && voiceModelActive && voiceApiKeyConfigured
+  const voiceConfigured = !voiceStatusLoading && voiceModelActive
   const voiceSupported = recorderSupported && voiceConfigured
   const voiceDisabledReason = !recorderSupported
     ? "Voice recording is not supported in this app window"
     : voiceStatusLoading
       ? "Checking voice model setup…"
-      : !voiceModelActive
-        ? "Set an active voice provider and audio model in Settings → Voice"
-        : "Add the Voice provider API key in Settings → Voice"
+      : "Set an active voice provider and audio model in Settings → Voice"
 
   function openVoiceSettings() {
     setVoiceSetupOpen(false)
