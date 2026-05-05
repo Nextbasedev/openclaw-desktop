@@ -136,7 +136,6 @@ export function NotificationDashboard({
             {activeSection === "cron-jobs" && (
               <CronJobsTab
                 activeSessionKey={activeSessionKey}
-                onSelectJob={setSelectedJob}
                 onDraftPrompt={onDraftPrompt}
               />
             )}
