@@ -14,6 +14,7 @@ import { terminalRoutes } from "./services/terminal.js"
 import { recordRoutes } from "./services/records.js"
 import { commandRoutes } from "./services/commands.js"
 import { connectGateway } from "./services/gateway.js"
+import { middlewareUpdateStatus, startMiddlewareUpdate } from "./services/updater.js"
 
 async function isOpenClawGatewayReachable(gatewayUrl: string) {
   try {
@@ -166,6 +167,8 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.use("/api", authMiddleware(config))
 
   app.get("/api/version", (_req, res) => res.json({ ok: true, version, service: "openclaw-middleware" }))
+  app.get("/api/middleware/update/status", (_req, res) => res.json(middlewareUpdateStatus()))
+  app.post("/api/middleware/update", (_req, res, next) => { try { res.json(startMiddlewareUpdate()) } catch (error) { next(error) } })
   app.post("/api/commands/:command", async (req, res, next) => { try { res.json(await commands.handle(req.params.command, req.body?.input ?? req.body ?? {})) } catch (error) { next(error) } })
   app.get("/api/migration/telegram/scan", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_scan", { limit: req.query.limit ? Number(req.query.limit) : undefined })) } catch (error) { next(error) } })
   app.post("/api/migration/telegram/import", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_import", req.body ?? {})) } catch (error) { next(error) } })
