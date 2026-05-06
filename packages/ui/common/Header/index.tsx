@@ -42,7 +42,7 @@ type HeaderProps = {
   editorGroups?: EditorGroupsState | null
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
-  onNewChat?: () => void
+  onNewChat?: (groupId?: "group-1" | "group-2") => void
   showSplitButton?: boolean
   splitActive?: boolean
   onToggleSplit?: () => void
@@ -121,9 +121,10 @@ export function Header({
     return () => ro.disconnect()
   }, [])
 
-  const hasVisibleTabs = editorGroups?.groups.some((g) =>
-    g.tabs.some((t) => t.kind !== "draft"),
-  )
+  const hasVisibleTabs = editorGroups?.groups.some((g) => {
+    const hasRealTab = g.tabs.some((t) => t.kind !== "draft")
+    return hasRealTab || editorGroups.groups.length > 1
+  })
 
   return (
     <header
@@ -166,7 +167,10 @@ export function Header({
       {hasVisibleTabs && editorGroups ? (
         <div className="relative z-10 flex min-w-0 flex-1 items-end self-stretch pt-2">
           {editorGroups.groups.map((group, groupIndex) => {
-            const visibleTabs = group.tabs.filter((t) => t.kind !== "draft")
+            const hasRealTab = group.tabs.some((t) => t.kind !== "draft")
+            const visibleTabs = group.tabs.filter(
+              (t) => t.kind !== "draft" || hasRealTab || editorGroups.groups.length > 1,
+            )
             if (visibleTabs.length === 0) return null
             const isFocusedGroup = group.id === editorGroups.focusedGroupId
             const isLastGroup = groupIndex === editorGroups.groups.length - 1
@@ -204,14 +208,14 @@ export function Header({
                       onClose={() => onCloseChatTab?.(tab.id)}
                     />
                   ))}
-                  {isFocusedGroup && onNewChat && (
+                  {onNewChat && (
                     <button
                       type="button"
                       aria-label="New chat"
                       title="New chat"
                       onClick={(event) => {
                         event.stopPropagation()
-                        onNewChat()
+                        onNewChat(group.id)
                       }}
                       className="mb-[8px] ml-1.5 mr-3 flex h-6 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/38 transition-colors hover:bg-white/[0.055] hover:text-foreground/72 dark:text-white/40 dark:hover:bg-white/[0.06] dark:hover:text-white/76"
                     >
@@ -464,7 +468,8 @@ function HeaderTab({
           }
         }}
         className={cn(
-          "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 transition-colors group-hover:opacity-100",
+          "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+          isActive ? "opacity-100" : "opacity-0",
           isActive
             ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
             : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",

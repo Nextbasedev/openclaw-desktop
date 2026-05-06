@@ -43,10 +43,12 @@ import {
   createInitialState,
   getFocusedGroup,
   findTabInGroups,
+  type EditorTab,
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
 
 type SettingsSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
+type EditorGroupId = "group-1" | "group-2"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
 const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
@@ -69,6 +71,19 @@ function isUndecidedChatTitle(value: string | null | undefined): boolean {
   if (!value) return true
   const normalized = value.trim().toLowerCase()
   return normalized === "" || normalized === "opening chat..." || normalized === "opening chat…"
+}
+
+function createDraftTab(groupId: EditorGroupId): EditorTab {
+  return {
+    id: `draft:${groupId}`,
+    title: "New Chat",
+    subtitle: "Chat",
+    kind: "draft",
+  }
+}
+
+function isDraftTabId(tabId: string): boolean {
+  return tabId === "draft" || tabId.startsWith("draft:")
 }
 
 type CronConversationTarget = {
@@ -371,17 +386,19 @@ function AppShell({
       return
     }
 
-    const hasDraft = allTabs.some((t) => t.id === "draft")
+    const targetGroup = getFocusedGroup(editorGroups)
+    const hasDraft = targetGroup.tabs.some((t) => t.kind === "draft")
     if (!hasDraft) {
       dispatchGroups({
         type: "ADD_TAB",
-        tab: { id: "draft", title: "New Chat", subtitle: "Chat", kind: "draft" },
+        groupId: targetGroup.id,
+        tab: createDraftTab(targetGroup.id),
       })
-    } else {
+    } else if (targetGroup.activeTabId && !isDraftTabId(targetGroup.activeTabId)) {
       dispatchGroups({
         type: "SET_ACTIVE_TAB",
-        groupId: editorGroups.focusedGroupId,
-        tabId: "draft",
+        groupId: targetGroup.id,
+        tabId: targetGroup.tabs.find((t) => t.kind === "draft")?.id ?? `draft:${targetGroup.id}`,
       })
     }
   }, [activeChat, activeTopic, effectiveActiveTab])
@@ -976,15 +993,22 @@ function AppShell({
     window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState])
 
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback((groupId?: EditorGroupId) => {
+    const targetGroupId = groupId ?? editorGroups.focusedGroupId
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     setPendingPrompt(null)
     setComposerError(null)
     setActiveTab("chat")
+    dispatchGroups({ type: "SET_FOCUS", groupId: targetGroupId })
+    dispatchGroups({
+      type: "ADD_TAB",
+      groupId: targetGroupId,
+      tab: createDraftTab(targetGroupId),
+    })
     clearConversationState()
     window.history.pushState(null, "", routeUrl("/"))
-  }, [clearConversationState])
+  }, [clearConversationState, editorGroups.focusedGroupId])
 
   const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
 
@@ -1027,6 +1051,18 @@ function AppShell({
         "",
         routeUrl(`/${targetGroup.sessionData.chat.id}`),
       )
+      return
+    }
+
+    if (targetGroup?.activeTabId && isDraftTabId(targetGroup.activeTabId)) {
+      setActiveTopic(null)
+      setActiveChat(null)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      setInitialMessages(undefined)
+      setPendingPrompt(null)
+      setComposerError(null)
+      window.history.replaceState(null, "", routeUrl("/"))
     }
   }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
 
@@ -1041,8 +1077,8 @@ function AppShell({
     if (tabId === focusedGroup.activeTabId) return
 
     const data = tabDataRef.current.get(tabId)
-    if (tabId === "draft") {
-      handleNewChat()
+    if (isDraftTabId(tabId)) {
+      handleNewChat(groupId)
       return
     }
     if (data?.topic) {
@@ -1102,7 +1138,7 @@ function AppShell({
     const remaining = location.group.tabs.filter((t) => t.id !== tabId)
     const fallback = remaining[remaining.length - 1]
     if (!fallback || fallback.kind === "draft") {
-      handleNewChat()
+      handleNewChat(location.group.id)
       return
     }
     const data = tabDataRef.current.get(fallback.id)
@@ -1619,6 +1655,37 @@ function AppShell({
                           sessionKey={groupSessionData.sessionKey}
                           sessionTitle={groupSessionData.title}
                           forkContext={{ type: "chat" }}
+                        />
+                      )
+                    }
+                    if (group?.activeTabId && isDraftTabId(group.activeTabId)) {
+                      return (
+                        <MainContent
+                          activeTab="chat"
+                          activeTopic={null}
+                          activeChat={null}
+                          activeSessionKey={null}
+                          lastActiveSessionKey={lastActiveSessionKeyRef.current}
+                          cronConversationTarget={null}
+                          activeSessionTitle={null}
+                          onSignOut={handleSignOut}
+                          onDeleteAccount={handleDeleteAccount}
+                          flowState={flowState}
+                          sessionResolving={false}
+                          sessionError={null}
+                          onSettingsBack={handleSettingsBack}
+                          settingsInitialSection={settingsInitialSection}
+                          onFirstMessageSent={handleFirstMessageSent}
+                          onQuickSend={handleQuickSend}
+                          quickSending={quickSending}
+                          initialMessages={undefined}
+                          onSelectTool={handleSelectTool}
+                          pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
+                          composerError={group.id === editorGroups.focusedGroupId ? composerError : null}
+                          onTopicQuickSend={handleTopicQuickSend}
+                          onDraftPrompt={handlePromptDraft}
+                          onNavigateToChat={handleCronJobNavigate}
+                          onForkNavigate={handleForkNavigate}
                         />
                       )
                     }
