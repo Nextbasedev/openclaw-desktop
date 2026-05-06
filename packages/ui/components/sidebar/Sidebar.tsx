@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef, type CSSProperties }
 import { Reorder } from "framer-motion"
 import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
+import { SpacesSection } from "./SpacesSection"
 import { cn } from "@/lib/utils"
 import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
 import { Icons } from "../icons"
@@ -11,6 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
+import type { Space } from "@/types/space"
 
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "chat", label: "Chat", icon: "chat" },
@@ -44,6 +46,12 @@ type SidebarProps = {
   onChatClear: () => void
   onNewChat: () => void
   chatRefreshTrigger?: number
+  spaces: Space[]
+  activeSpaceId: string | null
+  onSpaceSwitch: (spaceId: string) => void | Promise<void>
+  onSpaceCreate: (name?: string) => void | Promise<void>
+  onSpaceUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
+  onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
 export function Sidebar({
@@ -64,6 +72,12 @@ export function Sidebar({
   onChatClear,
   onNewChat,
   chatRefreshTrigger = 0,
+  spaces,
+  activeSpaceId,
+  onSpaceSwitch,
+  onSpaceCreate,
+  onSpaceUpdate,
+  onSpaceDelete,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
@@ -261,6 +275,7 @@ export function Sidebar({
                       onChatClear={onChatClear}
                       onNewChat={() => { setChatsPopoverOpen(false); onNewChat() }}
                       refreshTrigger={chatRefreshTrigger}
+                      spaceId={activeSpaceId}
                     />
                   </div>
                 </PopoverContent>
@@ -315,6 +330,7 @@ export function Sidebar({
               onChatClear={onChatClear}
               onNewChat={onNewChat}
               refreshTrigger={chatRefreshTrigger}
+              spaceId={activeSpaceId}
             />
           </div>
 
@@ -328,6 +344,17 @@ export function Sidebar({
           </div>
 
         </nav>
+
+        {!isHiddenMobileSidebar && showExpandedContent && (
+          <SpacesSection
+            spaces={spaces}
+            activeSpaceId={activeSpaceId}
+            onSwitch={onSpaceSwitch}
+            onCreate={onSpaceCreate}
+            onUpdate={onSpaceUpdate}
+            onDelete={onSpaceDelete}
+          />
+        )}
 
         {!collapsed && (
           <button

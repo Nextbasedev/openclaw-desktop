@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type DragEvent } from "react"
 import {
   VscAdd,
   VscClose,
@@ -42,9 +42,15 @@ type HeaderProps = {
   editorGroups?: EditorGroupsState | null
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
-  onNewChat?: () => void
+  onMoveChatTab?: (
+    tabId: string,
+    sourceGroupId: "group-1" | "group-2",
+    targetGroupId: "group-1" | "group-2",
+  ) => void
+  onNewChat?: (groupId?: "group-1" | "group-2") => void
   showSplitButton?: boolean
   splitActive?: boolean
+  splitRatio?: number
   onToggleSplit?: () => void
   onOpenSettings?: () => void
   onOpenNotifications?: () => void
@@ -72,9 +78,11 @@ export function Header({
   editorGroups = null,
   onSelectChatTab,
   onCloseChatTab,
+  onMoveChatTab,
   onNewChat,
   showSplitButton = false,
   splitActive = false,
+  splitRatio = 0.5,
   onToggleSplit,
   onOpenSettings,
   onOpenNotifications,
@@ -87,6 +95,7 @@ export function Header({
   const [nodeVersion, setNodeVersion] = useState<string | null>(null)
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
+  const [dragOverGroupId, setDragOverGroupId] = useState<"group-1" | "group-2" | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -121,9 +130,11 @@ export function Header({
     return () => ro.disconnect()
   }, [])
 
-  const hasVisibleTabs = editorGroups?.groups.some((g) =>
-    g.tabs.some((t) => t.kind !== "draft"),
-  )
+  const hasVisibleTabs = editorGroups?.groups.some((g) => {
+    const hasRealTab = g.tabs.some((t) => t.kind !== "draft")
+    return hasRealTab || editorGroups.groups.length > 1
+  })
+  const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
 
   return (
     <header
@@ -164,27 +175,69 @@ export function Header({
 
       {/* Middle: tabs — flex-1 matches content area width, paddingRight keeps tabs visible */}
       {hasVisibleTabs && editorGroups ? (
-        <div className="relative z-10 flex min-w-0 flex-1 items-end self-stretch pt-2">
+        <div
+          className={cn(
+            "relative z-10 min-w-0 flex-1 self-stretch pt-2",
+            isSplitTabs
+              ? "grid grid-cols-2 items-end"
+              : "flex items-end",
+          )}
+          style={
+            isSplitTabs
+              ? {
+                  gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
+                }
+              : undefined
+          }
+        >
+          {isSplitTabs && (
+            <div
+              className="pointer-events-none absolute inset-y-2 z-10 w-px -translate-x-1/2 bg-border/50"
+              style={{ left: `${splitRatio * 100}%` }}
+            />
+          )}
           {editorGroups.groups.map((group, groupIndex) => {
-            const visibleTabs = group.tabs.filter((t) => t.kind !== "draft")
+            const hasRealTab = group.tabs.some((t) => t.kind !== "draft")
+            const hasDraftTab = group.tabs.some((t) => t.kind === "draft")
+            const visibleTabs = group.tabs.filter(
+              (t) => t.kind !== "draft" || hasRealTab || editorGroups.groups.length > 1,
+            )
             if (visibleTabs.length === 0) return null
             const isFocusedGroup = group.id === editorGroups.focusedGroupId
             const isLastGroup = groupIndex === editorGroups.groups.length - 1
             return (
               <div
                 key={group.id}
-                className="flex min-w-0 flex-1 items-end"
+                className={cn(
+                  "flex min-w-0 flex-1 items-end rounded-t-md transition-colors",
+                  dragOverGroupId === group.id && "bg-white/[0.035] ring-1 ring-inset ring-white/10",
+                )}
                 style={
                   isLastGroup && rightClusterWidth > 0
                     ? { paddingRight: rightClusterWidth + 12 }
                     : undefined
                 }
+                onDragOver={(event) => {
+                  if (!onMoveChatTab) return
+                  const tabId = event.dataTransfer.types.includes("text/tab-id")
+                  if (!tabId) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = "move"
+                  setDragOverGroupId(group.id)
+                }}
+                onDragLeave={() => {
+                  if (dragOverGroupId === group.id) setDragOverGroupId(null)
+                }}
+                onDrop={(event) => {
+                  if (!onMoveChatTab) return
+                  event.preventDefault()
+                  const tabId = event.dataTransfer.getData("text/tab-id")
+                  const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
+                  setDragOverGroupId(null)
+                  if (!tabId || !sourceGroupId || sourceGroupId === group.id) return
+                  onMoveChatTab(tabId, sourceGroupId, group.id)
+                }}
               >
-                {groupIndex > 0 && (
-                  <div className="flex h-[34px] shrink-0 items-center px-0.5">
-                    <div className="h-4 w-px bg-border/50" />
-                  </div>
-                )}
                 <div
                   onWheel={(event) => {
                     const target = event.currentTarget
@@ -192,7 +245,14 @@ export function Header({
                       target.scrollLeft += event.deltaY
                     }
                   }}
-                  className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden scroll-smooth px-1 scrollbar-hide"
+                  className={cn(
+                    "flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden scroll-smooth scrollbar-hide",
+                    isSplitTabs
+                      ? groupIndex === 0
+                        ? "pl-0 pr-2"
+                        : "pl-0 pr-1"
+                      : "px-0",
+                  )}
                 >
                   {visibleTabs.map((tab) => (
                     <HeaderTab
@@ -202,16 +262,22 @@ export function Header({
                       isFocusedGroup={isFocusedGroup}
                       onSelect={() => onSelectChatTab?.(group.id, tab.id)}
                       onClose={() => onCloseChatTab?.(tab.id)}
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData("text/tab-id", tab.id)
+                        event.dataTransfer.setData("text/source-group", group.id)
+                        event.dataTransfer.effectAllowed = "move"
+                      }}
+                      onDragEnd={() => setDragOverGroupId(null)}
                     />
                   ))}
-                  {isFocusedGroup && onNewChat && (
+                  {onNewChat && !hasDraftTab && (
                     <button
                       type="button"
                       aria-label="New chat"
                       title="New chat"
                       onClick={(event) => {
                         event.stopPropagation()
-                        onNewChat()
+                        onNewChat(group.id)
                       }}
                       className="mb-[8px] ml-1.5 mr-3 flex h-6 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/38 transition-colors hover:bg-white/[0.055] hover:text-foreground/72 dark:text-white/40 dark:hover:bg-white/[0.06] dark:hover:text-white/76"
                     >
@@ -377,17 +443,24 @@ function HeaderTab({
   isFocusedGroup = true,
   onSelect,
   onClose,
+  onDragStart,
+  onDragEnd,
 }: {
   tab: EditorTab
   isActive: boolean
   isFocusedGroup?: boolean
   onSelect: () => void
   onClose: () => void
+  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
   return (
     <button
       type="button"
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onSelect}
       className={cn(
         "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
@@ -464,7 +537,8 @@ function HeaderTab({
           }
         }}
         className={cn(
-          "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 transition-colors group-hover:opacity-100",
+          "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+          isActive ? "opacity-100" : "opacity-0",
           isActive
             ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
             : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",

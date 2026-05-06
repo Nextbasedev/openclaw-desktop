@@ -1215,17 +1215,20 @@ export function useChatMessages(
     async (payload: ChatComposerSubmit) => {
       const trimmed = payload.text.trim()
       if (!trimmed || sendingGuardRef.current) return
+      const runsAlongsideGeneration = Boolean(isGenerating && payload.runWhileGenerating)
       sendingGuardRef.current = true
       setIsSending(true)
       setErrorMessage(null)
       const optimisticId = randomId()
-      pendingToolMapRef.current.clear()
-      setPendingTools([])
-      for (const [key, spawn] of spawnMapRef.current) {
-        if (!isActiveSubagent(spawn.status)) spawnMapRef.current.delete(key)
+      if (!runsAlongsideGeneration) {
+        pendingToolMapRef.current.clear()
+        setPendingTools([])
+        for (const [key, spawn] of spawnMapRef.current) {
+          if (!isActiveSubagent(spawn.status)) spawnMapRef.current.delete(key)
+        }
+        setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+        doneAfterYieldRef.current = 0
       }
-      setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
-      doneAfterYieldRef.current = 0
 
       const replyTo = payload.replyTo ?? undefined
       const snippet = replyTo
@@ -1261,10 +1264,12 @@ export function useChatMessages(
           attachments: messageAttachments,
         },
       ])
-      setStatus("thinking")
+      if (!runsAlongsideGeneration) {
+        setStatus("thinking")
+      }
       forceScrollToBottom(true)
       try {
-        if (isGenerating) {
+        if (isGenerating && !payload.runWhileGenerating) {
           restartInFlightRef.current = true
           setStatus("restarting")
           setStatusLabel(null)

@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { invoke, openExternalUrl } from "@/lib/ipc"
+import { getMiddlewareConnection, testMiddlewareConnection } from "@/lib/middleware-client"
 import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert } from "react-icons/lu"
 
 type HelpLink = {
@@ -19,6 +20,23 @@ const HELP_LINKS: HelpLink[] = [
 type HelpTabProps = {
   links?: HelpLink[]
   onShortcutsClick?: () => void
+}
+
+type MiddlewareUpdateStatus = {
+  state: "idle" | "running" | "restarting" | "succeeded" | "failed"
+  startedAt?: string
+  updatedAt: string
+  message?: string
+  repoRoot?: string
+  branch?: string
+  logPath?: string
+}
+
+type MiddlewareUpdateStart = {
+  ok: boolean
+  accepted: boolean
+  message?: string
+  status: MiddlewareUpdateStatus
 }
 
 type TelegramMigrationScan = {
@@ -86,8 +104,132 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
         })}
       </div>
 
+      <MiddlewareUpdateCard />
+
       <TelegramMigrationCard />
     </div>
+  )
+}
+
+function MiddlewareUpdateCard() {
+  const [status, setStatus] = React.useState<MiddlewareUpdateStatus | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState(false)
+  const [needsManualBootstrap, setNeedsManualBootstrap] = React.useState(false)
+
+  async function waitForMiddlewareBack() {
+    const connection = getMiddlewareConnection()
+    if (!connection) return false
+    const deadline = Date.now() + 90_000
+    while (Date.now() < deadline) {
+      try {
+        const health = await testMiddlewareConnection(connection)
+        if (health.ok && health.openclaw?.connected === true) return true
+      } catch {}
+      await new Promise((resolve) => window.setTimeout(resolve, 2_000))
+    }
+    return false
+  }
+
+  async function refreshStatus() {
+    const next = await invoke<MiddlewareUpdateStatus>("middleware_self_update_status")
+    setStatus(next)
+    return next
+  }
+
+  function handleUpdateError(err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/Route not found|404|middleware\/update/i.test(message)) {
+      setNeedsManualBootstrap(true)
+      setError("This VPS is running an older Middleware that cannot self-update yet. Run the one-time install/update command below, then this button will work for future updates.")
+      return
+    }
+    setError(message)
+  }
+
+  async function updateMiddleware() {
+    setBusy(true)
+    setError(null)
+    setNeedsManualBootstrap(false)
+    try {
+      const started = await invoke<MiddlewareUpdateStart>("middleware_self_update")
+      setStatus(started.status)
+      const connected = await waitForMiddlewareBack()
+      if (connected) {
+        setStatus({ state: "succeeded", updatedAt: new Date().toISOString(), message: "Middleware updated and OpenClaw is connected.", branch: "main" })
+      } else {
+        const latest = await refreshStatus().catch(() => null)
+        if (!latest || latest.state !== "failed") {
+          setError("Update started, but Middleware did not come back healthy within 90 seconds. Check the VPS service logs.")
+        }
+      }
+    } catch (err) {
+      handleUpdateError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const success = status?.state === "succeeded"
+  const failed = status?.state === "failed" || error
+
+  return (
+    <section className="rounded-md border border-border/50 bg-muted/[0.03] p-5">
+      <div className="flex items-start gap-4">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+          <LuRefreshCw size={16} className={busy ? "animate-spin" : ""} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[13px] font-medium text-foreground">VPS Middleware update</h3>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            Pull latest OpenClaw Desktop Middleware from <span className="text-foreground/80">main</span>, rebuild it, restart the VPS service, and verify OpenClaw is connected.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={updateMiddleware}
+          disabled={busy}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <LuRefreshCw size={13} className={busy ? "animate-spin" : ""} />
+          {busy ? "Updating…" : "Update Middleware"}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setNeedsManualBootstrap(false); refreshStatus().catch(handleUpdateError) }}
+          disabled={busy}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Check status
+        </button>
+      </div>
+
+      {status?.message && (
+        <div className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-[12px] ${success ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400" : failed ? "border-red-500/20 bg-red-500/10 text-red-400" : "border-border/35 bg-background/35 text-muted-foreground"}`}>
+          {success ? <LuCheck className="mt-0.5 shrink-0" size={14} /> : failed ? <LuCircleAlert className="mt-0.5 shrink-0" size={14} /> : <LuRefreshCw className="mt-0.5 shrink-0" size={14} />}
+          <span>{status.message}</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+          <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {needsManualBootstrap && (
+        <div className="mt-3 rounded-md border border-border/35 bg-background/35 p-3">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">Run this once on the VPS:</p>
+          <code className="mt-2 block overflow-x-auto rounded bg-muted/40 px-3 py-2 text-[11px] text-foreground">
+            curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/main/apps/middleware/scripts/install.sh | sudo bash
+          </code>
+        </div>
+      )}
+    </section>
   )
 }
 
