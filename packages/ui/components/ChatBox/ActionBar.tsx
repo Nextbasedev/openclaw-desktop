@@ -26,6 +26,7 @@ type ActionBarProps = {
   onSend?: () => void
   onUploadClick?: () => void
   isGenerating?: boolean
+  canSendWhileGenerating?: boolean
   onAbort?: () => void
   webSearchEnabled: boolean
   onWebSearchDisable: () => void
@@ -53,6 +54,7 @@ export function ActionBar({
   onSend,
   onUploadClick,
   isGenerating,
+  canSendWhileGenerating = false,
   onAbort,
   webSearchEnabled,
   onWebSearchDisable,
@@ -254,7 +256,7 @@ export function ActionBar({
         </button>
 
         {/* Send / Stop controls */}
-        {isGenerating && (
+        {isGenerating && !canSendWhileGenerating && (
           <button
             type="button"
             onClick={onAbort}
@@ -264,7 +266,7 @@ export function ActionBar({
             <StopSquareIcon className="size-6" />
           </button>
         )}
-        {!isGenerating && (
+        {(!isGenerating || canSendWhileGenerating) && (
           <button
             type="button"
             onClick={onSend}
@@ -275,7 +277,7 @@ export function ActionBar({
                 ? "cursor-pointer bg-foreground text-background"
                 : "bg-foreground/50 text-background"
             )}
-            aria-label="Send message"
+            aria-label={isGenerating ? "Run command" : "Send message"}
           >
             <SendArrowIcon className="size-4" />
           </button>
