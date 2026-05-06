@@ -222,6 +222,7 @@ function AppShell({
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
+  const [splitRatio, setSplitRatio] = useState(0.5)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   )
@@ -425,6 +426,8 @@ function AppShell({
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
   const isResizing = useRef(false)
+  const isSplitResizing = useRef(false)
+  const mainContentRef = useRef<HTMLElement | null>(null)
   const routeRequestRef = useRef(0)
   const previousContentPathRef = useRef("/")
   const settingsPushedRef = useRef(false)
@@ -797,15 +800,30 @@ function AppShell({
     document.body.style.userSelect = "none"
   }, [sidebarOpen])
 
+  const handleSplitResizeStart = useCallback(() => {
+    if (editorGroups.groups.length <= 1) return
+    isSplitResizing.current = true
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }, [editorGroups.groups.length])
+
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
-      if (!isResizing.current) return
-      const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
-      setSidebarWidth(newWidth)
+      if (isResizing.current) {
+        const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
+        setSidebarWidth(newWidth)
+      }
+      if (isSplitResizing.current) {
+        const bounds = mainContentRef.current?.getBoundingClientRect()
+        if (!bounds) return
+        const nextRatio = (e.clientX - bounds.left) / bounds.width
+        setSplitRatio(Math.max(0.3, Math.min(0.7, nextRatio)))
+      }
     }
     function onMouseUp() {
-      if (!isResizing.current) return
+      if (!isResizing.current && !isSplitResizing.current) return
       isResizing.current = false
+      isSplitResizing.current = false
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
     }
@@ -1583,6 +1601,7 @@ function AppShell({
         onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
         showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
         splitActive={editorGroups.groups.length > 1}
+        splitRatio={splitRatio}
         onToggleSplit={handleToggleSplit}
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
@@ -1611,7 +1630,10 @@ function AppShell({
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <main className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
+          <main
+            ref={mainContentRef}
+            className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out"
+          >
 {effectiveActiveTab === "chat" ? (
               editorGroups.groups.length === 1 ? (
                 <MainContent
@@ -1644,7 +1666,9 @@ function AppShell({
               ) : (
                 <EditorGroupsContainer
                   state={editorGroups}
+                  splitRatio={splitRatio}
                   onFocusGroup={handleFocusGroup}
+                  onResizeStart={handleSplitResizeStart}
                   renderContent={(groupId) => {
                     const group = editorGroups.groups.find((g) => g.id === groupId)
                     const groupSessionData = group?.sessionData

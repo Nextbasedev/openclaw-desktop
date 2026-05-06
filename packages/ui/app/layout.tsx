@@ -1,4 +1,4 @@
-import { Geist, Geist_Mono } from "next/font/google"
+import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
 })
 
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+})
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,7 +30,13 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", geistSans.variable, geistMono.variable, "font-sans")}
+      className={cn(
+        "antialiased",
+        geistSans.variable,
+        geistMono.variable,
+        jetbrainsMono.variable,
+        "font-sans",
+      )}
     >
       <body>
         <ThemeProvider>
