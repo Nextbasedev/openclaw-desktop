@@ -165,24 +165,22 @@ export function Header({
 
       {/* Middle: tabs — flex-1 matches content area width, paddingRight keeps tabs visible */}
       {hasVisibleTabs && editorGroups ? (
-        <div className="relative z-10 flex min-w-0 flex-1 items-end self-stretch pt-2">
+        <div
+          className="relative z-10 flex min-w-0 flex-1 items-end self-stretch pt-2"
+          style={rightClusterWidth > 0 ? { paddingRight: rightClusterWidth + 12 } : undefined}
+        >
           {editorGroups.groups.map((group, groupIndex) => {
             const hasRealTab = group.tabs.some((t) => t.kind !== "draft")
+            const hasDraftTab = group.tabs.some((t) => t.kind === "draft")
             const visibleTabs = group.tabs.filter(
               (t) => t.kind !== "draft" || hasRealTab || editorGroups.groups.length > 1,
             )
             if (visibleTabs.length === 0) return null
             const isFocusedGroup = group.id === editorGroups.focusedGroupId
-            const isLastGroup = groupIndex === editorGroups.groups.length - 1
             return (
               <div
                 key={group.id}
                 className="flex min-w-0 flex-1 items-end"
-                style={
-                  isLastGroup && rightClusterWidth > 0
-                    ? { paddingRight: rightClusterWidth + 12 }
-                    : undefined
-                }
               >
                 {groupIndex > 0 && (
                   <div className="flex h-[34px] shrink-0 items-center px-0.5">
@@ -208,7 +206,7 @@ export function Header({
                       onClose={() => onCloseChatTab?.(tab.id)}
                     />
                   ))}
-                  {onNewChat && (
+                  {onNewChat && !hasDraftTab && (
                     <button
                       type="button"
                       aria-label="New chat"
