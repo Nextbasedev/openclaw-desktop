@@ -14,6 +14,7 @@ import { terminalRoutes } from "./services/terminal.js"
 import { recordRoutes } from "./services/records.js"
 import { commandRoutes } from "./services/commands.js"
 import { connectGateway } from "./services/gateway.js"
+import { middlewareUpdateStatus, startMiddlewareUpdate } from "./services/updater.js"
 
 async function isOpenClawGatewayReachable(gatewayUrl: string) {
   try {
@@ -166,6 +167,8 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.use("/api", authMiddleware(config))
 
   app.get("/api/version", (_req, res) => res.json({ ok: true, version, service: "openclaw-middleware" }))
+  app.get("/api/middleware/update/status", (_req, res) => res.json(middlewareUpdateStatus()))
+  app.post("/api/middleware/update", (_req, res, next) => { try { res.json(startMiddlewareUpdate()) } catch (error) { next(error) } })
   app.post("/api/commands/:command", async (req, res, next) => { try { res.json(await commands.handle(req.params.command, req.body?.input ?? req.body ?? {})) } catch (error) { next(error) } })
   app.get("/api/migration/telegram/scan", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_scan", { limit: req.query.limit ? Number(req.query.limit) : undefined })) } catch (error) { next(error) } })
   app.post("/api/migration/telegram/import", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_import", req.body ?? {})) } catch (error) { next(error) } })
@@ -181,13 +184,19 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.delete("/api/topics/:topicId", (req, res) => res.json(records.topicsDelete(req.params.topicId)))
   app.post("/api/topics/:topicId/archive", (req, res) => res.json(records.topicsArchive(req.params.topicId, req.body?.archived ?? true)))
 
-  app.get("/api/chats", (req, res) => res.json(records.chatsList({ archived: req.query.archived === "true" })))
+  app.get("/api/chats", (req, res) => res.json(records.chatsList({ archived: req.query.archived === "true", spaceId: req.query.spaceId ? String(req.query.spaceId) : undefined })))
   app.post("/api/chats", (req, res) => res.json(records.chatsCreate(req.body)))
   app.patch("/api/chats/:chatId", (req, res) => res.json(records.chatsUpdate(req.params.chatId, req.body)))
   app.post("/api/chats/:chatId/rename", (req, res) => res.json(records.chatsRename(req.params.chatId, String(req.body?.name ?? "New Chat"))))
   app.post("/api/chats/:chatId/archive", (req, res) => res.json(records.chatsArchive(req.params.chatId, req.body?.archived ?? true)))
   app.delete("/api/chats/:chatId", (req, res) => res.json(records.chatsDelete(req.params.chatId)))
   app.post("/api/chats/:chatId/session", (req, res) => res.json(records.chatsAttachSession(req.params.chatId, String(req.body?.sessionKey ?? ""))))
+
+  app.get("/api/spaces", (_req, res) => res.json(records.spacesList()))
+  app.post("/api/spaces", (req, res) => res.json(records.spacesCreate(req.body)))
+  app.patch("/api/spaces/:spaceId", (req, res) => res.json(records.spacesUpdate(req.params.spaceId, req.body)))
+  app.post("/api/spaces/:spaceId/switch", (req, res) => res.json(records.spacesSwitch(req.params.spaceId)))
+  app.delete("/api/spaces/:spaceId", (req, res) => res.json(records.spacesDelete(req.params.spaceId)))
 
   app.get("/api/sessions", (req, res) => res.json(records.sessionsList({
     projectId: req.query.projectId ? String(req.query.projectId) : undefined,

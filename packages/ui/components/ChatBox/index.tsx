@@ -34,6 +34,10 @@ import {
   initialComposerState,
 } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
+import {
+  canRunSlashCommandWhileGenerating,
+  isStopSlashCommand,
+} from "@/lib/controlSlashCommands"
 
 type VoiceSettingsPayload = {
   settings?: {
@@ -55,6 +59,7 @@ function isVoiceConfigurationError(error: unknown) {
 type Props = {
   initialPrompt?: string
   errorMessage?: string | null
+  historyMessages?: string[]
   onSend?: (payload: ChatComposerSubmit) => void | Promise<void>
   disabled?: boolean
   isGenerating?: boolean
@@ -73,6 +78,7 @@ export function ChatBox({
   onAbort,
   initialPrompt,
   errorMessage,
+  historyMessages = [],
   replyTo,
   onCancelReply,
   onModelSelect,
@@ -90,6 +96,8 @@ export function ChatBox({
   const [slashFilter, setSlashFilter] = React.useState("")
   const [commandPrefix, setCommandPrefix] = React.useState<"/" | "@">("/")
   const [slashSelectedIndex, setSlashSelectedIndex] = React.useState(0)
+  const [historyIndex, setHistoryIndex] = React.useState<number | null>(null)
+  const draftBeforeHistoryRef = React.useRef("")
   const [composerState, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerState,
@@ -135,6 +143,13 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
+  const canSendWhileGenerating = Boolean(
+    isGenerating
+      && input.trim().startsWith("/")
+      && attachments.length === 0
+      && !replyTo
+      && canRunSlashCommandWhileGenerating(input, commands),
+  )
   const {
     state: voiceState,
     isSupported: recorderSupported,
@@ -300,8 +315,15 @@ export function ChatBox({
   React.useEffect(() => {
     if (initialPrompt != null) {
       setInput(initialPrompt)
+      setHistoryIndex(null)
+      draftBeforeHistoryRef.current = ""
     }
   }, [initialPrompt])
+
+  React.useEffect(() => {
+    setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
+  }, [historyMessages])
 
   React.useEffect(() => {
     if (errorMessage) {
@@ -325,6 +347,7 @@ export function ChatBox({
   }, [voiceState])
 
   const hasInput = input.trim().length > 0 || attachments.length > 0
+  const isSlashCommandInput = /^([/@])\S*/.test(input)
   const selectedModelRef = sessionModelId ?? currentModel
   function updateSlashMenu(value: string) {
     const match = value.match(/^([/@])(\S*)$/)
@@ -341,8 +364,47 @@ export function ChatBox({
 
   function handleSlashSelect(cmd: import("@/hooks/useSlashCommands").SlashCommand) {
     setInput(`${commandPrefix}${cmd.name} `)
+    setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
     setSlashMenuOpen(false)
     textareaRef.current?.focus()
+  }
+
+  function isCaretOnFirstLine(target: HTMLTextAreaElement) {
+    const start = target.selectionStart
+    const end = target.selectionEnd
+    return start === end && !target.value.slice(0, start).includes("\n")
+  }
+
+  function isCaretOnLastLine(target: HTMLTextAreaElement) {
+    const start = target.selectionStart
+    const end = target.selectionEnd
+    return start === end && !target.value.slice(end).includes("\n")
+  }
+
+  function isSingleLineInput(target: HTMLTextAreaElement) {
+    return !target.value.includes("\n")
+  }
+
+  function canNavigateHistoryUp(target: HTMLTextAreaElement) {
+    return isSingleLineInput(target) || isCaretOnFirstLine(target)
+  }
+
+  function canNavigateHistoryDown(target: HTMLTextAreaElement) {
+    return isSingleLineInput(target) || isCaretOnLastLine(target)
+  }
+
+  function applyHistoryInput(value: string) {
+    setInput(value)
+    setSlashMenuOpen(false)
+    requestAnimationFrame(() => {
+      autoResize()
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const pos = value.length
+      textarea.focus()
+      textarea.setSelectionRange(pos, pos)
+    })
   }
 
   async function handleSend() {
@@ -352,16 +414,38 @@ export function ChatBox({
       return
     }
     if ((!text && attachments.length === 0) || isComposerDisabled || isPreparingAttachments) return
+    if (isGenerating && attachments.length === 0 && !replyTo && isStopSlashCommand(text)) {
+      setInput("")
+      setHistoryIndex(null)
+      draftBeforeHistoryRef.current = ""
+      if (textareaRef.current) textareaRef.current.style.height = "auto"
+      setSlashMenuOpen(false)
+      dispatchComposer({ type: "stop_start" })
+      try {
+        await onAbort?.()
+        dispatchComposer({ type: "stop_done" })
+      } catch {
+        dispatchComposer({
+          type: "send_failed",
+          error: "Could not stop generation. Try again.",
+        })
+        setAttachmentError("Could not stop generation. Try again.")
+      }
+      return
+    }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
       attachments: attachments.length > 0
         ? attachments.map(stripComposerAttachment)
         : undefined,
+      runWhileGenerating: canSendWhileGenerating,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
     }
     setInput("")
+    setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
     if (isGenerating) {
       dispatchComposer({ type: "restart_start", payload })
@@ -555,6 +639,8 @@ export function ChatBox({
             value={input}
             onChange={(e) => {
               setInput(e.target.value)
+              if (historyIndex !== null) setHistoryIndex(null)
+              draftBeforeHistoryRef.current = ""
               if (attachmentError) setAttachmentError(null)
               updateSlashMenu(e.target.value)
               autoResize()
@@ -600,6 +686,51 @@ export function ChatBox({
                 onCancelReply()
                 return
               }
+              if (
+                e.key === "ArrowUp" &&
+                !e.shiftKey &&
+                !e.altKey &&
+                !e.ctrlKey &&
+                !e.metaKey &&
+                !slashMenuOpen &&
+                historyMessages.length > 0 &&
+                canNavigateHistoryUp(e.currentTarget)
+              ) {
+                if (historyIndex === 0) return
+                e.preventDefault()
+                const nextIndex =
+                  historyIndex === null
+                    ? historyMessages.length - 1
+                    : historyIndex - 1
+                if (historyIndex === null) {
+                  draftBeforeHistoryRef.current = input
+                }
+                setHistoryIndex(nextIndex)
+                applyHistoryInput(historyMessages[nextIndex] ?? "")
+                return
+              }
+              if (
+                e.key === "ArrowDown" &&
+                !e.shiftKey &&
+                !e.altKey &&
+                !e.ctrlKey &&
+                !e.metaKey &&
+                !slashMenuOpen &&
+                historyIndex !== null &&
+                canNavigateHistoryDown(e.currentTarget)
+              ) {
+                e.preventDefault()
+                if (historyIndex >= historyMessages.length - 1) {
+                  setHistoryIndex(null)
+                  applyHistoryInput(draftBeforeHistoryRef.current)
+                  draftBeforeHistoryRef.current = ""
+                } else {
+                  const nextIndex = historyIndex + 1
+                  setHistoryIndex(nextIndex)
+                  applyHistoryInput(historyMessages[nextIndex] ?? "")
+                }
+                return
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault()
                 void handleSend()
@@ -608,7 +739,10 @@ export function ChatBox({
             placeholder="Message... (type / for commands and @ for skills)"
             rows={1}
             disabled={isComposerDisabled}
-            className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
+            className={cn(
+              "w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50",
+              isSlashCommandInput && "font-[family:var(--font-jetbrains-mono)] text-[15px]",
+            )}
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
           />
@@ -660,6 +794,7 @@ export function ChatBox({
               handleUploadClick()
             }}
             isGenerating={isGenerating}
+            canSendWhileGenerating={canSendWhileGenerating}
             onAbort={onAbort}
             webSearchEnabled={webSearchEnabled}
             onWebSearchDisable={() => setWebSearchEnabled(false)}

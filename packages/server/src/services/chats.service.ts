@@ -12,7 +12,7 @@ import { kickSyncEngine } from "../sync/engine.js"
 import { rememberAnchor } from "../sync/anchor.js"
 
 const CHAT_COLUMNS =
-  "id, name, session_key, agent_id, archived, pinned, last_active_at, created_at, updated_at"
+  "id, name, session_key, space_id, agent_id, archived, pinned, last_active_at, created_at, updated_at"
 
 function fetchChat(id: string) {
   const db = getDb()
@@ -23,14 +23,20 @@ function fetchChat(id: string) {
   return chatRowToJson(row)
 }
 
-export function chatsList(input?: { archived?: boolean }) {
+export function chatsList(input?: { archived?: boolean; spaceId?: string | null }) {
   const db = getDb()
   const showArchived = input?.archived ?? false
-  const rows = db
-    .prepare(
-      `SELECT ${CHAT_COLUMNS} FROM chats WHERE archived = ? ORDER BY pinned DESC, updated_at DESC`,
-    )
-    .all(boolToSql(showArchived)) as ChatRow[]
+  const rows = input?.spaceId
+    ? db
+      .prepare(
+        `SELECT ${CHAT_COLUMNS} FROM chats WHERE archived = ? AND space_id = ? ORDER BY pinned DESC, updated_at DESC`,
+      )
+      .all(boolToSql(showArchived), input.spaceId) as ChatRow[]
+    : db
+      .prepare(
+        `SELECT ${CHAT_COLUMNS} FROM chats WHERE archived = ? ORDER BY pinned DESC, updated_at DESC`,
+      )
+      .all(boolToSql(showArchived)) as ChatRow[]
   return { chats: rows.map(chatRowToJson) }
 }
 
@@ -38,6 +44,7 @@ export function chatsCreate(input?: {
   name?: string
   agentId?: string
   sessionKey?: string
+  spaceId?: string | null
 }) {
   const db = getDb()
   const id = generateId("chat")
@@ -46,8 +53,8 @@ export function chatsCreate(input?: {
   const agentId = input?.agentId || "main"
 
   db.prepare(
-    `INSERT INTO chats (${CHAT_COLUMNS}) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
-  ).run(id, name, input?.sessionKey ?? null, agentId, now, now, now)
+    `INSERT INTO chats (${CHAT_COLUMNS}) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+  ).run(id, name, input?.sessionKey ?? null, input?.spaceId ?? null, agentId, now, now, now)
 
   enqueue("chat", id, "upsert")
   kickSyncEngine()

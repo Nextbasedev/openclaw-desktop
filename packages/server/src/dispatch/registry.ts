@@ -12,6 +12,7 @@ import * as skills from "../services/skills.service.js"
 import * as skillRuntime from "../services/skill-runtime.service.js"
 import * as skillsInstalled from "../services/skills-installed.service.js"
 import * as chats from "../services/chats.service.js"
+import * as spaces from "../services/spaces.service.js"
 import * as autonaming from "../services/autonaming.service.js"
 import * as recent from "../services/recent.service.js"
 import * as chat from "../services/chat.service.js"
@@ -151,7 +152,7 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_tools_catalog: (i) => skills.toolsCatalog(i as Parameters<typeof skills.toolsCatalog>[0]),
 
   // Standalone Chats
-  middleware_chats_list: (i) => chats.chatsList(i as { archived?: boolean } | undefined),
+  middleware_chats_list: (i) => chats.chatsList(i as { archived?: boolean; spaceId?: string | null } | undefined),
   middleware_chats_create: (i) => chats.chatsCreate(i as Parameters<typeof chats.chatsCreate>[0]),
   middleware_chats_get: (i) => chats.chatsGet(i as { chatId: string }),
   middleware_chats_update: (i) => chats.chatsUpdate(i as Parameters<typeof chats.chatsUpdate>[0]),
@@ -160,6 +161,13 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_chats_delete: (i) => chats.chatsDelete(i as { chatId: string }),
   middleware_chats_attach_session: (i) => chats.chatsAttachSession(i as { chatId: string; sessionKey: string }),
   middleware_chats_update_activity: (i) => chats.chatsUpdateActivity(i as { chatId: string }),
+
+  // Spaces
+  middleware_spaces_list: () => spaces.spacesList(),
+  middleware_spaces_create: (i) => spaces.spacesCreate(i as Parameters<typeof spaces.spacesCreate>[0]),
+  middleware_spaces_update: (i) => spaces.spacesUpdate(i as Parameters<typeof spaces.spacesUpdate>[0]),
+  middleware_spaces_switch: (i) => spaces.spacesSwitch(i as Parameters<typeof spaces.spacesSwitch>[0]),
+  middleware_spaces_delete: (i) => spaces.spacesDelete(i as Parameters<typeof spaces.spacesDelete>[0]),
 
   // Auto-naming
   middleware_autonaming_generate: (i) => autonaming.generateConversationName(i as { sessionKey: string; firstMessage: string }),

@@ -103,6 +103,7 @@ export function initDb(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT 'New Chat',
       session_key TEXT,
+      space_id TEXT,
       agent_id TEXT NOT NULL DEFAULT 'main',
       archived INTEGER NOT NULL DEFAULT 0,
       pinned INTEGER NOT NULL DEFAULT 0,
@@ -110,6 +111,17 @@ export function initDb(db: Database.Database): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       sync_dirty INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS spaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      repo_root TEXT,
+      project_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS sync_tombstones (
@@ -256,6 +268,11 @@ export function initDb(db: Database.Database): void {
       table: "chats",
       column: "deleted_at",
       sql: "ALTER TABLE chats ADD COLUMN deleted_at TEXT",
+    },
+    {
+      table: "chats",
+      column: "space_id",
+      sql: "ALTER TABLE chats ADD COLUMN space_id TEXT",
     },
     {
       table: "session_mappings",

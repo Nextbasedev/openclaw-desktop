@@ -32,6 +32,7 @@ export function useChatsData(
   activeChat: ActiveChat | null,
   onChatClear: () => void,
   refreshTrigger = 0,
+  spaceId?: string | null,
 ) {
   const [chats, setChats] = useState<Chat[]>([])
   const [chatOrder, setChatOrder] = useState<string[]>([])
@@ -65,7 +66,7 @@ export function useChatsData(
     try {
       const result = await invoke<{ chats: Chat[] }>(
         "middleware_chats_list",
-        { input: {} },
+        { input: { spaceId: spaceId ?? undefined } },
       )
       const active = (result.chats || []).filter(
         (c) => !c.archived,
@@ -77,7 +78,7 @@ export function useChatsData(
     } catch (e) {
       console.error("[ChatsSection] load chats failed", e)
     }
-  }, [])
+  }, [spaceId])
 
   useEffect(() => {
     loadChats()

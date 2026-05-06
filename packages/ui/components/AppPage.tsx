@@ -15,6 +15,7 @@ import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
+import { useSpaces } from "@/hooks/useSpaces"
 import { useTopicSession } from "@/hooks/useTopicSession"
 import ConnectPage from "@/components/ConnectPage"
 import { ChatView } from "@/components/ChatView"
@@ -43,10 +44,13 @@ import {
   createInitialState,
   getFocusedGroup,
   findTabInGroups,
+  type EditorTab,
+  type SessionData,
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
 
 type SettingsSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
+type EditorGroupId = "group-1" | "group-2"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
 const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
@@ -69,6 +73,19 @@ function isUndecidedChatTitle(value: string | null | undefined): boolean {
   if (!value) return true
   const normalized = value.trim().toLowerCase()
   return normalized === "" || normalized === "opening chat..." || normalized === "opening chat…"
+}
+
+function createDraftTab(groupId: EditorGroupId): EditorTab {
+  return {
+    id: `draft:${groupId}`,
+    title: "New Chat",
+    subtitle: "Chat",
+    kind: "draft",
+  }
+}
+
+function isDraftTabId(tabId: string): boolean {
+  return tabId === "draft" || tabId.startsWith("draft:")
 }
 
 type CronConversationTarget = {
@@ -207,6 +224,7 @@ function AppShell({
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
+  const [splitRatio, setSplitRatio] = useState(0.5)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   )
@@ -242,6 +260,24 @@ function AppShell({
 
   const prevTabRef = useRef("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
+  const {
+    spaces,
+    activeSpaceId,
+    activeSpace,
+    createSpace,
+    updateSpace,
+    switchSpace,
+    deleteSpace,
+  } = useSpaces()
+
+  useEffect(() => {
+    try {
+      if (activeSpace?.projectId) localStorage.setItem("openclaw.activeProjectId", activeSpace.projectId)
+      else localStorage.removeItem("openclaw.activeProjectId")
+      if (activeSpace?.repoRoot) localStorage.setItem("openclaw.activeSpaceRepoRoot", activeSpace.repoRoot)
+      else localStorage.removeItem("openclaw.activeSpaceRepoRoot")
+    } catch {}
+  }, [activeSpace])
 
   const handleItemsReorder = useCallback((ids: string[]) => {
     setSidebarItems((prev) => {
@@ -371,17 +407,19 @@ function AppShell({
       return
     }
 
-    const hasDraft = allTabs.some((t) => t.id === "draft")
+    const targetGroup = getFocusedGroup(editorGroups)
+    const hasDraft = targetGroup.tabs.some((t) => t.kind === "draft")
     if (!hasDraft) {
       dispatchGroups({
         type: "ADD_TAB",
-        tab: { id: "draft", title: "New Chat", subtitle: "Chat", kind: "draft" },
+        groupId: targetGroup.id,
+        tab: createDraftTab(targetGroup.id),
       })
-    } else {
+    } else if (targetGroup.activeTabId && !isDraftTabId(targetGroup.activeTabId)) {
       dispatchGroups({
         type: "SET_ACTIVE_TAB",
-        groupId: editorGroups.focusedGroupId,
-        tabId: "draft",
+        groupId: targetGroup.id,
+        tabId: targetGroup.tabs.find((t) => t.kind === "draft")?.id ?? `draft:${targetGroup.id}`,
       })
     }
   }, [activeChat, activeTopic, effectiveActiveTab])
@@ -408,6 +446,8 @@ function AppShell({
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
   const isResizing = useRef(false)
+  const isSplitResizing = useRef(false)
+  const mainContentRef = useRef<HTMLElement | null>(null)
   const routeRequestRef = useRef(0)
   const previousContentPathRef = useRef("/")
   const settingsPushedRef = useRef(false)
@@ -780,15 +820,30 @@ function AppShell({
     document.body.style.userSelect = "none"
   }, [sidebarOpen])
 
+  const handleSplitResizeStart = useCallback(() => {
+    if (editorGroups.groups.length <= 1) return
+    isSplitResizing.current = true
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }, [editorGroups.groups.length])
+
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
-      if (!isResizing.current) return
-      const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
-      setSidebarWidth(newWidth)
+      if (isResizing.current) {
+        const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
+        setSidebarWidth(newWidth)
+      }
+      if (isSplitResizing.current) {
+        const bounds = mainContentRef.current?.getBoundingClientRect()
+        if (!bounds) return
+        const nextRatio = (e.clientX - bounds.left) / bounds.width
+        setSplitRatio(Math.max(0.3, Math.min(0.7, nextRatio)))
+      }
     }
     function onMouseUp() {
-      if (!isResizing.current) return
+      if (!isResizing.current && !isSplitResizing.current) return
       isResizing.current = false
+      isSplitResizing.current = false
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
     }
@@ -976,15 +1031,45 @@ function AppShell({
     window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState])
 
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback((groupId?: EditorGroupId) => {
+    const targetGroupId = groupId ?? editorGroups.focusedGroupId
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     setPendingPrompt(null)
     setComposerError(null)
     setActiveTab("chat")
+    dispatchGroups({ type: "SET_FOCUS", groupId: targetGroupId })
+    dispatchGroups({
+      type: "ADD_TAB",
+      groupId: targetGroupId,
+      tab: createDraftTab(targetGroupId),
+    })
     clearConversationState()
     window.history.pushState(null, "", routeUrl("/"))
-  }, [clearConversationState])
+  }, [clearConversationState, editorGroups.focusedGroupId])
+
+  const handleSpaceSwitch = useCallback(async (spaceId: string) => {
+    if (spaceId === activeSpaceId) return
+    await switchSpace(spaceId)
+    resolvedChatCacheRef.current.clear()
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    setComposerError(null)
+    clearConversationState()
+    setChatRefreshTrigger((n) => n + 1)
+    window.history.pushState(null, "", routeUrl("/"))
+    emit("sidebar:refresh")
+  }, [activeSpaceId, clearConversationState, switchSpace])
+
+  const handleSpaceCreate = useCallback(async (name?: string) => {
+    const space = await createSpace(name)
+    await handleSpaceSwitch(space.id)
+  }, [createSpace, handleSpaceSwitch])
+
+  const handleSpaceDelete = useCallback(async (spaceId: string) => {
+    const nextSpaceId = await deleteSpace(spaceId)
+    await handleSpaceSwitch(nextSpaceId)
+  }, [deleteSpace, handleSpaceSwitch])
 
   const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
 
@@ -1027,6 +1112,18 @@ function AppShell({
         "",
         routeUrl(`/${targetGroup.sessionData.chat.id}`),
       )
+      return
+    }
+
+    if (targetGroup?.activeTabId && isDraftTabId(targetGroup.activeTabId)) {
+      setActiveTopic(null)
+      setActiveChat(null)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      setInitialMessages(undefined)
+      setPendingPrompt(null)
+      setComposerError(null)
+      window.history.replaceState(null, "", routeUrl("/"))
     }
   }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
 
@@ -1041,8 +1138,8 @@ function AppShell({
     if (tabId === focusedGroup.activeTabId) return
 
     const data = tabDataRef.current.get(tabId)
-    if (tabId === "draft") {
-      handleNewChat()
+    if (isDraftTabId(tabId)) {
+      handleNewChat(groupId)
       return
     }
     if (data?.topic) {
@@ -1102,7 +1199,7 @@ function AppShell({
     const remaining = location.group.tabs.filter((t) => t.id !== tabId)
     const fallback = remaining[remaining.length - 1]
     if (!fallback || fallback.kind === "draft") {
-      handleNewChat()
+      handleNewChat(location.group.id)
       return
     }
     const data = tabDataRef.current.get(fallback.id)
@@ -1126,6 +1223,66 @@ function AppShell({
       }
     }
   }, [editorGroups, handleChatSelect, handleNewChat, handleTopicSelect])
+
+  const handleEditorTabMove = useCallback((
+    tabId: string,
+    sourceGroupId: EditorGroupId,
+    targetGroupId: EditorGroupId,
+  ) => {
+    if (sourceGroupId === targetGroupId) return
+
+    const data = tabDataRef.current.get(tabId)
+    const cached = data?.chat ? resolvedChatCacheRef.current.get(data.chat.id) : null
+    const movedSessionData: SessionData | null = cached
+      ? {
+          chat: cached.chat,
+          sessionKey: cached.sessionKey,
+          title: cached.title,
+        }
+      : data?.chat?.sessionKey
+        ? {
+            chat: data.chat,
+            sessionKey: data.chat.sessionKey,
+            title: data.chat.name,
+          }
+        : null
+
+    dispatchGroups({
+      type: "MOVE_TAB",
+      tabId,
+      sourceGroupId,
+      targetGroupId,
+    })
+
+    dispatchGroups({
+      type: "SET_SESSION_DATA",
+      groupId: targetGroupId,
+      sessionData: isDraftTabId(tabId) ? null : movedSessionData,
+    })
+
+    if (movedSessionData) {
+      setActiveTopic(null)
+      setActiveChat(movedSessionData.chat)
+      setActiveSessionKey(movedSessionData.sessionKey)
+      setActiveSessionTitle(movedSessionData.title)
+      setInitialMessages(undefined)
+      setPendingPrompt(null)
+      setComposerError(null)
+      window.history.replaceState(null, "", routeUrl(`/${movedSessionData.chat.id}`))
+      return
+    }
+
+    if (isDraftTabId(tabId)) {
+      setActiveTopic(null)
+      setActiveChat(null)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      setInitialMessages(undefined)
+      setPendingPrompt(null)
+      setComposerError(null)
+      window.history.replaceState(null, "", routeUrl("/"))
+    }
+  }, [])
 
   const handleFocusGroup = useCallback((groupId: "group-1" | "group-2") => {
     if (groupId === editorGroups.focusedGroupId) return
@@ -1332,7 +1489,7 @@ function AppShell({
       const fallbackName = fallbackChatNameFromText(text)
       const result = await invoke<{ chat: { id: string; name: string } }>(
         "middleware_chats_create",
-        { input: { name: fallbackName } },
+        { input: { name: fallbackName, spaceId: activeSpaceId } },
       )
       const sessionResult = await invoke<{ session: { key: string } }>(
         "middleware_sessions_create",
@@ -1408,7 +1565,7 @@ function AppShell({
     } finally {
       setQuickSending(false)
     }
-  }, [clearConversationState, quickSending])
+  }, [activeSpaceId, clearConversationState, quickSending])
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
@@ -1544,9 +1701,11 @@ function AppShell({
         editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
+        onMoveChatTab={effectiveActiveTab === "chat" ? handleEditorTabMove : undefined}
         onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
         showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
         splitActive={editorGroups.groups.length > 1}
+        splitRatio={splitRatio}
         onToggleSplit={handleToggleSplit}
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
@@ -1572,10 +1731,19 @@ function AppShell({
           onChatClear={handleChatClear}
           onNewChat={handleNewChat}
           chatRefreshTrigger={chatRefreshTrigger}
+          spaces={spaces}
+          activeSpaceId={activeSpaceId}
+          onSpaceSwitch={handleSpaceSwitch}
+          onSpaceCreate={handleSpaceCreate}
+          onSpaceUpdate={updateSpace}
+          onSpaceDelete={handleSpaceDelete}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <main className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out">
+          <main
+            ref={mainContentRef}
+            className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out"
+          >
 {effectiveActiveTab === "chat" ? (
               editorGroups.groups.length === 1 ? (
                 <MainContent
@@ -1608,7 +1776,9 @@ function AppShell({
               ) : (
                 <EditorGroupsContainer
                   state={editorGroups}
+                  splitRatio={splitRatio}
                   onFocusGroup={handleFocusGroup}
+                  onResizeStart={handleSplitResizeStart}
                   renderContent={(groupId) => {
                     const group = editorGroups.groups.find((g) => g.id === groupId)
                     const groupSessionData = group?.sessionData
@@ -1619,6 +1789,37 @@ function AppShell({
                           sessionKey={groupSessionData.sessionKey}
                           sessionTitle={groupSessionData.title}
                           forkContext={{ type: "chat" }}
+                        />
+                      )
+                    }
+                    if (group?.activeTabId && isDraftTabId(group.activeTabId)) {
+                      return (
+                        <MainContent
+                          activeTab="chat"
+                          activeTopic={null}
+                          activeChat={null}
+                          activeSessionKey={null}
+                          lastActiveSessionKey={lastActiveSessionKeyRef.current}
+                          cronConversationTarget={null}
+                          activeSessionTitle={null}
+                          onSignOut={handleSignOut}
+                          onDeleteAccount={handleDeleteAccount}
+                          flowState={flowState}
+                          sessionResolving={false}
+                          sessionError={null}
+                          onSettingsBack={handleSettingsBack}
+                          settingsInitialSection={settingsInitialSection}
+                          onFirstMessageSent={handleFirstMessageSent}
+                          onQuickSend={handleQuickSend}
+                          quickSending={quickSending}
+                          initialMessages={undefined}
+                          onSelectTool={handleSelectTool}
+                          pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
+                          composerError={group.id === editorGroups.focusedGroupId ? composerError : null}
+                          onTopicQuickSend={handleTopicQuickSend}
+                          onDraftPrompt={handlePromptDraft}
+                          onNavigateToChat={handleCronJobNavigate}
+                          onForkNavigate={handleForkNavigate}
                         />
                       )
                     }
