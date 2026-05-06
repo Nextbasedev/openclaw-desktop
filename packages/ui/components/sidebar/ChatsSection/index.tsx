@@ -19,6 +19,7 @@ type Props = {
   onChatClear: () => void
   onNewChat: () => void
   refreshTrigger?: number
+  spaceId?: string | null
 }
 
 const CHAT_INITIAL_LIMIT = 5
@@ -32,6 +33,7 @@ export function ChatsSection({
   onChatClear,
   onNewChat,
   refreshTrigger = 0,
+  spaceId,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
   const [visibleChatLimit, setVisibleChatLimit] = useState(CHAT_INITIAL_LIMIT)
@@ -47,7 +49,7 @@ export function ChatsSection({
     handleArchiveChat,
     dialogState,
     dialogActions,
-  } = useChatsData(activeChat, onChatClear, refreshTrigger)
+  } = useChatsData(activeChat, onChatClear, refreshTrigger, spaceId)
   const chatsById = useMemo(
     () => new Map(chats.map((chat) => [chat.id, chat])),
     [chats],
