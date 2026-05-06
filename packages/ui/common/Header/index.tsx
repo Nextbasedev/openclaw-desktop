@@ -125,6 +125,7 @@ export function Header({
     const hasRealTab = g.tabs.some((t) => t.kind !== "draft")
     return hasRealTab || editorGroups.groups.length > 1
   })
+  const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
 
   return (
     <header
@@ -165,7 +166,17 @@ export function Header({
 
       {/* Middle: tabs — flex-1 matches content area width, paddingRight keeps tabs visible */}
       {hasVisibleTabs && editorGroups ? (
-        <div className="relative z-10 flex min-w-0 flex-1 items-end self-stretch pt-2">
+        <div
+          className={cn(
+            "relative z-10 min-w-0 flex-1 self-stretch pt-2",
+            isSplitTabs
+              ? "grid grid-cols-2 items-end"
+              : "flex items-end",
+          )}
+        >
+          {isSplitTabs && (
+            <div className="pointer-events-none absolute inset-y-2 left-1/2 z-10 w-px -translate-x-1/2 bg-border/50" />
+          )}
           {editorGroups.groups.map((group, groupIndex) => {
             const hasRealTab = group.tabs.some((t) => t.kind !== "draft")
             const hasDraftTab = group.tabs.some((t) => t.kind === "draft")
@@ -185,11 +196,6 @@ export function Header({
                     : undefined
                 }
               >
-                {groupIndex > 0 && (
-                  <div className="flex h-[34px] shrink-0 items-center px-0.5">
-                    <div className="h-4 w-px bg-border/50" />
-                  </div>
-                )}
                 <div
                   onWheel={(event) => {
                     const target = event.currentTarget
@@ -197,7 +203,14 @@ export function Header({
                       target.scrollLeft += event.deltaY
                     }
                   }}
-                  className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden scroll-smooth px-1 scrollbar-hide"
+                  className={cn(
+                    "flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden scroll-smooth scrollbar-hide",
+                    isSplitTabs
+                      ? groupIndex === 0
+                        ? "pl-0 pr-2"
+                        : "pl-0 pr-1"
+                      : "px-0",
+                  )}
                 >
                   {visibleTabs.map((tab) => (
                     <HeaderTab
