@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -13,9 +20,7 @@ import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
-import {
-  type ChatComposerSubmit,
-} from "@/lib/chatAttachments"
+import { type ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import {
   exportMessagesMarkdown,
@@ -30,7 +35,13 @@ import { toast } from "react-toastify"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
-import type { ChatMessage, EditPreviewState, ReplyTo, SpawnedSubagent } from "./types"
+import type {
+  ChatMessage,
+  EditPreviewState,
+  InlineToolCall,
+  ReplyTo,
+  SpawnedSubagent,
+} from "./types"
 
 type Props = {
   sessionKey: string
@@ -41,10 +52,42 @@ type Props = {
   initialPrompt?: string
   activeSubagentKey?: string | null
   onSubagentOpen?: (key: string | null) => void
-  forkContext?: { type: "topic"; projectId: string; projectName: string; topicId: string; topicName: string } | { type: "chat" }
-  onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
+  forkContext?:
+    | {
+        type: "topic"
+        projectId: string
+        projectName: string
+        topicId: string
+        topicName: string
+      }
+    | { type: "chat" }
+  onForkNavigate?: (chat: {
+    id?: string | null
+    name: string
+    sessionKey: string
+    projectId?: string | null
+    topicId?: string | null
+  }) => void
   /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
+}
+
+function summarizeToolInput(tool: InlineToolCall) {
+  const input = tool.input
+  if (!input || typeof input !== "object") {
+    return typeof input === "string" ? input.slice(0, 90) : ""
+  }
+  const data = input as Record<string, unknown>
+  const candidate =
+    data.command ??
+    data.cmd ??
+    data.path ??
+    data.file ??
+    data.query ??
+    data.pattern ??
+    data.prompt ??
+    data.text
+  return typeof candidate === "string" ? candidate.slice(0, 90) : ""
 }
 
 function cleanSubagentReply(text: string) {
@@ -90,7 +133,7 @@ function PreviewResponseCard({
         </button>
       </div>
       <div className="mb-3 rounded-xl bg-[#252529] px-3 py-2 text-sm text-white">
-        <p className="whitespace-pre-wrap line-clamp-5">{user.text}</p>
+        <p className="line-clamp-5 whitespace-pre-wrap">{user.text}</p>
       </div>
       <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border/20 bg-background/40 p-3 text-sm leading-relaxed text-foreground/90">
         {assistant?.text ? (
@@ -115,8 +158,10 @@ function EditPreviewPanel({
   preview: EditPreviewState
   onSelect: (selected: "original" | "edited") => void
 }) {
-  const loadingEdited = preview.status === "streaming" && !preview.edited.assistant?.text
-  const isRegenerate = preview.original.user.text.trim() === preview.edited.user.text.trim()
+  const loadingEdited =
+    preview.status === "streaming" && !preview.edited.assistant?.text
+  const isRegenerate =
+    preview.original.user.text.trim() === preview.edited.user.text.trim()
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -126,8 +171,14 @@ function EditPreviewPanel({
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Choose the response to keep</h2>
-          <p className="text-xs text-muted-foreground">{isRegenerate ? "Compare the current answer with the regenerated one." : "Future context continues only from the version you select."}</p>
+          <h2 className="text-sm font-semibold text-foreground">
+            Choose the response to keep
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            {isRegenerate
+              ? "Compare the current answer with the regenerated one."
+              : "Future context continues only from the version you select."}
+          </p>
         </div>
         {preview.status === "error" && (
           <span className="rounded-full bg-red-500/10 px-2 py-1 text-xs text-red-400">
@@ -169,10 +220,26 @@ export function ChatView({
   isBackgroundSession = false,
 }: Props) {
   const {
-    messages, status, statusLabel, loading, loadError, errorMessage,
-    isSending, isGenerating, bottomRef, scrollContainerRef, onScroll,
-    handleSend, handleAbort, handleEdit, editPreview, selectEditBranch, switchBranch,
-    markTextAnimationComplete, pendingTools, spawnedSubagents,
+    messages,
+    status,
+    statusLabel,
+    loading,
+    loadError,
+    errorMessage,
+    isSending,
+    isGenerating,
+    bottomRef,
+    scrollContainerRef,
+    onScroll,
+    handleSend,
+    handleAbort,
+    handleEdit,
+    editPreview,
+    selectEditBranch,
+    switchBranch,
+    markTextAnimationComplete,
+    pendingTools,
+    spawnedSubagents,
   } = useChatMessages(sessionKey, initialMessages)
 
   const lastAssistantText = messages
@@ -190,7 +257,8 @@ export function ChatView({
 
   useEffect(() => {
     const setup = async () => {
-      const tauri = (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+      const tauri = (window as unknown as Record<string, unknown>)
+        .__TAURI_INTERNALS__
       if (!tauri) return
       try {
         const { listen } = await import("@tauri-apps/api/event")
@@ -200,9 +268,13 @@ export function ChatView({
         toastUnlistenRef.current.reply?.()
         toastUnlistenRef.current.open?.()
 
-        toastUnlistenRef.current.reply = await listen<{ sessionKey: string; text: string }>("toast-reply", (event) => {
+        toastUnlistenRef.current.reply = await listen<{
+          sessionKey: string
+          text: string
+        }>("toast-reply", (event) => {
           if (event.payload.sessionKey === sessionKey) {
-            void handleSendRef.current({ text: event.payload.text })
+            void handleSendRef
+              .current({ text: event.payload.text })
               .then(async () => {
                 try {
                   const win = getCurrentWindow()
@@ -215,16 +287,22 @@ export function ChatView({
                   // Ignore window API errors
                 }
               })
-              .catch(() => { })
+              .catch(() => {})
           }
         })
 
-        toastUnlistenRef.current.open = await listen<{ sessionKey: string }>("toast-open", (event) => {
-          if (event.payload.sessionKey === sessionKey) {
-            const win = getCurrentWindow()
-            void win.unminimize().then(() => win.setFocus()).catch(() => { })
+        toastUnlistenRef.current.open = await listen<{ sessionKey: string }>(
+          "toast-open",
+          (event) => {
+            if (event.payload.sessionKey === sessionKey) {
+              const win = getCurrentWindow()
+              void win
+                .unminimize()
+                .then(() => win.setFocus())
+                .catch(() => {})
+            }
           }
-        })
+        )
       } catch {
         // Ignore if Tauri API is not available
       }
@@ -236,10 +314,14 @@ export function ChatView({
     }
   }, [sessionKey])
 
-  const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(null)
-  const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(null)
+  const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(
+    null
+  )
+  const [activeSubagent, setActiveSubagent] = useState<SpawnedSubagent | null>(
+    null
+  )
   const [messageActionState, dispatchMessageAction] = useState(
-    initialMessageActionState,
+    initialMessageActionState
   )
   const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null)
@@ -252,6 +334,7 @@ export function ChatView({
   const messageContentRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(messages.length)
   const suppressResizeFollowUntilRef = useRef(0)
+  const initialScrollDoneRef = useRef(false)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -260,12 +343,16 @@ export function ChatView({
 
   useEffect(() => {
     // Reset everything when the session changes
+    initialScrollDoneRef.current = false
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
 
-    invoke<{ pins: Array<{ messageId: string; messageText: string }> }>("middleware_pins_list", {
-      sessionKey,
-    })
+    invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
+      "middleware_pins_list",
+      {
+        sessionKey,
+      }
+    )
       .then(({ pins }) => {
         setDbPins({ pins, loaded: true })
         // Apply fetched pins immediately. If IDs match exactly, they'll show up.
@@ -310,8 +397,9 @@ export function ChatView({
     // Only update if the resolved set differs from current pinnedIds.
     // We compare arrays to avoid infinite update loops.
     const currentPinnedSet = new Set(messageActionState.pinnedIds)
-    const setsMatch = resolved.length === currentPinnedSet.size &&
-      resolved.every(id => currentPinnedSet.has(id))
+    const setsMatch =
+      resolved.length === currentPinnedSet.size &&
+      resolved.every((id) => currentPinnedSet.has(id))
 
     if (!setsMatch) {
       dispatchMessageAction((prev) => ({
@@ -321,12 +409,16 @@ export function ChatView({
     }
   }, [messages, dbPins.pins, dbPins.loaded, messageActionState.pinnedIds])
   const activeSubKey =
-    externalSubagentKey ?? internalSubagentKey ?? activeSubagent?.sessionKey ?? null
+    externalSubagentKey ??
+    internalSubagentKey ??
+    activeSubagent?.sessionKey ??
+    null
 
   // Only suppress notifications when the main chat for THIS session is visible.
   // If a subagent is open, the user is on another page, or this is a
   // background (hidden) session, notify normally.
-  const isMainChatVisible = !isBackgroundSession && !(activeSubKey && activeSubagent)
+  const isMainChatVisible =
+    !isBackgroundSession && !(activeSubKey && activeSubagent)
 
   useChatCompletionNotify({
     sessionKey,
@@ -340,12 +432,15 @@ export function ChatView({
     setComposerSeed(initialPrompt ?? "")
   }, [initialPrompt])
 
-  const openSubagent = useCallback((sub: SpawnedSubagent) => {
-    if (!sub.sessionKey || sub.sessionKey === sessionKey) return
-    setActiveSubagent({ ...sub, sessionKey: sub.sessionKey })
-    setInternalSubagentKey(sub.sessionKey)
-    onSubagentOpen?.(sub.sessionKey)
-  }, [onSubagentOpen, sessionKey])
+  const openSubagent = useCallback(
+    (sub: SpawnedSubagent) => {
+      if (!sub.sessionKey || sub.sessionKey === sessionKey) return
+      setActiveSubagent({ ...sub, sessionKey: sub.sessionKey })
+      setInternalSubagentKey(sub.sessionKey)
+      onSubagentOpen?.(sub.sessionKey)
+    },
+    [onSubagentOpen, sessionKey]
+  )
 
   const closeSubagent = useCallback(() => {
     setActiveSubagent(null)
@@ -358,14 +453,15 @@ export function ChatView({
       return ""
     }
     const assistantMessages = messages.filter(
-      (message) => message.role === "assistant" && message.text.trim(),
+      (message) => message.role === "assistant" && message.text.trim()
     )
     const resultMessage =
       [...assistantMessages]
         .reverse()
-        .find((message) =>
-          /\bI spawned a subagent\b/i.test(message.text) ||
-          /\bDone\./i.test(message.text),
+        .find(
+          (message) =>
+            /\bI spawned a subagent\b/i.test(message.text) ||
+            /\bDone\./i.test(message.text)
         ) ?? assistantMessages.at(-1)
     return cleanSubagentReply(resultMessage?.text ?? "")
   }, [activeSubagent, messages])
@@ -375,109 +471,121 @@ export function ChatView({
 
   const firstFiredRef = useRef(false)
 
-  const resolveExecApproval = useCallback(async (
-    approvalId: string,
-    decision: "allow-once" | "allow-always" | "deny",
-  ) => {
-    await invoke("middleware_exec_approval_resolve", {
-      input: { approvalId, decision },
-    })
-    emit("chat:activity")
-  }, [])
+  const resolveExecApproval = useCallback(
+    async (
+      approvalId: string,
+      decision: "allow-once" | "allow-always" | "deny"
+    ) => {
+      await invoke("middleware_exec_approval_resolve", {
+        input: { approvalId, decision },
+      })
+      emit("chat:activity")
+    },
+    []
+  )
 
-  const wrappedSend = useCallback(async (payload: ChatComposerSubmit) => {
-    const shouldNotifyFirstSend =
-      !firstFiredRef.current &&
-      messages.length === 0 &&
-      Boolean(onFirstMessageSent)
-    await handleSend(payload)
-    if (shouldNotifyFirstSend && onFirstMessageSent) {
-      firstFiredRef.current = true
-      onFirstMessageSent(payload.text)
-    }
-    dispatchMessageAction((prev) =>
-      messageActionReducer(prev, { type: "clear_reply" }),
-    )
-    setReplyTo(null)
-    setComposerSeed("")
-  }, [handleSend, messages.length, onFirstMessageSent])
+  const wrappedSend = useCallback(
+    async (payload: ChatComposerSubmit) => {
+      const shouldNotifyFirstSend =
+        !firstFiredRef.current &&
+        messages.length === 0 &&
+        Boolean(onFirstMessageSent)
+      await handleSend(payload)
+      if (shouldNotifyFirstSend && onFirstMessageSent) {
+        firstFiredRef.current = true
+        onFirstMessageSent(payload.text)
+      }
+      dispatchMessageAction((prev) =>
+        messageActionReducer(prev, { type: "clear_reply" })
+      )
+      setReplyTo(null)
+      setComposerSeed("")
+    },
+    [handleSend, messages.length, onFirstMessageSent]
+  )
 
   const renderedMessages = useMemo(
     () => visibleMessages(messages, messageActionState),
-    [messages, messageActionState],
+    [messages, messageActionState]
   )
   const pinned = useMemo(
     () => pinnedMessages(messages, messageActionState),
-    [messages, messageActionState],
+    [messages, messageActionState]
   )
 
-  const replyToMessage = useCallback((messageId: string) => {
-    const target = messages.find((message) => message.messageId === messageId)
-    if (!target) return
-    dispatchMessageAction((prev) =>
-      messageActionReducer(prev, { type: "reply", messageId }),
-    )
-    setReplyTo({
-      messageId: target.messageId,
-      role: target.role,
-      text: target.text,
-    })
-  }, [messages])
+  const replyToMessage = useCallback(
+    (messageId: string) => {
+      const target = messages.find((message) => message.messageId === messageId)
+      if (!target) return
+      dispatchMessageAction((prev) =>
+        messageActionReducer(prev, { type: "reply", messageId })
+      )
+      setReplyTo({
+        messageId: target.messageId,
+        role: target.role,
+        text: target.text,
+      })
+    },
+    [messages]
+  )
 
   const cancelReply = useCallback(() => {
     setReplyTo(null)
     dispatchMessageAction((prev) =>
-      messageActionReducer(prev, { type: "clear_reply" }),
+      messageActionReducer(prev, { type: "clear_reply" })
     )
   }, [])
 
-  const togglePin = useCallback((messageId: string) => {
-    const isPinned = messageActionState.pinnedIds.includes(messageId)
-    dispatchMessageAction((prev) =>
-      messageActionReducer(prev, {
-        type: isPinned ? "unpin" : "pin",
-        messageId,
-      }),
-    )
-    if (isPinned) {
-      const msg = messages.find((m) => m.messageId === messageId)
-      const snippet = msg?.text?.slice(0, 80) ?? ""
+  const togglePin = useCallback(
+    (messageId: string) => {
+      const isPinned = messageActionState.pinnedIds.includes(messageId)
+      dispatchMessageAction((prev) =>
+        messageActionReducer(prev, {
+          type: isPinned ? "unpin" : "pin",
+          messageId,
+        })
+      )
+      if (isPinned) {
+        const msg = messages.find((m) => m.messageId === messageId)
+        const snippet = msg?.text?.slice(0, 80) ?? ""
 
-      setDbPins((prev) => ({
-        ...prev,
-        pins: prev.pins.filter((p) => {
-          // Match by exact ID or by text snippet (in case ID changed)
-          if (p.messageId === messageId) return false
-          if (snippet && p.messageText?.includes(snippet)) return false
-          return true
-        }),
-      }))
+        setDbPins((prev) => ({
+          ...prev,
+          pins: prev.pins.filter((p) => {
+            // Match by exact ID or by text snippet (in case ID changed)
+            if (p.messageId === messageId) return false
+            if (snippet && p.messageText?.includes(snippet)) return false
+            return true
+          }),
+        }))
 
-      invoke("middleware_pins_remove", {
-        sessionKey,
-        messageId,
-        messageText: msg?.text?.slice(0, 200) ?? "",
-      }).catch(() => { })
-    } else {
-      const msg = messages.find((m) => m.messageId === messageId)
-      const text = msg?.text?.slice(0, 200) ?? ""
+        invoke("middleware_pins_remove", {
+          sessionKey,
+          messageId,
+          messageText: msg?.text?.slice(0, 200) ?? "",
+        }).catch(() => {})
+      } else {
+        const msg = messages.find((m) => m.messageId === messageId)
+        const text = msg?.text?.slice(0, 200) ?? ""
 
-      setDbPins((prev) => ({
-        ...prev,
-        pins: [...prev.pins, { messageId, messageText: text }],
-      }))
+        setDbPins((prev) => ({
+          ...prev,
+          pins: [...prev.pins, { messageId, messageText: text }],
+        }))
 
-      invoke("middleware_pins_add", {
-        sessionKey,
-        messageId,
-        messageText: text,
-      }).catch(() => { })
-    }
-  }, [sessionKey, messages, messageActionState.pinnedIds])
+        invoke("middleware_pins_add", {
+          sessionKey,
+          messageId,
+          messageText: text,
+        }).catch(() => {})
+      }
+    },
+    [sessionKey, messages, messageActionState.pinnedIds]
+  )
 
   const deleteMessage = useCallback((messageId: string) => {
     dispatchMessageAction((prev) =>
-      messageActionReducer(prev, { type: "delete", messageId }),
+      messageActionReducer(prev, { type: "delete", messageId })
     )
   }, [])
 
@@ -487,7 +595,7 @@ export function ChatView({
       const isRemoving = current === reaction
 
       dispatchMessageAction((prev) =>
-        messageActionReducer(prev, { type: "react", messageId, reaction }),
+        messageActionReducer(prev, { type: "react", messageId, reaction })
       )
 
       // Guard against double-clicks or rapid firing on the same message
@@ -500,7 +608,7 @@ export function ChatView({
         invoke("middleware_message_feedback_delete", {
           conversation_id: sessionKey,
           message_id: messageId,
-        }).catch(() => { })
+        }).catch(() => {})
         return
       }
 
@@ -534,14 +642,14 @@ export function ChatView({
 
       invoke("middleware_message_feedback", payload)
         .then((res) => console.log("[Feedback Response]", res))
-        .catch(() => { })
+        .catch(() => {})
 
       if (reaction === "down") {
         setFeedbackTargetId(messageId)
         setFeedbackDialogOpen(true)
       }
     },
-    [sessionKey, messageActionState.reactions],
+    [sessionKey, messageActionState.reactions]
   )
 
   const handleScroll = useCallback(() => {
@@ -559,6 +667,14 @@ export function ChatView({
     }
   }, [messages])
 
+  useLayoutEffect(() => {
+    if (initialScrollDoneRef.current) return
+    const el = scrollContainerRef.current
+    if (!el || messages.length === 0) return
+    el.scrollTop = el.scrollHeight
+    initialScrollDoneRef.current = true
+  }, [messages, scrollContainerRef])
+
   useEffect(() => {
     const content = messageContentRef.current
     if (!content || typeof ResizeObserver === "undefined") return
@@ -574,6 +690,12 @@ export function ChatView({
         const shouldLetSmoothSendScrollFinish =
           Date.now() < suppressResizeFollowUntilRef.current
 
+        if (!initialScrollDoneRef.current) {
+          el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+          initialScrollDoneRef.current = true
+          return
+        }
+
         if (isSending || shouldLetSmoothSendScrollFinish) {
           el.scrollTo({
             top: el.scrollHeight,
@@ -585,7 +707,7 @@ export function ChatView({
         if (isGenerating || distanceFromBottom < 260) {
           el.scrollTo({
             top: el.scrollHeight,
-            behavior: "auto",
+            behavior: distanceFromBottom < 80 ? "auto" : "smooth",
           })
         }
       })
@@ -621,83 +743,102 @@ export function ChatView({
 
       invoke("middleware_message_feedback", payload)
         .then((res) => console.log("[Feedback Response]", res))
-        .catch(() => { })
+        .catch(() => {})
     },
-    [sessionKey, feedbackTargetId],
+    [sessionKey, feedbackTargetId]
   )
 
-  const forkFromMessage = useCallback(async (messageId: string) => {
-    const msg = messages.find((m) => m.messageId === messageId)
-    if (!msg || msg.gatewayIndex === undefined) return
-    const requestId = `fork-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const optimisticName = forkContext?.type === "topic"
-      ? `Fork: ${forkContext.topicName}`
-      : "Forked chat"
-    emit("fork:create", {
-      status: "pending",
-      requestId,
-      name: optimisticName,
-      context: forkContext ?? { type: "chat" },
-    })
-    const toastId = toast.loading(forkContext?.type === "topic" ? "Creating fork topic…" : "Creating fork chat…")
-    try {
-      const result = await invoke<{
-        chatId?: string | null
-        sessionKey: string
-        name: string
-        projectId?: string | null
-        topicId?: string | null
-      }>("middleware_chat_fork", {
-        input: {
-          sessionKey,
-          messageId,
-          gatewayIndex: msg.gatewayIndex,
-        },
-      })
+  const forkFromMessage = useCallback(
+    async (messageId: string) => {
+      const msg = messages.find((m) => m.messageId === messageId)
+      if (!msg || msg.gatewayIndex === undefined) return
+      const requestId = `fork-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const optimisticName =
+        forkContext?.type === "topic"
+          ? `Fork: ${forkContext.topicName}`
+          : "Forked chat"
       emit("fork:create", {
-        status: "resolved",
+        status: "pending",
         requestId,
-        name: result.name,
-        chatId: result.chatId,
-        sessionKey: result.sessionKey,
-        projectId: result.projectId,
-        topicId: result.topicId,
+        name: optimisticName,
         context: forkContext ?? { type: "chat" },
       })
-      toast.update(toastId, {
-        render: forkContext?.type === "topic" ? "Fork topic created" : "Fork chat created",
-        type: "success",
-        isLoading: false,
-        autoClose: 2500,
-      })
-      onForkNavigate?.({
-        id: result.chatId,
-        name: result.name,
-        sessionKey: result.sessionKey,
-        projectId: result.projectId,
-        topicId: result.topicId,
-      })
-    } catch (err) {
-      emit("fork:create", { status: "failed", requestId, context: forkContext ?? { type: "chat" } })
-      toast.update(toastId, {
-        render: "Fork failed",
-        type: "error",
-        isLoading: false,
-        autoClose: 4000,
-      })
-      console.error("Fork failed", err)
-    }
-  }, [sessionKey, messages, forkContext, onForkNavigate])
+      const toastId = toast.loading(
+        forkContext?.type === "topic"
+          ? "Creating fork topic…"
+          : "Creating fork chat…"
+      )
+      try {
+        const result = await invoke<{
+          chatId?: string | null
+          sessionKey: string
+          name: string
+          projectId?: string | null
+          topicId?: string | null
+        }>("middleware_chat_fork", {
+          input: {
+            sessionKey,
+            messageId,
+            gatewayIndex: msg.gatewayIndex,
+          },
+        })
+        emit("fork:create", {
+          status: "resolved",
+          requestId,
+          name: result.name,
+          chatId: result.chatId,
+          sessionKey: result.sessionKey,
+          projectId: result.projectId,
+          topicId: result.topicId,
+          context: forkContext ?? { type: "chat" },
+        })
+        toast.update(toastId, {
+          render:
+            forkContext?.type === "topic"
+              ? "Fork topic created"
+              : "Fork chat created",
+          type: "success",
+          isLoading: false,
+          autoClose: 2500,
+        })
+        onForkNavigate?.({
+          id: result.chatId,
+          name: result.name,
+          sessionKey: result.sessionKey,
+          projectId: result.projectId,
+          topicId: result.topicId,
+        })
+      } catch (err) {
+        emit("fork:create", {
+          status: "failed",
+          requestId,
+          context: forkContext ?? { type: "chat" },
+        })
+        toast.update(toastId, {
+          render: "Fork failed",
+          type: "error",
+          isLoading: false,
+          autoClose: 4000,
+        })
+        console.error("Fork failed", err)
+      }
+    },
+    [sessionKey, messages, forkContext, onForkNavigate]
+  )
 
-  const exportOneMessage = useCallback((messageId: string) => {
-    const target = messages.find((message) => message.messageId === messageId)
-    if (!target) return
-    void navigator.clipboard.writeText(exportMessagesMarkdown([target]))
-  }, [messages])
+  const exportOneMessage = useCallback(
+    (messageId: string) => {
+      const target = messages.find((message) => message.messageId === messageId)
+      if (!target) return
+      void navigator.clipboard.writeText(exportMessagesMarkdown([target]))
+    },
+    [messages]
+  )
 
   const lastEditableUserId = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
-      if (renderedMessages[i].role === "user") return renderedMessages[i].messageId
+      if (renderedMessages[i].role === "user")
+        return renderedMessages[i].messageId
       if (renderedMessages[i].role === "assistant") continue
     }
     return null
@@ -716,22 +857,49 @@ export function ChatView({
     )
   }
 
+  const liveTool = pendingTools.find(
+    (tool) =>
+      tool.status === "running" &&
+      tool.tool !== "sessions_spawn" &&
+      tool.tool !== "subagents" &&
+      tool.tool !== "sessions_yield"
+  )
+  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
+  const liveToolText = liveTool
+    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
+    : null
+
   const statusText =
-    status === "thinking" ? "Thinking..."
-      : status === "queued" ? statusLabel ? `Queued - ${statusLabel}...` : "Queued..."
-        : status === "running" ? statusLabel ? `Running - ${statusLabel}...` : "Running..."
-          : status === "collect" ? statusLabel ? `Collecting - ${statusLabel}...` : "Collecting..."
-            : status === "tool_running" ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
-              : status === "streaming" ? "Responding..."
-                : status === "stopping" ? "Stopping..."
-                  : status === "restarting" ? "Restarting..."
+    liveToolText ??
+    (status === "thinking"
+      ? "Thinking - waiting for the next event..."
+      : status === "queued"
+        ? statusLabel
+          ? `Queued - ${statusLabel}...`
+          : "Queued..."
+        : status === "running"
+          ? statusLabel
+            ? `Running - ${statusLabel}...`
+            : "Running..."
+          : status === "collect"
+            ? statusLabel
+              ? `Collecting - ${statusLabel}...`
+              : "Collecting..."
+            : status === "tool_running"
+              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
+              : status === "streaming"
+                ? "Responding..."
+                : status === "stopping"
+                  ? "Stopping..."
+                  : status === "restarting"
+                    ? "Restarting..."
                     : isGenerating
                       ? statusLabel
                         ? `${statusLabel}...`
-                        : "Thinking..."
-                      : null
+                        : "Thinking - waiting for the next event..."
+                      : null)
 
-  if (loading) {
+  if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
   }
 
@@ -739,7 +907,9 @@ export function ChatView({
     return (
       <div className="flex h-full w-full items-center justify-center px-8">
         <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
-          <p className="text-sm font-medium text-red-400">Failed to load session</p>
+          <p className="text-sm font-medium text-red-400">
+            Failed to load session
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
         </div>
       </div>
@@ -772,12 +942,17 @@ export function ChatView({
 
   const assistantMessages = messages.filter((m) => m.role === "assistant")
   const lastTwoAssistantIds = new Set(
-    assistantMessages.slice(-2).map((m) => m.messageId),
+    assistantMessages.slice(-2).map((m) => m.messageId)
   )
   const lastAssistantId = assistantMessages.at(-1)?.messageId
 
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
-    tools.filter((t) => t.tool !== "sessions_spawn" && t.tool !== "subagents" && t.tool !== "sessions_yield")
+    tools.filter(
+      (t) =>
+        t.tool !== "sessions_spawn" &&
+        t.tool !== "subagents" &&
+        t.tool !== "sessions_yield"
+    )
 
   const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
   for (const sub of spawnedSubagents) {
@@ -785,7 +960,7 @@ export function ChatView({
   }
 
   function getSubagentsForMessage(
-    toolCalls?: import("./types").InlineToolCall[],
+    toolCalls?: import("./types").InlineToolCall[]
   ): SpawnedSubagent[] {
     if (!toolCalls) return []
     const matched: SpawnedSubagent[] = []
@@ -814,7 +989,7 @@ export function ChatView({
             ref={pinButtonRef}
             onClick={() => setPinnedPopoverOpen(!pinnedPopoverOpen)}
             className={cn(
-              "group relative flex size-8 items-center justify-center rounded-sm transition-all cursor-pointer",
+              "group relative flex size-8 cursor-pointer items-center justify-center rounded-sm transition-all",
               pinnedPopoverOpen
                 ? "text-foreground shadow-inner"
                 : pinned.length > 0
@@ -824,7 +999,10 @@ export function ChatView({
           >
             <Icons.Pin
               size={16}
-              className={cn("transition-transform", pinnedPopoverOpen && "scale-110")}
+              className={cn(
+                "transition-transform",
+                pinnedPopoverOpen && "scale-110"
+              )}
             />
           </button>
 
@@ -856,7 +1034,6 @@ export function ChatView({
       >
         <div ref={messageContentRef} className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
-
             {renderedMessages.map((msg, i) => {
               const isLast = i === renderedMessages.length - 1
               const showPending =
@@ -876,12 +1053,12 @@ export function ChatView({
               const filteredPending = toolCallsWithoutSpawn(pendingTools)
 
               const msgSubagents = getSubagentsForMessage(msg.toolCalls)
-              const liveSubagents = (isLast && isGenerating)
-                ? getSubagentsForMessage(pendingTools)
-                : []
-              const allSubagents = msgSubagents.length > 0
-                ? msgSubagents
-                : liveSubagents
+              const liveSubagents =
+                isLast && isGenerating
+                  ? getSubagentsForMessage(pendingTools)
+                  : []
+              const allSubagents =
+                msgSubagents.length > 0 ? msgSubagents : liveSubagents
 
               return (
                 <div key={msg.messageId} id={`message-${msg.messageId}`}>
@@ -918,22 +1095,35 @@ export function ChatView({
                   {(msg.role === "user" || msg.text) && (
                     <MessageBubble
                       message={msg}
-                      onEdit={msg.role === "user" && msg.messageId === lastEditableUserId ? handleEdit : undefined}
+                      onEdit={
+                        msg.role === "user" &&
+                        msg.messageId === lastEditableUserId
+                          ? handleEdit
+                          : undefined
+                      }
                       onSwitchBranch={switchBranch}
                       onReply={replyToMessage}
                       onPin={togglePin}
                       onDelete={deleteMessage}
-                      onReact={msg.role === "assistant" ? reactToMessage : undefined}
+                      onReact={
+                        msg.role === "assistant" ? reactToMessage : undefined
+                      }
                       onExport={exportOneMessage}
                       onTextAnimationComplete={markTextAnimationComplete}
-                      onFork={msg.role === "assistant" ? forkFromMessage : undefined}
+                      onFork={
+                        msg.role === "assistant" ? forkFromMessage : undefined
+                      }
                       onResolveApproval={resolveExecApproval}
-                      isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
+                      isPinned={messageActionState.pinnedIds.includes(
+                        msg.messageId
+                      )}
                       reaction={messageActionState.reactions[msg.messageId]}
                       isGenerating={isGenerating}
                       isActivelyStreaming={isActivelyStreaming}
                       popoverOpen={activePopoverId === msg.messageId}
-                      onPopoverOpenChange={(open) => setActivePopoverId(open ? msg.messageId : null)}
+                      onPopoverOpenChange={(open) =>
+                        setActivePopoverId(open ? msg.messageId : null)
+                      }
                     />
                   )}
                   {msg.role === "user" && allSubagents.length > 0 && (
@@ -972,7 +1162,9 @@ export function ChatView({
           {statusText && (
             <div className="mt-4 flex items-center gap-2 pl-1">
               <TypingDots />
-              <span className="text-[12px] text-muted-foreground">{statusText}</span>
+              <span className="text-[12px] text-muted-foreground">
+                {statusText}
+              </span>
             </div>
           )}
 
@@ -991,10 +1183,7 @@ export function ChatView({
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         {spawnedSubagents.length > 0 && (
           <div className="mb-2">
-            <SubagentBar
-              subagents={spawnedSubagents}
-              onOpen={openSubagent}
-            />
+            <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
           </div>
         )}
         <ChatBox

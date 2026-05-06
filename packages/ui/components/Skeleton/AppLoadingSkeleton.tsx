@@ -1,32 +1,66 @@
+function Bone({ className }: { className?: string }) {
+  return (
+    <div
+      className={`animate-pulse rounded-md bg-foreground/[0.04] ${className ?? ""}`}
+    />
+  )
+}
+
 export function AppLoadingSkeleton() {
   return (
-    <div className="relative flex h-dvh min-h-dvh items-center justify-center overflow-hidden bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(56,189,248,0.12),transparent_34%),radial-gradient(circle_at_44%_58%,rgba(168,85,247,0.10),transparent_30%)]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/40 to-transparent" />
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-background text-foreground">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/50 bg-card px-3">
+        <Bone className="h-3 w-16" />
+        <div className="flex items-center gap-1">
+          <Bone className="size-6 rounded-md" />
+          <Bone className="size-6 rounded-md" />
+          <Bone className="size-6 rounded-md" />
+        </div>
+      </div>
 
-      <div className="relative flex flex-col items-center gap-5 px-6 text-center">
-        <div className="relative flex size-20 items-center justify-center">
-          <div className="absolute inset-0 rounded-full border border-cyan-300/20" />
-          <div className="absolute inset-1 rounded-full border border-violet-300/10" />
-          <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-cyan-300/70 border-r-violet-300/50" />
-          <div className="absolute inset-4 animate-pulse rounded-full bg-cyan-300/10 shadow-[0_0_32px_rgba(56,189,248,0.28)]" />
-          <div className="size-3 rounded-full bg-cyan-200 shadow-[0_0_18px_rgba(103,232,249,0.9)]" />
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex w-[220px] shrink-0 flex-col border-r border-border/50 px-2 py-3">
+          <div className="flex flex-col gap-0.5">
+            <Bone className="h-8 w-full rounded-md" />
+            <Bone className="h-8 w-full rounded-md" />
+            <Bone className="h-8 w-full rounded-md" />
+          </div>
+
+          <div className="mt-3 border-t border-border/10 pt-3">
+            <Bone className="mb-2 ml-2 h-2 w-8" />
+            <div className="flex flex-col gap-0.5">
+              <Bone className="h-8 w-full rounded-md" />
+              <Bone className="h-8 w-full rounded-md" />
+              <Bone className="h-8 w-full rounded-md" />
+            </div>
+          </div>
+
+          <div className="mt-3 border-t border-border/10 pt-3">
+            <Bone className="mb-2 ml-2 h-2 w-12" />
+            <div className="flex flex-col gap-0.5">
+              <Bone className="h-8 w-full rounded-md" />
+              <Bone className="h-8 w-full rounded-md" />
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-sm font-semibold tracking-[0.24em] text-foreground/85 uppercase">
-            OpenClaw
-          </p>
-          <p className="text-[13px] text-muted-foreground">
-            Connecting middleware and restoring your workspace…
-          </p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-8">
+          <Bone className="h-8 w-56 rounded-lg" />
+          <div className="w-full max-w-3xl px-4">
+            <div className="rounded-[24px] border border-white/8 bg-white/[0.02] px-4 pb-4 pt-5 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-2xl">
+              <Bone className="mb-10 h-3.5 w-52" />
+              <div className="flex items-center justify-between">
+                <Bone className="size-8 rounded-full" />
+                <Bone className="size-8 rounded-full" />
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div className="flex items-center gap-1.5" aria-hidden="true">
-          <span className="size-1.5 animate-bounce rounded-full bg-cyan-300/80 [animation-delay:-0.24s]" />
-          <span className="size-1.5 animate-bounce rounded-full bg-cyan-300/60 [animation-delay:-0.12s]" />
-          <span className="size-1.5 animate-bounce rounded-full bg-cyan-300/40" />
-        </div>
+      <div className="flex h-[26px] shrink-0 items-center justify-between border-t border-border/50 bg-card px-3">
+        <Bone className="h-2.5 w-20" />
+        <Bone className="h-2.5 w-24" />
       </div>
     </div>
   )
