@@ -438,6 +438,14 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState],
   )
+  const userMessageHistory = useMemo(
+    () =>
+      messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.text.trim())
+        .filter((text) => text.length > 0),
+    [messages],
+  )
   const pinned = useMemo(
     () => pinnedMessages(messages, messageActionState),
     [messages, messageActionState],
@@ -797,6 +805,7 @@ export function ChatView({
           onSend={wrappedSend}
           disabled={false}
           isGenerating={isGenerating}
+          historyMessages={userMessageHistory}
           onAbort={handleAbort}
           initialPrompt={composerSeed}
           replyTo={replyTo}

@@ -45,6 +45,7 @@ type HeaderProps = {
   onNewChat?: (groupId?: "group-1" | "group-2") => void
   showSplitButton?: boolean
   splitActive?: boolean
+  splitRatio?: number
   onToggleSplit?: () => void
   onOpenSettings?: () => void
   onOpenNotifications?: () => void
@@ -75,6 +76,7 @@ export function Header({
   onNewChat,
   showSplitButton = false,
   splitActive = false,
+  splitRatio = 0.5,
   onToggleSplit,
   onOpenSettings,
   onOpenNotifications,
@@ -173,9 +175,19 @@ export function Header({
               ? "grid grid-cols-2 items-end"
               : "flex items-end",
           )}
+          style={
+            isSplitTabs
+              ? {
+                  gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
+                }
+              : undefined
+          }
         >
           {isSplitTabs && (
-            <div className="pointer-events-none absolute inset-y-2 left-1/2 z-10 w-px -translate-x-1/2 bg-border/50" />
+            <div
+              className="pointer-events-none absolute inset-y-2 z-10 w-px -translate-x-1/2 bg-border/50"
+              style={{ left: `${splitRatio * 100}%` }}
+            />
           )}
           {editorGroups.groups.map((group, groupIndex) => {
             const hasRealTab = group.tabs.some((t) => t.kind !== "draft")
