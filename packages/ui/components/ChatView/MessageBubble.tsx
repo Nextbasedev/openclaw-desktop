@@ -602,20 +602,24 @@ export function MessageBubble({
               onKeyUp={updateSelectionAction}
               className={cn(
                 "min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed",
-                isUser
+                isUser && userSlashCommandName
+                  ? "rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-3.5 py-2.5 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                  : isUser
                   ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
                   : "w-full text-foreground",
               )}
             >
-              {isUser ? (
-                <p
-                  className={cn(
-                    "whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
-                    userSlashCommandName && "font-mono text-[13.5px] leading-6 tracking-[-0.01em]",
-                  )}
-                >
-                  {message.text}
-                </p>
+              {isUser && userSlashCommandName ? (
+                <div className="flex items-center gap-2.5">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-white/65">
+                    <LuTerminal className="size-3.5" />
+                  </span>
+                  <code className="min-w-0 whitespace-pre-wrap break-words font-mono text-[13.5px] leading-6 tracking-[-0.01em] text-white [overflow-wrap:anywhere]">
+                    {message.text}
+                  </code>
+                </div>
+              ) : isUser ? (
+                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.text}</p>
               ) : approvalPrompt ? (
                 <ApprovalPromptCard
                   approval={approvalPrompt}
