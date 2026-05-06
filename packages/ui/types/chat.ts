@@ -2,6 +2,7 @@ export type Chat = {
   id: string
   name: string
   sessionKey?: string
+  spaceId?: string
   agentId: string
   archived: boolean
   pinned: boolean

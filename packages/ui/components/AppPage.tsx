@@ -15,6 +15,7 @@ import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
+import { useSpaces } from "@/hooks/useSpaces"
 import { useTopicSession } from "@/hooks/useTopicSession"
 import ConnectPage from "@/components/ConnectPage"
 import { ChatView } from "@/components/ChatView"
@@ -258,6 +259,24 @@ function AppShell({
 
   const prevTabRef = useRef("chat")
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
+  const {
+    spaces,
+    activeSpaceId,
+    activeSpace,
+    createSpace,
+    updateSpace,
+    switchSpace,
+    deleteSpace,
+  } = useSpaces()
+
+  useEffect(() => {
+    try {
+      if (activeSpace?.projectId) localStorage.setItem("openclaw.activeProjectId", activeSpace.projectId)
+      else localStorage.removeItem("openclaw.activeProjectId")
+      if (activeSpace?.repoRoot) localStorage.setItem("openclaw.activeSpaceRepoRoot", activeSpace.repoRoot)
+      else localStorage.removeItem("openclaw.activeSpaceRepoRoot")
+    } catch {}
+  }, [activeSpace])
 
   const handleItemsReorder = useCallback((ids: string[]) => {
     setSidebarItems((prev) => {
@@ -1028,6 +1047,29 @@ function AppShell({
     window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState, editorGroups.focusedGroupId])
 
+  const handleSpaceSwitch = useCallback(async (spaceId: string) => {
+    if (spaceId === activeSpaceId) return
+    await switchSpace(spaceId)
+    resolvedChatCacheRef.current.clear()
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    setComposerError(null)
+    clearConversationState()
+    setChatRefreshTrigger((n) => n + 1)
+    window.history.pushState(null, "", routeUrl("/"))
+    emit("sidebar:refresh")
+  }, [activeSpaceId, clearConversationState, switchSpace])
+
+  const handleSpaceCreate = useCallback(async (name?: string) => {
+    const space = await createSpace(name)
+    await handleSpaceSwitch(space.id)
+  }, [createSpace, handleSpaceSwitch])
+
+  const handleSpaceDelete = useCallback(async (spaceId: string) => {
+    const nextSpaceId = await deleteSpace(spaceId)
+    await handleSpaceSwitch(nextSpaceId)
+  }, [deleteSpace, handleSpaceSwitch])
+
   const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
 
   useEffect(() => {
@@ -1386,7 +1428,7 @@ function AppShell({
       const fallbackName = fallbackChatNameFromText(text)
       const result = await invoke<{ chat: { id: string; name: string } }>(
         "middleware_chats_create",
-        { input: { name: fallbackName } },
+        { input: { name: fallbackName, spaceId: activeSpaceId } },
       )
       const sessionResult = await invoke<{ session: { key: string } }>(
         "middleware_sessions_create",
@@ -1462,7 +1504,7 @@ function AppShell({
     } finally {
       setQuickSending(false)
     }
-  }, [clearConversationState, quickSending])
+  }, [activeSpaceId, clearConversationState, quickSending])
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
@@ -1627,6 +1669,12 @@ function AppShell({
           onChatClear={handleChatClear}
           onNewChat={handleNewChat}
           chatRefreshTrigger={chatRefreshTrigger}
+          spaces={spaces}
+          activeSpaceId={activeSpaceId}
+          onSpaceSwitch={handleSpaceSwitch}
+          onSpaceCreate={handleSpaceCreate}
+          onSpaceUpdate={updateSpace}
+          onSpaceDelete={handleSpaceDelete}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
