@@ -11,6 +11,7 @@ import {
 } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import {
   Popover,
   PopoverContent,
@@ -25,6 +26,7 @@ type ActionBarProps = {
   onSend?: () => void
   onUploadClick?: () => void
   isGenerating?: boolean
+  canSendWhileGenerating?: boolean
   onAbort?: () => void
   webSearchEnabled: boolean
   onWebSearchDisable: () => void
@@ -41,6 +43,8 @@ type ActionBarProps = {
   isRecording?: boolean
   onVoiceToggle?: () => void
   voiceSupported?: boolean
+  voiceReady?: boolean
+  voiceDisabledReason?: string
   attachmentCount?: number
   disableUpload?: boolean
 }
@@ -50,6 +54,7 @@ export function ActionBar({
   onSend,
   onUploadClick,
   isGenerating,
+  canSendWhileGenerating = false,
   onAbort,
   webSearchEnabled,
   onWebSearchDisable,
@@ -66,6 +71,8 @@ export function ActionBar({
   isRecording,
   onVoiceToggle,
   voiceSupported = true,
+  voiceReady = voiceSupported,
+  voiceDisabledReason,
   attachmentCount = 0,
   disableUpload = false,
 }: ActionBarProps) {
@@ -86,27 +93,42 @@ export function ActionBar({
   return (
     <div className="flex items-center justify-between px-3 pb-3 pt-2">
       {/* Left controls */}
-      <div className="flex items-center gap-0.5 sm:gap-1">
+      <div className="flex items-center gap-1.5">
         {/* + menu */}
         <Popover open={plusOpen} onOpenChange={onPlusOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-foreground/15 bg-foreground/5 text-foreground shadow-sm transition-all hover:bg-foreground/10"
+              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/12 bg-white/[0.06] text-foreground/88 shadow-[0_10px_30px_-18px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl transition-all hover:border-white/18 hover:bg-white/[0.1] hover:text-foreground"
               aria-label="Add"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={19} />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" sideOffset={8} className="w-56 gap-0 p-1.5">
+          <PopoverContent
+            side="top"
+            align="start"
+            sideOffset={10}
+            className={cn(
+              "w-[190px] gap-0 py-2 px-2 shadow-2xl shadow-black/40 ring-1 ring-white/6",
+              GLASS_POPOVER,
+            )}
+          >
             <button
               type="button"
               onClick={onUploadClick}
               disabled={disableUpload}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-popover-foreground transition-colors hover:bg-muted"
+              className="flex w-full cursor-pointer items-center gap-1 text-sm font-medium text-popover-foreground transition-all disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <HugeiconsIcon icon={AttachmentIcon} size={16} />
-              {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-black/10 text-foreground/75">
+                <HugeiconsIcon icon={AttachmentIcon} size={16} />
+              </span>
+              <span className="min-w-0 flex flex-1 flex-col">
+                <span className="truncate">
+                  {attachmentCount > 0 ? `Upload (${attachmentCount})` : "Add photos & files"}
+                </span>
+                
+              </span>
             </button>
           </PopoverContent>
         </Popover>
@@ -210,16 +232,20 @@ export function ActionBar({
             isRecording
               ? "cursor-pointer border border-foreground/60 bg-secondary text-foreground"
               : voiceSupported
-                ? "cursor-pointer text-muted-foreground hover:text-foreground"
+                ? voiceReady
+                  ? "cursor-pointer text-muted-foreground hover:text-foreground"
+                  : "cursor-pointer text-muted-foreground/45 hover:text-foreground"
                 : "cursor-not-allowed text-muted-foreground/30"
           )}
           aria-label={isRecording ? "Stop recording" : "Voice input"}
           title={
             !voiceSupported
               ? "Voice input not supported in this browser"
-              : isRecording
-                ? "Stop recording"
-                : "Voice input"
+              : !voiceReady
+                ? voiceDisabledReason || "Configure voice input"
+                : isRecording
+                  ? "Stop recording"
+                  : "Voice input"
           }
         >
           {isRecording ? (
@@ -230,7 +256,7 @@ export function ActionBar({
         </button>
 
         {/* Send / Stop controls */}
-        {isGenerating && (
+        {isGenerating && !canSendWhileGenerating && (
           <button
             type="button"
             onClick={onAbort}
@@ -240,7 +266,7 @@ export function ActionBar({
             <StopSquareIcon className="size-6" />
           </button>
         )}
-        {!isGenerating && (
+        {(!isGenerating || canSendWhileGenerating) && (
           <button
             type="button"
             onClick={onSend}
@@ -251,7 +277,7 @@ export function ActionBar({
                 ? "cursor-pointer bg-foreground text-background"
                 : "bg-foreground/50 text-background"
             )}
-            aria-label="Send message"
+            aria-label={isGenerating ? "Run command" : "Send message"}
           >
             <SendArrowIcon className="size-4" />
           </button>

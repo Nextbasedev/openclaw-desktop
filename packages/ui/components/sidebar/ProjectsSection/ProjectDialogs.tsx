@@ -38,7 +38,7 @@ export function ProjectDialogs({ dialog, actions }: Props) {
           {projectError && <p className="rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2 text-[12px] text-red-400">{projectError}</p>}
           <div className="mt-1 flex gap-2.5">
             <button onClick={() => setCreateProjectOpen(false)} className="glass-btn-secondary flex-1">Cancel</button>
-            <button onClick={handleCreateProject} disabled={creatingProject || !newProjectName.trim()} className="glass-btn-primary flex-1">{creatingProject ? "Creating…" : "Create Project"}</button>
+            <button onClick={handleCreateProject} disabled={creatingProject || !newProjectName.trim()} className="glass-btn-primary flex-1">{creatingProject ? "Creating…" : "Create Space"}</button>
           </div>
         </div>
       </GlassDialog>

@@ -40,6 +40,12 @@ function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   })
 }
 
+function stringifyToolOutput(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (value == null) return undefined
+  try { return JSON.stringify(value, null, 2) } catch { return String(value) }
+}
+
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
   return messages.some((message) => {
     if (message.role !== "assistant") return false
@@ -58,9 +64,9 @@ function inferChildHistoryPhase(
   messages: RawHistoryMessage[],
   calls: ToolCall[],
 ): ChildHistoryPhase {
-  if (calls.some((call) => call.status === "running")) return "working"
   if (hasYieldTool(messages) || hasAssistantOutput(messages)) return "completed"
   if (calls.some((call) => call.status === "error")) return "failed"
+  if (calls.some((call) => call.status === "running")) return "working"
   return null
 }
 
@@ -191,7 +197,7 @@ export function useAgentActivity(sessionKey: string | null) {
     if (currentAgent) {
       agentsRef.current.set(agentId, {
         ...currentAgent,
-        phase: currentAgent.phase === "done" ? "start" : currentAgent.phase,
+        phase: currentAgent.phase,
         sessionKey: subKey,
       })
     }
@@ -301,20 +307,23 @@ export function useAgentActivity(sessionKey: string | null) {
           input: data.args as Record<string, unknown> | undefined,
           startedAt: Date.now(),
         })
+      } else if (phase === "update") {
+        const call = existing ?? fallback
+        map.set(toolCallId, {
+          ...call,
+          status: "running",
+          output: stringifyToolOutput(data.partialResult ?? data.output ?? data.content ?? data.details) ?? call.output,
+        })
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
         const duration = call.startedAt
           ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
           : undefined
-        const result = data.result
+        const result = data.result ?? data.output ?? data.content ?? data.details
         const output =
           phase === "error"
             ? ((data.error as string) ?? "Unknown error")
-            : typeof result === "string"
-              ? result
-              : result != null
-                ? JSON.stringify(result, null, 2)
-                : undefined
+            : stringifyToolOutput(result)
         map.set(toolCallId, {
           ...call,
           status: phase === "error" ? "error" : "success",
@@ -329,12 +338,48 @@ export function useAgentActivity(sessionKey: string | null) {
 
   const processMessage = useCallback(
     (data: Record<string, unknown>) => {
+      let changed = false
+      if (data.role === "assistant" && Array.isArray(data.content)) {
+        for (const block of data.content) {
+          if (!block || typeof block !== "object") continue
+          const record = block as Record<string, unknown>
+          const type = typeof record.type === "string" ? record.type.toLowerCase() : ""
+          const isToolCall =
+            type === "toolcall" ||
+            type === "tool_call" ||
+            type === "tooluse" ||
+            type === "tool_use"
+          if (!isToolCall) continue
+          const toolCallId =
+            typeof record.id === "string"
+              ? record.id
+              : typeof record.tool_use_id === "string"
+                ? record.tool_use_id
+                : typeof record.toolUseId === "string"
+                  ? record.toolUseId
+                  : null
+          const name = typeof record.name === "string" ? record.name : null
+          if (!toolCallId || !name) continue
+          if (callMapRef.current.has(toolCallId)) continue
+
+          callMapRef.current.set(toolCallId, {
+            id: toolCallId,
+            tool: name,
+            status: "running",
+            input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
+            startedAt: Date.now(),
+          })
+          changed = true
+        }
+      }
+
       const keys = extractSubagentSessionKeys(data)
       for (const key of keys) {
         discoverSubagentKey(key)
       }
+      if (changed) syncState()
     },
-    [discoverSubagentKey],
+    [discoverSubagentKey, syncState],
   )
 
   const processAgentEvent = useCallback(

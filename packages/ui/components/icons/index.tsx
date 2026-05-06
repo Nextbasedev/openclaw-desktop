@@ -50,7 +50,7 @@ import {
     Archive02Icon,
 } from "@hugeicons/core-free-icons"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
-import { LuPuzzle, LuZap } from "react-icons/lu"
+import { LuMaximize2, LuMinimize2, LuPuzzle, LuZap } from "react-icons/lu"
 
 /**
  * Global Icons System
@@ -144,6 +144,8 @@ export const Icons = {
     Wrench: wrapHugeicon(Wrench01Icon),
     Grid: wrapHugeicon(GridIcon),
     ExternalLink: wrapHugeicon(ArrowUpRight01Icon),
+    ExpandPanel: wrapReactIcon(LuMaximize2),
+    CollapsePanel: wrapReactIcon(LuMinimize2),
     Minus: wrapHugeicon(MinusSignIcon),
     Plus: wrapHugeicon(Add01Icon),
 

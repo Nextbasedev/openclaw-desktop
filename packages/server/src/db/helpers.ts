@@ -195,6 +195,7 @@ export interface ChatRow {
   id: string
   name: string
   session_key: string | null
+  space_id: string | null
   agent_id: string
   archived: number
   pinned: number
@@ -208,6 +209,7 @@ export function chatRowToJson(row: ChatRow) {
     id: row.id,
     name: row.name,
     sessionKey: row.session_key ?? undefined,
+    spaceId: row.space_id ?? undefined,
     agentId: row.agent_id,
     archived: sqlToBool(row.archived),
     pinned: sqlToBool(row.pinned),

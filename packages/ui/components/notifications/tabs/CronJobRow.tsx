@@ -106,13 +106,13 @@ function ActionButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1 rounded-md px-2 py-1",
+        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5",
         "text-[11px] font-medium transition-colors",
         "cursor-pointer",
         "disabled:cursor-not-allowed disabled:opacity-50",
         variant === "danger"
-          ? "text-red-400/70 hover:bg-red-500/10 hover:text-red-400"
-          : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+          ? "border-red-500/15 bg-red-500/[0.03] text-red-400/80 hover:bg-red-500/10 hover:text-red-300"
+          : "border-white/[0.08] bg-white/[0.03] text-muted-foreground hover:border-white/[0.12] hover:bg-white/[0.07] hover:text-foreground",
       )}
     >
       <Icon size={12} />
@@ -125,20 +125,14 @@ export function CronJobRow({
   job,
   busy,
   onToggleEnabled,
-  onTogglePaused,
   onDelete,
-  onRun,
-  onViewConversation,
   onDiagnoseFailure,
   onEdit,
 }: {
   job: CronJob
   busy: boolean
   onToggleEnabled: () => void
-  onTogglePaused: () => void
   onDelete: () => void
-  onRun: () => void
-  onViewConversation?: () => void
   onDiagnoseFailure?: () => void
   onEdit?: () => void
 }) {
@@ -177,16 +171,16 @@ export function CronJobRow({
       data-cron-job-status={status.phase}
       data-cron-run-id={status.run?.runId ?? ""}
       className={cn(
-        "flex flex-col rounded-2xl",
-        "border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl",
+        "flex flex-col rounded-md",
+        "border border-white/[0.08] bg-[var(--glass-bg)] shadow-[0_24px_64px_-40px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-[32px] backdrop-saturate-[180%]",
         "transition-all duration-200",
-        "hover:border-white/[0.15] hover:bg-white/[0.07]",
+        "hover:border-white/[0.14] hover:bg-white/[0.06]",
         !job.enabled && "opacity-60",
       )}
     >
-      <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="flex items-start justify-between gap-4 px-4 py-3">
         <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Icons.Cron size={14} className="shrink-0 text-muted-foreground" />
             <span className="truncate text-[13px] font-medium text-foreground">
               {job.name}
@@ -204,7 +198,7 @@ export function CronJobRow({
             )}
             <LastRunBadge job={job} />
           </div>
-          <div className="flex items-center gap-2 pl-[22px]">
+          <div className="flex flex-wrap items-center gap-2 pl-[22px]">
             <span
               className="text-[11px] font-medium text-muted-foreground"
               title={job.schedule}
@@ -249,45 +243,23 @@ export function CronJobRow({
           disabled={busy}
           aria-label={job.enabled ? "Disable job" : "Enable job"}
           className={cn(
-            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full",
+            "relative mt-0.5 inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full border border-white/[0.08] bg-white/[0.04] p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
             "transition-colors duration-200 ease-in-out",
             "disabled:cursor-not-allowed disabled:opacity-50",
-            job.enabled ? "bg-chart-1" : "bg-secondary",
+            job.enabled ? "bg-emerald-400/90" : "bg-white/[0.06]",
           )}
         >
           <span
             className={cn(
-              "pointer-events-none inline-block size-3.5 rounded-full bg-white shadow-sm",
+              "pointer-events-none inline-block size-4 rounded-full bg-white shadow-sm",
               "transition-transform duration-200 ease-in-out",
-              job.enabled ? "translate-x-[18px]" : "translate-x-[3px]",
+              job.enabled ? "translate-x-[16px]" : "translate-x-0",
             )}
           />
         </button>
       </div>
 
-      <div className="flex items-center gap-1 border-t border-white/[0.06] px-4 py-1.5">
-        <ActionButton
-          icon={Icons.Play}
-          label="Run now"
-          disabled={busy || !job.enabled}
-          onClick={onRun}
-          testId={`cron-job-run-${job.jobId}`}
-        />
-        <ActionButton
-          icon={job.paused ? Icons.Play : Icons.Pause}
-          label={job.paused ? "Resume" : "Pause"}
-          disabled={busy}
-          onClick={onTogglePaused}
-          testId={`cron-job-pause-${job.jobId}`}
-        />
-        {onViewConversation && (
-          <ActionButton
-            icon={Icons.Chat}
-            label="Conversation"
-            onClick={onViewConversation}
-            testId={`cron-job-conversation-${job.jobId}`}
-          />
-        )}
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] px-4 py-2">
         {failedLastRun && onDiagnoseFailure && (
           <ActionButton
             icon={Icons.Wrench}
@@ -328,9 +300,9 @@ export function CronJobRow({
               onClick={() => { setConfirmDelete(false); onDelete() }}
               disabled={busy}
               className={cn(
-                "rounded-md px-2 py-1 text-[11px] font-medium",
+                "rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[11px] font-medium",
                 "cursor-pointer transition-colors",
-                "bg-red-500/10 text-red-400 hover:bg-red-500/20",
+                "text-red-400 hover:bg-red-500/20",
                 "disabled:cursor-not-allowed disabled:opacity-50",
               )}
             >
@@ -342,9 +314,9 @@ export function CronJobRow({
               data-action-label="Cancel"
               onClick={() => setConfirmDelete(false)}
               className={cn(
-                "rounded-md px-2 py-1 text-[11px] font-medium",
+                "rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium",
                 "cursor-pointer text-muted-foreground transition-colors",
-                "hover:bg-secondary/50",
+                "hover:bg-white/[0.07]",
               )}
             >
               Cancel

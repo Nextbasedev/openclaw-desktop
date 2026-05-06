@@ -39,19 +39,27 @@ export interface AgentInfo {
 type ContentBlock = {
   type?: string
   id?: string
+  tool_use_id?: string
+  toolUseId?: string
   name?: string
   arguments?: unknown
+  args?: unknown
   input?: unknown
   text?: string
   content?: string
   output?: string
+  is_error?: boolean
 }
 
 export type RawHistoryMessage = {
   id?: string
   role?: string
+  toolCallId?: string
+  toolName?: string
   content?: string | ContentBlock[]
   text?: string
+  details?: unknown
+  isError?: boolean
 }
 
 function extractResultText(content?: string | ContentBlock[]): string {
@@ -62,6 +70,52 @@ function extractResultText(content?: string | ContentBlock[]): string {
     .map((b) => b?.text ?? b?.content ?? b?.output ?? "")
     .filter(Boolean)
     .join("\n")
+}
+
+function normalizeToolContentType(value: unknown): string {
+  return typeof value === "string" ? value.toLowerCase() : ""
+}
+
+function isToolCallBlock(block: ContentBlock): boolean {
+  const type = normalizeToolContentType(block.type)
+  return type === "toolcall" || type === "tool_call" || type === "tooluse" || type === "tool_use"
+}
+
+function isToolResultBlock(block: ContentBlock): boolean {
+  const type = normalizeToolContentType(block.type)
+  return type === "toolresult" || type === "tool_result" || type === "tool_result_error"
+}
+
+function toolBlockId(block: ContentBlock): string | undefined {
+  return block.id || block.tool_use_id || block.toolUseId
+}
+
+function toolBlockArgs(block: ContentBlock): unknown {
+  return block.arguments ?? block.args ?? block.input ?? null
+}
+
+function toolResultBlockText(block: ContentBlock): string {
+  const value = block.text ?? block.content ?? block.output
+  if (typeof value === "string") return value
+  if (value != null) {
+    try { return JSON.stringify(value, null, 2) } catch { return String(value) }
+  }
+  return ""
+}
+
+function resultTextFromMessage(msg: RawHistoryMessage): string {
+  const text = msg.text || extractResultText(msg.content)
+  if (text) return text
+  if (msg.details != null) {
+    try { return JSON.stringify(msg.details, null, 2) } catch { return String(msg.details) }
+  }
+  return ""
+}
+
+function visibleTextFromMessage(msg: RawHistoryMessage): string {
+  if (typeof msg.text === "string" && msg.text) return msg.text
+  if (typeof msg.content === "string") return msg.content
+  return extractResultText(msg.content)
 }
 
 export type HistoryParseResult = {
@@ -77,14 +131,33 @@ export function parseHistoryToolCalls(
   const agents = new Map<string, AgentInfo>()
   const subagentSessionKeys = new Map<string, string>()
   let pendingCalls: Array<{ id: string; name: string; args: unknown }> = []
+  const pendingById = new Map<string, { id: string; name: string; args: unknown }>()
   const spawnOrder: string[] = []
   let currentSubagentId: string | null = null
 
   for (const msg of messages) {
+    const text = visibleTextFromMessage(msg)
+
+    if (msg.role === "user" && text) {
+      const completed = /\bstatus:\s*completed successfully\b/i.test(text)
+      const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(text)
+      if (completed || failed) {
+        for (const key of extractSubagentSessionKeys(text)) {
+          const agentId = subagentSessionKeys.get(key)
+          if (!agentId) continue
+          const current = agents.get(agentId)
+          if (current) {
+            agents.set(agentId, {
+              ...current,
+              phase: failed ? "error" : "done",
+              sessionKey: key,
+            })
+          }
+        }
+      }
+    }
+
     if (msg.role === "assistant") {
-      const text = typeof msg.content === "string"
-        ? msg.content
-        : (msg.text ?? "")
       const keys = extractSubagentSessionKeys(text)
       for (const key of keys) {
         if (!subagentSessionKeys.has(key) && spawnOrder.length > 0) {
@@ -102,15 +175,39 @@ export function parseHistoryToolCalls(
           }
         }
 
-        const tcBlocks = (msg.content as ContentBlock[]).filter(
-          (b) => b.type === "toolCall" || b.type === "tool_use",
-        )
+        const tcBlocks = (msg.content as ContentBlock[]).filter(isToolCallBlock)
         if (tcBlocks.length > 0) {
           pendingCalls = tcBlocks.map((b) => ({
-            id: b.id ?? randomId(),
+            id: toolBlockId(b) ?? randomId(),
             name: b.name ?? "unknown",
-            args: b.arguments ?? b.input ?? null,
+            args: toolBlockArgs(b),
           }))
+          for (const call of pendingCalls) pendingById.set(call.id, call)
+        }
+
+        const resultBlocks = (msg.content as ContentBlock[]).filter(isToolResultBlock)
+        for (const block of resultBlocks) {
+          const blockId = toolBlockId(block)
+          const matched = blockId
+            ? pendingById.get(blockId) ?? { id: blockId, name: msg.toolName ?? "unknown", args: null }
+            : pendingCalls.shift()
+          if (!matched) continue
+          pendingById.delete(matched.id)
+          pendingCalls = pendingCalls.filter((call) => call.id !== matched.id)
+          const resultText = toolResultBlockText(block)
+          calls.push({
+            id: matched.id,
+            tool: matched.name,
+            status: block.type === "tool_result_error" || block.is_error === true ? "error" : "success",
+            input: matched.args as Record<string, unknown> | undefined,
+            output: resultText || undefined,
+            subagentOf:
+              currentSubagentId &&
+              matched.name !== "sessions_spawn" &&
+              matched.name !== "sessions_yield"
+                ? currentSubagentId
+                : undefined,
+          })
         }
       }
     } else if (
@@ -118,17 +215,21 @@ export function parseHistoryToolCalls(
       msg.role === "tool_result" ||
       msg.role === "toolResult"
     ) {
-      const resultText = msg.text || extractResultText(msg.content)
+      const resultText = resultTextFromMessage(msg)
       let isError = false
       try {
         const parsed = JSON.parse(resultText)
-        isError = parsed.status === "error"
+        isError = parsed.status === "error" || msg.isError === true
       } catch {
-        isError = false
+        isError = msg.isError === true
       }
 
-      if (pendingCalls.length > 0) {
-        const matched = pendingCalls.shift()!
+      const matched = msg.toolCallId
+        ? pendingById.get(msg.toolCallId) ?? { id: msg.toolCallId, name: msg.toolName ?? "unknown", args: null }
+        : pendingCalls.shift()
+      if (matched) {
+        pendingById.delete(matched.id)
+        pendingCalls = pendingCalls.filter((call) => call.id !== matched.id)
         const call: ToolCall = {
           id: matched.id,
           tool: matched.name,

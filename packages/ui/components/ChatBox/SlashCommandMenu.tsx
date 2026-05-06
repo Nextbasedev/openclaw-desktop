@@ -93,7 +93,7 @@ export function SlashCommandMenu({
                     onSelect(cmd)
                   }}
                 >
-                  <span className="text-sm font-medium text-foreground">
+                  <span className="font-[family:var(--font-jetbrains-mono)] text-sm font-medium text-foreground">
                     {prefix}{cmd.name}
                   </span>
                   {cmd.description && (
