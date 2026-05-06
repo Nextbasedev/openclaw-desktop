@@ -30,6 +30,7 @@ import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
+import { getSlashCommandName } from "@/lib/controlSlashCommands"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
@@ -351,6 +352,7 @@ export function MessageBubble({
 
   const hasBranches = message.branches && message.branches.length > 0
   const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
+  const userSlashCommandName = isUser ? getSlashCommandName(message.text) : null
 
   const startEdit = useCallback(() => {
     setEditText(message.text)
@@ -606,7 +608,14 @@ export function MessageBubble({
               )}
             >
               {isUser ? (
-                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.text}</p>
+                <p
+                  className={cn(
+                    "whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+                    userSlashCommandName && "font-mono text-[13.5px] leading-6 tracking-[-0.01em]",
+                  )}
+                >
+                  {message.text}
+                </p>
               ) : approvalPrompt ? (
                 <ApprovalPromptCard
                   approval={approvalPrompt}
