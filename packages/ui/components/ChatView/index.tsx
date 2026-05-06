@@ -1087,6 +1087,7 @@ export function ChatView({
           onCancelReply={cancelReply}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
+          historyMessages={userMessageHistory}
         />
       </div>
     </div>

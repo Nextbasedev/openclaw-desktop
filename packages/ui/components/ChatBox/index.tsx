@@ -411,6 +411,7 @@ export function ChatBox({
     if ((!text && attachments.length === 0) || isComposerDisabled || isPreparingAttachments) return
     if (isGenerating && attachments.length === 0 && !replyTo && isStopSlashCommand(text)) {
       setInput("")
+      setHistoryIndex(null)
       if (textareaRef.current) textareaRef.current.style.height = "auto"
       setSlashMenuOpen(false)
       dispatchComposer({ type: "stop_start" })
