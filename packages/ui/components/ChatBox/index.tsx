@@ -688,11 +688,12 @@ export function ChatBox({
                 historyMessages.length > 0 &&
                 canNavigateHistoryUp(e.currentTarget)
               ) {
+                if (historyIndex === 0) return
                 e.preventDefault()
                 const nextIndex =
                   historyIndex === null
                     ? historyMessages.length - 1
-                    : Math.max(0, historyIndex - 1)
+                    : historyIndex - 1
                 setHistoryIndex(nextIndex)
                 applyHistoryInput(historyMessages[nextIndex] ?? "")
                 return
