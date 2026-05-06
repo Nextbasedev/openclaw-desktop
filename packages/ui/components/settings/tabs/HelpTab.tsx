@@ -115,6 +115,7 @@ function MiddlewareUpdateCard() {
   const [status, setStatus] = React.useState<MiddlewareUpdateStatus | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
+  const [needsManualBootstrap, setNeedsManualBootstrap] = React.useState(false)
 
   async function waitForMiddlewareBack() {
     const connection = getMiddlewareConnection()
@@ -136,9 +137,20 @@ function MiddlewareUpdateCard() {
     return next
   }
 
+  function handleUpdateError(err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/Route not found|404|middleware\/update/i.test(message)) {
+      setNeedsManualBootstrap(true)
+      setError("This VPS is running an older Middleware that cannot self-update yet. Run the one-time install/update command below, then this button will work for future updates.")
+      return
+    }
+    setError(message)
+  }
+
   async function updateMiddleware() {
     setBusy(true)
     setError(null)
+    setNeedsManualBootstrap(false)
     try {
       const started = await invoke<MiddlewareUpdateStart>("middleware_self_update")
       setStatus(started.status)
@@ -152,7 +164,7 @@ function MiddlewareUpdateCard() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      handleUpdateError(err)
     } finally {
       setBusy(false)
     }
@@ -187,7 +199,7 @@ function MiddlewareUpdateCard() {
         </button>
         <button
           type="button"
-          onClick={() => refreshStatus().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
+          onClick={() => { setNeedsManualBootstrap(false); refreshStatus().catch(handleUpdateError) }}
           disabled={busy}
           className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -206,6 +218,15 @@ function MiddlewareUpdateCard() {
         <div className="mt-3 flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
           <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
           <span>{error}</span>
+        </div>
+      )}
+
+      {needsManualBootstrap && (
+        <div className="mt-3 rounded-md border border-border/35 bg-background/35 p-3">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">Run this once on the VPS:</p>
+          <code className="mt-2 block overflow-x-auto rounded bg-muted/40 px-3 py-2 text-[11px] text-foreground">
+            curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/main/apps/middleware/scripts/install.sh | sudo bash
+          </code>
         </div>
       )}
     </section>
