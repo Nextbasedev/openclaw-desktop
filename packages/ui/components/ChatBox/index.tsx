@@ -97,6 +97,7 @@ export function ChatBox({
   const [commandPrefix, setCommandPrefix] = React.useState<"/" | "@">("/")
   const [slashSelectedIndex, setSlashSelectedIndex] = React.useState(0)
   const [historyIndex, setHistoryIndex] = React.useState<number | null>(null)
+  const draftBeforeHistoryRef = React.useRef("")
   const [composerState, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerState,
@@ -314,11 +315,14 @@ export function ChatBox({
   React.useEffect(() => {
     if (initialPrompt != null) {
       setInput(initialPrompt)
+      setHistoryIndex(null)
+      draftBeforeHistoryRef.current = ""
     }
   }, [initialPrompt])
 
   React.useEffect(() => {
     setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
   }, [historyMessages])
 
   React.useEffect(() => {
@@ -361,6 +365,7 @@ export function ChatBox({
   function handleSlashSelect(cmd: import("@/hooks/useSlashCommands").SlashCommand) {
     setInput(`${commandPrefix}${cmd.name} `)
     setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
     setSlashMenuOpen(false)
     textareaRef.current?.focus()
   }
@@ -412,6 +417,7 @@ export function ChatBox({
     if (isGenerating && attachments.length === 0 && !replyTo && isStopSlashCommand(text)) {
       setInput("")
       setHistoryIndex(null)
+      draftBeforeHistoryRef.current = ""
       if (textareaRef.current) textareaRef.current.style.height = "auto"
       setSlashMenuOpen(false)
       dispatchComposer({ type: "stop_start" })
@@ -439,6 +445,7 @@ export function ChatBox({
     }
     setInput("")
     setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
     if (isGenerating) {
       dispatchComposer({ type: "restart_start", payload })
@@ -633,6 +640,7 @@ export function ChatBox({
             onChange={(e) => {
               setInput(e.target.value)
               if (historyIndex !== null) setHistoryIndex(null)
+              draftBeforeHistoryRef.current = ""
               if (attachmentError) setAttachmentError(null)
               updateSlashMenu(e.target.value)
               autoResize()
@@ -694,6 +702,9 @@ export function ChatBox({
                   historyIndex === null
                     ? historyMessages.length - 1
                     : historyIndex - 1
+                if (historyIndex === null) {
+                  draftBeforeHistoryRef.current = input
+                }
                 setHistoryIndex(nextIndex)
                 applyHistoryInput(historyMessages[nextIndex] ?? "")
                 return
@@ -711,7 +722,8 @@ export function ChatBox({
                 e.preventDefault()
                 if (historyIndex >= historyMessages.length - 1) {
                   setHistoryIndex(null)
-                  applyHistoryInput("")
+                  applyHistoryInput(draftBeforeHistoryRef.current)
+                  draftBeforeHistoryRef.current = ""
                 } else {
                   const nextIndex = historyIndex + 1
                   setHistoryIndex(nextIndex)
