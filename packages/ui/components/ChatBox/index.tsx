@@ -34,6 +34,10 @@ import {
   initialComposerState,
 } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
+import {
+  canRunSlashCommandWhileGenerating,
+  isStopSlashCommand,
+} from "@/lib/controlSlashCommands"
 
 type VoiceSettingsPayload = {
   settings?: {
@@ -135,6 +139,13 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
+  const canSendWhileGenerating = Boolean(
+    isGenerating
+      && input.trim().startsWith("/")
+      && attachments.length === 0
+      && !replyTo
+      && canRunSlashCommandWhileGenerating(input, commands),
+  )
   const {
     state: voiceState,
     isSupported: recorderSupported,
@@ -352,11 +363,29 @@ export function ChatBox({
       return
     }
     if ((!text && attachments.length === 0) || isComposerDisabled || isPreparingAttachments) return
+    if (isGenerating && attachments.length === 0 && !replyTo && isStopSlashCommand(text)) {
+      setInput("")
+      if (textareaRef.current) textareaRef.current.style.height = "auto"
+      setSlashMenuOpen(false)
+      dispatchComposer({ type: "stop_start" })
+      try {
+        await onAbort?.()
+        dispatchComposer({ type: "stop_done" })
+      } catch {
+        dispatchComposer({
+          type: "send_failed",
+          error: "Could not stop generation. Try again.",
+        })
+        setAttachmentError("Could not stop generation. Try again.")
+      }
+      return
+    }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
       attachments: attachments.length > 0
         ? attachments.map(stripComposerAttachment)
         : undefined,
+      runWhileGenerating: canSendWhileGenerating,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
@@ -660,6 +689,7 @@ export function ChatBox({
               handleUploadClick()
             }}
             isGenerating={isGenerating}
+            canSendWhileGenerating={canSendWhileGenerating}
             onAbort={onAbort}
             webSearchEnabled={webSearchEnabled}
             onWebSearchDisable={() => setWebSearchEnabled(false)}

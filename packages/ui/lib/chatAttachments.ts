@@ -29,6 +29,7 @@ export function execPolicyForAutonomyMode(mode: ChatAutonomyMode): ChatExecPolic
 export type ChatComposerSubmit = {
   text: string
   attachments?: ChatSendAttachment[]
+  runWhileGenerating?: boolean
   replyTo?: {
     messageId: string
     role: "user" | "assistant"
