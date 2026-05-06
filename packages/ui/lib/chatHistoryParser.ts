@@ -89,7 +89,11 @@ function toolResultText(raw: RawHistoryMessage): string {
 function visibleMessageText(raw: RawHistoryMessage): string {
   const text = raw.text || extractText(raw.content)
   if (text.trim()) return text
-  if (raw.role === "assistant" && raw.stopReason === "error" && raw.errorMessage) {
+  if (
+    raw.role === "assistant" &&
+    raw.stopReason === "error" &&
+    raw.errorMessage
+  ) {
     return `Error: ${raw.errorMessage}`
   }
   return ""
@@ -115,10 +119,8 @@ const TIMESTAMP_PREFIX_RE =
   /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*/
 const BARE_TIMESTAMP_RE =
   /^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*/
-const CRON_HEADER_RE =
-  /^\[cron:[^\]]*\]\s*(?:Reply with exactly:\s*)?/
-const CURRENT_TIME_RE =
-  /^Current time:\s*[^\n]+\n*/m
+const CRON_HEADER_RE = /^\[cron:[^\]]*\]\s*(?:Reply with exactly:\s*)?/
+const CURRENT_TIME_RE = /^Current time:\s*[^\n]+\n*/m
 const MESSAGE_TOOL_RE =
   /^Use the message tool if you need to notify the user directly[^\n]*(?:\.\s*If you do not send directly[^\n]*)?\n*/m
 const ASYNC_RESULT_RE =
@@ -182,18 +184,28 @@ export function isAbortedGatewayArtifact(message: RawHistoryMessage) {
 
 function isSlashCommandMessage(message: RawHistoryMessage | undefined) {
   if (!message || message.role !== "user") return false
-  const text = cleanUserMessageText(message.text || extractText(message.content))
+  const text = cleanUserMessageText(
+    message.text || extractText(message.content)
+  )
   return text.trim().startsWith("/")
 }
 
-export function isTransientSlashCommandHistory(raw: RawHistoryMessage[]): boolean {
+export function isTransientSlashCommandHistory(
+  raw: RawHistoryMessage[]
+): boolean {
   if (raw.length === 0) return false
   const visible = raw.filter((message) => {
     if (message.role === "user") {
-      const text = cleanUserMessageText(message.text || extractText(message.content))
+      const text = cleanUserMessageText(
+        message.text || extractText(message.content)
+      )
       return text.length > 0
     }
-    return Boolean(message.text || extractText(message.content) || isGatewayInjectedCommandOutput(message))
+    return Boolean(
+      message.text ||
+      extractText(message.content) ||
+      isGatewayInjectedCommandOutput(message)
+    )
   })
   const last = visible.at(-1)
   if (!last || !isGatewayInjectedCommandOutput(last)) return false
@@ -201,7 +213,7 @@ export function isTransientSlashCommandHistory(raw: RawHistoryMessage[]): boolea
 }
 
 export function deduplicateRawMessages(
-  raw: RawHistoryMessage[],
+  raw: RawHistoryMessage[]
 ): RawHistoryMessage[] {
   const result: RawHistoryMessage[] = []
   for (const item of raw) {
@@ -262,6 +274,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           id: block.id ?? randomId(),
           tool: block.name ?? "unknown",
           status: "success",
+          input: block.arguments ?? block.input,
         }
         pendingToolCalls.push(call)
         resultQueue.push(call)
@@ -318,6 +331,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       if (!matched) continue
       const resultText = toolResultText(item)
       matched.status = inferToolStatus(resultText)
+      matched.resultText = resultText || matched.resultText
       const subagent = subagentByToolId.get(matched.id)
       if (subagent && matched.tool === "sessions_spawn") {
         const childKey = extractSubagentSessionKey(resultText)

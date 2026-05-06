@@ -5,7 +5,10 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
-import { cacheAttachments, mergeAttachmentsWithCache } from "@/lib/attachmentCache"
+import {
+  cacheAttachments,
+  mergeAttachmentsWithCache,
+} from "@/lib/attachmentCache"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type {
   ChatMessage,
@@ -58,10 +61,18 @@ type ChatBootstrapData = {
   branchData: { branches: BranchSummary[] }
 }
 
-function rawToChatMessage(raw: RawMessage, fallbackRole: "user" | "assistant"): ChatMessage {
+function rawToChatMessage(
+  raw: RawMessage,
+  fallbackRole: "user" | "assistant"
+): ChatMessage {
   return {
     messageId: raw.id ?? raw.messageId ?? randomId(),
-    role: raw.role === "user" ? "user" : raw.role === "assistant" ? "assistant" : fallbackRole,
+    role:
+      raw.role === "user"
+        ? "user"
+        : raw.role === "assistant"
+          ? "assistant"
+          : fallbackRole,
     text: raw.text || extractText(raw.content),
     createdAt: raw.createdAt,
     model: raw.model,
@@ -70,25 +81,35 @@ function rawToChatMessage(raw: RawMessage, fallbackRole: "user" | "assistant"): 
   }
 }
 
-function parseExecApproval(text: string): InlineToolCall["approval"] | undefined {
+function parseExecApproval(
+  text: string
+): InlineToolCall["approval"] | undefined {
   if (!text.includes("Approval required")) return undefined
-  const fullMatch = text.match(/Approval required \(id\s+([^,\s)]+),\s+full\s+([^)]+)\)/i)
+  const fullMatch = text.match(
+    /Approval required \(id\s+([^,\s)]+),\s+full\s+([^)]+)\)/i
+  )
   const slug = fullMatch?.[1]?.trim()
   const id = fullMatch?.[2]?.trim() || slug
   if (!id) return undefined
-  const command = text.match(/Command:\s*```(?:sh)?\s*\n([\s\S]*?)\n```/i)?.[1]?.trim()
-  const replyLine = text.match(/Reply with:\s*\/approve\s+\S+\s+([^\n]+)/i)?.[1] ?? "allow-once|deny"
+  const command = text
+    .match(/Command:\s*```(?:sh)?\s*\n([\s\S]*?)\n```/i)?.[1]
+    ?.trim()
+  const replyLine =
+    text.match(/Reply with:\s*\/approve\s+\S+\s+([^\n]+)/i)?.[1] ??
+    "allow-once|deny"
   const allowedDecisions = replyLine
     .split("|")
     .map((item) => item.trim())
-    .filter((item): item is "allow-once" | "allow-always" | "deny" =>
-      item === "allow-once" || item === "allow-always" || item === "deny",
+    .filter(
+      (item): item is "allow-once" | "allow-always" | "deny" =>
+        item === "allow-once" || item === "allow-always" || item === "deny"
     )
   return {
     id,
     slug,
     command,
-    allowedDecisions: allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"],
+    allowedDecisions:
+      allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"],
   }
 }
 
@@ -104,7 +125,9 @@ function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   const seenIds = new Set<string>()
   for (const message of messages) {
     if (seenIds.has(message.messageId)) continue
-    const duplicateUser = result.some((existing) => sameUserMessage(existing, message))
+    const duplicateUser = result.some((existing) =>
+      sameUserMessage(existing, message)
+    )
     if (duplicateUser) continue
     seenIds.add(message.messageId)
     result.push(message)
@@ -125,7 +148,21 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchChatBootstrap(sessionKey: string): Promise<ChatBootstrapData> {
+function toolResultText(result: unknown) {
+  if (typeof result === "string" || Array.isArray(result)) {
+    return extractText(result as ContentBlock[] | string | undefined)
+  }
+  if (result === undefined || result === null) return ""
+  try {
+    return JSON.stringify(result, null, 2)
+  } catch {
+    return String(result)
+  }
+}
+
+async function fetchChatBootstrap(
+  sessionKey: string
+): Promise<ChatBootstrapData> {
   return Promise.all([
     invoke<{ messages: unknown[] }>("middleware_chat_history", {
       input: { sessionKey },
@@ -136,9 +173,15 @@ async function fetchChatBootstrap(sessionKey: string): Promise<ChatBootstrapData
   ]).then(([history, branchData]) => ({ history, branchData }))
 }
 
-async function fetchStableChatBootstrap(sessionKey: string): Promise<ChatBootstrapData> {
+async function fetchStableChatBootstrap(
+  sessionKey: string
+): Promise<ChatBootstrapData> {
   let latest = await fetchChatBootstrap(sessionKey)
-  for (let attempt = 0; attempt < CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES; attempt++) {
+  for (
+    let attempt = 0;
+    attempt < CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES;
+    attempt++
+  ) {
     const messages = (latest.history.messages as RawMessage[]) || []
     if (!isTransientSlashCommandHistory(messages)) return latest
     await delay(CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS)
@@ -417,7 +460,8 @@ export function useChatMessages(
           if (phase === "spawn_done") {
             const prev = spawnMapRef.current.get(toolCallId)
             const error = (ev as Record<string, unknown>).error
-            const childKey = extractSubagentSessionKey(ev) ?? prev?.sessionKey ?? null
+            const childKey =
+              extractSubagentSessionKey(ev) ?? prev?.sessionKey ?? null
             upsertSpawn({
               ...(prev ?? {
                 id: `spawn:${toolCallId}`,
@@ -435,8 +479,7 @@ export function useChatMessages(
             const prev = spawnMapRef.current.get(toolCallId)
             const result = (ev as Record<string, unknown>).result
             const childKey =
-              extractSubagentSessionKey(result) ??
-              extractSubagentSessionKey(ev)
+              extractSubagentSessionKey(result) ?? extractSubagentSessionKey(ev)
             if (childKey) {
               upsertSpawn({
                 ...(prev ?? {
@@ -453,22 +496,27 @@ export function useChatMessages(
           }
 
           if (phase === "start" || phase === "calling") {
+            const args = (ev as Record<string, unknown>).args
             if (!pendingToolMapRef.current.has(toolCallId)) {
               const tc: InlineToolCall = {
                 id: toolCallId,
                 tool: name,
                 status: "running",
                 startedAt: Date.now(),
+                input: args,
               }
               pendingToolMapRef.current.set(toolCallId, tc)
+            } else if (args !== undefined) {
+              pendingToolMapRef.current.set(toolCallId, {
+                ...pendingToolMapRef.current.get(toolCallId)!,
+                input: args,
+              })
             }
             if (name === "write") {
-              const args = (ev as Record<string, unknown>).args as
-                | Record<string, unknown>
-                | undefined
-              const ref = args?.ref as string | undefined
-              const content = args?.content as string | undefined
-              const title = args?.title as string | undefined
+              const writeArgs = args as Record<string, unknown> | undefined
+              const ref = writeArgs?.ref as string | undefined
+              const content = writeArgs?.content as string | undefined
+              const title = writeArgs?.title as string | undefined
               if (ref && content) {
                 embedsMapRef.current.set(ref, { ref, content, title })
               }
@@ -505,13 +553,17 @@ export function useChatMessages(
             const duration = call.startedAt
               ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
               : undefined
-            const resultText = extractText((ev as Record<string, unknown>).result as ContentBlock[] | string | undefined)
+            const resultText = toolResultText(
+              (ev as Record<string, unknown>).result
+            )
             pendingToolMapRef.current.set(toolCallId, {
               ...call,
               status: phase === "error" ? "error" : "success",
               duration,
               resultText: resultText || call.resultText,
-              approval: resultText ? parseExecApproval(resultText) ?? call.approval : call.approval,
+              approval: resultText
+                ? (parseExecApproval(resultText) ?? call.approval)
+                : call.approval,
             })
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
@@ -561,6 +613,7 @@ export function useChatMessages(
                 tool: name,
                 status: "running",
                 startedAt: Date.now(),
+                input: block.arguments ?? block.input,
               })
             }
             if (
@@ -590,7 +643,9 @@ export function useChatMessages(
           }
           if (sawToolCallBlock) {
             setPendingTools(Array.from(pendingToolMapRef.current.values()))
-            setStatus((prev) => (prev === "idle" || prev === "connected" ? "tool_running" : prev))
+            setStatus((prev) =>
+              prev === "idle" || prev === "connected" ? "tool_running" : prev
+            )
             scrollToBottom(false)
           }
           const rawText = ev.text || extractText(ev.content)
@@ -811,42 +866,62 @@ export function useChatMessages(
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
             const text = rawText ? cleanUserMessageText(rawText) : ""
-            const isBootstrapEcho = rawText.includes("[Bootstrap truncation warning]")
+            const isBootstrapEcho = rawText.includes(
+              "[Bootstrap truncation warning]"
+            )
             const hasAssistantBeforeLaterSameUser = (() => {
               if (!isBootstrapEcho) return false
               for (const later of raw.slice(rawIdx + 1)) {
                 if (later.role === "user") {
                   const laterRawText = later.text || extractText(later.content)
-                  if (cleanUserMessageText(laterRawText).trim() === text.trim()) return false
+                  if (cleanUserMessageText(laterRawText).trim() === text.trim())
+                    return false
                 }
-                if (later.role === "assistant" && ((later.text || extractText(later.content)).trim() || (later as { errorMessage?: string }).errorMessage)) return true
+                if (
+                  later.role === "assistant" &&
+                  ((later.text || extractText(later.content)).trim() ||
+                    (later as { errorMessage?: string }).errorMessage)
+                )
+                  return true
               }
               return false
             })()
-            const hasLaterSameUserText = isBootstrapEcho && raw.slice(rawIdx + 1).some((later) => {
-              if (later.role !== "user") return false
-              const laterRawText = later.text || extractText(later.content)
-              return cleanUserMessageText(laterRawText).trim() === text.trim()
-            })
+            const hasLaterSameUserText =
+              isBootstrapEcho &&
+              raw.slice(rawIdx + 1).some((later) => {
+                if (later.role !== "user") return false
+                const laterRawText = later.text || extractText(later.content)
+                return cleanUserMessageText(laterRawText).trim() === text.trim()
+              })
             const isSubagentAnnounce = text
               ? /agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(text)
               : false
 
             if (isSubagentAnnounce) {
               if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
-            } else if (text && (!hasLaterSameUserText || hasAssistantBeforeLaterSameUser)) {
+            } else if (
+              text &&
+              (!hasLaterSameUserText || hasAssistantBeforeLaterSameUser)
+            ) {
               const reply = extractReplyBlock(text, histMsgs)
               const rawAttachments = m.attachments
-              const resolvedAttachments = rawAttachments && rawAttachments.length > 0
-                ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments)
-                : rawAttachments
+              const resolvedAttachments =
+                rawAttachments && rawAttachments.length > 0
+                  ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments)
+                  : rawAttachments
               if (resolvedAttachments && resolvedAttachments.length > 0) {
-                cacheAttachments(sessionKey, id, resolvedAttachments.filter((a) => a.content).map((a) => ({
-                  name: a.name,
-                  mimeType: a.mimeType,
-                  content: a.content!,
-                  size: a.size,
-                })))
+                cacheAttachments(
+                  sessionKey,
+                  id,
+                  resolvedAttachments
+                    .filter((a) => a.content)
+                    .map((a) => ({
+                      name: a.name,
+                      mimeType: a.mimeType,
+                      content: a.content!,
+                      size: a.size,
+                    }))
+                )
               }
               histMsgs.push({
                 messageId: id,
@@ -887,6 +962,7 @@ export function useChatMessages(
                 id: b.id ?? randomId(),
                 tool: b.name ?? "unknown",
                 status: "success",
+                input: b.arguments ?? b.input,
               }
               pendingToolCalls.push(call)
               resultQueue.push(call)
@@ -955,12 +1031,16 @@ export function useChatMessages(
                   ]
                 }
               } else if (pendingToolCalls.length > 0) {
-                lastEntry.toolCalls = [...(lastEntry.toolCalls || []), ...pendingToolCalls]
+                lastEntry.toolCalls = [
+                  ...(lastEntry.toolCalls || []),
+                  ...pendingToolCalls,
+                ]
               }
             } else if (text) {
-              const currentEmbeds = historyEmbeds.size > 0
-                ? Array.from(historyEmbeds.values())
-                : undefined
+              const currentEmbeds =
+                historyEmbeds.size > 0
+                  ? Array.from(historyEmbeds.values())
+                  : undefined
               histMsgs.push({
                 messageId: id,
                 role: "assistant",
@@ -969,7 +1049,10 @@ export function useChatMessages(
                 model: m.model,
                 usage: m.usage,
                 stopReason: m.stopReason,
-                toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+                toolCalls:
+                  pendingToolCalls.length > 0
+                    ? [...pendingToolCalls]
+                    : undefined,
                 embeds: currentEmbeds,
                 gatewayIndex: rawIdx,
               })
@@ -998,7 +1081,8 @@ export function useChatMessages(
               matchedCall = resultQueue.shift()!
               if (resultText) {
                 matchedCall.resultText = resultText
-                matchedCall.approval = parseExecApproval(resultText) ?? matchedCall.approval
+                matchedCall.approval =
+                  parseExecApproval(resultText) ?? matchedCall.approval
                 try {
                   const parsed = JSON.parse(resultText)
                   matchedCall.status =
@@ -1117,7 +1201,10 @@ export function useChatMessages(
           sessionKey,
           ({ data }) => {
             if (cancelled) return
-            handleStreamEvent({ streamId: sessionKey, event: data as StreamEventPayload["event"] })
+            handleStreamEvent({
+              streamId: sessionKey,
+              event: data as StreamEventPayload["event"],
+            })
           },
           () => {
             const current = statusRef.current
@@ -1132,7 +1219,7 @@ export function useChatMessages(
               setErrorMessage("Connection to server lost")
               setStatus("error")
             }
-          },
+          }
         )
       } catch (e) {
         bootstrapSettled = true
@@ -1158,7 +1245,14 @@ export function useChatMessages(
         subagentPollRef.current = null
       }
     }
-  }, [sessionKey, handleStreamEvent, initialMessageKey, initialMessages, forceScrollToBottom, streamGeneration])
+  }, [
+    sessionKey,
+    handleStreamEvent,
+    initialMessageKey,
+    initialMessages,
+    forceScrollToBottom,
+    streamGeneration,
+  ])
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
@@ -1244,12 +1338,16 @@ export function useChatMessages(
         size: a.size,
       }))
       if (messageAttachments && messageAttachments.length > 0) {
-        cacheAttachments(sessionKey, optimisticId, messageAttachments.map((a) => ({
-          name: a.name,
-          mimeType: a.mimeType,
-          content: a.content,
-          size: a.size,
-        })))
+        cacheAttachments(
+          sessionKey,
+          optimisticId,
+          messageAttachments.map((a) => ({
+            name: a.name,
+            mimeType: a.mimeType,
+            content: a.content,
+            size: a.size,
+          }))
+        )
       }
       setMessages((prev) => [
         ...prev,
@@ -1347,29 +1445,49 @@ export function useChatMessages(
         setEditPreview({
           branchSessionKey: preview.branchSessionKey,
           sourceUserMessageId: preview.sourceUserMessageId,
-          sourceAssistantMessageId: preview.sourceAssistantMessageId ?? assistantMessageId,
+          sourceAssistantMessageId:
+            preview.sourceAssistantMessageId ?? assistantMessageId,
           original: {
             user: rawToChatMessage(preview.original.user, "user"),
-            assistant: preview.original.assistant ? rawToChatMessage(preview.original.assistant, "assistant") : currentMessages[assistantIdx] ?? null,
+            assistant: preview.original.assistant
+              ? rawToChatMessage(preview.original.assistant, "assistant")
+              : (currentMessages[assistantIdx] ?? null),
           },
           edited: {
             user: rawToChatMessage(preview.edited.user, "user"),
-            assistant: preview.edited.assistant ? rawToChatMessage(preview.edited.assistant, "assistant") : null,
+            assistant: preview.edited.assistant
+              ? rawToChatMessage(preview.edited.assistant, "assistant")
+              : null,
           },
           status: "streaming",
         })
 
-        invoke<{ messages: RawMessage[] }>("middleware_chat_history", { input: { sessionKey: preview.branchSessionKey } })
+        invoke<{ messages: RawMessage[] }>("middleware_chat_history", {
+          input: { sessionKey: preview.branchSessionKey },
+        })
           .then((history) => {
-            const assistant = [...(history.messages ?? [])].reverse().find((m) => m.role === "assistant")
+            const assistant = [...(history.messages ?? [])]
+              .reverse()
+              .find((m) => m.role === "assistant")
             if (!assistant) return
-            setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey
-              ? { ...current, edited: { ...current.edited, assistant: rawToChatMessage(assistant, "assistant") }, status: "ready" }
-              : current)
+            setEditPreview((current) =>
+              current && current.branchSessionKey === preview.branchSessionKey
+                ? {
+                    ...current,
+                    edited: {
+                      ...current.edited,
+                      assistant: rawToChatMessage(assistant, "assistant"),
+                    },
+                    status: "ready",
+                  }
+                : current
+            )
           })
           .catch(() => {})
 
-        const source = new EventSource(streamUrl(`/api/stream/chat/${preview.branchSessionKey}`))
+        const source = new EventSource(
+          streamUrl(`/api/stream/chat/${preview.branchSessionKey}`)
+        )
         editPreviewSourceRef.current = source
         const handlePreview = (event: MessageEvent) => {
           try {
@@ -1377,29 +1495,49 @@ export function useChatMessages(
             if (ev.type === "chat.message" && ev.role === "assistant") {
               const text = ev.text || extractText(ev.content)
               if (!text.trim()) return
-              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey
-                ? {
-                    ...current,
-                    edited: {
-                      ...current.edited,
-                      assistant: {
-                        messageId: ev.messageId || current.edited.assistant?.messageId || randomId(),
-                        role: "assistant",
-                        text,
-                        createdAt: ev.createdAt || current.edited.assistant?.createdAt,
-                        model: ev.model ?? current.edited.assistant?.model,
-                        usage: ev.usage ?? current.edited.assistant?.usage,
-                        stopReason: ev.stopReason ?? current.edited.assistant?.stopReason,
+              setEditPreview((current) =>
+                current && current.branchSessionKey === preview.branchSessionKey
+                  ? {
+                      ...current,
+                      edited: {
+                        ...current.edited,
+                        assistant: {
+                          messageId:
+                            ev.messageId ||
+                            current.edited.assistant?.messageId ||
+                            randomId(),
+                          role: "assistant",
+                          text,
+                          createdAt:
+                            ev.createdAt || current.edited.assistant?.createdAt,
+                          model: ev.model ?? current.edited.assistant?.model,
+                          usage: ev.usage ?? current.edited.assistant?.usage,
+                          stopReason:
+                            ev.stopReason ??
+                            current.edited.assistant?.stopReason,
+                        },
                       },
-                    },
-                  }
-                : current)
+                    }
+                  : current
+              )
             }
             if (ev.type === "chat.status" && ev.state === "done") {
-              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "ready" } : current)
+              setEditPreview((current) =>
+                current && current.branchSessionKey === preview.branchSessionKey
+                  ? { ...current, status: "ready" }
+                  : current
+              )
             }
             if (ev.type === "chat.error") {
-              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "error", error: ev.message ?? "Regenerate preview failed" } : current)
+              setEditPreview((current) =>
+                current && current.branchSessionKey === preview.branchSessionKey
+                  ? {
+                      ...current,
+                      status: "error",
+                      error: ev.message ?? "Regenerate preview failed",
+                    }
+                  : current
+              )
             }
           } catch {}
         }
@@ -1460,16 +1598,22 @@ export function useChatMessages(
           sourceAssistantMessageId: preview.sourceAssistantMessageId ?? null,
           original: {
             user: rawToChatMessage(preview.original.user, "user"),
-            assistant: preview.original.assistant ? rawToChatMessage(preview.original.assistant, "assistant") : null,
+            assistant: preview.original.assistant
+              ? rawToChatMessage(preview.original.assistant, "assistant")
+              : null,
           },
           edited: {
             user: rawToChatMessage(preview.edited.user, "user"),
-            assistant: preview.edited.assistant ? rawToChatMessage(preview.edited.assistant, "assistant") : null,
+            assistant: preview.edited.assistant
+              ? rawToChatMessage(preview.edited.assistant, "assistant")
+              : null,
           },
           status: "streaming",
         })
 
-        const source = new EventSource(streamUrl(`/api/stream/chat/${preview.branchSessionKey}`))
+        const source = new EventSource(
+          streamUrl(`/api/stream/chat/${preview.branchSessionKey}`)
+        )
         editPreviewSourceRef.current = source
         const handlePreview = (event: MessageEvent) => {
           try {
@@ -1477,29 +1621,49 @@ export function useChatMessages(
             if (ev.type === "chat.message" && ev.role === "assistant") {
               const text = ev.text || extractText(ev.content)
               if (!text.trim()) return
-              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey
-                ? {
-                    ...current,
-                    edited: {
-                      ...current.edited,
-                      assistant: {
-                        messageId: ev.messageId || current.edited.assistant?.messageId || randomId(),
-                        role: "assistant",
-                        text,
-                        createdAt: ev.createdAt || current.edited.assistant?.createdAt,
-                        model: ev.model ?? current.edited.assistant?.model,
-                        usage: ev.usage ?? current.edited.assistant?.usage,
-                        stopReason: ev.stopReason ?? current.edited.assistant?.stopReason,
+              setEditPreview((current) =>
+                current && current.branchSessionKey === preview.branchSessionKey
+                  ? {
+                      ...current,
+                      edited: {
+                        ...current.edited,
+                        assistant: {
+                          messageId:
+                            ev.messageId ||
+                            current.edited.assistant?.messageId ||
+                            randomId(),
+                          role: "assistant",
+                          text,
+                          createdAt:
+                            ev.createdAt || current.edited.assistant?.createdAt,
+                          model: ev.model ?? current.edited.assistant?.model,
+                          usage: ev.usage ?? current.edited.assistant?.usage,
+                          stopReason:
+                            ev.stopReason ??
+                            current.edited.assistant?.stopReason,
+                        },
                       },
-                    },
-                  }
-                : current)
+                    }
+                  : current
+              )
             }
             if (ev.type === "chat.status" && ev.state === "done") {
-              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "ready" } : current)
+              setEditPreview((current) =>
+                current && current.branchSessionKey === preview.branchSessionKey
+                  ? { ...current, status: "ready" }
+                  : current
+              )
             }
             if (ev.type === "chat.error") {
-              setEditPreview((current) => current && current.branchSessionKey === preview.branchSessionKey ? { ...current, status: "error", error: ev.message ?? "Edit preview failed" } : current)
+              setEditPreview((current) =>
+                current && current.branchSessionKey === preview.branchSessionKey
+                  ? {
+                      ...current,
+                      status: "error",
+                      error: ev.message ?? "Edit preview failed",
+                    }
+                  : current
+              )
             }
           } catch {}
         }
@@ -1517,36 +1681,56 @@ export function useChatMessages(
     [isSending, isGenerating, sessionKey, forceScrollToBottom]
   )
 
-  const selectEditBranch = useCallback(async (selected: "original" | "edited") => {
-    const preview = editPreview
-    if (!preview) return
-    try {
-      await invoke("middleware_chat_select_edit_branch", {
-        input: { sessionKey, branchSessionKey: preview.branchSessionKey, selected },
-      })
-      editPreviewSourceRef.current?.close()
-      editPreviewSourceRef.current = null
-      if (selected === "edited") {
-        setMessages((prev) => {
-          const idx = prev.findIndex((m) => m.messageId === preview.sourceUserMessageId)
-          if (idx === -1) return prev
-          const next = [...prev]
-          next[idx] = { ...preview.edited.user, messageId: preview.sourceUserMessageId }
-          const assistant = preview.edited.assistant
-          if (assistant) {
-            if (next[idx + 1]?.role === "assistant") next[idx + 1] = assistant
-            else next.splice(idx + 1, 0, assistant)
-          }
-          return next
+  const selectEditBranch = useCallback(
+    async (selected: "original" | "edited") => {
+      const preview = editPreview
+      if (!preview) return
+      try {
+        await invoke("middleware_chat_select_edit_branch", {
+          input: {
+            sessionKey,
+            branchSessionKey: preview.branchSessionKey,
+            selected,
+          },
         })
+        editPreviewSourceRef.current?.close()
+        editPreviewSourceRef.current = null
+        if (selected === "edited") {
+          setMessages((prev) => {
+            const idx = prev.findIndex(
+              (m) => m.messageId === preview.sourceUserMessageId
+            )
+            if (idx === -1) return prev
+            const next = [...prev]
+            next[idx] = {
+              ...preview.edited.user,
+              messageId: preview.sourceUserMessageId,
+            }
+            const assistant = preview.edited.assistant
+            if (assistant) {
+              if (next[idx + 1]?.role === "assistant") next[idx + 1] = assistant
+              else next.splice(idx + 1, 0, assistant)
+            }
+            return next
+          })
+        }
+        setEditPreview(null)
+        setStreamGeneration((value) => value + 1)
+        setStatus("idle")
+      } catch (error) {
+        setEditPreview((current) =>
+          current
+            ? {
+                ...current,
+                status: "error",
+                error: error instanceof Error ? error.message : String(error),
+              }
+            : current
+        )
       }
-      setEditPreview(null)
-      setStreamGeneration((value) => value + 1)
-      setStatus("idle")
-    } catch (error) {
-      setEditPreview((current) => current ? { ...current, status: "error", error: error instanceof Error ? error.message : String(error) } : current)
-    }
-  }, [editPreview, sessionKey])
+    },
+    [editPreview, sessionKey]
+  )
 
   useEffect(() => {
     return () => {
@@ -1637,8 +1821,8 @@ export function useChatMessages(
       prev.map((message) =>
         message.messageId === messageId && message.animateText
           ? { ...message, animateText: false }
-          : message,
-      ),
+          : message
+      )
     )
   }, [])
 
