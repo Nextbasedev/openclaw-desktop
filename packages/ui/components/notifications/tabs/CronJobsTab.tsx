@@ -60,17 +60,8 @@ type CronRunEvent = CronRunEventLike & {
   parentSessionKey?: string | null
 }
 
-type SelectedJob = {
-  jobId: string
-  name: string
-  session: string
-  schedule: string
-  prompt: string
-}
-
 type CronJobsTabProps = {
   activeSessionKey?: string | null
-  onSelectJob?: (job: SelectedJob | null) => void
   onDraftPrompt?: (prompt: string) => void
 }
 
@@ -277,6 +268,12 @@ function cronDraftErrors(draft: CronJobDraft): string[] {
   return errors
 }
 
+function isCronJobMissingError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const normalized = message.toLowerCase()
+  return normalized.includes("job") && normalized.includes("not found")
+}
+
 function CronJobEditDialog({
   mode,
   job,
@@ -323,18 +320,30 @@ function CronJobEditDialog({
           ? "Check the schedule, model, delivery, and prompt before OpenClaw starts running it."
           : job?.name
       }
-      className="w-[min(800px,calc(100vw-32px))]"
+      className="w-[min(860px,calc(100vw-24px))] !rounded-md border-white/[0.1] bg-[var(--glass-bg)] px-5 py-5 shadow-[0_24px_72px_-32px_rgba(0,0,0,0.88),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-[36px] backdrop-saturate-[180%]"
     >
       {draft && (
-        <div className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">Name</span>
-            <input
-              value={draft.name}
-              onChange={(event) => setDraft((prev) => prev ? { ...prev, name: event.target.value } : prev)}
-              className="glass-input"
-            />
-          </label>
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">Name</span>
+              <input
+                value={draft.name}
+                onChange={(event) => setDraft((prev) => prev ? { ...prev, name: event.target.value } : prev)}
+                className="glass-input rounded-md"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">Timezone</span>
+              <CronOptionSelect
+                value={selectedTimezone}
+                options={timezoneSelectOptions}
+                testId="cron-edit-timezone"
+                onChange={(value) => setDraft((prev) => prev ? { ...prev, timezone: value } : prev)}
+              />
+            </label>
+          </div>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">Schedule</span>
@@ -366,24 +375,30 @@ function CronJobEditDialog({
               className="sr-only"
               tabIndex={-1}
             />
-            <CronScheduleEditor
-              schedule={draft.schedule}
-              scheduleType={draft.scheduleType}
-              onChange={(next) => setDraft((prev) => prev ? { ...prev, ...next } : prev)}
-            />
+            <div className="">
+              <CronScheduleEditor
+                schedule={draft.schedule}
+                scheduleType={draft.scheduleType}
+                onChange={(next) => setDraft((prev) => prev ? { ...prev, ...next } : prev)}
+              />
+            </div>
           </label>
 
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">Timezone</span>
-            <CronOptionSelect
-              value={selectedTimezone}
-              options={timezoneSelectOptions}
-              testId="cron-edit-timezone"
-              onChange={(value) => setDraft((prev) => prev ? { ...prev, timezone: value } : prev)}
-            />
-          </label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">Model</span>
+              <CronOptionSelect
+                value={draft.model}
+                options={modelOptions}
+                disabled={modelsLoading && models.length === 0}
+                placeholder={modelsLoading ? "Loading models..." : "Default model"}
+                testId="cron-edit-model"
+                onChange={(value) => setDraft((prev) => prev ? { ...prev, model: value } : prev)}
+              />
+            </label>
+          </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-3">
             <label className="flex flex-col gap-1.5">
               <span className="text-[11px] font-medium text-muted-foreground">Delivery method</span>
               <CronOptionSelect
@@ -430,33 +445,21 @@ function CronJobEditDialog({
           </div>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">Model</span>
-            <CronOptionSelect
-              value={draft.model}
-              options={modelOptions}
-              disabled={modelsLoading && models.length === 0}
-              placeholder={modelsLoading ? "Loading models..." : "Default model"}
-              testId="cron-edit-model"
-              onChange={(value) => setDraft((prev) => prev ? { ...prev, model: value } : prev)}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">Prompt</span>
             <textarea
               value={draft.prompt}
               onChange={(event) => setDraft((prev) => prev ? { ...prev, prompt: event.target.value } : prev)}
               className={cn(
-                "min-h-[120px] resize-y rounded-lg border px-3 py-2",
+                "min-h-[96px] max-h-[200px] resize-y rounded-md border px-3 py-2.5",
                 "border-[var(--glass-input-border)] bg-[var(--glass-input-bg)]",
-                "text-[13px] leading-relaxed text-foreground outline-none",
-                "placeholder:text-muted-foreground/40 focus:border-foreground/15",
+                "text-[13px] leading-relaxed text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] outline-none",
+                "placeholder:text-muted-foreground/40 focus:border-white/15",
               )}
             />
           </label>
 
           {validationErrors.length > 0 && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+            <div className="rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
               {validationErrors[0]}
             </div>
           )}
@@ -485,7 +488,7 @@ function CronJobEditDialog({
   )
 }
 
-export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: CronJobsTabProps) {
+export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProps) {
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [loading, setLoading] = useState(true)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
@@ -540,6 +543,12 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
     }
   }, [])
 
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 3000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
   const markBusy = (id: string) =>
     setBusyIds((prev) => new Set(prev).add(id))
 
@@ -549,6 +558,13 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
       next.delete(id)
       return next
     })
+
+  const removeStaleJob = useCallback((jobId: string, name?: string) => {
+    setJobs((prev) => prev.filter((job) => job.jobId !== jobId))
+    setEditTarget((prev) => (prev?.jobId === jobId ? null : prev))
+    setNotice(name ? `${name} is no longer available and was removed from the list.` : "This cron job is no longer available and was removed from the list.")
+    setError(null)
+  }, [])
 
   const toggleEnabled = useCallback(async (job: CronJob) => {
     markBusy(job.jobId)
@@ -567,36 +583,16 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
         jobId: job.jobId,
         enabled: nextEnabled,
       })
-    } catch {
+    } catch (err) {
+      if (isCronJobMissingError(err)) {
+        removeStaleJob(job.jobId, job.name)
+        return
+      }
       // keep optimistic state — local override on server handles persistence
     } finally {
       clearBusy(job.jobId)
     }
-  }, [])
-
-  const togglePaused = useCallback(async (job: CronJob) => {
-    markBusy(job.jobId)
-    const nextPaused = !job.paused
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.jobId === job.jobId
-          ? { ...j, paused: nextPaused, enabled: !nextPaused }
-          : j,
-      ),
-    )
-    setError(null)
-    setNotice(null)
-    try {
-      await invoke("middleware_cron_pause_job", {
-        jobId: job.jobId,
-        paused: nextPaused,
-      })
-    } catch {
-      // keep optimistic state
-    } finally {
-      clearBusy(job.jobId)
-    }
-  }, [])
+  }, [removeStaleJob])
 
   const deleteJob = useCallback(async (job: CronJob) => {
     markBusy(job.jobId)
@@ -606,35 +602,15 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
       setNotice(null)
       setJobs((prev) => prev.filter((j) => j.jobId !== job.jobId))
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete cron job.")
+      if (isCronJobMissingError(err)) {
+        removeStaleJob(job.jobId, job.name)
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to delete cron job.")
+      }
     } finally {
       clearBusy(job.jobId)
     }
-  }, [])
-
-  const runJob = useCallback(async (job: CronJob) => {
-    markBusy(job.jobId)
-    try {
-      const result = await invoke<{ run: CronRun; queued: boolean }>(
-        "middleware_cron_run_job",
-        { jobId: job.jobId },
-      )
-      setError(null)
-      setNotice(`Run queued for ${job.name}.`)
-      setJobs((prev) =>
-        prev.map((item) =>
-          item.jobId === job.jobId
-            ? { ...item, lastRun: result.run }
-            : item,
-        ),
-      )
-      await fetchJobs()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to run cron job.")
-    } finally {
-      clearBusy(job.jobId)
-    }
-  }, [fetchJobs])
+  }, [removeStaleJob])
 
   const saveJob = useCallback(async (job: CronJob | null, draft: CronJobDraft) => {
     if (!job) return
@@ -688,11 +664,15 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
       setEditTarget(null)
       await fetchJobs()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update cron job.")
+      if (isCronJobMissingError(err)) {
+        removeStaleJob(job.jobId, job.name)
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to update cron job.")
+      }
     } finally {
       clearBusy(job.jobId)
     }
-  }, [fetchJobs])
+  }, [fetchJobs, removeStaleJob])
 
   const createJob = useCallback(async (draft: CronJobDraft) => {
     setCreatingJob(true)
@@ -783,8 +763,16 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
       )}
 
       {notice && (
-        <div className="rounded-xl border border-chart-1/20 bg-chart-1/5 px-4 py-3 text-[12px] text-chart-1">
-          {notice}
+        <div className="flex items-center justify-between gap-3 rounded-md border border-chart-1/20 bg-chart-1/5 px-4 py-3 text-[12px] text-chart-1">
+          <span className="min-w-0 flex-1">{notice}</span>
+          <button
+            type="button"
+            aria-label="Close notice"
+            onClick={() => setNotice(null)}
+            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-chart-1/70 transition-colors hover:bg-chart-1/10 hover:text-chart-1"
+          >
+            <Icons.Close size={12} />
+          </button>
         </div>
       )}
 
@@ -822,16 +810,7 @@ export function CronJobsTab({ activeSessionKey, onSelectJob, onDraftPrompt }: Cr
               job={job}
               busy={busyIds.has(job.jobId)}
               onToggleEnabled={() => toggleEnabled(job)}
-              onTogglePaused={() => togglePaused(job)}
               onDelete={() => deleteJob(job)}
-              onRun={() => runJob(job)}
-              onViewConversation={onSelectJob ? () => onSelectJob({
-                jobId: job.jobId,
-                name: job.name,
-                session: job.session,
-                schedule: job.schedule,
-                prompt: jobPrompt(job),
-              }) : undefined}
               onDiagnoseFailure={onDraftPrompt ? () => onDraftPrompt(buildDiagnosisPrompt(job)) : undefined}
               onEdit={() => setEditTarget(job)}
             />

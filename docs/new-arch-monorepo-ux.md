@@ -87,7 +87,7 @@ Flow:
 1. UI shows install command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/new-arch/apps/middleware/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/main/apps/middleware/scripts/install.sh | bash
 ```
 
 2. VPS prints:

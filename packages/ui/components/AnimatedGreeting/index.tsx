@@ -5,10 +5,10 @@ import { cn } from "@/lib/utils"
 
 function getGreeting(): string {
   const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return "Good morning, what shall we build?"
-  if (hour >= 12 && hour < 17) return "Good afternoon, what's on the agenda?"
-  if (hour >= 17 && hour < 21) return "Good evening, how can I help?"
-  return "Late night? Let's get it done."
+  if (hour >= 5 && hour < 12) return "what shall we build?"
+  if (hour >= 12 && hour < 17) return "what's on the agenda?"
+  if (hour >= 17 && hour < 21) return "how can I help?"
+  return "what's on the agenda?"
 }
 
 export function AnimatedGreeting() {

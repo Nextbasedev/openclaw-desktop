@@ -330,6 +330,7 @@ export function ChatView({
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
+  const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const messageContentRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(messages.length)
@@ -484,8 +485,43 @@ export function ChatView({
     []
   )
 
+  const handleSessionModelSelect = useCallback(
+    async (modelId: string) => {
+      const toastId = toast.loading(`Switching model to ${modelId}…`)
+      setModelSwitching(true)
+      try {
+        await invoke("middleware_chat_model_set", {
+          input: { sessionKey, modelId },
+        })
+        emit("chat:activity")
+        toast.update(toastId, {
+          render: `Switched model to ${modelId}`,
+          type: "success",
+          isLoading: false,
+          autoClose: 1800,
+        })
+      } catch (error) {
+        toast.update(toastId, {
+          render:
+            error instanceof Error ? error.message : "Failed to switch model",
+          type: "error",
+          isLoading: false,
+          autoClose: 3500,
+        })
+        throw error
+      } finally {
+        setModelSwitching(false)
+      }
+    },
+    [sessionKey]
+  )
+
   const wrappedSend = useCallback(
     async (payload: ChatComposerSubmit) => {
+      if (modelSwitching) {
+        toast.info("Switching model… please wait before sending.")
+        return
+      }
       const shouldNotifyFirstSend =
         !firstFiredRef.current &&
         messages.length === 0 &&
@@ -501,12 +537,20 @@ export function ChatView({
       setReplyTo(null)
       setComposerSeed("")
     },
-    [handleSend, messages.length, onFirstMessageSent]
+    [handleSend, messages.length, modelSwitching, onFirstMessageSent]
   )
 
   const renderedMessages = useMemo(
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
+  )
+  const userMessageHistory = useMemo(
+    () =>
+      messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.text.trim())
+        .filter((text) => text.length > 0),
+    [messages]
   )
   const pinned = useMemo(
     () => pinnedMessages(messages, messageActionState),
@@ -527,6 +571,20 @@ export function ChatView({
       })
     },
     [messages]
+  )
+
+  const askAboutSelectedText = useCallback(
+    (messageId: string, text: string, comment?: string) => {
+      const selected = text.trim()
+      if (!selected) return
+      setReplyTo({
+        messageId: `${messageId}:selection`,
+        role: "assistant",
+        text: selected,
+      })
+      setComposerSeed(comment?.trim() ?? "")
+    },
+    []
   )
 
   const cancelReply = useCallback(() => {
@@ -924,10 +982,14 @@ export function ChatView({
           onSend={wrappedSend}
           disabled={false}
           isGenerating={isGenerating}
+          historyMessages={userMessageHistory}
           onAbort={handleAbort}
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onModelSelect={handleSessionModelSelect}
+          modelSwitching={modelSwitching}
+          glowOnMount
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -944,8 +1006,6 @@ export function ChatView({
   const lastTwoAssistantIds = new Set(
     assistantMessages.slice(-2).map((m) => m.messageId)
   )
-  const lastAssistantId = assistantMessages.at(-1)?.messageId
-
   const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
     tools.filter(
       (t) =>
@@ -971,6 +1031,30 @@ export function ChatView({
       }
     }
     return matched
+  }
+
+  const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
+  const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
+  let nearestUserId: string | null = null
+
+  for (const msg of renderedMessages) {
+    if (msg.role === "user") {
+      nearestUserId = msg.messageId
+      continue
+    }
+
+    const msgSubagents = getSubagentsForMessage(msg.toolCalls)
+    if (msgSubagents.length === 0) continue
+
+    if (nearestUserId) {
+      const existing = subagentsByTriggerUserId.get(nearestUserId) ?? []
+      subagentsByTriggerUserId.set(nearestUserId, [
+        ...existing,
+        ...msgSubagents,
+      ])
+    } else {
+      orphanSubagentsByAssistantId.set(msg.messageId, msgSubagents)
+    }
   }
 
   return (
@@ -1052,13 +1136,22 @@ export function ChatView({
                 : undefined
               const filteredPending = toolCallsWithoutSpawn(pendingTools)
 
-              const msgSubagents = getSubagentsForMessage(msg.toolCalls)
+              const anchoredUserSubagents =
+                msg.role === "user"
+                  ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
+                  : []
+              const orphanAssistantSubagents =
+                msg.role === "assistant"
+                  ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
+                  : []
               const liveSubagents =
-                isLast && isGenerating
+                msg.role === "user" && isLast && isGenerating
                   ? getSubagentsForMessage(pendingTools)
                   : []
-              const allSubagents =
-                msgSubagents.length > 0 ? msgSubagents : liveSubagents
+              const userSubagents =
+                anchoredUserSubagents.length > 0
+                  ? anchoredUserSubagents
+                  : liveSubagents
 
               return (
                 <div key={msg.messageId} id={`message-${msg.messageId}`}>
@@ -1084,14 +1177,15 @@ export function ChatView({
                       />
                     </div>
                   )}
-                  {msg.role === "assistant" && allSubagents.length > 0 && (
-                    <div className="mb-2">
-                      <SubagentCard
-                        subagents={allSubagents}
-                        onOpen={openSubagent}
-                      />
-                    </div>
-                  )}
+                  {msg.role === "assistant" &&
+                    orphanAssistantSubagents.length > 0 && (
+                      <div className="mb-2">
+                        <SubagentCard
+                          subagents={orphanAssistantSubagents}
+                          onOpen={openSubagent}
+                        />
+                      </div>
+                    )}
                   {(msg.role === "user" || msg.text) && (
                     <MessageBubble
                       message={msg}
@@ -1114,6 +1208,11 @@ export function ChatView({
                         msg.role === "assistant" ? forkFromMessage : undefined
                       }
                       onResolveApproval={resolveExecApproval}
+                      onAskSelectedText={
+                        msg.role === "assistant"
+                          ? askAboutSelectedText
+                          : undefined
+                      }
                       isPinned={messageActionState.pinnedIds.includes(
                         msg.messageId
                       )}
@@ -1126,10 +1225,10 @@ export function ChatView({
                       }
                     />
                   )}
-                  {msg.role === "user" && allSubagents.length > 0 && (
+                  {msg.role === "user" && userSubagents.length > 0 && (
                     <div className="mt-3">
                       <SubagentCard
-                        subagents={allSubagents}
+                        subagents={userSubagents}
                         onOpen={openSubagent}
                       />
                     </div>
@@ -1194,6 +1293,9 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onModelSelect={handleSessionModelSelect}
+          modelSwitching={modelSwitching}
+          historyMessages={userMessageHistory}
         />
       </div>
     </div>

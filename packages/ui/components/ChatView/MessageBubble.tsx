@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 import {
   LuCheck,
@@ -12,9 +13,10 @@ import {
   LuPenLine,
   LuPin,
   LuRefreshCw,
+  LuArrowUp,
+  LuPaperclip,
   LuReply,
   LuThumbsDown,
-  LuThumbsUp,
   LuX,
   LuGitFork,
   LuLoader,
@@ -22,12 +24,17 @@ import {
   LuTerminal,
 } from "react-icons/lu"
 import { VscSend } from "react-icons/vsc"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
+import { getSlashCommandName } from "@/lib/controlSlashCommands"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
@@ -41,7 +48,9 @@ function parseApprovalPrompt(text: string): ApprovalPrompt | null {
   if (!text.includes("/approve")) return null
   if (!/Approval (needed|required)/i.test(text)) return null
 
-  const approveMatch = text.match(/\/approve(?:@[^\s]+)?\s+([^\s]+)\s+([^\n]+)/i)
+  const approveMatch = text.match(
+    /\/approve(?:@[^\s]+)?\s+([^\s]+)\s+([^\n]+)/i
+  )
   const id = approveMatch?.[1]?.trim()
   if (!id) return null
 
@@ -49,19 +58,24 @@ function parseApprovalPrompt(text: string): ApprovalPrompt | null {
   const parsedDecisions = rawDecisionText
     .split(/\||\s+/)
     .map((item) => item.trim().toLowerCase())
-    .map((item) => item === "always" ? "allow-always" : item)
-    .filter((item): item is ApprovalDecision =>
-      item === "allow-once" || item === "allow-always" || item === "deny",
+    .map((item) => (item === "always" ? "allow-always" : item))
+    .filter(
+      (item): item is ApprovalDecision =>
+        item === "allow-once" || item === "allow-always" || item === "deny"
     )
 
-  const decisions = Array.from(new Set<ApprovalDecision>([
-    ...parsedDecisions,
-    "deny",
-  ]))
+  const decisions = Array.from(
+    new Set<ApprovalDecision>([...parsedDecisions, "deny"])
+  )
 
-  const fencedCommand = text.match(/Pending command:\s*```(?:sh|bash|shell)?\s*\n([\s\S]*?)\n```/i)?.[1]
-    ?? text.match(/Command:\s*```(?:sh|bash|shell)?\s*\n([\s\S]*?)\n```/i)?.[1]
-  const plainCommand = text.match(/Approval needed to run:\s*\n+(?:Shell|Bash|sh)?\s*\n+([\s\S]*?)\n+Reply with:/i)?.[1]
+  const fencedCommand =
+    text.match(
+      /Pending command:\s*```(?:sh|bash|shell)?\s*\n([\s\S]*?)\n```/i
+    )?.[1] ??
+    text.match(/Command:\s*```(?:sh|bash|shell)?\s*\n([\s\S]*?)\n```/i)?.[1]
+  const plainCommand = text.match(
+    /Approval needed to run:\s*\n+(?:Shell|Bash|sh)?\s*\n+([\s\S]*?)\n+Reply with:/i
+  )?.[1]
 
   return {
     id,
@@ -81,7 +95,10 @@ function ApprovalPromptCard({
   onResolve,
 }: {
   approval: ApprovalPrompt
-  onResolve?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
+  onResolve?: (
+    approvalId: string,
+    decision: ApprovalDecision
+  ) => Promise<void> | void
 }) {
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
@@ -130,10 +147,12 @@ function ApprovalPromptCard({
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                 decision === "deny"
                   ? "bg-red-400/10 text-red-300 hover:bg-red-400/15"
-                  : "bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/15",
+                  : "bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/15"
               )}
             >
-              {resolving === decision && <LuLoader className="size-3 animate-spin" />}
+              {resolving === decision && (
+                <LuLoader className="size-3 animate-spin" />
+              )}
               {approvalDecisionLabel(decision)}
             </button>
           ))}
@@ -143,7 +162,13 @@ function ApprovalPromptCard({
   )
 }
 
-function CopyButton({ text, className: cls }: { text: string; className?: string }) {
+function CopyButton({
+  text,
+  className: cls,
+}: {
+  text: string
+  className?: string
+}) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(() => {
@@ -160,10 +185,14 @@ function CopyButton({ text, className: cls }: { text: string; className?: string
         "flex size-6 items-center justify-center rounded-md",
         "transition-colors duration-150",
         "cursor-pointer text-foreground/30 hover:text-white",
-        cls,
+        cls
       )}
     >
-      {copied ? <LuCheck className="size-3.5" /> : <LuCopy className="size-3.5" />}
+      {copied ? (
+        <LuCheck className="size-3.5" />
+      ) : (
+        <LuCopy className="size-3.5" />
+      )}
     </button>
   )
 }
@@ -180,9 +209,12 @@ function formatTime(dateStr?: string): string | null {
 }
 
 function formatTokenCount(value?: number | null): string | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+    return null
+  if (value >= 1_000_000)
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
+  if (value >= 1_000)
+    return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`
   return String(value)
 }
 
@@ -200,7 +232,9 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
           className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground/45 transition-colors hover:bg-foreground/5 hover:text-muted-foreground"
           aria-label="Response metadata"
         >
-          {[message.model, total ? `${total} tokens` : null].filter(Boolean).join(" • ")}
+          {[message.model, total ? `${total} tokens` : null]
+            .filter(Boolean)
+            .join(" • ")}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -213,31 +247,39 @@ function ResponseMetadata({ message }: { message: ChatMessage }) {
           {message.model && (
             <div className="flex justify-between gap-3">
               <span className="text-muted-foreground/60">Model</span>
-              <span className="truncate font-mono text-foreground/80">{message.model}</span>
+              <span className="truncate font-mono text-foreground/80">
+                {message.model}
+              </span>
             </div>
           )}
           {usage && (
             <div className="space-y-1 border-t border-border/20 pt-2">
-              {([
-                ["Input", usage.input],
-                ["Output", usage.output],
-                ["Cache read", usage.cacheRead],
-                ["Cache write", usage.cacheWrite],
-                ["Total", usage.total],
-              ] satisfies Array<[string, number | null | undefined]>).map(([label, value]) => (
+              {(
+                [
+                  ["Input", usage.input],
+                  ["Output", usage.output],
+                  ["Cache read", usage.cacheRead],
+                  ["Cache write", usage.cacheWrite],
+                  ["Total", usage.total],
+                ] satisfies Array<[string, number | null | undefined]>
+              ).map(([label, value]) =>
                 typeof value === "number" && value > 0 ? (
                   <div key={label} className="flex justify-between gap-3">
                     <span className="text-muted-foreground/60">{label}</span>
-                    <span className="font-mono text-foreground/80">{value.toLocaleString()}</span>
+                    <span className="font-mono text-foreground/80">
+                      {value.toLocaleString()}
+                    </span>
                   </div>
                 ) : null
-              ))}
+              )}
             </div>
           )}
           {message.stopReason && (
             <div className="flex justify-between gap-3 border-t border-border/20 pt-2">
               <span className="text-muted-foreground/60">Stop</span>
-              <span className="font-mono text-foreground/80">{message.stopReason}</span>
+              <span className="font-mono text-foreground/80">
+                {message.stopReason}
+              </span>
             </div>
           )}
         </div>
@@ -268,7 +310,7 @@ function BranchNav({
       >
         <LuChevronLeft className="size-3.5" />
       </button>
-      <span className="text-[11px] tabular-nums text-muted-foreground/60">
+      <span className="text-[11px] text-muted-foreground/60 tabular-nums">
         {current}/{total}
       </span>
       <button
@@ -296,6 +338,7 @@ export function MessageBubble({
   onTextAnimationComplete,
   onFork,
   onResolveApproval,
+  onAskSelectedText,
   isPinned,
   reaction,
   isGenerating,
@@ -314,7 +357,15 @@ export function MessageBubble({
   onExport?: (messageId: string) => void
   onTextAnimationComplete?: (messageId: string) => void
   onFork?: (messageId: string) => void
-  onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
+  onResolveApproval?: (
+    approvalId: string,
+    decision: ApprovalDecision
+  ) => Promise<void> | void
+  onAskSelectedText?: (
+    messageId: string,
+    text: string,
+    comment?: string
+  ) => void
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -328,10 +379,30 @@ export function MessageBubble({
     !isUser && (Boolean(isActivelyStreaming) || Boolean(message.animateText))
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
+  const [selectionAction, setSelectionAction] = useState<{
+    text: string
+    left: number
+    top: number
+  } | null>(null)
+  const [selectionRects, setSelectionRects] = useState<
+    Array<{
+      left: number
+      top: number
+      width: number
+      height: number
+    }>
+  >([])
+  const [selectionComment, setSelectionComment] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const messageBodyRef = useRef<HTMLDivElement>(null)
+  const selectionComposerRef = useRef<HTMLDivElement>(null)
+  const selectionRangeRef = useRef<Range | null>(null)
 
   const hasBranches = message.branches && message.branches.length > 0
   const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
+  const userSlashCommandName = isUser ? getSlashCommandName(message.text) : null
+  const shouldAnimateSlashCommandBorder =
+    shouldAnimateSend && Boolean(userSlashCommandName)
 
   const startEdit = useCallback(() => {
     setEditText(message.text)
@@ -370,6 +441,146 @@ export function MessageBubble({
     }
   }, [hideAssistantActions, popoverOpen, onPopoverOpenChange])
 
+  const updateSelectionAction = useCallback(() => {
+    if (isUser || !onAskSelectedText || !messageBodyRef.current) return
+
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim()
+    if (!selection || !selectedText || selection.rangeCount === 0) {
+      setSelectionAction(null)
+      return
+    }
+
+    const body = messageBodyRef.current
+    const anchorNode = selection.anchorNode
+    const focusNode = selection.focusNode
+    if (
+      !anchorNode ||
+      !focusNode ||
+      !body.contains(anchorNode) ||
+      !body.contains(focusNode)
+    ) {
+      setSelectionAction(null)
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
+    if (!rect.width && !rect.height) {
+      setSelectionAction(null)
+      return
+    }
+
+    selectionRangeRef.current = range.cloneRange()
+    setSelectionRects(
+      Array.from(range.getClientRects()).map((lineRect) => ({
+        left: lineRect.left,
+        top: lineRect.top,
+        width: lineRect.width,
+        height: lineRect.height,
+      }))
+    )
+    setSelectionAction({
+      text: selectedText,
+      left: rect.left + rect.width / 2,
+      top: Math.max(12, rect.top - 14),
+    })
+    setSelectionComment("")
+  }, [isUser, onAskSelectedText])
+
+  const refreshPersistentSelection = useCallback(() => {
+    const range = selectionRangeRef.current
+    if (!range) return
+    const rect = range.getBoundingClientRect()
+    if (!rect.width && !rect.height) return
+    setSelectionRects(
+      Array.from(range.getClientRects()).map((lineRect) => ({
+        left: lineRect.left,
+        top: lineRect.top,
+        width: lineRect.width,
+        height: lineRect.height,
+      }))
+    )
+    setSelectionAction((current) =>
+      current
+        ? {
+            ...current,
+            left: rect.left + rect.width / 2,
+            top: Math.max(12, rect.top - 14),
+          }
+        : current
+    )
+  }, [])
+
+  const closeSelectionComposer = useCallback(() => {
+    window.getSelection()?.removeAllRanges()
+    selectionRangeRef.current = null
+    setSelectionRects([])
+    setSelectionAction(null)
+    setSelectionComment("")
+  }, [])
+
+  const askAboutSelection = useCallback(() => {
+    if (!selectionAction?.text) return
+    onAskSelectedText?.(
+      message.messageId,
+      selectionAction.text,
+      selectionComment.trim()
+    )
+    closeSelectionComposer()
+  }, [
+    closeSelectionComposer,
+    message.messageId,
+    onAskSelectedText,
+    selectionAction?.text,
+    selectionComment,
+  ])
+
+  const attachWithSelectionContext = useCallback(() => {
+    if (!selectionAction?.text) return
+    onAskSelectedText?.(message.messageId, selectionAction.text)
+    closeSelectionComposer()
+  }, [
+    closeSelectionComposer,
+    message.messageId,
+    onAskSelectedText,
+    selectionAction?.text,
+  ])
+
+  useEffect(() => {
+    if (!selectionAction) return
+    window.addEventListener("resize", refreshPersistentSelection)
+    window.addEventListener("scroll", refreshPersistentSelection, true)
+    return () => {
+      window.removeEventListener("resize", refreshPersistentSelection)
+      window.removeEventListener("scroll", refreshPersistentSelection, true)
+    }
+  }, [refreshPersistentSelection, selectionAction])
+
+  useEffect(() => {
+    if (isUser || !onAskSelectedText) return
+
+    const handlePointerUp = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null
+      if (target && selectionComposerRef.current?.contains(target)) return
+      window.setTimeout(updateSelectionAction, 0)
+    }
+    const handleSelectionChange = () => {
+      if (selectionComposerRef.current || selectionAction) return
+      const selection = window.getSelection()
+      if (!selection?.toString().trim()) setSelectionAction(null)
+    }
+
+    document.addEventListener("mouseup", handlePointerUp)
+    document.addEventListener("touchend", handlePointerUp)
+    document.addEventListener("selectionchange", handleSelectionChange)
+    return () => {
+      document.removeEventListener("mouseup", handlePointerUp)
+      document.removeEventListener("touchend", handlePointerUp)
+      document.removeEventListener("selectionchange", handleSelectionChange)
+    }
+  }, [isUser, onAskSelectedText, updateSelectionAction])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -380,23 +591,32 @@ export function MessageBubble({
         cancelEdit()
       }
     },
-    [submitEdit, cancelEdit],
+    [submitEdit, cancelEdit]
   )
 
   return (
     <motion.div
       initial={shouldAnimateSend ? { opacity: 0, y: 12, scale: 0.985 } : false}
       animate={shouldAnimateSend ? { opacity: 1, y: 0, scale: 1 } : undefined}
-      transition={shouldAnimateSend ? {
-        duration: 0.16,
-        ease: [0.22, 1, 0.36, 1],
-      } : { duration: 0 }}
+      transition={
+        shouldAnimateSend
+          ? {
+              duration: 0.16,
+              ease: [0.22, 1, 0.36, 1],
+            }
+          : { duration: 0 }
+      }
       className={cn(
         "group/msg flex w-full min-w-0 transform-gpu",
-        isUser ? "justify-end" : "justify-start",
+        isUser ? "justify-end" : "justify-start"
       )}
     >
-      <div className={cn("flex min-w-0 max-w-[85%] flex-col overflow-hidden", isUser ? "items-end" : "w-[85%] items-start")}>
+      <div
+        className={cn(
+          "flex max-w-[85%] min-w-0 flex-col overflow-hidden",
+          isUser ? "items-end" : "w-[85%] items-start"
+        )}
+      >
         {message.replyTo && (
           <button
             type="button"
@@ -406,7 +626,7 @@ export function MessageBubble({
                 ?.scrollIntoView({ behavior: "smooth", block: "center" })
             }}
             className={cn(
-              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-border/20 border-b-0  bg-foreground/[0.03] px-2.5 py-1.5 text-left  transition-colors hover:bg-foreground/[0.06]",
+              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-b-0 border-border/20 bg-foreground/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.06]"
             )}
           >
             <div className="min-w-0 flex-1">
@@ -459,15 +679,49 @@ export function MessageBubble({
               </div>
             )}
             <div
+              ref={messageBodyRef}
+              onMouseUp={updateSelectionAction}
+              onKeyUp={updateSelectionAction}
               className={cn(
-                "min-w-0 max-w-full overflow-hidden text-[14px] leading-relaxed",
-                isUser
-                  ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
-                  : "w-full text-foreground",
+                "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
+                isUser && userSlashCommandName
+                  ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                  : isUser
+                    ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                    : "w-full text-foreground"
               )}
             >
-              {isUser ? (
-                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.text}</p>
+              {shouldAnimateSlashCommandBorder && (
+                <>
+                  <motion.span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute bottom-2 right-0 top-2 w-px bg-white/80"
+                    initial={{ scaleY: 0, opacity: 0, originY: 0 }}
+                    animate={{ scaleY: 1, opacity: [0, 0.95, 0] }}
+                    transition={{ duration: 0.48, ease: "easeOut" }}
+                  />
+                  <motion.span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute bottom-0 right-2 h-px bg-white/80"
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: "calc(100% - 1rem)", opacity: [0, 0.95, 0] }}
+                    transition={{ duration: 0.4, delay: 0.34, ease: "easeOut" }}
+                  />
+                </>
+              )}
+              {isUser && userSlashCommandName ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="flex size-6 shrink-0 items-center justify-center text-white/65">
+                    <LuTerminal className="size-3.5" />
+                  </span>
+                  <code className="min-w-0 font-mono text-[13.5px] leading-6 tracking-[-0.01em] [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-white">
+                    {message.text}
+                  </code>
+                </div>
+              ) : isUser ? (
+                <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
+                  {message.text}
+                </p>
               ) : approvalPrompt ? (
                 <ApprovalPromptCard
                   approval={approvalPrompt}
@@ -485,10 +739,78 @@ export function MessageBubble({
               )}
               {!isUser && <RichContentPreview message={message} />}
             </div>
+            {selectionAction &&
+              selectionRects.length > 0 &&
+              createPortal(
+                <div className="pointer-events-none fixed inset-0 z-[9998]">
+                  {selectionRects.map((rect, index) => (
+                    <span
+                      key={`${rect.left}-${rect.top}-${index}`}
+                      className="fixed rounded-[3px] bg-sky-400/35 ring-1 ring-sky-300/20"
+                      style={{
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                        height: rect.height,
+                      }}
+                    />
+                  ))}
+                </div>,
+                document.body
+              )}
+            {selectionAction &&
+              !isUser &&
+              onAskSelectedText &&
+              createPortal(
+                <div
+                  ref={selectionComposerRef}
+                  className="fixed z-[9999] flex w-[min(380px,calc(100vw-32px))] -translate-x-1/2 -translate-y-full items-center gap-2 rounded-[18px] border border-white/12 bg-[#202020]/95 px-3 py-2 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+                  style={{
+                    left: selectionAction.left,
+                    top: selectionAction.top,
+                  }}
+                >
+                  <input
+                    value={selectionComment}
+                    onChange={(event) =>
+                      setSelectionComment(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        askAboutSelection()
+                      }
+                      if (event.key === "Escape") {
+                        closeSelectionComposer()
+                      }
+                    }}
+                    placeholder="Add a comment..."
+                    className="min-w-0 flex-1 bg-transparent px-1 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/65"
+                    aria-label="Add a comment about selected text"
+                  />
+                  <button
+                    type="button"
+                    onClick={attachWithSelectionContext}
+                    className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+                    aria-label="Attach file with selected text context"
+                  >
+                    <LuPaperclip className="size-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={askAboutSelection}
+                    className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+                    aria-label="Send comment"
+                  >
+                    <LuArrowUp className="size-4" />
+                  </button>
+                </div>,
+                document.body
+              )}
           </>
         )}
         {isUser ? (
-          <div className="mt-1 flex items-center gap-1 flex-row-reverse">
+          <div className="mt-1 flex flex-row-reverse items-center gap-1">
             {formatTime(message.createdAt) && (
               <span className="text-[10px] text-muted-foreground/40">
                 {formatTime(message.createdAt)}
@@ -526,7 +848,7 @@ export function MessageBubble({
           </div>
         ) : (
           !hideAssistantActions && (
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-0">
               {formatTime(message.createdAt) && (
                 <span className="text-[10px] text-muted-foreground/40">
                   {formatTime(message.createdAt)}
@@ -537,30 +859,6 @@ export function MessageBubble({
                 {onReact && (
                   <div className="flex items-center gap-0.5">
                     <AnimatePresence mode="popLayout" initial={false}>
-                      {(reaction === "up" || !reaction) && (
-                        <motion.button
-                          key="up"
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.8 }}
-                          type="button"
-                          onClick={() => onReact(message.messageId, "up")}
-                          className={cn(
-                            "flex size-6 cursor-pointer items-center justify-center rounded-md transition-all",
-                            reaction === "up"
-                              ? "text-white"
-                              : "text-foreground/30 hover:text-white"
-                          )}
-                          aria-label="Helpful"
-                        >
-                          {reaction === "up" ? (
-                            <LuThumbsUp className="size-3.5 fill-white" />
-                          ) : (
-                            <LuThumbsUp className="size-3.5" />
-                          )}
-                        </motion.button>
-                      )}
-
                       {(reaction === "down" || !reaction) && (
                         <motion.button
                           key="down"
@@ -588,7 +886,10 @@ export function MessageBubble({
                   </div>
                 )}
                 <CopyButton text={message.text} />
-                {(onPin || onReply || onFork || (onRegenerate && !isGenerating)) && (
+                {(onPin ||
+                  onReply ||
+                  onFork ||
+                  (onRegenerate && !isGenerating)) && (
                   <Popover
                     open={popoverOpen}
                     onOpenChange={onPopoverOpenChange}
@@ -596,7 +897,7 @@ export function MessageBubble({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex size-6 cursor-pointer items-center justify-center rounded transition-all duration-100 text-foreground/30 hover:text-white"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded text-foreground/30 transition-all duration-100 hover:text-white"
                         aria-label="More actions"
                       >
                         <LuEllipsisVertical className="size-3.5" />

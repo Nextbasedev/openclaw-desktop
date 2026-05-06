@@ -620,13 +620,20 @@ export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibilit
 export async function createChatSession(input: { agentId?: string; label?: string; model?: string; verboseLevel?: string; parentSessionKey?: string }) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"] })
   try {
+    const baseLabel = input.label ?? `Jarvis middleware session ${new Date().toISOString()}`
     const params: Record<string, unknown> = {
       agentId: input.agentId ?? "main",
-      label: input.label ?? `Jarvis middleware session ${new Date().toISOString()}`,
+      label: baseLabel,
     }
     if (input.model) params.model = input.model
     if (input.parentSessionKey) params.parentSessionKey = input.parentSessionKey
-    const response = await gateway.request<{ key?: string; sessionId?: string; entry?: { sessionFile?: string } }>("sessions.create", params)
+    let response = await gateway.request<{ key?: string; sessionId?: string; entry?: { sessionFile?: string } }>("sessions.create", params)
+    if (!response.ok && /label already in use/i.test(response.error?.message ?? "")) {
+      response = await gateway.request<{ key?: string; sessionId?: string; entry?: { sessionFile?: string } }>("sessions.create", {
+        ...params,
+        label: `${baseLabel} ${new Date().toISOString()}`,
+      })
+    }
     if (!response.ok || !response.payload?.key) throw new Error(response.error?.message ?? "sessions.create failed")
 
     if (input.verboseLevel) {
@@ -774,8 +781,19 @@ function isTextAttachment(mimeType: string): boolean {
   return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
 }
 
-function isAudioAttachment(mimeType: string): boolean {
-  return mimeType.startsWith("audio/")
+function isVoiceWebmAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  const name = String(attachment.name || "").toLowerCase()
+  return mimeType === "video/webm" && /^voice-.*\.webm$/.test(name)
+}
+
+function isAudioAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  return mimeType.startsWith("audio/") || isVoiceWebmAttachment(attachment)
+}
+
+function audioMimeTypeForAttachment(attachment: ChatSendAttachment): string {
+  return isVoiceWebmAttachment(attachment) ? "audio/webm" : attachment.mimeType
 }
 
 function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
@@ -805,7 +823,7 @@ function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttach
   return {
     type: "audio",
     fileName: attachment.name,
-    mimeType: attachment.mimeType,
+    mimeType: audioMimeTypeForAttachment(attachment),
     content,
   }
 }
@@ -826,9 +844,11 @@ function prepareMessageAndAttachments(input: { text: string; attachments?: ChatS
       continue
     }
 
-    if (isAudioAttachment(attachment.mimeType) && attachment.content) {
-      gatewayAttachments.push(normalizeAudioAttachment(attachment))
+    if (isAudioAttachment(attachment) && attachment.content) {
       audioNames.push(attachment.name)
+      embedded.push(
+        `[Audio attachment received: ${attachment.name}. Configure Desktop middleware voice transcription before forwarding audio to the agent.]`,
+      )
       continue
     }
 
