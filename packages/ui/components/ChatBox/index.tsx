@@ -14,8 +14,18 @@ import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
 import { invoke } from "@/lib/ipc"
 import { LuX } from "react-icons/lu"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import {
   execPolicyForAutonomyMode,
   stripComposerAttachment,
+  toChatComposerAttachment,
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
@@ -33,6 +43,15 @@ type VoiceSettingsPayload = {
   }
 }
 
+type VoiceTranscribePayload = {
+  transcript?: string
+}
+
+function isVoiceConfigurationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "")
+  return /not configured|configure voice|add a voice provider|no api key|api key found/i.test(message)
+}
+
 type Props = {
   initialPrompt?: string
   errorMessage?: string | null
@@ -44,6 +63,7 @@ type Props = {
   onCancelReply?: () => void
   onModelSelect?: (modelId: string) => void | Promise<void>
   modelSwitching?: boolean
+  glowOnMount?: boolean
 }
 
 export function ChatBox({
@@ -57,6 +77,7 @@ export function ChatBox({
   onCancelReply,
   onModelSelect,
   modelSwitching = false,
+  glowOnMount = false,
 }: Props) {
   const [input, setInput] = React.useState(initialPrompt ?? "")
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
@@ -65,6 +86,7 @@ export function ChatBox({
   const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
+  const [voiceSetupOpen, setVoiceSetupOpen] = React.useState(false)
   const [slashFilter, setSlashFilter] = React.useState("")
   const [commandPrefix, setCommandPrefix] = React.useState<"/" | "@">("/")
   const [slashSelectedIndex, setSlashSelectedIndex] = React.useState(0)
@@ -113,9 +135,35 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
-  const { state: voiceState, isSupported: recorderSupported, toggle: toggleVoice } = useVoiceRecorder({
+  const {
+    state: voiceState,
+    isSupported: recorderSupported,
+    start: startVoice,
+    stop: stopVoice,
+    toggle: toggleVoice,
+  } = useVoiceRecorder({
     onAudioFile: async (file) => {
-      await processFiles([file])
+      const attachment = await toChatComposerAttachment(file)
+      try {
+        const payload = await invoke<VoiceTranscribePayload>("middleware_voice_transcribe", {
+          input: { attachment: stripComposerAttachment(attachment) },
+        })
+        const transcript = payload.transcript?.trim()
+        if (!transcript) throw new Error("Voice transcription returned no text")
+        setInput((prev) => {
+          const prefix = prev.trim().length > 0 ? `${prev.trimEnd()} ` : ""
+          return `${prefix}${transcript}`
+        })
+        requestAnimationFrame(() => {
+          autoResize()
+          textareaRef.current?.focus()
+        })
+      } catch (error) {
+        if (isVoiceConfigurationError(error)) {
+          setVoiceSetupOpen(true)
+        }
+        setAttachmentError(error instanceof Error ? error.message : "Voice transcription is not configured")
+      }
     },
     onError: (message) => {
       setAttachmentError(message)
@@ -139,7 +187,9 @@ export function ChatBox({
           settings.model,
         ))
       } catch {
-        if (!cancelled) setVoiceModelActive(false)
+        if (!cancelled) {
+          setVoiceModelActive(false)
+        }
       } finally {
         if (!cancelled) setVoiceStatusLoading(false)
       }
@@ -152,10 +202,100 @@ export function ChatBox({
     }
   }, [])
 
-  const voiceSupported = !voiceStatusLoading && voiceModelActive
-  const voiceDisabledReason = voiceStatusLoading
-    ? "Checking voice model setup…"
-    : "Set an active voice provider and audio model in Settings → Voice"
+  const voiceConfigured = !voiceStatusLoading && voiceModelActive
+  const voiceSupported = recorderSupported && voiceConfigured
+  const voiceDisabledReason = !recorderSupported
+    ? "Voice recording is not supported in this app window"
+    : voiceStatusLoading
+      ? "Checking voice model setup…"
+      : "Set an active voice provider and audio model in Settings → Voice"
+
+  function openVoiceSettings() {
+    setVoiceSetupOpen(false)
+    window.dispatchEvent(new CustomEvent("openclaw:open-settings", { detail: { section: "voice" } }))
+  }
+
+  function handleVoiceToggle() {
+    if (!recorderSupported) {
+      setAttachmentError("Voice recording is not supported in this app window")
+      return
+    }
+    if (!voiceConfigured) {
+      setVoiceSetupOpen(true)
+      return
+    }
+    toggleVoice()
+  }
+
+  function handleVoiceStart() {
+    if (!recorderSupported) {
+      setAttachmentError("Voice recording is not supported in this app window")
+      return
+    }
+    if (!voiceConfigured) {
+      setVoiceSetupOpen(true)
+      return
+    }
+    if (voiceState === "idle" || voiceState === "error") {
+      void startVoice()
+    }
+  }
+
+  function handleVoiceStop() {
+    if (voiceState === "recording") {
+      stopVoice()
+    }
+  }
+
+  const voiceShortcutRef = React.useRef({ pushToTalkActive: false, ctrlTapCandidate: false })
+
+  React.useEffect(() => {
+    function isPushToTalkEvent(event: KeyboardEvent) {
+      return event.code === "Space" && (event.metaKey || event.getModifierState("Meta"))
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.repeat) return
+      const shortcut = voiceShortcutRef.current
+
+      if (event.key === "Control" && !event.metaKey && !event.altKey && !event.shiftKey) {
+        shortcut.ctrlTapCandidate = true
+        return
+      }
+      if (shortcut.ctrlTapCandidate && event.key !== "Control") {
+        shortcut.ctrlTapCandidate = false
+      }
+
+      if (isPushToTalkEvent(event)) {
+        event.preventDefault()
+        shortcut.pushToTalkActive = true
+        handleVoiceStart()
+      }
+    }
+
+    function onKeyUp(event: KeyboardEvent) {
+      const shortcut = voiceShortcutRef.current
+
+      if ((event.code === "Space" || event.key === "Meta") && shortcut.pushToTalkActive) {
+        event.preventDefault()
+        shortcut.pushToTalkActive = false
+        handleVoiceStop()
+        return
+      }
+
+      if (event.key === "Control" && shortcut.ctrlTapCandidate) {
+        shortcut.ctrlTapCandidate = false
+        handleVoiceToggle()
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keyup", onKeyUp)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+    }
+  }, [handleVoiceStart, handleVoiceStop, handleVoiceToggle])
 
   React.useEffect(() => {
     if (initialPrompt != null) {
@@ -338,6 +478,7 @@ export function ChatBox({
         onDrop={handleDrop}
         className={cn(
           "relative flex flex-col rounded-[24px] border bg-white/[0.04] shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
+          glowOnMount && "chatbox-glow",
           isFocused
             ? "border-white/18 ring-1 ring-white/10"
             : "border-white/10",
@@ -464,7 +605,7 @@ export function ChatBox({
                 void handleSend()
               }
             }}
-            placeholder="Message... (type / for commands)"
+            placeholder="Message... (type / for commands and @ for skills)"
             rows={1}
             disabled={isComposerDisabled}
             className="w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50"
@@ -498,7 +639,7 @@ export function ChatBox({
                 className="overflow-hidden"
               >
                 <div className="px-3 pb-1 text-[13px] text-muted-foreground/60 italic">
-                  {voiceState === "processing" ? "Attaching voice…" : "Recording voice…"}
+                  {voiceState === "processing" ? "Transcribing voice…" : "Recording voice…"}
                   <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-muted-foreground/40 align-middle" />
                 </div>
               </motion.div>
@@ -546,13 +687,36 @@ export function ChatBox({
               })
             }}
             isRecording={voiceState === "recording"}
-            onVoiceToggle={toggleVoice}
-            voiceSupported={voiceSupported}
+            onVoiceToggle={handleVoiceToggle}
+            voiceSupported={recorderSupported}
+            voiceReady={voiceSupported}
             voiceDisabledReason={voiceDisabledReason}
             attachmentCount={attachments.length}
             disableUpload={isComposerDisabled || isPreparingAttachments}
           />
         </div>
+
+        <Dialog open={voiceSetupOpen} onOpenChange={setVoiceSetupOpen}>
+          <DialogContent className="gap-5 sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle className="text-[17px] font-semibold text-foreground">Set up voice input</DialogTitle>
+              <DialogDescription className="text-[13px] leading-relaxed">
+                Add a Voice provider/API key and choose a transcription model. After that, the mic will transcribe your speech into this text box so you can edit before sending.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-[12px] text-muted-foreground">
+              Current status: {voiceDisabledReason}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setVoiceSetupOpen(false)}>
+                Not now
+              </Button>
+              <Button type="button" onClick={openVoiceSettings}>
+                Open Voice settings
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

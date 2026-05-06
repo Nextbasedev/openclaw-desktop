@@ -112,6 +112,12 @@ function resultTextFromMessage(msg: RawHistoryMessage): string {
   return ""
 }
 
+function visibleTextFromMessage(msg: RawHistoryMessage): string {
+  if (typeof msg.text === "string" && msg.text) return msg.text
+  if (typeof msg.content === "string") return msg.content
+  return extractResultText(msg.content)
+}
+
 export type HistoryParseResult = {
   calls: ToolCall[]
   agents: Map<string, AgentInfo>
@@ -130,10 +136,28 @@ export function parseHistoryToolCalls(
   let currentSubagentId: string | null = null
 
   for (const msg of messages) {
+    const text = visibleTextFromMessage(msg)
+
+    if (msg.role === "user" && text) {
+      const completed = /\bstatus:\s*completed successfully\b/i.test(text)
+      const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(text)
+      if (completed || failed) {
+        for (const key of extractSubagentSessionKeys(text)) {
+          const agentId = subagentSessionKeys.get(key)
+          if (!agentId) continue
+          const current = agents.get(agentId)
+          if (current) {
+            agents.set(agentId, {
+              ...current,
+              phase: failed ? "error" : "done",
+              sessionKey: key,
+            })
+          }
+        }
+      }
+    }
+
     if (msg.role === "assistant") {
-      const text = typeof msg.content === "string"
-        ? msg.content
-        : (msg.text ?? "")
       const keys = extractSubagentSessionKeys(text)
       for (const key of keys) {
         if (!subagentSessionKeys.has(key) && spawnOrder.length > 0) {

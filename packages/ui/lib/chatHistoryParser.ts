@@ -7,7 +7,7 @@ import type {
   SpawnedSubagent,
 } from "../components/ChatView/types"
 import { extractText } from "../components/ChatView/utils"
-import { extractSubagentSessionKey } from "./subagentSession"
+import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagentSession"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
 
@@ -231,6 +231,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     string,
     SpawnedSubagent & { terminal?: boolean }
   >()
+  const subagentBySessionKey = new Map<string, SpawnedSubagent & { terminal?: boolean }>()
 
   for (const item of deduped) {
     const role = item.role
@@ -238,6 +239,17 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     if (role === "user") {
       const rawText = item.text || extractText(item.content)
       const text = rawText ? cleanUserMessageText(rawText) : ""
+      const completed = /\bstatus:\s*completed successfully\b/i.test(rawText)
+      const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(rawText)
+      if (completed || failed) {
+        for (const key of extractSubagentSessionKeys(rawText)) {
+          const subagent = subagentBySessionKey.get(key)
+          if (subagent) {
+            subagent.terminal = true
+            subagent.status = failed ? "failed" : "completed"
+          }
+        }
+      }
       if (text) {
         const reply = extractReplyFromText(text, messages)
         messages.push({
@@ -322,6 +334,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       if (subagent && matched.tool === "sessions_spawn") {
         const childKey = extractSubagentSessionKey(resultText)
         subagent.sessionKey = childKey
+        if (childKey) subagentBySessionKey.set(childKey, subagent)
         subagent.status =
           matched.status === "error"
             ? "failed"

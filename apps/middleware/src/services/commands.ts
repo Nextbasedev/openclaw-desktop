@@ -7,7 +7,7 @@ import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
-import { voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
+import { readVoiceSettings, voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
 function now() { return new Date().toISOString() }
 function state(store: Store): any {
@@ -235,8 +235,19 @@ function isTextAttachment(mimeType: string): boolean {
   return mimeType.startsWith("text/") || TEXT_ATTACHMENT_MIME_TYPES.has(mimeType)
 }
 
-function isAudioAttachment(mimeType: string): boolean {
-  return mimeType.startsWith("audio/")
+function isVoiceWebmAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  const name = String(attachment.name || "").toLowerCase()
+  return mimeType === "video/webm" && /^voice-.*\.webm$/.test(name)
+}
+
+function isAudioAttachment(attachment: ChatSendAttachment): boolean {
+  const mimeType = String(attachment.mimeType || "").toLowerCase()
+  return mimeType.startsWith("audio/") || isVoiceWebmAttachment(attachment)
+}
+
+function audioMimeTypeForAttachment(attachment: ChatSendAttachment): string {
+  return isVoiceWebmAttachment(attachment) ? "audio/webm" : attachment.mimeType
 }
 
 function decodeAttachmentText(attachment: ChatSendAttachment): string | null {
@@ -262,14 +273,78 @@ function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttach
   return {
     type: "audio",
     fileName: attachment.name,
-    mimeType: attachment.mimeType,
+    mimeType: audioMimeTypeForAttachment(attachment),
     content: attachment.encoding === "base64"
       ? attachment.content
       : Buffer.from(attachment.content ?? "", "utf8").toString("base64"),
   }
 }
 
-function prepareMessageAndAttachments(message: string, raw: unknown): { message: string; attachments?: GatewayAttachment[] } {
+function apiKeyForProvider(cfg: any, provider: string): string {
+  const envVar = PROVIDER_API_KEY_ENV[provider]
+  if (!envVar) return ""
+  return String(cfg?.env?.vars?.[envVar] || process.env[envVar] || "").trim()
+}
+
+function voiceSettingsPayloadWithStatus() {
+  const cfg = readJson(openclawConfigPath())
+  const payload = voiceSettingsPayload()
+  const provider = payload.settings.provider
+  return {
+    ...payload,
+    status: {
+      apiKeyConfigured: provider !== "auto" && Boolean(apiKeyForProvider(cfg, provider)),
+    },
+  }
+}
+
+async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = readJson(openclawConfigPath())): Promise<string | null> {
+  if (!attachment.content) return null
+  const settings = readVoiceSettings(cfg)
+  if (settings.enabled === false) return null
+  const provider = settings.provider === "auto" ? "groq" : settings.provider
+  const apiKey = apiKeyForProvider(cfg, provider)
+  if (!apiKey) return null
+  if (provider !== "groq" && provider !== "openai") return null
+
+  const audio = attachment.encoding === "base64"
+    ? Buffer.from(attachment.content, "base64")
+    : Buffer.from(attachment.content, "utf8")
+  if (audio.length === 0) return null
+
+  const form = new FormData()
+  form.set("file", new Blob([audio], { type: audioMimeTypeForAttachment(attachment) || "audio/webm" }), attachment.name || "voice.webm")
+  form.set("model", settings.model || (provider === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-transcribe"))
+  const language = settings.language.trim().toLowerCase()
+  if (language) form.set("language", language)
+
+  const endpoint = provider === "groq"
+    ? "https://api.groq.com/openai/v1/audio/transcriptions"
+    : "https://api.openai.com/v1/audio/transcriptions"
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  })
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null
+    const message = typeof errorPayload?.error?.message === "string"
+      ? errorPayload.error.message
+      : typeof errorPayload?.message === "string"
+        ? errorPayload.message
+        : `HTTP ${response.status}`
+    throw new HttpError(502, `Voice transcription failed: ${message}`, "VOICE_TRANSCRIPTION_FAILED")
+  }
+  const payload = await response.json().catch(() => null) as { text?: unknown; transcript?: unknown } | null
+  const text = typeof payload?.text === "string"
+    ? payload.text
+    : typeof payload?.transcript === "string"
+      ? payload.transcript
+      : ""
+  return text.trim() || null
+}
+
+async function prepareMessageAndAttachments(message: string, raw: unknown, cfg = readJson(openclawConfigPath())): Promise<{ message: string; attachments?: GatewayAttachment[] }> {
   if (!Array.isArray(raw) || raw.length === 0) return { message }
 
   const gatewayAttachments: GatewayAttachment[] = []
@@ -286,9 +361,22 @@ function prepareMessageAndAttachments(message: string, raw: unknown): { message:
       continue
     }
 
-    if (attachment.mimeType && isAudioAttachment(attachment.mimeType) && attachment.content) {
-      gatewayAttachments.push(normalizeAudioAttachment(attachment))
+    if (attachment.mimeType && isAudioAttachment(attachment) && attachment.content) {
       audioNames.push(attachment.name ?? "audio")
+      const transcript = await transcribeAudioAttachment(attachment, cfg).catch(() => null)
+      if (transcript) {
+        embedded.push(
+          `<attached-audio-transcript name="${attachment.name ?? "audio"}" mime="${audioMimeTypeForAttachment(attachment)}">\n${transcript}\n</attached-audio-transcript>`,
+        )
+      } else {
+        // Do not forward raw audio to chat.send: current gateway attachment
+        // parsing is image-oriented and drops video/webm recorder blobs before
+        // the agent can use them. If transcription is unavailable, keep this as
+        // prompt text only so the agent does not search for a nonexistent file.
+        embedded.push(
+          `[Audio transcription unavailable for ${attachment.name ?? "audio"}. Configure a Voice provider/API key in Settings → Voice, then retry the recording.]`,
+        )
+      }
       continue
     }
 
@@ -1171,10 +1259,22 @@ export function commandRoutes(store: Store) {
           return ok({ modelId, currentModel: modelId, defaultModel: modelId })
         }
         case "middleware_voice_settings_get": {
-          return voiceSettingsPayload()
+          return voiceSettingsPayloadWithStatus()
         }
         case "middleware_voice_settings_set": {
-          return { settings: writeVoiceSettings(input), options: voiceSettingsPayload().options }
+          writeVoiceSettings(input)
+          return voiceSettingsPayloadWithStatus()
+        }
+        case "middleware_voice_transcribe": {
+          const attachment = input.attachment as ChatSendAttachment | undefined
+          if (!attachment?.content || !attachment.mimeType || !isAudioAttachment(attachment)) {
+            throw new HttpError(400, "audio attachment is required", "BAD_REQUEST")
+          }
+          const transcript = await transcribeAudioAttachment(attachment)
+          if (!transcript) {
+            throw new HttpError(400, "Voice transcription is not configured. Add a Voice provider/API key in Settings → Voice.", "VOICE_TRANSCRIPTION_UNAVAILABLE")
+          }
+          return { transcript }
         }
         case "middleware_usage": {
           const requestedDays = usageNumber(input.days) || 30
@@ -1286,7 +1386,7 @@ export function commandRoutes(store: Store) {
               const patched = await gw.request("sessions.patch", patch, 30_000)
               if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
             }
-            const prepared = prepareMessageAndAttachments(message, input.attachments)
+            const prepared = await prepareMessageAndAttachments(message, input.attachments)
             const res = await gw.request("chat.send", {
               sessionKey: key,
               message: prepared.message,
