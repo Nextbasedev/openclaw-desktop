@@ -45,6 +45,7 @@ import {
   getFocusedGroup,
   findTabInGroups,
   type EditorTab,
+  type SessionData,
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
 
@@ -1223,6 +1224,66 @@ function AppShell({
     }
   }, [editorGroups, handleChatSelect, handleNewChat, handleTopicSelect])
 
+  const handleEditorTabMove = useCallback((
+    tabId: string,
+    sourceGroupId: EditorGroupId,
+    targetGroupId: EditorGroupId,
+  ) => {
+    if (sourceGroupId === targetGroupId) return
+
+    const data = tabDataRef.current.get(tabId)
+    const cached = data?.chat ? resolvedChatCacheRef.current.get(data.chat.id) : null
+    const movedSessionData: SessionData | null = cached
+      ? {
+          chat: cached.chat,
+          sessionKey: cached.sessionKey,
+          title: cached.title,
+        }
+      : data?.chat?.sessionKey
+        ? {
+            chat: data.chat,
+            sessionKey: data.chat.sessionKey,
+            title: data.chat.name,
+          }
+        : null
+
+    dispatchGroups({
+      type: "MOVE_TAB",
+      tabId,
+      sourceGroupId,
+      targetGroupId,
+    })
+
+    dispatchGroups({
+      type: "SET_SESSION_DATA",
+      groupId: targetGroupId,
+      sessionData: isDraftTabId(tabId) ? null : movedSessionData,
+    })
+
+    if (movedSessionData) {
+      setActiveTopic(null)
+      setActiveChat(movedSessionData.chat)
+      setActiveSessionKey(movedSessionData.sessionKey)
+      setActiveSessionTitle(movedSessionData.title)
+      setInitialMessages(undefined)
+      setPendingPrompt(null)
+      setComposerError(null)
+      window.history.replaceState(null, "", routeUrl(`/${movedSessionData.chat.id}`))
+      return
+    }
+
+    if (isDraftTabId(tabId)) {
+      setActiveTopic(null)
+      setActiveChat(null)
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
+      setInitialMessages(undefined)
+      setPendingPrompt(null)
+      setComposerError(null)
+      window.history.replaceState(null, "", routeUrl("/"))
+    }
+  }, [])
+
   const handleFocusGroup = useCallback((groupId: "group-1" | "group-2") => {
     if (groupId === editorGroups.focusedGroupId) return
     switchToGroupSession(groupId)
@@ -1640,6 +1701,7 @@ function AppShell({
         editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
+        onMoveChatTab={effectiveActiveTab === "chat" ? handleEditorTabMove : undefined}
         onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
         showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
         splitActive={editorGroups.groups.length > 1}
