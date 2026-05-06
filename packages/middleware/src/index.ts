@@ -620,13 +620,20 @@ export function toolOutputVisibility(verboseLevel: unknown): ToolOutputVisibilit
 export async function createChatSession(input: { agentId?: string; label?: string; model?: string; verboseLevel?: string; parentSessionKey?: string }) {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"] })
   try {
+    const baseLabel = input.label ?? `Jarvis middleware session ${new Date().toISOString()}`
     const params: Record<string, unknown> = {
       agentId: input.agentId ?? "main",
-      label: input.label ?? `Jarvis middleware session ${new Date().toISOString()}`,
+      label: baseLabel,
     }
     if (input.model) params.model = input.model
     if (input.parentSessionKey) params.parentSessionKey = input.parentSessionKey
-    const response = await gateway.request<{ key?: string; sessionId?: string; entry?: { sessionFile?: string } }>("sessions.create", params)
+    let response = await gateway.request<{ key?: string; sessionId?: string; entry?: { sessionFile?: string } }>("sessions.create", params)
+    if (!response.ok && /label already in use/i.test(response.error?.message ?? "")) {
+      response = await gateway.request<{ key?: string; sessionId?: string; entry?: { sessionFile?: string } }>("sessions.create", {
+        ...params,
+        label: `${baseLabel} ${new Date().toISOString()}`,
+      })
+    }
     if (!response.ok || !response.payload?.key) throw new Error(response.error?.message ?? "sessions.create failed")
 
     if (input.verboseLevel) {

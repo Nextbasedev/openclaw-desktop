@@ -225,21 +225,21 @@ export function CommandPalette({
   return createPortal(
     <div
       data-testid="command-palette"
-      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/20 dark:bg-black/50" />
+      <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" />
       <div
         className={cn(
-          "relative w-full max-w-[650px] overflow-hidden rounded-md",
-          "border border-border/60 bg-background shadow-xl shadow-black/10",
-          "dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-2xl dark:shadow-black/40 dark:backdrop-blur-2xl dark:backdrop-saturate-150",
+          "relative w-full max-w-[720px] overflow-hidden rounded-2xl",
+          "border border-border/70 bg-background/95 shadow-2xl shadow-black/20",
+          "dark:border-white/[0.10] dark:bg-[#111112]/95 dark:shadow-black/60",
         )}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search bar */}
-        <div className="flex items-center gap-3 border-b border-border px-4 py-3.5 dark:border-white/[0.08]">
-          <LuSearch size={18} className="shrink-0 text-muted-foreground dark:text-white/40" />
+        <div className="flex items-center gap-3 border-b border-border/70 bg-background/60 px-5 py-4 dark:border-white/[0.07] dark:bg-white/[0.025]">
+          <LuSearch size={19} className="shrink-0 text-muted-foreground dark:text-white/45" />
           <input
             ref={inputRef}
             data-testid="command-palette-search"
@@ -247,21 +247,21 @@ export function CommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Ask AI & Search"
-            className="flex-1 bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground/50 dark:text-white dark:placeholder:text-white/30"
+            className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/55 dark:text-white dark:placeholder:text-white/35"
           />
-          <kbd className="flex items-center gap-0.5 rounded-md border border-border bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-white/40">
+          <kbd className="flex items-center gap-0.5 rounded-lg border border-border/70 bg-muted/70 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/45">
             {isMac ? "⌘" : "Ctrl"}
             <span className="text-[8px] text-muted-foreground/50 dark:text-white/20">+</span>
             K
           </kbd>
         </div>
 
-        {/* I'm looking for — auto-scrolling prompt chips */}
+        {/* I'm looking for — prompt chips */}
         {!debouncedQuery && (
-          <div className="border-b border-border px-4 py-3 dark:border-white/[0.08]">
+          <div className="border-b border-border/70 bg-background/35 px-5 py-3.5 dark:border-white/[0.07] dark:bg-white/[0.015]">
             <div className="flex items-center gap-1.5 pb-2.5">
-              <LuSparkles size={10} className="text-muted-foreground dark:text-white/30" />
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground dark:text-white/30">
+              <LuSparkles size={11} className="text-muted-foreground dark:text-white/35" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
                 I&apos;m looking for
               </p>
             </div>
@@ -270,11 +270,11 @@ export function CommandPalette({
         )}
 
         {/* Scrollable results */}
-        <div ref={listRef} className="h-[340px] overflow-y-auto scrollbar-hide py-1.5">
+        <div ref={listRef} className="max-h-[360px] overflow-y-auto scroll-smooth px-2 py-2 scrollbar-hide">
           {/* Recent */}
           {filteredRecent.length > 0 && (
-            <div className="px-3 py-1.5">
-              <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground dark:text-white/30">
+            <div className="px-2 py-1.5">
+              <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
                 Recent
               </p>
               {filteredRecent.map((session) => {
@@ -297,8 +297,8 @@ export function CommandPalette({
 
           {/* Quick Actions */}
           {filteredActions.length > 0 && (
-            <div className="px-3 py-1.5">
-              <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground dark:text-white/30">
+            <div className="px-2 py-1.5">
+              <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
                 Quick Actions
               </p>
               {filteredActions.map((action) => {
@@ -317,7 +317,7 @@ export function CommandPalette({
                           {keys.map((key, i) => (
                             <span key={`${action.id}-${key}-${i}`} className="flex items-center gap-0.5">
                               {i > 0 && <span className="text-[8px] text-muted-foreground/50 dark:text-white/20">+</span>}
-                              <kbd className="inline-flex min-w-[22px] items-center justify-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-white/40">
+                              <kbd className="inline-flex min-w-[22px] items-center justify-center rounded-md border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground dark:border-white/[0.10] dark:bg-white/[0.055] dark:text-white/45">
                                 {key}
                               </kbd>
                             </span>
@@ -353,32 +353,19 @@ function PromptMarquee({
   suggestions: { chip: string; prompt: string }[]
   onSelect: (prompt: string) => void
 }) {
-  const [paused, setPaused] = useState(false)
-
   return (
-    <div
-      className="relative overflow-hidden"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-    >
-      <div
-        className="flex w-max gap-2"
-        style={{
-          animation: "marquee-scroll 30s linear infinite",
-          animationPlayState: paused ? "paused" : "running",
-          willChange: "transform",
-        }}
-      >
-        {[...suggestions, ...suggestions].map((s, i) => (
+    <div className="relative overflow-hidden">
+      <div className="flex gap-2 overflow-x-auto scroll-smooth pb-0.5 pr-8 scrollbar-hide">
+        {suggestions.map((s) => (
           <button
-            key={`${s.chip}-${i}`}
+            key={s.chip}
             type="button"
             onClick={() => onSelect(s.prompt)}
             className={cn(
-              "shrink-0 cursor-pointer whitespace-nowrap rounded-full border px-3 py-1.5",
-              "border-border bg-muted text-[12px] font-medium text-muted-foreground",
-              "dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/50",
-              "transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary",
+              "shrink-0 cursor-pointer whitespace-nowrap rounded-full border px-3.5 py-1.5",
+              "border-border/70 bg-muted/65 text-[12px] font-medium text-muted-foreground shadow-sm",
+              "dark:border-white/[0.10] dark:bg-white/[0.045] dark:text-white/58",
+              "transition-[background-color,color] duration-150 ease-out hover:bg-muted hover:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-white",
             )}
           >
             {s.chip}
@@ -386,8 +373,6 @@ function PromptMarquee({
         ))}
       </div>
 
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-background/80 to-transparent dark:from-black/40" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background/80 to-transparent dark:from-black/40" />
     </div>
   )
 }
@@ -420,16 +405,21 @@ function PaletteRow({
       data-testid={testId}
       onClick={onClick}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+        "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left outline-none transition-[background-color,color,box-shadow,transform] duration-150 ease-out",
         selected
-          ? "bg-muted text-foreground dark:bg-white/[0.1] dark:text-white"
-          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground dark:text-white/60 dark:hover:bg-white/[0.06] dark:hover:text-white",
+          ? "bg-muted/85 text-foreground shadow-sm ring-1 ring-border/55 dark:bg-white/[0.075] dark:text-white dark:ring-white/[0.06]"
+          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground dark:text-white/62 dark:hover:bg-white/[0.045] dark:hover:text-white",
       )}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground dark:text-white/40">
+      <span className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
+        selected
+          ? "bg-foreground/[0.06] text-foreground dark:bg-white/[0.07] dark:text-white/70"
+          : "text-muted-foreground dark:text-white/42",
+      )}>
         {icon}
       </span>
-      <span className="flex-1 truncate text-[13px]">{label}</span>
+      <span className="flex-1 truncate text-[13px] leading-5">{label}</span>
       {trailing}
     </button>
   )
