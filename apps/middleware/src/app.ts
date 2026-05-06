@@ -181,13 +181,19 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.delete("/api/topics/:topicId", (req, res) => res.json(records.topicsDelete(req.params.topicId)))
   app.post("/api/topics/:topicId/archive", (req, res) => res.json(records.topicsArchive(req.params.topicId, req.body?.archived ?? true)))
 
-  app.get("/api/chats", (req, res) => res.json(records.chatsList({ archived: req.query.archived === "true" })))
+  app.get("/api/chats", (req, res) => res.json(records.chatsList({ archived: req.query.archived === "true", spaceId: req.query.spaceId ? String(req.query.spaceId) : undefined })))
   app.post("/api/chats", (req, res) => res.json(records.chatsCreate(req.body)))
   app.patch("/api/chats/:chatId", (req, res) => res.json(records.chatsUpdate(req.params.chatId, req.body)))
   app.post("/api/chats/:chatId/rename", (req, res) => res.json(records.chatsRename(req.params.chatId, String(req.body?.name ?? "New Chat"))))
   app.post("/api/chats/:chatId/archive", (req, res) => res.json(records.chatsArchive(req.params.chatId, req.body?.archived ?? true)))
   app.delete("/api/chats/:chatId", (req, res) => res.json(records.chatsDelete(req.params.chatId)))
   app.post("/api/chats/:chatId/session", (req, res) => res.json(records.chatsAttachSession(req.params.chatId, String(req.body?.sessionKey ?? ""))))
+
+  app.get("/api/spaces", (_req, res) => res.json(records.spacesList()))
+  app.post("/api/spaces", (req, res) => res.json(records.spacesCreate(req.body)))
+  app.patch("/api/spaces/:spaceId", (req, res) => res.json(records.spacesUpdate(req.params.spaceId, req.body)))
+  app.post("/api/spaces/:spaceId/switch", (req, res) => res.json(records.spacesSwitch(req.params.spaceId)))
+  app.delete("/api/spaces/:spaceId", (req, res) => res.json(records.spacesDelete(req.params.spaceId)))
 
   app.get("/api/sessions", (req, res) => res.json(records.sessionsList({
     projectId: req.query.projectId ? String(req.query.projectId) : undefined,
