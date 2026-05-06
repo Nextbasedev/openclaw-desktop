@@ -220,6 +220,7 @@ export function useChatMessages(
   const isAtBottomRef = useRef(true)
   const scrollFrameRef = useRef<number | null>(null)
   const programmaticScrollUntilRef = useRef(0)
+  const lastSmoothScrollAtRef = useRef(0)
 
   const isGenerating =
     status !== "idle" &&
@@ -258,21 +259,18 @@ export function useChatMessages(
     const scroll = () => {
       const el = scrollContainerRef.current
       if (!el) return
-      programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
+      const now = Date.now()
+      const allowSmooth = smooth && now - lastSmoothScrollAtRef.current > 180
+      if (allowSmooth) lastSmoothScrollAtRef.current = now
+      programmaticScrollUntilRef.current = now + (allowSmooth ? 350 : 80)
       el.scrollTo({
         top: el.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
+        behavior: allowSmooth ? "smooth" : "auto",
       })
       isAtBottomRef.current = true
       scrollFrameRef.current = null
     }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      if (smooth) {
-        scrollFrameRef.current = requestAnimationFrame(scroll)
-        return
-      }
-      scroll()
-    })
+    scrollFrameRef.current = requestAnimationFrame(scroll)
   }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
@@ -710,7 +708,7 @@ export function useChatMessages(
               ]
             })
           }
-          scrollToBottom(false)
+          scrollToBottom(true)
           break
         }
         case "chat.error":

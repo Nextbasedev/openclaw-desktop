@@ -64,9 +64,9 @@ function inferChildHistoryPhase(
   messages: RawHistoryMessage[],
   calls: ToolCall[],
 ): ChildHistoryPhase {
-  if (calls.some((call) => call.status === "running")) return "working"
   if (hasYieldTool(messages) || hasAssistantOutput(messages)) return "completed"
   if (calls.some((call) => call.status === "error")) return "failed"
+  if (calls.some((call) => call.status === "running")) return "working"
   return null
 }
 
@@ -197,7 +197,7 @@ export function useAgentActivity(sessionKey: string | null) {
     if (currentAgent) {
       agentsRef.current.set(agentId, {
         ...currentAgent,
-        phase: currentAgent.phase === "done" ? "start" : currentAgent.phase,
+        phase: currentAgent.phase,
         sessionKey: subKey,
       })
     }
@@ -338,12 +338,48 @@ export function useAgentActivity(sessionKey: string | null) {
 
   const processMessage = useCallback(
     (data: Record<string, unknown>) => {
+      let changed = false
+      if (data.role === "assistant" && Array.isArray(data.content)) {
+        for (const block of data.content) {
+          if (!block || typeof block !== "object") continue
+          const record = block as Record<string, unknown>
+          const type = typeof record.type === "string" ? record.type.toLowerCase() : ""
+          const isToolCall =
+            type === "toolcall" ||
+            type === "tool_call" ||
+            type === "tooluse" ||
+            type === "tool_use"
+          if (!isToolCall) continue
+          const toolCallId =
+            typeof record.id === "string"
+              ? record.id
+              : typeof record.tool_use_id === "string"
+                ? record.tool_use_id
+                : typeof record.toolUseId === "string"
+                  ? record.toolUseId
+                  : null
+          const name = typeof record.name === "string" ? record.name : null
+          if (!toolCallId || !name) continue
+          if (callMapRef.current.has(toolCallId)) continue
+
+          callMapRef.current.set(toolCallId, {
+            id: toolCallId,
+            tool: name,
+            status: "running",
+            input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
+            startedAt: Date.now(),
+          })
+          changed = true
+        }
+      }
+
       const keys = extractSubagentSessionKeys(data)
       for (const key of keys) {
         discoverSubagentKey(key)
       }
+      if (changed) syncState()
     },
-    [discoverSubagentKey],
+    [discoverSubagentKey, syncState],
   )
 
   const processAgentEvent = useCallback(
