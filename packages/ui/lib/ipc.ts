@@ -33,6 +33,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms))
 }
 
+function queryString(values: Record<string, string | undefined>): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined && value !== "") params.set(key, value)
+  }
+  const text = params.toString()
+  return text ? `?${text}` : ""
+}
+
 function middlewareStreamUrl(path: string): string | null {
   if (typeof window === "undefined") return null
   try {
@@ -121,7 +130,7 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_topics_archive":
       return middlewareFetch<T>(`/api/topics/${input.topicId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_list":
-      return middlewareFetch<T>(`/api/chats${input.archived ? "?archived=true" : ""}`)
+      return middlewareFetch<T>(`/api/chats${queryString({ archived: input.archived ? "true" : undefined, spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
     case "middleware_chats_create":
       return middlewareFetch<T>("/api/chats", { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_update":
@@ -134,6 +143,16 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/chats/${input.chatId}`, { method: "DELETE" })
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_spaces_list":
+      return middlewareFetch<T>("/api/spaces")
+    case "middleware_spaces_create":
+      return middlewareFetch<T>("/api/spaces", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_spaces_update":
+      return middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "PATCH", body: JSON.stringify(input) })
+    case "middleware_spaces_switch":
+      return middlewareFetch<T>(`/api/spaces/${input.spaceId}/switch`, { method: "POST", body: JSON.stringify(input) })
+    case "middleware_spaces_delete":
+      return middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "DELETE" })
     case "middleware_sessions_list": {
       const params = new URLSearchParams()
       if (input.projectId) params.set("projectId", String(input.projectId))

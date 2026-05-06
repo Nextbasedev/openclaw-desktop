@@ -21,12 +21,14 @@ type State = {
   recentRepos: RecentRepo[]
   topics?: any[]
   chats?: any[]
+  spaces?: any[]
+  activeSpaceId?: string | null
   sessions?: any[]
   commandState?: any
 }
 
 function defaultState(): State {
-  return { projects: [], recentRepos: [], topics: [], chats: [], sessions: [], commandState: {} }
+  return { projects: [], recentRepos: [], topics: [], chats: [], spaces: [], activeSpaceId: null, sessions: [], commandState: {} }
 }
 
 function sqlitePath(input: string) {
@@ -47,6 +49,8 @@ function normalizeState(value: unknown): State {
   state.recentRepos ??= []
   state.topics ??= []
   state.chats ??= []
+  state.spaces ??= []
+  state.activeSpaceId ??= null
   state.sessions ??= []
   state.commandState ??= {}
   return state

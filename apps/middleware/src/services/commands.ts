@@ -20,6 +20,10 @@ function state(store: Store): any {
   s.commandState.branches ??= []
   s.commandState.activeBranchSessions ??= {}
   s.commandState.skillsEnabled ??= {}
+  s.spaces ??= []
+  s.activeSpaceId ??= null
+  s.chats ??= []
+  ensureDefaultSpace(s)
   return s
 }
 function save(store: Store, s: any) { (store as any).write(s) }
@@ -43,6 +47,21 @@ function writeJson(file: string, value: unknown) {
   fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n")
 }
 function unsupported(command: string): never { throw new HttpError(501, `${command} requires OpenClaw Gateway proxy implementation`, "NOT_IMPLEMENTED") }
+
+function ensureDefaultSpace(s: any) {
+  const activeSpaces = (s.spaces ?? []).filter((space: any) => !space.archived && !space.deleted)
+  if (activeSpaces.length === 0) {
+    const timestamp = now()
+    const space = { id: `space_${crypto.randomUUID().replace(/-/g, "")}`, name: "General", repoRoot: null, projectId: null, sortOrder: 0, archived: false, createdAt: timestamp, updatedAt: timestamp }
+    s.spaces.push(space)
+    s.activeSpaceId = space.id
+    for (const chat of s.chats ?? []) chat.spaceId ??= space.id
+    return space
+  }
+  if (!s.activeSpaceId || !activeSpaces.some((space: any) => space.id === s.activeSpaceId)) s.activeSpaceId = activeSpaces[0]?.id ?? null
+  for (const chat of s.chats ?? []) chat.spaceId ??= s.activeSpaceId
+  return activeSpaces.find((space: any) => space.id === s.activeSpaceId) ?? activeSpaces[0]
+}
 
 function textFromContent(content: unknown) {
   if (typeof content === "string") return content
@@ -1651,6 +1670,41 @@ export function commandRoutes(store: Store) {
         }
         case "middleware_skills_toggle": { const skillId = String(input.skillId || input.slug || ""); if (!skillId) throw new HttpError(400, "skillId is required", "BAD_REQUEST"); s.commandState.skillsEnabled[skillId] = input.enabled ?? true; save(store, s); return ok({ skillId, enabled: s.commandState.skillsEnabled[skillId] }) }
         case "middleware_skills_versions": { const slug = String(input.slug || input.skillId || ""); const found = scanSkills(s.commandState.skillsEnabled).find(skill => skill.slug === slug || skill.id === slug); return { items: found ? [{ version: found.version || "local", createdAt: found.createdAt, updatedAt: found.updatedAt, source: found.source }] : [], nextCursor: null } }
+
+        case "middleware_spaces_list": {
+          const active = ensureDefaultSpace(s); save(store, s)
+          return { spaces: s.spaces.filter((space:any)=>!space.archived && !space.deleted).sort((a:any,b:any)=>(a.sortOrder ?? 0) - (b.sortOrder ?? 0)), activeSpaceId: s.activeSpaceId || active?.id }
+        }
+        case "middleware_spaces_create": {
+          ensureDefaultSpace(s)
+          const timestamp = now()
+          const maxSort = Math.max(0, ...s.spaces.map((space:any)=>Number(space.sortOrder || 0)))
+          const space = { id: `space_${crypto.randomUUID().replace(/-/g, "")}`, name: String(input.name || "New Space").trim() || "New Space", repoRoot: input.repoRoot || null, projectId: input.projectId || null, sortOrder: maxSort + 1, archived: false, createdAt: timestamp, updatedAt: timestamp }
+          s.spaces.push(space); s.activeSpaceId = space.id; save(store, s); return { space, activeSpaceId: space.id }
+        }
+        case "middleware_spaces_update": {
+          const space = s.spaces.find((x:any)=>x.id===input.spaceId && !x.archived && !x.deleted)
+          if (!space) throw new HttpError(404, "Space not found", "NOT_FOUND")
+          if (input.name !== undefined) { const name = String(input.name || "").trim(); if (!name) throw new HttpError(400, "Space name cannot be empty", "BAD_REQUEST"); space.name = name }
+          if (input.repoRoot !== undefined) space.repoRoot = input.repoRoot ? String(input.repoRoot).trim() : null
+          if (input.projectId !== undefined) space.projectId = input.projectId ? String(input.projectId).trim() : null
+          space.updatedAt = now(); save(store, s); return { space }
+        }
+        case "middleware_spaces_switch": {
+          const space = s.spaces.find((x:any)=>x.id===input.spaceId && !x.archived && !x.deleted)
+          if (!space) throw new HttpError(404, "Space not found", "NOT_FOUND")
+          s.activeSpaceId = input.spaceId; save(store, s); return { activeSpaceId: input.spaceId }
+        }
+        case "middleware_spaces_delete": {
+          const activeSpaces = s.spaces.filter((x:any)=>!x.archived && !x.deleted)
+          if (activeSpaces.length <= 1) throw new HttpError(400, "Cannot delete the last space", "BAD_REQUEST")
+          const space = activeSpaces.find((x:any)=>x.id===input.spaceId)
+          if (!space) throw new HttpError(404, "Space not found", "NOT_FOUND")
+          const fallback = s.activeSpaceId && s.activeSpaceId !== input.spaceId ? s.activeSpaceId : activeSpaces.find((x:any)=>x.id!==input.spaceId)?.id
+          space.archived = true; space.updatedAt = now()
+          for (const chat of (s.chats ?? []).filter((chat:any)=>chat.spaceId===input.spaceId)) { chat.archived = true; chat.updatedAt = now() }
+          s.activeSpaceId = fallback || null; save(store, s); return { ok: true, activeSpaceId: s.activeSpaceId }
+        }
 
         case "middleware_onboarding_core": {
           const cfg = readJson(openclawConfigPath())
