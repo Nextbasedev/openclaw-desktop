@@ -144,6 +144,14 @@ export function editorGroupsReducer(
           const withoutDraft = g.tabs.filter(
             (t) => t.kind !== "draft",
           )
+          if (action.tab.kind === "draft") {
+            return {
+              ...g,
+              tabs: [...withoutDraft, action.tab],
+              activeTabId: action.tab.id,
+              sessionData: null,
+            }
+          }
           if (existing >= 0) {
             return {
               ...g,
@@ -210,11 +218,15 @@ export function editorGroupsReducer(
       return {
         ...state,
         focusedGroupId: action.groupId,
-        groups: state.groups.map((g) =>
-          g.id === action.groupId
-            ? { ...g, activeTabId: action.tabId }
-            : g,
-        ),
+        groups: state.groups.map((g) => {
+          if (g.id !== action.groupId) return g
+          const tab = g.tabs.find((t) => t.id === action.tabId)
+          return {
+            ...g,
+            activeTabId: action.tabId,
+            sessionData: tab?.kind === "draft" ? null : g.sessionData,
+          }
+        }),
       }
     }
 
