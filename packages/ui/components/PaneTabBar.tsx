@@ -1,149 +1,32 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import { createPortal } from "react-dom"
 import { VscClose } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
-import { useHoverTitleTooltip } from "@/components/ui/hover-title-tooltip"
 import { cn } from "@/lib/utils"
 import type { EditorTab } from "@/lib/editorGroups"
 
-type GroupId = "group-1" | "group-2"
+type TooltipState = {
+  title: string
+  x: number
+  y: number
+  maxWidth: number
+}
 
 type Props = {
-  groupId: GroupId
+  groupId: "group-1" | "group-2"
   tabs: EditorTab[]
   activeTabId: string | null
   focused: boolean
-  onSelectTab: (groupId: GroupId, tabId: string) => void
+  onSelectTab: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseTab: (tabId: string) => void
   onMoveTab: (
     tabId: string,
-    sourceGroupId: GroupId,
-    targetGroupId: GroupId,
+    sourceGroupId: "group-1" | "group-2",
+    targetGroupId: "group-1" | "group-2",
   ) => void
-  onFocus: (groupId: GroupId) => void
-}
-
-type HeaderTabButtonProps = {
-  tab: EditorTab
-  isActive: boolean
-  groupId: GroupId
-  onSelectTab: Props["onSelectTab"]
-  onCloseTab: Props["onCloseTab"]
-  onDragStart: (event: React.DragEvent, tabId: string) => void
-}
-
-function HeaderTabButton({
-  tab,
-  isActive,
-  groupId,
-  onSelectTab,
-  onCloseTab,
-  onDragStart,
-}: HeaderTabButtonProps) {
-  const fullLabel = `${tab.subtitle} / ${tab.title}`
-  const { triggerProps, TooltipPortal, hideTooltip } = useHoverTitleTooltip({
-    title: fullLabel,
-    nativeTitle: fullLabel,
-  })
-
-  return (
-    <>
-      <button
-        key={tab.id}
-        type="button"
-        draggable
-        {...triggerProps}
-        onDragStart={(e) => {
-          hideTooltip()
-          onDragStart(e, tab.id)
-        }}
-        onClick={() => onSelectTab(groupId, tab.id)}
-        className={cn(
-          "group relative flex h-[34px] w-42 shrink-0 items-center gap-1 border-x border-t px-3 pb-[7px] pt-[7px] text-left transition-[background-color,border-color,box-shadow] duration-200",
-          isActive
-            ? "z-10 -mb-px rounded-t-lg border-border/50 bg-background"
-            : "rounded-t-lg border-transparent bg-transparent text-foreground/65 hover:bg-foreground/[0.045] dark:text-white/68 dark:hover:bg-white/[0.05]",
-        )}
-      >
-        <div
-          className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded-full",
-            isActive
-              ? "bg-foreground/[0.06] text-foreground/55 dark:bg-white/[0.06] dark:text-white/60"
-              : "bg-transparent text-foreground/35 dark:text-white/38",
-          )}
-        >
-          {tab.kind === "topic" ? (
-            <Icons.Project
-              size={12}
-              strokeWidth={1.7}
-              className="size-3.5"
-            />
-          ) : (
-            <Icons.Chat
-              size={12}
-              strokeWidth={1.7}
-              className="size-3.5"
-            />
-          )}
-        </div>
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-            <span
-              className={cn(
-                "truncate text-[11px]",
-                isActive
-                  ? "text-foreground/38 dark:text-white/40"
-                  : "text-foreground/30 dark:text-white/30",
-              )}
-            >
-              {tab.subtitle}
-            </span>
-            <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">
-              /
-            </span>
-            <span
-              className={cn(
-                "truncate text-[11.5px] font-medium",
-                isActive
-                  ? "text-foreground/78 dark:text-white/82"
-                  : "text-foreground/68 dark:text-white/72",
-              )}
-            >
-              {tab.title}
-            </span>
-          </div>
-        </div>
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
-            e.stopPropagation()
-            hideTooltip()
-            onCloseTab(tab.id)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault()
-              e.stopPropagation()
-              hideTooltip()
-              onCloseTab(tab.id)
-            }
-          }}
-          className={cn(
-            "ml-1 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors",
-            isActive
-              ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
-              : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
-          )}
-        >
-          <VscClose className="size-3.5 cursor-pointer" />
-        </span>
-      </button>
-      <TooltipPortal />
-    </>
-  )
+  onFocus: (groupId: "group-1" | "group-2") => void
 }
 
 export function PaneTabBar({
@@ -157,6 +40,24 @@ export function PaneTabBar({
   onFocus,
 }: Props) {
   const [dragOver, setDragOver] = useState(false)
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+
+  const showTitleTooltip = useCallback((event: React.PointerEvent<HTMLElement> | React.FocusEvent<HTMLElement>, title: string) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth
+    const maxWidth = Math.min(520, Math.max(220, viewportWidth - 24))
+    const pointerX = "clientX" in event && event.clientX ? event.clientX - 10 : rect.left
+    const x = Math.min(Math.max(12, pointerX), Math.max(12, viewportWidth - maxWidth - 12))
+
+    setTooltip({
+      title,
+      x,
+      y: rect.bottom + 10,
+      maxWidth,
+    })
+  }, [])
+
+  const hideTitleTooltip = useCallback(() => setTooltip(null), [])
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, tabId: string) => {
@@ -184,7 +85,7 @@ export function PaneTabBar({
       const tabId = e.dataTransfer.getData("text/tab-id")
       const sourceGroup = e.dataTransfer.getData(
         "text/source-group",
-      ) as GroupId
+      ) as "group-1" | "group-2"
       if (tabId && sourceGroup) {
         onMoveTab(tabId, sourceGroup, groupId)
       }
@@ -194,12 +95,12 @@ export function PaneTabBar({
 
   return (
     <div
-      data-focused={focused ? "true" : "false"}
       className={cn(
         "relative flex h-[35px] shrink-0 items-end overflow-x-auto overflow-y-hidden bg-card scrollbar-hide",
         dragOver && "ring-1 ring-inset ring-primary/30",
       )}
       onWheel={(e) => {
+        hideTitleTooltip()
         if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
           e.currentTarget.scrollLeft += e.deltaY
         }
@@ -210,17 +111,126 @@ export function PaneTabBar({
       onClick={() => onFocus(groupId)}
     >
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-border/50" />
-      {tabs.map((tab) => (
-        <HeaderTabButton
-          key={tab.id}
-          tab={tab}
-          isActive={activeTabId === tab.id}
-          groupId={groupId}
-          onSelectTab={onSelectTab}
-          onCloseTab={onCloseTab}
-          onDragStart={handleDragStart}
-        />
-      ))}
+      {tabs.map((tab) => {
+        const isActive = activeTabId === tab.id
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            draggable
+            title={`${tab.subtitle} / ${tab.title}`}
+            aria-label={`${tab.subtitle} / ${tab.title}`}
+            onPointerEnter={(e) => showTitleTooltip(e, tab.title)}
+            onPointerMove={(e) => showTitleTooltip(e, tab.title)}
+            onPointerLeave={hideTitleTooltip}
+            onMouseLeave={hideTitleTooltip}
+            onFocus={(e) => showTitleTooltip(e, tab.title)}
+            onBlur={hideTitleTooltip}
+            onDragStart={(e) => {
+              hideTitleTooltip()
+              handleDragStart(e, tab.id)
+            }}
+            onClick={() => onSelectTab(groupId, tab.id)}
+            className={cn(
+              "group relative flex h-[34px] w-42 shrink-0 items-center gap-1 border-x border-t px-3 pb-[7px] pt-[7px] text-left transition-[background-color,border-color,box-shadow] duration-200",
+              isActive
+                ? "z-10 -mb-px rounded-t-lg border-border/50 bg-background"
+                : "rounded-t-lg border-transparent bg-transparent text-foreground/65 hover:bg-foreground/[0.045] dark:text-white/68 dark:hover:bg-white/[0.05]",
+            )}
+          >
+                <div
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded-full",
+                    isActive
+                      ? "bg-foreground/[0.06] text-foreground/55 dark:bg-white/[0.06] dark:text-white/60"
+                      : "bg-transparent text-foreground/35 dark:text-white/38",
+                  )}
+                >
+                  {tab.kind === "topic" ? (
+                    <Icons.Project
+                      size={12}
+                      strokeWidth={1.7}
+                      className="size-3.5"
+                    />
+                  ) : (
+                    <Icons.Chat
+                      size={12}
+                      strokeWidth={1.7}
+                      className="size-3.5"
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+                    <span
+                      className={cn(
+                        "truncate text-[11px]",
+                        isActive
+                          ? "text-foreground/38 dark:text-white/40"
+                          : "text-foreground/30 dark:text-white/30",
+                      )}
+                    >
+                      {tab.subtitle}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">
+                      /
+                    </span>
+                    <span
+                      className={cn(
+                        "truncate text-[11.5px] font-medium",
+                        isActive
+                          ? "text-foreground/78 dark:text-white/82"
+                          : "text-foreground/68 dark:text-white/72",
+                      )}
+                    >
+                      {tab.title}
+                    </span>
+                  </div>
+                </div>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCloseTab(tab.id)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      onCloseTab(tab.id)
+                    }
+                  }}
+                  className={cn(
+                    "ml-1 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors",
+                    isActive
+                      ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+                      : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+                  )}
+                >
+                  <VscClose className="size-3.5 cursor-pointer" />
+                </span>
+          </button>
+        )
+      })}
+      {tooltip && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              role="tooltip"
+              style={{
+                left: tooltip.x,
+                top: tooltip.y,
+                maxWidth: tooltip.maxWidth,
+              }}
+              className="pointer-events-none fixed z-[99999] min-h-[26px] rounded-[12px] border border-white/18 bg-zinc-950/80 px-3 py-1.5 text-[12px] font-medium leading-[17px] text-white shadow-2xl shadow-black/35 backdrop-blur-2xl"
+            >
+              <span className="block whitespace-normal break-words px-px py-px">
+                {tooltip.title}
+              </span>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }
