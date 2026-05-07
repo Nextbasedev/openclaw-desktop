@@ -12,16 +12,8 @@ import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
 import { invoke } from "@/lib/ipc"
+import { GlassDialog } from "@/components/ui/GlassDialog"
 import { LuX } from "react-icons/lu"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
 import {
   execPolicyForAutonomyMode,
   stripComposerAttachment,
@@ -29,10 +21,7 @@ import {
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
-import {
-  composerReducer,
-  initialComposerState,
-} from "@/lib/composerState"
+import { composerReducer, initialComposerState } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import {
   canRunSlashCommandWhileGenerating,
@@ -53,7 +42,9 @@ type VoiceTranscribePayload = {
 
 function isVoiceConfigurationError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "")
-  return /not configured|configure voice|add a voice provider|no api key|api key found/i.test(message)
+  return /not configured|configure voice|add a voice provider|no api key|api key found/i.test(
+    message
+  )
 }
 
 type Props = {
@@ -89,7 +80,9 @@ export function ChatBox({
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
-  const [sessionModelId, setSessionModelId] = React.useState<string | null>(null)
+  const [sessionModelId, setSessionModelId] = React.useState<string | null>(
+    null
+  )
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
   const [voiceSetupOpen, setVoiceSetupOpen] = React.useState(false)
@@ -100,7 +93,7 @@ export function ChatBox({
   const draftBeforeHistoryRef = React.useRef("")
   const [composerState, dispatchComposer] = React.useReducer(
     composerReducer,
-    initialComposerState,
+    initialComposerState
   )
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const {
@@ -144,11 +137,11 @@ export function ChatBox({
     },
   })
   const canSendWhileGenerating = Boolean(
-    isGenerating
-      && input.trim().startsWith("/")
-      && attachments.length === 0
-      && !replyTo
-      && canRunSlashCommandWhileGenerating(input, commands),
+    isGenerating &&
+    input.trim().startsWith("/") &&
+    attachments.length === 0 &&
+    !replyTo &&
+    canRunSlashCommandWhileGenerating(input, commands)
   )
   const {
     state: voiceState,
@@ -160,9 +153,12 @@ export function ChatBox({
     onAudioFile: async (file) => {
       const attachment = await toChatComposerAttachment(file)
       try {
-        const payload = await invoke<VoiceTranscribePayload>("middleware_voice_transcribe", {
-          input: { attachment: stripComposerAttachment(attachment) },
-        })
+        const payload = await invoke<VoiceTranscribePayload>(
+          "middleware_voice_transcribe",
+          {
+            input: { attachment: stripComposerAttachment(attachment) },
+          }
+        )
         const transcript = payload.transcript?.trim()
         if (!transcript) throw new Error("Voice transcription returned no text")
         setInput((prev) => {
@@ -177,7 +173,11 @@ export function ChatBox({
         if (isVoiceConfigurationError(error)) {
           setVoiceSetupOpen(true)
         }
-        setAttachmentError(error instanceof Error ? error.message : "Voice transcription is not configured")
+        setAttachmentError(
+          error instanceof Error
+            ? error.message
+            : "Voice transcription is not configured"
+        )
       }
     },
     onError: (message) => {
@@ -192,15 +192,19 @@ export function ChatBox({
     async function loadVoiceStatus() {
       setVoiceStatusLoading(true)
       try {
-        const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_get")
+        const payload = await invoke<VoiceSettingsPayload>(
+          "middleware_voice_settings_get"
+        )
         if (cancelled) return
         const settings = payload.settings
-        setVoiceModelActive(Boolean(
-          settings?.enabled !== false &&
-          settings?.provider &&
-          settings.provider !== "auto" &&
-          settings.model,
-        ))
+        setVoiceModelActive(
+          Boolean(
+            settings?.enabled !== false &&
+            settings?.provider &&
+            settings.provider !== "auto" &&
+            settings.model
+          )
+        )
       } catch {
         if (!cancelled) {
           setVoiceModelActive(false)
@@ -213,7 +217,10 @@ export function ChatBox({
     window.addEventListener("openclaw:voice-settings-changed", loadVoiceStatus)
     return () => {
       cancelled = true
-      window.removeEventListener("openclaw:voice-settings-changed", loadVoiceStatus)
+      window.removeEventListener(
+        "openclaw:voice-settings-changed",
+        loadVoiceStatus
+      )
     }
   }, [])
 
@@ -227,7 +234,11 @@ export function ChatBox({
 
   function openVoiceSettings() {
     setVoiceSetupOpen(false)
-    window.dispatchEvent(new CustomEvent("openclaw:open-settings", { detail: { section: "voice" } }))
+    window.dispatchEvent(
+      new CustomEvent("openclaw:open-settings", {
+        detail: { section: "voice" },
+      })
+    )
   }
 
   function handleVoiceToggle() {
@@ -262,18 +273,29 @@ export function ChatBox({
     }
   }
 
-  const voiceShortcutRef = React.useRef({ pushToTalkActive: false, ctrlTapCandidate: false })
+  const voiceShortcutRef = React.useRef({
+    pushToTalkActive: false,
+    ctrlTapCandidate: false,
+  })
 
   React.useEffect(() => {
     function isPushToTalkEvent(event: KeyboardEvent) {
-      return event.code === "Space" && (event.metaKey || event.getModifierState("Meta"))
+      return (
+        event.code === "Space" &&
+        (event.metaKey || event.getModifierState("Meta"))
+      )
     }
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.repeat) return
       const shortcut = voiceShortcutRef.current
 
-      if (event.key === "Control" && !event.metaKey && !event.altKey && !event.shiftKey) {
+      if (
+        event.key === "Control" &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey
+      ) {
         shortcut.ctrlTapCandidate = true
         return
       }
@@ -291,7 +313,10 @@ export function ChatBox({
     function onKeyUp(event: KeyboardEvent) {
       const shortcut = voiceShortcutRef.current
 
-      if ((event.code === "Space" || event.key === "Meta") && shortcut.pushToTalkActive) {
+      if (
+        (event.code === "Space" || event.key === "Meta") &&
+        shortcut.pushToTalkActive
+      ) {
         event.preventDefault()
         shortcut.pushToTalkActive = false
         handleVoiceStop()
@@ -334,7 +359,10 @@ export function ChatBox({
   React.useEffect(() => {
     if (initialPrompt && textareaRef.current) {
       textareaRef.current.focus()
-      textareaRef.current.setSelectionRange(initialPrompt.length, initialPrompt.length)
+      textareaRef.current.setSelectionRange(
+        initialPrompt.length,
+        initialPrompt.length
+      )
       autoResize()
     }
   }, [initialPrompt, autoResize])
@@ -362,7 +390,9 @@ export function ChatBox({
     }
   }
 
-  function handleSlashSelect(cmd: import("@/hooks/useSlashCommands").SlashCommand) {
+  function handleSlashSelect(
+    cmd: import("@/hooks/useSlashCommands").SlashCommand
+  ) {
     setInput(`${commandPrefix}${cmd.name} `)
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
@@ -413,8 +443,18 @@ export function ChatBox({
       setAttachmentError("Switching model… please wait")
       return
     }
-    if ((!text && attachments.length === 0) || isComposerDisabled || isPreparingAttachments) return
-    if (isGenerating && attachments.length === 0 && !replyTo && isStopSlashCommand(text)) {
+    if (
+      (!text && attachments.length === 0) ||
+      isComposerDisabled ||
+      isPreparingAttachments
+    )
+      return
+    if (
+      isGenerating &&
+      attachments.length === 0 &&
+      !replyTo &&
+      isStopSlashCommand(text)
+    ) {
       setInput("")
       setHistoryIndex(null)
       draftBeforeHistoryRef.current = ""
@@ -435,9 +475,10 @@ export function ChatBox({
     }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
-      attachments: attachments.length > 0
-        ? attachments.map(stripComposerAttachment)
-        : undefined,
+      attachments:
+        attachments.length > 0
+          ? attachments.map(stripComposerAttachment)
+          : undefined,
       runWhileGenerating: canSendWhileGenerating,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
@@ -566,7 +607,7 @@ export function ChatBox({
           isFocused
             ? "border-white/18 ring-1 ring-white/10"
             : "border-white/10",
-          isDragOver && "border-primary/50 ring-2 ring-primary/20",
+          isDragOver && "border-primary/50 ring-2 ring-primary/20"
         )}
       >
         {isDragOver && (
@@ -585,7 +626,7 @@ export function ChatBox({
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="overflow-hidden"
             >
-              <div className="flex items-start gap-2 rounded-t-[22px] border-b border-white/8 bg-white/[0.03] px-3 pb-2 pt-2.5">
+              <div className="flex items-start gap-2 rounded-t-[22px] border-b border-white/8 bg-white/[0.03] px-3 pt-2.5 pb-2">
                 <div className="min-w-0 flex-1">
                   <span className="text-[11px] font-medium text-muted-foreground/70">
                     {replyTo.role === "user" ? "You" : "Assistant"}
@@ -612,26 +653,21 @@ export function ChatBox({
           onRemove={removeAttachment}
         />
         <AnimatePresence initial={false}>
-          {slashMenuOpen && (commandPrefix === "@"
-            ? installedSkills.length > 0
-            : commands.length > 0) && (
-            <SlashCommandMenu
-              commands={
-                commandPrefix === "@"
-                  ? installedSkills
-                  : commands
-              }
-              filter={slashFilter}
-              selectedIndex={slashSelectedIndex}
-              onSelect={handleSlashSelect}
-              prefix={commandPrefix}
-              groupLabel={
-                commandPrefix === "@"
-                  ? "Installed Skills"
-                  : undefined
-              }
-            />
-          )}
+          {slashMenuOpen &&
+            (commandPrefix === "@"
+              ? installedSkills.length > 0
+              : commands.length > 0) && (
+              <SlashCommandMenu
+                commands={commandPrefix === "@" ? installedSkills : commands}
+                filter={slashFilter}
+                selectedIndex={slashSelectedIndex}
+                onSelect={handleSlashSelect}
+                prefix={commandPrefix}
+                groupLabel={
+                  commandPrefix === "@" ? "Installed Skills" : undefined
+                }
+              />
+            )}
         </AnimatePresence>
         <div className="flex w-full flex-col pt-3">
           <textarea
@@ -650,21 +686,23 @@ export function ChatBox({
             onBlur={() => setIsFocused(false)}
             onKeyDown={(e) => {
               if (slashMenuOpen) {
-                const activeCommands = commandPrefix === "@"
-                  ? installedSkills
-                  : commands
-                const filtered = getFilteredCommands(activeCommands, slashFilter)
+                const activeCommands =
+                  commandPrefix === "@" ? installedSkills : commands
+                const filtered = getFilteredCommands(
+                  activeCommands,
+                  slashFilter
+                )
                 if (e.key === "ArrowDown") {
                   e.preventDefault()
                   setSlashSelectedIndex((i) =>
-                    clampCommandIndex(i + 1, filtered),
+                    clampCommandIndex(i + 1, filtered)
                   )
                   return
                 }
                 if (e.key === "ArrowUp") {
                   e.preventDefault()
                   setSlashSelectedIndex((i) =>
-                    clampCommandIndex(i - 1, filtered),
+                    clampCommandIndex(i - 1, filtered)
                   )
                   return
                 }
@@ -741,7 +779,8 @@ export function ChatBox({
             disabled={isComposerDisabled}
             className={cn(
               "w-full resize-none bg-transparent px-3 py-1 text-[15.5px] leading-[26px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-50",
-              isSlashCommandInput && "font-[family:var(--font-jetbrains-mono)] text-[15px]",
+              isSlashCommandInput &&
+                "text-[15px] font-[family:var(--font-jetbrains-mono)]"
             )}
             style={{ minHeight: "68px", maxHeight: "250px" }}
             autoFocus
@@ -749,9 +788,7 @@ export function ChatBox({
 
           {attachmentError && (
             <div className="px-3 pb-1">
-              <p className="text-[12px] text-red-400/80">
-                {attachmentError}
-              </p>
+              <p className="text-[12px] text-red-400/80">{attachmentError}</p>
             </div>
           )}
 
@@ -773,7 +810,9 @@ export function ChatBox({
                 className="overflow-hidden"
               >
                 <div className="px-3 pb-1 text-[13px] text-muted-foreground/60 italic">
-                  {voiceState === "processing" ? "Transcribing voice…" : "Recording voice…"}
+                  {voiceState === "processing"
+                    ? "Transcribing voice…"
+                    : "Recording voice…"}
                   <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-muted-foreground/40 align-middle" />
                 </div>
               </motion.div>
@@ -815,9 +854,15 @@ export function ChatBox({
               setModelOpen(false)
               const applyModel = onModelSelect
                 ? onModelSelect(modelId)
-                : invoke("middleware_models_set_default", { input: { modelId } }).then(() => reloadModels())
+                : invoke("middleware_models_set_default", {
+                    input: { modelId },
+                  }).then(() => reloadModels())
               Promise.resolve(applyModel).catch((error) => {
-                setAttachmentError(error instanceof Error ? error.message : "Failed to switch model")
+                setAttachmentError(
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to switch model"
+                )
                 setSessionModelId(null)
               })
             }}
@@ -831,27 +876,35 @@ export function ChatBox({
           />
         </div>
 
-        <Dialog open={voiceSetupOpen} onOpenChange={setVoiceSetupOpen}>
-          <DialogContent className="gap-5 sm:max-w-[420px]">
-            <DialogHeader>
-              <DialogTitle className="text-[17px] font-semibold text-foreground">Set up voice input</DialogTitle>
-              <DialogDescription className="text-[13px] leading-relaxed">
-                Add a Voice provider/API key and choose a transcription model. After that, the mic will transcribe your speech into this text box so you can edit before sending.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-[12px] text-muted-foreground">
+        <GlassDialog
+          open={voiceSetupOpen}
+          onClose={() => setVoiceSetupOpen(false)}
+          title="Set up voice input"
+          description="Add a Voice provider/API key and choose a transcription model. After that, the mic will transcribe your speech into this text box so you can edit before sending."
+          className="w-[min(440px,calc(100vw-24px))]"
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl bg-[var(--glass-input-bg)] px-3 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
               Current status: {voiceDisabledReason}
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setVoiceSetupOpen(false)}>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setVoiceSetupOpen(false)}
+                className="glass-btn-secondary"
+              >
                 Not now
-              </Button>
-              <Button type="button" onClick={openVoiceSettings}>
+              </button>
+              <button
+                type="button"
+                onClick={openVoiceSettings}
+                className="glass-btn-primary"
+              >
                 Open Voice settings
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              </button>
+            </div>
+          </div>
+        </GlassDialog>
       </div>
     </div>
   )
