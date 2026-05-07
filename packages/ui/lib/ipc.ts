@@ -144,11 +144,15 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_list":
+      return middlewareFetch<T>("/api/spaces")
     case "middleware_spaces_create":
+      return middlewareFetch<T>("/api/spaces", { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_update":
+      return middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "PATCH", body: JSON.stringify(input) })
     case "middleware_spaces_switch":
+      return middlewareFetch<T>(`/api/spaces/${input.spaceId}/switch`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_delete":
-      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
+      return middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "DELETE" })
     case "middleware_sessions_list": {
       const params = new URLSearchParams()
       if (input.projectId) params.set("projectId", String(input.projectId))
