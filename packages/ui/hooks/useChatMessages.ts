@@ -2,9 +2,18 @@
 
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
+import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
+import {
+  getCachedChatSessionMessages,
+  getCachedChatSessionStatus,
+  publishChatSessionMessages,
+  publishChatSessionStatus,
+  subscribeChatSessionMessages,
+  subscribeChatSessionStatus,
+} from "@/lib/chatSessionStore"
 import {
   cacheAttachments,
   mergeAttachmentsWithCache,
@@ -224,11 +233,16 @@ export function useChatMessages(
   initialMessages?: ChatMessage[]
 ) {
   const hasInitial = initialMessages && initialMessages.length > 0
-  const [messages, setMessages] = useState<ChatMessage[]>(
-    hasInitial ? initialMessages : []
+  const cachedMessages = !hasInitial
+    ? getCachedChatSessionMessages(sessionKey)
+    : null
+  const cachedStatus = !hasInitial ? getCachedChatSessionStatus(sessionKey) : null
+  const instanceIdRef = useRef(randomId())
+  const [messages, setLocalMessages] = useState<ChatMessage[]>(
+    hasInitial ? initialMessages : cachedMessages ?? []
   )
-  const [status, setStatus] = useState<StreamStatus>(
-    hasInitial ? "thinking" : "idle"
+  const [status, setLocalStatus] = useState<StreamStatus>(
+    hasInitial ? "thinking" : cachedStatus ?? "idle"
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [loading, setLoading] = useState(!hasInitial)
@@ -236,8 +250,30 @@ export function useChatMessages(
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
   const restartInFlightRef = useRef(false)
-  const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : "idle")
+  const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : cachedStatus ?? "idle")
   const isSendingRef = useRef(false)
+
+  const setMessages = useCallback(
+    (update: SetStateAction<ChatMessage[]>) => {
+      setLocalMessages((prev) => {
+        const next = typeof update === "function" ? update(prev) : update
+        publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
+        return next
+      })
+    },
+    [sessionKey],
+  )
+
+  const setStatus = useCallback(
+    (update: SetStateAction<StreamStatus>) => {
+      setLocalStatus((prev) => {
+        const next = typeof update === "function" ? update(prev) : update
+        publishChatSessionStatus(sessionKey, next, instanceIdRef.current)
+        return next
+      })
+    },
+    [sessionKey],
+  )
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -280,6 +316,29 @@ export function useChatMessages(
   useEffect(() => {
     isSendingRef.current = isSending
   }, [isSending])
+
+  useEffect(() => {
+    const unsubscribeMessages = subscribeChatSessionMessages(
+      sessionKey,
+      (nextMessages, sourceId) => {
+        if (sourceId === instanceIdRef.current) return
+        setLocalMessages(nextMessages)
+        for (const message of nextMessages) seenIds.current.add(message.messageId)
+      },
+    )
+    const unsubscribeStatus = subscribeChatSessionStatus(
+      sessionKey,
+      (nextStatus, sourceId) => {
+        if (sourceId === instanceIdRef.current) return
+        statusRef.current = nextStatus
+        setLocalStatus(nextStatus)
+      },
+    )
+    return () => {
+      unsubscribeMessages()
+      unsubscribeStatus()
+    }
+  }, [sessionKey])
 
   const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
     spawnMapRef.current.set(spawn.toolCallId, spawn)
@@ -782,10 +841,13 @@ export function useChatMessages(
   )
 
   useEffect(() => {
+    const cachedSessionMessages = getCachedChatSessionMessages(sessionKey)
     const seededMessages =
       initialMessages && initialMessages.length > 0
         ? initialMessages
-        : undefined
+        : cachedSessionMessages && cachedSessionMessages.length > 0
+          ? cachedSessionMessages
+          : undefined
 
     setLoadError(null)
     setErrorMessage(null)
