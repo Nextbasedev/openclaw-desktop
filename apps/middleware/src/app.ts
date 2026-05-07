@@ -15,6 +15,7 @@ import { recordRoutes } from "./services/records.js"
 import { commandRoutes } from "./services/commands.js"
 import { connectGateway } from "./services/gateway.js"
 import { middlewareUpdateStatus, startMiddlewareUpdate } from "./services/updater.js"
+import { isPairingRequiredError } from "./services/commands.js"
 
 async function isOpenClawGatewayReachable(gatewayUrl: string) {
   try {
@@ -432,7 +433,12 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       })
       req.on("close", () => { stopRetrySubscribe(); off(); gateway?.close() })
     } catch (error) {
-      send("chat.status", { type: "chat.status", sessionKey, state: "error", label: error instanceof Error ? error.message : "stream_error" })
+      const label = isPairingRequiredError(error)
+        ? "pairing required"
+        : error instanceof Error
+          ? error.message
+          : "stream_error"
+      send("chat.status", { type: "chat.status", sessionKey, state: "error", label })
       gateway?.close()
     }
   })
