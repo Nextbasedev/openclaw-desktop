@@ -8,6 +8,7 @@ import {
   saveMiddlewareConnection,
   testMiddlewareConnection,
   claimMiddlewarePairing,
+  claimLocalMiddlewarePairing,
   detectLocalMiddleware,
   type MiddlewareHealth,
 } from "@/lib/middleware-client"
@@ -146,7 +147,11 @@ export default function ConnectPage() {
     }
     let connection = { url: url.trim(), token: token.trim() }
     let health: MiddlewareHealth | null = null
-    if (!localUrl && isLikelyPairingCode(token)) {
+    if (localUrl && !connection.token) {
+      const paired = await claimLocalMiddlewarePairing({ url: connection.url })
+      connection = { url: paired.url, token: paired.token }
+      health = await testMiddlewareConnection(connection)
+    } else if (!localUrl && isLikelyPairingCode(token)) {
       const paired = await claimMiddlewarePairing({ url: url.trim(), code: token.trim() })
       connection = { url: paired.url, token: paired.token }
       health = await testMiddlewareConnection(connection)

@@ -70,12 +70,22 @@ type ConnectPageViewProps = {
   onDisconnect: () => void
 }
 
-const LOCAL_OPENCLAW_PROMPT = `Set up OpenClaw Desktop on this machine.
+const LOCAL_OPENCLAW_PROMPT = `Set up OpenClaw Desktop local connection on this machine.
 
-1. Check whether the OpenClaw Gateway/runtime is running locally.
-2. If it is not running, start it.
-3. Then start OpenClaw Desktop Middleware for this repo on port 8787.
-4. When it is ready, give me only: READY` 
+Use this repo/branch:
+https://github.com/Nextbasedev/openclaw-desktop.git
+branch: dixit_changes
+
+Requirements:
+1. Check whether the OpenClaw Gateway/runtime is running locally. If it is not running, start it.
+2. Start OpenClaw Desktop Middleware for this repo on 127.0.0.1:8787.
+3. Test http://127.0.0.1:8787/health and make sure openclaw.connected is true.
+4. Test http://127.0.0.1:8787/pairing/local from the same computer. It must return ok, mode local, URL, and a middleware token.
+5. If any local error says pairing required, unauthorized, forbidden, invalid token, gateway not connected, or approvals required, inspect the OpenClaw gateway/codebase and fix the local same-computer path without weakening VPS/remote pairing security.
+6. Keep remote/VPS behavior unchanged: remote still uses Middleware URL + pairing code.
+
+When finished, give me only:
+READY` 
 
 const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware on this VPS.
 

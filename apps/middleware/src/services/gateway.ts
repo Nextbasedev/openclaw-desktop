@@ -9,7 +9,7 @@ type GatewayMessage = GatewayResponse | { type: "event"; event: string; payload?
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 const PROTOCOL_VERSION = 3
-const CLIENT = { id: "openclaw-tui", displayName: "OpenClaw Desktop Middleware", version: "0.1.0", platform: "desktop", mode: "cli" }
+const CLIENT = { id: "gateway-client", displayName: "OpenClaw Desktop Middleware", version: "0.1.0", platform: "desktop", mode: "backend" }
 
 function base64UrlEncode(buf: Buffer) { return buf.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "") }
 function normalize(value: string | undefined) { return typeof value === "string" ? value.trim().toLowerCase() : "" }
@@ -68,7 +68,8 @@ export async function connectGateway(scopes = ["operator.read", "operator.write"
 }
 
 async function connectGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof readIdentity>>, scopes: string[]) {
-  const ws = new WebSocket(gatewayUrl, { headers: { origin: process.env.MIDDLEWARE_ORIGIN || "http://127.0.0.1:8787" } })
+  const headers = process.env.MIDDLEWARE_ORIGIN ? { origin: process.env.MIDDLEWARE_ORIGIN } : undefined
+  const ws = new WebSocket(gatewayUrl, headers ? { headers } : undefined)
   try {
     await waitOpen(ws)
     const challenge = await waitFor(ws, (m) => m.type === "event" && (m as any).event === "connect.challenge", "connect.challenge") as any
