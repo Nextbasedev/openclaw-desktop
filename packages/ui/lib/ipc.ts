@@ -110,7 +110,7 @@ async function invokeRemoteMiddleware<T>(
 
   switch (command) {
     case "middleware_projects_list":
-      return middlewareFetch<T>("/api/projects")
+      return middlewareFetch<T>(`/api/projects${queryString({ spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
     case "middleware_projects_create":
       return middlewareFetch<T>("/api/projects", { method: "POST", body: JSON.stringify(input) })
     case "middleware_projects_update":

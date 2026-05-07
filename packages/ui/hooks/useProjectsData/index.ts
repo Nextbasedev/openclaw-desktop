@@ -75,7 +75,8 @@ export type DialogActions = {
 export function useProjectsData(
   onTopicSelect: (topic: ActiveTopic) => void,
   activeTopic: ActiveTopic | null,
-  onTopicClear: () => void
+  onTopicClear: () => void,
+  activeSpaceId?: string | null,
 ) {
   const [projects, setProjects] = useState<Project[]>([])
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
@@ -140,7 +141,8 @@ export function useProjectsData(
     } catch {}
     try {
       const result = await invoke<{ projects: Project[] }>(
-        "middleware_projects_list"
+        "middleware_projects_list",
+        { input: { spaceId: activeSpaceId ?? undefined } },
       )
       const active = (result.projects || []).filter(
         (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
@@ -150,7 +152,7 @@ export function useProjectsData(
     } catch (e) {
       console.error("[ProjectsSection] load projects failed", e)
     }
-  }, [])
+  }, [activeSpaceId])
 
   useEffect(() => {
     loadProjects()
@@ -389,6 +391,7 @@ export function useProjectsData(
             profileId,
             workspaceRoot,
             repoRoot: null,
+            spaceId: activeSpaceId ?? undefined,
           },
         }
       )
@@ -437,7 +440,7 @@ export function useProjectsData(
     } finally {
       setCreatingProject(false)
     }
-  }, [newProjectName, loadProjects, onTopicSelect])
+  }, [activeSpaceId, newProjectName, loadProjects, onTopicSelect])
 
   const openCreateTopic = useCallback((project: Project) => {
     setCreateTopicForProject(project)

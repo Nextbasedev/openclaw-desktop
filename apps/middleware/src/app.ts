@@ -173,7 +173,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.get("/api/migration/telegram/scan", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_scan", { limit: req.query.limit ? Number(req.query.limit) : undefined })) } catch (error) { next(error) } })
   app.post("/api/migration/telegram/import", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_import", req.body ?? {})) } catch (error) { next(error) } })
 
-  app.get("/api/projects", (_req, res) => res.json(projects.list()))
+  app.get("/api/projects", (req, res) => res.json(projects.list({ spaceId: req.query.spaceId ? String(req.query.spaceId) : undefined })))
   app.post("/api/projects", (req, res) => res.json(projects.create(req.body)))
   app.patch("/api/projects/:projectId", (req, res) => res.json(projects.update(req.params.projectId, req.body)))
   app.delete("/api/projects/:projectId", (req, res) => res.json(projects.delete(req.params.projectId)))
