@@ -106,7 +106,7 @@ export function ConnectPageView({
   onDisconnect,
 }: ConnectPageViewProps) {
   const busy = testing || saving || disconnecting || loadingStatus
-  const missingConfig = !url.trim() || !token.trim()
+  const missingConfig = setupMode === "local" ? !url.trim() : !url.trim() || !token.trim()
 
   return (
     <div className="min-h-0 h-full w-full overflow-y-auto bg-background px-4 py-4 sm:px-6 sm:py-6">
@@ -145,12 +145,15 @@ export function ConnectPageView({
                   <div className="mb-4 space-y-1">
                     <p className="text-sm font-medium text-zinc-100">Paste connection details</p>
                     <p className="text-xs leading-relaxed text-zinc-500">
-                      This works for both local and VPS setups. Pairing keeps the token exchange explicit and secure.
+                      {setupMode === "local"
+                        ? "Local setup exchanges the middleware token automatically from this computer. No pairing code needed."
+                        : "Pairing keeps the token exchange explicit and secure for VPS/server setups."}
                     </p>
                   </div>
                   <ManualFields
                     url={url}
                     token={token}
+                    setupMode={setupMode}
                     showToken={showToken}
                     disabled={busy}
                     onUrlChange={onUrlChange}
@@ -256,6 +259,7 @@ function PromptBox({ title, prompt }: { title: string; prompt: string }) {
 function ManualFields({
   url,
   token,
+  setupMode,
   showToken,
   disabled,
   onUrlChange,
@@ -264,6 +268,7 @@ function ManualFields({
 }: {
   url: string
   token: string
+  setupMode: "local" | "remote"
   showToken: boolean
   disabled: boolean
   onUrlChange: (value: string) => void
@@ -285,14 +290,16 @@ function ManualFields({
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="middleware-token" className="text-xs">Pairing code</Label>
+        <Label htmlFor="middleware-token" className="text-xs">
+          {setupMode === "local" ? "Pairing code (not needed locally)" : "Pairing code"}
+        </Label>
         <div className="flex gap-2">
           <Input
             id="middleware-token"
             value={token}
             onChange={(event) => onTokenChange(event.target.value)}
             type={showToken ? "text" : "password"}
-            placeholder="ABC-123"
+            placeholder={setupMode === "local" ? "Auto-filled after connect" : "ABC-123"}
             disabled={disabled}
             autoComplete="off"
             spellCheck={false}
