@@ -86,11 +86,13 @@ export function PaneTabBar({
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-border/50" />
       {tabs.map((tab) => {
         const isActive = activeTabId === tab.id
+        const tabLabel = `${tab.subtitle} / ${tab.title}`
         return (
           <button
             key={tab.id}
             type="button"
             draggable
+            title={tabLabel}
             onDragStart={(e) => handleDragStart(e, tab.id)}
             onClick={() => onSelectTab(groupId, tab.id)}
             className={cn(
