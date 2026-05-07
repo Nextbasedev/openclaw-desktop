@@ -1,18 +1,11 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { createPortal } from "react-dom"
 import { VscClose } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import type { EditorTab } from "@/lib/editorGroups"
-
-type TooltipState = {
-  title: string
-  x: number
-  y: number
-  maxWidth: number
-}
 
 type Props = {
   groupId: "group-1" | "group-2"
@@ -40,23 +33,6 @@ export function PaneTabBar({
   onFocus,
 }: Props) {
   const [dragOver, setDragOver] = useState(false)
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
-
-  const showTitleTooltip = useCallback((element: HTMLElement, title: string) => {
-    const rect = element.getBoundingClientRect()
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth
-    const maxWidth = Math.min(520, Math.max(220, viewportWidth - 24))
-    const x = Math.min(Math.max(12, rect.left), Math.max(12, viewportWidth - maxWidth - 12))
-
-    setTooltip({
-      title,
-      x,
-      y: rect.bottom + 8,
-      maxWidth,
-    })
-  }, [])
-
-  const hideTitleTooltip = useCallback(() => setTooltip(null), [])
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, tabId: string) => {
@@ -99,7 +75,6 @@ export function PaneTabBar({
         dragOver && "ring-1 ring-inset ring-primary/30",
       )}
       onWheel={(e) => {
-        hideTitleTooltip()
         if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
           e.currentTarget.scrollLeft += e.deltaY
         }
@@ -113,26 +88,20 @@ export function PaneTabBar({
       {tabs.map((tab) => {
         const isActive = activeTabId === tab.id
         return (
-          <button
-            key={tab.id}
-            type="button"
-            draggable
-            onMouseEnter={(e) => showTitleTooltip(e.currentTarget, tab.title)}
-            onMouseLeave={hideTitleTooltip}
-            onFocus={(e) => showTitleTooltip(e.currentTarget, tab.title)}
-            onBlur={hideTitleTooltip}
-            onDragStart={(e) => {
-              hideTitleTooltip()
-              handleDragStart(e, tab.id)
-            }}
-            onClick={() => onSelectTab(groupId, tab.id)}
-            className={cn(
-              "group relative flex h-[34px] w-42 shrink-0 items-center gap-1 border-x border-t px-3 pb-[7px] pt-[7px] text-left transition-[background-color,border-color,box-shadow] duration-200",
-              isActive
-                ? "z-10 -mb-px rounded-t-lg border-border/50 bg-background"
-                : "rounded-t-lg border-transparent bg-transparent text-foreground/65 hover:bg-foreground/[0.045] dark:text-white/68 dark:hover:bg-white/[0.05]",
-            )}
-          >
+          <Tooltip key={tab.id}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                draggable
+                onDragStart={(e) => handleDragStart(e, tab.id)}
+                onClick={() => onSelectTab(groupId, tab.id)}
+                className={cn(
+                  "group relative flex h-[34px] w-42 shrink-0 items-center gap-1 border-x border-t px-3 pb-[7px] pt-[7px] text-left transition-[background-color,border-color,box-shadow] duration-200",
+                  isActive
+                    ? "z-10 -mb-px rounded-t-lg border-border/50 bg-background"
+                    : "rounded-t-lg border-transparent bg-transparent text-foreground/65 hover:bg-foreground/[0.045] dark:text-white/68 dark:hover:bg-white/[0.05]",
+                )}
+              >
                 <div
                   className={cn(
                     "flex size-5 shrink-0 items-center justify-center rounded-full",
@@ -205,27 +174,22 @@ export function PaneTabBar({
                 >
                   <VscClose className="size-3.5 cursor-pointer" />
                 </span>
-          </button>
-        )
-      })}
-      {tooltip && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              role="tooltip"
-              style={{
-                left: tooltip.x,
-                top: tooltip.y,
-                maxWidth: tooltip.maxWidth,
-              }}
-              className="pointer-events-none fixed z-[99999] min-h-[26px] rounded-[12px] border border-white/18 bg-zinc-950/80 px-3 py-1.5 text-[12px] font-medium leading-[17px] text-white shadow-2xl shadow-black/35 backdrop-blur-2xl"
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              align="start"
+              sideOffset={8}
+              avoidCollisions={false}
+              className="z-[9999] min-h-[26px] max-w-[min(520px,calc(100vw-24px))] rounded-[12px] border border-white/18 bg-zinc-950/72 px-3 py-1.5 text-[12px] font-medium leading-[17px] text-white shadow-2xl shadow-black/30 backdrop-blur-2xl dark:border-white/16 dark:bg-zinc-950/78 [&>svg]:hidden"
             >
               <span className="block whitespace-normal break-words px-px py-px">
-                {tooltip.title}
+                {tab.title}
               </span>
-            </div>,
-            document.body,
-          )
-        : null}
+            </TooltipContent>
+          </Tooltip>
+        )
+      })}
     </div>
   )
 }
