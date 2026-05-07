@@ -315,6 +315,7 @@ export function Sidebar({
                       activeTopic={activeTopic}
                       onTopicSelect={handleTopicSelectInPopover}
                       onTopicClear={onTopicClear}
+                      spaceId={activeSpaceId}
                     />
                   </div>
                 </PopoverContent>
@@ -340,6 +341,7 @@ export function Sidebar({
               activeTopic={activeTopic}
               onTopicSelect={onTopicSelect}
               onTopicClear={onTopicClear}
+              spaceId={activeSpaceId}
             />
           </div>
 

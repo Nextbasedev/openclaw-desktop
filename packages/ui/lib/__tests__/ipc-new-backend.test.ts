@@ -61,6 +61,36 @@ describe("new backend IPC routing", () => {
     )
   })
 
+  it("routes spaces and project scope through canonical middleware REST endpoints", async () => {
+    mockStorage({
+      "openclaw.middleware.url": "http://middleware.test/",
+      "openclaw.middleware.token": "tok",
+    })
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { invoke } = await import("../ipc")
+    await invoke("middleware_spaces_create", { input: { name: "Design" } })
+    await invoke("middleware_projects_list", { input: { spaceId: "space_1" } })
+    await invoke("middleware_projects_create", { input: { name: "P", workspaceRoot: "/tmp", spaceId: "space_1" } })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://middleware.test/api/spaces",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Design" }) }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://middleware.test/api/projects?spaceId=space_1",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer tok" }) }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://middleware.test/api/projects",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "P", workspaceRoot: "/tmp", spaceId: "space_1" }) }),
+    )
+  })
+
   it("preserves project/topic filters when listing sessions", async () => {
     mockStorage({
       "openclaw.middleware.url": "http://middleware.test/",
