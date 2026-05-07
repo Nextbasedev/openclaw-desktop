@@ -91,6 +91,34 @@ describe("new backend IPC routing", () => {
     )
   })
 
+  it("falls back to legacy command endpoint when spaces REST routes are unavailable", async () => {
+    mockStorage({
+      "openclaw.middleware.url": "http://middleware.test/",
+      "openclaw.middleware.token": "tok",
+    })
+    const response = { spaces: [], activeSpaceId: null }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "http://middleware.test/api/spaces") {
+        return new Response(JSON.stringify({ error: { message: "Route not found: GET /api/spaces" } }), { status: 404 })
+      }
+      return new Response(JSON.stringify(response), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { invoke } = await import("../ipc")
+    await expect(invoke("middleware_spaces_list", { input: {} })).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://middleware.test/api/commands/middleware_spaces_list",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ input: {} }),
+        headers: expect.objectContaining({ Authorization: "Bearer tok" }),
+      }),
+    )
+  })
+
   it("preserves project/topic filters when listing sessions", async () => {
     mockStorage({
       "openclaw.middleware.url": "http://middleware.test/",
