@@ -1134,7 +1134,12 @@ export function ChatView({
               const filteredToolCalls = msg.toolCalls
                 ? toolCallsWithoutSpawn(msg.toolCalls)
                 : undefined
-              const filteredPending = toolCallsWithoutSpawn(pendingTools)
+              const shownToolCallIds = new Set(
+                (filteredToolCalls ?? []).map((tool) => tool.id)
+              )
+              const filteredPending = toolCallsWithoutSpawn(
+                pendingTools
+              ).filter((tool) => !shownToolCallIds.has(tool.id))
 
               const anchoredUserSubagents =
                 msg.role === "user"
