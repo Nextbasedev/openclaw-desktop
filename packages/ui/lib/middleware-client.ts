@@ -113,6 +113,15 @@ export async function claimMiddlewarePairing(input: { url: string; code: string 
   return { ok: true, url: trimTrailingSlash(body.url || url), token: String(body.token ?? ""), mode: body.mode }
 }
 
+export async function claimLocalMiddlewarePairing(input: { url: string }): Promise<MiddlewarePairingResult> {
+  const url = trimTrailingSlash(input.url)
+  const response = await fetch(`${url}/pairing/local`, { headers: { "Cache-Control": "no-cache" } })
+  const text = await response.text()
+  const body = text ? JSON.parse(text) : null
+  if (!response.ok) throw new Error(body?.error?.message ?? `Local pairing failed (${response.status})`)
+  return { ok: true, url: trimTrailingSlash(body?.url || url), token: String(body?.token ?? ""), mode: "local" }
+}
+
 export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promise<MiddlewarePairingResult | null> {
   for (const rawUrl of urls) {
     const url = trimTrailingSlash(rawUrl)
@@ -124,7 +133,7 @@ export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promi
       if (!health.ok) continue
       const healthBody = await health.json().catch(() => null) as MiddlewareHealth | null
       if (!healthBody?.openclaw?.connected) continue
-      return { ok: true, url, token: "", mode: "local" }
+      return await claimLocalMiddlewarePairing({ url })
     } catch {}
   }
   return null

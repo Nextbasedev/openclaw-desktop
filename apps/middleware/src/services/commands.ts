@@ -115,6 +115,12 @@ function normalizeHistoryPayload(payload: any) {
   }
 }
 
+function isPairingRequiredError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  const lower = message.toLowerCase()
+  return lower.includes("pairing") || lower.includes("not paired") || lower.includes("not registered") || lower.includes("identity")
+}
+
 function sessionsDirForKey(sessionKey: string) {
   const agentId = agentIdFromSessionKey(sessionKey)
   const safeAgentId = /^[A-Za-z0-9_-]+$/.test(agentId) ? agentId : "main"
@@ -304,13 +310,26 @@ function apiKeyForProvider(cfg: any, provider: string): string {
   if (!envVar) return ""
   const providerConfig = cfg?.providers?.[provider]
   const providerCredentials = providerConfig?.credentials
-  const configured = cfg?.env?.vars?.[envVar]
+  const providerAuth = providerConfig?.auth
+  const configured = process.env[envVar]
+    || cfg?.env?.vars?.[envVar]
+    || cfg?.env?.[envVar]
+    || cfg?.envVars?.[envVar]
+    || cfg?.env_vars?.[envVar]
+    || cfg?.[envVar]
     || providerConfig?.apiKey
     || providerConfig?.api_key
     || providerConfig?.key
     || providerConfig?.token
+    || providerAuth?.apiKey
+    || providerAuth?.api_key
+    || providerAuth?.key
+    || providerAuth?.token
     || providerCredentials?.["api-key"]
     || providerCredentials?.apiKey
+    || providerCredentials?.api_key
+    || providerCredentials?.key
+    || providerCredentials?.token
     || providerCredentials?.[envVar]
   return String(configured || "").trim()
 }
@@ -1347,13 +1366,17 @@ export function commandRoutes(store: Store) {
 
           const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
           const limit = Math.max(1, Math.min(Number(input.limit) || 1000, 1000))
-          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
+          let gw: Awaited<ReturnType<typeof connectGateway>> | null = null
           try {
+            gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
             const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
             return normalizeHistoryPayload(res.payload)
+          } catch (error) {
+            if (isPairingRequiredError(error)) return normalizeHistoryPayload({ messages: [] })
+            throw error
           } finally {
-            gw.close()
+            gw?.close()
           }
         }
         case "middleware_exec_approval_resolve": {
