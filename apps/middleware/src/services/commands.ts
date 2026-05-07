@@ -328,7 +328,9 @@ function voiceSettingsPayloadWithStatus() {
 }
 
 async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = readJson(openclawConfigPath())): Promise<string | null> {
-  if (!attachment.content) return null
+  if (!attachment.content) {
+    throw new HttpError(400, "Audio attachment content is missing. Record again and retry.", "VOICE_ATTACHMENT_CONTENT_MISSING")
+  }
   const settings = readVoiceSettings(cfg)
   if (settings.enabled === false) {
     throw new HttpError(400, "Voice transcription is disabled in Settings → Voice.", "VOICE_TRANSCRIPTION_DISABLED")
@@ -345,7 +347,9 @@ async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = r
   const audio = attachment.encoding === "base64"
     ? Buffer.from(attachment.content, "base64")
     : Buffer.from(attachment.content, "utf8")
-  if (audio.length === 0) return null
+  if (audio.length === 0) {
+    throw new HttpError(400, "Audio attachment is empty. Check mic permission/input level and retry.", "VOICE_ATTACHMENT_EMPTY")
+  }
 
   const form = new FormData()
   form.set("file", new Blob([audio], { type: audioMimeTypeForAttachment(attachment) || "audio/webm" }), attachment.name || "voice.webm")
@@ -1310,7 +1314,7 @@ export function commandRoutes(store: Store) {
           }
           const transcript = await transcribeAudioAttachment(attachment)
           if (!transcript) {
-            throw new HttpError(400, "Voice transcription is not configured. Add a Voice provider/API key in Settings → Voice.", "VOICE_TRANSCRIPTION_UNAVAILABLE")
+            throw new HttpError(422, "Voice transcription returned no text. Check mic permission/input level and try again.", "VOICE_TRANSCRIPTION_EMPTY")
           }
           return { transcript }
         }
