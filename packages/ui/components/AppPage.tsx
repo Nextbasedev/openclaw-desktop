@@ -162,8 +162,8 @@ export default function Page() {
   useEffect(() => {
     async function checkToken() {
       try {
-        const s = await invoke<{ gatewayToken?: string; hasConnection?: boolean }>("middleware_connect_status", { input: {} })
-        setHasToken(!!s.gatewayToken && !!s.hasConnection)
+        const s = await invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
+        setHasToken(!!s.hasConnection)
       } catch {
         setHasToken(false)
       }
@@ -303,9 +303,9 @@ function AppShell({
       try {
         const s = await invoke<{
           gatewayConfigured: boolean
-          hasIdentity: boolean
+          hasConnection: boolean
         }>("middleware_connect_status", { input: {} })
-        if (!s.gatewayConfigured || !s.hasIdentity) return
+        if (!s.gatewayConfigured || !s.hasConnection) return
       } catch {
         return
       }

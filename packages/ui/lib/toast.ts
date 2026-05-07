@@ -25,9 +25,9 @@ export async function checkGatewayOrRedirect(): Promise<boolean> {
   try {
     const s = await invoke<{
       gatewayConfigured: boolean
-      hasIdentity: boolean
+      hasConnection: boolean
     }>("middleware_connect_status", { input: {} })
-    if (!s.gatewayConfigured || !s.hasIdentity) {
+    if (!s.gatewayConfigured || !s.hasConnection) {
       showGatewayError("Connect to OpenClaw gateway first.")
       window.history.pushState(null, "", "/connect")
       window.dispatchEvent(new PopStateEvent("popstate"))
