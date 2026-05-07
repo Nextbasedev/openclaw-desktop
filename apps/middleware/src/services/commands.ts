@@ -1257,7 +1257,7 @@ export function commandRoutes(store: Store) {
           const cfg = readJson(openclawConfigPath())
           const gateway = await gatewayStatus()
           return {
-            gatewayConfigured: Boolean(cfg.gateway_url || cfg.gateway?.port),
+            gatewayConfigured: Boolean(cfg.gateway_url || cfg.gateway?.port || gateway.running),
             gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`,
             gatewayToken: cfg.gateway?.auth?.token ? "configured" : null,
             hasConnection: gateway.running,

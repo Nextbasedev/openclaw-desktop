@@ -37,7 +37,7 @@ export function getMiddlewareConnection(): MiddlewareConnection | null {
   if (typeof window === "undefined") return null
   const url = localStorage.getItem(URL_KEY)?.trim() ?? ""
   const token = localStorage.getItem(TOKEN_KEY)?.trim() ?? ""
-  if (!url || !token) return null
+  if (!url) return null
   return { url, token }
 }
 
@@ -74,11 +74,12 @@ export function clearMiddlewareConnection() {
 
 export async function middlewareFetch<T>(path: string, init: RequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
   if (!connection) throw new Error("Middleware connection is not configured")
+  const token = connection.token.trim()
   const response = await fetch(`${trimTrailingSlash(connection.url)}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${connection.token}`,
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
       ...(init.headers ?? {}),
     },
   })
@@ -123,10 +124,7 @@ export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promi
       if (!health.ok) continue
       const healthBody = await health.json().catch(() => null) as MiddlewareHealth | null
       if (!healthBody?.openclaw?.connected) continue
-      const pair = await fetch(`${url}/pairing/local`, { signal: controller.signal })
-      if (!pair.ok) continue
-      const body = await pair.json()
-      if (body?.token) return { ok: true, url: trimTrailingSlash(body.url || url), token: String(body.token), mode: "local" }
+      return { ok: true, url, token: "", mode: "local" }
     } catch {}
   }
   return null

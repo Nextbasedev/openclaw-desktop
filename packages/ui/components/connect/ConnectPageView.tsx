@@ -125,7 +125,7 @@ export function ConnectPageView({
   onDisconnect,
 }: ConnectPageViewProps) {
   const busy = testing || saving || disconnecting || detecting
-  const missingConfig = !url.trim() || !token.trim()
+  const missingConfig = setupMode === "local" ? !url.trim() : !url.trim() || !token.trim()
 
   return (
     <div className="min-h-0 h-full w-full overflow-y-auto bg-background px-4 py-4 sm:px-6 sm:py-6">
@@ -331,7 +331,7 @@ function LocalOpenClawPanel({
       <div>
         <p className="text-sm font-medium text-zinc-100">We’ll look for OpenClaw on this machine.</p>
         <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-          If OpenClaw is running, Desktop will pair automatically. No URL or token needed.
+          If OpenClaw is running on this computer, Desktop connects locally. No pairing code or token needed.
         </p>
       </div>
       <StatusMessage message={detectMessage} fallback="Checking for local OpenClaw..." />
@@ -339,24 +339,24 @@ function LocalOpenClawPanel({
         {checking ? "Checking..." : "Start / detect local backend"}
       </Button>
       <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-        <p className="text-xs font-medium text-zinc-300">If auto-pairing asks for a code</p>
+        <p className="text-xs font-medium text-zinc-300">Manual local URL</p>
         <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-          Paste the local Middleware URL and pairing code here. This is only a fallback; normal local setup should auto-detect.
+          Only use this if auto-detect cannot find the local Middleware. Leave pairing/token empty for local setup.
         </p>
         <div className="mt-3 space-y-3">
-          <ManualFields
-            url={url}
-            token={token}
-            showToken={showToken}
-            disabled={busy}
-            tokenLabel="Pairing code"
-            tokenPlaceholder="ABC-123"
-            onUrlChange={onUrlChange}
-            onTokenChange={onTokenChange}
-            onShowTokenChange={onShowTokenChange}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="local-middleware-url" className="text-xs text-zinc-300">Middleware URL</Label>
+            <Input
+              id="local-middleware-url"
+              value={url}
+              onChange={(event) => onUrlChange(event.target.value)}
+              placeholder="http://127.0.0.1:8787"
+              disabled={busy}
+              className="border-white/10 bg-black/30 text-zinc-100 placeholder:text-zinc-600"
+            />
+          </div>
           <Button onClick={onSave} disabled={busy || missingConfig} className="w-full" size="sm">
-            {saving ? "Pairing..." : "Pair local backend"}
+            {saving ? "Connecting..." : "Connect local backend"}
           </Button>
         </div>
       </div>

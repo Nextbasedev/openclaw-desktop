@@ -41,6 +41,11 @@ describe("middleware onboarding client", () => {
     expect(getMiddlewareConnection()).toBeNull()
   })
 
+  it("keeps local middleware connection even when token is empty", () => {
+    saveMiddlewareConnection({ url: "http://127.0.0.1:8787/", token: "" })
+    expect(getMiddlewareConnection()).toEqual({ url: "http://127.0.0.1:8787", token: "" })
+  })
+
   it("does not emit workspace reset when only the token changes for the same middleware URL", () => {
     const listener = vi.fn()
     window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, listener)
@@ -82,11 +87,10 @@ describe("middleware onboarding client", () => {
   it("detects local middleware without asking for a token", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0", openclaw: { connected: true } }), { status: 200 })
-      if (url.endsWith("/pairing/local")) return new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:8787", token: "local-token" }), { status: 200 })
       return new Response("not found", { status: 404 })
     }))
 
-    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "local-token", mode: "local" })
+    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "", mode: "local" })
   })
 
   it("does not auto-detect middleware when OpenClaw gateway is unavailable", async () => {

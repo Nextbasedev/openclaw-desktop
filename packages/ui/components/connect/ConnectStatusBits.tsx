@@ -7,7 +7,7 @@ type ConnectionStatus = {
   gatewayConfigured: boolean
   gatewayUrl?: string | null
   gatewayToken?: string | null
-  hasIdentity: boolean
+  hasConnection: boolean
   status: string
 }
 
@@ -21,11 +21,11 @@ export function StatusBadge({
   loadingStatus: boolean
 }) {
   if (loadingStatus || !status) return null
-  if (status.gatewayConfigured && status.hasIdentity) {
+  if (status.gatewayConfigured && status.hasConnection) {
     return <Badge variant="default">Ready</Badge>
   }
   if (status.gatewayConfigured) {
-    return <Badge variant="outline">Configured - No Identity</Badge>
+    return <Badge variant="outline">Configured - Not Running</Badge>
   }
   return <Badge variant="secondary">Not configured</Badge>
 }

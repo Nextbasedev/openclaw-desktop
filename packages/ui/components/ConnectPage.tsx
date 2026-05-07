@@ -32,11 +32,11 @@ type DetectMessage = { ok: boolean; text: string }
 
 function statusFromConnection(connected: boolean, url?: string, token?: string): ConnectionStatus {
   return {
-    gatewayConfigured: Boolean(url && token),
+    gatewayConfigured: Boolean(url),
     gatewayUrl: url ?? null,
     gatewayToken: token ? "configured" : null,
     hasConnection: connected,
-    status: connected ? "connected" : url && token ? "configured" : "disconnected",
+    status: connected ? "connected" : url ? "configured" : "disconnected",
   }
 }
 
@@ -111,7 +111,7 @@ export default function ConnectPage() {
           setDetectMessage({
             ok: false,
             text: localSaved
-              ? "Local Middleware needs to pair again. Try auto-detect; if it still asks for a code, paste the local pairing code below."
+              ? "Local Middleware is reachable but not ready. Start OpenClaw locally, then try auto-detect again."
               : "Saved Middleware needs to pair again. Paste the Middleware URL and pairing code.",
           })
           return
@@ -139,13 +139,14 @@ export default function ConnectPage() {
   }, [])
 
   async function runTest(save: boolean) {
-    if (!url.trim() || !token.trim()) {
-      setError("Both Middleware URL and token are required")
+    const localUrl = isLoopbackMiddlewareUrl(url)
+    if (!url.trim() || (!localUrl && !token.trim())) {
+      setError(localUrl ? "Middleware URL is required" : "Both Middleware URL and pairing code/token are required")
       return null
     }
     let connection = { url: url.trim(), token: token.trim() }
     let health: MiddlewareHealth | null = null
-    if (isLikelyPairingCode(token)) {
+    if (!localUrl && isLikelyPairingCode(token)) {
       const paired = await claimMiddlewarePairing({ url: url.trim(), code: token.trim() })
       connection = { url: paired.url, token: paired.token }
       health = await testMiddlewareConnection(connection)
