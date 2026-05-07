@@ -179,13 +179,10 @@ export function PaneTabBar({
             <TooltipContent
               side="bottom"
               align="start"
-              sideOffset={8}
-              avoidCollisions={false}
-              className="z-[9999] min-h-[26px] max-w-[min(520px,calc(100vw-24px))] rounded-[12px] border border-white/18 bg-zinc-950/72 px-3 py-1.5 text-[12px] font-medium leading-[17px] text-white shadow-2xl shadow-black/30 backdrop-blur-2xl dark:border-white/16 dark:bg-zinc-950/78 [&>svg]:hidden"
+              sideOffset={6}
+              className="min-h-6 max-w-[360px] rounded-[12px] border border-white/15 bg-background/55 px-2.5 py-1 text-[11.5px] font-medium leading-4 text-foreground/90 shadow-xl shadow-black/20 backdrop-blur-xl dark:border-white/12 dark:bg-zinc-950/55 [&>svg]:hidden"
             >
-              <span className="block whitespace-normal break-words px-px py-px">
-                {tab.title}
-              </span>
+              <span className="block truncate px-px py-px">{tab.title}</span>
             </TooltipContent>
           </Tooltip>
         )
