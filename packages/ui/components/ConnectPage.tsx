@@ -59,6 +59,7 @@ export default function ConnectPage() {
   const [url, setUrl] = useState("")
   const [token, setToken] = useState("")
   const [showToken, setShowToken] = useState(false)
+  const [setupMode, setSetupMode] = useState<"choice" | "local" | "remote">("choice")
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
   const [connectResult, setConnectResult] = useState<ConnectResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -88,6 +89,7 @@ export default function ConnectPage() {
         }
         setStatus(statusFromConnection(true, saved.url, saved.token))
         setSessionConnected(true)
+        setSetupMode("remote")
         setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
       } catch (err) {
         setSessionConnected(false)
@@ -178,6 +180,7 @@ export default function ConnectPage() {
       url={url}
       token={token}
       showToken={showToken}
+      setupMode={setupMode}
       status={status}
       connectResult={connectResult}
       error={error}
@@ -189,6 +192,12 @@ export default function ConnectPage() {
       onUrlChange={(value) => { setUrl(value); setError(null); setConnectResult(null) }}
       onTokenChange={(value) => { setToken(value); setError(null); setConnectResult(null) }}
       onShowTokenChange={setShowToken}
+      onSetupModeChange={(mode) => {
+        setSetupMode(mode)
+        setError(null)
+        setConnectResult(null)
+        if (mode === "local" && !url.trim()) setUrl("http://127.0.0.1:8787")
+      }}
       onTest={handleTest}
       onSave={handleSave}
       onDisconnect={handleDisconnect}
