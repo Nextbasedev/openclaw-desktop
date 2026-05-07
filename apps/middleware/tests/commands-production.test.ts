@@ -227,3 +227,26 @@ it("keeps saved Groq key when voice settings are saved afterwards", async () => 
   expect(cfg.providers.groq.authMethod).toBe("api-key")
 })
 
+it("reports voice API key configured from process environment", async () => {
+  const root = tempRoot()
+  const configPath = path.join(root, ".openclaw", "openclaw.json")
+  vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath)
+  vi.stubEnv("GROQ_API_KEY", "gsk_from_env")
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.writeFileSync(configPath, JSON.stringify({
+    tools: {
+      media: {
+        audio: {
+          enabled: true,
+          models: [{ type: "provider", provider: "groq", model: "whisper-large-v3-turbo" }],
+        },
+      },
+    },
+  }))
+  const app = makeApp(root)
+
+  const voice = await auth(request(app).post("/api/commands/middleware_voice_settings_get")).send({ input: {} })
+
+  expect(voice.status).toBe(200)
+  expect(voice.body.status.apiKeyConfigured).toBe(true)
+})

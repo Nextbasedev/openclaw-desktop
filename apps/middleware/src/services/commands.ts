@@ -304,13 +304,26 @@ function apiKeyForProvider(cfg: any, provider: string): string {
   if (!envVar) return ""
   const providerConfig = cfg?.providers?.[provider]
   const providerCredentials = providerConfig?.credentials
-  const configured = cfg?.env?.vars?.[envVar]
+  const providerAuth = providerConfig?.auth
+  const configured = process.env[envVar]
+    || cfg?.env?.vars?.[envVar]
+    || cfg?.env?.[envVar]
+    || cfg?.envVars?.[envVar]
+    || cfg?.env_vars?.[envVar]
+    || cfg?.[envVar]
     || providerConfig?.apiKey
     || providerConfig?.api_key
     || providerConfig?.key
     || providerConfig?.token
+    || providerAuth?.apiKey
+    || providerAuth?.api_key
+    || providerAuth?.key
+    || providerAuth?.token
     || providerCredentials?.["api-key"]
     || providerCredentials?.apiKey
+    || providerCredentials?.api_key
+    || providerCredentials?.key
+    || providerCredentials?.token
     || providerCredentials?.[envVar]
   return String(configured || "").trim()
 }
