@@ -302,7 +302,17 @@ function normalizeAudioAttachment(attachment: ChatSendAttachment): GatewayAttach
 function apiKeyForProvider(cfg: any, provider: string): string {
   const envVar = PROVIDER_API_KEY_ENV[provider]
   if (!envVar) return ""
-  return String(cfg?.env?.vars?.[envVar] || process.env[envVar] || "").trim()
+  const providerConfig = cfg?.providers?.[provider]
+  const providerCredentials = providerConfig?.credentials
+  const configured = cfg?.env?.vars?.[envVar]
+    || providerConfig?.apiKey
+    || providerConfig?.api_key
+    || providerConfig?.key
+    || providerConfig?.token
+    || providerCredentials?.["api-key"]
+    || providerCredentials?.apiKey
+    || providerCredentials?.[envVar]
+  return String(configured || "").trim()
 }
 
 function voiceSettingsPayloadWithStatus() {
@@ -320,11 +330,17 @@ function voiceSettingsPayloadWithStatus() {
 async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = readJson(openclawConfigPath())): Promise<string | null> {
   if (!attachment.content) return null
   const settings = readVoiceSettings(cfg)
-  if (settings.enabled === false) return null
+  if (settings.enabled === false) {
+    throw new HttpError(400, "Voice transcription is disabled in Settings → Voice.", "VOICE_TRANSCRIPTION_DISABLED")
+  }
   const provider = settings.provider === "auto" ? "groq" : settings.provider
   const apiKey = apiKeyForProvider(cfg, provider)
-  if (!apiKey) return null
-  if (provider !== "groq" && provider !== "openai") return null
+  if (!apiKey) {
+    throw new HttpError(400, `No ${provider} API key found in OpenClaw config for voice transcription. Add it in Settings → Voice.`, "VOICE_TRANSCRIPTION_UNAVAILABLE")
+  }
+  if (provider !== "groq" && provider !== "openai") {
+    throw new HttpError(400, `${provider} voice transcription is not implemented yet. Use Groq or OpenAI in Settings → Voice.`, "VOICE_TRANSCRIPTION_PROVIDER_UNSUPPORTED")
+  }
 
   const audio = attachment.encoding === "base64"
     ? Buffer.from(attachment.content, "base64")
@@ -360,7 +376,10 @@ async function transcribeAudioAttachment(attachment: ChatSendAttachment, cfg = r
     : typeof payload?.transcript === "string"
       ? payload.transcript
       : ""
-  return text.trim() || null
+  if (!text.trim()) {
+    throw new HttpError(422, "Voice transcription returned no text. Check mic permission/input level and try again.", "VOICE_TRANSCRIPTION_EMPTY")
+  }
+  return text.trim()
 }
 
 async function prepareMessageAndAttachments(message: string, raw: unknown, cfg = readJson(openclawConfigPath())): Promise<{ message: string; attachments?: GatewayAttachment[] }> {
