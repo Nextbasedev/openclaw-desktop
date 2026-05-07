@@ -34,6 +34,9 @@ type VoiceSettingsPayload = {
     provider?: string
     model?: string
   }
+  status?: {
+    apiKeyConfigured?: boolean
+  }
 }
 
 type VoiceTranscribePayload = {
@@ -202,7 +205,8 @@ export function ChatBox({
             settings?.enabled !== false &&
             settings?.provider &&
             settings.provider !== "auto" &&
-            settings.model
+            settings.model &&
+            payload.status?.apiKeyConfigured
           )
         )
       } catch {
