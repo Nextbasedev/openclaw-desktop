@@ -99,6 +99,10 @@ function visibleMessageText(raw: RawHistoryMessage): string {
   return ""
 }
 
+export function isSilentAssistantReply(text: string): boolean {
+  return text.trim() === "NO_REPLY"
+}
+
 function inferToolStatus(resultText: string): InlineToolCall["status"] {
   if (!resultText) return "success"
   try {
@@ -219,6 +223,9 @@ export function deduplicateRawMessages(
   for (const item of raw) {
     if (isAbortedGatewayArtifact(item)) continue
     const currText = visibleMessageText(item).trim()
+    if (item.role === "assistant" && isSilentAssistantReply(currText)) {
+      continue
+    }
     if (item.role === "assistant" && !currText && !toolBlocks(item).length) {
       continue
     }

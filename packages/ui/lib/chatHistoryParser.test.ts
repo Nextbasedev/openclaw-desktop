@@ -244,6 +244,21 @@ describe("parseChatHistory", () => {
     assert.deepEqual(parsed.messages, [])
   })
 
+  it("does not create visible messages for silent assistant replies", () => {
+    const parsed = parseChatHistory([
+      {
+        role: "user",
+        text: "System (untrusted): [2026-05-07 06:03:10 UTC] Exec completed\n\nAn async command you ran earlier has completed. The result is shown in the system messages above. Handle the result internally. Do not relay it to the user unless explicitly requested.",
+      },
+      {
+        role: "assistant",
+        text: "NO_REPLY",
+      },
+    ])
+
+    assert.deepEqual(parsed.messages, [])
+  })
+
   it("keeps the actual user request after mixed gateway prefixes", () => {
     const parsed = parseChatHistory([
       {

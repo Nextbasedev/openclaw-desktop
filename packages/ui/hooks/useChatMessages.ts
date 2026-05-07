@@ -27,6 +27,7 @@ import {
   cleanUserMessageText,
   deduplicateRawMessages,
   extractReplyBlock,
+  isSilentAssistantReply,
   isTransientSlashCommandHistory,
   parseChatHistory,
 } from "@/lib/chatHistoryParser"
@@ -650,6 +651,7 @@ export function useChatMessages(
           if (!rawText) break
           const text = rawText.trim()
           if (!text) break
+          if (isSilentAssistantReply(text)) break
           const timestamp = ev.createdAt || new Date().toISOString()
           const pendingEmbeds =
             embedsMapRef.current.size > 0

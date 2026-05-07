@@ -63,6 +63,10 @@ function assistantMessageText(message: any) {
   return ""
 }
 
+function isSilentAssistantReply(text: string) {
+  return text.trim() === "NO_REPLY"
+}
+
 function emitToolCallsFromContent(send: (event: string, data: unknown) => void, sessionKey: string, content: unknown) {
   if (!Array.isArray(content)) return
   for (const block of content as any[]) {
@@ -366,7 +370,9 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           const text = assistantMessageText(payload.message)
           if (payload.message.role === "assistant") {
             emitToolCallsFromContent(send, sessionKey, content)
-            send("chat.message", { type: "chat.message", sessionKey, messageId: payload.message.id ?? payload.messageId ?? null, role: payload.message.role, content, text, createdAt: payload.message.createdAt ?? null, model: payload.message.model ?? null, usage: payload.message.usage ?? null, stopReason: payload.message.stopReason ?? null })
+            if (!isSilentAssistantReply(text)) {
+              send("chat.message", { type: "chat.message", sessionKey, messageId: payload.message.id ?? payload.messageId ?? null, role: payload.message.role, content, text, createdAt: payload.message.createdAt ?? null, model: payload.message.model ?? null, usage: payload.message.usage ?? null, stopReason: payload.message.stopReason ?? null })
+            }
             send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
           } else {
             emitToolResultFromMessage(send, sessionKey, payload.message)
@@ -380,7 +386,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           const content = payload?.message?.content
           const text = assistantMessageText(payload?.message)
           emitToolCallsFromContent(send, sessionKey, content)
-          if (text) send("chat.message", { type: "chat.message", sessionKey, messageId: payload?.runId ?? null, role: "assistant", content, text, createdAt: null, model: payload?.message?.model ?? null, usage: state === "final" ? payload?.usage ?? null : null, stopReason: state === "final" ? payload?.stopReason ?? null : null })
+          if (text && !isSilentAssistantReply(text)) send("chat.message", { type: "chat.message", sessionKey, messageId: payload?.runId ?? null, role: "assistant", content, text, createdAt: null, model: payload?.message?.model ?? null, usage: state === "final" ? payload?.usage ?? null : null, stopReason: state === "final" ? payload?.stopReason ?? null : null })
           if (state === "final") send("chat.status", { type: "chat.status", sessionKey, state: "done" })
           if (state === "error") send("chat.status", { type: "chat.status", sessionKey, state: "error" })
         } else if (message.event === "session.tool" && payload?.data) {
