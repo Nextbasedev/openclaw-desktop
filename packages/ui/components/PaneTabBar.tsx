@@ -1,10 +1,17 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import { createPortal } from "react-dom"
 import { VscClose } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import type { EditorTab } from "@/lib/editorGroups"
+
+type TabTooltip = {
+  label: string
+  x: number
+  y: number
+}
 
 type Props = {
   groupId: "group-1" | "group-2"
@@ -32,6 +39,18 @@ export function PaneTabBar({
   onFocus,
 }: Props) {
   const [dragOver, setDragOver] = useState(false)
+  const [tooltip, setTooltip] = useState<TabTooltip | null>(null)
+
+  const showTooltip = useCallback((element: HTMLElement, label: string) => {
+    const rect = element.getBoundingClientRect()
+    setTooltip({
+      label,
+      x: Math.max(8, rect.left + 8),
+      y: rect.bottom + 8,
+    })
+  }, [])
+
+  const hideTooltip = useCallback(() => setTooltip(null), [])
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, tabId: string) => {
@@ -94,7 +113,14 @@ export function PaneTabBar({
             draggable
             title={tab.title}
             aria-label={tabLabel}
-            onDragStart={(e) => handleDragStart(e, tab.id)}
+            onMouseEnter={(e) => showTooltip(e.currentTarget, tab.title)}
+            onMouseLeave={hideTooltip}
+            onFocus={(e) => showTooltip(e.currentTarget, tab.title)}
+            onBlur={hideTooltip}
+            onDragStart={(e) => {
+              hideTooltip()
+              handleDragStart(e, tab.id)
+            }}
             onClick={() => onSelectTab(groupId, tab.id)}
             className={cn(
               "group relative flex h-[34px] w-42 shrink-0 items-center gap-1 border-x border-t px-3 pb-[7px] pt-[7px] text-left transition-[background-color,border-color,box-shadow] duration-200",
@@ -158,12 +184,14 @@ export function PaneTabBar({
               tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation()
+                hideTooltip()
                 onCloseTab(tab.id)
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault()
                   e.stopPropagation()
+                  hideTooltip()
                   onCloseTab(tab.id)
                 }
               }}
@@ -179,6 +207,18 @@ export function PaneTabBar({
           </button>
         )
       })}
+      {tooltip && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              role="tooltip"
+              style={{ left: tooltip.x, top: tooltip.y }}
+              className="pointer-events-none fixed z-[99999] max-w-[360px] rounded-md border border-white/12 bg-zinc-950/92 px-2.5 py-1.5 text-[12px] font-medium leading-4 text-white shadow-xl shadow-black/40"
+            >
+              {tooltip.label}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }
