@@ -3,8 +3,10 @@
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   CheckmarkCircle02Icon,
+  ComputerIcon,
   Copy01Icon,
   EyeIcon,
+  Globe02Icon,
   ServerStack01Icon,
   Unlink03Icon,
   ViewOffIcon,
@@ -44,6 +46,7 @@ type ConnectPageViewProps = {
   url: string
   token: string
   showToken: boolean
+  setupMode: "choice" | "local" | "remote"
   status: ConnectionStatus | null
   connectResult: ConnectResult | null
   error: string | null
@@ -55,6 +58,7 @@ type ConnectPageViewProps = {
   onUrlChange: (value: string) => void
   onTokenChange: (value: string) => void
   onShowTokenChange: (show: boolean) => void
+  onSetupModeChange: (mode: "local" | "remote") => void
   onTest: () => void
   onSave: () => void
   onDisconnect: () => void
@@ -84,6 +88,7 @@ export function ConnectPageView({
   url,
   token,
   showToken,
+  setupMode,
   status,
   connectResult,
   error,
@@ -95,6 +100,7 @@ export function ConnectPageView({
   onUrlChange,
   onTokenChange,
   onShowTokenChange,
+  onSetupModeChange,
   onTest,
   onSave,
   onDisconnect,
@@ -126,10 +132,12 @@ export function ConnectPageView({
                 disconnecting={disconnecting}
                 onDisconnect={onDisconnect}
               />
+            ) : setupMode === "choice" ? (
+              <ChoiceScreen onSelect={onSetupModeChange} />
             ) : (
               <div className="space-y-4">
                 <PromptBox
-                  title="Ask OpenClaw:"
+                  title={setupMode === "local" ? "Ask OpenClaw on this computer:" : "Ask OpenClaw on your VPS:"}
                   prompt={OPENCLAW_CONNECT_PROMPT}
                 />
 
@@ -168,6 +176,59 @@ export function ConnectPageView({
         )}
       </div>
     </div>
+  )
+}
+
+function ChoiceScreen({
+  onSelect,
+}: {
+  onSelect: (mode: "local" | "remote") => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ModeCard
+          icon={ComputerIcon}
+          title="OpenClaw is on this computer"
+          description="Show the local setup prompt, then paste the local Middleware URL and pairing code."
+          onClick={() => onSelect("local")}
+        />
+        <ModeCard
+          icon={Globe02Icon}
+          title="OpenClaw is on a VPS"
+          description="Show the server setup prompt, then paste the reachable URL and pairing code."
+          onClick={() => onSelect("remote")}
+        />
+      </div>
+    </div>
+  )
+}
+
+function ModeCard({
+  icon,
+  title,
+  description,
+  onClick,
+}: {
+  icon: typeof ComputerIcon
+  title: string
+  description: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md border border-white/10 bg-white/[0.025] p-4 text-left transition-all hover:border-white/20 hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex size-9 items-center justify-center rounded-md bg-white/5 text-zinc-400">
+          <HugeiconsIcon icon={icon} size={18} />
+        </div>
+        <p className="text-sm font-medium text-zinc-100">{title}</p>
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-zinc-500">{description}</p>
+    </button>
   )
 }
 
