@@ -8,6 +8,8 @@ import {
   saveMiddlewareConnection,
   testMiddlewareConnection,
   claimMiddlewarePairing,
+  claimLocalMiddlewarePairing,
+  detectLocalMiddleware,
   type MiddlewareHealth,
 } from "@/lib/middleware-client"
 
@@ -42,6 +44,15 @@ function isLikelyPairingCode(value: string): boolean {
   return /^[A-Z0-9]{4,16}$/i.test(compact) && !compact.toLowerCase().startsWith("sk")
 }
 
+function isLoopbackMiddlewareUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0.0.0.0"
+  } catch {
+    return false
+  }
+}
+
 function isPairingOrAuthError(err: unknown): boolean {
   const lower = (err instanceof Error ? err.message : String(err)).toLowerCase()
   return lower.includes("pairing") || lower.includes("invalid token") || lower.includes("unauthorized") || lower.includes("forbidden")
@@ -74,6 +85,18 @@ export default function ConnectPage() {
       const saved = getMiddlewareConnection()
       if (!saved) {
         setStatus(statusFromConnection(false))
+        const detected = await detectLocalMiddleware()
+        if (detected) {
+          saveMiddlewareConnection(detected)
+          setUrl(detected.url)
+          setToken(detected.token)
+          setStatus(statusFromConnection(true, detected.url, detected.token))
+          setSessionConnected(true)
+          setSetupMode("local")
+          setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
+          emit("sidebar:refresh")
+          window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+        }
         return
       }
 
@@ -103,15 +126,20 @@ export default function ConnectPage() {
   }, [])
 
   async function runTest(save: boolean) {
-    if (!url.trim() || !token.trim()) {
-      setError("Both Middleware URL and pairing code are required")
+    const localUrl = isLoopbackMiddlewareUrl(url)
+    if (!url.trim() || (!localUrl && !token.trim())) {
+      setError(localUrl ? "Middleware URL is required" : "Both Middleware URL and pairing code are required")
       return null
     }
 
     let connection = { url: url.trim(), token: token.trim() }
     let health: MiddlewareHealth | null = null
 
-    if (isLikelyPairingCode(token)) {
+    if (localUrl) {
+      const paired = await claimLocalMiddlewarePairing({ url: connection.url })
+      connection = { url: paired.url, token: paired.token }
+      health = await testMiddlewareConnection(connection)
+    } else if (isLikelyPairingCode(token)) {
       const paired = await claimMiddlewarePairing({ url: connection.url, code: token.trim() })
       connection = { url: paired.url, token: paired.token }
       health = await testMiddlewareConnection(connection)
