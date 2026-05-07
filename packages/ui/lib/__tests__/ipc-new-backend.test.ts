@@ -61,6 +61,28 @@ describe("new backend IPC routing", () => {
     )
   })
 
+  it("routes spaces create through the canonical middleware REST endpoint", async () => {
+    mockStorage({
+      "openclaw.middleware.url": "http://middleware.test/",
+      "openclaw.middleware.token": "tok",
+    })
+    const response = { space: { id: "space_1", name: "Design", archived: false }, activeSpaceId: "space_1" }
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(response), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { invoke } = await import("../ipc")
+    await expect(invoke("middleware_spaces_create", { input: { name: "Design" } })).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://middleware.test/api/spaces",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Design" }),
+        headers: expect.objectContaining({ Authorization: "Bearer tok" }),
+      }),
+    )
+  })
+
   it("preserves project/topic filters when listing sessions", async () => {
     mockStorage({
       "openclaw.middleware.url": "http://middleware.test/",
