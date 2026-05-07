@@ -530,9 +530,15 @@ async function gatewayStatus() {
   try {
     const gw = await connectGateway(["operator.read"])
     gw.close()
-    return { running: true, status: "connected" }
+    return { running: true, paired: true, status: "connected", error: null }
   } catch (error) {
-    return { running: false, status: "disconnected", error: error instanceof Error ? error.message : String(error) }
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      running: false,
+      paired: !isPairingRequiredError(error),
+      status: isPairingRequiredError(error) ? "pairing_required" : "disconnected",
+      error: message,
+    }
   }
 }
 
@@ -1276,10 +1282,10 @@ export function commandRoutes(store: Store) {
           const cfg = readJson(openclawConfigPath())
           const gateway = await gatewayStatus()
           return {
-            gatewayConfigured: Boolean(cfg.gateway_url || cfg.gateway?.port || gateway.running),
+            gatewayConfigured: Boolean(cfg.gateway_url || cfg.gateway?.port || gateway.running || gateway.paired === false),
             gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`,
             gatewayToken: cfg.gateway?.auth?.token ? "configured" : null,
-            hasConnection: gateway.running,
+            hasConnection: gateway.running && gateway.paired !== false,
             hasIdentity: fs.existsSync(path.join(os.homedir(), ".openclaw", "state", "identity", "device.json")),
             status: gateway.status,
             error: gateway.error ?? null,
@@ -1288,7 +1294,12 @@ export function commandRoutes(store: Store) {
         case "middleware_connect_bootstrap": {
           const cfg = readJson(openclawConfigPath())
           const gateway = await gatewayStatus()
-          return { ok: gateway.running, gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`, status: gateway.status, error: gateway.error ?? null }
+          return {
+            ok: gateway.running && gateway.paired !== false,
+            gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`,
+            status: gateway.status,
+            error: gateway.error ?? null,
+          }
         }
         case "middleware_sync_pull_now": unsupported(command)
         case "middleware_version_info": { const version = packageVersion(); return { version, desktop: "new-arch", middleware: version, node: process.version } }
