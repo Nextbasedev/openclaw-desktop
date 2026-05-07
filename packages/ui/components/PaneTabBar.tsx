@@ -42,16 +42,17 @@ export function PaneTabBar({
   const [dragOver, setDragOver] = useState(false)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
 
-  const showTitleTooltip = useCallback((element: HTMLElement, title: string) => {
-    const rect = element.getBoundingClientRect()
+  const showTitleTooltip = useCallback((event: React.PointerEvent<HTMLElement> | React.FocusEvent<HTMLElement>, title: string) => {
+    const rect = event.currentTarget.getBoundingClientRect()
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth
     const maxWidth = Math.min(520, Math.max(220, viewportWidth - 24))
-    const x = Math.min(Math.max(12, rect.left), Math.max(12, viewportWidth - maxWidth - 12))
+    const pointerX = "clientX" in event && event.clientX ? event.clientX - 10 : rect.left
+    const x = Math.min(Math.max(12, pointerX), Math.max(12, viewportWidth - maxWidth - 12))
 
     setTooltip({
       title,
       x,
-      y: rect.bottom + 8,
+      y: rect.bottom + 10,
       maxWidth,
     })
   }, [])
@@ -117,9 +118,13 @@ export function PaneTabBar({
             key={tab.id}
             type="button"
             draggable
-            onMouseEnter={(e) => showTitleTooltip(e.currentTarget, tab.title)}
+            title={`${tab.subtitle} / ${tab.title}`}
+            aria-label={`${tab.subtitle} / ${tab.title}`}
+            onPointerEnter={(e) => showTitleTooltip(e, tab.title)}
+            onPointerMove={(e) => showTitleTooltip(e, tab.title)}
+            onPointerLeave={hideTitleTooltip}
             onMouseLeave={hideTitleTooltip}
-            onFocus={(e) => showTitleTooltip(e.currentTarget, tab.title)}
+            onFocus={(e) => showTitleTooltip(e, tab.title)}
             onBlur={hideTitleTooltip}
             onDragStart={(e) => {
               hideTitleTooltip()
