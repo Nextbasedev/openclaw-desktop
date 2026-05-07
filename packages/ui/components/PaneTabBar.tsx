@@ -92,7 +92,8 @@ export function PaneTabBar({
             key={tab.id}
             type="button"
             draggable
-            title={tabLabel}
+            title={tab.title}
+            aria-label={tabLabel}
             onDragStart={(e) => handleDragStart(e, tab.id)}
             onClick={() => onSelectTab(groupId, tab.id)}
             className={cn(
@@ -140,6 +141,7 @@ export function PaneTabBar({
                   /
                 </span>
                 <span
+                  title={tab.title}
                   className={cn(
                     "truncate text-[11.5px] font-medium",
                     isActive
