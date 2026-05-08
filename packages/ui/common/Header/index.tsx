@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useRef, useState, type DragEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+} from "react"
 import {
   VscAdd,
   VscClose,
@@ -11,6 +17,12 @@ import {
   VscTerminal,
 } from "react-icons/vsc"
 import { Icons } from "@/components/icons"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { WindowControls } from "@/components/WindowControls"
@@ -39,6 +51,7 @@ type HeaderProps = {
   sidebarOpen?: boolean
   onToggleSidebar?: () => void
   sidebarReservedWidth?: number
+  inspectorReservedWidth?: number
   editorGroups?: EditorGroupsState | null
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
@@ -75,6 +88,7 @@ export function Header({
   sidebarOpen = true,
   onToggleSidebar,
   sidebarReservedWidth = 0,
+  inspectorReservedWidth = 0,
   editorGroups = null,
   onSelectChatTab,
   onCloseChatTab,
@@ -135,6 +149,17 @@ export function Header({
     return hasRealTab || editorGroups.groups.length > 1
   })
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
+  const rightReservedWidth = inspectorOpen
+    ? Math.max(0, inspectorReservedWidth)
+    : 0
+  const tabsAreaStyle = {
+    "--header-right-reserve": `${rightReservedWidth}px`,
+    ...(isSplitTabs
+      ? {
+          gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
+        }
+      : {}),
+  } as CSSProperties
 
   return (
     <header
@@ -177,18 +202,12 @@ export function Header({
       {hasVisibleTabs && editorGroups ? (
         <div
           className={cn(
-            "relative z-10 min-w-0 flex-1 self-stretch pt-2",
+            "relative z-10 min-w-0 flex-1 self-stretch pt-2 md:mr-[var(--header-right-reserve)]",
             isSplitTabs
               ? "grid grid-cols-2 items-end"
               : "flex items-end",
           )}
-          style={
-            isSplitTabs
-              ? {
-                  gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
-                }
-              : undefined
-          }
+          style={tabsAreaStyle}
         >
           {isSplitTabs && (
             <div
@@ -213,7 +232,7 @@ export function Header({
                   dragOverGroupId === group.id && "bg-white/[0.035] ring-1 ring-inset ring-white/10",
                 )}
                 style={
-                  isLastGroup && rightClusterWidth > 0
+                  isLastGroup && rightClusterWidth > 0 && rightReservedWidth === 0
                     ? { paddingRight: rightClusterWidth + 12 }
                     : undefined
                 }
@@ -294,7 +313,7 @@ export function Header({
       )}
 
       {/* Right: action icons — absolute so they don't shrink the tab area */}
-      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
+      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2 border-b border-border/50", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
             {showSplitButton && (
@@ -455,97 +474,116 @@ function HeaderTab({
   onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
+  const tooltipLabel = `${tab.subtitle} / ${tab.title}`
+
   return (
-    <button
-      type="button"
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={onSelect}
-      className={cn(
-        "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
-        activeAndFocused
-          ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-6px_16px_rgba(0,0,0,0.2)]"
-          : isActive
-            ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
-            : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
-      )}
-    >
-      <div
-        className={cn(
-          "relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full",
-          isActive
-            ? "bg-foreground/[0.055] text-foreground/58 dark:bg-white/[0.055] dark:text-white/62"
-            : "bg-transparent text-foreground/34 dark:text-white/38",
-        )}
-      >
-        {tab.kind === "topic" ? (
-          <Icons.Project
-            size={12}
-            strokeWidth={1.7}
-            className="size-3.5"
-          />
-        ) : (
-          <Icons.Chat
-            size={12}
-            strokeWidth={1.7}
-            className="size-3.5"
-          />
-        )}
-      </div>
-      <div className="relative z-10 min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-          <span
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          draggable
+          aria-label={tooltipLabel}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onClick={onSelect}
+          className={cn(
+            "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-pointer items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
+            activeAndFocused
+              ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-6px_16px_rgba(0,0,0,0.2)]"
+              : isActive
+                ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
+                : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
+          )}
+        >
+          <div
             className={cn(
-              "truncate text-[10.5px]",
+              "relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full",
               isActive
-                ? "text-foreground/34 dark:text-white/36"
-                : "text-foreground/24 dark:text-white/26",
+                ? "bg-foreground/[0.055] text-foreground/58 dark:bg-white/[0.055] dark:text-white/62"
+                : "bg-transparent text-foreground/34 dark:text-white/38",
             )}
           >
-            {tab.subtitle}
-          </span>
-          <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">
-            /
-          </span>
+            {tab.kind === "topic" ? (
+              <Icons.Project
+                size={12}
+                strokeWidth={1.7}
+                className="size-3.5"
+              />
+            ) : (
+              <Icons.Chat
+                size={12}
+                strokeWidth={1.7}
+                className="size-3.5"
+              />
+            )}
+          </div>
+          <div className="relative z-10 min-w-0 flex-1 overflow-hidden">
+            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              <span
+                className={cn(
+                  "truncate text-[10.5px]",
+                  isActive
+                    ? "text-foreground/34 dark:text-white/36"
+                    : "text-foreground/24 dark:text-white/26",
+                )}
+              >
+                {tab.subtitle}
+              </span>
+              <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">
+                /
+              </span>
+              <span
+                className={cn(
+                  "truncate text-[11.5px] font-medium",
+                  activeAndFocused
+                    ? "text-foreground/88 dark:text-white/90"
+                    : isActive
+                      ? "text-foreground/68 dark:text-white/70"
+                      : "text-foreground/62 dark:text-white/64",
+                )}
+              >
+                {tab.title}
+              </span>
+            </div>
+          </div>
           <span
+            role="button"
+            tabIndex={0}
+            aria-label={`Close ${tooltipLabel}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onClose()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                e.stopPropagation()
+                onClose()
+              }
+            }}
             className={cn(
-              "truncate text-[11.5px] font-medium",
-              activeAndFocused
-                ? "text-foreground/88 dark:text-white/90"
-                : isActive
-                  ? "text-foreground/68 dark:text-white/70"
-                  : "text-foreground/62 dark:text-white/64",
+              "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+              isActive ? "opacity-100" : "opacity-0",
+              isActive
+                ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+                : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
             )}
           >
-            {tab.title}
+            <VscClose className="size-3.5" />
           </span>
-        </div>
-      </div>
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation()
-          onClose()
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault()
-            e.stopPropagation()
-            onClose()
-          }
-        }}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        sideOffset={8}
+        showArrow={false}
         className={cn(
-          "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
-          isActive ? "opacity-100" : "opacity-0",
-          isActive
-            ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
-            : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+          GLASS_POPOVER,
+          "border-transparent bg-[var(--glass-bg)] max-w-[min(420px,calc(100vw-24px))] px-3 py-1.5 text-[12px] font-medium text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
         )}
       >
-        <VscClose className="size-3.5" />
-      </span>
-    </button>
+        <span className="block min-w-0 truncate">{tooltipLabel}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }

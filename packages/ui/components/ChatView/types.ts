@@ -58,6 +58,11 @@ export type ReplyTo = {
   messageId: string
   role: "user" | "assistant"
   text: string
+  selections?: Array<{
+    messageId: string
+    text: string
+    comment?: string
+  }>
 }
 
 export type ChatMessage = {

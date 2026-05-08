@@ -1328,8 +1328,9 @@ export function useChatMessages(
       const snippet = replyTo
         ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
         : undefined
-      const gatewayText = snippet
-        ? `> ${snippet.split("\n").join("\n> ")}\n\n${trimmed}`
+      const replyContext = replyTo?.selections ? replyTo.text : snippet
+      const gatewayText = replyContext
+        ? `> ${replyContext.split("\n").join("\n> ")}\n\n${trimmed}`
         : trimmed
 
       const messageAttachments = payload.attachments?.map((a) => ({

@@ -1698,6 +1698,7 @@ function AppShell({
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         sidebarReservedWidth={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+        inspectorReservedWidth={inspectorWidth}
         editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}

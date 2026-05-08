@@ -92,23 +92,25 @@ function ToolRow({
           </span>
         )}
         {onSelect && (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation()
-              onSelect(call.id)
-            }}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" && e.key !== " ") return
-              e.preventDefault()
-              e.stopPropagation()
-              onSelect(call.id)
-            }}
-            className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:bg-white/5 hover:text-foreground"
-          >
-            Open in Activity
-          </span>
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="Open in Activity"
+              title="Open in Activity"
+              onClick={(e) => {
+                e.stopPropagation()
+                onSelect(call.id)
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return
+                e.preventDefault()
+                e.stopPropagation()
+                onSelect(call.id)
+              }}
+              className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/45 transition-colors hover:bg-white/5 hover:text-foreground"
+            >
+              <VscChevronRight className="size-3.5" />
+            </span>
         )}
         {hasDetails ? (
           <VscChevronDown

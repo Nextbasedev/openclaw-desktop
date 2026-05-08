@@ -472,6 +472,18 @@ export function ChatView({
 
   const firstFiredRef = useRef(false)
 
+  const formatSelectedReferences = useCallback(
+    (selections: NonNullable<ReplyTo["selections"]>) =>
+      selections
+        .map((item, index) => {
+          const lines = [`Reference ${index + 1}:`, item.text]
+          if (item.comment) lines.push(`Comment: ${item.comment}`)
+          return lines.join("\n")
+        })
+        .join("\n\n"),
+    []
+  )
+
   const resolveExecApproval = useCallback(
     async (
       approvalId: string,
@@ -577,14 +589,49 @@ export function ChatView({
     (messageId: string, text: string, comment?: string) => {
       const selected = text.trim()
       if (!selected) return
-      setReplyTo({
-        messageId: `${messageId}:selection`,
-        role: "assistant",
-        text: selected,
+      const trimmedComment = comment?.trim()
+      setReplyTo((current) => {
+        const nextSelection = {
+          messageId,
+          text: selected,
+          comment: trimmedComment || undefined,
+        }
+        const selections = current?.selections
+          ? [...current.selections, nextSelection]
+          : [nextSelection]
+        return {
+          messageId: `${messageId}:selection:${selections.length}`,
+          role: "assistant",
+          text: formatSelectedReferences(selections),
+          selections,
+        }
       })
-      setComposerSeed(comment?.trim() ?? "")
+      if (trimmedComment) {
+        setComposerSeed(trimmedComment)
+      }
     },
-    []
+    [formatSelectedReferences]
+  )
+
+  const removeSelectedReference = useCallback(
+    (indexToRemove: number) => {
+      setReplyTo((current) => {
+        if (!current?.selections) return current
+        const selections = current.selections.filter(
+          (_selection, index) => index !== indexToRemove
+        )
+        if (selections.length === 0) return null
+        return {
+          ...current,
+          messageId: `${
+            selections.at(-1)?.messageId ?? current.messageId
+          }:selection:${selections.length}`,
+          text: formatSelectedReferences(selections),
+          selections,
+        }
+      })
+    },
+    [formatSelectedReferences]
   )
 
   const cancelReply = useCallback(() => {
@@ -987,6 +1034,7 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onRemoveReplySelection={removeSelectedReference}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
           glowOnMount
@@ -1293,6 +1341,7 @@ export function ChatView({
           initialPrompt={composerSeed}
           replyTo={replyTo}
           onCancelReply={cancelReply}
+          onRemoveReplySelection={removeSelectedReference}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
           historyMessages={userMessageHistory}
