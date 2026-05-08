@@ -168,6 +168,18 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.use("/api", authMiddleware(config))
 
   app.get("/api/version", (_req, res) => res.json({ ok: true, version, service: "openclaw-middleware" }))
+  app.get("/api/bootstrap", (_req, res) => {
+    const spacesPayload = records.spacesList()
+    const activeSpaceId = spacesPayload.activeSpaceId ?? spacesPayload.spaces?.[0]?.id ?? null
+    res.json({
+      ok: true,
+      spaces: spacesPayload.spaces,
+      activeSpaceId,
+      chats: records.chatsList({ archived: false, spaceId: activeSpaceId }).chats,
+      projects: projects.list({ spaceId: activeSpaceId }).projects,
+      sessions: records.sessionsList({}).sessions,
+    })
+  })
   app.get("/api/middleware/update/status", (_req, res) => res.json(middlewareUpdateStatus()))
   app.post("/api/middleware/update", (_req, res, next) => { try { res.json(startMiddlewareUpdate()) } catch (error) { next(error) } })
   app.post("/api/commands/:command", async (req, res, next) => { try { res.json(await commands.handle(req.params.command, req.body?.input ?? req.body ?? {})) } catch (error) { next(error) } })
