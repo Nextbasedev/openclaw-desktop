@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
-import { subscribeChatStream, activeChatStreamCount } from "../chatStream"
+import { subscribeChatStream, activeChatStreamCount, CHAT_STREAM_CLOSE_GRACE_MS, clearChatStreamsForTests } from "../chatStream"
 
 type Listener = (event: MessageEvent) => void
 
@@ -40,6 +40,7 @@ describe("shared chat stream", () => {
   })
 
   afterEach(() => {
+    clearChatStreamsForTests()
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
     vi.unstubAllGlobals()
@@ -71,7 +72,11 @@ describe("shared chat stream", () => {
     expect(MockEventSource.instances[0].closed).toBe(false)
 
     unsubscribeSecond()
-    vi.advanceTimersByTime(300)
+    vi.advanceTimersByTime(CHAT_STREAM_CLOSE_GRACE_MS - 1)
+    expect(MockEventSource.instances[0].closed).toBe(false)
+    expect(activeChatStreamCount()).toBe(1)
+
+    vi.advanceTimersByTime(1)
     expect(MockEventSource.instances[0].closed).toBe(true)
     expect(activeChatStreamCount()).toBe(0)
   })
@@ -103,5 +108,20 @@ describe("shared chat stream", () => {
         text: "right tab",
       },
     })
+  })
+
+  it("keeps a recently closed stream warm when resubscribed within grace", () => {
+    const first = vi.fn()
+    const second = vi.fn()
+
+    const unsubscribeFirst = subscribeChatStream("agent:main:warm", first)
+    unsubscribeFirst()
+    vi.advanceTimersByTime(30_000)
+
+    subscribeChatStream("agent:main:warm", second)
+
+    expect(MockEventSource.instances).toHaveLength(1)
+    expect(MockEventSource.instances[0].closed).toBe(false)
+    expect(activeChatStreamCount()).toBe(1)
   })
 })
