@@ -226,3 +226,485 @@ I re-checked the plan against the current middleware and server gateway-client c
 
 - This plan file currently exists on branch `ui/new-feat`, not on the current `main` checkout. Anyone implementing from it should checkout/pull `ui/new-feat` or merge/cherry-pick the plan first.
 - Keep the implementation commit on a feature branch, not directly on `main`, unless explicitly requested.
+
+---
+
+## Related OpenClaw Backend WebSocket Reliability Plan
+
+Created from Dixit's attached plan: `openclaw-backend-websocket-reliability-plan.md`.
+
+Original scope: read-only repo inspection plus implementation/testing plan for `/root/.openclaw/workspace/openclaw`. The source file was intentionally outside the OpenClaw repo and not committed to any OpenClaw branch. This section brings the plan into the `ui/new-feat` planning branch so the desktop/middleware reliability work and backend Gateway reliability work stay connected.
+
+### Backend repo state observed
+
+OpenClaw backend repo path:
+
+```txt
+/root/.openclaw/workspace/openclaw
+```
+
+Observed branch when the external plan was created:
+
+```txt
+fix/silent-reply-dm-suppression
+```
+
+No OpenClaw backend repo files were changed during the original inspection.
+
+### What OpenClaw already supports
+
+OpenClaw already has a mature Gateway protocol foundation:
+
+- WebSocket Gateway server/client:
+  - `src/gateway/server.impl.ts`
+  - `src/gateway/server-ws-runtime.ts`
+  - `src/gateway/server/ws-connection.ts`
+  - `src/gateway/server/ws-connection/message-handler.ts`
+  - `src/gateway/client.ts`
+- Typed protocol schemas/validators:
+  - `src/gateway/protocol/AGENTS.md`
+  - `src/gateway/protocol/schema/frames.ts`
+  - `src/gateway/protocol/schema/nodes.ts`
+  - `src/gateway/protocol/schema/logs-chat.ts`
+  - `src/gateway/protocol/index.ts`
+- Existing frame shapes:
+  - request: `{ type: "req", id, method, params }`
+  - response: `{ type: "res", id, ok, payload, error }`
+  - event: `{ type: "event", event, payload, seq }`
+- Existing safeguards:
+  - handshake challenge before connect
+  - auth/device identity validation
+  - protocol version negotiation
+  - pre-auth payload limit
+  - max payload: `25MB`
+  - max buffered bytes: `50MB`
+  - tick heartbeat every `30s`
+  - reconnect with exponential backoff on client
+  - slow-consumer drop/close behavior for broadcasts
+  - event sequence gap detection in client
+  - request timeout handling in client
+- Existing node invocation model:
+  - `src/gateway/node-registry.ts`
+  - Gateway sends `node.invoke.request` event to node
+  - pending invoke is tracked by request ID
+  - timeout resolves cleanly
+  - disconnect currently rejects pending invokes for that node
+- Existing pending-work model:
+  - `src/gateway/node-pending-work.ts`
+  - currently supports `status.request` and `location.request`
+  - supports enqueue/drain/ack, dedupe by work type, expiry, and priorities
+
+Conclusion: OpenClaw already accepts the base WebSocket architecture. The gap is not "can OpenClaw do WebSockets?" — it can. The gap is durable request/session orchestration across socket reconnects, especially for desktop/node tasks.
+
+### Telegram Desktop lesson applied to OpenClaw
+
+Telegram Desktop does not treat a socket as the owner of work. It separates:
+
+1. instance/coordinator
+2. session per data center/purpose
+3. connection transport
+4. request map
+5. retry/resend/timer logic
+6. event/update routing
+
+For OpenClaw, the equivalent should be:
+
+1. Gateway coordinator
+2. client/node session registry
+3. WebSocket transport
+4. durable request manager
+5. retry/resume/timer policy
+6. event bus/subscription routing
+
+Core principle: socket death must not imply request death unless the request is explicitly non-resumable.
+
+### Current backend risk areas
+
+#### 1. Pending client requests are socket-local
+
+`src/gateway/client.ts` keeps `pending = new Map<string, Pending>()` inside `GatewayClient`. On socket close it calls `flushPendingErrors(...)`.
+
+That is fine for short operator RPCs, but weak for long desktop/node tasks if reconnect happens while work is running.
+
+#### 2. Node invokes are connection-coupled
+
+`src/gateway/node-registry.ts` rejects pending invokes when a node disconnects:
+
+- `unregister(connId)` removes the node session.
+- pending invokes for that node reject with `node disconnected (...)`.
+
+A single socket close can poison in-flight work even when the same desktop/node reconnects immediately.
+
+#### 3. Idempotency is present but not yet a durable request contract
+
+Many protocol params already include `idempotencyKey`, which is good. It should become first-class behavior:
+
+- duplicate request returns existing result/status
+- reconnect can resume by `requestId` or `idempotencyKey`
+- task final state is queryable after the socket is gone
+
+#### 4. Event streams can drop frames
+
+Broadcast events support sequence numbers and the client detects gaps. After gap detection, the system still needs a recovery path:
+
+- fetch missed events since seq, or
+- reload domain snapshot, or
+- subscribe to durable task/session stream
+
+Recommendation: start with snapshots because they are simpler and safer than an unbounded replay buffer.
+
+#### 5. Bad requests should fail locally when policy allows
+
+Invalid request frames currently return `INVALID_REQUEST` without closing after authenticated connect. Verify the same isolation for:
+
+- malformed node invoke params
+- malformed chat/task params
+- unknown method
+- command not found
+- handler throw
+- bad JSON payload inside otherwise valid frame
+
+Important correction: oversized frames or WebSocket protocol violations may correctly close the socket. The "bad request must not close the socket" rule applies to authenticated, valid-frame, application-level bad requests only.
+
+### Proposed backend improvement plan
+
+#### Phase 1 — Document current Gateway contract
+
+Deliverables:
+
+- Gateway request lifecycle diagram
+- Node invoke lifecycle diagram
+- Desktop reconnect lifecycle diagram
+- Failure matrix:
+  - invalid frame
+  - invalid params
+  - handler throws
+  - node disconnects
+  - gateway restarts
+  - client reconnects
+  - slow consumer
+  - tick timeout
+  - request timeout
+
+Suggested future files in the OpenClaw backend repo:
+
+- `docs/gateway/reliability.md`
+- `docs/gateway/websocket-request-lifecycle.md`
+
+#### Phase 2 — Add an in-memory Gateway Request Manager
+
+Create a Gateway-side request manager that owns long-running request state above the socket layer.
+
+Conceptual API:
+
+- `register(request)`
+- `markAccepted(requestId)`
+- `markSentToNode(requestId, nodeId)`
+- `markProgress(requestId, event)`
+- `markCompleted(requestId, result)`
+- `markFailed(requestId, error)`
+- `getStatus(requestId | idempotencyKey)`
+- `resume(requestId | idempotencyKey)`
+- `cancel(requestId | idempotencyKey)`
+
+Request fields:
+
+- `requestId`
+- `idempotencyKey`
+- `method`
+- `nodeId/sessionKey`
+- `state`: `queued | sent | running | completed | failed | expired | cancelled`
+- `createdAtMs`
+- `updatedAtMs`
+- `expiresAtMs`
+- `attemptCount`
+- `lastConnId`
+- `result/error`
+- `policySnapshot` or `policyVersion`
+
+Start in-memory first. Persist important classes later only after lifecycle semantics are clean.
+
+#### Phase 3 — Separate node identity from node socket
+
+Current shape:
+
+- `nodesById -> NodeSession`, and `NodeSession` includes current socket/client.
+
+Improved shape:
+
+- `NodeRecord`: durable node metadata, capabilities, permissions, last seen state.
+- `NodeConnection`: current socket/client/connId.
+- pending invocations owned by Request Manager, not directly by socket.
+
+On disconnect:
+
+- mark node `temporarily_disconnected`
+- do not immediately fail resumable requests
+- start grace timer
+- if same node reconnects within grace period, resume/drain pending work
+- if grace expires, fail with `NODE_DISCONNECTED_TIMEOUT`
+
+#### Phase 4 — Make selected node invokes resumable
+
+For approved resumable node commands/tasks:
+
+- Gateway sends `node.invoke.request` with `idempotencyKey`.
+- Node stores active/completed task result by `idempotencyKey` for a TTL.
+- On reconnect, gateway asks node to reconcile:
+  - active request IDs
+  - completed request IDs
+  - failed request IDs
+- Gateway resolves pending request from reconciliation when a result exists.
+
+Potential protocol methods/events:
+
+- `node.invoke.status`
+- `node.invoke.resume`
+- `node.invoke.cancel`
+- `node.reconcile.request`
+- `node.reconcile.result`
+
+#### Phase 5 — Add event recovery / snapshot refresh
+
+Start with domain snapshots:
+
+- presence snapshot
+- sessions snapshot
+- task snapshot
+- node snapshot
+
+Only add event replay after there is a bounded storage policy:
+
+- max event count
+- max age
+- max total bytes
+- per-domain replay ownership
+
+#### Phase 6 — Transport policy cleanup
+
+WebSocket remains primary, but business logic should sit above transport.
+
+Transport should provide only:
+
+- connect
+- authenticated session
+- send frame
+- receive frame
+- close
+- health/tick
+
+Business logic above transport should own:
+
+- request lifecycle
+- dedupe
+- retry/resume policy
+- node work state
+- stream aggregation
+
+#### Phase 7 — Observability
+
+Add counters/logs for:
+
+- active sockets
+- active node connections
+- active logical node records
+- pending requests by state
+- pending requests by method
+- reconnect count
+- bad request count
+- request timeout count
+- node disconnect grace recoveries
+- duplicate idempotency hits
+- dropped events by slow consumer
+- gap detections
+
+Do not log full params/results for node commands. Log metadata only unless explicitly safe.
+
+### Implementation order recommendation
+
+1. Add request lifecycle docs/tests around current behavior.
+2. Add in-memory Request Manager behind existing `node.invoke` path.
+3. Preserve current external behavior by default.
+4. Add observability counters and test hooks.
+5. Add resumable mode for selected command types only.
+6. Add reconnect grace period for node invokes.
+7. Add status/resume/cancel APIs.
+8. Add k6 stress suite.
+9. Only then consider persistent storage.
+
+Recommended first backend branch task:
+
+**Add a Gateway Request Manager prototype and route `node.invoke` through it without changing external behavior.**
+
+Why first:
+
+- low risk
+- adds observability
+- preserves current API
+- creates the seam for resumability
+- makes tests/k6 assertions possible
+
+### Required edge cases before backend implementation
+
+#### Durability / process lifecycle
+
+- In-memory Request Manager survives socket reconnects only; it does **not** survive Gateway process restart.
+- Gateway restart durability requires persistence later, with explicit TTL and cleanup.
+- If Gateway restarts before persistence exists, requests should fail clearly as non-resumable across process restart.
+
+#### Node identity / hijack prevention
+
+- Reconnected nodes must prove the same durable identity before resuming work.
+- Do not let a new socket claiming the same `nodeId` hijack pending invokes.
+- Resume should require matching device identity/public key/fingerprint, not just a reused string ID.
+
+#### Policy / permission changes
+
+- Command allowlist, capabilities, scopes, and permissions can change while work is pending.
+- Pick one rule per command class:
+  - freeze policy at accept time, or
+  - re-check policy before resume/result delivery.
+- For safety, default to re-checking policy for resumable node commands unless this breaks a known workflow.
+
+#### Idempotency semantics
+
+- Define exact duplicate behavior:
+  - duplicate while `queued/running` returns current status, not a second execution.
+  - duplicate after `completed` returns the stored result until TTL expiry.
+  - duplicate after `failed/cancelled/expired` returns final state, not silent restart.
+- Idempotency key must be scoped by caller/method/node/session to avoid cross-user collision.
+- Max stored result size must be enforced.
+
+#### Cancellation / timeout semantics
+
+- Operator cancel should mark request `cancelled` and notify node if possible.
+- Timeout should resolve exactly once.
+- Node result after timeout/cancel should be handled deterministically:
+  - either ignored with metric, or
+  - stored as late result but not delivered as success.
+- `node.invoke.result` currently ignores late results; Request Manager must explicitly preserve or discard late/duplicate results according to the state machine.
+
+#### Backpressure / resource limits
+
+- Add max pending requests globally.
+- Add max pending requests per node.
+- Add TTL sweeper for expired requests/results.
+- Add max result bytes and max progress-event bytes.
+- Add bounded event replay if replay is implemented.
+- Add metrics for rejected requests due to quota/backpressure.
+
+#### Bad request isolation
+
+- Application-level bad requests should not break the socket/session.
+- WebSocket/protocol-level violations may close the socket by policy.
+- Verify next valid request succeeds after:
+  - unknown method
+  - invalid params
+  - command not allowed
+  - handler throws
+  - malformed node invoke result
+  - late duplicate result
+
+#### Existing `node-pending-work` limitation
+
+- `src/gateway/node-pending-work.ts` is useful as a pattern, but it is not a generic invoke queue today.
+- It currently supports only `status.request` and `location.request`.
+- Do not assume it can carry arbitrary resumable node invokes without extending its type model and queue semantics.
+
+#### Event recovery
+
+- Snapshot refresh should be the first recovery path.
+- If event replay is added, bound it by count, time, and bytes.
+- Gap detection should trigger domain-specific refresh, not just log a warning.
+
+#### Security / privacy
+
+- Observability must not log full node params/results by default.
+- Redact secrets, environment values, file contents, and user messages unless explicitly needed in a debug-only path.
+- Resume/status APIs must enforce the same auth/scope checks as the original request.
+
+### Testing plan
+
+Use Vitest/unit tests first; k6 comes after semantics are stable.
+
+#### Unit/integration tests before k6
+
+Add tests around:
+
+- `NodeRegistry.unregister()` no longer immediately rejects resumable invokes during grace period.
+- non-resumable invokes still fail cleanly on disconnect.
+- duplicate `idempotencyKey` does not run duplicate work.
+- late `node.invoke.result` after timeout/cancel resolves zero or one final state, never two.
+- reconnect with same identity resumes; reconnect with mismatched identity does not.
+- invalid params/unknown method do not poison the authenticated socket.
+- Request Manager TTL sweeper removes expired records.
+- quota/backpressure rejection returns a clean error.
+
+#### k6 categories
+
+1. WebSocket handshake smoke
+2. Bad request isolation
+3. Single-request regression
+4. Concurrent WebSocket load
+5. Long soak
+6. Reconnect chaos
+7. Node invoke pressure
+8. Streaming pressure
+9. Resource limits
+
+#### Heavy k6 profiles
+
+Start conservative, then increase:
+
+- Smoke: 10 VUs, 1 minute
+- Regression: 50 VUs, 5 minutes
+- Load: 500 VUs, 15 minutes
+- Stress: 1,000 → 2,500 VUs, 30 minutes
+- Soak: 500–1,000 VUs, 1–3 hours
+- Chaos: 500 VUs, random disconnect/reconnect, 30–60 minutes
+
+Monitor:
+
+```bash
+ulimit -n
+ss -s
+ss -tan state established '( sport = :18789 )' | wc -l
+ps -o pid,rss,pcpu,pmem,cmd -p <gateway_pid>
+lsof -p <gateway_pid> | wc -l
+```
+
+Minimum gates:
+
+- no gateway crash
+- application-level bad request does not close authenticated socket unless policy requires close
+- next valid request succeeds after bad request
+- request timeout resolves once
+- no duplicate final response for same request ID
+- no duplicate task for same idempotency key
+- reconnect does not leave ghost running task
+- memory growth plateaus during soak
+- p95 lightweight RPC below target threshold
+- reconnect success rate above target threshold
+
+### Do not do yet
+
+- Do not rewrite all WebSocket handling at once.
+- Do not introduce persistence before in-memory lifecycle is clean.
+- Do not mix this with unrelated branch work.
+- Do not make every request resumable; classify request types first.
+- Do not use k6 as a substitute for deterministic Request Manager unit tests.
+- Do not hide application bugs by blindly retrying write commands.
+
+### Final backend recommendation
+
+OpenClaw can accept this direction. The backend already has typed Gateway frames, validators, WebSocket lifecycle, node registry, pending work primitives, idempotency fields, heartbeats, sequence numbers, and slow-consumer handling.
+
+The right improvement is a Telegram-style layer above sockets:
+
+- durable request manager
+- logical node sessions separate from socket connections
+- resumable node invoke/task lifecycle
+- event recovery/snapshot reload
+- heavy validation after deterministic tests
+
+This should make the desktop/backend integration more reliable without fighting the existing architecture.
