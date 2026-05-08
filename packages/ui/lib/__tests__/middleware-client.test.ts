@@ -5,7 +5,6 @@ import {
   saveMiddlewareConnection,
   testMiddlewareConnection,
   claimMiddlewarePairing,
-  claimLocalMiddlewarePairing,
   detectLocalMiddleware,
   MIDDLEWARE_CONNECTION_CHANGED_EVENT,
 } from "../middleware-client"
@@ -85,35 +84,13 @@ describe("middleware onboarding client", () => {
     await expect(testMiddlewareConnection({ url: "http://server:8787", token: "bad" })).rejects.toThrow("Invalid token")
   })
 
-  it("claims local middleware pairing token", async () => {
+  it("detects local middleware without asking for a token", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      if (url.endsWith("/pairing/local")) return new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:8787", token: "local-token", mode: "local" }), { status: 200 })
+      if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0", openclaw: { connected: true } }), { status: 200 })
       return new Response("not found", { status: 404 })
     }))
 
-    await expect(claimLocalMiddlewarePairing({ url: "http://127.0.0.1:8787/" })).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "local-token", mode: "local" })
-  })
-
-  it("detects local middleware and stores the local pairing token", async () => {
-    const fetchMock = vi.fn(async (url: string) => {
-      if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0", openclaw: { connected: true } }), { status: 200 })
-      if (url.endsWith("/pairing/local")) return new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:8787", token: "local-token", mode: "local" }), { status: 200 })
-      return new Response("not found", { status: 404 })
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "local-token", mode: "local" })
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/pairing/local", { headers: { "Cache-Control": "no-cache" } })
-  })
-
-  it("continues local detection when local pairing fails", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0", openclaw: { connected: true } }), { status: 200 })
-      if (url.endsWith("/pairing/local")) return new Response(JSON.stringify({ error: { message: "forbidden" } }), { status: 403 })
-      return new Response("not found", { status: 404 })
-    }))
-
-    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toBeNull()
+    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "", mode: "local" })
   })
 
   it("does not auto-detect middleware when OpenClaw gateway is unavailable", async () => {

@@ -532,9 +532,15 @@ async function gatewayStatus() {
   try {
     const gw = await connectGateway(["operator.read"])
     gw.close()
-    return { running: true, status: "connected" }
+    return { running: true, paired: true, status: "connected", error: null }
   } catch (error) {
-    return { running: false, status: "disconnected", error: error instanceof Error ? error.message : String(error) }
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      running: false,
+      paired: !isPairingRequiredError(error),
+      status: isPairingRequiredError(error) ? "pairing_required" : "disconnected",
+      error: message,
+    }
   }
 }
 
@@ -933,7 +939,7 @@ async function importTelegramSessions(store: Store, s: any, input: any = {}) {
   const imported: any[] = []
   const skipped: any[] = []
   const failed: any[] = []
-  const gw = dryRun ? null : await connectGateway(["operator.read", "operator.write"])
+  const gw = dryRun ? null : await connectGateway(["operator.read", "operator.write", "operator.admin"])
   try {
     for (const session of scan.sessions) {
       if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue
@@ -1028,7 +1034,7 @@ async function runCronJob(store: Store, s: any, input: any) {
   const run = { id: crypto.randomUUID(), runId: crypto.randomUUID(), jobId: job.jobId || job.id, status: "running", startedAt: now(), finishedAt: null as string | null, sessionKey: job.sessionKey || `agent:main:cron:${job.jobId || job.id}:run:${crypto.randomUUID()}`, error: null as string | null }
   s.commandState.cronRuns.push(run); save(store, s)
   const prompt = String(input.prompt || job.prompt || job.message || job.command || "Run this scheduled job.")
-  const gw = await connectGateway(["operator.read", "operator.write"])
+  const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
   try {
     await gw.request("sessions.create", { key: run.sessionKey, agentId: job.agentId || "main", label: job.name || job.title || "Cron job" }, 30_000).catch(() => null)
     const res = await gw.request("chat.send", { sessionKey: run.sessionKey, message: prompt, timeoutMs: input.timeoutMs || 120_000, idempotencyKey: run.runId }, input.timeoutMs || 130_000)
@@ -1278,10 +1284,10 @@ export function commandRoutes(store: Store) {
           const cfg = readJson(openclawConfigPath())
           const gateway = await gatewayStatus()
           return {
-            gatewayConfigured: Boolean(cfg.gateway_url || cfg.gateway?.port || gateway.running),
+            gatewayConfigured: Boolean(cfg.gateway_url || cfg.gateway?.port || gateway.running || gateway.paired === false),
             gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`,
             gatewayToken: cfg.gateway?.auth?.token ? "configured" : null,
-            hasConnection: gateway.running,
+            hasConnection: gateway.running && gateway.paired !== false,
             hasIdentity: fs.existsSync(path.join(os.homedir(), ".openclaw", "state", "identity", "device.json")),
             status: gateway.status,
             error: gateway.error ?? null,
@@ -1290,7 +1296,12 @@ export function commandRoutes(store: Store) {
         case "middleware_connect_bootstrap": {
           const cfg = readJson(openclawConfigPath())
           const gateway = await gatewayStatus()
-          return { ok: gateway.running, gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`, status: gateway.status, error: gateway.error ?? null }
+          return {
+            ok: gateway.running && gateway.paired !== false,
+            gatewayUrl: cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`,
+            status: gateway.status,
+            error: gateway.error ?? null,
+          }
         }
         case "middleware_sync_pull_now": unsupported(command)
         case "middleware_version_info": { const version = packageVersion(); return { version, desktop: "new-arch", middleware: version, node: process.version } }
@@ -1388,7 +1399,7 @@ export function commandRoutes(store: Store) {
           const decision = String(input.decision || "").trim()
           if (!approvalId) throw new HttpError(400, "approvalId is required", "BAD_REQUEST")
           if (!["allow-once", "allow-always", "deny"].includes(decision)) throw new HttpError(400, "valid decision is required", "BAD_REQUEST")
-          const gw = await connectGateway(["operator.read", "operator.write", "operator.approvals"])
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
           try {
             const res = await gw.request("exec.approval.resolve", { id: approvalId, decision }, 30_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "exec.approval.resolve failed", "GATEWAY_ERROR")
@@ -1405,7 +1416,7 @@ export function commandRoutes(store: Store) {
           const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
           const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
           if (!execSecurity || !execAsk) throw new HttpError(400, "valid execPolicy is required", "BAD_REQUEST")
-          const gw = await connectGateway(["operator.read", "operator.write"])
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
             const patched = await gw.request("sessions.patch", { key, execSecurity, execAsk }, 30_000)
@@ -1421,7 +1432,7 @@ export function commandRoutes(store: Store) {
           const modelId = String(input.modelId || input.modelRef || input.model || "").trim()
           if (!modelId) throw new HttpError(400, "modelId is required", "BAD_REQUEST")
           const key = activeSessionKey(s, input.sessionKey)
-          const gw = await connectGateway(["operator.read", "operator.write"])
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
             const patched = await gw.request("sessions.patch", { key, model: modelId }, 30_000)
@@ -1441,10 +1452,7 @@ export function commandRoutes(store: Store) {
           const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
           const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
           const shouldPatchExecPolicy = input.execPolicy === null || execSecurity || execAsk
-          const gatewayScopes = execSecurity === "full" || execAsk === "off"
-            ? ["operator.read", "operator.write", "operator.approvals", "operator.admin"]
-            : ["operator.read", "operator.write"]
-          const gw = await connectGateway(gatewayScopes)
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
             if (shouldPatchExecPolicy) {
@@ -1473,7 +1481,7 @@ export function commandRoutes(store: Store) {
         }
         case "middleware_chat_stop": {
           if (!input.sessionKey) throw new HttpError(400, "sessionKey is required", "BAD_REQUEST")
-          const gw = await connectGateway(["operator.write"])
+          const gw = await connectGateway(["operator.write", "operator.admin"])
           try {
             const res = await gw.request("chat.abort", { sessionKey: input.sessionKey, runId: input.runId }, 30_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.abort failed", "GATEWAY_ERROR")
@@ -1485,7 +1493,7 @@ export function commandRoutes(store: Store) {
           if (!input.messageId) throw new HttpError(400, "messageId is required", "BAD_REQUEST")
           const message = String(input.text || input.message || "")
           if (!message.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
-          const gw = await connectGateway(["operator.read", "operator.write", "operator.approvals"])
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
           try {
             const sourceKey = input.sessionKey
             const agentId = input.agentId || agentIdFromSessionKey(sourceKey)
@@ -1548,7 +1556,7 @@ export function commandRoutes(store: Store) {
           const chatId = isTopicFork ? null : `chat_${crypto.randomUUID().replace(/-/g, "")}`
           const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ")
           let name = String(input.name || (isTopicFork ? `Fork: ${sourceTopic?.name || sourceSession?.label || "Topic"} ${timestamp}` : `Forked chat ${timestamp}`)).trim()
-          const gw = await connectGateway(["operator.read", "operator.write"])
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             let created: any = null
             for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1592,7 +1600,7 @@ export function commandRoutes(store: Store) {
           if (!input.userMessageId) throw new HttpError(400, "userMessageId is required", "BAD_REQUEST")
           const editedText = String(input.text || input.message || "")
           if (!editedText.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST")
-          const gw = await connectGateway(["operator.read", "operator.write", "operator.approvals"])
+          const gw = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
           try {
             const originalKey = input.sessionKey
             const branchSessionKey = `agent:main:edit:${crypto.randomUUID()}`

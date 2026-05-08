@@ -44,141 +44,6 @@ type ApprovalPrompt = {
   decisions: ApprovalDecision[]
 }
 
-type SelectionRect = {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
-type HighlightRegistryLike = {
-  set: (name: string, highlight: unknown) => void
-  delete: (name: string) => void
-}
-
-type HighlightConstructor = new (...ranges: Range[]) => unknown
-
-const COMMENT_SELECTION_HIGHLIGHT = "comment-selection"
-const COMMENT_SELECTION_STYLE_ID = "comment-selection-highlight-style"
-const COMMENT_SELECTION_BACKGROUND = "#3165CF"
-
-function getHighlightApi() {
-  if (typeof window === "undefined") return null
-  const css = CSS as typeof CSS & { highlights?: HighlightRegistryLike }
-  const HighlightCtor = (window as Window & { Highlight?: HighlightConstructor })
-    .Highlight
-
-  if (!css.highlights || !HighlightCtor) return null
-  return { registry: css.highlights, HighlightCtor }
-}
-
-function ensureCommentHighlightStyle() {
-  if (typeof document === "undefined") return
-  const existingStyle = document.getElementById(COMMENT_SELECTION_STYLE_ID)
-  const style = existingStyle ?? document.createElement("style")
-  style.id = COMMENT_SELECTION_STYLE_ID
-  style.textContent = `
-    [data-comment-selectable],
-    [data-comment-selectable] * {
-      --comment-selection-background: ${COMMENT_SELECTION_BACKGROUND};
-    }
-
-    [data-comment-selectable]::selection,
-    [data-comment-selectable] ::selection {
-      background-color: var(--comment-selection-background);
-      color: #ffffff;
-    }
-
-    ::highlight(${COMMENT_SELECTION_HIGHLIGHT}) {
-      background-color: ${COMMENT_SELECTION_BACKGROUND};
-      color: #ffffff;
-    }
-  `
-  if (!existingStyle) {
-    document.head.appendChild(style)
-  }
-}
-
-function setCommentHighlight(range: Range) {
-  const api = getHighlightApi()
-  if (!api) return false
-
-  ensureCommentHighlightStyle()
-  api.registry.set(COMMENT_SELECTION_HIGHLIGHT, new api.HighlightCtor(range))
-  return true
-}
-
-function clearCommentHighlight() {
-  getHighlightApi()?.registry.delete(COMMENT_SELECTION_HIGHLIGHT)
-}
-
-function getTextSelectionRects(range: Range): SelectionRect[] {
-  const root = range.commonAncestorContainer
-  const textNodes: Text[] = []
-
-  if (root.nodeType === Node.TEXT_NODE) {
-    textNodes.push(root as Text)
-  } else {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    let current = walker.nextNode()
-    while (current) {
-      textNodes.push(current as Text)
-      current = walker.nextNode()
-    }
-  }
-
-  const rects: SelectionRect[] = []
-  for (const textNode of textNodes) {
-    if (!textNode.textContent?.trim()) continue
-    if (!range.intersectsNode(textNode)) continue
-
-    const textRange = document.createRange()
-    const start = textNode === range.startContainer ? range.startOffset : 0
-    const end =
-      textNode === range.endContainer
-        ? range.endOffset
-        : textNode.textContent.length
-
-    if (start >= end) {
-      textRange.detach()
-      continue
-    }
-
-    textRange.setStart(textNode, start)
-    textRange.setEnd(textNode, end)
-
-    for (const rect of Array.from(textRange.getClientRects())) {
-      if (rect.width > 0 && rect.height > 0) {
-        rects.push({
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height,
-        })
-      }
-    }
-    textRange.detach()
-  }
-
-  return rects
-}
-
-function getBoundsFromRects(rects: SelectionRect[]) {
-  if (rects.length === 0) return null
-
-  const left = Math.min(...rects.map((rect) => rect.left))
-  const top = Math.min(...rects.map((rect) => rect.top))
-  const right = Math.max(...rects.map((rect) => rect.left + rect.width))
-  const bottom = Math.max(...rects.map((rect) => rect.top + rect.height))
-
-  return {
-    left,
-    top,
-    width: right - left,
-    height: bottom - top,
-  }
-}
-
 function parseApprovalPrompt(text: string): ApprovalPrompt | null {
   if (!text.includes("/approve")) return null
   if (!/Approval (needed|required)/i.test(text)) return null
@@ -519,13 +384,19 @@ export function MessageBubble({
     left: number
     top: number
   } | null>(null)
-  const [selectionRects, setSelectionRects] = useState<SelectionRect[]>([])
+  const [selectionRects, setSelectionRects] = useState<
+    Array<{
+      left: number
+      top: number
+      width: number
+      height: number
+    }>
+  >([])
   const [selectionComment, setSelectionComment] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messageBodyRef = useRef<HTMLDivElement>(null)
   const selectionComposerRef = useRef<HTMLDivElement>(null)
   const selectionRangeRef = useRef<Range | null>(null)
-  const selectionOpenRef = useRef(false)
 
   const hasBranches = message.branches && message.branches.length > 0
   const approvalPrompt = !isUser ? parseApprovalPrompt(message.text) : null
@@ -600,26 +471,21 @@ export function MessageBubble({
       return
     }
 
-    const textRects = getTextSelectionRects(range)
-    const actionRect = getBoundsFromRects(textRects) ?? rect
-
-    const persistentRange = range.cloneRange()
-    const usingNativeHighlight = setCommentHighlight(persistentRange)
-
-    selectionOpenRef.current = true
-    selectionRangeRef.current = persistentRange
-    setSelectionRects(usingNativeHighlight ? [] : textRects)
+    selectionRangeRef.current = range.cloneRange()
+    setSelectionRects(
+      Array.from(range.getClientRects()).map((lineRect) => ({
+        left: lineRect.left,
+        top: lineRect.top,
+        width: lineRect.width,
+        height: lineRect.height,
+      }))
+    )
     setSelectionAction({
       text: selectedText,
-      left: actionRect.left + actionRect.width / 2,
-      top: Math.max(12, actionRect.top - 14),
+      left: rect.left + rect.width / 2,
+      top: Math.max(12, rect.top - 14),
     })
     setSelectionComment("")
-    if (usingNativeHighlight) {
-      window.requestAnimationFrame(() => {
-        window.getSelection()?.removeAllRanges()
-      })
-    }
   }, [isUser, onAskSelectedText])
 
   const refreshPersistentSelection = useCallback(() => {
@@ -627,16 +493,20 @@ export function MessageBubble({
     if (!range) return
     const rect = range.getBoundingClientRect()
     if (!rect.width && !rect.height) return
-    const textRects = getTextSelectionRects(range)
-    const actionRect = getBoundsFromRects(textRects) ?? rect
-    const usingNativeHighlight = setCommentHighlight(range)
-    setSelectionRects(usingNativeHighlight ? [] : textRects)
+    setSelectionRects(
+      Array.from(range.getClientRects()).map((lineRect) => ({
+        left: lineRect.left,
+        top: lineRect.top,
+        width: lineRect.width,
+        height: lineRect.height,
+      }))
+    )
     setSelectionAction((current) =>
       current
         ? {
             ...current,
-            left: actionRect.left + actionRect.width / 2,
-            top: Math.max(12, actionRect.top - 14),
+            left: rect.left + rect.width / 2,
+            top: Math.max(12, rect.top - 14),
           }
         : current
     )
@@ -644,8 +514,6 @@ export function MessageBubble({
 
   const closeSelectionComposer = useCallback(() => {
     window.getSelection()?.removeAllRanges()
-    clearCommentHighlight()
-    selectionOpenRef.current = false
     selectionRangeRef.current = null
     setSelectionRects([])
     setSelectionAction(null)
@@ -690,21 +558,6 @@ export function MessageBubble({
   }, [refreshPersistentSelection, selectionAction])
 
   useEffect(() => {
-    if (!selectionAction) return
-
-    const closeOnOutsidePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null
-      if (target && selectionComposerRef.current?.contains(target)) return
-      closeSelectionComposer()
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsidePointerDown)
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointerDown)
-    }
-  }, [closeSelectionComposer, selectionAction])
-
-  useEffect(() => {
     if (isUser || !onAskSelectedText) return
 
     const handlePointerUp = (event: MouseEvent | TouchEvent) => {
@@ -714,7 +567,6 @@ export function MessageBubble({
     }
     const handleSelectionChange = () => {
       if (selectionComposerRef.current || selectionAction) return
-      if (selectionOpenRef.current) return
       const selection = window.getSelection()
       if (!selection?.toString().trim()) setSelectionAction(null)
     }
@@ -727,13 +579,7 @@ export function MessageBubble({
       document.removeEventListener("touchend", handlePointerUp)
       document.removeEventListener("selectionchange", handleSelectionChange)
     }
-  }, [isUser, onAskSelectedText, selectionAction, updateSelectionAction])
-
-  useEffect(() => {
-    return () => {
-      clearCommentHighlight()
-    }
-  }, [])
+  }, [isUser, onAskSelectedText, updateSelectionAction])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -834,7 +680,6 @@ export function MessageBubble({
             )}
             <div
               ref={messageBodyRef}
-              data-comment-selectable={!isUser ? "" : undefined}
               onMouseUp={updateSelectionAction}
               onKeyUp={updateSelectionAction}
               className={cn(
@@ -901,12 +746,12 @@ export function MessageBubble({
                   {selectionRects.map((rect, index) => (
                     <span
                       key={`${rect.left}-${rect.top}-${index}`}
-                      className="fixed bg-[#3165CF]"
+                      className="fixed rounded-[3px] bg-sky-400/35 ring-1 ring-sky-300/20"
                       style={{
                         left: rect.left,
-                        top: rect.top - 1,
+                        top: rect.top,
                         width: rect.width,
-                        height: rect.height + 2,
+                        height: rect.height,
                       }}
                     />
                   ))}
