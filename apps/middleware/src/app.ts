@@ -258,7 +258,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
     let gateway: Awaited<ReturnType<typeof connectGateway>> | null = null
     send("chat.ready", { type: "chat.ready", sessionKey: requestedSessionKey, activeSessionKey: sessionKey })
     try {
-      gateway = await connectGateway(["operator.read", "operator.write", "operator.approvals"])
+      gateway = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
       send("chat.status", { type: "chat.status", sessionKey, state: "connected" })
       await gateway.request("sessions.subscribe", {}, 30_000).catch(() => null)
       let closed = false
