@@ -25,6 +25,28 @@ function matches(client: ChatStreamClient, key: unknown) {
   return typeof key === "string" && (key === client.activeSessionKey || key === client.requestedSessionKey)
 }
 
+function contentText(value: unknown): string {
+  if (!value) return ""
+  if (typeof value === "string") return value
+  if (Array.isArray(value)) {
+    return value.map((item) => contentText(item)).filter(Boolean).join("\n")
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>
+    if (typeof obj.text === "string") return obj.text
+    if (typeof obj.content === "string") return obj.content
+    if (Array.isArray(obj.content)) return contentText(obj.content)
+  }
+  return ""
+}
+
+function assistantMessageText(message: unknown): string {
+  if (!message || typeof message !== "object") return ""
+  const obj = message as Record<string, unknown>
+  if (typeof obj.text === "string") return obj.text
+  return contentText(obj.content)
+}
+
 export function registerChatStreamClient(params: {
   requestedSessionKey: string
   activeSessionKey: string
@@ -107,6 +129,30 @@ export function handleGatewayEvent(message: GatewayMessage) {
 
   for (const client of [...clients.values()]) {
     if (!matches(client, key)) continue
+    if (event === "chat") {
+      const state = payload?.state
+      const text = assistantMessageText(payload?.message)
+      const content = payload?.message?.content
+      const ok = text
+        ? client.send("chat.message", {
+            type: "chat.message",
+            sessionKey: client.activeSessionKey,
+            messageId: payload?.runId ?? null,
+            role: "assistant",
+            content,
+            text,
+            createdAt: null,
+            model: payload?.message?.model ?? null,
+            usage: state === "final" ? payload?.usage ?? null : null,
+            stopReason: state === "final" ? payload?.stopReason ?? null : null,
+          })
+        : true
+      if (!ok) clients.delete(client.id)
+      else if (state === "final") client.send("chat.status", { type: "chat.status", sessionKey: client.activeSessionKey, state: "done" })
+      else if (state === "error") client.send("chat.status", { type: "chat.status", sessionKey: client.activeSessionKey, state: "error", label: payload?.errorMessage ?? null })
+      else client.send("chat.status", { type: "chat.status", sessionKey: client.activeSessionKey, state: "streaming" })
+      continue
+    }
     if (event === "session.message" && payload?.message) {
       const role = payload.message.role
       if (role !== "assistant") continue
@@ -116,7 +162,7 @@ export function handleGatewayEvent(message: GatewayMessage) {
         messageId: payload.message.id ?? payload.messageId ?? null,
         role,
         content: payload.message.content,
-        text: payload.message.text ?? null,
+        text: payload.message.text ?? assistantMessageText(payload.message) ?? null,
         createdAt: payload.message.createdAt ?? null,
         model: payload.message.model ?? null,
         usage: payload.message.usage ?? null,
