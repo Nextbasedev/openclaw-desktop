@@ -86,17 +86,16 @@ write_status() {
   node -e "const fs=require('fs'); const p=process.argv[1]; const state=process.argv[2]; const message=process.argv[3]; const repo=process.argv[4]; const branch=process.argv[5]; const log=process.argv[6]; fs.writeFileSync(p, JSON.stringify({state, message, repoRoot: repo, branch, logPath: log, updatedAt: new Date().toISOString()}, null, 2))" "$STATUS" "$1" "$2" "$REPO" "$BRANCH" "$LOG"
 }
 exec >>"$LOG" 2>&1
-trap 'code=$?; write_status failed "Middleware update failed with exit code $code; see $LOG"; exit $code' ERR
 cd "$REPO"
 echo "[$(date -u +%FT%TZ)] Fetching $BRANCH from $REPO_URL"
 git remote set-url origin "$REPO_URL" || true
-git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH"
+git fetch origin "$BRANCH"
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "[$(date -u +%FT%TZ)] Preserving local changes in git stash"
   git stash push -u -m "openclaw-middleware-update-$(date -u +%Y%m%dT%H%M%SZ)" || true
 fi
-git checkout -B "$BRANCH" "refs/remotes/origin/$BRANCH"
-git reset --hard "refs/remotes/origin/$BRANCH"
+git checkout -B "$BRANCH" "origin/$BRANCH"
+git reset --hard "origin/$BRANCH"
 if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
 if ! command -v pnpm >/dev/null 2>&1; then
   echo "pnpm not found; trying corepack pnpm"
