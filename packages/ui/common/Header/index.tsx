@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState, type DragEvent } from "react"
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import {
   VscAdd,
   VscClose,
@@ -455,7 +456,8 @@ function HeaderTab({
   onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
-  return (
+  const tabLabel = `${tab.subtitle} / ${tab.title}`
+  const tabButton = (
     <button
       type="button"
       draggable
@@ -547,5 +549,72 @@ function HeaderTab({
         <VscClose className="size-3.5" />
       </span>
     </button>
+  )
+
+  return (
+    <HeaderTooltip label={tabLabel}>
+      {tabButton}
+    </HeaderTooltip>
+  )
+}
+
+function HeaderTooltip({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  const [show, setShow] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const triggerRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  function handleEnter() {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPos({
+      top: rect.top - 8,
+      left: rect.left + rect.width / 2,
+    })
+    setShow(true)
+  }
+
+  return (
+    <div
+      ref={triggerRef}
+      onMouseEnter={handleEnter}
+      onMouseLeave={() => setShow(false)}
+      className="shrink-0"
+    >
+      {children}
+      {show && mounted && createPortal(
+        <div
+          className="pointer-events-none fixed z-[9999]"
+          style={{
+            top: pos.top,
+            left: pos.left,
+            transform: "translate(-50%, -100%)",
+          }}
+        >
+          <div
+            className={cn(
+              "whitespace-nowrap rounded-[12px] px-2.5 py-1",
+              "border border-white/[0.08] bg-[#1B1B1D]/88 backdrop-blur-xl",
+              "text-[12px] font-medium text-foreground",
+              "shadow-[0_8px_24px_rgba(0,0,0,0.28)]",
+            )}
+          >
+            {label}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
   )
 }

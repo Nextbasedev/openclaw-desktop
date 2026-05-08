@@ -1,8 +1,8 @@
-import { randomId } from "@/lib/id"
+import { randomId } from "../../lib/id"
 import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
-} from "@/lib/subagentSession"
+} from "../../lib/subagentSession"
 
 export type ToolCallStatus = "running" | "success" | "error"
 
@@ -297,6 +297,25 @@ export function parseHistoryToolCalls(
   }
 
   return { calls, agents, subagentSessionKeys }
+}
+
+export function finalizeStaleRunningActivity(
+  calls: ToolCall[],
+  agents: Map<string, AgentInfo>,
+): { calls: ToolCall[]; agents: Map<string, AgentInfo> } {
+  return {
+    calls: calls.map((call) =>
+      call.status === "running" ? { ...call, status: "success" } : call,
+    ),
+    agents: new Map(
+      Array.from(agents.entries()).map(([id, info]) => [
+        id,
+        info.phase === "start" || info.phase === "working"
+          ? { ...info, phase: "done" }
+          : info,
+      ]),
+    ),
+  }
 }
 
 export function buildTree(

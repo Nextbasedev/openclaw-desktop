@@ -6,6 +6,7 @@ import { SiDeepgram, SiGooglegemini, SiMistralai, SiOpenai } from "react-icons/s
 
 import { cn } from "@/lib/utils"
 import { invoke } from "@/lib/ipc"
+import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 
 type VoiceProvider = "auto" | "openai" | "groq" | "deepgram" | "google" | "mistral"
 
@@ -193,7 +194,11 @@ export function VoiceTab() {
     async function load() {
       setLoading(true)
       try {
-        const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_get")
+        const payload = await dedupeRequest(
+          "voice-settings",
+          () => invoke<VoiceSettingsPayload>("middleware_voice_settings_get"),
+          { ttlMs: 30_000 },
+        )
         if (cancelled) return
         setVoiceSettingsAvailable(true)
         setSettings(payload.settings)
@@ -228,6 +233,7 @@ export function VoiceTab() {
     setStatus({ tone: "muted", message: "Saving voice settings..." })
     try {
       const payload = await invoke<VoiceSettingsPayload>("middleware_voice_settings_set", { input: next })
+      invalidateDedupe("voice-settings")
       setVoiceSettingsAvailable(true)
       setSettings(payload.settings)
       setOptions(payload.options?.length ? payload.options : options)

@@ -5,6 +5,7 @@ import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
 import { checkGatewayOrRedirect } from "@/lib/toast"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
+import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
@@ -75,7 +76,8 @@ export type DialogActions = {
 export function useProjectsData(
   onTopicSelect: (topic: ActiveTopic) => void,
   activeTopic: ActiveTopic | null,
-  onTopicClear: () => void
+  onTopicClear: () => void,
+  activeSpaceId?: string | null,
 ) {
   const [projects, setProjects] = useState<Project[]>([])
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
@@ -139,8 +141,18 @@ export function useProjectsData(
       }
     } catch {}
     try {
+      const bootstrap = await loadMiddlewareStartupBootstrap()
+      if (bootstrap && (!activeSpaceId || bootstrap.activeSpaceId === activeSpaceId)) {
+        const active = (bootstrap.projects || []).filter(
+          (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
+        )
+        setProjects(active)
+        setPinnedProjects(new Set(active.filter((p) => p.pinned).map((p) => p.id)))
+        return
+      }
       const result = await invoke<{ projects: Project[] }>(
-        "middleware_projects_list"
+        "middleware_projects_list",
+        { input: { spaceId: activeSpaceId ?? undefined } },
       )
       const active = (result.projects || []).filter(
         (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
@@ -150,7 +162,7 @@ export function useProjectsData(
     } catch (e) {
       console.error("[ProjectsSection] load projects failed", e)
     }
-  }, [])
+  }, [activeSpaceId])
 
   useEffect(() => {
     loadProjects()
@@ -332,6 +344,7 @@ export function useProjectsData(
       } else {
         next.delete(projectId)
       }
+      invalidateMiddlewareStartupBootstrap()
       invoke("middleware_projects_update", { input: { projectId, pinned } })
         .catch((error) => console.error("pin project failed", error))
       return next
@@ -351,6 +364,7 @@ export function useProjectsData(
       } else {
         next.delete(topicId)
       }
+      invalidateMiddlewareStartupBootstrap()
       invoke("middleware_topics_update", { input: { topicId, pinned } })
         .catch((error) => console.error("pin topic failed", error))
       return next
@@ -381,6 +395,7 @@ export function useProjectsData(
         }
       } catch {}
 
+      invalidateMiddlewareStartupBootstrap()
       const result = await invoke<{ project: { id: string; name: string } }>(
         "middleware_projects_create",
         {
@@ -389,12 +404,14 @@ export function useProjectsData(
             profileId,
             workspaceRoot,
             repoRoot: null,
+            spaceId: activeSpaceId ?? undefined,
           },
         }
       )
       const projectId = result.project.id
       const projectName = result.project.name
 
+      invalidateMiddlewareStartupBootstrap()
       const topicResult = await invoke<{ topic: { id: string; name: string } }>(
         "middleware_topics_create",
         {
@@ -437,7 +454,7 @@ export function useProjectsData(
     } finally {
       setCreatingProject(false)
     }
-  }, [newProjectName, loadProjects, onTopicSelect])
+  }, [activeSpaceId, newProjectName, loadProjects, onTopicSelect])
 
   const openCreateTopic = useCallback((project: Project) => {
     setCreateTopicForProject(project)
@@ -452,6 +469,7 @@ export function useProjectsData(
     setCreatingTopic(true)
     setTopicError("")
     try {
+      invalidateMiddlewareStartupBootstrap()
       const result = await invoke<{ topic: { id: string; name: string } }>(
         "middleware_topics_create",
         {
@@ -486,6 +504,7 @@ export function useProjectsData(
   const handleRenameProject = useCallback(async () => {
     if (!renameProjectTarget || !renameProjectName.trim()) return
     try {
+      invalidateMiddlewareStartupBootstrap()
       await invoke("middleware_projects_update", {
         input: {
           projectId: renameProjectTarget.id,
@@ -508,6 +527,7 @@ export function useProjectsData(
   const handleRenameTopicSave = useCallback(async () => {
     if (!renameTopicTarget || !renameTopicName.trim()) return
     try {
+      invalidateMiddlewareStartupBootstrap()
       await invoke("middleware_topics_update", {
         input: { topicId: renameTopicTarget.id, name: renameTopicName.trim() },
       })
@@ -527,6 +547,7 @@ export function useProjectsData(
     if (!deleteProjectTarget) return
     setDeletingProject(true)
     try {
+      invalidateMiddlewareStartupBootstrap()
       await invoke("middleware_projects_delete", {
         input: { projectId: deleteProjectTarget.id },
       })
@@ -554,6 +575,7 @@ export function useProjectsData(
     if (!deleteTopicTarget) return
     setDeletingTopic(true)
     try {
+      invalidateMiddlewareStartupBootstrap()
       await invoke("middleware_topics_delete", {
         input: { topicId: deleteTopicTarget.id },
       })
@@ -570,6 +592,7 @@ export function useProjectsData(
   const handleArchiveProject = useCallback(
     async (projectId: string) => {
       try {
+        invalidateMiddlewareStartupBootstrap()
         await invoke("middleware_projects_archive", { input: { projectId } })
         setExpandedProjects((prev) => {
           const next = new Set(prev)
@@ -588,6 +611,7 @@ export function useProjectsData(
   const handleArchiveTopic = useCallback(
     async (topic: FullTopic) => {
       try {
+        invalidateMiddlewareStartupBootstrap()
         await invoke("middleware_topics_archive", {
           input: { topicId: topic.id },
         })

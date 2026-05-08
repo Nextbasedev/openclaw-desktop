@@ -13,7 +13,8 @@ import { workspaceRoutes } from "./services/workspace.js"
 import { terminalRoutes } from "./services/terminal.js"
 import { recordRoutes } from "./services/records.js"
 import { commandRoutes } from "./services/commands.js"
-import { connectGateway } from "./services/gateway.js"
+import { connectGateway, isSharedGatewayEnabled } from "./services/gateway.js"
+import { registerChatStreamClient } from "./services/chat-stream-hub.js"
 import { middlewareUpdateStatus, startMiddlewareUpdate } from "./services/updater.js"
 import { isPairingRequiredError } from "./services/commands.js"
 
@@ -168,13 +169,25 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.use("/api", authMiddleware(config))
 
   app.get("/api/version", (_req, res) => res.json({ ok: true, version, service: "openclaw-middleware" }))
+  app.get("/api/bootstrap", (_req, res) => {
+    const spacesPayload = records.spacesList()
+    const activeSpaceId = spacesPayload.activeSpaceId ?? spacesPayload.spaces?.[0]?.id ?? null
+    res.json({
+      ok: true,
+      spaces: spacesPayload.spaces,
+      activeSpaceId,
+      chats: records.chatsList({ archived: false, spaceId: activeSpaceId }).chats,
+      projects: projects.list({ spaceId: activeSpaceId }).projects,
+      sessions: records.sessionsList({}).sessions,
+    })
+  })
   app.get("/api/middleware/update/status", (_req, res) => res.json(middlewareUpdateStatus()))
   app.post("/api/middleware/update", (_req, res, next) => { try { res.json(startMiddlewareUpdate()) } catch (error) { next(error) } })
   app.post("/api/commands/:command", async (req, res, next) => { try { res.json(await commands.handle(req.params.command, req.body?.input ?? req.body ?? {})) } catch (error) { next(error) } })
   app.get("/api/migration/telegram/scan", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_scan", { limit: req.query.limit ? Number(req.query.limit) : undefined })) } catch (error) { next(error) } })
   app.post("/api/migration/telegram/import", async (req, res, next) => { try { res.json(await commands.handle("middleware_migration_telegram_import", req.body ?? {})) } catch (error) { next(error) } })
 
-  app.get("/api/projects", (_req, res) => res.json(projects.list()))
+  app.get("/api/projects", (req, res) => res.json(projects.list({ spaceId: req.query.spaceId ? String(req.query.spaceId) : undefined })))
   app.post("/api/projects", (req, res) => res.json(projects.create(req.body)))
   app.patch("/api/projects/:projectId", (req, res) => res.json(projects.update(req.params.projectId, req.body)))
   app.delete("/api/projects/:projectId", (req, res) => res.json(projects.delete(req.params.projectId)))
@@ -255,6 +268,11 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       "Access-Control-Allow-Origin": "*",
     })
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    if (isSharedGatewayEnabled()) {
+      const unregister = registerChatStreamClient({ requestedSessionKey, activeSessionKey: sessionKey, res })
+      req.on("close", unregister)
+      return
+    }
     let gateway: Awaited<ReturnType<typeof connectGateway>> | null = null
     send("chat.ready", { type: "chat.ready", sessionKey: requestedSessionKey, activeSessionKey: sessionKey })
     try {
