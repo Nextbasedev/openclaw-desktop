@@ -52,6 +52,16 @@ describe("stripGatewayPrefixes", () => {
       "hello world",
     ],
     [
+      "sender metadata preamble with utc timestamp",
+      'Sender (untrusted metadata):\n```json\n{\n  "label": "OpenClaw Desktop Middleware (gateway-client)",\n  "id": "gateway-client",\n  "name": "OpenClaw Desktop Middleware",\n  "username": "OpenClaw Desktop Middleware"\n}\n```\n\n[Fri 2026-05-08 10:31 UTC] Hello',
+      "Hello",
+    ],
+    [
+      "sender metadata preamble with gmt offset timestamp",
+      'Sender (untrusted metadata):\n```json\n{\n  "label": "openclaw-tui",\n  "id": "openclaw-tui"\n}\n```\n\n[Thu 2026-05-07 15:58 GMT+5:30] hwy',
+      "hwy",
+    ],
+    [
       "cron header with exact reply",
       "[cron:1ac04ab4-f813-4057-b8c3-b562e38d0c59 hey-jarvis-10s] Reply with exactly: Hey jarvis",
       "Hey jarvis",
@@ -150,6 +160,27 @@ describe("cleanUserMessageText", () => {
       ),
       "check this",
     )
+  })
+
+  it("removes sender metadata wrappers saved in gateway history", () => {
+    assert.equal(
+      cleanUserMessageText(
+        'Sender (untrusted metadata):\n```json\n{\n  "label": "OpenClaw Desktop Middleware (gateway-client)",\n  "id": "gateway-client",\n  "name": "OpenClaw Desktop Middleware",\n  "username": "OpenClaw Desktop Middleware"\n}\n```\n\n[Fri 2026-05-08 10:31 UTC] Hello',
+      ),
+      "Hello",
+    )
+  })
+
+  it("keeps plain user text that only mentions sender metadata words", () => {
+    const text =
+      'Sender (untrusted metadata): please show this text literally without parsing'
+    assert.equal(cleanUserMessageText(text), text)
+  })
+
+  it("keeps malformed sender metadata blocks unchanged", () => {
+    const text =
+      'Sender (untrusted metadata):\n```json\nnot-json\n```\n\nHello'
+    assert.equal(cleanUserMessageText(text), text)
   })
 })
 

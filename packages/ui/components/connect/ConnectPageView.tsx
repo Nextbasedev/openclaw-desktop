@@ -1,7 +1,9 @@
 "use client"
 
+import { useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  ArrowLeft01Icon,
   CheckmarkCircle02Icon,
   ComputerIcon,
   Copy01Icon,
@@ -12,7 +14,6 @@ import {
   ViewOffIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
-import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -129,8 +130,15 @@ export function ConnectPageView({
 
   return (
     <div className="min-h-0 h-full w-full overflow-y-auto bg-background px-4 py-4 sm:px-6 sm:py-6">
-      <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col justify-center gap-4">
-        <div className={cn("overflow-hidden p-6 sm:p-8", GLASS_POPOVER)}>
+      <div
+        className={cn(
+          "mx-auto flex min-h-full w-full max-w-[720px] flex-col gap-4",
+          (setupMode === "choice" && !isConnected) || isConnected
+            ? "justify-center"
+            : "justify-start"
+        )}
+      >
+        <div className="overflow-hidden rounded-md p-6 sm:p-8">
           <div className="mx-auto max-w-[560px] space-y-6">
             <header className="space-y-3 text-center">
               <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-white/10 bg-white/5">
@@ -275,7 +283,7 @@ function ModeCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-md border p-4 text-left transition-all",
+        "rounded-md border p-5 text-left transition-all",
         active
           ? "border-emerald-500/40 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]"
           : "border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.04]",
@@ -287,7 +295,7 @@ function ModeCard({
         </div>
         <p className="text-sm font-medium text-zinc-100">{title}</p>
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-zinc-500">{description}</p>
+      <p className="mt-4 text-xs leading-relaxed text-zinc-500">{description}</p>
     </button>
   )
 }
@@ -325,8 +333,18 @@ function LocalOpenClawPanel({
 }) {
   const checking = busy || loadingStatus
   return (
-    <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+    <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 [&>button:first-of-type]:hidden">
       <Button type="button" variant="ghost" size="sm" onClick={onBack} className="h-7 w-fit px-2 text-xs text-zinc-400">← Back</Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onBack}
+        className="h-9 w-fit rounded-lg border-white/10 bg-white/[0.02] px-3 text-sm font-medium text-zinc-200 hover:bg-white/[0.05] hover:text-white"
+      >
+        <HugeiconsIcon icon={ArrowLeft01Icon} size={16} />
+        Go back
+      </Button>
       <StepBadge step="2" label="Check local OpenClaw" />
       <div>
         <p className="text-sm font-medium text-zinc-100">We’ll look for OpenClaw on this machine.</p>
@@ -382,8 +400,18 @@ function VpsOpenClawPanel(props: {
   onSave: () => void
 }) {
   return (
-    <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+    <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 [&>button:first-of-type]:hidden">
       <Button type="button" variant="ghost" size="sm" onClick={props.onBack} className="h-7 w-fit px-2 text-xs text-zinc-400">← Back</Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={props.onBack}
+        className="h-9 w-fit rounded-lg border-white/10 bg-white/[0.02] px-3 text-sm font-medium text-zinc-200 hover:bg-white/[0.05] hover:text-white"
+      >
+        <HugeiconsIcon icon={ArrowLeft01Icon} size={16} />
+        Go back
+      </Button>
       <StepBadge step="2" label="Prepare the VPS" />
       <PromptBox
         title="Ask OpenClaw on your VPS:"
@@ -427,20 +455,32 @@ function StatusMessage({ message, fallback }: { message: DetectMessage | null; f
 }
 
 function PromptBox({ title, prompt }: { title: string; prompt: string }) {
+  const [copied, setCopied] = useState(false)
+
   async function copyPrompt() {
-    try { await navigator.clipboard.writeText(prompt) } catch {}
+    try {
+      await navigator.clipboard.writeText(prompt)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {}
   }
 
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-medium text-zinc-300">{title}</p>
-        <Button type="button" variant="outline" size="sm" onClick={copyPrompt} className="h-7 px-2 text-[11px]">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={copyPrompt}
+          className="h-7 px-2 text-[11px] active:translate-y-0"
+        >
           <HugeiconsIcon icon={Copy01Icon} size={13} />
-          Copy
+          {copied ? "Copied!" : "Copy"}
         </Button>
       </div>
-      <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-400">
+      <pre className="mt-3 h-[244px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-400">
         {prompt}
       </pre>
     </div>
