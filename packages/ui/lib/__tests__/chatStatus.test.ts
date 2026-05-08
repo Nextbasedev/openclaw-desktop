@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { inferRestoredChatStatus } from "../chatStatus"
+import { inferRestoredChatStatus, statusFromBackendSession } from "../chatStatus"
 
 describe("inferRestoredChatStatus", () => {
   it("restores completed cached conversations as done, not thinking", () => {
@@ -11,13 +11,13 @@ describe("inferRestoredChatStatus", () => {
     ).toBe("done")
   })
 
-  it("keeps active cached status while a run is really active", () => {
+  it("does not restore stale cached thinking without backend confirmation", () => {
     expect(
       inferRestoredChatStatus(
-        [{ messageId: "u1", role: "user", text: "Do work" }],
+        [{ messageId: "a1", role: "assistant", text: "Completed answer" }],
         "thinking",
       ),
-    ).toBe("thinking")
+    ).toBe("done")
   })
 
   it("keeps terminal cached error status", () => {
@@ -27,5 +27,28 @@ describe("inferRestoredChatStatus", () => {
         "error",
       ),
     ).toBe("error")
+  })
+})
+
+describe("statusFromBackendSession", () => {
+  it("uses backend running state as the source of truth", () => {
+    expect(statusFromBackendSession("running", [])).toBe("thinking")
+    expect(statusFromBackendSession("queued", [])).toBe("thinking")
+  })
+
+  it("uses backend idle state to clear stale thinking", () => {
+    expect(
+      statusFromBackendSession("idle", [
+        { messageId: "a1", role: "assistant", text: "Done" },
+      ]),
+    ).toBe("done")
+  })
+
+  it("uses backend idle state as idle when no assistant answer exists", () => {
+    expect(
+      statusFromBackendSession("idle", [
+        { messageId: "u1", role: "user", text: "Do work" },
+      ]),
+    ).toBe("idle")
   })
 })
