@@ -51,7 +51,7 @@ function waitFor(ws: WebSocket, pred: (m: GatewayMessage) => boolean, label: str
   })
 }
 
-export async function connectGateway(scopes = ["operator.read", "operator.write", "operator.admin"]) {
+export async function connectGateway(scopes = ["operator.read", "operator.write"]) {
   const cfg = await readConfig(); const token = process.env.OPENCLAW_GATEWAY_TOKEN || cfg.gateway?.auth?.token; const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`
   if (!token) throw new Error("OpenClaw gateway token is missing")
   const identity = await readIdentity()
