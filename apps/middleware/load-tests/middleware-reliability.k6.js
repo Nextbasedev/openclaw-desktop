@@ -38,6 +38,7 @@ function request(method, path, body = undefined, required = true) {
     [`${method} ${path} 2xx`]: (r) => r.status >= 200 && r.status < 300,
   })
   if (required && !ok) {
+    sleep(0.25)
     throw new Error(`${method} ${path} failed ${res.status}: ${String(res.body).slice(0, 300)}`)
   }
   try { return res.json() } catch { return null }

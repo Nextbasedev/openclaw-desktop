@@ -14,6 +14,7 @@ type ChatStreamClient = {
 const clients = new Map<string, ChatStreamClient>()
 let gateway: MiddlewareGatewayHandle | null = null
 let startingGateway: Promise<void> | null = null
+let retryGatewayTimer: ReturnType<typeof setTimeout> | null = null
 let nextClientId = 0
 
 function eventSessionKey(payload: any) {
@@ -51,7 +52,7 @@ export function registerChatStreamClient(params: {
     },
   })
   client.send("chat.ready", { type: "chat.ready", sessionKey: client.requestedSessionKey, activeSessionKey: client.activeSessionKey })
-  void ensureSharedChatEventGateway()
+  startSharedChatEventGateway()
   return () => { clients.delete(id) }
 }
 
@@ -68,7 +69,19 @@ export function resetChatStreamHubForTests() {
   gateway?.close()
   gateway = null
   startingGateway = null
+  if (retryGatewayTimer) clearTimeout(retryGatewayTimer)
+  retryGatewayTimer = null
   nextClientId = 0
+}
+
+function startSharedChatEventGateway() {
+  void ensureSharedChatEventGateway().catch(() => {
+    if (retryGatewayTimer || clients.size === 0) return
+    retryGatewayTimer = setTimeout(() => {
+      retryGatewayTimer = null
+      if (clients.size > 0) startSharedChatEventGateway()
+    }, 1000)
+  })
 }
 
 export async function ensureSharedChatEventGateway() {

@@ -24,4 +24,15 @@ describe("health/auth", () => {
     expect(res.status).toBe(200)
     expect(res.body.version).toBe("0.1.0")
   })
+
+  it("returns startup bootstrap data in one protected call", async () => {
+    const res = await request(app).get("/api/bootstrap").set("Authorization", "Bearer secret")
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(Array.isArray(res.body.spaces)).toBe(true)
+    expect(Array.isArray(res.body.chats)).toBe(true)
+    expect(Array.isArray(res.body.projects)).toBe(true)
+    expect(Array.isArray(res.body.sessions)).toBe(true)
+    expect(res.body.activeSpaceId).toBeTruthy()
+  })
 })
