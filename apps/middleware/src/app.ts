@@ -16,6 +16,7 @@ import { commandRoutes } from "./services/commands.js"
 import { connectGateway, isSharedGatewayEnabled } from "./services/gateway.js"
 import { registerChatStreamClient } from "./services/chat-stream-hub.js"
 import { middlewareUpdateStatus, startMiddlewareUpdate } from "./services/updater.js"
+import { isPairingRequiredError } from "./services/commands.js"
 
 async function isOpenClawGatewayReachable(gatewayUrl: string) {
   try {
@@ -275,7 +276,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
     let gateway: Awaited<ReturnType<typeof connectGateway>> | null = null
     send("chat.ready", { type: "chat.ready", sessionKey: requestedSessionKey, activeSessionKey: sessionKey })
     try {
-      gateway = await connectGateway(["operator.read", "operator.write", "operator.approvals"])
+      gateway = await connectGateway(["operator.read", "operator.write", "operator.admin", "operator.approvals"])
       send("chat.status", { type: "chat.status", sessionKey, state: "connected" })
       await gateway.request("sessions.subscribe", {}, 30_000).catch(() => null)
       let closed = false
@@ -450,7 +451,12 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       })
       req.on("close", () => { stopRetrySubscribe(); off(); gateway?.close() })
     } catch (error) {
-      send("chat.status", { type: "chat.status", sessionKey, state: "error", label: error instanceof Error ? error.message : "stream_error" })
+      const label = isPairingRequiredError(error)
+        ? "pairing required"
+        : error instanceof Error
+          ? error.message
+          : "stream_error"
+      send("chat.status", { type: "chat.status", sessionKey, state: "error", label })
       gateway?.close()
     }
   })
