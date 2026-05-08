@@ -200,13 +200,23 @@ async function fetchStableChatBootstrap(
   return latest
 }
 
-async function reconcileChatHistory(sessionKey: string): Promise<ChatMessage[]> {
+async function reconcileChatHistory(
+  sessionKey: string,
+  status?: StreamStatus | null
+): Promise<ChatMessage[]> {
   const history = await invoke<{ messages: unknown[] }>("middleware_chat_history", {
     input: { sessionKey },
   })
   const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
-  await localSyncSetMessages(sessionKey, parsed.messages, "done")
+  await localSyncSetMessages(sessionKey, parsed.messages, status ?? null)
   return parsed.messages
+}
+
+function isActiveRunStatus(status: StreamStatus | null | undefined) {
+  return Boolean(
+    status &&
+      !["idle", "connected", "done", "error"].includes(status)
+  )
 }
 
 async function loadChatBootstrap(
@@ -325,6 +335,9 @@ export function useChatMessages(
   const scrollFrameRef = useRef<number | null>(null)
   const programmaticScrollUntilRef = useRef(0)
   const lastSmoothScrollAtRef = useRef(0)
+  const lastStreamEventAtRef = useRef(Date.now())
+  const activeReconcileInFlightRef = useRef(false)
+  const messagesRef = useRef<ChatMessage[]>(hasInitial ? initialMessages : cachedMessages ?? [])
 
   useEffect(() => {
     cacheChatActivity(sessionKey, {
@@ -335,17 +348,17 @@ export function useChatMessages(
     })
   }, [sessionKey, status, statusLabel, pendingTools, spawnedSubagents])
 
-  const isGenerating =
-    status !== "idle" &&
-    status !== "connected" &&
-    status !== "done" &&
-    status !== "error"
+  const isGenerating = isActiveRunStatus(status)
   const initialMessageKey =
     initialMessages?.map((m) => m.messageId).join("|") ?? ""
 
   useEffect(() => {
     statusRef.current = status
   }, [status])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   useEffect(() => {
     isSendingRef.current = isSending
@@ -434,6 +447,40 @@ export function useChatMessages(
     })
   }, [])
 
+  const reconcileActiveRun = useCallback(async () => {
+    if (activeReconcileInFlightRef.current) return
+    activeReconcileInFlightRef.current = true
+    try {
+      const [freshMessages, sessionsResult] = await Promise.all([
+        reconcileChatHistory(sessionKey, statusRef.current).catch(() => null),
+        invoke<{
+          sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+        }>("middleware_sessions_list", { input: {} }).catch(() => null),
+      ])
+      const backendSession = sessionsResult?.sessions?.find(
+        (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+      )
+      if (freshMessages?.length) {
+        setMessages((prev) => dedupeChatMessages([...prev, ...freshMessages]))
+      }
+      const nextStatus = statusFromBackendSession(
+        backendSession?.status,
+        freshMessages?.length ? freshMessages : messagesRef.current,
+      )
+      if (backendSession?.status || !isActiveRunStatus(nextStatus)) {
+        setStatus(nextStatus)
+        if (nextStatus === "done" || nextStatus === "idle") {
+          setStatusLabel(null)
+          setErrorMessage(null)
+        }
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+    } finally {
+      activeReconcileInFlightRef.current = false
+    }
+  }, [queryClient, sessionKey])
+
   useEffect(() => {
     return () => {
       if (scrollFrameRef.current !== null) {
@@ -467,6 +514,7 @@ export function useChatMessages(
 
   const handleStreamEvent = useCallback(
     (payload: StreamEventPayload) => {
+      lastStreamEventAtRef.current = Date.now()
       const ev = payload.event
       switch (ev.type) {
         case "chat.status": {
@@ -498,7 +546,7 @@ export function useChatMessages(
           if (incoming === "error") {
             void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             setTimeout(() => {
-              void reconcileChatHistory(sessionKey).then((fresh) => {
+              void reconcileChatHistory(sessionKey, "error").then((fresh) => {
                 if (fresh.length) setMessages((prev) => dedupeChatMessages([...prev, ...fresh]))
               }).catch(() => undefined)
             }, 500)
@@ -507,7 +555,7 @@ export function useChatMessages(
           if (incoming === "done") {
             void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             setTimeout(() => {
-              void reconcileChatHistory(sessionKey).then((fresh) => {
+              void reconcileChatHistory(sessionKey, "done").then((fresh) => {
                 if (fresh.length) setMessages((prev) => dedupeChatMessages([...prev, ...fresh]))
               }).catch(() => undefined)
             }, 500)
@@ -1369,17 +1417,10 @@ export function useChatMessages(
           },
           () => {
             const current = statusRef.current
-            const activelyWaiting =
-              isSendingRef.current ||
-              current === "thinking" ||
-              current === "tool_running" ||
-              current === "streaming" ||
-              current === "stopping" ||
-              current === "restarting"
-            if (!cancelled && activelyWaiting) {
-              setErrorMessage("Connection to server lost")
-              setStatus("error")
-              clearCachedChatActivity(sessionKey)
+            if (!cancelled && (isSendingRef.current || isActiveRunStatus(current))) {
+              setStatus((prev) => isActiveRunStatus(prev) ? "thinking" : prev)
+              setStatusLabel("Live updates reconnecting…")
+              void reconcileActiveRun().catch(() => undefined)
               void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
             }
           }
@@ -1418,7 +1459,27 @@ export function useChatMessages(
     forceScrollToBottom,
     streamGeneration,
     queryClient,
+    reconcileActiveRun,
   ])
+
+  useEffect(() => {
+    if (!isGenerating) return
+    const reconcileIfStale = () => {
+      if (Date.now() - lastStreamEventAtRef.current < 12_000) return
+      void reconcileActiveRun().catch(() => undefined)
+    }
+    const interval = setInterval(reconcileIfStale, 10_000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reconcileIfStale()
+    }
+    window.addEventListener("focus", reconcileIfStale)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener("focus", reconcileIfStale)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [isGenerating, reconcileActiveRun])
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
