@@ -11,6 +11,7 @@ import type {
 import {
   parseHistoryToolCalls,
   buildTree,
+  finalizeStaleRunningActivity,
 } from "@/components/inspector/activity-types"
 import {
   extractSubagentSessionKey,
@@ -68,6 +69,24 @@ function inferChildHistoryPhase(
   if (calls.some((call) => call.status === "error")) return "failed"
   if (calls.some((call) => call.status === "running")) return "working"
   return null
+}
+
+function isBackendRunningStatus(status: unknown) {
+  return status === "running" || status === "queued" || status === "starting"
+}
+
+async function shouldFinalizeStaleActivity(sessionKey: string) {
+  try {
+    const result = await invoke<{
+      sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+    }>("middleware_sessions_list", { input: {} })
+    const session = (result.sessions || []).find(
+      (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+    )
+    return session ? !isBackendRunningStatus(session.status) : false
+  } catch {
+    return false
+  }
 }
 
 export function useAgentActivity(sessionKey: string | null) {
@@ -396,6 +415,20 @@ export function useAgentActivity(sessionKey: string | null) {
   const handleStreamDone = useCallback(() => {
     if (doneTimerRef.current) clearTimeout(doneTimerRef.current)
     doneTimerRef.current = setTimeout(() => {
+      if (sessionKey) {
+        void shouldFinalizeStaleActivity(sessionKey).then((shouldFinalize) => {
+          if (!shouldFinalize || cancelledRef.current) return
+          const reconciled = finalizeStaleRunningActivity(
+            Array.from(callMapRef.current.values()),
+            agentsRef.current,
+          )
+          callMapRef.current = new Map(
+            reconciled.calls.map((call) => [call.id, call]),
+          )
+          agentsRef.current = reconciled.agents
+          syncState()
+        })
+      }
       for (const [subKey, agentId] of subKeyToAgentRef.current) {
         void fetchSubagentHistory(subKey, agentId).then((phase) => {
           if (!phase || isActiveSubagent(phase)) {
@@ -405,7 +438,7 @@ export function useAgentActivity(sessionKey: string | null) {
       }
       syncState()
     }, 3000)
-  }, [fetchSubagentHistory, startSubagentPoll, syncState])
+  }, [fetchSubagentHistory, startSubagentPoll, syncState, sessionKey])
 
   const handleStreamResume = useCallback(() => {
     if (doneTimerRef.current) {
@@ -439,6 +472,8 @@ export function useAgentActivity(sessionKey: string | null) {
     setSubKeyToAgent([])
     setHistoryLoaded(false)
 
+    const activeSessionKey = sessionKey
+
     async function loadHistory() {
       try {
         const history = await invoke<{
@@ -451,10 +486,15 @@ export function useAgentActivity(sessionKey: string | null) {
         const parsed = parseHistoryToolCalls(
           history.messages ?? [],
         )
-        for (const call of parsed.calls) {
+        const shouldFinalize = await shouldFinalizeStaleActivity(activeSessionKey)
+        if (cancelledRef.current) return
+        const reconciled = shouldFinalize
+          ? finalizeStaleRunningActivity(parsed.calls, parsed.agents)
+          : parsed
+        for (const call of reconciled.calls) {
           callMapRef.current.set(call.id, call)
         }
-        for (const [id, info] of parsed.agents) {
+        for (const [id, info] of reconciled.agents) {
           agentsRef.current.set(id, info)
           if (info.sessionKey) {
             subKeyToAgentRef.current.set(info.sessionKey, id)
