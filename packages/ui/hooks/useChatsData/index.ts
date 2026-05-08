@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
+import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import type { Chat, ActiveChat } from "@/types/chat"
@@ -65,6 +66,13 @@ export function useChatsData(
       }
     } catch {}
     try {
+      const chatCacheKey = spaceId ? `project:${spaceId}:chats` : null
+      const cachedChats = chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey) : null
+      if (cachedChats) {
+        const active = cachedChats.filter((c) => !c.archived)
+        setChats(active)
+        setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+      }
       const bootstrap = await loadMiddlewareStartupBootstrap()
       if (bootstrap && (!spaceId || bootstrap.activeSpaceId === spaceId)) {
         const active = (bootstrap.chats || []).filter((c) => !c.archived)
@@ -79,6 +87,7 @@ export function useChatsData(
       const active = (result.chats || []).filter(
         (c) => !c.archived,
       )
+      if (spaceId) void persistentCacheSet(`project:${spaceId}:chats`, active, { ttlMs: 1000 * 60 * 60 * 24 })
       setChats(active)
       setPinnedChats(
         new Set(active.filter((c) => c.pinned).map((c) => c.id)),

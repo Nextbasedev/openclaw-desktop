@@ -43,6 +43,7 @@ import type {
 import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
+import { persistentCacheDeletePrefix, persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import {
   cleanUserMessageText,
   deduplicateRawMessages,
@@ -161,14 +162,23 @@ function toolResultText(result: unknown) {
 async function fetchChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData> {
-  return Promise.all([
+  const historyCacheKey = `session:${sessionKey}:history`
+  const cachedMessages = await persistentCacheGet<unknown[]>(historyCacheKey)
+  const [freshHistory, branchData] = await Promise.all([
     invoke<{ messages: unknown[] }>("middleware_chat_history", {
       input: { sessionKey },
+    }).catch((error) => {
+      if (cachedMessages) return { messages: cachedMessages }
+      throw error
     }),
     invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
       input: { sourceSessionKey: sessionKey },
     }).catch(() => ({ branches: [] })),
-  ]).then(([history, branchData]) => ({ history, branchData }))
+  ])
+  if (freshHistory.messages?.length) {
+    void persistentCacheSet(historyCacheKey, freshHistory.messages.slice(-200), { ttlMs: 1000 * 60 * 60 * 24 })
+  }
+  return { history: freshHistory, branchData }
 }
 
 async function fetchStableChatBootstrap(
@@ -1476,6 +1486,7 @@ export function useChatMessages(
           setStatusLabel(null)
           await invoke("middleware_chat_stop", { input: { sessionKey } })
         }
+        void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
         await invoke("middleware_chat_send", {
           input: {
             sessionKey,
