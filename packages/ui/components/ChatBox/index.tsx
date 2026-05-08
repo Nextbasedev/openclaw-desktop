@@ -12,6 +12,7 @@ import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
 import { invoke } from "@/lib/ipc"
+import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import { GlassDialog } from "@/components/ui/GlassDialog"
 import { LuX } from "react-icons/lu"
 import {
@@ -195,8 +196,10 @@ export function ChatBox({
     async function loadVoiceStatus() {
       setVoiceStatusLoading(true)
       try {
-        const payload = await invoke<VoiceSettingsPayload>(
-          "middleware_voice_settings_get"
+        const payload = await dedupeRequest(
+          "voice-settings",
+          () => invoke<VoiceSettingsPayload>("middleware_voice_settings_get"),
+          { ttlMs: 30_000 },
         )
         if (cancelled) return
         const settings = payload.settings
@@ -218,12 +221,16 @@ export function ChatBox({
       }
     }
     void loadVoiceStatus()
-    window.addEventListener("openclaw:voice-settings-changed", loadVoiceStatus)
+    const handleVoiceSettingsChanged = () => {
+      invalidateDedupe("voice-settings")
+      void loadVoiceStatus()
+    }
+    window.addEventListener("openclaw:voice-settings-changed", handleVoiceSettingsChanged)
     return () => {
       cancelled = true
       window.removeEventListener(
         "openclaw:voice-settings-changed",
-        loadVoiceStatus
+        handleVoiceSettingsChanged
       )
     }
   }, [])

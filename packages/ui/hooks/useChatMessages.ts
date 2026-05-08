@@ -4,6 +4,7 @@ import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
+import { dedupeRequest } from "@/lib/requestDedupe"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
@@ -208,7 +209,7 @@ async function loadChatBootstrap(
     return cached.value instanceof Promise ? await cached.value : cached.value
   }
 
-  const value = fetchStableChatBootstrap(sessionKey)
+  const value = dedupeRequest(`chat-bootstrap:${sessionKey}`, () => fetchStableChatBootstrap(sessionKey), { ttlMs: CHAT_BOOTSTRAP_TTL_MS })
 
   chatBootstrapCache.set(sessionKey, {
     expiresAt: now + CHAT_BOOTSTRAP_TTL_MS,
