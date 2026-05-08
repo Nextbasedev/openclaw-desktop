@@ -328,6 +328,7 @@ function BranchNav({
 export function MessageBubble({
   message,
   onEdit,
+  onRetrySend,
   onSwitchBranch,
   onReply,
   onPin,
@@ -348,6 +349,7 @@ export function MessageBubble({
 }: {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
+  onRetrySend?: (messageId: string) => void
   onSwitchBranch?: (messageId: string, branchIndex: number) => void
   onReply?: (messageId: string) => void
   onPin?: (messageId: string) => void
@@ -739,6 +741,21 @@ export function MessageBubble({
               )}
               {!isUser && <RichContentPreview message={message} />}
             </div>
+            {isUser && message.sendStatus === "sending" && (
+              <div className="mt-1 text-[11px] text-muted-foreground/70">Sending…</div>
+            )}
+            {isUser && message.sendStatus === "failed" && (
+              <div className="mt-1 flex max-w-full items-center gap-2 text-[11px] text-rose-300">
+                <span className="min-w-0 truncate">{message.sendError || "Send failed"}</span>
+                <button
+                  type="button"
+                  onClick={() => onRetrySend?.(message.messageId)}
+                  className="shrink-0 cursor-pointer rounded-full border border-rose-300/30 px-2 py-0.5 text-rose-100 transition-colors hover:bg-rose-300/10"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
             {selectionAction &&
               selectionRects.length > 0 &&
               createPortal(

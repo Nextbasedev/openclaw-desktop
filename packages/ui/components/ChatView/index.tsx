@@ -530,7 +530,8 @@ export function ChatView({
         !firstFiredRef.current &&
         messages.length === 0 &&
         Boolean(onFirstMessageSent)
-      await handleSend(payload)
+      const sent = await handleSend(payload)
+      if (sent === false) return
       if (shouldNotifyFirstSend && onFirstMessageSent) {
         firstFiredRef.current = true
         onFirstMessageSent(payload.text)
@@ -542,6 +543,15 @@ export function ChatView({
       setComposerSeed("")
     },
     [handleSend, messages.length, modelSwitching, onFirstMessageSent]
+  )
+
+  const retrySend = useCallback(
+    (messageId: string) => {
+      const message = messages.find((m) => m.messageId === messageId)
+      if (!message?.retryPayload) return
+      void handleSend(message.retryPayload, messageId)
+    },
+    [handleSend, messages]
   )
 
   const visibleAllMessages = useMemo(
@@ -1229,6 +1239,7 @@ export function ChatView({
                           ? handleEdit
                           : undefined
                       }
+                      onRetrySend={retrySend}
                       onSwitchBranch={switchBranch}
                       onReply={replyToMessage}
                       onPin={togglePin}

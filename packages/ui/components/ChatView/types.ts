@@ -1,3 +1,4 @@
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 
 export type ContentBlock = {
@@ -69,6 +70,9 @@ export type ChatMessage = {
   usage?: ChatTokenUsage | null
   stopReason?: string | null
   isOptimistic?: boolean
+  sendStatus?: "sending" | "failed"
+  sendError?: string | null
+  retryPayload?: ChatComposerSubmit
   animateText?: boolean
   toolCalls?: InlineToolCall[]
   branches?: MessageBranch[]
