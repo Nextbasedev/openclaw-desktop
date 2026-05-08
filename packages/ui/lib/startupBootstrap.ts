@@ -1,4 +1,5 @@
 import { getMiddlewareConnection, middlewareFetch } from "@/lib/middleware-client"
+import { persistentCacheDeletePrefix, persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import type { Space } from "@/types/space"
 import type { Chat } from "@/types/chat"
@@ -13,17 +14,38 @@ type BootstrapPayload = {
 }
 
 const BOOTSTRAP_KEY = "middleware:startup-bootstrap"
+const BOOTSTRAP_CACHE_KEY = "startup:bootstrap"
 const BOOTSTRAP_TTL_MS = 2_000
+const BOOTSTRAP_PERSIST_TTL_MS = 1000 * 60 * 60 * 24
 
-export async function loadMiddlewareStartupBootstrap(): Promise<BootstrapPayload | null> {
+async function fetchMiddlewareStartupBootstrap(): Promise<BootstrapPayload | null> {
   if (!getMiddlewareConnection()) return null
   return dedupeRequest(
     BOOTSTRAP_KEY,
-    () => middlewareFetch<BootstrapPayload>("/api/bootstrap"),
+    async () => {
+      const payload = await middlewareFetch<BootstrapPayload>("/api/bootstrap")
+      await persistentCacheSet(BOOTSTRAP_CACHE_KEY, payload, { ttlMs: BOOTSTRAP_PERSIST_TTL_MS })
+      if (payload.activeSpaceId) {
+        await persistentCacheSet(`project:${payload.activeSpaceId}:chats`, payload.chats || [], { ttlMs: BOOTSTRAP_PERSIST_TTL_MS })
+      }
+      return payload
+    },
     { ttlMs: BOOTSTRAP_TTL_MS },
   ).catch(() => null)
 }
 
+export async function loadMiddlewareStartupBootstrap(): Promise<BootstrapPayload | null> {
+  const cached = await persistentCacheGet<BootstrapPayload>(BOOTSTRAP_CACHE_KEY)
+  if (getMiddlewareConnection()) void fetchMiddlewareStartupBootstrap()
+  return cached ?? await fetchMiddlewareStartupBootstrap()
+}
+
+export async function refreshMiddlewareStartupBootstrap(): Promise<BootstrapPayload | null> {
+  return fetchMiddlewareStartupBootstrap()
+}
+
 export function invalidateMiddlewareStartupBootstrap() {
   invalidateDedupe(BOOTSTRAP_KEY)
+  void persistentCacheDeletePrefix("startup:")
+  void persistentCacheDeletePrefix("project:")
 }
