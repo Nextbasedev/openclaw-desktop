@@ -117,7 +117,7 @@ function normalizeHistoryPayload(payload: any) {
   return sanitizeHistoryPayloadForUi(normalized)
 }
 
-function isPairingRequiredError(error: unknown) {
+export function isPairingRequiredError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   const lower = message.toLowerCase()
   return lower.includes("pairing") || lower.includes("not paired") || lower.includes("not registered") || lower.includes("identity")

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { LuBox, LuPlus } from "react-icons/lu"
+import { LuFolderKanban, LuPlus } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -26,7 +26,7 @@ const DOT_GRADIENTS = [
 
 export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Props) {
   const [createOpen, setCreateOpen] = useState(false)
-  const [name, setName] = useState("New Space")
+  const [name, setName] = useState("New Project")
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0] ?? null
@@ -36,7 +36,7 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
   }, [createOpen])
 
   function openCreate() {
-    setName("New Space")
+    setName("New Project")
     setCreateOpen(true)
   }
 
@@ -58,7 +58,7 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
           "flex h-9 items-center justify-between gap-3 rounded-[14px] px-2.5",
           "border border-white/[0.07] bg-white/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl",
         )}
-        aria-label="Spaces"
+        aria-label="Projects"
       >
         <div className="flex min-w-0 items-center gap-4">
           {activeSpace && (
@@ -66,11 +66,11 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
               type="button"
               onClick={() => void onSwitch(activeSpace.id)}
               title={activeSpace.name}
-              aria-label={`Current space: ${activeSpace.name}`}
+              aria-label={`Current project: ${activeSpace.name}`}
               className="relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
             >
               <span className="absolute inset-0 rounded-full bg-gradient-to-br from-cyan-300 via-sky-400 to-violet-500 shadow-[0_0_14px_rgba(56,189,248,0.55)]" />
-              <LuBox className="relative size-2.5 text-white/90" />
+              <LuFolderKanban className="relative size-2.5 text-white/90" />
               <span className="absolute -right-0.5 -top-0.5 flex size-2.5 items-center justify-center rounded-full bg-zinc-950/85 ring-1 ring-white/20">
                 <LuPlus className="size-1.5 text-white/80" />
               </span>
@@ -83,7 +83,7 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
               type="button"
               onClick={() => void onSwitch(space.id)}
               title={space.name}
-              aria-label={`Switch to ${space.name}`}
+              aria-label={`Switch to project ${space.name}`}
               className="group flex size-3 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
             >
               <span
@@ -99,8 +99,8 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
         <button
           type="button"
           onClick={openCreate}
-          title="New Space"
-          aria-label="New Space"
+          title="New Project"
+          aria-label="New Project"
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
         >
           <LuPlus className="size-5 stroke-[1.7]" />
@@ -110,9 +110,9 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle>New Space</DialogTitle>
+            <DialogTitle>New Project</DialogTitle>
             <DialogDescription>
-              Create a workspace to keep chats and project context separated.
+              Create a project workspace to keep chats, repo context, and settings separated.
             </DialogDescription>
           </DialogHeader>
           <input
@@ -125,7 +125,7 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={busy}>Cancel</Button>
             <Button onClick={() => void submitCreate()} disabled={busy || !name.trim()}>
-              Create Space
+              Create Project
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef, type CSSProperties } from "react"
 import { Reorder } from "framer-motion"
-import { ProjectsSection, type ActiveTopic } from "./ProjectsSection"
+import type { ActiveTopic } from "@/types/project"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { SpacesSection } from "./SpacesSection"
 import { cn } from "@/lib/utils"
@@ -64,9 +64,6 @@ export function Sidebar({
   onTabChange,
   items,
   onItemsReorder,
-  activeTopic,
-  onTopicSelect,
-  onTopicClear,
   activeChat,
   onChatSelect,
   onChatClear,
@@ -86,7 +83,6 @@ export function Sidebar({
     return localStorage.getItem(UNIQUE_SIDEBAR_BG_KEY) === "true"
   })
   const [chatsPopoverOpen, setChatsPopoverOpen] = useState(false)
-  const [projectsPopoverOpen, setProjectsPopoverOpen] = useState(false)
   const prevCollapsed = useRef(collapsed)
 
   useEffect(() => {
@@ -127,11 +123,10 @@ export function Sidebar({
     if (!collapsed) {
       const frame = window.requestAnimationFrame(() => {
         if (chatsPopoverOpen) setChatsPopoverOpen(false)
-        if (projectsPopoverOpen) setProjectsPopoverOpen(false)
       })
       return () => window.cancelAnimationFrame(frame)
     }
-  }, [chatsPopoverOpen, collapsed, projectsPopoverOpen])
+  }, [chatsPopoverOpen, collapsed])
 
   const sidebarStyle = useMemo(
     () =>
@@ -145,11 +140,6 @@ export function Sidebar({
     setChatsPopoverOpen(false)
     onChatSelect(chat)
   }, [onChatSelect])
-
-  const handleTopicSelectInPopover = useCallback((topic: ActiveTopic) => {
-    setProjectsPopoverOpen(false)
-    onTopicSelect(topic)
-  }, [onTopicSelect])
 
   const handlePrimaryTabClick = useCallback((tab: string) => {
     onTabChange(tab)
@@ -281,45 +271,6 @@ export function Sidebar({
                 </PopoverContent>
               </Popover>
 
-              <Popover open={projectsPopoverOpen} onOpenChange={setProjectsPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <div>
-                    <GlassTooltip label="Projects" disabled={projectsPopoverOpen}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "group flex w-full min-w-0 cursor-pointer items-center rounded-md px-2.5 py-2 text-left text-[13px] font-normal",
-                          "transition-[background-color,color,opacity] duration-150 ease-in-out",
-                          projectsPopoverOpen
-                            ? "text-foreground"
-                            : "text-foreground/85 hover:bg-secondary/60 hover:text-foreground",
-                        )}
-                      >
-                        <span className="flex size-4 shrink-0 items-center justify-center">
-                          <Icons.Files size={16} strokeWidth={1.5} />
-                        </span>
-                      </button>
-                    </GlassTooltip>
-                  </div>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="start"
-                  side="right"
-                  sideOffset={8}
-                  className={cn("w-[260px] p-0", GLASS_POPOVER)}
-                >
-                  <div className="max-h-[360px] overflow-y-auto p-2">
-                    <ProjectsSection
-                      collapsed={false}
-                      collapsible={false}
-                      activeTopic={activeTopic}
-                      onTopicSelect={handleTopicSelectInPopover}
-                      onTopicClear={onTopicClear}
-                      spaceId={activeSpaceId}
-                    />
-                  </div>
-                </PopoverContent>
-              </Popover>
             </div>
           )}
 
@@ -331,16 +282,6 @@ export function Sidebar({
               onChatClear={onChatClear}
               onNewChat={onNewChat}
               refreshTrigger={chatRefreshTrigger}
-              spaceId={activeSpaceId}
-            />
-          </div>
-
-          <div className={cn("mt-2 border-t border-border/10 pt-2", !showExpandedContent && "hidden")}>
-            <ProjectsSection
-              collapsed={false}
-              activeTopic={activeTopic}
-              onTopicSelect={onTopicSelect}
-              onTopicClear={onTopicClear}
               spaceId={activeSpaceId}
             />
           </div>

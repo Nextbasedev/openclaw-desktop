@@ -177,7 +177,6 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       spaces: spacesPayload.spaces,
       activeSpaceId,
       chats: records.chatsList({ archived: false, spaceId: activeSpaceId }).chats,
-      projects: projects.list({ spaceId: activeSpaceId }).projects,
       sessions: records.sessionsList({}).sessions,
     })
   })

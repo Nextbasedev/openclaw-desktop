@@ -220,7 +220,7 @@ async function connectSharedGateway(scopes: string[], purpose: GatewayPurpose): 
   const next = (async () => {
     const cfg = await readConfig(); const token = process.env.OPENCLAW_GATEWAY_TOKEN || cfg.gateway?.auth?.token; const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`
     if (!token) throw new Error("OpenClaw gateway token is missing")
-    const identity = await loadOrCreateIdentity()
+    const identity = await readIdentity()
     let lastError: unknown = null
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -263,7 +263,7 @@ export async function connectGateway(scopes = DEFAULT_SCOPES, opts: { purpose?: 
 }
 
 
-async function connectSharedGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof loadOrCreateIdentity>>, scopes: string[], purpose: GatewayPurpose) {
+async function connectSharedGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof readIdentity>>, scopes: string[], purpose: GatewayPurpose) {
   const headers = process.env.MIDDLEWARE_ORIGIN ? { origin: process.env.MIDDLEWARE_ORIGIN } : undefined
   const ws = new WebSocket(gatewayUrl, headers ? { headers } : undefined)
   try {
@@ -284,7 +284,7 @@ async function connectSharedGatewayOnce(gatewayUrl: string, token: string, ident
   }
 }
 
-async function connectGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof loadOrCreateIdentity>>, scopes: string[]) {
+async function connectGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof readIdentity>>, scopes: string[]) {
   const headers = process.env.MIDDLEWARE_ORIGIN ? { origin: process.env.MIDDLEWARE_ORIGIN } : undefined
   const ws = new WebSocket(gatewayUrl, headers ? { headers } : undefined)
   try {
