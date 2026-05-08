@@ -31,6 +31,7 @@ import {
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
 import { emit } from "@/lib/events"
+import { windowChatMessages } from "@/lib/messageWindow"
 import { toast } from "react-toastify"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
@@ -540,10 +541,15 @@ export function ChatView({
     [handleSend, messages.length, modelSwitching, onFirstMessageSent]
   )
 
-  const renderedMessages = useMemo(
+  const visibleAllMessages = useMemo(
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
+  const messageWindow = useMemo(
+    () => windowChatMessages(visibleAllMessages, messageActionState.pinnedIds),
+    [visibleAllMessages, messageActionState.pinnedIds]
+  )
+  const renderedMessages = messageWindow.messages
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -1118,6 +1124,11 @@ export function ChatView({
       >
         <div ref={messageContentRef} className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
+            {messageWindow.hiddenBefore > 0 && (
+              <div className="mx-auto rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                Showing latest {renderedMessages.length} of {messageWindow.total} messages
+              </div>
+            )}
             {renderedMessages.map((msg, i) => {
               const isLast = i === renderedMessages.length - 1
               const showPending =
