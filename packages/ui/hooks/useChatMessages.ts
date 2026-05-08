@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { dedupeRequest } from "@/lib/requestDedupe"
 import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
+import { tryAcquireActiveRunReconcileLock } from "@/lib/activeRunReconcileLock"
 import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
 import {
   cacheChatActivity,
@@ -449,6 +450,7 @@ export function useChatMessages(
 
   const reconcileActiveRun = useCallback(async () => {
     if (activeReconcileInFlightRef.current) return
+    if (!tryAcquireActiveRunReconcileLock(sessionKey)) return
     activeReconcileInFlightRef.current = true
     try {
       const [freshMessages, sessionsResult] = await Promise.all([
