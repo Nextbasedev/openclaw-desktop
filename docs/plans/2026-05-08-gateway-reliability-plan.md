@@ -182,3 +182,47 @@ Required pass criteria:
 - Do not hide failures in load tests by allowing `<1%` failure rate for reliability gate.
 - Do not treat the React shared-session fix as sufficient; this failure is gateway connection churn.
 - Do not run multiple heavy tests concurrently on this VPS; keep sequential and monitor RAM.
+
+---
+
+## Additional Edge Cases To Cover Before Implementation
+
+I re-checked the plan against the current middleware and server gateway-client code. The main direction is still correct, but implementation should explicitly cover these edge cases so the fix does not create a new class of bugs.
+
+### Connection lifecycle edge cases
+
+- **Do not return a half-open singleton.** Reuse only when `ws.readyState === WebSocket.OPEN` and the gateway handshake has completed.
+- **Clear `connectingGateway` in both success and failure paths.** Otherwise a rejected in-flight promise can poison future requests.
+- **Stale singleton after gateway restart.** If the gateway restarts while middleware stays up, the next request must detect close/error, clear the singleton, reconnect, then retry safe reads once.
+- **Listeners must not leak per request.** `waitFor()` listeners for each request must always clean up on success, timeout, close, or error.
+- **Shared socket + concurrent requests.** Multiple in-flight requests on one socket must correlate strictly by request id. Event frames and unrelated responses must be ignored without consuming the caller's response.
+- **Long-lived stream vs short API calls.** Chat/SSE streams may keep listeners attached while history/model/session calls run. The shared client must support both without one caller closing the socket out from under another.
+- **Do not call `gw.close()` in command handlers after moving to singleton.** Existing handlers close per-request clients in `finally`; those closes must be removed/replaced with no-op release semantics for shared connections.
+
+### Scope/auth edge cases
+
+- **Scope superset must match real gateway policy.** Current code uses `operator.admin` for exec policy/session patch/history in places, and docs list admin as part of middleware operator scopes. If setup/pairing grants only non-admin scopes, admin will reintroduce pairing/scope-upgrade problems. Decide one durable rule before implementation:
+  - either bootstrap/setup grants the full middleware scope set including admin, or
+  - commands that do not need admin stop requesting admin.
+- **Scope changes while singleton is open.** If a future command requires scopes outside the current singleton, fail clearly or reconnect with the normalized superset. Do not silently run a command with insufficient scopes.
+- **Token/identity rotation.** If `~/.openclaw/openclaw.json` token or device identity changes, the singleton must be reset; otherwise middleware can keep using a stale authenticated socket.
+
+### Retry/idempotency edge cases
+
+- **Retry read-only commands only.** Safe initial list: `middleware_chat_history`, `middleware_sessions_list`, `middleware_models_list`, connection/status reads. Do not retry `chat.send`, `chat.abort`, `sessions.patch`, approval resolve, file writes, or workspace mutations unless they have a proven idempotency key.
+- **Retry after send ambiguity.** If the socket closes after writing a request but before receiving the response, treat write commands as unknown outcome and surface an error instead of retrying.
+- **Retry budget must be small.** One reconnect + one read retry is enough; avoid infinite reconnect loops inside HTTP request handlers.
+- **Error classifier must be narrow.** Retry only gateway transport errors: closed before open, closed waiting for challenge/response, challenge timeout, `WebSocket is not open`, socket close/error. Do not retry application errors like bad auth, scope denied, 4xx validation, missing session, or command-specific failures.
+
+### Load/test edge cases
+
+- **Test with gateway restart during load.** Add a short test where gateway/middleware socket is closed mid-run and read-only calls recover.
+- **Test token/scope denial separately.** Confirm bad token/scope-denied errors do not enter retry loops.
+- **Test mixed workload.** Run chat stream + `middleware_chat_history` + `middleware_sessions_list` together, not only tabs or streams separately.
+- **Assert open socket count.** During a 5 VU tab test, gateway socket count should remain near one shared middleware connection, not grow with requests.
+- **Assert no process leaks.** After load tests, no leftover k6/node middleware child process should remain.
+
+### Documentation / branch hygiene
+
+- This plan file currently exists on branch `ui/new-feat`, not on the current `main` checkout. Anyone implementing from it should checkout/pull `ui/new-feat` or merge/cherry-pick the plan first.
+- Keep the implementation commit on a feature branch, not directly on `main`, unless explicitly requested.
