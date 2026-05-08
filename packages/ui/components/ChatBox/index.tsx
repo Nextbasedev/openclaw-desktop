@@ -60,6 +60,7 @@ type Props = {
   onAbort?: () => void
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
+  onRemoveReplySelection?: (index: number) => void
   onModelSelect?: (modelId: string) => void | Promise<void>
   modelSwitching?: boolean
   glowOnMount?: boolean
@@ -75,6 +76,7 @@ export function ChatBox({
   historyMessages = [],
   replyTo,
   onCancelReply,
+  onRemoveReplySelection,
   onModelSelect,
   modelSwitching = false,
   glowOnMount = false,
@@ -378,7 +380,14 @@ export function ChatBox({
     }
   }, [voiceState])
 
-  const hasInput = input.trim().length > 0 || attachments.length > 0
+  const hasInput =
+    input.trim().length > 0 ||
+    attachments.length > 0 ||
+    Boolean(replyTo?.selections?.length)
+  const hasSelectionReferences = Boolean(replyTo?.selections?.length)
+  const messagePlaceholder = hasSelectionReferences
+    ? "Add one-line instruction for these references..."
+    : "Message... (type / for commands and @ for skills)"
   const isSlashCommandInput = /^([/@])\S*/.test(input)
   const selectedModelRef = sessionModelId ?? currentModel
   function updateSlashMenu(value: string) {
@@ -443,12 +452,13 @@ export function ChatBox({
 
   async function handleSend() {
     const text = input.trim()
+    const hasSelectionComments = Boolean(replyTo?.selections?.length)
     if (modelSwitching) {
       setAttachmentError("Switching model… please wait")
       return
     }
     if (
-      (!text && attachments.length === 0) ||
+      (!text && attachments.length === 0 && !hasSelectionComments) ||
       isComposerDisabled ||
       isPreparingAttachments
     )
@@ -478,7 +488,11 @@ export function ChatBox({
       return
     }
     const payload: ChatComposerSubmit = {
-      text: text || "Please transcribe and respond to the attached audio.",
+      text:
+        text ||
+        (hasSelectionComments
+          ? "Please respond to the selected comments."
+          : "Please transcribe and respond to the attached audio."),
       attachments:
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
@@ -633,11 +647,41 @@ export function ChatBox({
               <div className="flex items-start gap-2 rounded-t-[22px] border-b border-white/8 bg-white/[0.03] px-3 pt-2.5 pb-2">
                 <div className="min-w-0 flex-1">
                   <span className="text-[11px] font-medium text-muted-foreground/70">
-                    {replyTo.role === "user" ? "You" : "Assistant"}
+                    {replyTo.selections && replyTo.selections.length > 1
+                      ? `${replyTo.selections.length} selected comments`
+                      : replyTo.role === "user"
+                        ? "You"
+                        : "Assistant"}
                   </span>
-                  <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/60">
-                    {replyTo.text}
-                  </p>
+                  {replyTo.selections ? (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {replyTo.selections.map((selection, index) => (
+                        <div
+                          key={`${selection.messageId}:${index}`}
+                          className="flex max-w-full items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.045] px-1.5 py-1"
+                        >
+                          <span className="shrink-0 text-[10px] font-medium text-muted-foreground/70">
+                            Reference {index + 1}
+                          </span>
+                          <span className="max-w-[180px] truncate text-[11px] text-foreground/55">
+                            {selection.text}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveReplySelection?.(index)}
+                            className="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/45 transition-colors hover:bg-white/10 hover:text-foreground/80"
+                            aria-label={`Remove reference ${index + 1}`}
+                          >
+                            <LuX className="size-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/60">
+                      {replyTo.text}
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -778,7 +822,7 @@ export function ChatBox({
                 void handleSend()
               }
             }}
-            placeholder="Message... (type / for commands and @ for skills)"
+            placeholder={messagePlaceholder}
             rows={1}
             disabled={isComposerDisabled}
             className={cn(

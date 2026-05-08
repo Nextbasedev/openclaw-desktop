@@ -4,8 +4,12 @@ import { useState, useCallback, useMemo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkBreaks from "remark-breaks"
+import { useTheme } from "next-themes"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
-import oneDark from "react-syntax-highlighter/dist/esm/styles/prism/one-dark"
+import {
+  vs,
+  vscDarkPlus,
+} from "react-syntax-highlighter/dist/esm/styles/prism"
 import { cn } from "@/lib/utils"
 import { LuCopy, LuCheck } from "react-icons/lu"
 import { LanguageIcon } from "@/components/icons/LanguageIcon"
@@ -31,15 +35,22 @@ function CopyBtn({ text }: { text: string }) {
   )
 }
 
-const cleanStyle: Record<string, React.CSSProperties> = Object.fromEntries(
-  Object.entries(oneDark).map(([key, val]) => {
+function cleanSyntaxStyle(
+  style: Record<string, React.CSSProperties>,
+): Record<string, React.CSSProperties> {
+  return Object.fromEntries(Object.entries(style).map(([key, val]) => {
     if (typeof val === "object" && val !== null) {
-      const { background, backgroundColor, ...rest } = val as Record<string, unknown>
+      const rest = { ...(val as Record<string, unknown>) }
+      delete rest.background
+      delete rest.backgroundColor
       return [key, rest as React.CSSProperties]
     }
     return [key, val]
-  }),
-)
+  }))
+}
+
+const cleanDarkStyle = cleanSyntaxStyle(vscDarkPlus)
+const cleanLightStyle = cleanSyntaxStyle(vs)
 
 function langDisplayName(lang?: string): string {
   if (!lang) return "Code"
@@ -67,11 +78,16 @@ function langDisplayName(lang?: string): string {
 }
 
 function CodeBlock({ language, children }: { language?: string; children: string }) {
+  const { resolvedTheme } = useTheme()
   const code = children.replace(/\n$/, "")
   const displayLang = langDisplayName(language)
+  const isDark = resolvedTheme !== "light"
+  const syntaxStyle = isDark ? cleanDarkStyle : cleanLightStyle
+  const plainTextColor = isDark ? "#d4d4d4" : "#1f1f1f"
+
   return (
-    <div className="group/code relative my-2 max-w-full min-w-0 overflow-hidden rounded-xl border border-border/20 bg-[#1a1a1e]">
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/15 bg-[#252529] px-4 py-2">
+    <div className="group/code relative my-2 max-w-full min-w-0 overflow-hidden rounded-xl border border-[#d4d4d4] bg-[#ffffff] dark:border-[#3c3c3c]/70 dark:bg-[#1e1e1e]">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#d4d4d4] bg-[#f3f3f3] px-4 py-2 dark:border-[#3c3c3c]/70 dark:bg-[#252526]">
         <span className="flex items-center gap-2 text-[12px] font-medium text-foreground/60">
           <LanguageIcon lang={language} className="size-4" />
           {displayLang}
@@ -81,7 +97,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
       {language ? (
         <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
           <SyntaxHighlighter
-            style={cleanStyle}
+            style={syntaxStyle}
             language={language}
             PreTag="div"
             customStyle={{
@@ -90,6 +106,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
               padding: "4px 0",
               fontSize: "13px",
               minWidth: 0,
+              color: plainTextColor,
             }}
             codeTagProps={{ style: { background: "transparent" } }}
           >
@@ -98,7 +115,12 @@ function CodeBlock({ language, children }: { language?: string; children: string
         </div>
       ) : (
         <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
-          <pre className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6] text-foreground/80">{code}</pre>
+          <pre
+            className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6]"
+            style={{ color: plainTextColor }}
+          >
+            {code}
+          </pre>
         </div>
       )}
     </div>
@@ -116,7 +138,7 @@ const mdComponents = {
       if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
       return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
     }
-    return <code className="break-words rounded-md bg-foreground/[0.07] px-1.5 py-0.5 text-[0.85em] font-mono text-foreground/90 [overflow-wrap:anywhere]" {...rest}>{children}</code>
+    return <code className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]" {...rest}>{children}</code>
   },
   table({ children }: { children?: React.ReactNode }) {
     return (<div className="my-3 max-w-full overflow-hidden rounded-xl border border-border/25 bg-foreground/2"><div className="max-w-full overflow-x-auto"><table className="w-full border-collapse text-[13px]">{children}</table></div></div>)

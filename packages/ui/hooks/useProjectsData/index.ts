@@ -72,6 +72,17 @@ export type DialogActions = {
   handleDeleteTopic: () => Promise<void>
 }
 
+type ForkCreateEvent = {
+  status?: "pending" | "resolved" | "failed"
+  requestId: string
+  name?: string
+  topicId?: string
+  context?: {
+    type?: string
+    projectId?: string
+  }
+}
+
 export function useProjectsData(
   onTopicSelect: (topic: ActiveTopic) => void,
   activeTopic: ActiveTopic | null,
@@ -241,7 +252,7 @@ export function useProjectsData(
   }, [loadProjects])
 
   useEffect(() => {
-    return on<any>("fork:create", (event) => {
+    return on<ForkCreateEvent>("fork:create", (event) => {
       const context = event?.context
       if (!event || context?.type !== "topic" || !context.projectId) return
       const projectId = context.projectId
@@ -274,13 +285,13 @@ export function useProjectsData(
         setProjectTopics((prev) => ({
           ...prev,
           [projectId]: (prev[projectId] || []).map((topic) => topic.id === event.requestId
-            ? { ...topic, id: event.topicId, name: event.name, pendingFork: false, updatedAt: new Date().toISOString() }
+            ? { ...topic, id: event.topicId ?? topic.id, name: event.name ?? topic.name, pendingFork: false, updatedAt: new Date().toISOString() }
             : topic,
           ),
         }))
         setTopicOrder((prev) => ({
           ...prev,
-          [projectId]: (prev[projectId] || []).map((id) => id === event.requestId ? event.topicId : id),
+          [projectId]: (prev[projectId] || []).map((id) => id === event.requestId ? event.topicId ?? id : id),
         }))
         return
       }
@@ -308,6 +319,37 @@ export function useProjectsData(
     return () =>
       window.removeEventListener("archive-restored", onArchiveRestored)
   }, [loadProjects, loadProjectTopics, projectTopics])
+
+  useEffect(() => {
+    return on("chat:activity", () => {
+      if (!activeTopic) return
+      setProjectOrder((prev) => [
+        activeTopic.projectId,
+        ...prev.filter((id) => id !== activeTopic.projectId),
+      ])
+      setTopicOrder((prev) => ({
+        ...prev,
+        [activeTopic.projectId]: [
+          activeTopic.id,
+          ...(prev[activeTopic.projectId] || []).filter(
+            (id) => id !== activeTopic.id,
+          ),
+        ],
+      }))
+      setProjectTopics((prev) => {
+        const topics = prev[activeTopic.projectId]
+        if (!topics) return prev
+        return {
+          ...prev,
+          [activeTopic.projectId]: topics.map((topic) =>
+            topic.id === activeTopic.id
+              ? { ...topic, updatedAt: new Date().toISOString() }
+              : topic,
+          ),
+        }
+      })
+    })
+  }, [activeTopic])
 
   const handleProjectClick = useCallback(
     (project: Project) => {

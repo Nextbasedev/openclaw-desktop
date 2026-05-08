@@ -28,6 +28,15 @@ export type ChatDialogActions = {
   handleDelete: () => Promise<void>
 }
 
+type ForkCreateEvent = {
+  status?: "pending" | "resolved" | "failed"
+  requestId: string
+  name?: string
+  chatId?: string
+  sessionKey?: string
+  context?: { type?: string }
+}
+
 export function useChatsData(
   activeChat: ActiveChat | null,
   onChatClear: () => void,
@@ -102,7 +111,7 @@ export function useChatsData(
   }, [loadChats])
 
   useEffect(() => {
-    return on<any>("fork:create", (event) => {
+    return on<ForkCreateEvent>("fork:create", (event) => {
       if (!event || event.context?.type === "topic") return
       if (event.status === "pending") {
         const now = new Date().toISOString()
@@ -122,10 +131,10 @@ export function useChatsData(
       }
       if (event.status === "resolved") {
         setChats((prev) => prev.map((chat) => chat.id === event.requestId
-          ? { ...chat, id: event.chatId, name: event.name, sessionKey: event.sessionKey, pendingFork: false, updatedAt: new Date().toISOString() }
+          ? { ...chat, id: event.chatId ?? chat.id, name: event.name ?? chat.name, sessionKey: event.sessionKey, pendingFork: false, updatedAt: new Date().toISOString() }
           : chat,
         ))
-        setChatOrder((prev) => prev.map((id) => id === event.requestId ? event.chatId : id))
+        setChatOrder((prev) => prev.map((id) => id === event.requestId ? event.chatId ?? id : id))
         return
       }
       if (event.status === "failed") {
