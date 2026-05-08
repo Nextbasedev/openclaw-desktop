@@ -74,9 +74,12 @@ Do this inside OpenClaw, not by asking the user to debug pairing manually:
 1. Install or update OpenClaw Desktop Middleware from the repo above.
 2. Make sure OpenClaw Gateway is running on this same computer.
 3. Start Middleware on http://127.0.0.1:8787.
-4. Middleware should connect to Gateway with normal desktop scopes only: operator.read, operator.write, operator.approvals. Do not require operator.admin for the basic desktop flow.
-5. Test http://127.0.0.1:8787/health and confirm openclaw.connected is true.
-6. Do not ask the user to run openclaw devices approve. If pairing/auth fails, fix the middleware setup/update path.
+4. Middleware should connect to Gateway with these desktop scopes:
+   - Basic desktop flow: operator.read, operator.write, operator.approvals
+   - Full execution / no-ask mode: operator.admin is also required
+5. Do not require operator.admin for the basic desktop flow, but support it when full/no-ask execution is explicitly requested.
+6. Test http://127.0.0.1:8787/health and confirm openclaw.connected is true.
+7. Do not ask the user to run openclaw devices approve. If pairing/auth fails, fix the middleware setup/update path.
 
 When finished, give me only:
 Middleware URL: http://127.0.0.1:8787
@@ -92,10 +95,13 @@ Do this inside OpenClaw, not by asking the user to debug pairing manually:
 1. Install or update OpenClaw Desktop Middleware from the repo above. If Middleware already exists, use its Update Middleware/API flow; do not hand-edit random files.
 2. Make sure OpenClaw Gateway is running on this VPS.
 3. Start Middleware on port 8787 and expose the reachable VPS/domain/Tailscale URL.
-4. Middleware should connect to Gateway with normal desktop scopes only: operator.read, operator.write, operator.approvals. Do not require operator.admin for the basic desktop flow.
-5. Test /health from the reachable URL and confirm openclaw.connected is true.
-6. Return the Middleware URL and the Middleware pairing code from /etc/openclaw-middleware.env or the service configuration.
-7. Do not ask the user to run openclaw devices approve. If pairing/auth fails, fix the middleware setup/update path without weakening remote/VPS pairing security.
+4. Middleware should connect to Gateway with these desktop scopes:
+   - Basic desktop flow: operator.read, operator.write, operator.approvals
+   - Full execution / no-ask mode: operator.admin is also required
+5. Do not require operator.admin for the basic desktop flow, but support it when full/no-ask execution is explicitly requested.
+6. Test /health from the reachable URL and confirm openclaw.connected is true.
+7. Return the Middleware URL and the Middleware pairing code from /etc/openclaw-middleware.env or the service configuration.
+8. Do not ask the user to run openclaw devices approve. If pairing/auth fails, fix the middleware setup/update path without weakening remote/VPS pairing security.
 
 When finished, give me only:
 Middleware URL: <reachable-url>
