@@ -4,8 +4,10 @@ import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
 import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
+import { useQueryClient } from "@tanstack/react-query"
 import { dedupeRequest } from "@/lib/requestDedupe"
 import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
+import { queryKeys, queryStaleTime } from "@/lib/query"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
@@ -239,6 +241,7 @@ export function useChatMessages(
     ? getCachedChatSessionMessages(sessionKey)
     : null
   const cachedStatus = !hasInitial ? getCachedChatSessionStatus(sessionKey) : null
+  const queryClient = useQueryClient()
   const instanceIdRef = useRef(randomId())
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
     hasInitial ? initialMessages : cachedMessages ?? []
@@ -862,9 +865,13 @@ export function useChatMessages(
       setLoading(false)
       setMessages(seededMessages)
       setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
-      void invoke<{
-        sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
-      }>("middleware_sessions_list", { input: {} })
+      void queryClient.fetchQuery({
+        queryKey: queryKeys.sessions(),
+        queryFn: () => invoke<{
+          sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+        }>("middleware_sessions_list", { input: {} }),
+        staleTime: queryStaleTime.sessions,
+      })
         .then((result) => {
           if (cancelled) return
           const backendSession = (result.sessions || []).find(
@@ -901,7 +908,11 @@ export function useChatMessages(
 
     async function init() {
       try {
-        const { history, branchData } = await loadChatBootstrap(sessionKey)
+        const { history, branchData } = await queryClient.fetchQuery({
+          queryKey: queryKeys.chatBootstrap(sessionKey),
+          queryFn: () => loadChatBootstrap(sessionKey),
+          staleTime: queryStaleTime.chatBootstrap,
+        })
         bootstrapSettled = true
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
@@ -1278,6 +1289,11 @@ export function useChatMessages(
               streamId: sessionKey,
               event: data as StreamEventPayload["event"],
             })
+            const eventType = (data as { type?: string }).type
+            if (eventType === "chat.message" || eventType === "chat.status") {
+              void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+            }
           },
           () => {
             const current = statusRef.current
@@ -1291,6 +1307,7 @@ export function useChatMessages(
             if (!cancelled && activelyWaiting) {
               setErrorMessage("Connection to server lost")
               setStatus("error")
+              void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
             }
           }
         )
@@ -1325,6 +1342,7 @@ export function useChatMessages(
     initialMessages,
     forceScrollToBottom,
     streamGeneration,
+    queryClient,
   ])
 
   useEffect(() => {
