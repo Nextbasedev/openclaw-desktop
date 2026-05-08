@@ -18,7 +18,28 @@ function sign(privateKeyPem: string, payload: string) { return base64UrlEncode(c
 function authPayload(p: { deviceId: string; scopes: string[]; signedAt: number; token: string; nonce: string }) { return ["v3", p.deviceId, CLIENT.id, CLIENT.mode, "operator", p.scopes.join(","), String(p.signedAt), p.token, p.nonce, normalize(CLIENT.platform), ""].join("|") }
 
 async function readConfig() { try { return JSON.parse(await fs.readFile(path.join(os.homedir(), ".openclaw", "openclaw.json"), "utf8")) } catch { return {} } }
-async function readIdentity() { const raw = await fs.readFile(path.join(os.homedir(), ".openclaw", "state", "identity", "device.json"), "utf8"); const p = JSON.parse(raw); return { deviceId: p.deviceId ?? p.device_id, publicKeyPem: p.publicKeyPem, privateKeyPem: p.privateKeyPem } }
+function fingerprintPublicKey(publicKeyPem: string) { return crypto.createHash("sha256").update(derivePublicKeyRaw(publicKeyPem)).digest("hex") }
+async function loadOrCreateIdentity() {
+  const file = path.join(os.homedir(), ".openclaw", "state", "identity", "device.json")
+  try {
+    const raw = await fs.readFile(file, "utf8")
+    const p = JSON.parse(raw)
+    if (p?.publicKeyPem && p?.privateKeyPem) {
+      const deviceId = p.deviceId ?? p.device_id ?? fingerprintPublicKey(p.publicKeyPem)
+      return { deviceId, publicKeyPem: p.publicKeyPem, privateKeyPem: p.privateKeyPem }
+    }
+  } catch {
+    // Missing/corrupt identity is repaired below. Local desktop startup should not require a manual pairing code.
+  }
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519")
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }) as string
+  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }) as string
+  const identity = { version: 1, deviceId: fingerprintPublicKey(publicKeyPem), publicKeyPem, privateKeyPem, createdAtMs: Date.now() }
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.writeFile(file, `${JSON.stringify(identity, null, 2)}\n`, { mode: 0o600 })
+  try { await fs.chmod(file, 0o600) } catch { /* best-effort */ }
+  return identity
+}
 function closeQuietly(ws: WebSocket) { try { ws.close() } catch { /* noop */ } }
 function wait(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)) }
 function waitOpen(ws: WebSocket) {
@@ -51,10 +72,10 @@ function waitFor(ws: WebSocket, pred: (m: GatewayMessage) => boolean, label: str
   })
 }
 
-export async function connectGateway(scopes = ["operator.read", "operator.write"]) {
+export async function connectGateway(scopes = ["operator.read", "operator.write", "operator.approvals"]) {
   const cfg = await readConfig(); const token = process.env.OPENCLAW_GATEWAY_TOKEN || cfg.gateway?.auth?.token; const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`
   if (!token) throw new Error("OpenClaw gateway token is missing")
-  const identity = await readIdentity()
+  const identity = await loadOrCreateIdentity()
   let lastError: unknown = null
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -67,7 +88,7 @@ export async function connectGateway(scopes = ["operator.read", "operator.write"
   throw lastError instanceof Error ? lastError : new Error("Gateway connect failed")
 }
 
-async function connectGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof readIdentity>>, scopes: string[]) {
+async function connectGatewayOnce(gatewayUrl: string, token: string, identity: Awaited<ReturnType<typeof loadOrCreateIdentity>>, scopes: string[]) {
   const headers = process.env.MIDDLEWARE_ORIGIN ? { origin: process.env.MIDDLEWARE_ORIGIN } : undefined
   const ws = new WebSocket(gatewayUrl, headers ? { headers } : undefined)
   try {
