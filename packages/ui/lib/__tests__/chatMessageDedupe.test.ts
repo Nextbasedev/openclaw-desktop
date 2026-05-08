@@ -30,4 +30,23 @@ describe("dedupeChatMessages", () => {
 
     expect(messages).toHaveLength(2)
   })
+
+  it("reconciles optimistic user messages with nearby canonical history", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "canonical", role: "user", text: "hello", createdAt: "2026-05-08T10:00:03.000Z" },
+      { messageId: "optimistic", role: "user", text: "hello", createdAt: "2026-05-08T10:00:00.000Z", isOptimistic: true, sendStatus: "sending" },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].messageId).toBe("canonical")
+  })
+
+  it("does not reconcile optimistic user messages far from canonical history", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "canonical", role: "user", text: "hello", createdAt: "2026-05-08T10:10:00.000Z" },
+      { messageId: "optimistic", role: "user", text: "hello", createdAt: "2026-05-08T10:00:00.000Z", isOptimistic: true, sendStatus: "failed" },
+    ])
+
+    expect(messages).toHaveLength(2)
+  })
 })

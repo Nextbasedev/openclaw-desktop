@@ -1474,14 +1474,14 @@ export function useChatMessages(
   }, [spawnedSubagents, upsertSpawn])
 
   const handleSend = useCallback(
-    async (payload: ChatComposerSubmit) => {
+    async (payload: ChatComposerSubmit, retryMessageId?: string) => {
       const trimmed = payload.text.trim()
-      if (!trimmed || sendingGuardRef.current) return
+      if (!trimmed || sendingGuardRef.current) return false
       const runsAlongsideGeneration = Boolean(isGenerating && payload.runWhileGenerating)
       sendingGuardRef.current = true
       setIsSending(true)
       setErrorMessage(null)
-      const optimisticId = randomId()
+      const optimisticId = retryMessageId ?? randomId()
       if (!runsAlongsideGeneration) {
         pendingToolMapRef.current.clear()
         setPendingTools([])
@@ -1519,13 +1519,16 @@ export function useChatMessages(
         )
       }
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((m) => m.messageId !== optimisticId),
         {
           messageId: optimisticId,
           role: "user" as const,
           text: trimmed,
           createdAt: new Date().toISOString(),
           isOptimistic: true,
+          sendStatus: "sending",
+          sendError: null,
+          retryPayload: payload,
           replyTo,
           attachments: messageAttachments,
         },
@@ -1555,13 +1558,16 @@ export function useChatMessages(
             execPolicy: payload.execPolicy,
           },
         })
+        setMessages((prev) => prev.map((m) => m.messageId === optimisticId ? { ...m, sendStatus: undefined, sendError: null } : m))
         emit("chat:activity")
+        return true
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : String(error))
+        const message = error instanceof Error ? error.message : String(error)
+        setErrorMessage(message)
         setStatus("error")
         restartInFlightRef.current = false
-        setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId))
-        throw error
+        setMessages((prev) => prev.map((m) => m.messageId === optimisticId ? { ...m, isOptimistic: true, sendStatus: "failed", sendError: message, retryPayload: payload } : m))
+        return false
       } finally {
         sendingGuardRef.current = false
         setIsSending(false)

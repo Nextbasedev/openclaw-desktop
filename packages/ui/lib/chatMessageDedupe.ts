@@ -3,7 +3,17 @@ import type { ChatMessage } from "../components/ChatView/types"
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   if (a.text.trim() !== b.text.trim()) return false
-  if (a.createdAt && b.createdAt) return a.createdAt === b.createdAt
+  if (a.createdAt && b.createdAt) {
+    if (a.createdAt === b.createdAt) return true
+    if (a.isOptimistic || b.isOptimistic) {
+      const aTime = Date.parse(a.createdAt)
+      const bTime = Date.parse(b.createdAt)
+      if (Number.isFinite(aTime) && Number.isFinite(bTime)) {
+        return Math.abs(aTime - bTime) <= 5 * 60 * 1000
+      }
+    }
+    return false
+  }
   return Boolean(a.isOptimistic || b.isOptimistic)
 }
 
