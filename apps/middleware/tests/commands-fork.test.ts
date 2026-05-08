@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import request from "supertest"
 
 const gatewayRequests = vi.hoisted(() => [] as Array<{ method: string; params: any }>)
-const gatewayState = vi.hoisted(() => ({ transcriptPath: "", sourceMessages: [] as any[], chatSendPayload: {} as any, onChatSend: null as null | (() => void), failNextCreateLabel: null as string | null }))
+const gatewayState = vi.hoisted(() => ({ transcriptPath: "", sourceMessages: [] as any[], chatSendPayload: {} as any, onChatSend: null as null | (() => void), failNextCreateLabel: null as string | null, failHistoryMessage: null as string | null }))
 
 vi.mock("../src/services/gateway.js", () => ({
   connectGateway: vi.fn(async () => ({
@@ -27,6 +27,7 @@ vi.mock("../src/services/gateway.js", () => ({
         }
       }
       if (method === "chat.history") {
+        if (gatewayState.failHistoryMessage) return { ok: false, error: { message: gatewayState.failHistoryMessage } }
         return { ok: true, payload: { messages: gatewayState.sourceMessages } }
       }
       if (method === "chat.send") {
@@ -65,6 +66,7 @@ afterEach(() => {
   gatewayState.chatSendPayload = {}
   gatewayState.onChatSend = null
   gatewayState.failNextCreateLabel = null
+  gatewayState.failHistoryMessage = null
   vi.unstubAllEnvs()
   for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
@@ -206,6 +208,16 @@ describe("middleware_chat_fork", () => {
     expect(implicit.status).toBe(200)
     expect(implicit.body.name).toMatch(/^Forked chat \d{4}-\d{2}-\d{2}/)
     expect(gatewayRequests.find((r) => r.method === "sessions.create")?.params.label).not.toBe("Forked chat")
+  })
+
+  it("returns empty chat history instead of surfacing pairing errors", async () => {
+    const root = tempRoot()
+    gatewayState.failHistoryMessage = "Device not paired with gateway"
+
+    const res = await auth(request(makeApp(root)).post("/api/commands/middleware_chat_history")).send({ input: { sessionKey: "agent:main:desktop:source" } })
+
+    expect(res.status).toBe(200)
+    expect(res.body.messages).toEqual([])
   })
 
   it("creates forks from topic sessions as new topics in the same project", async () => {
