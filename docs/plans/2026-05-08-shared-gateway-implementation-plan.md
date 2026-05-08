@@ -734,3 +734,111 @@ For each task:
 7. Fix review issues before moving to the next task.
 
 No task is complete without fresh command output proving tests/typecheck passed.
+
+---
+
+## Addendum — Multi-tab API burst coverage
+
+Added after review question: switching/opening multiple UI tabs can re-trigger many API calls at once — chat history, sessions, models, voice settings, usage, cron, projects/topics/chats, and stream subscriptions. The reliability plan must verify this explicitly, not only generic Gateway load.
+
+### What must be covered
+
+When 5–25 UI tabs or chat views are opened/switched quickly, the middleware should handle repeated calls to:
+
+- Gateway-backed or potentially Gateway-backed reads:
+  - `middleware_chat_history`
+  - `middleware_sessions_list` if routed through Gateway/client index in the active flow
+  - `middleware_usage` provider status sub-call
+  - any session/status/running-state reads used by recovery
+- Local/config reads that still create HTTP/API load:
+  - `middleware_models_list`
+  - `middleware_voice_settings_get`
+  - `middleware_usage_daily`
+  - `middleware_projects_list`
+  - `middleware_topics_list`
+  - `middleware_chats_list`
+  - `middleware_cron_list_jobs`
+  - `middleware_pins_list`
+  - workspace/tree reads if visible tabs trigger them
+- Stream endpoints:
+  - `/api/stream/chat/:sessionKey`
+  - `/api/stream/cron`
+
+### Required behavior
+
+- Local/config reads must stay fast and must not open Gateway sockets.
+- Gateway-backed reads must use the shared RPC socket when `MIDDLEWARE_SHARED_GATEWAY=true`.
+- Multiple chat EventSource clients must use middleware fan-out and must not create one Gateway socket per UI tab.
+- Repeated identical startup reads should not cause unbounded concurrency or listener growth.
+- Read failures under normal 5-tab load must be `0`.
+- Socket count must stay bounded: normally 1 RPC + 1 event Gateway socket.
+
+### New audit task before implementation
+
+Before coding Task 2, add a short read-only audit of UI-triggered middleware commands:
+
+1. Grep UI code for `invoke("middleware_` and `streamUrl(`.
+2. Classify each command as:
+   - local/config only
+   - Gateway read
+   - Gateway write/mutation
+   - SSE stream
+3. Add the classification to this plan or a small `docs/plans/2026-05-08-tab-api-burst-audit.md` file.
+4. Use the classification to decide which commands get read retry and which must never retry.
+
+### New test/load requirement
+
+Add or extend a load script to simulate tab-switch startup bursts, not just one endpoint loop.
+
+Suggested script:
+
+```txt
+apps/middleware/scripts/load-test-tab-burst.cjs
+```
+
+It should repeatedly call a realistic mix:
+
+```txt
+middleware_projects_list
+middleware_topics_list
+middleware_chats_list
+middleware_sessions_list
+middleware_chat_history
+middleware_models_list
+middleware_voice_settings_get
+middleware_usage
+middleware_cron_list_jobs
+/api/stream/chat/:sessionKey open/close
+```
+
+Expected command:
+
+```bash
+MIDDLEWARE_SHARED_GATEWAY=true \
+VUS=5 \
+DURATION=60s \
+GATEWAY_HISTORY_REQUIRED=true \
+GATEWAY_SOCKET_MAX=2 \
+pnpm --filter @openclaw/desktop-middleware load:test:tab-burst
+```
+
+Then scale:
+
+```bash
+MIDDLEWARE_SHARED_GATEWAY=true \
+VUS=25 \
+DURATION=120s \
+GATEWAY_HISTORY_REQUIRED=true \
+GATEWAY_SOCKET_MAX=2 \
+pnpm --filter @openclaw/desktop-middleware load:test:tab-burst
+```
+
+### Additional pass/fail gates
+
+- `middleware_models_list` and `middleware_voice_settings_get` must not open Gateway sockets.
+- `middleware_chat_history` failures must fail the test, not be ignored.
+- Opening/closing many `/api/stream/chat/:sessionKey` clients must not grow Gateway sockets beyond the shared event socket.
+- If a slow UI SSE client is simulated, only that client should be dropped; other clients and the shared event reader must continue.
+- After the burst test, active UI SSE client count and pending RPC count must return to zero.
+
+This addendum makes the tab-switch/API-burst scenario a first-class verification target, not an implied side effect of the generic load tests.
