@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { dedupeRequest } from "@/lib/requestDedupe"
-import { inferRestoredChatStatus } from "@/lib/chatStatus"
+import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
@@ -862,6 +862,17 @@ export function useChatMessages(
       setLoading(false)
       setMessages(seededMessages)
       setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
+      void invoke<{
+        sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+      }>("middleware_sessions_list", { input: {} })
+        .then((result) => {
+          if (cancelled) return
+          const backendSession = (result.sessions || []).find(
+            (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+          )
+          setStatus(statusFromBackendSession(backendSession?.status, seededMessages))
+        })
+        .catch(() => undefined)
     } else {
       setLoading(true)
       setMessages([])
