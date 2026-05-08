@@ -842,3 +842,337 @@ pnpm --filter @openclaw/desktop-middleware load:test:tab-burst
 - After the burst test, active UI SSE client count and pending RPC count must return to zero.
 
 This addendum makes the tab-switch/API-burst scenario a first-class verification target, not an implied side effect of the generic load tests.
+
+---
+
+## Addendum — Exact tab-switch repeated call map and mitigation
+
+Added after code inspection of current UI tab/session switch paths.
+
+### Exact repeated calls found in current code
+
+#### Chat/editor tab switch or session change
+
+Source files:
+
+- `packages/ui/hooks/useChatMessages.ts`
+- `packages/ui/components/ChatView/index.tsx`
+- `packages/ui/components/ChatBox/index.tsx`
+- `packages/ui/lib/chatStream.ts`
+
+Repeated calls/streams:
+
+- `middleware_chat_history`
+  - called by `loadChatBootstrap(sessionKey)`.
+  - cache TTL is currently only `5s` via `CHAT_BOOTSTRAP_TTL_MS`.
+- `middleware_branch_list`
+  - called in the same bootstrap Promise.
+- `/api/stream/chat/:sessionKey`
+  - opened by `subscribeChatStream(sessionKey)`.
+  - UI already shares one EventSource per same session key, but each different session key opens a separate middleware SSE stream.
+- `middleware_pins_list`
+  - called by `ChatView` whenever `sessionKey` changes.
+- `middleware_voice_settings_get`
+  - called by `ChatBox` on mount to check voice readiness.
+  - If `ChatBox` remounts on tab/session switches, this repeats even though it is app-level config.
+
+#### Topic route activation
+
+Source file:
+
+- `packages/ui/components/AppPage.tsx`
+
+Repeated calls:
+
+- `middleware_projects_list`
+- `middleware_topics_list`
+- `middleware_sessions_list`
+
+These run when activating a topic route like `/:projectId/:topicId`.
+
+#### Chat route activation
+
+Source file:
+
+- `packages/ui/components/AppPage.tsx`
+
+Repeated calls:
+
+- `middleware_chats_list`
+- possible `middleware_sessions_create` through `ensureChatSession(...)` depending on cache/session state.
+
+Important current behavior:
+
+- `handleEditorTabSelect()` uses `resolvedChatCacheRef` if a chat is already resolved.
+- If not cached, it calls `handleChatSelect()`, which can trigger session resolution and chat bootstrap.
+
+#### Inspector/workspace tab
+
+Source files:
+
+- `packages/ui/components/inspector/WorkspaceTab.tsx`
+- `packages/ui/components/inspector/workspace-api.ts`
+
+Repeated calls/streams:
+
+- `middleware_sessions_list`
+  - when no workspace session is cached.
+- `/api/workspace/tree`
+  - on effective session/project change.
+- `/api/stream/chat/:sessionKey`
+  - WorkspaceTab opens its own EventSource to refresh workspace on tool/status events.
+- `/api/workspace/tree`
+  - repeats on window focus and scheduled refresh after tool/status events.
+
+#### Settings usage tab
+
+Source file:
+
+- `packages/ui/components/settings/tabs/usage/useUsageData.ts`
+
+Repeated calls:
+
+- `middleware_usage`
+- `middleware_usage_daily`
+
+Also repeats every `60s` while mounted.
+
+#### Settings voice tab
+
+Source file:
+
+- `packages/ui/components/settings/tabs/VoiceTab.tsx`
+
+Repeated calls:
+
+- `middleware_voice_settings_get` on mount.
+
+#### Notifications activity tab
+
+Source file:
+
+- `packages/ui/components/notifications/tabs/ActivityTab.tsx`
+
+Repeated calls/streams:
+
+- `middleware_cron_list_jobs`
+- `middleware_cron_recent_activity`
+- refresh loop every `1s` while mounted.
+- `/api/stream/cron`
+
+#### Notifications cron jobs tab
+
+Source file:
+
+- `packages/ui/components/notifications/tabs/CronJobsTab.tsx`
+
+Repeated calls/streams:
+
+- `middleware_cron_list_jobs`
+- `/api/stream/cron`
+- refetches jobs after completed/failed cron events.
+
+### Mitigation scope
+
+The shared Gateway architecture fixes Gateway socket churn, but tab switching can still cause unnecessary HTTP/API bursts. Add a UI/middleware request dedupe layer for safe reads.
+
+Goals:
+
+- Avoid duplicate in-flight requests for the same safe read key.
+- Add short TTL caching for app-level config reads.
+- Do not cache or dedupe writes/mutations unless explicitly safe.
+- Preserve freshness where it matters: chat history should refresh on session switch, but duplicate simultaneous history calls for the same session should share one in-flight promise.
+
+### New Task 0 — Audit/classify tab-switch commands before coding shared Gateway
+
+This task must run before Task 1 of implementation.
+
+#### Files
+
+Create:
+
+- `docs/plans/2026-05-08-tab-switch-api-audit.md`
+
+#### Work
+
+Document every repeated call above and classify each as:
+
+- `local-read-cacheable`
+- `gateway-read-dedupe-only`
+- `gateway-read-cache-short-ttl`
+- `write-never-cache`
+- `stream-shared`
+- `polling-needs-throttle`
+
+Initial classification:
+
+- `middleware_chat_history`: `gateway-read-dedupe-only`, optional very short TTL already exists in UI.
+- `middleware_branch_list`: `local/gateway-read-dedupe-only` depending implementation.
+- `middleware_pins_list`: `local-read-cacheable` per session with invalidation on pin change.
+- `middleware_voice_settings_get`: `local-read-cacheable`, app-level TTL/invalidation on `openclaw:voice-settings-changed`.
+- `middleware_models_list`: `local-read-cacheable`, app-level TTL/invalidation on model set.
+- `middleware_projects_list`: `local-read-cacheable` with invalidation on project create/update/delete.
+- `middleware_topics_list`: `local-read-cacheable` per project with invalidation on topic create/update/delete.
+- `middleware_chats_list`: `local-read-cacheable` with invalidation on chat create/update/archive.
+- `middleware_sessions_list`: `gateway/local-read-dedupe-only` because it may represent live session state.
+- `/api/stream/chat/:sessionKey`: `stream-shared` through middleware event hub.
+- `/api/stream/cron`: `stream-shared` or leave as-is if it does not touch Gateway.
+- `middleware_usage`: `gateway-read-cache-short-ttl` because provider status is not critical every tab switch.
+- `middleware_usage_daily`: `local-read-cacheable` for current selected period.
+- `middleware_cron_list_jobs`: `local-read-cacheable` with event invalidation.
+- `middleware_cron_recent_activity`: `polling-needs-throttle`; current 1s polling is aggressive and should be reduced or event-driven.
+- `/api/workspace/tree`: `gateway/local-read-dedupe-only` per session/project/path; refresh on tool/status/focus remains allowed.
+
+#### Verify
+
+No code verification needed. Commit audit doc before implementation.
+
+---
+
+## New Task 1A — Add UI/middleware safe-read dedupe for tab-switch bursts
+
+This task can run after the audit and before/alongside shared Gateway RPC.
+
+### Files
+
+Create:
+
+- `packages/ui/lib/requestDedupe.ts`
+- `packages/ui/lib/__tests__/requestDedupe.test.ts`
+
+Modify likely callers:
+
+- `packages/ui/hooks/useChatMessages.ts`
+- `packages/ui/components/ChatView/index.tsx`
+- `packages/ui/components/ChatBox/index.tsx`
+- `packages/ui/components/settings/tabs/VoiceTab.tsx`
+- `packages/ui/components/settings/tabs/usage/useUsageData.ts`
+- `packages/ui/components/notifications/tabs/ActivityTab.tsx`
+- `packages/ui/components/notifications/tabs/CronJobsTab.tsx`
+- `packages/ui/components/inspector/WorkspaceTab.tsx`
+
+### RED tests
+
+Test names:
+
+- `dedupes concurrent requests with the same key`
+- `does not dedupe different keys`
+- `returns cached value within ttl for cacheable reads`
+- `drops cache entry after ttl`
+- `does not cache rejected promise`
+- `supports explicit invalidation by prefix`
+
+### GREEN implementation
+
+Implement generic helper:
+
+```ts
+type DedupeOptions = {
+  ttlMs?: number
+  cacheRejected?: false
+}
+
+export function dedupeRequest<T>(
+  key: string,
+  fn: () => Promise<T>,
+  opts?: DedupeOptions,
+): Promise<T>
+
+export function invalidateDedupe(keyOrPrefix: string): void
+export function clearDedupeForTests(): void
+```
+
+Rules:
+
+- Same key while in-flight returns same promise.
+- If `ttlMs` is set, resolved value is reused until expiry.
+- Rejections are not cached.
+- Invalidation supports exact key or prefix.
+
+### Apply to repeated callers
+
+Use dedupe/cache keys such as:
+
+- `chat-bootstrap:${sessionKey}` around existing `loadChatBootstrap()` or replace/extend current `chatBootstrapCache`.
+- `pins:${sessionKey}` around `middleware_pins_list`.
+- `voice-settings` around `middleware_voice_settings_get` in both ChatBox and VoiceTab.
+- `usage:${period}` around `middleware_usage`/`middleware_usage_daily` while Usage tab is mounted.
+- `cron-jobs` around `middleware_cron_list_jobs`.
+- `cron-activity` throttle/dedupe around `middleware_cron_recent_activity`.
+- `workspace-tree:${projectId}:${sessionKey}:${path}` around workspace tree loads.
+
+Invalidation hooks:
+
+- Voice save dispatches `openclaw:voice-settings-changed` and invalidates `voice-settings`.
+- Model set invalidates `models-list` if model list is cached.
+- Chat/session create/archive invalidates `chats`, `sessions`, and affected chat-bootstrap keys.
+- Cron event completed/failed invalidates `cron-jobs` / `cron-activity`.
+- Workspace tool/status events invalidate affected `workspace-tree` prefix.
+
+### Verify
+
+```bash
+pnpm --filter ui exec vitest run lib/__tests__/requestDedupe.test.ts
+pnpm --filter ui exec vitest run lib/__tests__/chatSessionLoad.test.ts lib/__tests__/chatStream.test.ts
+pnpm --filter ui typecheck
+```
+
+### Commit
+
+```bash
+git add packages/ui/lib/requestDedupe.ts packages/ui/lib/__tests__/requestDedupe.test.ts packages/ui/hooks/useChatMessages.ts packages/ui/components/ChatView/index.tsx packages/ui/components/ChatBox/index.tsx packages/ui/components/settings/tabs/VoiceTab.tsx packages/ui/components/settings/tabs/usage/useUsageData.ts packages/ui/components/notifications/tabs/ActivityTab.tsx packages/ui/components/notifications/tabs/CronJobsTab.tsx packages/ui/components/inspector/WorkspaceTab.tsx
+git commit -m "feat: dedupe safe reads during tab switches"
+```
+
+---
+
+## New Task 1B — Add tab-switch burst regression tests
+
+### Files
+
+Create/extend:
+
+- `packages/ui/lib/__tests__/tabSwitchRequests.test.ts`
+- `apps/middleware/scripts/load-test-tab-burst.cjs`
+
+### RED tests
+
+Test names:
+
+- `switching between two cached chat tabs does not refetch chat session resolution`
+- `mounting two ChatBoxes shares one voice settings request`
+- `switching to usage tab dedupes usage requests for the same period`
+- `workspace focus refresh dedupes same path tree request`
+
+### Load script scenario
+
+Simulate realistic calls generated by tab switching:
+
+1. Open chat A: history, branch list, pins, voice settings, chat stream.
+2. Switch chat B: history, branch list, pins, voice settings, chat stream.
+3. Switch back chat A within TTL: should reuse/dedupe safe reads where allowed.
+4. Open inspector: sessions list, workspace tree, chat stream.
+5. Open settings voice: voice settings.
+6. Open settings usage: usage + usage daily.
+7. Open notifications activity: cron jobs + recent activity + cron stream.
+
+Pass gates:
+
+- duplicate in-flight safe reads collapse to one call per key.
+- chat history has no failed requests.
+- voice/model/local config reads do not open Gateway sockets.
+- Gateway socket count remains bounded when combined with shared Gateway tasks.
+
+### Verify
+
+```bash
+pnpm --filter ui exec vitest run lib/__tests__/tabSwitchRequests.test.ts
+MIDDLEWARE_SHARED_GATEWAY=true VUS=5 DURATION=60s pnpm --filter @openclaw/desktop-middleware load:test:tab-burst
+```
+
+### Commit
+
+```bash
+git add packages/ui/lib/__tests__/tabSwitchRequests.test.ts apps/middleware/scripts/load-test-tab-burst.cjs apps/middleware/package.json
+git commit -m "test: cover tab switch request bursts"
+```
