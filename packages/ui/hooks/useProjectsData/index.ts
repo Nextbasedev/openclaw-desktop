@@ -142,8 +142,8 @@ export function useProjectsData(
     } catch {}
     try {
       const bootstrap = await loadMiddlewareStartupBootstrap()
-      if (bootstrap && (!activeSpaceId || bootstrap.activeSpaceId === activeSpaceId)) {
-        const active = (bootstrap.projects || []).filter(
+      if (bootstrap?.projects && (!activeSpaceId || bootstrap.activeSpaceId === activeSpaceId)) {
+        const active = bootstrap.projects.filter(
           (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
         )
         setProjects(active)

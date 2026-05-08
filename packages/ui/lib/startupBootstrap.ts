@@ -8,7 +8,7 @@ type BootstrapPayload = {
   spaces: Space[]
   activeSpaceId: string | null
   chats: Chat[]
-  projects: Project[]
+  projects?: Project[]
   sessions?: unknown[]
 }
 
