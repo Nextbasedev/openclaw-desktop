@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
+import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import type { Chat, ActiveChat } from "@/types/chat"
 
@@ -73,6 +74,13 @@ export function useChatsData(
       }
     } catch {}
     try {
+      const bootstrap = await loadMiddlewareStartupBootstrap()
+      if (bootstrap && (!spaceId || bootstrap.activeSpaceId === spaceId)) {
+        const active = (bootstrap.chats || []).filter((c) => !c.archived)
+        setChats(active)
+        setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+        return
+      }
       const result = await invoke<{ chats: Chat[] }>(
         "middleware_chats_list",
         { input: { spaceId: spaceId ?? undefined } },
@@ -193,6 +201,7 @@ export function useChatsData(
         return next
       })
       try {
+        invalidateMiddlewareStartupBootstrap()
         await invoke("middleware_chats_update", {
           input: { chatId, pinned: newPinned },
         })
@@ -206,6 +215,7 @@ export function useChatsData(
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
       try {
+        invalidateMiddlewareStartupBootstrap()
         await invoke("middleware_chats_archive", {
           input: { chatId },
         })
@@ -228,6 +238,7 @@ export function useChatsData(
   const handleRename = useCallback(async () => {
     if (!renameTarget || !renameName.trim()) return
     try {
+      invalidateMiddlewareStartupBootstrap()
       await invoke("middleware_chats_rename", {
         input: {
           chatId: renameTarget.id,
@@ -250,6 +261,7 @@ export function useChatsData(
     if (!deleteTarget) return
     setDeleting(true)
     try {
+      invalidateMiddlewareStartupBootstrap()
       await invoke("middleware_chats_delete", {
         input: { chatId: deleteTarget.id },
       })

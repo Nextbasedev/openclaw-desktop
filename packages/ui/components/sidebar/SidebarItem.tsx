@@ -95,7 +95,15 @@ export function SidebarItem({
   )
 }
 
-export function GlassTooltip({ label, children, disabled }: { label: string; children: React.ReactNode; disabled?: boolean }) {
+export function GlassTooltip({
+  label,
+  children,
+  disabled,
+}: {
+  label: string
+  children: React.ReactNode
+  disabled?: boolean
+}) {
   const [show, setShow] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })

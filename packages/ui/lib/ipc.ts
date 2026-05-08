@@ -100,6 +100,11 @@ async function invokeHttp<T>(
   throw new Error("IPC call failed before the backend became ready")
 }
 
+function isRouteNotFound(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes("route not found") || message.includes("404")
+}
+
 async function invokeRemoteMiddleware<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -107,10 +112,19 @@ async function invokeRemoteMiddleware<T>(
   const { getMiddlewareConnection, middlewareFetch } = await import("./middleware-client")
   if (!getMiddlewareConnection()) return null
   const input = (args?.input ?? args ?? {}) as Record<string, unknown>
+  const commandEndpoint = () => middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
+  const withCommandFallback = async (request: () => Promise<T>) => {
+    try {
+      return await request()
+    } catch (error) {
+      if (isRouteNotFound(error)) return commandEndpoint()
+      throw error
+    }
+  }
 
   switch (command) {
     case "middleware_projects_list":
-      return middlewareFetch<T>("/api/projects")
+      return middlewareFetch<T>(`/api/projects${queryString({ spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
     case "middleware_projects_create":
       return middlewareFetch<T>("/api/projects", { method: "POST", body: JSON.stringify(input) })
     case "middleware_projects_update":
@@ -144,11 +158,15 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_list":
+      return withCommandFallback(() => middlewareFetch<T>("/api/spaces"))
     case "middleware_spaces_create":
+      return withCommandFallback(() => middlewareFetch<T>("/api/spaces", { method: "POST", body: JSON.stringify(input) }))
     case "middleware_spaces_update":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "PATCH", body: JSON.stringify(input) }))
     case "middleware_spaces_switch":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}/switch`, { method: "POST", body: JSON.stringify(input) }))
     case "middleware_spaces_delete":
-      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "DELETE" }))
     case "middleware_sessions_list": {
       const params = new URLSearchParams()
       if (input.projectId) params.set("projectId", String(input.projectId))

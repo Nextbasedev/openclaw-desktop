@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type DragEvent,
-} from "react"
+import { useEffect, useRef, useState, type DragEvent, type CSSProperties } from "react"
 import {
   VscAdd,
   VscClose,

@@ -6,12 +6,12 @@ import { HttpError } from "../lib/http-error.js"
 
 export function projectRoutes(store: Store) {
   return {
-    list: () => ({ projects: store.listProjects() }),
+    list: (filters: { spaceId?: string | null } = {}) => ({ projects: store.listProjects(filters.spaceId) }),
     create: (body: any) => {
       const name = String(body?.name ?? "").trim(); const workspaceRoot = String(body?.workspaceRoot ?? "").trim()
       if (!name) throw new HttpError(400, "Project name is required", "BAD_REQUEST")
       if (!workspaceRoot) throw new HttpError(400, "workspaceRoot is required", "BAD_REQUEST")
-      return { project: store.createProject({ name, workspaceRoot, repoRoot: body?.repoRoot ?? null }) }
+      return { project: store.createProject({ name, workspaceRoot, repoRoot: body?.repoRoot ?? null, spaceId: body?.spaceId ?? null }) }
     },
     update: (id: string, body: any) => {
       const project = store.updateProject(id, body ?? {})
