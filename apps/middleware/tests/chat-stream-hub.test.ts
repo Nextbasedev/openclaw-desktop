@@ -6,6 +6,7 @@ const gatewayState = vi.hoisted(() => ({
 }))
 
 vi.mock("../src/services/gateway.js", () => ({
+  withGatewayReadRetry: vi.fn(async (fn: () => Promise<unknown>) => fn()),
   connectGateway: vi.fn(async (...args: any[]) => {
     gatewayState.connectCalls.push(args)
     return {

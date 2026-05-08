@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../src/services/gateway.js", () => ({
+  withGatewayReadRetry: vi.fn(async (fn: () => Promise<unknown>) => fn()),
   connectGateway: vi.fn(async () => ({ request: vi.fn(async () => ({ ok: true })), on: vi.fn(() => vi.fn()), close: vi.fn() })),
 }))
 

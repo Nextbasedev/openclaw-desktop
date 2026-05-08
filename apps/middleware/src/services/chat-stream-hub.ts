@@ -1,5 +1,6 @@
 import type { Response } from "express"
 import { connectGateway, type MiddlewareGatewayHandle } from "./gateway.js"
+import { configureGatewayRecovery, markGatewayReconnected } from "./gateway-recovery.js"
 
 type GatewayMessage = Parameters<MiddlewareGatewayHandle["on"]>[0] extends (m: infer M) => void ? M : never
 
@@ -39,6 +40,12 @@ export function registerChatStreamClient(params: {
     },
   }
   clients.set(id, client)
+  configureGatewayRecovery({
+    getOpenSessionKeys: getOpenChatSessionKeys,
+    emit: (event, data) => {
+      for (const active of [...clients.values()]) active.send(event, data)
+    },
+  })
   client.send("chat.ready", { type: "chat.ready", sessionKey: client.requestedSessionKey, activeSessionKey: client.activeSessionKey })
   void ensureSharedChatEventGateway()
   return () => { clients.delete(id) }
@@ -68,6 +75,7 @@ export async function ensureSharedChatEventGateway() {
     gateway = gw
     await gw.request("sessions.subscribe", {}, 30_000).catch(() => null)
     gw.on((message) => handleGatewayEvent(message))
+    await markGatewayReconnected("event")
   })().finally(() => { startingGateway = null })
   return startingGateway
 }
