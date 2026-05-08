@@ -40,6 +40,18 @@ export function cacheChatActivity(
   activity.set(sessionKey, { ...snapshot, updatedAt: Date.now() })
 }
 
+export function markOptimisticChatActivity(
+  sessionKey: string,
+  label: string | null = "Thinking",
+) {
+  cacheChatActivity(sessionKey, {
+    status: "thinking",
+    statusLabel: label,
+    pendingTools: [],
+    spawnedSubagents: [],
+  })
+}
+
 export function getCachedChatActivity(sessionKey: string) {
   return activity.get(sessionKey) ?? null
 }

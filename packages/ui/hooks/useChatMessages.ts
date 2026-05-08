@@ -13,6 +13,7 @@ import {
   cacheChatActivity,
   clearCachedChatActivity,
   getCachedChatActivity,
+  markOptimisticChatActivity,
 } from "@/lib/chatActivityStore"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
@@ -1464,6 +1465,7 @@ export function useChatMessages(
         },
       ])
       if (!runsAlongsideGeneration) {
+        markOptimisticChatActivity(sessionKey)
         setStatus("thinking")
       }
       forceScrollToBottom(true)
@@ -1527,6 +1529,7 @@ export function useChatMessages(
       setPendingTools([])
       doneAfterYieldRef.current = 0
 
+      markOptimisticChatActivity(sessionKey)
       setStatus("thinking")
       forceScrollToBottom(true)
 
@@ -1681,6 +1684,7 @@ export function useChatMessages(
       editPreviewSourceRef.current?.close()
       editPreviewSourceRef.current = null
       setEditPreview(null)
+      markOptimisticChatActivity(sessionKey)
       setStatus("thinking")
       setIsSending(true)
       forceScrollToBottom(true)
