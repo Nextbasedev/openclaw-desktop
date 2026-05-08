@@ -29,6 +29,8 @@ const CHAT_STREAM_EVENTS = [
   "message",
 ]
 
+export const CHAT_STREAM_CLOSE_GRACE_MS = 60_000
+
 const streams = new Map<string, StreamEntry>()
 
 function emitToListeners(entry: StreamEntry, event: MessageEvent) {
@@ -98,10 +100,18 @@ export function subscribeChatStream(
       if (entry.listeners.size > 0 || entry.errorListeners.size > 0) return
       entry.source.close()
       streams.delete(sessionKey)
-    }, 250)
+    }, CHAT_STREAM_CLOSE_GRACE_MS)
   }
 }
 
 export function activeChatStreamCount() {
   return streams.size
+}
+
+export function clearChatStreamsForTests() {
+  for (const entry of streams.values()) {
+    if (entry.closeTimer) clearTimeout(entry.closeTimer)
+    entry.source.close()
+  }
+  streams.clear()
 }
