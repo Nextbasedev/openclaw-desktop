@@ -1,10 +1,7 @@
 "use client"
 
 import { on } from "@/lib/events"
-import {
-  MIDDLEWARE_CONNECTION_CHANGED_EVENT,
-  MIDDLEWARE_DISCONNECTED_EVENT,
-} from "@/lib/middleware-client"
+import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import {
   invalidateMiddlewareStartupBootstrap,
   refreshMiddlewareStartupBootstrap,
@@ -23,7 +20,6 @@ export function initFrontendCacheRealtimeInvalidation() {
   initialized = true
 
   on("sidebar:refresh", () => {
-    invalidateMiddlewareStartupBootstrap()
     void refreshMiddlewareStartupBootstrap()
   })
   on("archive:changed", () => {
@@ -35,14 +31,15 @@ export function initFrontendCacheRealtimeInvalidation() {
     void refreshMiddlewareStartupBootstrap()
   })
 
-  window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, clearAllLocalCache)
-  window.addEventListener(MIDDLEWARE_DISCONNECTED_EVENT, clearAllLocalCache)
+  window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, (event) => {
+    const nextUrl = event instanceof CustomEvent ? event.detail?.url : null
+    if (nextUrl) clearAllLocalCache()
+  })
   window.addEventListener("storage", (event) => {
-    if (
-      event.key === "openclaw.middleware.url" ||
-      event.key === "openclaw.middleware.token" ||
-      event.key === "jarvis.gatewayActive"
-    ) {
+    if (event.key === "openclaw.middleware.url" && event.newValue && event.oldValue !== event.newValue) {
+      clearAllLocalCache()
+    }
+    if (event.key === "openclaw.middleware.token" && event.newValue && event.oldValue !== event.newValue) {
       clearAllLocalCache()
     }
   })
