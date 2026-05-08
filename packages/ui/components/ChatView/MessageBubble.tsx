@@ -618,7 +618,7 @@ export function MessageBubble({
                 ?.scrollIntoView({ behavior: "smooth", block: "center" })
             }}
             className={cn(
-              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-b-0 border-border/20 bg-foreground/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.06]"
+              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-b-0 border-border/20 bg-foreground/[0.03] px-2.5 pb-1.5 text-left transition-colors hover:bg-foreground/[0.06]"
             )}
           >
             <div className="min-w-0 flex-1">

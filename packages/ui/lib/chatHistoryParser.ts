@@ -115,10 +115,15 @@ export function stripBootstrap(t: string): string {
 
 const SYSTEM_LINE_RE =
   /^System(?:\s*\([^)]*\))?:\s*\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*[^\n]*\n*/
+const TZ_RE = /(?:UTC|GMT(?:[+-]\d{1,2}(?::\d{2})?)?)/
 const TIMESTAMP_PREFIX_RE =
-  /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*/
+  new RegExp(
+    String.raw`^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+${TZ_RE.source}\]\s*`
+  )
 const BARE_TIMESTAMP_RE =
-  /^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+UTC\]\s*/
+  new RegExp(
+    String.raw`^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+${TZ_RE.source}\]\s*`
+  )
 const CRON_HEADER_RE = /^\[cron:[^\]]*\]\s*(?:Reply with exactly:\s*)?/
 const CURRENT_TIME_RE = /^Current time:\s*[^\n]+\n*/m
 const MESSAGE_TOOL_RE =
@@ -145,10 +150,47 @@ function stripMediaAttachmentPreamble(text: string): string {
   return result
 }
 
+function parseSenderMetadataPreamble(text: string): {
+  nextText: string
+  stripped: boolean
+} {
+  const match = text.match(
+    /^Sender \(untrusted metadata\):\s*```json\s*([\s\S]*?)\s*```\s*/i
+  )
+  if (!match) {
+    return { nextText: text, stripped: false }
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as Record<string, unknown>
+    const hasIdentityField =
+      typeof parsed.id === "string" ||
+      typeof parsed.label === "string" ||
+      typeof parsed.name === "string" ||
+      typeof parsed.username === "string"
+    if (!hasIdentityField) {
+      return { nextText: text, stripped: false }
+    }
+  } catch {
+    return { nextText: text, stripped: false }
+  }
+
+  return {
+    nextText: text.slice(match[0].length),
+    stripped: true,
+  }
+}
+
 export function stripGatewayPrefixes(text: string): string {
   let result = text
   while (SYSTEM_LINE_RE.test(result)) {
     result = result.replace(SYSTEM_LINE_RE, "")
+  }
+
+  while (true) {
+    const senderMetadata = parseSenderMetadataPreamble(result)
+    result = senderMetadata.nextText
+    if (!senderMetadata.stripped) break
   }
   result = stripMediaAttachmentPreamble(result)
   result = result.replace(CRON_HEADER_RE, "")
