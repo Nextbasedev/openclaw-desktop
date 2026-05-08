@@ -131,6 +131,10 @@ export async function persistentCacheDeletePrefix(prefix: string) {
   await idbDeletePrefix(prefix)
 }
 
+export async function persistentCacheClearAll() {
+  await persistentCacheDeletePrefix("")
+}
+
 export function persistentCachePeekMemory<T>(key: string): T | null {
   const entry = memory.get(key) as PersistentCacheEntry<T> | undefined
   return entry && !isExpired(entry) ? entry.value : null
