@@ -3,6 +3,7 @@ import {
   cacheChatActivity,
   clearChatActivityStoreForTests,
   getCachedChatActivity,
+  markOptimisticChatActivity,
 } from "../chatActivityStore"
 
 afterEach(() => clearChatActivityStoreForTests())
@@ -31,6 +32,14 @@ describe("chatActivityStore", () => {
     })
 
     expect(getCachedChatActivity("agent:main:a")?.pendingTools).toHaveLength(1)
+  })
+
+  it("marks optimistic thinking before send/stream confirmation", () => {
+    markOptimisticChatActivity("agent:main:a")
+    expect(getCachedChatActivity("agent:main:a")).toMatchObject({
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
   })
 
   it("clears terminal completed activity instead of replaying stale running UI", () => {
