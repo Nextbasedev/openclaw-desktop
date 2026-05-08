@@ -60,6 +60,14 @@ describe("chat stream hub", () => {
     expect(a.writes.join("\n")).not.toContain("chat.tool")
   })
 
+  it("does not broadcast session events that have no session key", () => {
+    const a = makeClient("agent:main:a")
+    const b = makeClient("agent:main:b")
+    hub.handleGatewayEvent({ type: "event", event: "session.message", payload: { message: { role: "assistant", text: "leak" } } } as any)
+    expect(a.writes.join("\n")).not.toContain("leak")
+    expect(b.writes.join("\n")).not.toContain("leak")
+  })
+
   it("closing one UI SSE client does not close shared event gateway", async () => {
     const a = makeClient("agent:main:a")
     makeClient("agent:main:b")

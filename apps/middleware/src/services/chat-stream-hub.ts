@@ -16,8 +16,12 @@ let gateway: MiddlewareGatewayHandle | null = null
 let startingGateway: Promise<void> | null = null
 let nextClientId = 0
 
+function eventSessionKey(payload: any) {
+  return payload?.sessionKey ?? payload?.key ?? payload?.message?.sessionKey ?? payload?.data?.sessionKey ?? null
+}
+
 function matches(client: ChatStreamClient, key: unknown) {
-  return typeof key === "string" && (key === client.activeSessionKey || key === client.requestedSessionKey || key.endsWith(client.activeSessionKey))
+  return typeof key === "string" && (key === client.activeSessionKey || key === client.requestedSessionKey)
 }
 
 export function registerChatStreamClient(params: {
@@ -84,10 +88,12 @@ export function handleGatewayEvent(message: GatewayMessage) {
   if (!message || (message as any).type !== "event") return
   const event = (message as any).event
   const payload = (message as any).payload as any
-  const key = payload?.sessionKey ?? payload?.key
+  const key = eventSessionKey(payload)
+
+  if ((event === "session.message" || event === "session.tool") && !key) return
 
   for (const client of [...clients.values()]) {
-    if (key && !matches(client, key)) continue
+    if (!matches(client, key)) continue
     if (event === "session.message" && payload?.message) {
       const role = payload.message.role
       if (role !== "assistant") continue

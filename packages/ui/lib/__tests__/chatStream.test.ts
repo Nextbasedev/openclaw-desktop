@@ -75,4 +75,33 @@ describe("shared chat stream", () => {
     expect(MockEventSource.instances[0].closed).toBe(true)
     expect(activeChatStreamCount()).toBe(0)
   })
+
+  it("ignores events scoped to a different session key", () => {
+    const first = vi.fn()
+    const second = vi.fn()
+
+    subscribeChatStream("agent:main:a", first)
+    subscribeChatStream("agent:main:b", second)
+
+    MockEventSource.instances[0].emit("chat.message", {
+      type: "chat.message",
+      sessionKey: "agent:main:b",
+      text: "wrong tab",
+    })
+    MockEventSource.instances[1].emit("chat.message", {
+      type: "chat.message",
+      sessionKey: "agent:main:b",
+      text: "right tab",
+    })
+
+    expect(first).not.toHaveBeenCalled()
+    expect(second).toHaveBeenCalledWith({
+      type: "chat.message",
+      data: {
+        type: "chat.message",
+        sessionKey: "agent:main:b",
+        text: "right tab",
+      },
+    })
+  })
 })

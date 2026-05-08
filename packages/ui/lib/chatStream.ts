@@ -11,6 +11,7 @@ type StreamListener = (event: ChatStreamEvent) => void
 type ErrorListener = () => void
 
 type StreamEntry = {
+  sessionKey: string
   source: EventSource
   listeners: Set<StreamListener>
   errorListeners: Set<ErrorListener>
@@ -37,7 +38,9 @@ function emitToListeners(entry: StreamEntry, event: MessageEvent) {
   } catch {
     return
   }
-  const payload = { type: event.type, ...data }
+  const payload: Record<string, unknown> = { type: event.type, ...data }
+  const payloadSessionKey = payload.sessionKey
+  if (typeof payloadSessionKey === "string" && payloadSessionKey !== entry.sessionKey) return
   for (const listener of entry.listeners) {
     listener({ type: event.type, data: payload })
   }
@@ -57,6 +60,7 @@ function getOrCreateStream(sessionKey: string): StreamEntry {
     streamUrl(`/api/stream/chat/${sessionKey}`),
   )
   const entry: StreamEntry = {
+    sessionKey,
     source,
     listeners: new Set(),
     errorListeners: new Set(),
