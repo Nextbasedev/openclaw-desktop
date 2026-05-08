@@ -6,10 +6,35 @@ import WebSocket from "ws"
 
 type GatewayResponse<T = unknown> = { type: "res"; id: string; ok: boolean; payload?: T; error?: { code?: string; message?: string } }
 type GatewayMessage = GatewayResponse | { type: "event"; event: string; payload?: any }
+export type GatewayPurpose = "rpc" | "event"
+export type MiddlewareGatewayHandle = {
+  request<T=unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<GatewayResponse<T>>
+  on(listener: (m: GatewayMessage) => void): () => void
+  close(): void
+  release?(): void
+}
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 const PROTOCOL_VERSION = 3
 const CLIENT = { id: "gateway-client", displayName: "OpenClaw Desktop Middleware", version: "0.1.0", platform: "desktop", mode: "backend" }
+
+export function isSharedGatewayEnabled() {
+  const value = String(process.env.MIDDLEWARE_SHARED_GATEWAY || "").trim().toLowerCase()
+  return value === "1" || value === "true" || value === "yes" || value === "on"
+}
+
+export function createSharedGatewayHandleForTests(client: {
+  request: MiddlewareGatewayHandle["request"]
+  on: MiddlewareGatewayHandle["on"]
+  closeUnderlying?: () => void
+}): MiddlewareGatewayHandle {
+  return {
+    request: client.request,
+    on: client.on,
+    close() { /* shared handles release callers, not the singleton socket */ },
+    release() { /* noop for now */ },
+  }
+}
 
 function base64UrlEncode(buf: Buffer) { return buf.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "") }
 function normalize(value: string | undefined) { return typeof value === "string" ? value.trim().toLowerCase() : "" }
