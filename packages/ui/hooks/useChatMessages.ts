@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { dedupeRequest } from "@/lib/requestDedupe"
+import { inferRestoredChatStatus } from "@/lib/chatStatus"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
@@ -860,7 +861,7 @@ export function useChatMessages(
       }
       setLoading(false)
       setMessages(seededMessages)
-      setStatus("thinking")
+      setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
     } else {
       setLoading(true)
       setMessages([])
