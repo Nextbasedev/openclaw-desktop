@@ -16,6 +16,7 @@ type Props = {
   activeTopic: ActiveTopic | null
   onTopicSelect: (topic: ActiveTopic) => void
   onTopicClear: () => void
+  spaceId?: string | null
 }
 
 const PROJECT_INITIAL_LIMIT = 5
@@ -26,6 +27,7 @@ export function ProjectsSection({
   activeTopic,
   onTopicSelect,
   onTopicClear,
+  spaceId,
 }: Props) {
   const [isOpen, setIsOpen] = useState(true)
   const [showAllProjects, setShowAllProjects] = useState(false)
@@ -37,7 +39,7 @@ export function ProjectsSection({
     handleProjectClick, togglePinProject, togglePinTopic,
     handleArchiveProject, handleArchiveTopic, handleDeleteTopic,
     dialogState, dialogActions,
-  } = useProjectsData(onTopicSelect, activeTopic, onTopicClear)
+  } = useProjectsData(onTopicSelect, activeTopic, onTopicClear, spaceId)
 
   return (
     <>

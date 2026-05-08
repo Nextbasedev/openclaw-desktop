@@ -9,7 +9,11 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:api": "node scripts/test-api.cjs"
+    "test:api": "node scripts/test-api.cjs",
+    "load:test:tabs": "node scripts/load-test-tabs.cjs",
+    "load:test:streams": "node scripts/load-test-streams.cjs",
+    "load:test:tab-burst": "node scripts/load-test-tab-burst.cjs",
+    "load:test:reliability": "node scripts/load-test-reliability.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1",

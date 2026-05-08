@@ -11,6 +11,7 @@ type StreamListener = (event: ChatStreamEvent) => void
 type ErrorListener = () => void
 
 type StreamEntry = {
+  sessionKey: string
   source: EventSource
   listeners: Set<StreamListener>
   errorListeners: Set<ErrorListener>
@@ -28,6 +29,8 @@ const CHAT_STREAM_EVENTS = [
   "message",
 ]
 
+export const CHAT_STREAM_CLOSE_GRACE_MS = 60_000
+
 const streams = new Map<string, StreamEntry>()
 
 function emitToListeners(entry: StreamEntry, event: MessageEvent) {
@@ -37,7 +40,9 @@ function emitToListeners(entry: StreamEntry, event: MessageEvent) {
   } catch {
     return
   }
-  const payload = { type: event.type, ...data }
+  const payload: Record<string, unknown> = { type: event.type, ...data }
+  const payloadSessionKey = payload.sessionKey
+  if (typeof payloadSessionKey === "string" && payloadSessionKey !== entry.sessionKey) return
   for (const listener of entry.listeners) {
     listener({ type: event.type, data: payload })
   }
@@ -57,6 +62,7 @@ function getOrCreateStream(sessionKey: string): StreamEntry {
     streamUrl(`/api/stream/chat/${sessionKey}`),
   )
   const entry: StreamEntry = {
+    sessionKey,
     source,
     listeners: new Set(),
     errorListeners: new Set(),
@@ -94,10 +100,18 @@ export function subscribeChatStream(
       if (entry.listeners.size > 0 || entry.errorListeners.size > 0) return
       entry.source.close()
       streams.delete(sessionKey)
-    }, 250)
+    }, CHAT_STREAM_CLOSE_GRACE_MS)
   }
 }
 
 export function activeChatStreamCount() {
   return streams.size
+}
+
+export function clearChatStreamsForTests() {
+  for (const entry of streams.values()) {
+    if (entry.closeTimer) clearTimeout(entry.closeTimer)
+    entry.source.close()
+  }
+  streams.clear()
 }
