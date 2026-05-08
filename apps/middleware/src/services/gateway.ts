@@ -37,6 +37,40 @@ export function createSharedGatewayHandleForTests(client: {
   }
 }
 
+export function isGatewayTransientError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "")
+  return /gateway websocket closed before open/i.test(message)
+    || /gateway websocket closed waiting for/i.test(message)
+    || /gateway websocket closed$/i.test(message)
+    || /timeout waiting for connect\.challenge/i.test(message)
+    || /gateway websocket open timeout/i.test(message)
+    || /WebSocket is not open/i.test(message)
+    || /socket (closed|close|error)/i.test(message)
+}
+
+export function resetSharedGatewayConnection(purpose?: GatewayPurpose) {
+  if (!purpose || purpose === "rpc") {
+    sharedRpc?.ws.close()
+    sharedRpc = null
+    connectingRpc = null
+  }
+  if (!purpose || purpose === "event") {
+    sharedEvent?.ws.close()
+    sharedEvent = null
+    connectingEvent = null
+  }
+}
+
+export async function withGatewayReadRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (error) {
+    if (!isGatewayTransientError(error)) throw error
+    resetSharedGatewayConnection("rpc")
+    return await fn()
+  }
+}
+
 function base64UrlEncode(buf: Buffer) { return buf.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "") }
 function normalize(value: string | undefined) { return typeof value === "string" ? value.trim().toLowerCase() : "" }
 function derivePublicKeyRaw(publicKeyPem: string) { const key = crypto.createPublicKey(publicKeyPem); const spki = key.export({ type: "spki", format: "der" }) as Buffer; return spki.length === ED25519_SPKI_PREFIX.length + 32 && spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX) ? spki.subarray(ED25519_SPKI_PREFIX.length) : spki }
