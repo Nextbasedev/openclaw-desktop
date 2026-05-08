@@ -9,6 +9,11 @@ import { dedupeRequest } from "@/lib/requestDedupe"
 import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
 import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
+import {
+  cacheChatActivity,
+  clearCachedChatActivity,
+  getCachedChatActivity,
+} from "@/lib/chatActivityStore"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
@@ -276,6 +281,7 @@ export function useChatMessages(
   const doneAfterYieldRef = useRef(0)
   const editPreviewSourceRef = useRef<EventSource | null>(null)
   const [streamGeneration, setStreamGeneration] = useState(0)
+  const cachedActivity = !hasInitial ? getCachedChatActivity(sessionKey) : null
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -284,6 +290,15 @@ export function useChatMessages(
   const scrollFrameRef = useRef<number | null>(null)
   const programmaticScrollUntilRef = useRef(0)
   const lastSmoothScrollAtRef = useRef(0)
+
+  useEffect(() => {
+    cacheChatActivity(sessionKey, {
+      status,
+      statusLabel,
+      pendingTools,
+      spawnedSubagents,
+    })
+  }, [sessionKey, status, statusLabel, pendingTools, spawnedSubagents])
 
   const isGenerating =
     status !== "idle" &&
@@ -865,10 +880,23 @@ export function useChatMessages(
       setStatus("idle")
     }
 
-    pendingToolMapRef.current.clear()
-    setPendingTools([])
-    spawnMapRef.current.clear()
-    setSpawnedSubagents([])
+    if (cachedActivity) {
+      pendingToolMapRef.current = new Map(
+        cachedActivity.pendingTools.map((tool) => [tool.id, tool]),
+      )
+      setPendingTools(cachedActivity.pendingTools)
+      spawnMapRef.current = new Map(
+        cachedActivity.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]),
+      )
+      setSpawnedSubagents(cachedActivity.spawnedSubagents)
+      setStatus(cachedActivity.status)
+      setStatusLabel(cachedActivity.statusLabel)
+    } else {
+      pendingToolMapRef.current.clear()
+      setPendingTools([])
+      spawnMapRef.current.clear()
+      setSpawnedSubagents([])
+    }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     let cancelled = false
@@ -1286,6 +1314,7 @@ export function useChatMessages(
             if (!cancelled && activelyWaiting) {
               setErrorMessage("Connection to server lost")
               setStatus("error")
+              clearCachedChatActivity(sessionKey)
               void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
             }
           }
