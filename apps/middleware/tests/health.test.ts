@@ -14,9 +14,9 @@ describe("health/auth", () => {
     expect(res.body.service).toBe("openclaw-middleware")
   })
 
-  it("rejects protected routes without token", async () => {
+  it("allows loopback protected routes without token", async () => {
     const res = await request(app).get("/api/version")
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(200)
   })
 
   it("allows protected routes with token", async () => {

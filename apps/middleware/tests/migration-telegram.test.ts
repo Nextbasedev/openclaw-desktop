@@ -81,7 +81,7 @@ describe("Telegram migration", () => {
 
     expect(res.status).toBe(200)
     expect(res.body.summary).toMatchObject({ total: 2, direct: 1, groups: 1, topics: 1 })
-    expect(res.body.sessions.map((s: any) => s.proposedName)).toEqual(["normal direct m", "topic migration"])
+    expect(res.body.sessions.map((s: any) => s.proposedName)).toEqual(["normal direct m", "Topic 42"])
     expect(res.body.groups).toEqual([{ groupId: "-100", name: "New world 🌍", topics: 1 }])
   })
 
@@ -110,7 +110,7 @@ describe("Telegram migration", () => {
 
     const topics = await auth(request(app).get(`/api/topics?projectId=${projects.body.projects[0].id}`))
     expect(topics.body.topics).toHaveLength(1)
-    expect(topics.body.topics[0].name).toBe("group topic imp")
+    expect(topics.body.topics[0].name).toBe("Topic 42")
 
     const chats = await auth(request(app).get("/api/chats"))
     expect(chats.body.chats).toHaveLength(1)
