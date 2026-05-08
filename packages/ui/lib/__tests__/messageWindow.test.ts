@@ -25,4 +25,14 @@ describe("windowChatMessages", () => {
     expect(result.messages.some((m) => m.messageId === "m10")).toBe(true)
     expect(result.messages.some((m) => m.messageId === "m300")).toBe(true)
   })
+
+  it("expands when the caller increases window size", () => {
+    const messages = Array.from({ length: 600 }, (_, i) => msg(i + 1))
+    const first = windowChatMessages(messages, [], 240)
+    const expanded = windowChatMessages(messages, [], 480)
+    expect(first.messages).toHaveLength(240)
+    expect(expanded.messages).toHaveLength(480)
+    expect(first.messages[0].messageId).toBe("m361")
+    expect(expanded.messages[0].messageId).toBe("m121")
+  })
 })

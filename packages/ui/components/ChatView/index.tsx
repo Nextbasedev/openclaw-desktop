@@ -337,6 +337,8 @@ export function ChatView({
   const previousMessageCountRef = useRef(messages.length)
   const suppressResizeFollowUntilRef = useRef(0)
   const initialScrollDoneRef = useRef(false)
+  const [messageWindowSize, setMessageWindowSize] = useState(240)
+  const preserveScrollAfterExpandRef = useRef<{ height: number; top: number } | null>(null)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -348,6 +350,7 @@ export function ChatView({
     initialScrollDoneRef.current = false
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
+    setMessageWindowSize(240)
 
     invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
       "middleware_pins_list",
@@ -546,8 +549,8 @@ export function ChatView({
     [messages, messageActionState]
   )
   const messageWindow = useMemo(
-    () => windowChatMessages(visibleAllMessages, messageActionState.pinnedIds),
-    [visibleAllMessages, messageActionState.pinnedIds]
+    () => windowChatMessages(visibleAllMessages, messageActionState.pinnedIds, messageWindowSize),
+    [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
   const userMessageHistory = useMemo(
@@ -716,6 +719,12 @@ export function ChatView({
     [sessionKey, messageActionState.reactions]
   )
 
+  const loadOlderMessages = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (el) preserveScrollAfterExpandRef.current = { height: el.scrollHeight, top: el.scrollTop }
+    setMessageWindowSize((current) => Math.min(current + 240, visibleAllMessages.length))
+  }, [scrollContainerRef, visibleAllMessages.length])
+
   const handleScroll = useCallback(() => {
     onScroll()
     if (activePopoverId) setActivePopoverId(null)
@@ -732,6 +741,13 @@ export function ChatView({
   }, [messages])
 
   useLayoutEffect(() => {
+    const preserve = preserveScrollAfterExpandRef.current
+    if (preserve) {
+      const el = scrollContainerRef.current
+      if (el) el.scrollTop = el.scrollHeight - preserve.height + preserve.top
+      preserveScrollAfterExpandRef.current = null
+      return
+    }
     if (initialScrollDoneRef.current) return
     const el = scrollContainerRef.current
     if (!el || messages.length === 0) return
@@ -1125,8 +1141,15 @@ export function ChatView({
         <div ref={messageContentRef} className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
             {messageWindow.hiddenBefore > 0 && (
-              <div className="mx-auto rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
-                Showing latest {renderedMessages.length} of {messageWindow.total} messages
+              <div className="mx-auto flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                <span>Showing latest {renderedMessages.length} of {messageWindow.total} messages</span>
+                <button
+                  type="button"
+                  onClick={loadOlderMessages}
+                  className="cursor-pointer font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  Load older messages
+                </button>
               </div>
             )}
             {renderedMessages.map((msg, i) => {
