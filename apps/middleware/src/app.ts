@@ -13,7 +13,8 @@ import { workspaceRoutes } from "./services/workspace.js"
 import { terminalRoutes } from "./services/terminal.js"
 import { recordRoutes } from "./services/records.js"
 import { commandRoutes } from "./services/commands.js"
-import { connectGateway } from "./services/gateway.js"
+import { connectGateway, isSharedGatewayEnabled } from "./services/gateway.js"
+import { registerChatStreamClient } from "./services/chat-stream-hub.js"
 import { middlewareUpdateStatus, startMiddlewareUpdate } from "./services/updater.js"
 
 async function isOpenClawGatewayReachable(gatewayUrl: string) {
@@ -254,6 +255,11 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       "Access-Control-Allow-Origin": "*",
     })
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    if (isSharedGatewayEnabled()) {
+      const unregister = registerChatStreamClient({ requestedSessionKey, activeSessionKey: sessionKey, res })
+      req.on("close", unregister)
+      return
+    }
     let gateway: Awaited<ReturnType<typeof connectGateway>> | null = null
     send("chat.ready", { type: "chat.ready", sessionKey: requestedSessionKey, activeSessionKey: sessionKey })
     try {
