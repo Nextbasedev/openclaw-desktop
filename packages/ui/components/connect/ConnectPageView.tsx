@@ -64,21 +64,38 @@ type ConnectPageViewProps = {
   onDisconnect: () => void
 }
 
-const OPENCLAW_CONNECT_PROMPT = `Set up OpenClaw Desktop Middleware and give me the connection details.
+const LOCAL_OPENCLAW_CONNECT_PROMPT = `Set up OpenClaw Desktop Middleware on this computer and give me the connection details.
 
 Use this repo/branch:
 https://github.com/Nextbasedev/openclaw-desktop.git
-branch: dixit_changes
+branch: main
 
-Requirements:
-1. Install or update OpenClaw Desktop Middleware from this repo.
-2. Make sure the OpenClaw Gateway/runtime is running on the same machine as the Middleware.
-3. Start the Middleware and expose a URL that this Desktop app can reach.
-   - Local computer: http://127.0.0.1:8787
-   - VPS/domain/Tailscale: use the reachable URL for that machine
-4. Test /health from that URL and make sure openclaw.connected is true.
-5. Give me the Middleware URL and pairing code.
-6. If pairing, auth, gateway, token, or network errors appear, fix them in the OpenClaw/Desktop codebase without weakening remote/VPS pairing security.
+Do this inside OpenClaw, not by asking the user to debug pairing manually:
+1. Install or update OpenClaw Desktop Middleware from the repo above.
+2. Make sure OpenClaw Gateway is running on this same computer.
+3. Start Middleware on http://127.0.0.1:8787.
+4. Middleware should connect to Gateway with normal desktop scopes only: operator.read, operator.write, operator.approvals. Do not require operator.admin for the basic desktop flow.
+5. Test http://127.0.0.1:8787/health and confirm openclaw.connected is true.
+6. Do not ask the user to run openclaw devices approve. If pairing/auth fails, fix the middleware setup/update path.
+
+When finished, give me only:
+Middleware URL: http://127.0.0.1:8787
+Pairing code: not needed locally`
+
+const VPS_OPENCLAW_CONNECT_PROMPT = `Set up OpenClaw Desktop Middleware on this VPS and give me the connection details.
+
+Use this repo/branch:
+https://github.com/Nextbasedev/openclaw-desktop.git
+branch: main
+
+Do this inside OpenClaw, not by asking the user to debug pairing manually:
+1. Install or update OpenClaw Desktop Middleware from the repo above. If Middleware already exists, use its Update Middleware/API flow; do not hand-edit random files.
+2. Make sure OpenClaw Gateway is running on this VPS.
+3. Start Middleware on port 8787 and expose the reachable VPS/domain/Tailscale URL.
+4. Middleware should connect to Gateway with normal desktop scopes only: operator.read, operator.write, operator.approvals. Do not require operator.admin for the basic desktop flow.
+5. Test /health from the reachable URL and confirm openclaw.connected is true.
+6. Return the Middleware URL and the Middleware pairing code from /etc/openclaw-middleware.env or the service configuration.
+7. Do not ask the user to run openclaw devices approve. If pairing/auth fails, fix the middleware setup/update path without weakening remote/VPS pairing security.
 
 When finished, give me only:
 Middleware URL: <reachable-url>
@@ -138,7 +155,7 @@ export function ConnectPageView({
               <div className="space-y-4">
                 <PromptBox
                   title={setupMode === "local" ? "Ask OpenClaw on this computer:" : "Ask OpenClaw on your VPS:"}
-                  prompt={OPENCLAW_CONNECT_PROMPT}
+                  prompt={setupMode === "local" ? LOCAL_OPENCLAW_CONNECT_PROMPT : VPS_OPENCLAW_CONNECT_PROMPT}
                 />
 
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -193,13 +210,13 @@ function ChoiceScreen({
         <ModeCard
           icon={ComputerIcon}
           title="OpenClaw is on this computer"
-          description="Show the local setup prompt, then paste the local Middleware URL and pairing code."
+          description="Copy the local setup prompt. OpenClaw will start Middleware locally; no pairing code is needed."
           onClick={() => onSelect("local")}
         />
         <ModeCard
           icon={Globe02Icon}
           title="OpenClaw is on a VPS"
-          description="Show the server setup prompt, then paste the reachable URL and pairing code."
+          description="Copy the VPS setup prompt. OpenClaw will update/start Middleware and return the reachable URL plus pairing code."
           onClick={() => onSelect("remote")}
         />
       </div>
