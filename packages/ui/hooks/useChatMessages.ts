@@ -43,6 +43,7 @@ import type {
 import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
+import { localSyncGetMessages, localSyncSetMessages, localSyncSetStatus, localSyncSubscribeMessages } from "@/lib/localFirstSync"
 import { persistentCacheDeletePrefix, persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import {
   cleanUserMessageText,
@@ -260,6 +261,7 @@ export function useChatMessages(
     if (next.length === 0) return
     persistTimerRef.current = setTimeout(() => {
       void persistentCacheSet(`session:${sessionKey}:uiMessages`, next.slice(-200), { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS })
+      void localSyncSetMessages(sessionKey, next, statusRef.current)
     }, 250)
   }, [sessionKey])
 
@@ -281,6 +283,7 @@ export function useChatMessages(
         const next = typeof update === "function" ? update(prev) : update
         publishChatSessionStatus(sessionKey, next, instanceIdRef.current)
         void persistentCacheSet(`session:${sessionKey}:status`, next, { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS })
+        void localSyncSetStatus(sessionKey, next)
         return next
       })
     },
@@ -868,12 +871,14 @@ export function useChatMessages(
     let cancelled = false
     const cachedSessionMessages = getCachedChatSessionMessages(sessionKey)
     if (!initialMessages?.length && !cachedSessionMessages?.length) {
-      void persistentCacheGet<ChatMessage[]>(`session:${sessionKey}:uiMessages`).then((cached) => {
+      void localSyncGetMessages(sessionKey).then((localState) => {
+        const cached = localState?.messages
         if (cancelled || !cached?.length) return
         setLoading(false)
         setMessages(cached)
         setStatus(inferRestoredChatStatus(cached, getCachedChatSessionStatus(sessionKey)))
-        void persistentCacheGet<StreamStatus>(`session:${sessionKey}:status`).then((cachedStatus) => {
+        if (localState?.status) setStatus(localState.status)
+        else void persistentCacheGet<StreamStatus>(`session:${sessionKey}:status`).then((cachedStatus) => {
           if (!cancelled && cachedStatus) setStatus(cachedStatus)
         })
       })
@@ -936,6 +941,11 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
+    const unsubscribeLocalFirst = localSyncSubscribeMessages(sessionKey, (state) => {
+      if (state.messages.length === 0) return
+      setMessages(state.messages)
+      if (state.status) setStatus(state.status)
+    })
     let unsubscribeStream: (() => void) | null = null
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
@@ -1374,6 +1384,7 @@ export function useChatMessages(
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+      unsubscribeLocalFirst()
       unsubscribeStream?.()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)

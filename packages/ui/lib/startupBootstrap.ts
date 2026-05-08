@@ -1,4 +1,5 @@
 import { getMiddlewareConnection, middlewareFetch } from "@/lib/middleware-client"
+import { localSyncGetBootstrap, localSyncInvalidate, localSyncSetBootstrap, localSyncSetChats } from "@/lib/localFirstSync"
 import { persistentCacheDeletePrefix, persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import type { Space } from "@/types/space"
@@ -25,8 +26,10 @@ async function fetchMiddlewareStartupBootstrap(): Promise<BootstrapPayload | nul
     async () => {
       const payload = await middlewareFetch<BootstrapPayload>("/api/bootstrap")
       await persistentCacheSet(BOOTSTRAP_CACHE_KEY, payload, { ttlMs: BOOTSTRAP_PERSIST_TTL_MS })
+      await localSyncSetBootstrap({ spaces: payload.spaces || [], activeSpaceId: payload.activeSpaceId ?? null, sessions: payload.sessions })
       if (payload.activeSpaceId) {
         await persistentCacheSet(`project:${payload.activeSpaceId}:chats`, payload.chats || [], { ttlMs: BOOTSTRAP_PERSIST_TTL_MS })
+        await localSyncSetChats(payload.activeSpaceId, payload.chats || [])
       }
       return payload
     },
@@ -35,7 +38,10 @@ async function fetchMiddlewareStartupBootstrap(): Promise<BootstrapPayload | nul
 }
 
 export async function loadMiddlewareStartupBootstrap(): Promise<BootstrapPayload | null> {
-  const cached = await persistentCacheGet<BootstrapPayload>(BOOTSTRAP_CACHE_KEY)
+  const localFirst = await localSyncGetBootstrap()
+  const cached = localFirst
+    ? { spaces: localFirst.spaces, activeSpaceId: localFirst.activeSpaceId, chats: [], sessions: localFirst.sessions }
+    : await persistentCacheGet<BootstrapPayload>(BOOTSTRAP_CACHE_KEY)
   if (getMiddlewareConnection()) void fetchMiddlewareStartupBootstrap()
   return cached ?? await fetchMiddlewareStartupBootstrap()
 }
@@ -48,4 +54,5 @@ export function invalidateMiddlewareStartupBootstrap() {
   invalidateDedupe(BOOTSTRAP_KEY)
   void persistentCacheDeletePrefix("startup:")
   void persistentCacheDeletePrefix("project:")
+  void localSyncInvalidate("local:first:")
 }
