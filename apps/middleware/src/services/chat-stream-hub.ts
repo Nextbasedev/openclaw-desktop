@@ -96,6 +96,7 @@ export function handleGatewayEvent(message: GatewayMessage) {
         stopReason: payload.message.stopReason ?? null,
       })
       if (!ok) clients.delete(client.id)
+      else client.send("chat.status", { type: "chat.status", sessionKey: client.activeSessionKey, state: payload.message.text ? "done" : "streaming" })
       continue
     }
     if (event === "session.tool" && payload?.data) {
@@ -115,6 +116,12 @@ export function handleGatewayEvent(message: GatewayMessage) {
         subagentOf: null,
       })
       if (!ok) clients.delete(client.id)
+      else client.send("chat.status", {
+        type: "chat.status",
+        sessionKey: client.activeSessionKey,
+        state: data?.phase === "error" ? "error" : data?.phase === "result" ? "thinking" : "tool_running",
+        label: data?.name ?? null,
+      })
     }
   }
 }
