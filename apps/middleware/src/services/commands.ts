@@ -7,6 +7,7 @@ import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway, withGatewayReadRetry } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
+import { sanitizeHistoryPayloadForUi } from "./history-sanitize.js"
 import { readVoiceSettings, voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
 function now() { return new Date().toISOString() }
@@ -88,7 +89,7 @@ function friendlyAssistantError(message: any) {
 
 function normalizeHistoryPayload(payload: any) {
   if (!payload || !Array.isArray(payload.messages)) return payload
-  return {
+  const normalized = {
     ...payload,
     messages: payload.messages.map((message: any) => {
       if (message?.role === "user") {
@@ -113,6 +114,7 @@ function normalizeHistoryPayload(payload: any) {
       }
     }),
   }
+  return sanitizeHistoryPayloadForUi(normalized)
 }
 
 function isPairingRequiredError(error: unknown) {
