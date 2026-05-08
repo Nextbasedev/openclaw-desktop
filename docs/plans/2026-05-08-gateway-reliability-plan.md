@@ -708,3 +708,129 @@ The right improvement is a Telegram-style layer above sockets:
 - heavy validation after deterministic tests
 
 This should make the desktop/backend integration more reliable without fighting the existing architecture.
+
+---
+
+## Approved Experiment Design — Desktop Middleware Only
+
+Decision time: 2026-05-08 06:18 UTC.
+
+This section records the approved brainstorming outcome before implementation. Do **not** implement backend/OpenClaw changes for this experiment.
+
+### Hard constraints
+
+- Change only `openclaw-desktop` / desktop middleware code.
+- Do **not** change `/root/.openclaw/workspace/openclaw` backend code.
+- Do **not** push or merge to `main` until the experiment is fully verified.
+- Keep all work on experiment branch `ui/new-feat` or a child feature branch from it.
+- Treat the OpenClaw backend reliability/request-manager plan as reference architecture only.
+
+### Reliability architecture to implement
+
+Use a middleware-owned Gateway coordinator, inspired by Telegram's separation between session logic and disposable transports.
+
+Normal operation should use at most two Gateway sockets from desktop middleware:
+
+1. **Shared RPC socket**
+   - Short request/response commands.
+   - Examples: sessions list, chat history, models list, connection/status, settings/API calls.
+   - Concurrent requests are multiplexed by request ID.
+   - Safe read commands may retry once after transient transport failure.
+   - Write/mutation commands must not be blindly retried.
+
+2. **Shared app-level event socket**
+   - One long-lived event stream for the whole desktop app.
+   - Middleware fans out Gateway events internally to UI SSE clients/tabs.
+   - UI tabs should not each create their own Gateway event socket.
+
+### Feature flag / rollback
+
+Gate the new architecture behind a config/env flag first:
+
+```txt
+MIDDLEWARE_SHARED_GATEWAY=true
+```
+
+Required behavior:
+
+- Flag off: preserve current behavior as much as possible for rollback.
+- Flag on: use shared RPC + shared event socket.
+- Tests should cover both at least at smoke level if feasible.
+- Do not remove old behavior until the shared path is fully verified.
+
+### Reconnect and recovery behavior
+
+Middleware handles reconnects silently for short failures.
+
+Frontend UX thresholds:
+
+- `0–10s`: completely silent.
+- `10s–2min`: still silent to user; middleware logs/metrics internally.
+- `2min+ event stream down`: UI may show “Live updates delayed. Trying to reconnect…”
+- `2min+ RPC down`: UI may show “Connection interrupted. Retrying…”
+- `5min+ down`: UI may show retry/troubleshooting action.
+
+On shared event stream reconnect, middleware must refresh:
+
+1. sessions list
+2. all currently open/visible chat histories
+3. running status for those sessions
+
+This refresh should correct missed events without requiring backend protocol changes.
+
+### Backpressure and fan-out rules
+
+- Gateway event reader must never block on a slow UI client.
+- Use per-UI-client buffering/drop/close behavior, not global blocking.
+- A slow UI tab must not stall the shared Gateway event socket.
+- Event fan-out should be subscription-aware where possible, so irrelevant events are not over-delivered.
+
+### Socket count rule
+
+Under normal operation with the flag enabled:
+
+- Expected Gateway sockets from middleware: `2` total.
+- One RPC socket.
+- One event socket.
+- Any extra persistent Gateway socket should be treated as suspicious.
+
+Load tests should assert there is no socket growth proportional to tabs/API calls.
+
+### Retry policy
+
+Safe to retry once after reconnect:
+
+- `middleware_chat_history`
+- `middleware_sessions_list`
+- `middleware_models_list`
+- read-only status/config queries
+
+Do not blindly retry:
+
+- `chat.send`
+- `chat.abort`
+- `sessions.patch`
+- approval resolution
+- file/workspace writes
+- any command with side effects unless it has a proven idempotency contract
+
+If a write command's socket closes after send and before response, treat outcome as unknown and surface a clean error instead of retrying.
+
+### Reliability test targets
+
+Experiment targets:
+
+- 5 active tabs/chats: must pass.
+- 25 tabs/API clients: should pass.
+- 100 synthetic clients: stress target.
+- 0 failed read requests in normal load.
+- No unbounded socket growth.
+- Max normal Gateway sockets from middleware: 2.
+- No unbounded memory/listener growth.
+- No leftover test processes after load tests.
+
+### Superpowers workflow status
+
+Current status: Phase 1 brainstorming/design is approved for the desktop-only experiment.
+
+Next Superpowers step: Phase 2 — write a bite-sized TDD implementation plan with exact files, tests, commands, and commit boundaries.
