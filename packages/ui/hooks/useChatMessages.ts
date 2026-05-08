@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { dedupeRequest } from "@/lib/requestDedupe"
 import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
+import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
@@ -124,28 +125,6 @@ function parseExecApproval(
     allowedDecisions:
       allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"],
   }
-}
-
-function sameUserMessage(a: ChatMessage, b: ChatMessage) {
-  if (a.role !== "user" || b.role !== "user") return false
-  if (a.text.trim() !== b.text.trim()) return false
-  if (a.createdAt && b.createdAt) return a.createdAt === b.createdAt
-  return Boolean(a.isOptimistic || b.isOptimistic)
-}
-
-function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
-  const result: ChatMessage[] = []
-  const seenIds = new Set<string>()
-  for (const message of messages) {
-    if (seenIds.has(message.messageId)) continue
-    const duplicateUser = result.some((existing) =>
-      sameUserMessage(existing, message)
-    )
-    if (duplicateUser) continue
-    seenIds.add(message.messageId)
-    result.push(message)
-  }
-  return result
 }
 
 const CHAT_BOOTSTRAP_TTL_MS = 5000
