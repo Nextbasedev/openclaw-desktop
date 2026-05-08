@@ -8,6 +8,7 @@ const gatewayRequests = vi.hoisted(() => [] as Array<{ method: string; params: a
 const gatewayState = vi.hoisted(() => ({ transcriptPath: "", sourceMessages: [] as any[], chatSendPayload: {} as any, onChatSend: null as null | (() => void), failNextCreateLabel: null as string | null, failHistoryMessage: null as string | null }))
 
 vi.mock("../src/services/gateway.js", () => ({
+  withGatewayReadRetry: vi.fn(async (fn: () => Promise<unknown>) => fn()),
   connectGateway: vi.fn(async () => ({
     request: vi.fn(async (method: string, params: any) => {
       gatewayRequests.push({ method, params })

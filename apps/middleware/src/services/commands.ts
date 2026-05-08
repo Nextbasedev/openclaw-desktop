@@ -5,8 +5,9 @@ import path from "node:path"
 import { execFileSync } from "node:child_process"
 import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
-import { connectGateway } from "./gateway.js"
+import { connectGateway, withGatewayReadRetry } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
+import { sanitizeHistoryPayloadForUi } from "./history-sanitize.js"
 import { readVoiceSettings, voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
 function now() { return new Date().toISOString() }
@@ -88,7 +89,7 @@ function friendlyAssistantError(message: any) {
 
 function normalizeHistoryPayload(payload: any) {
   if (!payload || !Array.isArray(payload.messages)) return payload
-  return {
+  const normalized = {
     ...payload,
     messages: payload.messages.map((message: any) => {
       if (message?.role === "user") {
@@ -113,6 +114,7 @@ function normalizeHistoryPayload(payload: any) {
       }
     }),
   }
+  return sanitizeHistoryPayloadForUi(normalized)
 }
 
 function isPairingRequiredError(error: unknown) {
@@ -1377,18 +1379,20 @@ export function commandRoutes(store: Store) {
 
           const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
           const limit = Math.max(1, Math.min(Number(input.limit) || 1000, 1000))
-          let gw: Awaited<ReturnType<typeof connectGateway>> | null = null
-          try {
-            gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
-            const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
-            if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
-            return normalizeHistoryPayload(res.payload)
-          } catch (error) {
-            if (isPairingRequiredError(error)) return normalizeHistoryPayload({ messages: [] })
-            throw error
-          } finally {
-            gw?.close()
-          }
+          return await withGatewayReadRetry(async () => {
+            let gw: Awaited<ReturnType<typeof connectGateway>> | null = null
+            try {
+              gw = await connectGateway(["operator.read", "operator.write"])
+              const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
+              if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
+              return normalizeHistoryPayload(res.payload)
+            } catch (error) {
+              if (isPairingRequiredError(error)) return normalizeHistoryPayload({ messages: [] })
+              throw error
+            } finally {
+              gw?.close()
+            }
+          })
         }
         case "middleware_exec_approval_resolve": {
           const approvalId = String(input.approvalId || input.id || "").trim()

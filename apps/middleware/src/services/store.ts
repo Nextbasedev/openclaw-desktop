@@ -9,6 +9,7 @@ export type Project = {
   name: string
   workspaceRoot: string
   repoRoot: string | null
+  spaceId?: string | null
   pinned: boolean
   archived: boolean
   createdAt: string
@@ -114,12 +115,28 @@ export class Store {
     `).run(JSON.stringify(normalized), new Date().toISOString())
   }
 
-  listProjects() { return this.read().projects }
+  listProjects(spaceId?: string | null) {
+    const state = this.read()
+    const defaultSpaceId = [...(state.spaces ?? [])]
+      .filter((space: any) => !space.archived && !space.deleted)
+      .sort((a: any, b: any) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))[0]?.id ?? state.activeSpaceId ?? null
+    let changed = false
+    if (defaultSpaceId) {
+      for (const project of state.projects) {
+        if (project.spaceId === undefined) {
+          project.spaceId = defaultSpaceId
+          changed = true
+        }
+      }
+      if (changed) this.write(state)
+    }
+    return spaceId ? state.projects.filter((project) => project.spaceId === spaceId) : state.projects
+  }
   getProject(id: string) { return this.read().projects.find(p => p.id === id) ?? null }
 
-  createProject(input: { name: string; workspaceRoot: string; repoRoot?: string | null }) {
+  createProject(input: { name: string; workspaceRoot: string; repoRoot?: string | null; spaceId?: string | null }) {
     const state = this.read(); const now = new Date().toISOString()
-    const project: Project = { id: `proj_${crypto.randomUUID().replace(/-/g, "")}`, name: input.name, workspaceRoot: input.workspaceRoot, repoRoot: input.repoRoot ?? null, pinned: false, archived: false, createdAt: now, updatedAt: now }
+    const project: Project = { id: `proj_${crypto.randomUUID().replace(/-/g, "")}`, name: input.name, workspaceRoot: input.workspaceRoot, repoRoot: input.repoRoot ?? null, spaceId: input.spaceId ?? state.activeSpaceId ?? null, pinned: false, archived: false, createdAt: now, updatedAt: now }
     state.projects.push(project); this.write(state); return project
   }
 

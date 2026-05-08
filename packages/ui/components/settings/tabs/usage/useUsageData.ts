@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { invoke } from "@/lib/ipc"
+import { dedupeRequest } from "@/lib/requestDedupe"
 import type {
   UsagePeriod,
   UsageResponse,
@@ -95,12 +96,16 @@ export function useUsageData(period: UsagePeriod) {
     try {
       const days = PERIOD_DAYS[requestedPeriod]
       const [usageRes, dailyRes] = await Promise.all([
-        invoke<UsageResponse>("middleware_usage", {
-          input: { days },
-        }),
-        invoke<UsageDailyResponse>("middleware_usage_daily", {
-          input: { days },
-        }),
+        dedupeRequest(
+          `usage:${days}`,
+          () => invoke<UsageResponse>("middleware_usage", { input: { days } }),
+          { ttlMs: 30_000 },
+        ),
+        dedupeRequest(
+          `usage-daily:${days}`,
+          () => invoke<UsageDailyResponse>("middleware_usage_daily", { input: { days } }),
+          { ttlMs: 30_000 },
+        ),
       ])
 
       loadedPeriodRef.current = requestedPeriod

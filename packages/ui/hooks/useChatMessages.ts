@@ -2,9 +2,29 @@
 
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
+import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
+import { useQueryClient } from "@tanstack/react-query"
+import { dedupeRequest } from "@/lib/requestDedupe"
+import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
+import { queryKeys, queryStaleTime } from "@/lib/query"
+import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
+import {
+  cacheChatActivity,
+  clearCachedChatActivity,
+  getCachedChatActivity,
+  markOptimisticChatActivity,
+} from "@/lib/chatActivityStore"
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
+import {
+  getCachedChatSessionMessages,
+  getCachedChatSessionStatus,
+  publishChatSessionMessages,
+  publishChatSessionStatus,
+  subscribeChatSessionMessages,
+  subscribeChatSessionStatus,
+} from "@/lib/chatSessionStore"
 import {
   cacheAttachments,
   mergeAttachmentsWithCache,
@@ -113,28 +133,6 @@ function parseExecApproval(
   }
 }
 
-function sameUserMessage(a: ChatMessage, b: ChatMessage) {
-  if (a.role !== "user" || b.role !== "user") return false
-  if (a.text.trim() !== b.text.trim()) return false
-  if (a.createdAt && b.createdAt) return a.createdAt === b.createdAt
-  return Boolean(a.isOptimistic || b.isOptimistic)
-}
-
-function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
-  const result: ChatMessage[] = []
-  const seenIds = new Set<string>()
-  for (const message of messages) {
-    if (seenIds.has(message.messageId)) continue
-    const duplicateUser = result.some((existing) =>
-      sameUserMessage(existing, message)
-    )
-    if (duplicateUser) continue
-    seenIds.add(message.messageId)
-    result.push(message)
-  }
-  return result
-}
-
 const CHAT_BOOTSTRAP_TTL_MS = 5000
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
@@ -199,7 +197,7 @@ async function loadChatBootstrap(
     return cached.value instanceof Promise ? await cached.value : cached.value
   }
 
-  const value = fetchStableChatBootstrap(sessionKey)
+  const value = dedupeRequest(`chat-bootstrap:${sessionKey}`, () => fetchStableChatBootstrap(sessionKey), { ttlMs: CHAT_BOOTSTRAP_TTL_MS })
 
   chatBootstrapCache.set(sessionKey, {
     expiresAt: now + CHAT_BOOTSTRAP_TTL_MS,
@@ -224,11 +222,17 @@ export function useChatMessages(
   initialMessages?: ChatMessage[]
 ) {
   const hasInitial = initialMessages && initialMessages.length > 0
-  const [messages, setMessages] = useState<ChatMessage[]>(
-    hasInitial ? initialMessages : []
+  const cachedMessages = !hasInitial
+    ? getCachedChatSessionMessages(sessionKey)
+    : null
+  const cachedStatus = !hasInitial ? getCachedChatSessionStatus(sessionKey) : null
+  const queryClient = useQueryClient()
+  const instanceIdRef = useRef(randomId())
+  const [messages, setLocalMessages] = useState<ChatMessage[]>(
+    hasInitial ? initialMessages : cachedMessages ?? []
   )
-  const [status, setStatus] = useState<StreamStatus>(
-    hasInitial ? "thinking" : "idle"
+  const [status, setLocalStatus] = useState<StreamStatus>(
+    hasInitial ? "thinking" : cachedStatus ?? "idle"
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [loading, setLoading] = useState(!hasInitial)
@@ -236,8 +240,30 @@ export function useChatMessages(
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
   const restartInFlightRef = useRef(false)
-  const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : "idle")
+  const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : cachedStatus ?? "idle")
   const isSendingRef = useRef(false)
+
+  const setMessages = useCallback(
+    (update: SetStateAction<ChatMessage[]>) => {
+      setLocalMessages((prev) => {
+        const next = typeof update === "function" ? update(prev) : update
+        publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
+        return next
+      })
+    },
+    [sessionKey],
+  )
+
+  const setStatus = useCallback(
+    (update: SetStateAction<StreamStatus>) => {
+      setLocalStatus((prev) => {
+        const next = typeof update === "function" ? update(prev) : update
+        publishChatSessionStatus(sessionKey, next, instanceIdRef.current)
+        return next
+      })
+    },
+    [sessionKey],
+  )
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -256,6 +282,7 @@ export function useChatMessages(
   const doneAfterYieldRef = useRef(0)
   const editPreviewSourceRef = useRef<EventSource | null>(null)
   const [streamGeneration, setStreamGeneration] = useState(0)
+  const cachedActivity = !hasInitial ? getCachedChatActivity(sessionKey) : null
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -264,6 +291,15 @@ export function useChatMessages(
   const scrollFrameRef = useRef<number | null>(null)
   const programmaticScrollUntilRef = useRef(0)
   const lastSmoothScrollAtRef = useRef(0)
+
+  useEffect(() => {
+    cacheChatActivity(sessionKey, {
+      status,
+      statusLabel,
+      pendingTools,
+      spawnedSubagents,
+    })
+  }, [sessionKey, status, statusLabel, pendingTools, spawnedSubagents])
 
   const isGenerating =
     status !== "idle" &&
@@ -280,6 +316,29 @@ export function useChatMessages(
   useEffect(() => {
     isSendingRef.current = isSending
   }, [isSending])
+
+  useEffect(() => {
+    const unsubscribeMessages = subscribeChatSessionMessages(
+      sessionKey,
+      (nextMessages, sourceId) => {
+        if (sourceId === instanceIdRef.current) return
+        setLocalMessages(nextMessages)
+        for (const message of nextMessages) seenIds.current.add(message.messageId)
+      },
+    )
+    const unsubscribeStatus = subscribeChatSessionStatus(
+      sessionKey,
+      (nextStatus, sourceId) => {
+        if (sourceId === instanceIdRef.current) return
+        statusRef.current = nextStatus
+        setLocalStatus(nextStatus)
+      },
+    )
+    return () => {
+      unsubscribeMessages()
+      unsubscribeStatus()
+    }
+  }, [sessionKey])
 
   const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
     spawnMapRef.current.set(spawn.toolCallId, spawn)
@@ -782,10 +841,13 @@ export function useChatMessages(
   )
 
   useEffect(() => {
+    const cachedSessionMessages = getCachedChatSessionMessages(sessionKey)
     const seededMessages =
       initialMessages && initialMessages.length > 0
         ? initialMessages
-        : undefined
+        : cachedSessionMessages && cachedSessionMessages.length > 0
+          ? cachedSessionMessages
+          : undefined
 
     setLoadError(null)
     setErrorMessage(null)
@@ -797,17 +859,45 @@ export function useChatMessages(
       }
       setLoading(false)
       setMessages(seededMessages)
-      setStatus("thinking")
+      setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
+      void queryClient.fetchQuery({
+        queryKey: queryKeys.sessions(),
+        queryFn: () => invoke<{
+          sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+        }>("middleware_sessions_list", { input: {} }),
+        staleTime: queryStaleTime.sessions,
+      })
+        .then((result) => {
+          if (cancelled) return
+          const backendSession = (result.sessions || []).find(
+            (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+          )
+          setStatus(statusFromBackendSession(backendSession?.status, seededMessages))
+        })
+        .catch(() => undefined)
     } else {
       setLoading(true)
       setMessages([])
       setStatus("idle")
     }
 
-    pendingToolMapRef.current.clear()
-    setPendingTools([])
-    spawnMapRef.current.clear()
-    setSpawnedSubagents([])
+    if (cachedActivity) {
+      pendingToolMapRef.current = new Map(
+        cachedActivity.pendingTools.map((tool) => [tool.id, tool]),
+      )
+      setPendingTools(cachedActivity.pendingTools)
+      spawnMapRef.current = new Map(
+        cachedActivity.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]),
+      )
+      setSpawnedSubagents(cachedActivity.spawnedSubagents)
+      setStatus(cachedActivity.status)
+      setStatusLabel(cachedActivity.statusLabel)
+    } else {
+      pendingToolMapRef.current.clear()
+      setPendingTools([])
+      spawnMapRef.current.clear()
+      setSpawnedSubagents([])
+    }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     let cancelled = false
@@ -826,7 +916,11 @@ export function useChatMessages(
 
     async function init() {
       try {
-        const { history, branchData } = await loadChatBootstrap(sessionKey)
+        const { history, branchData } = await queryClient.fetchQuery({
+          queryKey: queryKeys.chatBootstrap(sessionKey),
+          queryFn: () => loadChatBootstrap(sessionKey),
+          staleTime: queryStaleTime.chatBootstrap,
+        })
         bootstrapSettled = true
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
@@ -1203,6 +1297,11 @@ export function useChatMessages(
               streamId: sessionKey,
               event: data as StreamEventPayload["event"],
             })
+            const eventType = (data as { type?: string }).type
+            if (eventType === "chat.message" || eventType === "chat.status") {
+              void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+            }
           },
           () => {
             const current = statusRef.current
@@ -1216,6 +1315,8 @@ export function useChatMessages(
             if (!cancelled && activelyWaiting) {
               setErrorMessage("Connection to server lost")
               setStatus("error")
+              clearCachedChatActivity(sessionKey)
+              void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
             }
           }
         )
@@ -1250,6 +1351,7 @@ export function useChatMessages(
     initialMessages,
     forceScrollToBottom,
     streamGeneration,
+    queryClient,
   ])
 
   useEffect(() => {
@@ -1363,6 +1465,7 @@ export function useChatMessages(
         },
       ])
       if (!runsAlongsideGeneration) {
+        markOptimisticChatActivity(sessionKey)
         setStatus("thinking")
       }
       forceScrollToBottom(true)
@@ -1426,6 +1529,7 @@ export function useChatMessages(
       setPendingTools([])
       doneAfterYieldRef.current = 0
 
+      markOptimisticChatActivity(sessionKey)
       setStatus("thinking")
       forceScrollToBottom(true)
 
@@ -1580,6 +1684,7 @@ export function useChatMessages(
       editPreviewSourceRef.current?.close()
       editPreviewSourceRef.current = null
       setEditPreview(null)
+      markOptimisticChatActivity(sessionKey)
       setStatus("thinking")
       setIsSending(true)
       forceScrollToBottom(true)
