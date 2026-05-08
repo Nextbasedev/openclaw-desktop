@@ -3,11 +3,13 @@
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
-import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
+import { LuLoader, LuTerminal } from "react-icons/lu"
+import {
+  ToolApprovalPanel,
+  type ApprovalDecision,
+} from "./ToolApprovalPanel"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
-
-type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
 function ToolIcon({ status }: { status: InlineToolCall["status"] }) {
   if (status === "running") {
@@ -19,18 +21,16 @@ function ToolIcon({ status }: { status: InlineToolCall["status"] }) {
   return <LuTerminal className="size-3.5 shrink-0 text-foreground/40" />
 }
 
-function decisionLabel(decision: ApprovalDecision) {
-  if (decision === "allow-once") return "Approve once"
-  if (decision === "allow-always") return "Always allow"
-  return "Decline"
-}
-
 function ToolRow({
   call,
+  open,
+  onOpenChange,
   onSelect,
   onResolveApproval,
 }: {
   call: InlineToolCall
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSelect?: (id: string) => void
   onResolveApproval?: (
     approvalId: string,
@@ -38,7 +38,6 @@ function ToolRow({
   ) => Promise<void> | void
 }) {
   const { inputText, outputText, hasDetails } = getToolDetailState(call)
-  const [open, setOpen] = useState(false)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -67,7 +66,7 @@ function ToolRow({
         onClick={(e) => {
           e.stopPropagation()
           if (hasDetails) {
-            setOpen((prev) => !prev)
+            onOpenChange(!open)
           } else {
             onSelect?.(call.id)
           }
@@ -146,48 +145,12 @@ function ToolRow({
       )}
 
       {approval && (
-        <div className="px-2.5 pt-0.5 pb-2">
-          <div className="rounded-lg border border-amber-400/10 bg-background/45 p-2">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-amber-200/90">
-              <LuShieldCheck className="size-3.5" />
-              Command approval required
-            </div>
-            {approval.command && (
-              <pre className="mb-2 max-h-24 overflow-auto rounded-md bg-black/30 px-2 py-1.5 text-[11px] leading-relaxed text-foreground/75">
-                {approval.command}
-              </pre>
-            )}
-            {resolved ? (
-              <div className="text-[11px] text-muted-foreground">
-                {resolved === "deny" ? "Declined" : "Approved"}
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {approval.allowedDecisions.map((decision) => (
-                  <button
-                    key={decision}
-                    type="button"
-                    disabled={Boolean(resolving)}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void resolve(decision)
-                    }}
-                    className={cn(
-                      "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-wait disabled:opacity-60",
-                      decision === "deny"
-                        ? "bg-red-400/10 text-red-300 hover:bg-red-400/15"
-                        : "bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/15"
-                    )}
-                  >
-                    {resolving === decision
-                      ? "Working…"
-                      : decisionLabel(decision)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <ToolApprovalPanel
+          approval={approval}
+          resolving={resolving}
+          resolved={resolved}
+          onResolve={(decision) => void resolve(decision)}
+        />
       )}
     </div>
   )
@@ -208,6 +171,7 @@ export function ToolCallSteps({
   ) => Promise<void> | void
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const [openToolId, setOpenToolId] = useState<string | null>(null)
 
   const total = tools.length
   const rest = total - 1
@@ -235,6 +199,10 @@ export function ToolCallSteps({
         <div className="ml-1 border-l border-border/20 pl-1.5">
           <ToolRow
             call={collapsedTop}
+            open={openToolId === collapsedTop.id}
+            onOpenChange={(nextOpen) => {
+              setOpenToolId(nextOpen ? collapsedTop.id : null)
+            }}
             onSelect={onSelectTool}
             onResolveApproval={onResolveApproval}
           />
@@ -283,6 +251,10 @@ export function ToolCallSteps({
                 <ToolRow
                   key={call.id}
                   call={call}
+                  open={openToolId === call.id}
+                  onOpenChange={(nextOpen) => {
+                    setOpenToolId(nextOpen ? call.id : null)
+                  }}
                   onSelect={onSelectTool}
                   onResolveApproval={onResolveApproval}
                 />

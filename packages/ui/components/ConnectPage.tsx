@@ -8,6 +8,7 @@ import {
   saveMiddlewareConnection,
   testMiddlewareConnection,
   claimMiddlewarePairing,
+  claimLocalMiddlewarePairing,
   detectLocalMiddleware,
   type MiddlewareHealth,
 } from "@/lib/middleware-client"
@@ -27,8 +28,6 @@ type ConnectResult = {
   error?: string
   errorTitle?: string
 }
-
-type DetectMessage = { ok: boolean; text: string }
 
 function statusFromConnection(connected: boolean, url?: string, token?: string): ConnectionStatus {
   return {
@@ -80,59 +79,47 @@ export default function ConnectPage() {
   const [disconnecting, setDisconnecting] = useState(false)
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [sessionConnected, setSessionConnected] = useState(false)
-  const [detectMessage, setDetectMessage] = useState<DetectMessage | null>({ ok: true, text: "Checking for a local workspace service..." })
 
   useEffect(() => {
     async function initializeConnection() {
       const saved = getMiddlewareConnection()
-      if (saved) {
-        setUrl(saved.url)
-        setToken(saved.token)
-        try {
-          const health = await testMiddlewareConnection(saved)
-          if (!health.openclaw?.connected) {
-            setSessionConnected(false)
-            setStatus(statusFromConnection(false, saved.url, saved.token))
-            setConnectResult(null)
-            setDetectMessage({ ok: false, text: "Saved Middleware is reachable, but OpenClaw is not connected there. The saved URL/token were kept; retry after OpenClaw starts." })
-            return
-          }
-          setStatus(statusFromConnection(true, saved.url, saved.token))
+      if (!saved) {
+        setStatus(statusFromConnection(false))
+        const detected = await detectLocalMiddleware()
+        if (detected) {
+          saveMiddlewareConnection(detected)
+          setUrl(detected.url)
+          setToken(detected.token)
+          setStatus(statusFromConnection(true, detected.url, detected.token))
           setSessionConnected(true)
-          setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
-          return
-        } catch (err) {
+          setSetupMode("local")
+          setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
+          emit("sidebar:refresh")
+          window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+        }
+        return
+      }
+
+      setUrl(saved.url)
+      setToken(saved.token)
+      try {
+        const health = await testMiddlewareConnection(saved)
+        if (!health.openclaw?.connected) {
           setSessionConnected(false)
           setStatus(statusFromConnection(false, saved.url, saved.token))
           setConnectResult(null)
-          const localSaved = isLoopbackMiddlewareUrl(saved.url)
-          setSetupMode(localSaved ? "local" : "remote")
-          if (isPairingOrAuthError(err)) setToken("")
-          setDetectMessage({
-            ok: false,
-            text: localSaved
-              ? "Local Middleware is reachable but not ready. Start OpenClaw locally, then try auto-detect again."
-              : "Saved Middleware needs to pair again. Paste the Middleware URL and pairing code.",
-          })
           return
         }
+        setStatus(statusFromConnection(true, saved.url, saved.token))
+        setSessionConnected(true)
+        setSetupMode("remote")
+        setConnectResult({ ok: true, url: saved.url, message: "Saved workspace connection verified" })
+      } catch (err) {
+        setSessionConnected(false)
+        setStatus(statusFromConnection(false, saved.url, saved.token))
+        setConnectResult(null)
+        if (isPairingOrAuthError(err)) setToken("")
       }
-
-      setStatus(statusFromConnection(false))
-      const detected = await detectLocalMiddleware()
-      if (!detected) {
-        setDetectMessage({ ok: false, text: "No local OpenClaw runtime found yet. Start OpenClaw locally, or connect a server." })
-        return
-      }
-      saveMiddlewareConnection(detected)
-      setUrl(detected.url)
-      setToken(detected.token)
-      setStatus(statusFromConnection(true, detected.url, detected.token))
-      setSessionConnected(true)
-      setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
-      setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
-      emit("sidebar:refresh")
-      window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
     }
 
     initializeConnection().finally(() => setLoadingStatus(false))
@@ -141,18 +128,25 @@ export default function ConnectPage() {
   async function runTest(save: boolean) {
     const localUrl = isLoopbackMiddlewareUrl(url)
     if (!url.trim() || (!localUrl && !token.trim())) {
-      setError(localUrl ? "Middleware URL is required" : "Both Middleware URL and pairing code/token are required")
+      setError(localUrl ? "Middleware URL is required" : "Both Middleware URL and pairing code are required")
       return null
     }
+
     let connection = { url: url.trim(), token: token.trim() }
     let health: MiddlewareHealth | null = null
-    if (!localUrl && isLikelyPairingCode(token)) {
-      const paired = await claimMiddlewarePairing({ url: url.trim(), code: token.trim() })
+
+    if (localUrl) {
+      const paired = await claimLocalMiddlewarePairing({ url: connection.url })
+      connection = { url: paired.url, token: paired.token }
+      health = await testMiddlewareConnection(connection)
+    } else if (isLikelyPairingCode(token)) {
+      const paired = await claimMiddlewarePairing({ url: connection.url, code: token.trim() })
       connection = { url: paired.url, token: paired.token }
       health = await testMiddlewareConnection(connection)
     } else {
       health = await testMiddlewareConnection(connection)
     }
+
     if (!health.openclaw?.connected) {
       throw new Error("Middleware is reachable, but OpenClaw is not running there")
     }
@@ -196,7 +190,6 @@ export default function ConnectPage() {
     setDisconnecting(true)
     setError(null)
     setConnectResult(null)
-    setDetectMessage(null)
     if (typeof window !== "undefined") {
       localStorage.removeItem("openclaw.middleware.url")
       localStorage.removeItem("openclaw.middleware.token")
@@ -206,7 +199,6 @@ export default function ConnectPage() {
     setToken("")
     setSessionConnected(false)
     setStatus(statusFromConnection(false))
-    setDetectMessage({ ok: false, text: "Disconnected. Connect manually when ready." })
     emit("sidebar:refresh")
     setDisconnecting(false)
   }
@@ -225,35 +217,14 @@ export default function ConnectPage() {
       disconnecting={disconnecting}
       loadingStatus={loadingStatus}
       isConnected={sessionConnected}
-      autoDetect={false}
-      detecting={false}
-      detectMessage={detectMessage}
       onUrlChange={(value) => { setUrl(value); setError(null); setConnectResult(null) }}
       onTokenChange={(value) => { setToken(value); setError(null); setConnectResult(null) }}
       onShowTokenChange={setShowToken}
       onSetupModeChange={(mode) => {
         setSetupMode(mode)
-        setDetectMessage(null)
         setError(null)
         setConnectResult(null)
-        if (mode === "local") setUrl(url.trim() || "http://127.0.0.1:8787")
-      }}
-      onAutoDetectChange={async () => {
-        setDetectMessage({ ok: true, text: "Checking for a local Middleware..." })
-        const detected = await detectLocalMiddleware()
-        if (!detected) {
-          setDetectMessage({ ok: false, text: setupMode === "local" ? "Local Middleware is not running yet. Start OpenClaw locally, or use the advanced command below." : "Run the installer on your server, then paste the Middleware URL and pairing code." })
-          return
-        }
-        saveMiddlewareConnection(detected)
-        setUrl(detected.url)
-        setToken(detected.token)
-        setStatus(statusFromConnection(true, detected.url, detected.token))
-        setSessionConnected(true)
-        setConnectResult({ ok: true, url: detected.url, message: "Local Middleware detected" })
-        setDetectMessage({ ok: true, text: "Local OpenClaw workspace ready." })
-        emit("sidebar:refresh")
-        window.dispatchEvent(new CustomEvent("openclaw:middleware-connected"))
+        if (mode === "local" && !url.trim()) setUrl("http://127.0.0.1:8787")
       }}
       onTest={handleTest}
       onSave={handleSave}
