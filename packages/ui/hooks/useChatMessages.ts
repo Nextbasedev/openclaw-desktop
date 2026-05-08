@@ -135,6 +135,7 @@ function parseExecApproval(
 }
 
 const CHAT_BOOTSTRAP_TTL_MS = 5000
+const CHAT_HISTORY_PERSIST_TTL_MS = 1000 * 60 * 60 * 24
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
@@ -245,6 +246,7 @@ export function useChatMessages(
     hasInitial ? "thinking" : cachedStatus ?? "idle"
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
@@ -253,15 +255,24 @@ export function useChatMessages(
   const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : cachedStatus ?? "idle")
   const isSendingRef = useRef(false)
 
+  const schedulePersistentMessages = useCallback((next: ChatMessage[]) => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+    if (next.length === 0) return
+    persistTimerRef.current = setTimeout(() => {
+      void persistentCacheSet(`session:${sessionKey}:uiMessages`, next.slice(-200), { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS })
+    }, 250)
+  }, [sessionKey])
+
   const setMessages = useCallback(
     (update: SetStateAction<ChatMessage[]>) => {
       setLocalMessages((prev) => {
         const next = typeof update === "function" ? update(prev) : update
         publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
+        schedulePersistentMessages(next)
         return next
       })
     },
-    [sessionKey],
+    [schedulePersistentMessages, sessionKey],
   )
 
   const setStatus = useCallback(
@@ -269,6 +280,7 @@ export function useChatMessages(
       setLocalStatus((prev) => {
         const next = typeof update === "function" ? update(prev) : update
         publishChatSessionStatus(sessionKey, next, instanceIdRef.current)
+        void persistentCacheSet(`session:${sessionKey}:status`, next, { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS })
         return next
       })
     },
@@ -472,9 +484,11 @@ export function useChatMessages(
           })
           setStatusLabel(ev.label || ev.name || null)
           if (incoming === "error") {
+            void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
+            void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
             setPendingTools([])
@@ -851,7 +865,19 @@ export function useChatMessages(
   )
 
   useEffect(() => {
+    let cancelled = false
     const cachedSessionMessages = getCachedChatSessionMessages(sessionKey)
+    if (!initialMessages?.length && !cachedSessionMessages?.length) {
+      void persistentCacheGet<ChatMessage[]>(`session:${sessionKey}:uiMessages`).then((cached) => {
+        if (cancelled || !cached?.length) return
+        setLoading(false)
+        setMessages(cached)
+        setStatus(inferRestoredChatStatus(cached, getCachedChatSessionStatus(sessionKey)))
+        void persistentCacheGet<StreamStatus>(`session:${sessionKey}:status`).then((cachedStatus) => {
+          if (!cancelled && cachedStatus) setStatus(cachedStatus)
+        })
+      })
+    }
     const seededMessages =
       initialMessages && initialMessages.length > 0
         ? initialMessages
@@ -910,7 +936,6 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
-    let cancelled = false
     let unsubscribeStream: (() => void) | null = null
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
@@ -1348,6 +1373,7 @@ export function useChatMessages(
     return () => {
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
       unsubscribeStream?.()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)

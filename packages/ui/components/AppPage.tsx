@@ -22,6 +22,7 @@ import { ChatView } from "@/components/ChatView"
 import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
+import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { emit } from "@/lib/events"
@@ -289,6 +290,7 @@ function AppShell({
   useEffect(() => {
     installDesktopRouteShim()
     initClientLogs()
+    initFrontendCacheRealtimeInvalidation()
   }, [])
 
   useEffect(() => {
