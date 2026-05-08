@@ -5,7 +5,7 @@ import path from "node:path"
 import { execFileSync } from "node:child_process"
 import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
-import { connectGateway } from "./gateway.js"
+import { connectGateway, withGatewayReadRetry } from "./gateway.js"
 import { terminalSpawnWorkspace } from "./terminal.js"
 import { readVoiceSettings, voiceSettingsPayload, writeVoiceSettings } from "./voice-settings.js"
 
@@ -1366,18 +1366,20 @@ export function commandRoutes(store: Store) {
 
           const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
           const limit = Math.max(1, Math.min(Number(input.limit) || 1000, 1000))
-          let gw: Awaited<ReturnType<typeof connectGateway>> | null = null
-          try {
-            gw = await connectGateway(["operator.read", "operator.write"])
-            const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
-            if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
-            return normalizeHistoryPayload(res.payload)
-          } catch (error) {
-            if (isPairingRequiredError(error)) return normalizeHistoryPayload({ messages: [] })
-            throw error
-          } finally {
-            gw?.close()
-          }
+          return await withGatewayReadRetry(async () => {
+            let gw: Awaited<ReturnType<typeof connectGateway>> | null = null
+            try {
+              gw = await connectGateway(["operator.read", "operator.write"])
+              const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
+              if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
+              return normalizeHistoryPayload(res.payload)
+            } catch (error) {
+              if (isPairingRequiredError(error)) return normalizeHistoryPayload({ messages: [] })
+              throw error
+            } finally {
+              gw?.close()
+            }
+          })
         }
         case "middleware_exec_approval_resolve": {
           const approvalId = String(input.approvalId || input.id || "").trim()
