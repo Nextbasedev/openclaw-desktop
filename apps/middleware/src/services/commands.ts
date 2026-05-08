@@ -1437,7 +1437,10 @@ export function commandRoutes(store: Store) {
           const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null
           const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null
           const shouldPatchExecPolicy = input.execPolicy === null || execSecurity || execAsk
-          const gw = await connectGateway(["operator.read", "operator.write"])
+          const gatewayScopes = execSecurity === "full" || execAsk === "off"
+            ? ["operator.read", "operator.write", "operator.approvals", "operator.admin"]
+            : ["operator.read", "operator.write"]
+          const gw = await connectGateway(gatewayScopes)
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
             if (shouldPatchExecPolicy) {
