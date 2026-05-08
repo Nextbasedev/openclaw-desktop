@@ -200,6 +200,15 @@ async function fetchStableChatBootstrap(
   return latest
 }
 
+async function reconcileChatHistory(sessionKey: string): Promise<ChatMessage[]> {
+  const history = await invoke<{ messages: unknown[] }>("middleware_chat_history", {
+    input: { sessionKey },
+  })
+  const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
+  await localSyncSetMessages(sessionKey, parsed.messages, "done")
+  return parsed.messages
+}
+
 async function loadChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData> {
@@ -488,10 +497,20 @@ export function useChatMessages(
           setStatusLabel(ev.label || ev.name || null)
           if (incoming === "error") {
             void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
+            setTimeout(() => {
+              void reconcileChatHistory(sessionKey).then((fresh) => {
+                if (fresh.length) setMessages((prev) => dedupeChatMessages([...prev, ...fresh]))
+              }).catch(() => undefined)
+            }, 500)
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
             void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
+            setTimeout(() => {
+              void reconcileChatHistory(sessionKey).then((fresh) => {
+                if (fresh.length) setMessages((prev) => dedupeChatMessages([...prev, ...fresh]))
+              }).catch(() => undefined)
+            }, 500)
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
             setPendingTools([])

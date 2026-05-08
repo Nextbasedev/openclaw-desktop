@@ -9,26 +9,39 @@ import {
 import { persistentCacheClearAll } from "@/lib/persistentCache"
 
 let initialized = false
+let lastRefreshAt = 0
+const REVALIDATE_THROTTLE_MS = 2000
 
 function clearAllLocalCache() {
   invalidateMiddlewareStartupBootstrap()
   void persistentCacheClearAll()
 }
 
+function revalidateSoon() {
+  const now = Date.now()
+  if (now - lastRefreshAt < REVALIDATE_THROTTLE_MS) return
+  lastRefreshAt = now
+  void refreshMiddlewareStartupBootstrap()
+}
+
 export function initFrontendCacheRealtimeInvalidation() {
   if (initialized || typeof window === "undefined") return
   initialized = true
 
-  on("sidebar:refresh", () => {
-    void refreshMiddlewareStartupBootstrap()
-  })
+  on("sidebar:refresh", revalidateSoon)
   on("archive:changed", () => {
     invalidateMiddlewareStartupBootstrap()
-    void refreshMiddlewareStartupBootstrap()
+    revalidateSoon()
   })
   on("chat:activity", () => {
     invalidateMiddlewareStartupBootstrap()
-    void refreshMiddlewareStartupBootstrap()
+    revalidateSoon()
+  })
+
+  window.addEventListener("focus", revalidateSoon)
+  window.addEventListener("online", revalidateSoon)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") revalidateSoon()
   })
 
   window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, (event) => {
