@@ -1062,6 +1062,22 @@ export function ChatView({
         t.tool !== "sessions_yield"
     )
 
+  const mergeToolCallsForDisplay = (
+    base?: import("./types").InlineToolCall[],
+    live?: import("./types").InlineToolCall[],
+  ) => {
+    const merged = new Map<string, import("./types").InlineToolCall>()
+    for (const tool of base ?? []) {
+      merged.set(tool.id || `${tool.tool}:${merged.size}`, tool)
+    }
+    for (const tool of live ?? []) {
+      const key = tool.id || `${tool.tool}:${merged.size}`
+      const existing = merged.get(key)
+      merged.set(key, existing ? { ...existing, ...tool } : tool)
+    }
+    return Array.from(merged.values())
+  }
+
   const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
   for (const sub of spawnedSubagents) {
     spawnsByToolCallId.set(sub.toolCallId, sub)
@@ -1176,13 +1192,14 @@ export function ChatView({
               const isActivelyStreaming =
                 isLast && isGenerating && msg.role === "assistant"
 
-              const showPendingAbove =
-                isActivelyStreaming && pendingTools.length > 0
-
-              const filteredToolCalls = msg.toolCalls
-                ? toolCallsWithoutSpawn(msg.toolCalls)
-                : undefined
               const filteredPending = toolCallsWithoutSpawn(pendingTools)
+              const filteredToolCalls =
+                msg.role === "assistant"
+                  ? mergeToolCallsForDisplay(
+                      toolCallsWithoutSpawn(msg.toolCalls ?? []),
+                      isActivelyStreaming ? filteredPending : [],
+                    )
+                  : toolCallsWithoutSpawn(msg.toolCalls ?? [])
 
               const anchoredUserSubagents =
                 msg.role === "user"
@@ -1215,16 +1232,6 @@ export function ChatView({
                         />
                       </div>
                     )}
-                  {showPendingAbove && filteredPending.length > 0 && (
-                    <div className="mb-2 max-w-[85%]">
-                      <ToolCallSteps
-                        tools={filteredPending}
-                        defaultOpen
-                        onSelectTool={onSelectTool}
-                        onResolveApproval={resolveExecApproval}
-                      />
-                    </div>
-                  )}
                   {msg.role === "assistant" &&
                     orphanAssistantSubagents.length > 0 && (
                       <div className="mb-2">
