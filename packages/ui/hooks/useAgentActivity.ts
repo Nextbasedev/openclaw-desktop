@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
+import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
 import type {
   ToolCall,
   AgentInfo,
@@ -29,6 +30,18 @@ function activityPhaseFromLifecycle(status: SubagentLifecycleStatus) {
   if (status === "failed") return "error"
   if (status === "completed") return "done"
   return "start"
+}
+
+function liveTurnForSession(sessionKey: string | null): { messageId: string; messagePreview?: string } {
+  if (!sessionKey) return { messageId: "live:unknown" }
+  const messages = getCachedChatSessionMessages(sessionKey) ?? []
+  const latestUser = [...messages].reverse().find((message) => message.role === "user" && message.text.trim())
+  if (!latestUser) return { messageId: `live:${sessionKey}` }
+  const text = latestUser.text.replace(/\s+/g, " ").trim()
+  return {
+    messageId: latestUser.messageId || `live:${sessionKey}`,
+    messagePreview: text.length > 72 ? `${text.slice(0, 72)}…` : text,
+  }
 }
 
 function hasYieldTool(messages: RawHistoryMessage[]): boolean {
@@ -260,6 +273,7 @@ export function useAgentActivity(sessionKey: string | null) {
       if (!toolCallId || !name) return
       const map = callMapRef.current
       const existing = map.get(toolCallId)
+      const liveTurn = liveTurnForSession(sessionKey)
       const fallback: ToolCall = {
         id: toolCallId,
         tool: name,
@@ -341,8 +355,8 @@ export function useAgentActivity(sessionKey: string | null) {
           ...fallback,
           input: data.args as Record<string, unknown> | undefined,
           startedAt: existing?.startedAt ?? Date.now(),
-          messageId: existing?.messageId ?? runId,
-          messagePreview: existing?.messagePreview,
+          messageId: existing?.messageId ?? liveTurn.messageId ?? runId,
+          messagePreview: existing?.messagePreview ?? liveTurn.messagePreview,
         }))
       } else if (phase === "update") {
         const call = existing ?? fallback
@@ -351,6 +365,8 @@ export function useAgentActivity(sessionKey: string | null) {
           ...call,
           status: inferLiveToolStatus(phase, resultText, data.isError),
           output: resultText || call.output,
+          messageId: call.messageId ?? liveTurn.messageId,
+          messagePreview: call.messagePreview ?? liveTurn.messagePreview,
         }))
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
@@ -366,6 +382,8 @@ export function useAgentActivity(sessionKey: string | null) {
           status: inferLiveToolStatus(phase, resultText, data.isError),
           duration,
           output,
+          messageId: call.messageId ?? liveTurn.messageId,
+          messagePreview: call.messagePreview ?? liveTurn.messagePreview,
         }))
       }
       syncState()
@@ -399,6 +417,7 @@ export function useAgentActivity(sessionKey: string | null) {
           if (!toolCallId || !name) continue
 
           const existing = callMapRef.current.get(toolCallId)
+          const liveTurn = liveTurnForSession(sessionKey)
           const status = record.isError === true || record.status === "error" ? "error" : existing?.status ?? "running"
           callMapRef.current.set(toolCallId, mergeActivityCall(existing, {
             id: toolCallId,
@@ -407,8 +426,8 @@ export function useAgentActivity(sessionKey: string | null) {
             duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
             startedAt: existing?.startedAt ?? Date.now(),
-            messageId: existing?.messageId ?? (data.messageId as string | undefined),
-            messagePreview: existing?.messagePreview,
+            messageId: existing?.messageId ?? (data.messageId as string | undefined) ?? liveTurn.messageId,
+            messagePreview: existing?.messagePreview ?? liveTurn.messagePreview,
           }))
           changed = true
         }
@@ -420,7 +439,7 @@ export function useAgentActivity(sessionKey: string | null) {
       }
       if (changed) syncState()
     },
-    [discoverSubagentKey, syncState],
+    [discoverSubagentKey, sessionKey, syncState],
   )
 
   const processAgentEvent = useCallback(
