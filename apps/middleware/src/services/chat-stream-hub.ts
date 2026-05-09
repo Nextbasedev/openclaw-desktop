@@ -140,6 +140,7 @@ export function handleGatewayEvent(message: GatewayMessage) {
         partialResult: data?.partialResult ?? null,
         result: data?.result ?? null,
         error: data?.error ?? null,
+        isError: data?.isError ?? null,
         subagentOf: null,
       })
       if (!ok) clients.delete(client.id)

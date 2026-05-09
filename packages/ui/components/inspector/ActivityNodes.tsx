@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscPass, VscError } from "react-icons/vsc"
 import type { ToolCall, ToolCallStatus } from "./activity-types"
@@ -53,8 +53,25 @@ function formatTime(ts?: number): string {
   })
 }
 
+function compactValue(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value
+  if (typeof value === "string") return value.length > 1000 ? `${value.slice(0, 1000)}…(truncated)` : value
+  if (typeof value !== "object") return value
+  if (depth >= 3) return "…(nested value truncated)"
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 20).map((item) => compactValue(item, depth + 1))
+    return value.length > 20 ? [...items, `…(${value.length - 20} more items)`] : items
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+  const compacted = Object.fromEntries(
+    entries.slice(0, 40).map(([key, item]) => [key, compactValue(item, depth + 1)]),
+  )
+  if (entries.length > 40) compacted.__truncated = `…(${entries.length - 40} more keys)`
+  return compacted
+}
+
 function formatInput(input: Record<string, unknown>): string {
-  const str = JSON.stringify(input, null, 2)
+  const str = JSON.stringify(compactValue(input), null, 2)
   return str.length > 700
     ? str.slice(0, 700) + "\n…(truncated)"
     : str
@@ -68,23 +85,40 @@ function truncateOutput(text: string): string {
 
 export function ToolCallRow({
   call,
+  open,
+  onOpenChange,
   focused,
   onFocusHandled,
 }: {
   call: ToolCall
+  open: boolean
+  onOpenChange: (id: string, open: boolean) => void
   focused?: boolean
   onFocusHandled?: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
-  const hasDetails = call.input || call.output
+  const waitingForOutput = call.status === "running" && !call.output
+  const showEmptyState = call.status !== "running" && Boolean(call.input) && !call.output
+  const hasDetails = call.input || call.output || waitingForOutput || showEmptyState
   const dot = DOT_COLORS[call.status]
   const isError = call.status === "error"
+  const [renderDetails, setRenderDetails] = useState(open)
+  const inputText = useMemo(() => renderDetails && call.input ? formatInput(call.input) : "", [call.input, renderDetails])
+  const outputText = useMemo(() => renderDetails && call.output ? truncateOutput(call.output) : "", [call.output, renderDetails])
+
+  useEffect(() => {
+    if (open) {
+      setRenderDetails(true)
+      return
+    }
+    const timer = window.setTimeout(() => setRenderDetails(false), 180)
+    return () => window.clearTimeout(timer)
+  }, [open])
 
   useEffect(() => {
     if (!focused) return
     const timer = hasDetails
-      ? window.setTimeout(() => setOpen(true), 0)
+      ? window.setTimeout(() => onOpenChange(call.id, true), 0)
       : null
     const frame = requestAnimationFrame(() => {
       rowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -94,13 +128,13 @@ export function ToolCallRow({
       if (timer !== null) window.clearTimeout(timer)
       cancelAnimationFrame(frame)
     }
-  }, [focused, hasDetails, onFocusHandled])
+  }, [call.id, focused, hasDetails, onFocusHandled, onOpenChange])
 
   return (
     <div ref={rowRef} className="activity-item px-1 py-1">
       <button
         type="button"
-        onClick={() => hasDetails && setOpen((p) => !p)}
+        onClick={() => hasDetails && onOpenChange(call.id, !open)}
         className={cn(
           "flex w-full items-center gap-3 rounded-md px-1.5 py-1 text-left transition-colors",
           hasDetails ? "cursor-pointer" : "cursor-default",
@@ -137,10 +171,19 @@ export function ToolCallRow({
       </button>
 
       {hasDetails && (
-        <div className="activity-expand" data-open={open ? "true" : "false"}>
-          <div>
-            <div className="activity-expand-inner mt-2 mb-2 overflow-hidden rounded-lg border border-border/30 bg-[#121212]">
-              {call.input && (
+        <div
+          className="grid transition-[grid-template-rows] duration-[180ms] ease-out"
+          style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+        >
+          <div className="overflow-hidden">
+            {renderDetails && (
+              <div
+                className={cn(
+                  "mt-2 mb-2 overflow-hidden rounded-lg border border-border/30 bg-[#121212] transition-all duration-[180ms] ease-out",
+                  open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0",
+                )}
+              >
+                {call.input && (
                 <div>
                   <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/55">
@@ -148,14 +191,14 @@ export function ToolCallRow({
                     </p>
                   </div>
                   <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all px-5 py-4 font-mono text-[12px] leading-relaxed text-foreground/85">
-                    {formatInput(call.input)}
+                    {inputText}
                   </pre>
                 </div>
-              )}
-              {call.input && call.output && (
-                <div className="h-px bg-white/6" />
-              )}
-              {call.output && (
+                )}
+                {call.input && (call.output || waitingForOutput || showEmptyState) && (
+                  <div className="h-px bg-white/6" />
+                )}
+                {call.output ? (
                 <div>
                   <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
                     <p
@@ -164,7 +207,7 @@ export function ToolCallRow({
                         isError ? "text-[#FF4D4D]/80" : "text-[#00D492]/80",
                       )}
                     >
-                      Output
+                      {isError ? "Error" : "Output"}
                     </p>
                   </div>
                   <pre
@@ -173,11 +216,20 @@ export function ToolCallRow({
                       isError ? "text-[#FF4D4D]" : "text-[#00D492]",
                     )}
                   >
-                    {truncateOutput(call.output)}
+                    {outputText}
                   </pre>
                 </div>
-              )}
-            </div>
+                ) : waitingForOutput ? (
+                  <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
+                    Waiting for this tool to return output...
+                  </div>
+                ) : showEmptyState ? (
+                  <div className="px-5 py-4 text-[12px] text-muted-foreground/60">
+                    No inline output was captured for this tool.
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       )}

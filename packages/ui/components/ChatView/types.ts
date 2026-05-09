@@ -7,6 +7,10 @@ export type ContentBlock = {
   name?: string
   input?: unknown
   arguments?: unknown
+  duration?: string
+  durationMs?: number
+  status?: "running" | "success" | "error"
+  isError?: boolean
 }
 
 export type ChatTokenUsage = {

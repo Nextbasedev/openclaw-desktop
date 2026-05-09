@@ -76,35 +76,42 @@ export function ToolCallDetails({
   inputText: string
   outputText: string
 }) {
-  const showDivider = Boolean(
-    inputText && (outputText || call.status === "running")
-  )
+  const showWaitingForOutput = !outputText && call.status === "running"
   const showEmptyState = !inputText && !outputText && call.status !== "running"
+  const showDivider = Boolean(
+    inputText && (outputText || showWaitingForOutput)
+  )
 
   return (
-    <div className="mt-2 mb-2 overflow-hidden rounded-lg bg-card opacity-100 shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
+    <div className="overflow-hidden rounded-b-lg bg-card opacity-100">
       {inputText && (
         <DetailBlock label="Input" tone="neutral">
           {inputText}
         </DetailBlock>
       )}
       {showDivider && <div className="h-px bg-transparent" />}
-      {outputText ? (
-        <DetailBlock
-          label={call.status === "error" ? "Error" : "Output"}
-          tone={call.status === "error" ? "error" : "success"}
-        >
-          {outputText}
-        </DetailBlock>
-      ) : call.status === "running" ? (
-        <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75">
-          Waiting for this tool to return output...
+      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: outputText || showWaitingForOutput || showEmptyState ? "1fr" : "0fr" }}>
+        <div className="overflow-hidden">
+          <div className="transition-all duration-300 ease-out animate-in fade-in-0 slide-in-from-top-1">
+            {outputText ? (
+              <DetailBlock
+                label={call.status === "error" ? "Error" : "Output"}
+                tone={call.status === "error" ? "error" : "success"}
+              >
+                {outputText}
+              </DetailBlock>
+            ) : showWaitingForOutput ? (
+              <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75 transition-opacity duration-300">
+                Waiting for this tool to return output...
+              </div>
+            ) : showEmptyState ? (
+              <div className="bg-black/20 px-5 py-4 text-[12px] text-[#9CA3AF]/75 transition-opacity duration-300">
+                No inline input or output was captured for this tool.
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : showEmptyState ? (
-        <div className="bg-black/20 px-5 py-4 text-[12px] text-[#9CA3AF]/75">
-          No inline input or output was captured for this tool.
-        </div>
-      ) : null}
+      </div>
     </div>
   )
 }

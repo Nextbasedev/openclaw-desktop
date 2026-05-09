@@ -41,6 +41,7 @@ import type {
   EditPreviewState,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
+import { inferLiveToolStatus, liveToolEventResultText, liveToolResultText } from "@/lib/liveToolCalls"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
@@ -58,6 +59,13 @@ type RawMessage = {
   text?: string
   content?: string | ContentBlock[]
   createdAt?: string
+  timestamp?: number
+  toolCallId?: string
+  toolName?: string
+  details?: unknown
+  isError?: boolean
+  error?: unknown
+  status?: unknown
   model?: string
   attachments?: Array<{
     name: string
@@ -74,6 +82,106 @@ type BranchSummary = {
   sourceMessageId: string
   createdAt: string
   branchReason: string
+}
+
+function rawMessageTimestampMs(raw: RawMessage): number | null {
+  if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
+    return raw.timestamp
+  }
+  if (raw.createdAt) {
+    const parsed = Date.parse(raw.createdAt)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function formatToolDuration(ms: number): string | undefined {
+  if (!Number.isFinite(ms) || ms < 0) return undefined
+  if (ms < 100) return "0.1s"
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function objectValue(value: unknown, key: string): unknown {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)[key]
+    : undefined
+}
+
+function rawToolDurationMs(raw: RawMessage, resultText: string): number | null {
+  const detailTookMs = objectValue(raw.details, "tookMs")
+  if (typeof detailTookMs === "number" && Number.isFinite(detailTookMs)) {
+    return detailTookMs
+  }
+  try {
+    const parsed = JSON.parse(resultText) as unknown
+    const tookMs = objectValue(parsed, "tookMs")
+    if (typeof tookMs === "number" && Number.isFinite(tookMs)) return tookMs
+  } catch {
+    // Tool output can be plain text.
+  }
+  return null
+}
+
+function rawToolStatus(raw: RawMessage, resultText: string): InlineToolCall["status"] {
+  if (raw.isError === true || raw.status === "error" || raw.error) return "error"
+  const detailStatus = objectValue(raw.details, "status")
+  const detailExitCode = objectValue(raw.details, "exitCode")
+  if (detailStatus === "error" || detailStatus === "failed") return "error"
+  if (typeof detailExitCode === "number" && Number.isFinite(detailExitCode) && detailExitCode !== 0) return "error"
+  if (!resultText) return "success"
+  try {
+    const parsed = JSON.parse(resultText) as { status?: unknown; error?: unknown; exitCode?: unknown }
+    if (parsed.status === "error" || parsed.status === "failed" || parsed.error) return "error"
+    if (typeof parsed.exitCode === "number" && Number.isFinite(parsed.exitCode) && parsed.exitCode !== 0) return "error"
+  } catch {
+    if (/^\s*(error|failed|exception|traceback)\b/i.test(resultText)) return "error"
+  }
+  return "success"
+}
+
+function finalizeToolCall(call: InlineToolCall): InlineToolCall {
+  if (call.status !== "running") return call
+  return {
+    ...call,
+    status: "success",
+    duration: call.duration ?? (call.startedAt ? formatToolDuration(Date.now() - call.startedAt) : undefined),
+  }
+}
+
+function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
+  let changed = false
+  const next = messages.map((message) => {
+    if (!message.toolCalls?.some((tool) => tool.status === "running")) return message
+    changed = true
+    return { ...message, toolCalls: message.toolCalls.map(finalizeToolCall) }
+  })
+  return changed ? next : messages
+}
+
+function preserveCompletedToolDurations(
+  previous: ChatMessage[],
+  incoming: ChatMessage[]
+): ChatMessage[] {
+  const stableDurations = new Map<string, string>()
+  for (const message of previous) {
+    for (const tool of message.toolCalls ?? []) {
+      if (tool.duration && tool.status !== "running") {
+        stableDurations.set(tool.id, tool.duration)
+      }
+    }
+  }
+  if (stableDurations.size === 0) return incoming
+  return incoming.map((message) => {
+    if (!message.toolCalls?.length) return message
+    let changed = false
+    const toolCalls = message.toolCalls.map((tool) => {
+      const stable = stableDurations.get(tool.id)
+      if (!stable || tool.duration === stable) return tool
+      changed = true
+      return { ...tool, duration: stable }
+    })
+    return changed ? { ...message, toolCalls } : message
+  })
 }
 
 type ChatBootstrapData = {
@@ -144,18 +252,6 @@ const chatBootstrapCache = new Map<
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function toolResultText(result: unknown) {
-  if (typeof result === "string" || Array.isArray(result)) {
-    return extractText(result as ContentBlock[] | string | undefined)
-  }
-  if (result === undefined || result === null) return ""
-  try {
-    return JSON.stringify(result, null, 2)
-  } catch {
-    return String(result)
-  }
 }
 
 async function fetchChatBootstrap(
@@ -408,28 +504,94 @@ export function useChatMessages(
     }
   }, [])
 
-  const flushToolsToLastAssistant = useCallback(() => {
-    const tools = Array.from(pendingToolMapRef.current.values())
-    if (tools.length === 0) return
-    setMessages((prev) => {
-      for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i].role === "assistant") {
-          const updated = [...prev]
-          updated[i] = { ...prev[i], toolCalls: tools }
-          return updated
+  const mergeToolCalls = useCallback(
+    (existing: InlineToolCall[] | undefined, incoming: InlineToolCall[]) => {
+      const merged = new Map<string, InlineToolCall>()
+      for (const tool of existing ?? []) merged.set(tool.id, tool)
+      for (const tool of incoming) {
+        const current = merged.get(tool.id)
+        if (!current) {
+          merged.set(tool.id, tool)
+          continue
         }
+        const mergedTool = { ...current, ...tool }
+        if (current.duration && !tool.duration) mergedTool.duration = current.duration
+        if (current.duration && current.status !== "running") {
+          mergedTool.duration = current.duration
+        }
+        merged.set(tool.id, mergedTool)
       }
-      return [
-        ...prev,
-        {
+      return Array.from(merged.values())
+    },
+    []
+  )
+
+  const mergeToolsIntoCurrentAssistant = useCallback(
+    (tools: InlineToolCall[]) => {
+      if (tools.length === 0) return
+      setMessages((prev) => {
+        const latestUserIndex = (() => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].role === "user") return i
+          }
+          return -1
+        })()
+
+        for (let i = prev.length - 1; i > latestUserIndex; i--) {
+          if (prev[i].role === "assistant") {
+            const updated = [...prev]
+            updated[i] = {
+              ...prev[i],
+              toolCalls: mergeToolCalls(prev[i].toolCalls, tools),
+            }
+            return updated
+          }
+        }
+
+        const insertAt = latestUserIndex >= 0 ? latestUserIndex + 1 : prev.length
+        const placeholder = {
           messageId: randomId(),
           role: "assistant" as const,
           text: "",
           toolCalls: tools,
-        },
-      ]
-    })
-  }, [])
+        }
+        return [
+          ...prev.slice(0, insertAt),
+          placeholder,
+          ...prev.slice(insertAt),
+        ]
+      })
+    },
+    [mergeToolCalls]
+  )
+
+  const refreshFinishedToolFromHistory = useCallback(
+    async (toolCallId: string) => {
+      try {
+        const history = await invoke<{ messages: RawMessage[] }>(
+          "middleware_chat_history",
+          { input: { sessionKey } }
+        )
+        const parsed = parseChatHistory(history.messages ?? [])
+        const historyTool = parsed.messages
+          .flatMap((message) => message.toolCalls ?? [])
+          .find((tool) => tool.id === toolCallId)
+        if (!historyTool?.resultText) return
+        const current = pendingToolMapRef.current.get(toolCallId)
+        const merged = current ? { ...current, ...historyTool } : historyTool
+        pendingToolMapRef.current.set(toolCallId, merged)
+        setPendingTools(Array.from(pendingToolMapRef.current.values()))
+        mergeToolsIntoCurrentAssistant([merged])
+      } catch {
+        // Best-effort live repair: history may not be flushed yet.
+      }
+    },
+    [mergeToolsIntoCurrentAssistant, sessionKey]
+  )
+
+  const flushToolsToLastAssistant = useCallback(() => {
+    mergeToolsIntoCurrentAssistant(Array.from(pendingToolMapRef.current.values()))
+  }, [mergeToolsIntoCurrentAssistant])
 
   const handleStreamEvent = useCallback(
     (payload: StreamEventPayload) => {
@@ -465,21 +627,23 @@ export function useChatMessages(
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
-            flushToolsToLastAssistant()
+            const finalizedTools = Array.from(pendingToolMapRef.current.values()).map(finalizeToolCall)
+            if (finalizedTools.length > 0) mergeToolsIntoCurrentAssistant(finalizedTools)
             pendingToolMapRef.current.clear()
             setPendingTools([])
             doneAfterYieldRef.current = 0
             setMessages((prev) => {
-              const last = prev[prev.length - 1]
+              const finalized = finalizeToolCallsOnDone(prev)
+              const last = finalized[finalized.length - 1]
               if (last?.role === "assistant" && !last.createdAt) {
-                const updated = [...prev]
-                updated[prev.length - 1] = {
+                const updated = [...finalized]
+                updated[finalized.length - 1] = {
                   ...last,
                   createdAt: new Date().toISOString(),
                 }
                 return updated
               }
-              return prev
+              return finalized
             })
           }
           scrollToBottom(false)
@@ -601,27 +765,39 @@ export function useChatMessages(
                 toolCallId,
               })
             }
-          } else if (phase === "result" || phase === "error") {
+          } else if (phase === "update" || phase === "result" || phase === "error") {
             const call = existing ?? {
               id: toolCallId,
               tool: name,
               status: "running" as const,
             }
-            const duration = call.startedAt
-              ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-              : undefined
-            const resultText = toolResultText(
-              (ev as Record<string, unknown>).result
-            )
-            pendingToolMapRef.current.set(toolCallId, {
+            const duration = call.duration && call.status !== "running"
+              ? call.duration
+              : call.startedAt && phase !== "update"
+                ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+                : call.duration
+            const eventData = ev as Record<string, unknown>
+            const resultText = liveToolEventResultText(eventData)
+            const finalStatus = inferLiveToolStatus(phase, resultText, eventData.isError)
+            const updatedCall: InlineToolCall = {
               ...call,
-              status: phase === "error" ? "error" : "success",
+              status: finalStatus,
               duration,
               resultText: resultText || call.resultText,
               approval: resultText
                 ? (parseExecApproval(resultText) ?? call.approval)
                 : call.approval,
-            })
+            }
+            pendingToolMapRef.current.set(toolCallId, updatedCall)
+            mergeToolsIntoCurrentAssistant([updatedCall])
+            if ((phase === "result" || phase === "error") && !updatedCall.resultText) {
+              for (const delayMs of [0, 100, 300, 700, 1500]) {
+                window.setTimeout(
+                  () => void refreshFinishedToolFromHistory(toolCallId),
+                  delayMs
+                )
+              }
+            }
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
               if (prev) {
@@ -763,7 +939,19 @@ export function useChatMessages(
           } else {
             seenIds.current.add(id)
             setMessages((prev) => {
-              const lastMsg = prev[prev.length - 1]
+              const toolIds = new Set(pendingToolMapRef.current.keys())
+              const withoutLiveToolPlaceholder =
+                toolIds.size > 0
+                  ? prev.filter(
+                      (message) =>
+                        !(
+                          message.role === "assistant" &&
+                          !message.text.trim() &&
+                          message.toolCalls?.some((tool) => toolIds.has(tool.id))
+                        )
+                    )
+                  : prev
+              const lastMsg = withoutLiveToolPlaceholder[withoutLiveToolPlaceholder.length - 1]
               const lastAssistant =
                 lastMsg?.role === "assistant" ? lastMsg : null
               const lastTrimmed = lastAssistant?.text.trim() ?? ""
@@ -775,7 +963,7 @@ export function useChatMessages(
                 ) {
                   const longer =
                     text.length >= lastTrimmed.length ? text : lastTrimmed
-                  return prev.map((m) =>
+                  return withoutLiveToolPlaceholder.map((m) =>
                     m.messageId === lastAssistant.messageId
                       ? {
                           ...m,
@@ -785,13 +973,17 @@ export function useChatMessages(
                           usage: ev.usage ?? m.usage,
                           stopReason: ev.stopReason ?? m.stopReason,
                           model: ev.model ?? m.model,
+                          toolCalls: mergeToolCalls(
+                            m.toolCalls,
+                            Array.from(pendingToolMapRef.current.values())
+                          ),
                           animateText: true,
                         }
                       : m
                   )
                 }
                 const merged = lastTrimmed + "\n\n" + text
-                return prev.map((m) =>
+                return withoutLiveToolPlaceholder.map((m) =>
                   m.messageId === lastAssistant.messageId
                     ? {
                         ...m,
@@ -801,13 +993,17 @@ export function useChatMessages(
                         usage: ev.usage ?? m.usage,
                         stopReason: ev.stopReason ?? m.stopReason,
                         model: ev.model ?? m.model,
+                        toolCalls: mergeToolCalls(
+                          m.toolCalls,
+                          Array.from(pendingToolMapRef.current.values())
+                        ),
                         animateText: true,
                       }
                     : m
                 )
               }
               return [
-                ...prev.filter((m) => m.messageId !== id),
+                ...withoutLiveToolPlaceholder.filter((m) => m.messageId !== id),
                 {
                   messageId: id,
                   role: "assistant",
@@ -817,6 +1013,10 @@ export function useChatMessages(
                   usage: ev.usage ?? null,
                   stopReason: ev.stopReason ?? null,
                   embeds: pendingEmbeds,
+                  toolCalls:
+                    pendingToolMapRef.current.size > 0
+                      ? Array.from(pendingToolMapRef.current.values())
+                      : undefined,
                   animateText: true,
                 },
               ]
@@ -837,7 +1037,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, upsertSpawn]
+    [scrollToBottom, mergeToolsIntoCurrentAssistant, refreshFinishedToolFromHistory, upsertSpawn]
   )
 
   useEffect(() => {
@@ -933,7 +1133,7 @@ export function useChatMessages(
         const raw = deduplicateRawMessages(rawAll) as RawMessage[]
         const histMsgs: ChatMessage[] = []
         let pendingToolCalls: InlineToolCall[] = []
-        let resultQueue: InlineToolCall[] = []
+        let resultQueue: Array<InlineToolCall & { startedAtMs?: number | null }> = []
         const historyEmbeds = new Map<
           string,
           { ref: string; content: string; title?: string }
@@ -1044,17 +1244,22 @@ export function useChatMessages(
                   name?: string
                   arguments?: unknown
                   input?: unknown
+                  duration?: string
+                  status?: "running" | "success" | "error"
+                  isError?: boolean
                 }>)
               : []
             const tcBlocks = blocks.filter(
               (b) => b.type === "toolCall" || b.type === "tool_use"
             )
             for (const b of tcBlocks) {
-              const call: InlineToolCall = {
+              const call: InlineToolCall & { startedAtMs?: number | null } = {
                 id: b.id ?? randomId(),
                 tool: b.name ?? "unknown",
-                status: "success",
+                status: b.isError || b.status === "error" ? "error" : "success",
                 input: b.arguments ?? b.input,
+                duration: b.duration,
+                startedAtMs: rawMessageTimestampMs(m),
               }
               pendingToolCalls.push(call)
               resultQueue.push(call)
@@ -1168,21 +1373,26 @@ export function useChatMessages(
             m.role === "toolResult"
           ) {
             const resultText = m.text || extractText(m.content)
-            let matchedCall: InlineToolCall | null = null
+            let matchedCall: (InlineToolCall & { startedAtMs?: number | null }) | null = null
             if (resultQueue.length > 0) {
               matchedCall = resultQueue.shift()!
               if (resultText) {
                 matchedCall.resultText = resultText
                 matchedCall.approval =
                   parseExecApproval(resultText) ?? matchedCall.approval
-                try {
-                  const parsed = JSON.parse(resultText)
-                  matchedCall.status =
-                    parsed.status === "error" ? "error" : "success"
-                } catch {
-                  matchedCall.status = "success"
-                }
               }
+              matchedCall.status = rawToolStatus(m, resultText)
+              const preciseDurationMs = rawToolDurationMs(m, resultText)
+              const finishedAtMs = rawMessageTimestampMs(m)
+              const fallbackDurationMs =
+                finishedAtMs !== null &&
+                matchedCall.startedAtMs !== null &&
+                matchedCall.startedAtMs !== undefined
+                  ? finishedAtMs - matchedCall.startedAtMs
+                  : null
+              matchedCall.duration =
+                formatToolDuration(preciseDurationMs ?? fallbackDurationMs ?? -1) ??
+                matchedCall.duration
             }
             if (matchedCall?.tool === "sessions_spawn" && resultText) {
               const spawn = historySpawns.find(
@@ -1277,14 +1487,15 @@ export function useChatMessages(
 
         setMessages((prev) => {
           if (prev.length === 0) return allMessages
-          const histIds = new Set(allMessages.map((hm) => hm.messageId))
+          const stableHistory = preserveCompletedToolDurations(prev, allMessages)
+          const histIds = new Set(stableHistory.map((hm) => hm.messageId))
           const kept = prev.filter(
             (pm) =>
               pm.isOptimistic &&
               !histIds.has(pm.messageId) &&
-              !allMessages.some((hm) => sameUserMessage(hm, pm))
+              !stableHistory.some((hm) => sameUserMessage(hm, pm))
           )
-          return dedupeChatMessages([...allMessages, ...kept])
+          return dedupeChatMessages([...stableHistory, ...kept])
         })
         setLoading(false)
         forceScrollToBottom(true)

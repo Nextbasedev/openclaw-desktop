@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
+import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
 import type {
   ToolCall,
   AgentInfo,
@@ -13,6 +14,7 @@ import {
   buildTree,
   finalizeStaleRunningActivity,
 } from "@/components/inspector/activity-types"
+import { inferLiveToolStatus, liveToolEventResultText } from "@/lib/liveToolCalls"
 import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
@@ -30,6 +32,26 @@ function activityPhaseFromLifecycle(status: SubagentLifecycleStatus) {
   return "start"
 }
 
+function liveTurnForSession(sessionKey: string | null): { messageId: string; messagePreview?: string } {
+  if (!sessionKey) return { messageId: "live:unknown" }
+  const messages = getCachedChatSessionMessages(sessionKey) ?? []
+  const latestUser = [...messages].reverse().find((message) => message.role === "user" && message.text.trim())
+  if (!latestUser) return { messageId: `live:${sessionKey}` }
+  const text = latestUser.text.replace(/\s+/g, " ").trim()
+  return {
+    messageId: latestUser.messageId || `live:${sessionKey}`,
+    messagePreview: text.length > 72 ? `${text.slice(0, 72)}…` : text,
+  }
+}
+
+function liveTurnMessageId(existing: string | undefined, liveId: string) {
+  return !existing || existing.startsWith("live:") ? liveId : existing
+}
+
+function liveTurnPreview(existing: string | undefined, livePreview: string | undefined) {
+  return !existing || existing === "Live / ungrouped tools" ? livePreview : existing
+}
+
 function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   return messages.some((message) => {
     if (!Array.isArray(message.content)) return false
@@ -41,10 +63,24 @@ function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   })
 }
 
-function stringifyToolOutput(value: unknown): string | undefined {
-  if (typeof value === "string") return value
-  if (value == null) return undefined
-  try { return JSON.stringify(value, null, 2) } catch { return String(value) }
+function finalizeActivityCall(call: ToolCall): ToolCall {
+  if (call.status !== "running") return call
+  return {
+    ...call,
+    status: "success",
+    duration: call.duration ?? (call.startedAt ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s` : undefined),
+  }
+}
+
+function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): ToolCall {
+  if (!existing) return incoming
+  const merged = { ...existing, ...incoming }
+  if (existing.duration && existing.status !== "running") merged.duration = existing.duration
+  if (existing.startedAt && !incoming.startedAt) merged.startedAt = existing.startedAt
+  if (existing.output && !incoming.output) merged.output = existing.output
+  if (incoming.output && incoming.output !== existing.output) merged.output = incoming.output
+  if (existing.status === "error" || incoming.status === "error") merged.status = "error"
+  return merged
 }
 
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
@@ -112,6 +148,25 @@ export function useAgentActivity(sessionKey: string | null) {
     setSubKeyToAgent(Array.from(subKeyToAgentRef.current.entries()))
   }, [])
 
+  const refreshFinishedToolFromHistory = useCallback(async (toolCallId: string) => {
+    if (!sessionKey) return
+    try {
+      const history = await invoke<{ messages: RawHistoryMessage[] }>(
+        "middleware_chat_history",
+        { input: { sessionKey, timeoutMs: 5_000 } },
+      )
+      if (cancelledRef.current) return
+      const parsed = parseHistoryToolCalls(history.messages ?? [])
+      const fromHistory = parsed.calls.find((call) => call.id === toolCallId)
+      if (!fromHistory) return
+      const existing = callMapRef.current.get(toolCallId)
+      const merged = mergeActivityCall(existing, fromHistory)
+      if (JSON.stringify(existing) === JSON.stringify(merged)) return
+      callMapRef.current.set(toolCallId, merged)
+      syncState()
+    } catch {}
+  }, [sessionKey, syncState])
+
   const stopSubagentPoll = useCallback((subKey: string) => {
     const timer = activeSubPollsRef.current.get(subKey)
     if (timer) {
@@ -142,9 +197,10 @@ export function useAgentActivity(sessionKey: string | null) {
         let changed = false
         for (const call of subParsed.calls) {
           const existing = callMapRef.current.get(call.id)
-          if (!existing || existing.status !== call.status) {
-            call.subagentOf = agentId
-            callMapRef.current.set(call.id, call)
+          call.subagentOf = agentId
+          const merged = mergeActivityCall(existing, call)
+          if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+            callMapRef.current.set(call.id, merged)
             changed = true
           }
         }
@@ -244,6 +300,7 @@ export function useAgentActivity(sessionKey: string | null) {
       if (!toolCallId || !name) return
       const map = callMapRef.current
       const existing = map.get(toolCallId)
+      const liveTurn = liveTurnForSession(sessionKey)
       const fallback: ToolCall = {
         id: toolCallId,
         tool: name,
@@ -321,38 +378,49 @@ export function useAgentActivity(sessionKey: string | null) {
       }
 
       if (phase === "calling" || phase === "start") {
-        map.set(toolCallId, {
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...fallback,
           input: data.args as Record<string, unknown> | undefined,
-          startedAt: Date.now(),
-        })
+          startedAt: existing?.startedAt ?? Date.now(),
+          messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId ?? runId),
+          messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
+        }))
       } else if (phase === "update") {
         const call = existing ?? fallback
-        map.set(toolCallId, {
+        const resultText = liveToolEventResultText(data)
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
-          status: "running",
-          output: stringifyToolOutput(data.partialResult ?? data.output ?? data.content ?? data.details) ?? call.output,
-        })
+          status: inferLiveToolStatus(phase, resultText, data.isError),
+          output: resultText || call.output,
+          messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
+        }))
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
-        const duration = call.startedAt
-          ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-          : undefined
-        const result = data.result ?? data.output ?? data.content ?? data.details
-        const output =
-          phase === "error"
-            ? ((data.error as string) ?? "Unknown error")
-            : stringifyToolOutput(result)
-        map.set(toolCallId, {
+        const duration = call.duration && call.status !== "running"
+          ? call.duration
+          : call.startedAt
+            ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+            : undefined
+        const resultText = liveToolEventResultText(data)
+        const output = resultText || (phase === "error" ? "Unknown error" : call.output)
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
-          status: phase === "error" ? "error" : "success",
+          status: inferLiveToolStatus(phase, resultText, data.isError),
           duration,
           output,
-        })
+          messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
+        }))
+        if (!output) {
+          for (const delayMs of [0, 100, 300, 700, 1500]) {
+            window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), delayMs)
+          }
+        }
       }
       syncState()
     },
-    [syncState],
+    [refreshFinishedToolFromHistory, sessionKey, syncState],
   )
 
   const processMessage = useCallback(
@@ -379,15 +447,20 @@ export function useAgentActivity(sessionKey: string | null) {
                   : null
           const name = typeof record.name === "string" ? record.name : null
           if (!toolCallId || !name) continue
-          if (callMapRef.current.has(toolCallId)) continue
 
-          callMapRef.current.set(toolCallId, {
+          const existing = callMapRef.current.get(toolCallId)
+          const liveTurn = liveTurnForSession(sessionKey)
+          const status = record.isError === true || record.status === "error" ? "error" : existing?.status ?? "running"
+          callMapRef.current.set(toolCallId, mergeActivityCall(existing, {
             id: toolCallId,
             tool: name,
-            status: "running",
+            status,
+            duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
-            startedAt: Date.now(),
-          })
+            startedAt: existing?.startedAt ?? Date.now(),
+            messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),
+            messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
+          }))
           changed = true
         }
       }
@@ -398,7 +471,7 @@ export function useAgentActivity(sessionKey: string | null) {
       }
       if (changed) syncState()
     },
-    [discoverSubagentKey, syncState],
+    [discoverSubagentKey, sessionKey, syncState],
   )
 
   const processAgentEvent = useCallback(
@@ -419,7 +492,7 @@ export function useAgentActivity(sessionKey: string | null) {
         void shouldFinalizeStaleActivity(sessionKey).then((shouldFinalize) => {
           if (!shouldFinalize || cancelledRef.current) return
           const reconciled = finalizeStaleRunningActivity(
-            Array.from(callMapRef.current.values()),
+            Array.from(callMapRef.current.values()).map(finalizeActivityCall),
             agentsRef.current,
           )
           callMapRef.current = new Map(
@@ -492,7 +565,7 @@ export function useAgentActivity(sessionKey: string | null) {
           ? finalizeStaleRunningActivity(parsed.calls, parsed.agents)
           : parsed
         for (const call of reconciled.calls) {
-          callMapRef.current.set(call.id, call)
+          callMapRef.current.set(call.id, mergeActivityCall(callMapRef.current.get(call.id), call))
         }
         for (const [id, info] of reconciled.agents) {
           agentsRef.current.set(id, info)

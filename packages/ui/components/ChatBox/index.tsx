@@ -288,10 +288,19 @@ export function ChatBox({
 
   const voiceShortcutRef = React.useRef({
     pushToTalkActive: false,
-    ctrlTapCandidate: false,
+    ctrlMetaTapCandidate: false,
   })
 
   React.useEffect(() => {
+    function isMetaKeyEvent(event: KeyboardEvent) {
+      return (
+        event.key === "Meta" ||
+        event.key === "OS" ||
+        event.code === "MetaLeft" ||
+        event.code === "MetaRight"
+      )
+    }
+
     function isPushToTalkEvent(event: KeyboardEvent) {
       return (
         event.code === "Space" &&
@@ -299,21 +308,31 @@ export function ChatBox({
       )
     }
 
+    function isVoiceToggleShortcut(event: KeyboardEvent) {
+      const isModifierKey = event.key === "Control" || isMetaKeyEvent(event)
+      return (
+        isModifierKey &&
+        event.ctrlKey &&
+        (event.metaKey || event.getModifierState("Meta")) &&
+        !event.altKey &&
+        !event.shiftKey
+      )
+    }
+
     function onKeyDown(event: KeyboardEvent) {
       if (event.repeat) return
       const shortcut = voiceShortcutRef.current
 
-      if (
-        event.key === "Control" &&
-        !event.metaKey &&
-        !event.altKey &&
-        !event.shiftKey
-      ) {
-        shortcut.ctrlTapCandidate = true
+      if (isVoiceToggleShortcut(event)) {
+        shortcut.ctrlMetaTapCandidate = true
         return
       }
-      if (shortcut.ctrlTapCandidate && event.key !== "Control") {
-        shortcut.ctrlTapCandidate = false
+      if (
+        shortcut.ctrlMetaTapCandidate &&
+        event.key !== "Control" &&
+        !isMetaKeyEvent(event)
+      ) {
+        shortcut.ctrlMetaTapCandidate = false
       }
 
       if (isPushToTalkEvent(event)) {
@@ -327,7 +346,7 @@ export function ChatBox({
       const shortcut = voiceShortcutRef.current
 
       if (
-        (event.code === "Space" || event.key === "Meta") &&
+        (event.code === "Space" || isMetaKeyEvent(event)) &&
         shortcut.pushToTalkActive
       ) {
         event.preventDefault()
@@ -336,8 +355,11 @@ export function ChatBox({
         return
       }
 
-      if (event.key === "Control" && shortcut.ctrlTapCandidate) {
-        shortcut.ctrlTapCandidate = false
+      if (
+        (event.key === "Control" || isMetaKeyEvent(event)) &&
+        shortcut.ctrlMetaTapCandidate
+      ) {
+        shortcut.ctrlMetaTapCandidate = false
         handleVoiceToggle()
       }
     }
