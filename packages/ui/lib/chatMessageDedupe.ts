@@ -1,8 +1,20 @@
 import type { ChatMessage } from "../components/ChatView/types"
 
+function normalizedUserText(value: string) {
+  return value
+    .replace(/^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/i, "")
+    .replace(/^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/i, "")
+    .replace(/^\[Attached images?:[^\]]+\]\s*/gim, "")
+    .replace(/^\[Attached audio(?: file)?:[^\]]+\]\s*/gim, "")
+    .replace(/^\[Attached file:[^\]]+\]\s*/gim, "")
+    .replace(/<attached-file\b[\s\S]*?<\/attached-file>/gi, "")
+    .trim()
+    .replace(/\s+/g, " ")
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
-  if (a.text.trim() !== b.text.trim()) return false
+  if (normalizedUserText(a.text) !== normalizedUserText(b.text)) return false
   if (a.createdAt && b.createdAt) {
     if (a.createdAt === b.createdAt) return true
     if (a.isOptimistic || b.isOptimistic) {
@@ -28,7 +40,10 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
 }
 
 function messageSignature(message: ChatMessage) {
-  return `${message.role}:${message.text.trim().replace(/\s+/g, " ")}`
+  const text = message.role === "user"
+    ? normalizedUserText(message.text)
+    : message.text.trim().replace(/\s+/g, " ")
+  return `${message.role}:${text}`
 }
 
 function collapseRepeatedBlocks(messages: ChatMessage[]) {

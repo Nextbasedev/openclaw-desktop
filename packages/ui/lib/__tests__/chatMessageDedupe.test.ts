@@ -70,6 +70,27 @@ describe("dedupeChatMessages", () => {
     expect(messages[0].messageId).toBe("canonical")
   })
 
+  it("reconciles optimistic image user messages with canonical attachment placeholder history", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "optimistic",
+        role: "user",
+        text: "can you check this",
+        createdAt: "2026-05-08T10:00:00.000Z",
+        isOptimistic: true,
+        attachments: [{ name: "image.png", mimeType: "image/png" }],
+      },
+      {
+        messageId: "canonical",
+        role: "user",
+        text: "can you check this\n\n[Attached image: image.png]",
+        createdAt: "2026-05-08T10:00:03.000Z",
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+  })
+
   it("does not reconcile optimistic user messages far from canonical history", () => {
     const messages = dedupeChatMessages([
       {
