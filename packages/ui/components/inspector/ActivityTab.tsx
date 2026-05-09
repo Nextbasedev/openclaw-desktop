@@ -247,8 +247,10 @@ export function ActivityTab({
 
   const filteredCalls = useMemo(() => {
     if (!selectedNode) return []
-    if (filter === "all") return selectedNode.calls
-    return selectedNode.calls.filter((c) => c.status === filter)
+    const calls = filter === "all"
+      ? selectedNode.calls
+      : selectedNode.calls.filter((c) => c.status === filter)
+    return [...calls].reverse()
   }, [selectedNode, filter])
 
   const runningCount =
