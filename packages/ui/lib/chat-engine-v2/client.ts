@@ -42,7 +42,7 @@ export type PatchFrame = {
   type: "patch"
   patch: {
     cursor: number
-    type: "chat.message.upsert" | "chat.message.remove" | "session.upsert" | string
+    type: "chat.message.upsert" | "chat.message.confirmed" | "chat.message.remove" | "session.upsert" | string
     sessionKey: string | null
     payload: unknown
     createdAtMs: number
@@ -83,6 +83,7 @@ export type SendChatV2Input = {
   text: string
   attachments?: unknown
   idempotencyKey: string
+  clientMessageId?: string
   replyTo?: { messageId: string; snippet: string }
   autonomyMode?: string | null
   execPolicy?: unknown

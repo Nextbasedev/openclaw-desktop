@@ -72,7 +72,7 @@ describe("applyChatPatch", () => {
     expect(gatewayEcho[0]).toMatchObject({ role: "user", text: "third" })
   })
 
-  test("removes optimistic client message when V2 confirms Gateway echo", () => {
+  test("atomically confirms optimistic client message with Gateway echo", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",
       patch: {
@@ -83,25 +83,14 @@ describe("applyChatPatch", () => {
         createdAtMs: 1,
       },
     })
-    const removed = applyChatPatch(withOptimistic, {
+    const confirmed = applyChatPatch(withOptimistic, {
       type: "patch",
       patch: {
         cursor: 2,
-        type: "chat.message.remove",
+        type: "chat.message.confirmed",
         sessionKey: "s1",
-        payload: { messageId: "client:key" },
+        payload: { optimisticId: "client:key", message: { role: "user", text: "byy", __openclaw: { id: "oc_4", seq: 4 } } },
         createdAtMs: 2,
-      },
-    })
-    expect(removed.messages).toHaveLength(0)
-    const confirmed = applyChatPatch(removed, {
-      type: "patch",
-      patch: {
-        cursor: 3,
-        type: "chat.message.upsert",
-        sessionKey: "s1",
-        payload: { message: { role: "user", text: "byy", __openclaw: { id: "oc_4", seq: 4 } } },
-        createdAtMs: 3,
       },
     })
     expect(confirmed.messages).toHaveLength(1)

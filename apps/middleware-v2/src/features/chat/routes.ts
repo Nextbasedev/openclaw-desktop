@@ -26,6 +26,7 @@ const sendBody = z.object({
   message: z.string().optional(),
   attachments: z.unknown().optional(),
   idempotencyKey: z.string().min(1),
+  clientMessageId: z.string().min(1).optional(),
   timeoutMs: z.coerce.number().int().positive().optional(),
   agentId: z.string().optional(),
   label: z.string().optional(),
@@ -68,7 +69,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       isOptimistic: true,
       __clientOptimistic: true,
       __openclaw: {
-        id: `client:${input.idempotencyKey}`,
+        id: input.clientMessageId || `client:${input.idempotencyKey}`,
       },
     };
     context.chatLive.addOptimisticUser(input.sessionKey, {

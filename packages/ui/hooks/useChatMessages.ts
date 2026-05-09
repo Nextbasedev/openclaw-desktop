@@ -1605,6 +1605,7 @@ export function useChatMessages(
           text: gatewayText,
           attachments: payload.attachments,
           idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
+          clientMessageId: optimisticId,
           replyTo: replyTo
             ? { messageId: replyTo.messageId, snippet: snippet! }
             : undefined,
