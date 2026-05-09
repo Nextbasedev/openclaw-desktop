@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscPass, VscError } from "react-icons/vsc"
 import type { ToolCall, ToolCallStatus } from "./activity-types"
@@ -53,8 +53,25 @@ function formatTime(ts?: number): string {
   })
 }
 
+function compactValue(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value
+  if (typeof value === "string") return value.length > 1000 ? `${value.slice(0, 1000)}…(truncated)` : value
+  if (typeof value !== "object") return value
+  if (depth >= 3) return "…(nested value truncated)"
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 20).map((item) => compactValue(item, depth + 1))
+    return value.length > 20 ? [...items, `…(${value.length - 20} more items)`] : items
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+  const compacted = Object.fromEntries(
+    entries.slice(0, 40).map(([key, item]) => [key, compactValue(item, depth + 1)]),
+  )
+  if (entries.length > 40) compacted.__truncated = `…(${entries.length - 40} more keys)`
+  return compacted
+}
+
 function formatInput(input: Record<string, unknown>): string {
-  const str = JSON.stringify(input, null, 2)
+  const str = JSON.stringify(compactValue(input), null, 2)
   return str.length > 700
     ? str.slice(0, 700) + "\n…(truncated)"
     : str
@@ -85,6 +102,8 @@ export function ToolCallRow({
   const hasDetails = call.input || call.output || waitingForOutput || showEmptyState
   const dot = DOT_COLORS[call.status]
   const isError = call.status === "error"
+  const inputText = useMemo(() => open && call.input ? formatInput(call.input) : "", [call.input, open])
+  const outputText = useMemo(() => open && call.output ? truncateOutput(call.output) : "", [call.output, open])
 
   useEffect(() => {
     if (!focused) return
@@ -141,10 +160,8 @@ export function ToolCallRow({
         </div>
       </button>
 
-      {hasDetails && (
-        <div className="activity-expand" data-open={open ? "true" : "false"}>
-          <div>
-            <div className="activity-expand-inner mt-2 mb-2 overflow-hidden rounded-lg border border-border/30 bg-[#121212]">
+      {hasDetails && open && (
+        <div className="mt-2 mb-2 overflow-hidden rounded-lg border border-border/30 bg-[#121212]">
               {call.input && (
                 <div>
                   <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
@@ -153,7 +170,7 @@ export function ToolCallRow({
                     </p>
                   </div>
                   <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all px-5 py-4 font-mono text-[12px] leading-relaxed text-foreground/85">
-                    {formatInput(call.input)}
+                    {inputText}
                   </pre>
                 </div>
               )}
@@ -169,7 +186,7 @@ export function ToolCallRow({
                         isError ? "text-[#FF4D4D]/80" : "text-[#00D492]/80",
                       )}
                     >
-                      Output
+                      {isError ? "Error" : "Output"}
                     </p>
                   </div>
                   <pre
@@ -178,7 +195,7 @@ export function ToolCallRow({
                       isError ? "text-[#FF4D4D]" : "text-[#00D492]",
                     )}
                   >
-                    {truncateOutput(call.output)}
+                    {outputText}
                   </pre>
                 </div>
               ) : waitingForOutput ? (
@@ -190,8 +207,6 @@ export function ToolCallRow({
                   No inline output was captured for this tool.
                 </div>
               ) : null}
-            </div>
-          </div>
         </div>
       )}
     </div>

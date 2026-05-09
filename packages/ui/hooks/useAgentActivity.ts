@@ -44,6 +44,14 @@ function liveTurnForSession(sessionKey: string | null): { messageId: string; mes
   }
 }
 
+function liveTurnMessageId(existing: string | undefined, liveId: string) {
+  return !existing || existing.startsWith("live:") ? liveId : existing
+}
+
+function liveTurnPreview(existing: string | undefined, livePreview: string | undefined) {
+  return !existing || existing === "Live / ungrouped tools" ? livePreview : existing
+}
+
 function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   return messages.some((message) => {
     if (!Array.isArray(message.content)) return false
@@ -139,6 +147,25 @@ export function useAgentActivity(sessionKey: string | null) {
     setAgents(new Map(agentsRef.current))
     setSubKeyToAgent(Array.from(subKeyToAgentRef.current.entries()))
   }, [])
+
+  const refreshFinishedToolFromHistory = useCallback(async (toolCallId: string) => {
+    if (!sessionKey) return
+    try {
+      const history = await invoke<{ messages: RawHistoryMessage[] }>(
+        "middleware_chat_history",
+        { input: { sessionKey, timeoutMs: 5_000 } },
+      )
+      if (cancelledRef.current) return
+      const parsed = parseHistoryToolCalls(history.messages ?? [])
+      const fromHistory = parsed.calls.find((call) => call.id === toolCallId)
+      if (!fromHistory) return
+      const existing = callMapRef.current.get(toolCallId)
+      const merged = mergeActivityCall(existing, fromHistory)
+      if (JSON.stringify(existing) === JSON.stringify(merged)) return
+      callMapRef.current.set(toolCallId, merged)
+      syncState()
+    } catch {}
+  }, [sessionKey, syncState])
 
   const stopSubagentPoll = useCallback((subKey: string) => {
     const timer = activeSubPollsRef.current.get(subKey)
@@ -355,8 +382,8 @@ export function useAgentActivity(sessionKey: string | null) {
           ...fallback,
           input: data.args as Record<string, unknown> | undefined,
           startedAt: existing?.startedAt ?? Date.now(),
-          messageId: existing?.messageId ?? liveTurn.messageId ?? runId,
-          messagePreview: existing?.messagePreview ?? liveTurn.messagePreview,
+          messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId ?? runId),
+          messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
         }))
       } else if (phase === "update") {
         const call = existing ?? fallback
@@ -365,8 +392,8 @@ export function useAgentActivity(sessionKey: string | null) {
           ...call,
           status: inferLiveToolStatus(phase, resultText, data.isError),
           output: resultText || call.output,
-          messageId: call.messageId ?? liveTurn.messageId,
-          messagePreview: call.messagePreview ?? liveTurn.messagePreview,
+          messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
         }))
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
@@ -382,13 +409,18 @@ export function useAgentActivity(sessionKey: string | null) {
           status: inferLiveToolStatus(phase, resultText, data.isError),
           duration,
           output,
-          messageId: call.messageId ?? liveTurn.messageId,
-          messagePreview: call.messagePreview ?? liveTurn.messagePreview,
+          messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
         }))
+        if (!output) {
+          for (const delayMs of [0, 100, 300, 700, 1500]) {
+            window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), delayMs)
+          }
+        }
       }
       syncState()
     },
-    [syncState],
+    [refreshFinishedToolFromHistory, sessionKey, syncState],
   )
 
   const processMessage = useCallback(
@@ -426,8 +458,8 @@ export function useAgentActivity(sessionKey: string | null) {
             duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
             startedAt: existing?.startedAt ?? Date.now(),
-            messageId: existing?.messageId ?? (data.messageId as string | undefined) ?? liveTurn.messageId,
-            messagePreview: existing?.messagePreview ?? liveTurn.messagePreview,
+            messageId: liveTurnMessageId(existing?.messageId, (data.messageId as string | undefined) ?? liveTurn.messageId),
+            messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
           }))
           changed = true
         }
