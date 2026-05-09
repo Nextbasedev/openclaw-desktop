@@ -41,10 +41,11 @@ function stopChildren(children, code) {
   process.exit(code)
 }
 
-console.log('Starting local OpenClaw Desktop stack: middleware + web UI')
+console.log('Starting local OpenClaw Desktop stack: middleware + middleware-v2 + web UI')
 const children = [
   run('middleware', ['dev:middleware']),
-  run('web', ['--filter', 'ui', 'dev']),
+  run('middleware-v2', ['dev:middleware:v2']),
+  run('web', ['dev:ui']),
 ]
 
 process.on('SIGINT', () => stopChildren(children, 130))
