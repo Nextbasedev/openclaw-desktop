@@ -1,3 +1,4 @@
+import { cleanUserMessageText } from "../../lib/chatHistoryParser"
 import { randomId } from "../../lib/id"
 import {
   extractSubagentSessionKey,
@@ -14,6 +15,10 @@ export interface ToolCall {
   input?: Record<string, unknown>
   output?: string
   startedAt?: number
+  completedAt?: number
+  messageId?: string
+  messageIndex?: number
+  messagePreview?: string
   runId?: string
   subagentOf?: string
 }
@@ -49,6 +54,10 @@ type ContentBlock = {
   content?: string
   output?: string
   is_error?: boolean
+  isError?: boolean
+  status?: unknown
+  duration?: string
+  durationMs?: number
 }
 
 export type RawHistoryMessage = {
@@ -60,6 +69,10 @@ export type RawHistoryMessage = {
   text?: string
   details?: unknown
   isError?: boolean
+  error?: unknown
+  status?: unknown
+  timestamp?: number
+  createdAt?: string
 }
 
 function extractResultText(content?: string | ContentBlock[]): string {
@@ -112,6 +125,64 @@ function resultTextFromMessage(msg: RawHistoryMessage): string {
   return ""
 }
 
+function objectValue(value: unknown, key: string): unknown {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)[key]
+    : undefined
+}
+
+function messageTimestampMs(msg: RawHistoryMessage): number | undefined {
+  if (typeof msg.timestamp === "number" && Number.isFinite(msg.timestamp)) return msg.timestamp
+  if (msg.createdAt) {
+    const parsed = Date.parse(msg.createdAt)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+function formatDuration(ms: number | undefined): string | undefined {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return undefined
+  if (ms < 100) return "0.1s"
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function resultDurationMs(msg: RawHistoryMessage, resultText: string): number | undefined {
+  const detailsDuration = objectValue(msg.details, "durationMs") ?? objectValue(msg.details, "tookMs")
+  if (typeof detailsDuration === "number" && Number.isFinite(detailsDuration)) return detailsDuration
+  try {
+    const parsed = JSON.parse(resultText)
+    const duration = objectValue(parsed, "durationMs") ?? objectValue(parsed, "tookMs")
+    if (typeof duration === "number" && Number.isFinite(duration)) return duration
+  } catch {}
+  return undefined
+}
+
+function resultStatus(msg: RawHistoryMessage, resultText: string): ToolCallStatus {
+  if (msg.isError === true || msg.status === "error" || msg.error) return "error"
+  const detailStatus = objectValue(msg.details, "status")
+  const detailExitCode = objectValue(msg.details, "exitCode")
+  if (detailStatus === "error" || detailStatus === "failed") return "error"
+  if (typeof detailExitCode === "number" && Number.isFinite(detailExitCode) && detailExitCode !== 0) return "error"
+  if (resultText) {
+    try {
+      const parsed = JSON.parse(resultText)
+      const parsedStatus = objectValue(parsed, "status")
+      const parsedExitCode = objectValue(parsed, "exitCode")
+      if (parsedStatus === "error" || parsedStatus === "failed" || objectValue(parsed, "error")) return "error"
+      if (typeof parsedExitCode === "number" && Number.isFinite(parsedExitCode) && parsedExitCode !== 0) return "error"
+    } catch {
+      if (/^\s*(error|failed|exception|traceback)\b/i.test(resultText)) return "error"
+    }
+  }
+  return "success"
+}
+
+function previewText(value: string): string | undefined {
+  const text = value.replace(/\s+/g, " ").trim()
+  if (!text) return undefined
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text
+}
+
 function visibleTextFromMessage(msg: RawHistoryMessage): string {
   if (typeof msg.text === "string" && msg.text) return msg.text
   if (typeof msg.content === "string") return msg.content
@@ -130,15 +201,23 @@ export function parseHistoryToolCalls(
   const calls: ToolCall[] = []
   const agents = new Map<string, AgentInfo>()
   const subagentSessionKeys = new Map<string, string>()
-  let pendingCalls: Array<{ id: string; name: string; args: unknown }> = []
-  const pendingById = new Map<string, { id: string; name: string; args: unknown }>()
+  let pendingCalls: Array<{ id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number; messagePreview?: string }> = []
+  const pendingById = new Map<string, { id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number; messagePreview?: string }>()
   const spawnOrder: string[] = []
   let currentSubagentId: string | null = null
+  let latestUserPreview: string | undefined
+  let latestUserMessageId: string | undefined
+  let latestUserMessageIndex: number | undefined
 
-  for (const msg of messages) {
+  for (const [messageIndex, msg] of messages.entries()) {
     const text = visibleTextFromMessage(msg)
 
     if (msg.role === "user" && text) {
+      if (!/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) {
+        latestUserPreview = previewText(cleanUserMessageText(text))
+        latestUserMessageId = msg.id
+        latestUserMessageIndex = messageIndex
+      }
       const completed = /\bstatus:\s*completed successfully\b/i.test(text)
       const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(text)
       if (completed || failed) {
@@ -177,10 +256,17 @@ export function parseHistoryToolCalls(
 
         const tcBlocks = (msg.content as ContentBlock[]).filter(isToolCallBlock)
         if (tcBlocks.length > 0) {
+          const startedAt = messageTimestampMs(msg)
           pendingCalls = tcBlocks.map((b) => ({
             id: toolBlockId(b) ?? randomId(),
             name: b.name ?? "unknown",
             args: toolBlockArgs(b),
+            startedAt,
+            duration: b.duration,
+            status: b.is_error === true || b.isError === true || b.status === "error" ? "error" : undefined,
+            messageId: latestUserMessageId ?? msg.id,
+            messageIndex: latestUserMessageIndex ?? messageIndex,
+            messagePreview: latestUserPreview,
           }))
           for (const call of pendingCalls) pendingById.set(call.id, call)
         }
@@ -198,9 +284,14 @@ export function parseHistoryToolCalls(
           calls.push({
             id: matched.id,
             tool: matched.name,
-            status: block.type === "tool_result_error" || block.is_error === true ? "error" : "success",
+            status: block.type === "tool_result_error" || block.is_error === true ? "error" : (matched.status ?? "success"),
+            duration: matched.duration,
             input: matched.args as Record<string, unknown> | undefined,
             output: resultText || undefined,
+            startedAt: matched.startedAt,
+            messageId: matched.messageId,
+            messageIndex: matched.messageIndex,
+            messagePreview: matched.messagePreview,
             subagentOf:
               currentSubagentId &&
               matched.name !== "sessions_spawn" &&
@@ -216,13 +307,7 @@ export function parseHistoryToolCalls(
       msg.role === "toolResult"
     ) {
       const resultText = resultTextFromMessage(msg)
-      let isError = false
-      try {
-        const parsed = JSON.parse(resultText)
-        isError = parsed.status === "error" || msg.isError === true
-      } catch {
-        isError = msg.isError === true
-      }
+      const status = resultStatus(msg, resultText)
 
       const matched = msg.toolCallId
         ? pendingById.get(msg.toolCallId) ?? { id: msg.toolCallId, name: msg.toolName ?? "unknown", args: null }
@@ -233,9 +318,23 @@ export function parseHistoryToolCalls(
         const call: ToolCall = {
           id: matched.id,
           tool: matched.name,
-          status: isError ? "error" : "success",
+          status,
+          duration:
+            matched.duration ??
+            formatDuration(
+              resultDurationMs(msg, resultText) ??
+                (messageTimestampMs(msg) !== undefined &&
+                matched.startedAt !== undefined
+                  ? messageTimestampMs(msg)! - matched.startedAt
+                  : undefined),
+            ),
           input: matched.args as Record<string, unknown> | undefined,
           output: resultText || undefined,
+          startedAt: matched.startedAt,
+          completedAt: messageTimestampMs(msg),
+          messageId: matched.messageId,
+          messageIndex: matched.messageIndex,
+          messagePreview: matched.messagePreview,
           subagentOf:
             currentSubagentId &&
             matched.name !== "sessions_spawn" &&
@@ -252,7 +351,7 @@ export function parseHistoryToolCalls(
           const childSessionKey = extractSubagentSessionKey(resultText)
           agents.set(agentId, {
             runId: agentId,
-            phase: isError ? "error" : "start",
+            phase: status === "error" ? "error" : "start",
             label,
             description: task,
             sessionKey: childSessionKey ?? undefined,
@@ -276,8 +375,13 @@ export function parseHistoryToolCalls(
     calls.push({
       id: remaining.id,
       tool: remaining.name,
-      status: "running",
+      status: remaining.status ?? "running",
+      duration: remaining.duration,
       input: remaining.args as Record<string, unknown> | undefined,
+      startedAt: remaining.startedAt,
+      messageId: remaining.messageId,
+      messageIndex: remaining.messageIndex,
+      messagePreview: remaining.messagePreview,
       subagentOf:
         currentSubagentId &&
         remaining.name !== "sessions_spawn" &&

@@ -27,10 +27,14 @@ function decisionLabel(decision: ApprovalDecision) {
 
 function ToolRow({
   call,
+  open,
+  onOpenChange,
   onSelect,
   onResolveApproval,
 }: {
   call: InlineToolCall
+  open: boolean
+  onOpenChange: (id: string, open: boolean) => void
   onSelect?: (id: string) => void
   onResolveApproval?: (
     approvalId: string,
@@ -38,7 +42,6 @@ function ToolRow({
   ) => Promise<void> | void
 }) {
   const { inputText, outputText, hasDetails } = getToolDetailState(call)
-  const [open, setOpen] = useState(false)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -58,7 +61,6 @@ function ToolRow({
     <div
       className={cn(
         "rounded-lg transition-colors duration-100",
-        call.status === "running" && "bg-blue-400/3",
         approval && "border border-amber-400/15 bg-amber-400/[0.035]"
       )}
     >
@@ -67,13 +69,14 @@ function ToolRow({
         onClick={(e) => {
           e.stopPropagation()
           if (hasDetails) {
-            setOpen((prev) => !prev)
+            onOpenChange(call.id, !open)
           } else {
             onSelect?.(call.id)
           }
         }}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-md bg-card px-2.5 py-[6px] text-left",
+          "flex w-full items-center gap-2.5 bg-card px-2.5 py-[6px] text-left",
+          open ? "rounded-t-md rounded-b-none" : "rounded-md",
           "cursor-pointer transition-colors duration-100",
           "hover:bg-card/80"
         )}
@@ -92,37 +95,31 @@ function ToolRow({
             {call.duration}
           </span>
         )}
-        {onSelect && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label="Open in Activity"
-              title="Open in Activity"
-              onClick={(e) => {
-                e.stopPropagation()
-                onSelect(call.id)
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter" && e.key !== " ") return
-                e.preventDefault()
-                e.stopPropagation()
-                onSelect(call.id)
-              }}
-              className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/45 transition-colors hover:bg-white/5 hover:text-foreground"
-            >
-              <VscChevronRight className="size-3.5" />
-            </span>
-        )}
-        {hasDetails ? (
-          <VscChevronDown
-            className={cn(
-              "size-3 shrink-0 text-foreground/25 transition-transform",
-              !open && "-rotate-90"
-            )}
-          />
-        ) : (
-          <VscChevronRight className="size-3 shrink-0 text-foreground/20" />
-        )}
+        <span
+          role={onSelect ? "button" : undefined}
+          tabIndex={onSelect ? 0 : undefined}
+          aria-label={onSelect ? "Open in Activity" : undefined}
+          title={onSelect ? "Open in Activity" : undefined}
+          onClick={(e) => {
+            if (!onSelect) return
+            e.stopPropagation()
+            onSelect(call.id)
+          }}
+          onKeyDown={(e) => {
+            if (!onSelect || (e.key !== "Enter" && e.key !== " ")) return
+            e.preventDefault()
+            e.stopPropagation()
+            onSelect(call.id)
+          }}
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+            onSelect
+              ? "cursor-pointer text-muted-foreground/45 hover:bg-white/5 hover:text-foreground"
+              : "text-foreground/20"
+          )}
+        >
+          <VscChevronRight className="size-3" />
+        </span>
       </button>
 
       {hasDetails && (
@@ -133,7 +130,7 @@ function ToolRow({
           <div className="overflow-hidden">
             <div
               className={cn(
-                "pb-2 transition-all duration-250 ease-out",
+                "transition-all duration-250 ease-out",
                 open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
               )}
             >
@@ -210,6 +207,11 @@ export function ToolCallSteps({
   ) => Promise<void> | void
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const [openToolId, setOpenToolId] = useState<string | null>(null)
+
+  function handleToolOpenChange(id: string, nextOpen: boolean) {
+    setOpenToolId(nextOpen ? id : null)
+  }
 
   const total = tools.length
   const rest = total - 1
@@ -237,6 +239,8 @@ export function ToolCallSteps({
         <div className="ml-1 border-l border-border/20 pl-1.5">
           <ToolRow
             call={collapsedTop}
+            open={openToolId === collapsedTop.id}
+            onOpenChange={handleToolOpenChange}
             onSelect={onSelectTool}
             onResolveApproval={onResolveApproval}
           />
@@ -285,6 +289,8 @@ export function ToolCallSteps({
                 <ToolRow
                   key={call.id}
                   call={call}
+                  open={openToolId === call.id}
+                  onOpenChange={handleToolOpenChange}
                   onSelect={onSelectTool}
                   onResolveApproval={onResolveApproval}
                 />

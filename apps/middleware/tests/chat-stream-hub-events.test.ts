@@ -41,6 +41,18 @@ describe("chat stream hub event mapping", () => {
     expect(output).toContain("tool_running")
   })
 
+  it("forwards live tool partial output and final error markers", () => {
+    const c = client()
+    hub.handleGatewayEvent({ type: "event", event: "session.tool", payload: { sessionKey: "agent:main:a", runId: "r1", data: { phase: "update", name: "exec", toolCallId: "tc1", partialResult: { stdout: "live output" } } } } as any)
+    hub.handleGatewayEvent({ type: "event", event: "session.tool", payload: { sessionKey: "agent:main:a", runId: "r1", data: { phase: "result", name: "exec", toolCallId: "tc1", isError: true, result: { message: "failed" } } } } as any)
+
+    const output = c.writes.join("\n")
+    expect(output).toContain("partialResult")
+    expect(output).toContain("live output")
+    expect(output).toContain("isError")
+    expect(output).toContain("failed")
+  })
+
   it("ignores unrelated subagent events except link bookkeeping placeholder", () => {
     const c = client("agent:main:parent")
     hub.handleGatewayEvent({ type: "event", event: "session.message", payload: { sessionKey: "agent:main:child:subagent:abc", message: { role: "assistant", text: "child" } } } as any)

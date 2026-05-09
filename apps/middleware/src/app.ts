@@ -434,6 +434,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
             partialResult: data?.partialResult ?? null,
             result: data?.result ?? null,
             error: data?.error ?? null,
+            isError: data?.isError ?? null,
             subagentOf: spawnToolCallId ? `spawn:${spawnToolCallId}` : null,
           })
           if (!isSubagent) {
