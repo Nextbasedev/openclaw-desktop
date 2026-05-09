@@ -113,3 +113,22 @@ it("collapses repeated contiguous history blocks", () => {
     "last",
   ])
 })
+
+it("collapses repeated user-only history blocks after assistant dedupe", () => {
+  const messages = dedupeChatMessages([
+    { messageId: "u1", role: "user", text: "first" },
+    { messageId: "a1", role: "assistant", text: "same assistant" },
+    { messageId: "u2", role: "user", text: "second" },
+    { messageId: "a2", role: "assistant", text: "same assistant" },
+    { messageId: "u1-duplicate", role: "user", text: "first" },
+    { messageId: "a1-duplicate", role: "assistant", text: "same assistant" },
+    { messageId: "u2-duplicate", role: "user", text: "second" },
+    { messageId: "a2-duplicate", role: "assistant", text: "same assistant" },
+  ])
+
+  expect(
+    messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.text)
+  ).toEqual(["first", "second"])
+})

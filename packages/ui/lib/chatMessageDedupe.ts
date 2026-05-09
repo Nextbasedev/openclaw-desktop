@@ -37,7 +37,7 @@ function collapseRepeatedBlocks(messages: ChatMessage[]) {
 
   while (changed) {
     changed = false
-    for (let size = Math.floor(result.length / 2); size >= 3; size--) {
+    for (let size = Math.floor(result.length / 2); size >= 2; size--) {
       for (let start = 0; start + size * 2 <= result.length; start++) {
         let same = true
         for (let offset = 0; offset < size; offset++) {
@@ -60,6 +60,39 @@ function collapseRepeatedBlocks(messages: ChatMessage[]) {
   }
 
   return result
+}
+
+function collapseRepeatedRoleBlocks(
+  messages: ChatMessage[],
+  role: ChatMessage["role"]
+) {
+  const roleItems = messages
+    .map((message, index) => ({ message, index }))
+    .filter((item) => item.message.role === role)
+  const duplicateIndexes = new Set<number>()
+
+  for (let size = Math.floor(roleItems.length / 2); size >= 2; size--) {
+    for (let start = 0; start + size * 2 <= roleItems.length; start++) {
+      let same = true
+      for (let offset = 0; offset < size; offset++) {
+        if (
+          messageSignature(roleItems[start + offset].message) !==
+          messageSignature(roleItems[start + size + offset].message)
+        ) {
+          same = false
+          break
+        }
+      }
+      if (!same) continue
+      for (let offset = 0; offset < size; offset++) {
+        duplicateIndexes.add(roleItems[start + size + offset].index)
+      }
+    }
+  }
+
+  return duplicateIndexes.size > 0
+    ? messages.filter((_, index) => !duplicateIndexes.has(index))
+    : messages
 }
 
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -100,5 +133,5 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     result.push(message)
   }
 
-  return collapseRepeatedBlocks(result)
+  return collapseRepeatedBlocks(collapseRepeatedRoleBlocks(result, "user"))
 }
