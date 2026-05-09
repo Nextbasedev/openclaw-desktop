@@ -11,6 +11,10 @@ function normalizeText(value: string) {
   return value
     .replace(/^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/i, "")
     .replace(/^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/i, "")
+    .replace(/^\[Attached images?:[^\]]+\]\s*/gim, "")
+    .replace(/^\[Attached audio(?: file)?:[^\]]+\]\s*/gim, "")
+    .replace(/^\[Attached file:[^\]]+\]\s*/gim, "")
+    .replace(/<attached-file\b[\s\S]*?<\/attached-file>/gi, "")
     .trim()
     .replace(/\s+/g, " ");
 }
