@@ -75,7 +75,8 @@ function ToolRow({
           }
         }}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-md bg-card px-2.5 py-[6px] text-left",
+          "flex w-full items-center gap-2.5 bg-card px-2.5 py-[6px] text-left",
+          open ? "rounded-t-md rounded-b-none" : "rounded-md",
           "cursor-pointer transition-colors duration-100",
           "hover:bg-card/80"
         )}
@@ -129,7 +130,7 @@ function ToolRow({
           <div className="overflow-hidden">
             <div
               className={cn(
-                "pb-2 transition-all duration-250 ease-out",
+                "transition-all duration-250 ease-out",
                 open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
               )}
             >
