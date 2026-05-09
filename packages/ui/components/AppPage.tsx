@@ -25,6 +25,7 @@ import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
+import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
@@ -1230,7 +1231,7 @@ function AppShell({
     if (tab.kind !== "chat") return
     const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
     if (!chatId || chatId === tab.id) return
-    window.open(routeUrl(`/${chatId}`), "_blank", "noopener,noreferrer")
+    void openRouteInNewWindow(`/${chatId}`, tab.title)
   }, [])
 
   const handleEditorTabMove = useCallback((
