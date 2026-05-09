@@ -882,10 +882,15 @@ export function ChatView({
     }
     if (initialScrollDoneRef.current) return
     const el = scrollContainerRef.current
-    if (!el || messages.length === 0) return
-    el.scrollTop = el.scrollHeight
-    initialScrollDoneRef.current = true
-  }, [messages, scrollContainerRef, updateVirtualViewport])
+    if (!el || messages.length === 0 || virtualRange.totalHeight <= 0) return
+    requestAnimationFrame(() => {
+      const current = scrollContainerRef.current
+      if (!current || initialScrollDoneRef.current) return
+      current.scrollTop = current.scrollHeight
+      initialScrollDoneRef.current = true
+      updateVirtualViewport()
+    })
+  }, [messages.length, scrollContainerRef, updateVirtualViewport, virtualRange.totalHeight])
 
   useEffect(() => {
     const content = messageContentRef.current
@@ -903,7 +908,7 @@ export function ChatView({
         const shouldLetSmoothSendScrollFinish =
           Date.now() < suppressResizeFollowUntilRef.current
 
-        if (!initialScrollDoneRef.current) {
+        if (!initialScrollDoneRef.current && virtualRange.totalHeight > 0) {
           el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
           initialScrollDoneRef.current = true
           return
@@ -932,7 +937,7 @@ export function ChatView({
       if (frame !== null) cancelAnimationFrame(frame)
       observer.disconnect()
     }
-  }, [isSending, isGenerating, scrollContainerRef, updateVirtualViewport])
+  }, [isSending, isGenerating, scrollContainerRef, updateVirtualViewport, virtualRange.totalHeight])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
