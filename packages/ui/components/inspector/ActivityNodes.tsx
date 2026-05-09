@@ -80,7 +80,9 @@ export function ToolCallRow({
   onFocusHandled?: () => void
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
-  const hasDetails = call.input || call.output
+  const waitingForOutput = call.status === "running" && !call.output
+  const showEmptyState = call.status !== "running" && Boolean(call.input) && !call.output
+  const hasDetails = call.input || call.output || waitingForOutput || showEmptyState
   const dot = DOT_COLORS[call.status]
   const isError = call.status === "error"
 
@@ -155,10 +157,10 @@ export function ToolCallRow({
                   </pre>
                 </div>
               )}
-              {call.input && call.output && (
+              {call.input && (call.output || waitingForOutput || showEmptyState) && (
                 <div className="h-px bg-white/6" />
               )}
-              {call.output && (
+              {call.output ? (
                 <div>
                   <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
                     <p
@@ -179,7 +181,15 @@ export function ToolCallRow({
                     {truncateOutput(call.output)}
                   </pre>
                 </div>
-              )}
+              ) : waitingForOutput ? (
+                <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
+                  Waiting for this tool to return output...
+                </div>
+              ) : showEmptyState ? (
+                <div className="px-5 py-4 text-[12px] text-muted-foreground/60">
+                  No inline output was captured for this tool.
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
