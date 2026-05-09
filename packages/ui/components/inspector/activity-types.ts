@@ -205,6 +205,8 @@ export function parseHistoryToolCalls(
   const spawnOrder: string[] = []
   let currentSubagentId: string | null = null
   let latestUserPreview: string | undefined
+  let latestUserMessageId: string | undefined
+  let latestUserMessageIndex: number | undefined
 
   for (const [messageIndex, msg] of messages.entries()) {
     const text = visibleTextFromMessage(msg)
@@ -212,6 +214,8 @@ export function parseHistoryToolCalls(
     if (msg.role === "user" && text) {
       if (!/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) {
         latestUserPreview = previewText(text)
+        latestUserMessageId = msg.id
+        latestUserMessageIndex = messageIndex
       }
       const completed = /\bstatus:\s*completed successfully\b/i.test(text)
       const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(text)
@@ -259,8 +263,8 @@ export function parseHistoryToolCalls(
             startedAt,
             duration: b.duration,
             status: b.is_error === true || b.isError === true || b.status === "error" ? "error" : undefined,
-            messageId: msg.id,
-            messageIndex,
+            messageId: latestUserMessageId ?? msg.id,
+            messageIndex: latestUserMessageIndex ?? messageIndex,
             messagePreview: latestUserPreview,
           }))
           for (const call of pendingCalls) pendingById.set(call.id, call)
