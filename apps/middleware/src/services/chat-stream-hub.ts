@@ -16,6 +16,8 @@ let gateway: MiddlewareGatewayHandle | null = null
 let startingGateway: Promise<void> | null = null
 let retryGatewayTimer: ReturnType<typeof setTimeout> | null = null
 let nextClientId = 0
+const subscribedMessageKeys = new Set<string>()
+const pendingMessageKeys = new Set<string>()
 
 function eventSessionKey(payload: any) {
   return payload?.sessionKey ?? payload?.key ?? payload?.message?.sessionKey ?? payload?.data?.sessionKey ?? null
@@ -53,6 +55,7 @@ export function registerChatStreamClient(params: {
   })
   client.send("chat.ready", { type: "chat.ready", sessionKey: client.requestedSessionKey, activeSessionKey: client.activeSessionKey })
   startSharedChatEventGateway()
+  void subscribeMessages(client.activeSessionKey)
   return () => { clients.delete(id) }
 }
 
@@ -72,6 +75,8 @@ export function resetChatStreamHubForTests() {
   if (retryGatewayTimer) clearTimeout(retryGatewayTimer)
   retryGatewayTimer = null
   nextClientId = 0
+  subscribedMessageKeys.clear()
+  pendingMessageKeys.clear()
 }
 
 function startSharedChatEventGateway() {
@@ -84,13 +89,29 @@ function startSharedChatEventGateway() {
   })
 }
 
+async function subscribeMessages(key: string) {
+  if (!gateway || subscribedMessageKeys.has(key) || pendingMessageKeys.has(key)) return
+  pendingMessageKeys.add(key)
+  const response = await gateway.request("sessions.messages.subscribe", { key }, 30_000).catch(() => null)
+  pendingMessageKeys.delete(key)
+  if (response?.ok && (response.payload as any)?.subscribed !== false) subscribedMessageKeys.add(key)
+}
+
+function subscribeOpenClientMessages() {
+  for (const key of getOpenChatSessionKeys()) void subscribeMessages(key)
+}
+
 export async function ensureSharedChatEventGateway() {
-  if (gateway) return
+  if (gateway) {
+    subscribeOpenClientMessages()
+    return
+  }
   if (startingGateway) return startingGateway
   startingGateway = (async () => {
     const gw = await connectGateway(["operator.read", "operator.write", "operator.approvals"], { purpose: "event" })
     gateway = gw
     await gw.request("sessions.subscribe", {}, 30_000).catch(() => null)
+    subscribeOpenClientMessages()
     gw.on((message) => handleGatewayEvent(message))
     await markGatewayReconnected("event")
   })().finally(() => { startingGateway = null })
