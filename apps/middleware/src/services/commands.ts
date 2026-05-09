@@ -1455,6 +1455,8 @@ export function commandRoutes(store: Store) {
           const gw = await connectGateway(["operator.read", "operator.write", "operator.admin"])
           try {
             await gw.request("sessions.create", { key, agentId: input.agentId || "main", label: input.label || "New Chat" }, 30_000).catch(() => null)
+            const verbosePatch = await gw.request("sessions.patch", { key, verboseLevel: "full" }, 30_000)
+            if (!verbosePatch.ok) throw new HttpError(502, verbosePatch.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
             if (shouldPatchExecPolicy) {
               const patch = input.execPolicy === null
                 ? { key, execSecurity: null, execAsk: null }
