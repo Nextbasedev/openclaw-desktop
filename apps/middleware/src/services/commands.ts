@@ -3,6 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
+import WebSocket from "ws"
 import type { Store } from "./store.js"
 import { HttpError } from "../lib/http-error.js"
 import { connectGateway, withGatewayReadRetry } from "./gateway.js"
@@ -217,7 +218,7 @@ function normalizeHistoryPayload(payload: any) {
   return sanitizeHistoryPayloadForUi(normalized)
 }
 
-function isPairingRequiredError(error: unknown) {
+export function isPairingRequiredError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   const lower = message.toLowerCase()
   return lower.includes("pairing") || lower.includes("not paired") || lower.includes("not registered") || lower.includes("identity")
@@ -628,20 +629,35 @@ function commandVersion(binary: string, args = ["--version"]) {
   try { return execFileSync(binary, args, { encoding: "utf8", timeout: 5_000 }).trim().split("\n")[0] || null } catch { return null }
 }
 
-async function gatewayStatus() {
-  try {
-    const gw = await connectGateway(["operator.read"])
-    gw.close()
-    return { running: true, paired: true, status: "connected", error: null }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return {
-      running: false,
-      paired: !isPairingRequiredError(error),
-      status: isPairingRequiredError(error) ? "pairing_required" : "disconnected",
-      error: message,
+async function gatewayStatus(timeoutMs = 800) {
+  const cfg = readJson(openclawConfigPath())
+  const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL || cfg.gateway_url || `ws://127.0.0.1:${cfg.gateway?.port || 18789}`
+  const wsUrl = String(gatewayUrl).replace(/^http:/, "ws:").replace(/^https:/, "wss:")
+  const headers = process.env.MIDDLEWARE_ORIGIN ? { origin: process.env.MIDDLEWARE_ORIGIN } : undefined
+
+  return await new Promise<{ running: boolean; paired: boolean; status: string; error: string | null }>((resolve) => {
+    let settled = false
+    let ws: WebSocket | null = null
+    const done = (status: { running: boolean; paired: boolean; status: string; error: string | null }) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try { ws?.close() } catch { /* noop */ }
+      resolve(status)
     }
-  }
+    const timer = setTimeout(() => {
+      done({ running: false, paired: false, status: "disconnected", error: `Gateway probe timed out after ${timeoutMs}ms` })
+    }, timeoutMs)
+
+    try {
+      ws = new WebSocket(wsUrl, headers ? { headers } : undefined)
+      ws.once("open", () => done({ running: true, paired: true, status: "connected", error: null }))
+      ws.once("error", (error) => done({ running: false, paired: false, status: "disconnected", error: error instanceof Error ? error.message : String(error) }))
+      ws.once("close", () => done({ running: false, paired: false, status: "disconnected", error: "Gateway websocket closed before open" }))
+    } catch (error) {
+      done({ running: false, paired: false, status: "disconnected", error: error instanceof Error ? error.message : String(error) })
+    }
+  })
 }
 
 function usageNumber(value: any): number {
