@@ -60,6 +60,35 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     await context.chatLive.ensureSessionSubscribed(input.sessionKey);
 
     const prepared = prepareMessageAndAttachments(rawMessage, input.attachments);
+    const nowIso = new Date().toISOString();
+    const clientMessage = {
+      role: "user",
+      text: prepared.message,
+      createdAt: nowIso,
+      isOptimistic: true,
+      __clientOptimistic: true,
+      __openclaw: {
+        id: `client:${input.idempotencyKey}`,
+      },
+    };
+    const event = context.messages.appendProjectionEvent({
+      sessionKey: input.sessionKey,
+      eventType: "chat.message.upsert",
+      payload: {
+        sessionKey: input.sessionKey,
+        message: clientMessage,
+        optimistic: true,
+        idempotencyKey: input.idempotencyKey,
+      },
+    });
+    context.patchBus.broadcast({
+      cursor: event.cursor,
+      type: event.eventType,
+      sessionKey: event.sessionKey,
+      payload: event.payload,
+      createdAtMs: event.createdAtMs,
+    });
+
     const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
       sessionKey: input.sessionKey,
       message: prepared.message,

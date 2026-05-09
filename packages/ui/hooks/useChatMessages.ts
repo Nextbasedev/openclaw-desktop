@@ -77,6 +77,8 @@ type RawMessage = {
   }>
   usage?: ChatMessage["usage"]
   stopReason?: string | null
+  isOptimistic?: boolean
+  __clientOptimistic?: boolean
 }
 
 type BranchSummary = {
@@ -1088,6 +1090,7 @@ export function useChatMessages(
                 model: m.model,
                 usage: m.usage,
                 stopReason: m.stopReason,
+                isOptimistic: Boolean(m.isOptimistic || m.__clientOptimistic),
                 replyTo: reply?.replyTo,
                 gatewayIndex: rawIdx,
                 attachments: resolvedAttachments,

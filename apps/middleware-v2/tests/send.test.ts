@@ -27,6 +27,38 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("broadcasts the user message before forwarding to Gateway chat.send", async () => {
+    const app = await createApp(config("optimistic-patch"));
+    const context = contextOf(app);
+    const patches: unknown[] = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      return method === "chat.send" ? { runId: "r1" } : { ok: true };
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(patches[0]).toMatchObject({
+      type: "chat.message.upsert",
+      sessionKey: "s1",
+      payload: {
+        optimistic: true,
+        idempotencyKey: "stable-key",
+        message: {
+          role: "user",
+          text: "hello",
+          isOptimistic: true,
+          __clientOptimistic: true,
+          __openclaw: { id: "client:stable-key" },
+        },
+      },
+    });
+    await app.close();
+  });
+
   test("forwards stable idempotencyKey to Gateway chat.send", async () => {
     const app = await createApp(config("forward"));
     const context = contextOf(app);

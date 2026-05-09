@@ -47,6 +47,31 @@ describe("applyChatPatch", () => {
     expect(next.messages[0]).toMatchObject({ messageId: "oc_2", role: "assistant", text: "hello" })
   })
 
+  test("marks V2 send patches as optimistic so later gateway user echoes dedupe", () => {
+    const optimistic = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { message: { role: "user", text: "third", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client:key", seq: 0 } } },
+        createdAtMs: 1,
+      },
+    }).messages
+    const gatewayEcho = applyChatPatch({ cursor: 1, messages: optimistic }, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { message: { role: "user", text: "third", __openclaw: { id: "oc_3", seq: 3 } } },
+        createdAtMs: 2,
+      },
+    }).messages
+    expect(gatewayEcho).toHaveLength(1)
+    expect(gatewayEcho[0]).toMatchObject({ role: "user", text: "third" })
+  })
+
   test("merges bootstrap history and patch messages with the same OpenClaw id", () => {
     const bootstrap = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",
