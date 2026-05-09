@@ -65,6 +65,15 @@ import {
   isTransientSlashCommandHistory,
   parseChatHistory,
 } from "@/lib/chatHistoryParser"
+import {
+  abortChatV2,
+  fetchChatBootstrapV2,
+  openPatchStreamV2,
+  sendChatV2,
+  type PatchFrame,
+} from "@/lib/chat-engine-v2/client"
+import { applyChatPatch } from "@/lib/chat-engine-v2/applyPatches"
+import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 
 type RawMessage = {
   id?: string
@@ -94,6 +103,7 @@ type BranchSummary = {
 type ChatBootstrapData = {
   history: { messages: unknown[] }
   branchData: { branches: BranchSummary[] }
+  v2Cursor?: number
 }
 
 function rawToChatMessage(
@@ -176,14 +186,15 @@ function toolResultText(result: unknown) {
 
 async function fetchChatBootstrap(
   sessionKey: string
-): Promise<ChatBootstrapData> {
+): Promise<ChatBootstrapData & { v2Cursor?: number }> {
   const historyCacheKey = `session:${sessionKey}:history`
   const cachedMessages = await persistentCacheGet<unknown[]>(historyCacheKey)
   const [freshHistory, branchData] = await Promise.all([
-    invoke<{ messages: unknown[] }>("middleware_chat_history", {
-      input: { sessionKey },
-    }).catch((error) => {
-      if (cachedMessages) return { messages: cachedMessages }
+    fetchChatBootstrapV2(sessionKey).then((result) => ({
+      messages: result.messages,
+      v2Cursor: result.projection?.cursor,
+    })).catch((error) => {
+      if (cachedMessages) return { messages: cachedMessages, v2Cursor: undefined }
       throw error
     }),
     invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
@@ -197,7 +208,7 @@ async function fetchChatBootstrap(
       { ttlMs: 1000 * 60 * 60 * 24 }
     )
   }
-  return { history: freshHistory, branchData }
+  return { history: freshHistory, branchData, v2Cursor: freshHistory.v2Cursor }
 }
 
 async function fetchStableChatBootstrap(
@@ -378,6 +389,7 @@ export function useChatMessages(
   const messagesRef = useRef<ChatMessage[]>(
     hasInitial ? initialMessages : (cachedMessages ?? [])
   )
+  const v2CursorRef = useRef(0)
 
   useEffect(() => {
     cacheChatActivity(sessionKey, {
@@ -1111,6 +1123,7 @@ export function useChatMessages(
       }
     )
     let unsubscribeStream: (() => void) | null = null
+    let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -1125,11 +1138,12 @@ export function useChatMessages(
 
     async function init() {
       try {
-        const { history, branchData } = await queryClient.fetchQuery({
+        const { history, branchData, v2Cursor } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
           queryFn: () => loadChatBootstrap(sessionKey),
           staleTime: queryStaleTime.chatBootstrap,
         })
+        if (typeof v2Cursor === "number") v2CursorRef.current = v2Cursor
         bootstrapSettled = true
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
@@ -1498,6 +1512,23 @@ export function useChatMessages(
         setLoading(false)
         forceScrollToBottom(true)
 
+        unsubscribeV2Stream = openPatchStreamV2(
+          v2CursorRef.current,
+          (frame) => {
+            if (cancelled || frame.type !== "patch") return
+            const patch = frame as PatchFrame
+            if (patch.patch.sessionKey && patch.patch.sessionKey !== sessionKey) return
+            const next = applyChatPatch(
+              { cursor: v2CursorRef.current, messages: messagesRef.current },
+              patch
+            )
+            if (next.cursor !== v2CursorRef.current) v2CursorRef.current = next.cursor
+            if (next.messages !== messagesRef.current) {
+              setMessages(next.messages)
+            }
+          }
+        )
+
         unsubscribeStream = subscribeChatStream(
           sessionKey,
           ({ data }) => {
@@ -1552,6 +1583,7 @@ export function useChatMessages(
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
       unsubscribeLocalFirst()
       unsubscribeStream?.()
+      unsubscribeV2Stream?.()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)
         subagentPollRef.current = null
@@ -1712,20 +1744,19 @@ export function useChatMessages(
           restartInFlightRef.current = true
           setStatus("restarting")
           setStatusLabel(null)
-          await invoke("middleware_chat_stop", { input: { sessionKey } })
+          await abortChatV2({ sessionKey })
         }
         void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
-        await invoke("middleware_chat_send", {
-          input: {
-            sessionKey,
-            text: gatewayText,
-            attachments: payload.attachments,
-            replyTo: replyTo
-              ? { messageId: replyTo.messageId, snippet: snippet! }
-              : undefined,
-            autonomyMode: payload.autonomyMode,
-            execPolicy: payload.execPolicy,
-          },
+        await sendChatV2({
+          sessionKey,
+          text: gatewayText,
+          attachments: payload.attachments,
+          idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
+          replyTo: replyTo
+            ? { messageId: replyTo.messageId, snippet: snippet! }
+            : undefined,
+          autonomyMode: payload.autonomyMode,
+          execPolicy: payload.execPolicy,
         })
         setMessages((prev) =>
           prev.map((m) =>
