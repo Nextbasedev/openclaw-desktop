@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { inferLiveToolStatus, liveToolResultText } from "./liveToolCalls"
+import { inferLiveToolStatus, liveToolEventResultText, liveToolResultText } from "./liveToolCalls"
 
 describe("live tool call event helpers", () => {
   it("keeps update events running and exposes partial output text", () => {
@@ -14,6 +14,12 @@ describe("live tool call event helpers", () => {
 
     expect(output).toContain("command failed")
     expect(inferLiveToolStatus("result", output, true)).toBe("error")
+  })
+
+  it("normalizes the same event result text from result and partial updates", () => {
+    expect(liveToolEventResultText({ partialResult: { stdout: "live" } })).toContain("live")
+    expect(liveToolEventResultText({ result: { stdout: "done" } })).toContain("done")
+    expect(liveToolEventResultText({ error: "boom" })).toBe("boom")
   })
 
   it("treats non-zero exit code results as errors", () => {

@@ -41,7 +41,7 @@ import type {
   EditPreviewState,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
-import { inferLiveToolStatus, liveToolResultText } from "@/lib/liveToolCalls"
+import { inferLiveToolStatus, liveToolEventResultText, liveToolResultText } from "@/lib/liveToolCalls"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
@@ -777,12 +777,7 @@ export function useChatMessages(
                 ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
                 : call.duration
             const eventData = ev as Record<string, unknown>
-            const resultText = liveToolResultText(
-              eventData.result ??
-                eventData.partialResult ??
-                eventData.error ??
-                eventData.message
-            )
+            const resultText = liveToolEventResultText(eventData)
             const finalStatus = inferLiveToolStatus(phase, resultText, eventData.isError)
             const updatedCall: InlineToolCall = {
               ...call,
