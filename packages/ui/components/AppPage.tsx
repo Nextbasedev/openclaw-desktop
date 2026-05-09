@@ -158,7 +158,7 @@ export default function Page() {
     loading: onboardingLoading,
     signOut,
     deleteAccount,
-  } = useOnboardingFlow()
+  } = useOnboardingFlow({ autoLoad: false })
   const [hasToken, setHasToken] = useState<boolean | null>(null)
 
   useEffect(() => {
