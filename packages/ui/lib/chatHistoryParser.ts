@@ -55,6 +55,10 @@ function extractReplyFromText(
 export type RawHistoryMessage = {
   id?: string
   messageId?: string
+  __openclaw?: {
+    id?: string
+    seq?: number
+  }
   role?: string
   text?: string
   content?: string | ContentBlock[]
@@ -72,7 +76,17 @@ export type ParsedChatHistory = {
 }
 
 function messageId(raw: RawHistoryMessage) {
-  return raw.id ?? raw.messageId ?? randomId()
+  const openclawId = raw.__openclaw?.id
+  if (typeof openclawId === "string" && openclawId.trim()) return openclawId
+  if (raw.id) return raw.id
+  if (raw.messageId) return raw.messageId
+  const seq = raw.__openclaw?.seq
+  if (typeof seq === "number" && Number.isFinite(seq)) {
+    return `openclaw:${Math.floor(seq)}`
+  }
+  const text = visibleMessageText(raw).trim().replace(/\s+/g, " ").slice(0, 160)
+  if (raw.role && raw.createdAt && text) return `${raw.role}:${raw.createdAt}:${text}`
+  return randomId()
 }
 
 function toolBlocks(raw: RawHistoryMessage) {
