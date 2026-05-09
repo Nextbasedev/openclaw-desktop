@@ -245,7 +245,7 @@ export function ActionBar({
                 ? voiceDisabledReason || "Configure voice input"
                 : isRecording
                   ? "Stop recording"
-                  : "Voice input"
+                  : "Voice input (Ctrl+Win)"
           }
         >
           {isRecording ? (
