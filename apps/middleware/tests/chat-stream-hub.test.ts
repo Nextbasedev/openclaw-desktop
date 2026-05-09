@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 const gatewayState = vi.hoisted(() => ({
   connectCalls: [] as any[],
+  requests: [] as any[],
   listener: null as null | ((message: any) => void),
 }))
 
@@ -10,7 +11,10 @@ vi.mock("../src/services/gateway.js", () => ({
   connectGateway: vi.fn(async (...args: any[]) => {
     gatewayState.connectCalls.push(args)
     return {
-      request: vi.fn(async () => ({ ok: true, payload: {} })),
+      request: vi.fn(async (...requestArgs: any[]) => {
+        gatewayState.requests.push(requestArgs)
+        return { ok: true, payload: { subscribed: true } }
+      }),
       on: vi.fn((listener: (message: any) => void) => {
         gatewayState.listener = listener
         return vi.fn()
@@ -35,6 +39,7 @@ function makeClient(sessionKey: string) {
 afterEach(() => {
   hub.resetChatStreamHubForTests()
   gatewayState.connectCalls.length = 0
+  gatewayState.requests.length = 0
   gatewayState.listener = null
 })
 
@@ -44,6 +49,23 @@ describe("chat stream hub", () => {
     makeClient("agent:main:b")
     await vi.waitFor(() => expect(gatewayState.connectCalls).toHaveLength(1))
     expect(gatewayState.connectCalls[0][1]).toMatchObject({ purpose: "event" })
+  })
+
+  it("subscribes shared event gateway to active chat message streams", async () => {
+    makeClient("agent:main:a")
+    await vi.waitFor(() => {
+      expect(gatewayState.requests.some((args) => args[0] === "sessions.messages.subscribe" && args[1]?.key === "agent:main:a")).toBe(true)
+    })
+  })
+
+  it("subscribes later clients when shared event gateway already exists", async () => {
+    makeClient("agent:main:a")
+    await vi.waitFor(() => expect(gatewayState.connectCalls).toHaveLength(1))
+    makeClient("agent:main:b")
+    await vi.waitFor(() => {
+      expect(gatewayState.requests.some((args) => args[0] === "sessions.messages.subscribe" && args[1]?.key === "agent:main:b")).toBe(true)
+    })
+    expect(gatewayState.connectCalls).toHaveLength(1)
   })
 
   it("fanout sends matching session messages to subscribed clients", () => {
