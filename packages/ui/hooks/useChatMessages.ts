@@ -397,28 +397,50 @@ export function useChatMessages(
     }
   }, [])
 
-  const flushToolsToLastAssistant = useCallback(() => {
-    const tools = Array.from(pendingToolMapRef.current.values())
-    if (tools.length === 0) return
-    setMessages((prev) => {
-      for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i].role === "assistant") {
-          const updated = [...prev]
-          updated[i] = { ...prev[i], toolCalls: tools }
-          return updated
-        }
+  const mergeToolCalls = useCallback(
+    (existing: InlineToolCall[] | undefined, incoming: InlineToolCall[]) => {
+      const merged = new Map<string, InlineToolCall>()
+      for (const tool of existing ?? []) merged.set(tool.id, tool)
+      for (const tool of incoming) {
+        const current = merged.get(tool.id)
+        merged.set(tool.id, current ? { ...current, ...tool } : tool)
       }
-      return [
-        ...prev,
-        {
-          messageId: randomId(),
-          role: "assistant" as const,
-          text: "",
-          toolCalls: tools,
-        },
-      ]
-    })
-  }, [])
+      return Array.from(merged.values())
+    },
+    []
+  )
+
+  const mergeToolsIntoLastAssistant = useCallback(
+    (tools: InlineToolCall[]) => {
+      if (tools.length === 0) return
+      setMessages((prev) => {
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].role === "assistant") {
+            const updated = [...prev]
+            updated[i] = {
+              ...prev[i],
+              toolCalls: mergeToolCalls(prev[i].toolCalls, tools),
+            }
+            return updated
+          }
+        }
+        return [
+          ...prev,
+          {
+            messageId: randomId(),
+            role: "assistant" as const,
+            text: "",
+            toolCalls: tools,
+          },
+        ]
+      })
+    },
+    [mergeToolCalls]
+  )
+
+  const flushToolsToLastAssistant = useCallback(() => {
+    mergeToolsIntoLastAssistant(Array.from(pendingToolMapRef.current.values()))
+  }, [mergeToolsIntoLastAssistant])
 
   const handleStreamEvent = useCallback(
     (payload: StreamEventPayload) => {
@@ -607,7 +629,7 @@ export function useChatMessages(
                 eventData.message
             )
             const finalStatus = inferLiveToolStatus(phase, resultText, eventData.isError)
-            pendingToolMapRef.current.set(toolCallId, {
+            const updatedCall: InlineToolCall = {
               ...call,
               status: finalStatus,
               duration,
@@ -615,7 +637,9 @@ export function useChatMessages(
               approval: resultText
                 ? (parseExecApproval(resultText) ?? call.approval)
                 : call.approval,
-            })
+            }
+            pendingToolMapRef.current.set(toolCallId, updatedCall)
+            mergeToolsIntoLastAssistant([updatedCall])
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
               if (prev) {
@@ -831,7 +855,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, upsertSpawn]
+    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoLastAssistant, upsertSpawn]
   )
 
   useEffect(() => {
