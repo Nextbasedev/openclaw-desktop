@@ -158,6 +158,21 @@ function toolResultText(result: unknown) {
   }
 }
 
+function inferLiveToolStatus(
+  phase: string | null,
+  resultText: string
+): InlineToolCall["status"] {
+  if (phase === "error") return "error"
+  if (!resultText) return "success"
+  try {
+    const parsed = JSON.parse(resultText) as { status?: unknown; error?: unknown }
+    if (parsed.status === "error" || parsed.error) return "error"
+  } catch {
+    if (/^\s*(error|failed|exception)\b/i.test(resultText)) return "error"
+  }
+  return "success"
+}
+
 async function fetchChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData> {
@@ -610,12 +625,14 @@ export function useChatMessages(
             const duration = call.startedAt
               ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
               : undefined
+            const eventData = ev as Record<string, unknown>
             const resultText = toolResultText(
-              (ev as Record<string, unknown>).result
+              eventData.result ?? eventData.error ?? eventData.message
             )
+            const finalStatus = inferLiveToolStatus(phase, resultText)
             pendingToolMapRef.current.set(toolCallId, {
               ...call,
-              status: phase === "error" ? "error" : "success",
+              status: finalStatus,
               duration,
               resultText: resultText || call.resultText,
               approval: resultText
