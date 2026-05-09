@@ -59,6 +59,10 @@ type RawMessage = {
   text?: string
   content?: string | ContentBlock[]
   createdAt?: string
+  timestamp?: number
+  toolCallId?: string
+  toolName?: string
+  details?: unknown
   model?: string
   attachments?: Array<{
     name: string
@@ -75,6 +79,44 @@ type BranchSummary = {
   sourceMessageId: string
   createdAt: string
   branchReason: string
+}
+
+function rawMessageTimestampMs(raw: RawMessage): number | null {
+  if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
+    return raw.timestamp
+  }
+  if (raw.createdAt) {
+    const parsed = Date.parse(raw.createdAt)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function formatToolDuration(ms: number): string | undefined {
+  if (!Number.isFinite(ms) || ms < 0) return undefined
+  if (ms < 100) return "0.1s"
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function objectValue(value: unknown, key: string): unknown {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)[key]
+    : undefined
+}
+
+function rawToolDurationMs(raw: RawMessage, resultText: string): number | null {
+  const detailTookMs = objectValue(raw.details, "tookMs")
+  if (typeof detailTookMs === "number" && Number.isFinite(detailTookMs)) {
+    return detailTookMs
+  }
+  try {
+    const parsed = JSON.parse(resultText) as unknown
+    const tookMs = objectValue(parsed, "tookMs")
+    if (typeof tookMs === "number" && Number.isFinite(tookMs)) return tookMs
+  } catch {
+    // Tool output can be plain text.
+  }
+  return null
 }
 
 type ChatBootstrapData = {
@@ -1018,7 +1060,7 @@ export function useChatMessages(
         const raw = deduplicateRawMessages(rawAll) as RawMessage[]
         const histMsgs: ChatMessage[] = []
         let pendingToolCalls: InlineToolCall[] = []
-        let resultQueue: InlineToolCall[] = []
+        let resultQueue: Array<InlineToolCall & { startedAtMs?: number | null }> = []
         const historyEmbeds = new Map<
           string,
           { ref: string; content: string; title?: string }
@@ -1135,11 +1177,12 @@ export function useChatMessages(
               (b) => b.type === "toolCall" || b.type === "tool_use"
             )
             for (const b of tcBlocks) {
-              const call: InlineToolCall = {
+              const call: InlineToolCall & { startedAtMs?: number | null } = {
                 id: b.id ?? randomId(),
                 tool: b.name ?? "unknown",
                 status: "success",
                 input: b.arguments ?? b.input,
+                startedAtMs: rawMessageTimestampMs(m),
               }
               pendingToolCalls.push(call)
               resultQueue.push(call)
@@ -1253,7 +1296,7 @@ export function useChatMessages(
             m.role === "toolResult"
           ) {
             const resultText = m.text || extractText(m.content)
-            let matchedCall: InlineToolCall | null = null
+            let matchedCall: (InlineToolCall & { startedAtMs?: number | null }) | null = null
             if (resultQueue.length > 0) {
               matchedCall = resultQueue.shift()!
               if (resultText) {
@@ -1268,6 +1311,17 @@ export function useChatMessages(
                   matchedCall.status = "success"
                 }
               }
+              const preciseDurationMs = rawToolDurationMs(m, resultText)
+              const finishedAtMs = rawMessageTimestampMs(m)
+              const fallbackDurationMs =
+                finishedAtMs !== null &&
+                matchedCall.startedAtMs !== null &&
+                matchedCall.startedAtMs !== undefined
+                  ? finishedAtMs - matchedCall.startedAtMs
+                  : null
+              matchedCall.duration =
+                formatToolDuration(preciseDurationMs ?? fallbackDurationMs ?? -1) ??
+                matchedCall.duration
             }
             if (matchedCall?.tool === "sessions_spawn" && resultText) {
               const spawn = historySpawns.find(
