@@ -1073,7 +1073,16 @@ export function ChatView({
     for (const tool of live ?? []) {
       const key = tool.id || `${tool.tool}:${merged.size}`
       const existing = merged.get(key)
-      merged.set(key, existing ? { ...existing, ...tool } : tool)
+      if (!existing) {
+        merged.set(key, tool)
+        continue
+      }
+      const mergedTool = { ...existing, ...tool }
+      if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
+      if (existing.duration && existing.status !== "running") {
+        mergedTool.duration = existing.duration
+      }
+      merged.set(key, mergedTool)
     }
     return Array.from(merged.values())
   }

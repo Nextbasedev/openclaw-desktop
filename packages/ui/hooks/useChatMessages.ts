@@ -445,7 +445,16 @@ export function useChatMessages(
       for (const tool of existing ?? []) merged.set(tool.id, tool)
       for (const tool of incoming) {
         const current = merged.get(tool.id)
-        merged.set(tool.id, current ? { ...current, ...tool } : tool)
+        if (!current) {
+          merged.set(tool.id, tool)
+          continue
+        }
+        const mergedTool = { ...current, ...tool }
+        if (current.duration && !tool.duration) mergedTool.duration = current.duration
+        if (current.duration && current.status !== "running") {
+          mergedTool.duration = current.duration
+        }
+        merged.set(tool.id, mergedTool)
       }
       return Array.from(merged.values())
     },
@@ -695,9 +704,11 @@ export function useChatMessages(
               tool: name,
               status: "running" as const,
             }
-            const duration = call.startedAt && phase !== "update"
-              ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-              : call.duration
+            const duration = call.duration && call.status !== "running"
+              ? call.duration
+              : call.startedAt && phase !== "update"
+                ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+                : call.duration
             const eventData = ev as Record<string, unknown>
             const resultText = liveToolResultText(
               eventData.result ??
