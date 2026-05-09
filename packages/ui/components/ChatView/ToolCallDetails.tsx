@@ -76,8 +76,9 @@ export function ToolCallDetails({
   inputText: string
   outputText: string
 }) {
+  const waitingForOutput = !outputText && call.status !== "running"
   const showDivider = Boolean(
-    inputText && (outputText || call.status === "running")
+    inputText && (outputText || call.status === "running" || waitingForOutput)
   )
   const showEmptyState = !inputText && !outputText && call.status !== "running"
 
@@ -99,6 +100,10 @@ export function ToolCallDetails({
       ) : call.status === "running" ? (
         <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75">
           Waiting for this tool to return output...
+        </div>
+      ) : waitingForOutput ? (
+        <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75">
+          Loading tool output...
         </div>
       ) : showEmptyState ? (
         <div className="bg-black/20 px-5 py-4 text-[12px] text-[#9CA3AF]/75">
