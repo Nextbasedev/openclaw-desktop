@@ -76,11 +76,11 @@ export function ToolCallDetails({
   inputText: string
   outputText: string
 }) {
-  const waitingForOutput = !outputText && call.status !== "running"
-  const showDivider = Boolean(
-    inputText && (outputText || call.status === "running" || waitingForOutput)
-  )
+  const showWaitingForOutput = !outputText && call.status === "running"
   const showEmptyState = !inputText && !outputText && call.status !== "running"
+  const showDivider = Boolean(
+    inputText && (outputText || showWaitingForOutput)
+  )
 
   return (
     <div className="overflow-hidden rounded-b-lg bg-card opacity-100">
@@ -90,7 +90,7 @@ export function ToolCallDetails({
         </DetailBlock>
       )}
       {showDivider && <div className="h-px bg-transparent" />}
-      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: outputText || call.status === "running" || waitingForOutput || showEmptyState ? "1fr" : "0fr" }}>
+      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: outputText || showWaitingForOutput || showEmptyState ? "1fr" : "0fr" }}>
         <div className="overflow-hidden">
           <div className="transition-all duration-300 ease-out animate-in fade-in-0 slide-in-from-top-1">
             {outputText ? (
@@ -100,13 +100,9 @@ export function ToolCallDetails({
               >
                 {outputText}
               </DetailBlock>
-            ) : call.status === "running" ? (
+            ) : showWaitingForOutput ? (
               <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75 transition-opacity duration-300">
                 Waiting for this tool to return output...
-              </div>
-            ) : waitingForOutput ? (
-              <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75 transition-opacity duration-300">
-                Loading tool output...
               </div>
             ) : showEmptyState ? (
               <div className="bg-black/20 px-5 py-4 text-[12px] text-[#9CA3AF]/75 transition-opacity duration-300">
