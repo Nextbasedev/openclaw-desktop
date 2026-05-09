@@ -83,7 +83,7 @@ export function ToolCallDetails({
   const showEmptyState = !inputText && !outputText && call.status !== "running"
 
   return (
-    <div className="mt-2 mb-2 overflow-hidden rounded-lg bg-card opacity-100 shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
+    <div className="overflow-hidden rounded-b-lg bg-card opacity-100">
       {inputText && (
         <DetailBlock label="Input" tone="neutral">
           {inputText}
