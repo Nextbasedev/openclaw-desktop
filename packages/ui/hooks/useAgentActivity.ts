@@ -48,6 +48,15 @@ function stringifyToolOutput(value: unknown): string | undefined {
   try { return JSON.stringify(value, null, 2) } catch { return String(value) }
 }
 
+function finalizeActivityCall(call: ToolCall): ToolCall {
+  if (call.status !== "running") return call
+  return {
+    ...call,
+    status: "success",
+    duration: call.duration ?? (call.startedAt ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s` : undefined),
+  }
+}
+
 function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): ToolCall {
   if (!existing) return incoming
   const merged = { ...existing, ...incoming }
@@ -436,7 +445,7 @@ export function useAgentActivity(sessionKey: string | null) {
         void shouldFinalizeStaleActivity(sessionKey).then((shouldFinalize) => {
           if (!shouldFinalize || cancelledRef.current) return
           const reconciled = finalizeStaleRunningActivity(
-            Array.from(callMapRef.current.values()),
+            Array.from(callMapRef.current.values()).map(finalizeActivityCall),
             agentsRef.current,
           )
           callMapRef.current = new Map(

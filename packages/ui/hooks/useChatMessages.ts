@@ -139,6 +139,25 @@ function rawToolStatus(raw: RawMessage, resultText: string): InlineToolCall["sta
   return "success"
 }
 
+function finalizeToolCall(call: InlineToolCall): InlineToolCall {
+  if (call.status !== "running") return call
+  return {
+    ...call,
+    status: "success",
+    duration: call.duration ?? (call.startedAt ? formatToolDuration(Date.now() - call.startedAt) : undefined),
+  }
+}
+
+function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
+  let changed = false
+  const next = messages.map((message) => {
+    if (!message.toolCalls?.some((tool) => tool.status === "running")) return message
+    changed = true
+    return { ...message, toolCalls: message.toolCalls.map(finalizeToolCall) }
+  })
+  return changed ? next : messages
+}
+
 function preserveCompletedToolDurations(
   previous: ChatMessage[],
   incoming: ChatMessage[]
@@ -608,21 +627,23 @@ export function useChatMessages(
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
-            flushToolsToLastAssistant()
+            const finalizedTools = Array.from(pendingToolMapRef.current.values()).map(finalizeToolCall)
+            if (finalizedTools.length > 0) mergeToolsIntoCurrentAssistant(finalizedTools)
             pendingToolMapRef.current.clear()
             setPendingTools([])
             doneAfterYieldRef.current = 0
             setMessages((prev) => {
-              const last = prev[prev.length - 1]
+              const finalized = finalizeToolCallsOnDone(prev)
+              const last = finalized[finalized.length - 1]
               if (last?.role === "assistant" && !last.createdAt) {
-                const updated = [...prev]
-                updated[prev.length - 1] = {
+                const updated = [...finalized]
+                updated[finalized.length - 1] = {
                   ...last,
                   createdAt: new Date().toISOString(),
                 }
                 return updated
               }
-              return prev
+              return finalized
             })
           }
           scrollToBottom(false)
@@ -1021,7 +1042,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoCurrentAssistant, refreshFinishedToolFromHistory, upsertSpawn]
+    [scrollToBottom, mergeToolsIntoCurrentAssistant, refreshFinishedToolFromHistory, upsertSpawn]
   )
 
   useEffect(() => {
