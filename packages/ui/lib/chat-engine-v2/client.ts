@@ -42,7 +42,7 @@ export type PatchFrame = {
   type: "patch"
   patch: {
     cursor: number
-    type: string
+    type: "chat.message.upsert" | "chat.message.remove" | "session.upsert" | string
     sessionKey: string | null
     payload: unknown
     createdAtMs: number

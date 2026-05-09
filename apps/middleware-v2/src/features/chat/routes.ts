@@ -71,6 +71,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         id: `client:${input.idempotencyKey}`,
       },
     };
+    context.chatLive.addOptimisticUser(input.sessionKey, {
+      id: clientMessage.__openclaw.id,
+      text: prepared.message,
+    });
     const event = context.messages.appendProjectionEvent({
       sessionKey: input.sessionKey,
       eventType: "chat.message.upsert",

@@ -72,6 +72,42 @@ describe("applyChatPatch", () => {
     expect(gatewayEcho[0]).toMatchObject({ role: "user", text: "third" })
   })
 
+  test("removes optimistic client message when V2 confirms Gateway echo", () => {
+    const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { message: { role: "user", text: "byy", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client:key" } } },
+        createdAtMs: 1,
+      },
+    })
+    const removed = applyChatPatch(withOptimistic, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.remove",
+        sessionKey: "s1",
+        payload: { messageId: "client:key" },
+        createdAtMs: 2,
+      },
+    })
+    expect(removed.messages).toHaveLength(0)
+    const confirmed = applyChatPatch(removed, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { message: { role: "user", text: "byy", __openclaw: { id: "oc_4", seq: 4 } } },
+        createdAtMs: 3,
+      },
+    })
+    expect(confirmed.messages).toHaveLength(1)
+    expect(confirmed.messages[0]).toMatchObject({ messageId: "oc_4", role: "user", text: "byy" })
+  })
+
   test("merges bootstrap history and patch messages with the same OpenClaw id", () => {
     const bootstrap = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",

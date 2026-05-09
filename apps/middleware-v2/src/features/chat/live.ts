@@ -7,9 +7,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
+  private optimisticUsers = new Map<string, Array<{ id: string; text: string; createdAtMs: number }>>();
 
   constructor(private readonly context: AppContext) {}
 
@@ -24,10 +29,17 @@ export class ChatLiveIngest {
     this.subscribed.add(sessionKey);
   }
 
+  addOptimisticUser(sessionKey: string, message: { id: string; text: string; createdAtMs?: number }) {
+    const entries = this.optimisticUsers.get(sessionKey) ?? [];
+    entries.push({ id: message.id, text: normalizeText(message.text), createdAtMs: message.createdAtMs ?? Date.now() });
+    this.optimisticUsers.set(sessionKey, entries.slice(-50));
+  }
+
   diagnostics() {
     return {
       subscribedSessions: [...this.subscribed],
       listening: this.listening,
+      optimisticUserSessions: this.optimisticUsers.size,
     };
   }
 
@@ -46,6 +58,21 @@ export class ChatLiveIngest {
     const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
     const message = isObject(payload.message) ? (payload.message as OpenClawMessage) : null;
     if (!sessionKey || !message) return;
+    const optimisticId = this.takeMatchingOptimisticUser(sessionKey, message);
+    if (optimisticId) {
+      const remove = this.context.messages.appendProjectionEvent({
+        sessionKey,
+        eventType: "chat.message.remove",
+        payload: { sessionKey, messageId: optimisticId, reason: "gateway-confirmed" },
+      });
+      this.context.patchBus.broadcast({
+        cursor: remove.cursor,
+        type: remove.eventType,
+        sessionKey: remove.sessionKey,
+        payload: remove.payload,
+        createdAtMs: remove.createdAtMs,
+      });
+    }
     const normalized = normalizeHistoryMessages(sessionKey, [message]);
     const projection = this.context.messages.upsertMessages(normalized);
     const patch = this.context.messages.appendProjectionEvent({
@@ -65,6 +92,24 @@ export class ChatLiveIngest {
       payload: patch.payload,
       createdAtMs: patch.createdAtMs,
     });
+  }
+
+  private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): string | null {
+    if (message.role !== "user") return null;
+    const text = normalizeText(typeof message.text === "string" ? message.text : "");
+    if (!text) return null;
+    const entries = this.optimisticUsers.get(sessionKey);
+    if (!entries?.length) return null;
+    const now = Date.now();
+    const index = entries.findIndex((entry) => entry.text === text && now - entry.createdAtMs < 10 * 60 * 1000);
+    if (index < 0) {
+      this.optimisticUsers.set(sessionKey, entries.filter((entry) => now - entry.createdAtMs < 10 * 60 * 1000));
+      return null;
+    }
+    const [match] = entries.splice(index, 1);
+    if (entries.length > 0) this.optimisticUsers.set(sessionKey, entries);
+    else this.optimisticUsers.delete(sessionKey);
+    return match?.id ?? null;
   }
 
   private handleSessionsChanged(payload: unknown) {
