@@ -200,6 +200,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
 
   app.get("/api/chats", (req, res) => res.json(records.chatsList({ archived: req.query.archived === "true", spaceId: req.query.spaceId ? String(req.query.spaceId) : undefined })))
   app.post("/api/chats", (req, res) => res.json(records.chatsCreate(req.body)))
+  app.get("/api/chats/:chatId", (req, res) => res.json(records.chatsGet(req.params.chatId)))
   app.patch("/api/chats/:chatId", (req, res) => res.json(records.chatsUpdate(req.params.chatId, req.body)))
   app.post("/api/chats/:chatId/rename", (req, res) => res.json(records.chatsRename(req.params.chatId, String(req.body?.name ?? "New Chat"))))
   app.post("/api/chats/:chatId/archive", (req, res) => res.json(records.chatsArchive(req.params.chatId, req.body?.archived ?? true)))

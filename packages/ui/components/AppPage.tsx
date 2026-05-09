@@ -527,14 +527,20 @@ function AppShell({
       setInitialMessages(undefined)
 
       try {
-        const chatResult = await invoke<{
-          chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
-        }>("middleware_chats_list", { input: {} })
+        const found = await invoke<{
+          chat: { id: string; name: string; sessionKey?: string; archived: boolean }
+        }>("middleware_chats_get", { input: { chatId: route.chatId } })
+          .then((result) => result.chat)
+          .catch(async () => {
+            const chatResult = await invoke<{
+              chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
+            }>("middleware_chats_list", { input: {} })
+            return (chatResult.chats || []).find(
+              (chat) => chat.id === route.chatId,
+            ) ?? null
+          })
         if (!isCurrentPath()) return
 
-        const found = (chatResult.chats || []).find(
-          (chat) => chat.id === route.chatId,
-        )
         if (!found || found.archived) {
           clearConversationState()
           window.history.replaceState(null, "", routeUrl("/"))
