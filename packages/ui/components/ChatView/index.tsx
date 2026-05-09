@@ -32,6 +32,10 @@ import {
 import { invoke } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { windowChatMessages } from "@/lib/messageWindow"
+import {
+  computeVirtualRange,
+  estimateMessageHeight,
+} from "@/lib/virtualMessageList"
 import { toast } from "react-toastify"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
@@ -334,11 +338,20 @@ export function ChatView({
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const messageContentRef = useRef<HTMLDivElement>(null)
+  const measuredMessageHeightsRef = useRef<Map<string, number>>(new Map())
+  const [virtualViewport, setVirtualViewport] = useState({
+    scrollTop: 0,
+    height: 0,
+  })
+  const [virtualMeasureVersion, setVirtualMeasureVersion] = useState(0)
   const previousMessageCountRef = useRef(messages.length)
   const suppressResizeFollowUntilRef = useRef(0)
   const initialScrollDoneRef = useRef(false)
   const [messageWindowSize, setMessageWindowSize] = useState(240)
-  const preserveScrollAfterExpandRef = useRef<{ height: number; top: number } | null>(null)
+  const preserveScrollAfterExpandRef = useRef<{
+    height: number
+    top: number
+  } | null>(null)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -559,10 +572,100 @@ export function ChatView({
     [messages, messageActionState]
   )
   const messageWindow = useMemo(
-    () => windowChatMessages(visibleAllMessages, messageActionState.pinnedIds, messageWindowSize),
+    () =>
+      windowChatMessages(
+        visibleAllMessages,
+        messageActionState.pinnedIds,
+        messageWindowSize
+      ),
     [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
+  const virtualRange = useMemo(
+    () =>
+      computeVirtualRange({
+        count: renderedMessages.length,
+        scrollTop: virtualViewport.scrollTop,
+        viewportHeight: virtualViewport.height || 720,
+        getHeight: (index) => {
+          const message = renderedMessages[index]
+          if (!message) return 100
+          return (
+            measuredMessageHeightsRef.current.get(message.messageId) ??
+            estimateMessageHeight(message.role)
+          )
+        },
+        overscanPx: 1_200,
+        gapPx: 20,
+      }),
+    [renderedMessages, virtualMeasureVersion, virtualViewport]
+  )
+  const virtualMessages = renderedMessages.slice(
+    virtualRange.startIndex,
+    virtualRange.endIndex
+  )
+  const virtualItems = useMemo(() => {
+    let top = virtualRange.beforeHeight
+    return virtualMessages.map((message, localIndex) => {
+      const height =
+        measuredMessageHeightsRef.current.get(message.messageId) ??
+        estimateMessageHeight(message.role)
+      const item = {
+        message,
+        index: virtualRange.startIndex + localIndex,
+        top,
+        height,
+      }
+      top += height + 20
+      return item
+    })
+  }, [
+    virtualMessages,
+    virtualRange.beforeHeight,
+    virtualRange.startIndex,
+    virtualMeasureVersion,
+  ])
+  const measureVirtualMessage = useCallback(
+    (messageId: string, node: HTMLDivElement | null) => {
+      if (!node) return
+      const height = node.getBoundingClientRect().height
+      if (!Number.isFinite(height) || height <= 0) return
+      const previous = measuredMessageHeightsRef.current.get(messageId)
+      if (previous && Math.abs(previous - height) < 1) return
+      measuredMessageHeightsRef.current.set(messageId, height)
+      setVirtualMeasureVersion((version) => version + 1)
+    },
+    []
+  )
+  const scrollToMessageEstimate = useCallback(
+    (messageId: string) => {
+      const index = renderedMessages.findIndex(
+        (message) => message.messageId === messageId
+      )
+      const el = scrollContainerRef.current
+      if (index < 0 || !el) return false
+      const before = computeVirtualRange({
+        count: index + 1,
+        scrollTop: 0,
+        viewportHeight: 1,
+        getHeight: (i) => {
+          const message = renderedMessages[i]
+          return message
+            ? (measuredMessageHeightsRef.current.get(message.messageId) ??
+                estimateMessageHeight(message.role))
+            : 100
+        },
+        overscanPx: 0,
+        gapPx: 20,
+      })
+      el.scrollTo({
+        top: Math.max(0, before.totalHeight - el.clientHeight / 2),
+        behavior: "smooth",
+      })
+      return true
+    },
+    [renderedMessages, scrollContainerRef]
+  )
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -731,14 +834,32 @@ export function ChatView({
 
   const loadOlderMessages = useCallback(() => {
     const el = scrollContainerRef.current
-    if (el) preserveScrollAfterExpandRef.current = { height: el.scrollHeight, top: el.scrollTop }
-    setMessageWindowSize((current) => Math.min(current + 240, visibleAllMessages.length))
+    if (el)
+      preserveScrollAfterExpandRef.current = {
+        height: el.scrollHeight,
+        top: el.scrollTop,
+      }
+    setMessageWindowSize((current) =>
+      Math.min(current + 240, visibleAllMessages.length)
+    )
   }, [scrollContainerRef, visibleAllMessages.length])
+
+  const updateVirtualViewport = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    setVirtualViewport((prev) => {
+      const next = { scrollTop: el.scrollTop, height: el.clientHeight }
+      return prev.scrollTop === next.scrollTop && prev.height === next.height
+        ? prev
+        : next
+    })
+  }, [scrollContainerRef])
 
   const handleScroll = useCallback(() => {
     onScroll()
+    updateVirtualViewport()
     if (activePopoverId) setActivePopoverId(null)
-  }, [onScroll, activePopoverId])
+  }, [onScroll, updateVirtualViewport, activePopoverId])
 
   useEffect(() => {
     const previousCount = previousMessageCountRef.current
@@ -751,6 +872,7 @@ export function ChatView({
   }, [messages])
 
   useLayoutEffect(() => {
+    updateVirtualViewport()
     const preserve = preserveScrollAfterExpandRef.current
     if (preserve) {
       const el = scrollContainerRef.current
@@ -763,7 +885,7 @@ export function ChatView({
     if (!el || messages.length === 0) return
     el.scrollTop = el.scrollHeight
     initialScrollDoneRef.current = true
-  }, [messages, scrollContainerRef])
+  }, [messages, scrollContainerRef, updateVirtualViewport])
 
   useEffect(() => {
     const content = messageContentRef.current
@@ -775,6 +897,7 @@ export function ChatView({
       frame = requestAnimationFrame(() => {
         const el = scrollContainerRef.current
         if (!el) return
+        updateVirtualViewport()
         const distanceFromBottom =
           el.scrollHeight - el.scrollTop - el.clientHeight
         const shouldLetSmoothSendScrollFinish =
@@ -809,7 +932,7 @@ export function ChatView({
       if (frame !== null) cancelAnimationFrame(frame)
       observer.disconnect()
     }
-  }, [isSending, isGenerating, scrollContainerRef])
+  }, [isSending, isGenerating, scrollContainerRef, updateVirtualViewport])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1129,6 +1252,7 @@ export function ChatView({
             onTogglePin={togglePin}
             triggerRef={pinButtonRef}
             onNavigateToMessage={(id) => {
+              if (scrollToMessageEstimate(id)) return
               document
                 .getElementById(`message-${id}`)
                 ?.scrollIntoView({ behavior: "smooth", block: "center" })
@@ -1151,8 +1275,11 @@ export function ChatView({
         <div ref={messageContentRef} className="mx-auto max-w-3xl px-4 py-8">
           <div className="flex flex-col gap-5">
             {messageWindow.hiddenBefore > 0 && (
-              <div className="mx-auto flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
-                <span>Showing latest {renderedMessages.length} of {messageWindow.total} messages</span>
+              <div className="mx-auto mb-5 flex w-fit items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                <span>
+                  Showing latest {renderedMessages.length} of{" "}
+                  {messageWindow.total} messages
+                </span>
                 <button
                   type="button"
                   onClick={loadOlderMessages}
@@ -1162,165 +1289,177 @@ export function ChatView({
                 </button>
               </div>
             )}
-            {renderedMessages.map((msg, i) => {
-              const isLast = i === renderedMessages.length - 1
-              const showPending =
-                isLast &&
-                isGenerating &&
-                pendingTools.length > 0 &&
-                msg.role === "user"
-              const isActivelyStreaming =
-                isLast && isGenerating && msg.role === "assistant"
+            <div
+              className="relative"
+              style={{ height: virtualRange.totalHeight }}
+              data-virtual-count={virtualItems.length}
+              data-total-count={renderedMessages.length}
+            >
+              {virtualItems.map(({ message: msg, index, top }) => {
+                const isLast = index === renderedMessages.length - 1
+                const showPending =
+                  isLast &&
+                  isGenerating &&
+                  pendingTools.length > 0 &&
+                  msg.role === "user"
+                const isActivelyStreaming =
+                  isLast && isGenerating && msg.role === "assistant"
 
-              const showPendingAbove =
-                isActivelyStreaming && pendingTools.length > 0
+                const showPendingAbove =
+                  isActivelyStreaming && pendingTools.length > 0
 
-              const filteredToolCalls = msg.toolCalls
-                ? toolCallsWithoutSpawn(msg.toolCalls)
-                : undefined
-              const filteredPending = toolCallsWithoutSpawn(pendingTools)
+                const filteredToolCalls = msg.toolCalls
+                  ? toolCallsWithoutSpawn(msg.toolCalls)
+                  : undefined
+                const filteredPending = toolCallsWithoutSpawn(pendingTools)
 
-              const anchoredUserSubagents =
-                msg.role === "user"
-                  ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
-                  : []
-              const orphanAssistantSubagents =
-                msg.role === "assistant"
-                  ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
-                  : []
-              const liveSubagents =
-                msg.role === "user" && isLast && isGenerating
-                  ? getSubagentsForMessage(pendingTools)
-                  : []
-              const userSubagents =
-                anchoredUserSubagents.length > 0
-                  ? anchoredUserSubagents
-                  : liveSubagents
+                const anchoredUserSubagents =
+                  msg.role === "user"
+                    ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
+                    : []
+                const orphanAssistantSubagents =
+                  msg.role === "assistant"
+                    ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
+                    : []
+                const liveSubagents =
+                  msg.role === "user" && isLast && isGenerating
+                    ? getSubagentsForMessage(pendingTools)
+                    : []
+                const userSubagents =
+                  anchoredUserSubagents.length > 0
+                    ? anchoredUserSubagents
+                    : liveSubagents
 
-              return (
-                <div key={msg.messageId} id={`message-${msg.messageId}`}>
-                  {msg.role === "assistant" &&
-                    filteredToolCalls &&
-                    filteredToolCalls.length > 0 && (
+                return (
+                  <div
+                    key={msg.messageId}
+                    id={`message-${msg.messageId}`}
+                    ref={(node) => measureVirtualMessage(msg.messageId, node)}
+                    className="absolute right-0 left-0 will-change-transform"
+                    style={{ transform: `translateY(${top}px)` }}
+                  >
+                    {msg.role === "assistant" &&
+                      filteredToolCalls &&
+                      filteredToolCalls.length > 0 && (
+                        <div className="mb-2 max-w-[85%]">
+                          <ToolCallSteps
+                            tools={filteredToolCalls}
+                            defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+                            onSelectTool={onSelectTool}
+                            onResolveApproval={resolveExecApproval}
+                          />
+                        </div>
+                      )}
+                    {showPendingAbove && filteredPending.length > 0 && (
                       <div className="mb-2 max-w-[85%]">
                         <ToolCallSteps
-                          tools={filteredToolCalls}
-                          defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+                          tools={filteredPending}
+                          defaultOpen
                           onSelectTool={onSelectTool}
                           onResolveApproval={resolveExecApproval}
                         />
                       </div>
                     )}
-                  {showPendingAbove && filteredPending.length > 0 && (
-                    <div className="mb-2 max-w-[85%]">
-                      <ToolCallSteps
-                        tools={filteredPending}
-                        defaultOpen
-                        onSelectTool={onSelectTool}
+                    {msg.role === "assistant" &&
+                      orphanAssistantSubagents.length > 0 && (
+                        <div className="mb-2">
+                          <SubagentCard
+                            subagents={orphanAssistantSubagents}
+                            onOpen={openSubagent}
+                          />
+                        </div>
+                      )}
+                    {(msg.role === "user" || msg.text) && (
+                      <MessageBubble
+                        message={msg}
+                        onEdit={
+                          msg.role === "user" &&
+                          msg.messageId === lastEditableUserId
+                            ? handleEdit
+                            : undefined
+                        }
+                        onRetrySend={retrySend}
+                        onSwitchBranch={switchBranch}
+                        onReply={replyToMessage}
+                        onPin={togglePin}
+                        onDelete={deleteMessage}
+                        onReact={
+                          msg.role === "assistant" ? reactToMessage : undefined
+                        }
+                        onExport={exportOneMessage}
+                        onTextAnimationComplete={markTextAnimationComplete}
+                        onFork={
+                          msg.role === "assistant" ? forkFromMessage : undefined
+                        }
                         onResolveApproval={resolveExecApproval}
+                        onAskSelectedText={
+                          msg.role === "assistant"
+                            ? askAboutSelectedText
+                            : undefined
+                        }
+                        isPinned={messageActionState.pinnedIds.includes(
+                          msg.messageId
+                        )}
+                        reaction={messageActionState.reactions[msg.messageId]}
+                        isGenerating={isGenerating}
+                        isActivelyStreaming={isActivelyStreaming}
+                        popoverOpen={activePopoverId === msg.messageId}
+                        onPopoverOpenChange={(open) =>
+                          setActivePopoverId(open ? msg.messageId : null)
+                        }
                       />
-                    </div>
-                  )}
-                  {msg.role === "assistant" &&
-                    orphanAssistantSubagents.length > 0 && (
-                      <div className="mb-2">
+                    )}
+                    {msg.role === "user" && userSubagents.length > 0 && (
+                      <div className="mt-3">
                         <SubagentCard
-                          subagents={orphanAssistantSubagents}
+                          subagents={userSubagents}
                           onOpen={openSubagent}
                         />
                       </div>
                     )}
-                  {(msg.role === "user" || msg.text) && (
-                    <MessageBubble
-                      message={msg}
-                      onEdit={
-                        msg.role === "user" &&
-                        msg.messageId === lastEditableUserId
-                          ? handleEdit
-                          : undefined
-                      }
-                      onRetrySend={retrySend}
-                      onSwitchBranch={switchBranch}
-                      onReply={replyToMessage}
-                      onPin={togglePin}
-                      onDelete={deleteMessage}
-                      onReact={
-                        msg.role === "assistant" ? reactToMessage : undefined
-                      }
-                      onExport={exportOneMessage}
-                      onTextAnimationComplete={markTextAnimationComplete}
-                      onFork={
-                        msg.role === "assistant" ? forkFromMessage : undefined
-                      }
-                      onResolveApproval={resolveExecApproval}
-                      onAskSelectedText={
-                        msg.role === "assistant"
-                          ? askAboutSelectedText
-                          : undefined
-                      }
-                      isPinned={messageActionState.pinnedIds.includes(
-                        msg.messageId
-                      )}
-                      reaction={messageActionState.reactions[msg.messageId]}
-                      isGenerating={isGenerating}
-                      isActivelyStreaming={isActivelyStreaming}
-                      popoverOpen={activePopoverId === msg.messageId}
-                      onPopoverOpenChange={(open) =>
-                        setActivePopoverId(open ? msg.messageId : null)
-                      }
-                    />
-                  )}
-                  {msg.role === "user" && userSubagents.length > 0 && (
-                    <div className="mt-3">
-                      <SubagentCard
-                        subagents={userSubagents}
-                        onOpen={openSubagent}
-                      />
-                    </div>
-                  )}
-                  {showPending && filteredPending.length > 0 && (
-                    <div className="mt-4 max-w-[85%]">
-                      <ToolCallSteps
-                        tools={filteredPending}
-                        defaultOpen
-                        onSelectTool={onSelectTool}
-                        onResolveApproval={resolveExecApproval}
-                      />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+                    {showPending && filteredPending.length > 0 && (
+                      <div className="mt-4 max-w-[85%]">
+                        <ToolCallSteps
+                          tools={filteredPending}
+                          defaultOpen
+                          onSelectTool={onSelectTool}
+                          onResolveApproval={resolveExecApproval}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <AnimatePresence initial={false}>
+              {editPreview && (
+                <EditPreviewPanel
+                  key={editPreview.branchSessionKey}
+                  preview={editPreview}
+                  onSelect={selectEditBranch}
+                />
+              )}
+            </AnimatePresence>
 
-          <AnimatePresence initial={false}>
-            {editPreview && (
-              <EditPreviewPanel
-                key={editPreview.branchSessionKey}
-                preview={editPreview}
-                onSelect={selectEditBranch}
-              />
+            {statusText && (
+              <div className="mt-4 flex items-center gap-2 pl-1">
+                <TypingDots />
+                <span className="text-[12px] text-muted-foreground">
+                  {statusText}
+                </span>
+              </div>
             )}
-          </AnimatePresence>
 
-          {statusText && (
-            <div className="mt-4 flex items-center gap-2 pl-1">
-              <TypingDots />
-              <span className="text-[12px] text-muted-foreground">
-                {statusText}
-              </span>
-            </div>
-          )}
+            {status === "error" && (
+              <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
+                <p className="text-sm text-red-400">
+                  {errorMessage || "Something went wrong. Try again."}
+                </p>
+              </div>
+            )}
 
-          {status === "error" && (
-            <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-              <p className="text-sm text-red-400">
-                {errorMessage || "Something went wrong. Try again."}
-              </p>
-            </div>
-          )}
-
-          <div ref={bottomRef} className="h-8" />
+            <div ref={bottomRef} className="h-8" />
+          </div>
         </div>
       </div>
 
