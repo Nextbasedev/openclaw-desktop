@@ -145,8 +145,6 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>(`/api/topics/${input.topicId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_list":
       return middlewareFetch<T>(`/api/chats${queryString({ archived: input.archived ? "true" : undefined, spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
-    case "middleware_chats_get":
-      return withCommandFallback(() => middlewareFetch<T>(`/api/chats/${encodeURIComponent(String(input.chatId ?? ""))}`))
     case "middleware_chats_create":
       return middlewareFetch<T>("/api/chats", { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_update":
