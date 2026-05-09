@@ -58,7 +58,6 @@ function ToolRow({
     <div
       className={cn(
         "rounded-lg transition-colors duration-100",
-        call.status === "running" && "bg-blue-400/3",
         approval && "border border-amber-400/15 bg-amber-400/[0.035]"
       )}
     >
