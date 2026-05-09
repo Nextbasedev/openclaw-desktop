@@ -257,14 +257,19 @@ export function ActivityTab({
     const groups: Array<{ key: string; label: string; calls: typeof filteredCalls }> = []
     for (const call of filteredCalls) {
       const key = call.messageId ?? (call.messageIndex !== undefined ? `idx:${call.messageIndex}` : "unknown")
-      const existing = groups.find((group) => group.key === key)
+      const label = call.messagePreview ?? "Live / ungrouped tools"
+      const existing =
+        groups.find((group) => group.key === key) ??
+        (call.messagePreview
+          ? groups.find((group) => group.label === label)
+          : undefined)
       if (existing) {
         existing.calls.push(call)
         continue
       }
       groups.push({
         key,
-        label: call.messagePreview ?? "Live / ungrouped tools",
+        label,
         calls: [call],
       })
     }
@@ -451,7 +456,7 @@ export function ActivityTab({
             )}
             {groupedCalls.map((group) => (
               <div key={group.key} className="mb-3 first:mt-0">
-                <div className="sticky top-0 z-10 mb-1.5 flex items-center gap-2 py-1.5">
+                <div className="sticky top-0 z-10 -mx-3 mb-1.5 flex items-center gap-2 bg-[#121212]/95 px-3 pb-3 pt-2 shadow-[0_10px_18px_rgba(18,18,18,0.75)] after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-4 after:h-4 after:bg-gradient-to-b after:from-[#121212]/80 after:to-transparent">
                   <span className="max-w-[48%] truncate text-[10px] font-medium tracking-wide text-muted-foreground/65">
                     {group.label}
                   </span>
