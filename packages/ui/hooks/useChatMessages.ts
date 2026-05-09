@@ -665,8 +665,12 @@ export function useChatMessages(
             pendingToolMapRef.current.set(toolCallId, updatedCall)
             mergeToolsIntoLastAssistant([updatedCall])
             if ((phase === "result" || phase === "error") && !updatedCall.resultText) {
-              window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), 250)
-              window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), 1000)
+              for (const delayMs of [0, 100, 300, 700, 1500]) {
+                window.setTimeout(
+                  () => void refreshFinishedToolFromHistory(toolCallId),
+                  delayMs
+                )
+              }
             }
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
