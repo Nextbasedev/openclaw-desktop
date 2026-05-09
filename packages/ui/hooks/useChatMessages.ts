@@ -119,6 +119,32 @@ function rawToolDurationMs(raw: RawMessage, resultText: string): number | null {
   return null
 }
 
+function preserveCompletedToolDurations(
+  previous: ChatMessage[],
+  incoming: ChatMessage[]
+): ChatMessage[] {
+  const stableDurations = new Map<string, string>()
+  for (const message of previous) {
+    for (const tool of message.toolCalls ?? []) {
+      if (tool.duration && tool.status !== "running") {
+        stableDurations.set(tool.id, tool.duration)
+      }
+    }
+  }
+  if (stableDurations.size === 0) return incoming
+  return incoming.map((message) => {
+    if (!message.toolCalls?.length) return message
+    let changed = false
+    const toolCalls = message.toolCalls.map((tool) => {
+      const stable = stableDurations.get(tool.id)
+      if (!stable || tool.duration === stable) return tool
+      changed = true
+      return { ...tool, duration: stable }
+    })
+    return changed ? { ...message, toolCalls } : message
+  })
+}
+
 type ChatBootstrapData = {
   history: { messages: unknown[] }
   branchData: { branches: BranchSummary[] }
@@ -1429,14 +1455,15 @@ export function useChatMessages(
 
         setMessages((prev) => {
           if (prev.length === 0) return allMessages
-          const histIds = new Set(allMessages.map((hm) => hm.messageId))
+          const stableHistory = preserveCompletedToolDurations(prev, allMessages)
+          const histIds = new Set(stableHistory.map((hm) => hm.messageId))
           const kept = prev.filter(
             (pm) =>
               pm.isOptimistic &&
               !histIds.has(pm.messageId) &&
-              !allMessages.some((hm) => sameUserMessage(hm, pm))
+              !stableHistory.some((hm) => sameUserMessage(hm, pm))
           )
-          return dedupeChatMessages([...allMessages, ...kept])
+          return dedupeChatMessages([...stableHistory, ...kept])
         })
         setLoading(false)
         forceScrollToBottom(true)
