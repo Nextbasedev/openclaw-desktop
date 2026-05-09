@@ -1,13 +1,6 @@
 "use client"
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -32,11 +25,8 @@ import {
 import { invoke } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { windowChatMessages } from "@/lib/messageWindow"
-import {
-  computeVirtualRange,
-  estimateMessageHeight,
-} from "@/lib/virtualMessageList"
 import { toast } from "react-toastify"
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -337,21 +327,8 @@ export function ChatView({
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
-  const messageContentRef = useRef<HTMLDivElement>(null)
-  const measuredMessageHeightsRef = useRef<Map<string, number>>(new Map())
-  const [virtualViewport, setVirtualViewport] = useState({
-    scrollTop: 0,
-    height: 0,
-  })
-  const [virtualMeasureVersion, setVirtualMeasureVersion] = useState(0)
-  const previousMessageCountRef = useRef(messages.length)
-  const suppressResizeFollowUntilRef = useRef(0)
-  const initialScrollDoneRef = useRef(false)
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [messageWindowSize, setMessageWindowSize] = useState(240)
-  const preserveScrollAfterExpandRef = useRef<{
-    height: number
-    top: number
-  } | null>(null)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -360,7 +337,6 @@ export function ChatView({
 
   useEffect(() => {
     // Reset everything when the session changes
-    initialScrollDoneRef.current = false
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
     setMessageWindowSize(240)
@@ -581,91 +557,6 @@ export function ChatView({
     [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
-  const virtualRange = useMemo(
-    () =>
-      computeVirtualRange({
-        count: renderedMessages.length,
-        scrollTop: virtualViewport.scrollTop,
-        viewportHeight: virtualViewport.height || 720,
-        getHeight: (index) => {
-          const message = renderedMessages[index]
-          if (!message) return 100
-          return (
-            measuredMessageHeightsRef.current.get(message.messageId) ??
-            estimateMessageHeight(message.role)
-          )
-        },
-        overscanPx: 1_200,
-        gapPx: 20,
-      }),
-    [renderedMessages, virtualMeasureVersion, virtualViewport]
-  )
-  const virtualMessages = renderedMessages.slice(
-    virtualRange.startIndex,
-    virtualRange.endIndex
-  )
-  const virtualItems = useMemo(() => {
-    let top = virtualRange.beforeHeight
-    return virtualMessages.map((message, localIndex) => {
-      const height =
-        measuredMessageHeightsRef.current.get(message.messageId) ??
-        estimateMessageHeight(message.role)
-      const item = {
-        message,
-        index: virtualRange.startIndex + localIndex,
-        top,
-        height,
-      }
-      top += height + 20
-      return item
-    })
-  }, [
-    virtualMessages,
-    virtualRange.beforeHeight,
-    virtualRange.startIndex,
-    virtualMeasureVersion,
-  ])
-  const measureVirtualMessage = useCallback(
-    (messageId: string, node: HTMLDivElement | null) => {
-      if (!node) return
-      const height = node.getBoundingClientRect().height
-      if (!Number.isFinite(height) || height <= 0) return
-      const previous = measuredMessageHeightsRef.current.get(messageId)
-      if (previous && Math.abs(previous - height) < 1) return
-      measuredMessageHeightsRef.current.set(messageId, height)
-      setVirtualMeasureVersion((version) => version + 1)
-    },
-    []
-  )
-  const scrollToMessageEstimate = useCallback(
-    (messageId: string) => {
-      const index = renderedMessages.findIndex(
-        (message) => message.messageId === messageId
-      )
-      const el = scrollContainerRef.current
-      if (index < 0 || !el) return false
-      const before = computeVirtualRange({
-        count: index + 1,
-        scrollTop: 0,
-        viewportHeight: 1,
-        getHeight: (i) => {
-          const message = renderedMessages[i]
-          return message
-            ? (measuredMessageHeightsRef.current.get(message.messageId) ??
-                estimateMessageHeight(message.role))
-            : 100
-        },
-        overscanPx: 0,
-        gapPx: 20,
-      })
-      el.scrollTo({
-        top: Math.max(0, before.totalHeight - el.clientHeight / 2),
-        behavior: "smooth",
-      })
-      return true
-    },
-    [renderedMessages, scrollContainerRef]
-  )
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -833,111 +724,15 @@ export function ChatView({
   )
 
   const loadOlderMessages = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (el)
-      preserveScrollAfterExpandRef.current = {
-        height: el.scrollHeight,
-        top: el.scrollTop,
-      }
     setMessageWindowSize((current) =>
       Math.min(current + 240, visibleAllMessages.length)
     )
-  }, [scrollContainerRef, visibleAllMessages.length])
-
-  const updateVirtualViewport = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    setVirtualViewport((prev) => {
-      const next = { scrollTop: el.scrollTop, height: el.clientHeight }
-      return prev.scrollTop === next.scrollTop && prev.height === next.height
-        ? prev
-        : next
-    })
-  }, [scrollContainerRef])
+  }, [visibleAllMessages.length])
 
   const handleScroll = useCallback(() => {
     onScroll()
-    updateVirtualViewport()
     if (activePopoverId) setActivePopoverId(null)
-  }, [onScroll, updateVirtualViewport, activePopoverId])
-
-  useEffect(() => {
-    const previousCount = previousMessageCountRef.current
-    previousMessageCountRef.current = messages.length
-    const latestMessage = messages.at(-1)
-
-    if (messages.length > previousCount && latestMessage?.role === "user") {
-      suppressResizeFollowUntilRef.current = Date.now() + 450
-    }
-  }, [messages])
-
-  useLayoutEffect(() => {
-    updateVirtualViewport()
-    const preserve = preserveScrollAfterExpandRef.current
-    if (preserve) {
-      const el = scrollContainerRef.current
-      if (el) el.scrollTop = el.scrollHeight - preserve.height + preserve.top
-      preserveScrollAfterExpandRef.current = null
-      return
-    }
-    if (initialScrollDoneRef.current) return
-    const el = scrollContainerRef.current
-    if (!el || messages.length === 0 || virtualRange.totalHeight <= 0) return
-    requestAnimationFrame(() => {
-      const current = scrollContainerRef.current
-      if (!current || initialScrollDoneRef.current) return
-      current.scrollTop = current.scrollHeight
-      initialScrollDoneRef.current = true
-      updateVirtualViewport()
-    })
-  }, [messages.length, scrollContainerRef, updateVirtualViewport, virtualRange.totalHeight])
-
-  useEffect(() => {
-    const content = messageContentRef.current
-    if (!content || typeof ResizeObserver === "undefined") return
-
-    let frame: number | null = null
-    const observer = new ResizeObserver(() => {
-      if (frame !== null) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const el = scrollContainerRef.current
-        if (!el) return
-        updateVirtualViewport()
-        const distanceFromBottom =
-          el.scrollHeight - el.scrollTop - el.clientHeight
-        const shouldLetSmoothSendScrollFinish =
-          Date.now() < suppressResizeFollowUntilRef.current
-
-        if (!initialScrollDoneRef.current && virtualRange.totalHeight > 0) {
-          el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-          initialScrollDoneRef.current = true
-          return
-        }
-
-        if (isSending || shouldLetSmoothSendScrollFinish) {
-          el.scrollTo({
-            top: el.scrollHeight,
-            behavior: "smooth",
-          })
-          return
-        }
-
-        if (isGenerating || distanceFromBottom < 260) {
-          el.scrollTo({
-            top: el.scrollHeight,
-            behavior: distanceFromBottom < 80 ? "auto" : "smooth",
-          })
-        }
-      })
-    })
-
-    observer.observe(content)
-
-    return () => {
-      if (frame !== null) cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [isSending, isGenerating, scrollContainerRef, updateVirtualViewport, virtualRange.totalHeight])
+  }, [onScroll, activePopoverId])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1217,6 +1012,163 @@ export function ChatView({
     }
   }
 
+  const scrollToRenderedMessage = useCallback(
+    (messageId: string) => {
+      const index = renderedMessages.findIndex(
+        (msg) => msg.messageId === messageId
+      )
+      if (index < 0) return false
+      virtuosoRef.current?.scrollToIndex({
+        index,
+        align: "center",
+        behavior: "smooth",
+      })
+      return true
+    },
+    [renderedMessages]
+  )
+
+  const renderMessageRow = useCallback(
+    (index: number, msg: ChatMessage) => {
+      const isLast = index === renderedMessages.length - 1
+      const showPending =
+        isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
+      const isActivelyStreaming =
+        isLast && isGenerating && msg.role === "assistant"
+      const showPendingAbove = isActivelyStreaming && pendingTools.length > 0
+      const filteredToolCalls = msg.toolCalls
+        ? toolCallsWithoutSpawn(msg.toolCalls)
+        : undefined
+      const filteredPending = toolCallsWithoutSpawn(pendingTools)
+      const anchoredUserSubagents =
+        msg.role === "user"
+          ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
+          : []
+      const orphanAssistantSubagents =
+        msg.role === "assistant"
+          ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
+          : []
+      const liveSubagents =
+        msg.role === "user" && isLast && isGenerating
+          ? getSubagentsForMessage(pendingTools)
+          : []
+      const userSubagents =
+        anchoredUserSubagents.length > 0 ? anchoredUserSubagents : liveSubagents
+
+      return (
+        <div
+          id={`message-${msg.messageId}`}
+          className="mx-auto max-w-3xl px-4 py-2.5"
+        >
+          {msg.role === "assistant" &&
+            filteredToolCalls &&
+            filteredToolCalls.length > 0 && (
+              <div className="mb-2 max-w-[85%]">
+                <ToolCallSteps
+                  tools={filteredToolCalls}
+                  defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+                  onSelectTool={onSelectTool}
+                  onResolveApproval={resolveExecApproval}
+                />
+              </div>
+            )}
+          {showPendingAbove && filteredPending.length > 0 && (
+            <div className="mb-2 max-w-[85%]">
+              <ToolCallSteps
+                tools={filteredPending}
+                defaultOpen
+                onSelectTool={onSelectTool}
+                onResolveApproval={resolveExecApproval}
+              />
+            </div>
+          )}
+          {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
+            <div className="mb-2">
+              <SubagentCard
+                subagents={orphanAssistantSubagents}
+                onOpen={openSubagent}
+              />
+            </div>
+          )}
+          {(msg.role === "user" || msg.text) && (
+            <MessageBubble
+              message={msg}
+              onEdit={
+                msg.role === "user" && msg.messageId === lastEditableUserId
+                  ? handleEdit
+                  : undefined
+              }
+              onRetrySend={retrySend}
+              onSwitchBranch={switchBranch}
+              onReply={replyToMessage}
+              onPin={togglePin}
+              onDelete={deleteMessage}
+              onReact={msg.role === "assistant" ? reactToMessage : undefined}
+              onExport={exportOneMessage}
+              onTextAnimationComplete={markTextAnimationComplete}
+              onFork={msg.role === "assistant" ? forkFromMessage : undefined}
+              onResolveApproval={resolveExecApproval}
+              onAskSelectedText={
+                msg.role === "assistant" ? askAboutSelectedText : undefined
+              }
+              isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
+              reaction={messageActionState.reactions[msg.messageId]}
+              isGenerating={isGenerating}
+              isActivelyStreaming={isActivelyStreaming}
+              popoverOpen={activePopoverId === msg.messageId}
+              onPopoverOpenChange={(open) =>
+                setActivePopoverId(open ? msg.messageId : null)
+              }
+            />
+          )}
+          {msg.role === "user" && userSubagents.length > 0 && (
+            <div className="mt-3">
+              <SubagentCard subagents={userSubagents} onOpen={openSubagent} />
+            </div>
+          )}
+          {showPending && filteredPending.length > 0 && (
+            <div className="mt-4 max-w-[85%]">
+              <ToolCallSteps
+                tools={filteredPending}
+                defaultOpen
+                onSelectTool={onSelectTool}
+                onResolveApproval={resolveExecApproval}
+              />
+            </div>
+          )}
+        </div>
+      )
+    },
+    [
+      activePopoverId,
+      askAboutSelectedText,
+      deleteMessage,
+      exportOneMessage,
+      forkFromMessage,
+      getSubagentsForMessage,
+      handleEdit,
+      isGenerating,
+      lastEditableUserId,
+      lastTwoAssistantIds,
+      markTextAnimationComplete,
+      messageActionState.pinnedIds,
+      messageActionState.reactions,
+      onSelectTool,
+      openSubagent,
+      orphanSubagentsByAssistantId,
+      pendingTools,
+      reactToMessage,
+      renderedMessages.length,
+      replyToMessage,
+      resolveExecApproval,
+      retrySend,
+      setActivePopoverId,
+      subagentsByTriggerUserId,
+      switchBranch,
+      togglePin,
+    ]
+  )
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
       {/* Sub-header for chat actions & pins */}
@@ -1257,10 +1209,7 @@ export function ChatView({
             onTogglePin={togglePin}
             triggerRef={pinButtonRef}
             onNavigateToMessage={(id) => {
-              if (scrollToMessageEstimate(id)) return
-              document
-                .getElementById(`message-${id}`)
-                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+              void scrollToRenderedMessage(id)
             }}
           />
         </div>
@@ -1272,201 +1221,78 @@ export function ChatView({
         onSubmit={handleFeedbackSubmit}
       />
 
-      <div
-        ref={scrollContainerRef}
+      <Virtuoso
+        ref={virtuosoRef}
+        data={renderedMessages}
+        className="flex-1"
+        scrollerRef={(ref) => {
+          scrollContainerRef.current = ref instanceof HTMLDivElement ? ref : null
+        }}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
-      >
-        <div ref={messageContentRef} className="mx-auto max-w-3xl px-4 py-8">
-          <div className="flex flex-col gap-5">
-            {messageWindow.hiddenBefore > 0 && (
-              <div className="mx-auto mb-5 flex w-fit items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
-                <span>
-                  Showing latest {renderedMessages.length} of{" "}
-                  {messageWindow.total} messages
-                </span>
-                <button
-                  type="button"
-                  onClick={loadOlderMessages}
-                  className="cursor-pointer font-medium text-foreground underline-offset-2 hover:underline"
-                >
-                  Load older messages
-                </button>
-              </div>
-            )}
-            <div
-              className="relative"
-              style={{ height: virtualRange.totalHeight }}
-              data-virtual-count={virtualItems.length}
-              data-total-count={renderedMessages.length}
-            >
-              {virtualItems.map(({ message: msg, index, top }) => {
-                const isLast = index === renderedMessages.length - 1
-                const showPending =
-                  isLast &&
-                  isGenerating &&
-                  pendingTools.length > 0 &&
-                  msg.role === "user"
-                const isActivelyStreaming =
-                  isLast && isGenerating && msg.role === "assistant"
-
-                const showPendingAbove =
-                  isActivelyStreaming && pendingTools.length > 0
-
-                const filteredToolCalls = msg.toolCalls
-                  ? toolCallsWithoutSpawn(msg.toolCalls)
-                  : undefined
-                const filteredPending = toolCallsWithoutSpawn(pendingTools)
-
-                const anchoredUserSubagents =
-                  msg.role === "user"
-                    ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
-                    : []
-                const orphanAssistantSubagents =
-                  msg.role === "assistant"
-                    ? (orphanSubagentsByAssistantId.get(msg.messageId) ?? [])
-                    : []
-                const liveSubagents =
-                  msg.role === "user" && isLast && isGenerating
-                    ? getSubagentsForMessage(pendingTools)
-                    : []
-                const userSubagents =
-                  anchoredUserSubagents.length > 0
-                    ? anchoredUserSubagents
-                    : liveSubagents
-
-                return (
-                  <div
-                    key={msg.messageId}
-                    id={`message-${msg.messageId}`}
-                    ref={(node) => measureVirtualMessage(msg.messageId, node)}
-                    className="absolute right-0 left-0 will-change-transform"
-                    style={{ transform: `translateY(${top}px)` }}
+        initialTopMostItemIndex={{ index: "LAST", align: "end" }}
+        alignToBottom
+        followOutput={(isAtBottom) => {
+          if (isSending) return "smooth"
+          if (isGenerating) return isAtBottom ? "auto" : false
+          return isAtBottom ? "smooth" : false
+        }}
+        computeItemKey={(_, msg) => msg.messageId}
+        increaseViewportBy={{ top: 900, bottom: 1200 }}
+        components={{
+          Header: () => (
+            <div className="mx-auto max-w-3xl px-4 pt-8">
+              {messageWindow.hiddenBefore > 0 && (
+                <div className="mx-auto mb-2 flex w-fit items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                  <span>
+                    Showing latest {renderedMessages.length} of{" "}
+                    {messageWindow.total} messages
+                  </span>
+                  <button
+                    type="button"
+                    onClick={loadOlderMessages}
+                    className="cursor-pointer font-medium text-foreground underline-offset-2 hover:underline"
                   >
-                    {msg.role === "assistant" &&
-                      filteredToolCalls &&
-                      filteredToolCalls.length > 0 && (
-                        <div className="mb-2 max-w-[85%]">
-                          <ToolCallSteps
-                            tools={filteredToolCalls}
-                            defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-                            onSelectTool={onSelectTool}
-                            onResolveApproval={resolveExecApproval}
-                          />
-                        </div>
-                      )}
-                    {showPendingAbove && filteredPending.length > 0 && (
-                      <div className="mb-2 max-w-[85%]">
-                        <ToolCallSteps
-                          tools={filteredPending}
-                          defaultOpen
-                          onSelectTool={onSelectTool}
-                          onResolveApproval={resolveExecApproval}
-                        />
-                      </div>
-                    )}
-                    {msg.role === "assistant" &&
-                      orphanAssistantSubagents.length > 0 && (
-                        <div className="mb-2">
-                          <SubagentCard
-                            subagents={orphanAssistantSubagents}
-                            onOpen={openSubagent}
-                          />
-                        </div>
-                      )}
-                    {(msg.role === "user" || msg.text) && (
-                      <MessageBubble
-                        message={msg}
-                        onEdit={
-                          msg.role === "user" &&
-                          msg.messageId === lastEditableUserId
-                            ? handleEdit
-                            : undefined
-                        }
-                        onRetrySend={retrySend}
-                        onSwitchBranch={switchBranch}
-                        onReply={replyToMessage}
-                        onPin={togglePin}
-                        onDelete={deleteMessage}
-                        onReact={
-                          msg.role === "assistant" ? reactToMessage : undefined
-                        }
-                        onExport={exportOneMessage}
-                        onTextAnimationComplete={markTextAnimationComplete}
-                        onFork={
-                          msg.role === "assistant" ? forkFromMessage : undefined
-                        }
-                        onResolveApproval={resolveExecApproval}
-                        onAskSelectedText={
-                          msg.role === "assistant"
-                            ? askAboutSelectedText
-                            : undefined
-                        }
-                        isPinned={messageActionState.pinnedIds.includes(
-                          msg.messageId
-                        )}
-                        reaction={messageActionState.reactions[msg.messageId]}
-                        isGenerating={isGenerating}
-                        isActivelyStreaming={isActivelyStreaming}
-                        popoverOpen={activePopoverId === msg.messageId}
-                        onPopoverOpenChange={(open) =>
-                          setActivePopoverId(open ? msg.messageId : null)
-                        }
-                      />
-                    )}
-                    {msg.role === "user" && userSubagents.length > 0 && (
-                      <div className="mt-3">
-                        <SubagentCard
-                          subagents={userSubagents}
-                          onOpen={openSubagent}
-                        />
-                      </div>
-                    )}
-                    {showPending && filteredPending.length > 0 && (
-                      <div className="mt-4 max-w-[85%]">
-                        <ToolCallSteps
-                          tools={filteredPending}
-                          defaultOpen
-                          onSelectTool={onSelectTool}
-                          onResolveApproval={resolveExecApproval}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-            <AnimatePresence initial={false}>
-              {editPreview && (
-                <EditPreviewPanel
-                  key={editPreview.branchSessionKey}
-                  preview={editPreview}
-                  onSelect={selectEditBranch}
-                />
+                    Load older messages
+                  </button>
+                </div>
               )}
-            </AnimatePresence>
+            </div>
+          ),
+          Footer: () => (
+            <div className="mx-auto max-w-3xl px-4 pb-8">
+              <AnimatePresence initial={false}>
+                {editPreview && (
+                  <EditPreviewPanel
+                    key={editPreview.branchSessionKey}
+                    preview={editPreview}
+                    onSelect={selectEditBranch}
+                  />
+                )}
+              </AnimatePresence>
 
-            {statusText && (
-              <div className="mt-4 flex items-center gap-2 pl-1">
-                <TypingDots />
-                <span className="text-[12px] text-muted-foreground">
-                  {statusText}
-                </span>
-              </div>
-            )}
+              {statusText && (
+                <div className="mt-4 flex items-center gap-2 pl-1">
+                  <TypingDots />
+                  <span className="text-[12px] text-muted-foreground">
+                    {statusText}
+                  </span>
+                </div>
+              )}
 
-            {status === "error" && (
-              <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-                <p className="text-sm text-red-400">
-                  {errorMessage || "Something went wrong. Try again."}
-                </p>
-              </div>
-            )}
+              {status === "error" && (
+                <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
+                  <p className="text-sm text-red-400">
+                    {errorMessage || "Something went wrong. Try again."}
+                  </p>
+                </div>
+              )}
 
-            <div ref={bottomRef} className="h-8" />
-          </div>
-        </div>
-      </div>
+              <div ref={bottomRef} className="h-8" />
+            </div>
+          ),
+        }}
+        itemContent={renderMessageRow}
+      />
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         {spawnedSubagents.length > 0 && (
