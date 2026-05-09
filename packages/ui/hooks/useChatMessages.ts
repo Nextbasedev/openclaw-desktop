@@ -160,9 +160,11 @@ function toolResultText(result: unknown) {
 
 function inferLiveToolStatus(
   phase: string | null,
-  resultText: string
+  resultText: string,
+  isError?: unknown
 ): InlineToolCall["status"] {
-  if (phase === "error") return "error"
+  if (phase === "error" || isError === true) return "error"
+  if (phase === "update") return "running"
   if (!resultText) return "success"
   try {
     const parsed = JSON.parse(resultText) as { status?: unknown; error?: unknown }
@@ -616,20 +618,23 @@ export function useChatMessages(
                 toolCallId,
               })
             }
-          } else if (phase === "result" || phase === "error") {
+          } else if (phase === "update" || phase === "result" || phase === "error") {
             const call = existing ?? {
               id: toolCallId,
               tool: name,
               status: "running" as const,
             }
-            const duration = call.startedAt
+            const duration = call.startedAt && phase !== "update"
               ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-              : undefined
+              : call.duration
             const eventData = ev as Record<string, unknown>
             const resultText = toolResultText(
-              eventData.result ?? eventData.error ?? eventData.message
+              eventData.result ??
+                eventData.partialResult ??
+                eventData.error ??
+                eventData.message
             )
-            const finalStatus = inferLiveToolStatus(phase, resultText)
+            const finalStatus = inferLiveToolStatus(phase, resultText, eventData.isError)
             pendingToolMapRef.current.set(toolCallId, {
               ...call,
               status: finalStatus,
