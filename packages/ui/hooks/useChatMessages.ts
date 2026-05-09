@@ -22,14 +22,6 @@ import {
 import { emit } from "@/lib/events"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
-  getCachedChatSessionMessages,
-  getCachedChatSessionStatus,
-  publishChatSessionMessages,
-  publishChatSessionStatus,
-  subscribeChatSessionMessages,
-  subscribeChatSessionStatus,
-} from "@/lib/chatSessionStore"
-import {
   cacheAttachments,
   mergeAttachmentsWithCache,
 } from "@/lib/attachmentCache"
@@ -47,17 +39,6 @@ import type {
 import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
-import {
-  localSyncGetMessages,
-  localSyncSetMessages,
-  localSyncSetStatus,
-  localSyncSubscribeMessages,
-} from "@/lib/localFirstSync"
-import {
-  persistentCacheDeletePrefix,
-  persistentCacheGet,
-  persistentCacheSet,
-} from "@/lib/persistentCache"
 import {
   cleanUserMessageText,
   deduplicateRawMessages,
@@ -159,15 +140,9 @@ function parseExecApproval(
 }
 
 const CHAT_BOOTSTRAP_TTL_MS = 5000
-const CHAT_HISTORY_PERSIST_TTL_MS = 1000 * 60 * 60 * 24
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
-const chatBootstrapCache = new Map<
-  string,
-  { expiresAt: number; value: ChatBootstrapData | Promise<ChatBootstrapData> }
->()
-
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -187,27 +162,15 @@ function toolResultText(result: unknown) {
 async function fetchChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData & { v2Cursor?: number }> {
-  const historyCacheKey = `session:${sessionKey}:history`
-  const cachedMessages = await persistentCacheGet<unknown[]>(historyCacheKey)
   const [freshHistory, branchData] = await Promise.all([
     fetchChatBootstrapV2(sessionKey).then((result) => ({
       messages: result.messages,
       v2Cursor: result.projection?.cursor,
-    })).catch((error) => {
-      if (cachedMessages) return { messages: cachedMessages, v2Cursor: undefined }
-      throw error
-    }),
+    })),
     invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
       input: { sourceSessionKey: sessionKey },
     }).catch(() => ({ branches: [] })),
   ])
-  if (freshHistory.messages?.length) {
-    void persistentCacheSet(
-      historyCacheKey,
-      freshHistory.messages.slice(-200),
-      { ttlMs: 1000 * 60 * 60 * 24 }
-    )
-  }
   return { history: freshHistory, branchData, v2Cursor: freshHistory.v2Cursor }
 }
 
@@ -239,7 +202,7 @@ async function reconcileChatHistory(
     }
   )
   const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
-  await localSyncSetMessages(sessionKey, parsed.messages, status ?? null)
+  void status
   return parsed.messages
 }
 
@@ -252,34 +215,11 @@ function isActiveRunStatus(status: StreamStatus | null | undefined) {
 async function loadChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData> {
-  const now = Date.now()
-  const cached = chatBootstrapCache.get(sessionKey)
-  if (cached && cached.expiresAt > now) {
-    return cached.value instanceof Promise ? await cached.value : cached.value
-  }
-
-  const value = dedupeRequest(
+  return dedupeRequest(
     `chat-bootstrap:${sessionKey}`,
     () => fetchStableChatBootstrap(sessionKey),
     { ttlMs: CHAT_BOOTSTRAP_TTL_MS }
   )
-
-  chatBootstrapCache.set(sessionKey, {
-    expiresAt: now + CHAT_BOOTSTRAP_TTL_MS,
-    value,
-  })
-
-  try {
-    const resolved = await value
-    chatBootstrapCache.set(sessionKey, {
-      expiresAt: Date.now() + CHAT_BOOTSTRAP_TTL_MS,
-      value: resolved,
-    })
-    return resolved
-  } catch (error) {
-    chatBootstrapCache.delete(sessionKey)
-    throw error
-  }
 }
 
 export function useChatMessages(
@@ -287,19 +227,13 @@ export function useChatMessages(
   initialMessages?: ChatMessage[]
 ) {
   const hasInitial = initialMessages && initialMessages.length > 0
-  const cachedMessages = !hasInitial
-    ? getCachedChatSessionMessages(sessionKey)
-    : null
-  const cachedStatus = !hasInitial
-    ? getCachedChatSessionStatus(sessionKey)
-    : null
   const queryClient = useQueryClient()
   const instanceIdRef = useRef(randomId())
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
-    hasInitial ? initialMessages : (cachedMessages ?? [])
+    hasInitial ? initialMessages : []
   )
   const [status, setLocalStatus] = useState<StreamStatus>(
-    hasInitial ? "thinking" : (cachedStatus ?? "idle")
+    hasInitial ? "thinking" : "idle"
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -309,25 +243,15 @@ export function useChatMessages(
   const sendingGuardRef = useRef(false)
   const restartInFlightRef = useRef(false)
   const statusRef = useRef<StreamStatus>(
-    hasInitial ? "thinking" : (cachedStatus ?? "idle")
+    hasInitial ? "thinking" : "idle"
   )
   const isSendingRef = useRef(false)
 
-  const schedulePersistentMessages = useCallback(
-    (next: ChatMessage[]) => {
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
-      if (next.length === 0) return
-      persistTimerRef.current = setTimeout(() => {
-        void persistentCacheSet(
-          `session:${sessionKey}:uiMessages`,
-          next.slice(-200),
-          { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS }
-        )
-        void localSyncSetMessages(sessionKey, next, statusRef.current)
-      }, 250)
-    },
-    [sessionKey]
-  )
+  const schedulePersistentMessages = useCallback((_next: ChatMessage[]) => {
+    // V2 middleware projection is the chat source of truth.
+    // Do not persist full chat arrays in frontend cache/localStorage.
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+  }, [])
 
   const setMessages = useCallback(
     (update: SetStateAction<ChatMessage[]>) => {
@@ -335,7 +259,6 @@ export function useChatMessages(
         const next = dedupeChatMessages(
           typeof update === "function" ? update(prev) : update
         )
-        publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
         schedulePersistentMessages(next)
         return next
       })
@@ -347,11 +270,6 @@ export function useChatMessages(
     (update: SetStateAction<StreamStatus>) => {
       setLocalStatus((prev) => {
         const next = typeof update === "function" ? update(prev) : update
-        publishChatSessionStatus(sessionKey, next, instanceIdRef.current)
-        void persistentCacheSet(`session:${sessionKey}:status`, next, {
-          ttlMs: CHAT_HISTORY_PERSIST_TTL_MS,
-        })
-        void localSyncSetStatus(sessionKey, next)
         return next
       })
     },
@@ -387,7 +305,7 @@ export function useChatMessages(
   const lastStreamEventAtRef = useRef(Date.now())
   const activeReconcileInFlightRef = useRef(false)
   const messagesRef = useRef<ChatMessage[]>(
-    hasInitial ? initialMessages : (cachedMessages ?? [])
+    hasInitial ? initialMessages : []
   )
   const v2CursorRef = useRef(0)
 
@@ -415,30 +333,6 @@ export function useChatMessages(
   useEffect(() => {
     isSendingRef.current = isSending
   }, [isSending])
-
-  useEffect(() => {
-    const unsubscribeMessages = subscribeChatSessionMessages(
-      sessionKey,
-      (nextMessages, sourceId) => {
-        if (sourceId === instanceIdRef.current) return
-        setLocalMessages(nextMessages)
-        for (const message of nextMessages)
-          seenIds.current.add(message.messageId)
-      }
-    )
-    const unsubscribeStatus = subscribeChatSessionStatus(
-      sessionKey,
-      (nextStatus, sourceId) => {
-        if (sourceId === instanceIdRef.current) return
-        statusRef.current = nextStatus
-        setLocalStatus(nextStatus)
-      }
-    )
-    return () => {
-      unsubscribeMessages()
-      unsubscribeStatus()
-    }
-  }, [sessionKey])
 
   const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
     spawnMapRef.current.set(spawn.toolCallId, spawn)
@@ -604,7 +498,6 @@ export function useChatMessages(
           })
           setStatusLabel(ev.label || ev.name || null)
           if (incoming === "error") {
-            void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             setTimeout(() => {
               void reconcileChatHistory(sessionKey, "error")
                 .then((fresh) => {
@@ -618,7 +511,6 @@ export function useChatMessages(
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
-            void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             setTimeout(() => {
               void reconcileChatHistory(sessionKey, "done")
                 .then((fresh) => {
@@ -1006,34 +898,8 @@ export function useChatMessages(
 
   useEffect(() => {
     let cancelled = false
-    const cachedSessionMessages = getCachedChatSessionMessages(sessionKey)
-    if (!initialMessages?.length && !cachedSessionMessages?.length) {
-      void localSyncGetMessages(sessionKey).then((localState) => {
-        const cached = localState?.messages
-        if (cancelled || !cached?.length) return
-        setLoading(false)
-        setMessages(cached)
-        setStatus(
-          inferRestoredChatStatus(
-            cached,
-            getCachedChatSessionStatus(sessionKey)
-          )
-        )
-        if (localState?.status) setStatus(localState.status)
-        else
-          void persistentCacheGet<StreamStatus>(
-            `session:${sessionKey}:status`
-          ).then((cachedStatus) => {
-            if (!cancelled && cachedStatus) setStatus(cachedStatus)
-          })
-      })
-    }
     const seededMessages =
-      initialMessages && initialMessages.length > 0
-        ? initialMessages
-        : cachedSessionMessages && cachedSessionMessages.length > 0
-          ? cachedSessionMessages
-          : undefined
+      initialMessages && initialMessages.length > 0 ? initialMessages : undefined
 
     setLoadError(null)
     setErrorMessage(null)
@@ -1045,35 +911,7 @@ export function useChatMessages(
       }
       setLoading(false)
       setMessages(seededMessages)
-      setStatus(
-        inferRestoredChatStatus(
-          seededMessages,
-          getCachedChatSessionStatus(sessionKey)
-        )
-      )
-      void queryClient
-        .fetchQuery({
-          queryKey: queryKeys.sessions(),
-          queryFn: () =>
-            invoke<{
-              sessions: Array<{
-                key?: string
-                sessionKey?: string
-                status?: string
-              }>
-            }>("middleware_sessions_list", { input: {} }),
-          staleTime: queryStaleTime.sessions,
-        })
-        .then((result) => {
-          if (cancelled) return
-          const backendSession = (result.sessions || []).find(
-            (item) => item.key === sessionKey || item.sessionKey === sessionKey
-          )
-          setStatus(
-            statusFromBackendSession(backendSession?.status, seededMessages)
-          )
-        })
-        .catch(() => undefined)
+      setStatus(inferRestoredChatStatus(seededMessages, statusRef.current))
     } else {
       setLoading(true)
       setMessages([])
@@ -1102,26 +940,6 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
-    const unsubscribeLocalFirst = localSyncSubscribeMessages(
-      sessionKey,
-      (state) => {
-        if (state.messages.length === 0) return
-        const next = dedupeChatMessages(state.messages)
-        setLocalMessages((prev) => {
-          if (
-            prev.length === next.length &&
-            prev.every(
-              (message, index) => message.messageId === next[index]?.messageId
-            )
-          ) {
-            return prev
-          }
-          publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
-          return next
-        })
-        if (state.status) setStatus(state.status)
-      }
-    )
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -1581,7 +1399,6 @@ export function useChatMessages(
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
-      unsubscribeLocalFirst()
       unsubscribeStream?.()
       unsubscribeV2Stream?.()
       if (subagentPollRef.current) {
@@ -1746,7 +1563,6 @@ export function useChatMessages(
           setStatusLabel(null)
           await abortChatV2({ sessionKey })
         }
-        void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
         await sendChatV2({
           sessionKey,
           text: gatewayText,
