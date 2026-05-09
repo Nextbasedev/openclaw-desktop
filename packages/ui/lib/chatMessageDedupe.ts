@@ -27,15 +27,50 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   return aText.startsWith(bText) || bText.startsWith(aText)
 }
 
+function messageSignature(message: ChatMessage) {
+  return `${message.role}:${message.text.trim().replace(/\s+/g, " ")}`
+}
+
+function collapseRepeatedBlocks(messages: ChatMessage[]) {
+  const result = [...messages]
+  let changed = true
+
+  while (changed) {
+    changed = false
+    for (let size = Math.floor(result.length / 2); size >= 3; size--) {
+      for (let start = 0; start + size * 2 <= result.length; start++) {
+        let same = true
+        for (let offset = 0; offset < size; offset++) {
+          if (
+            messageSignature(result[start + offset]) !==
+            messageSignature(result[start + size + offset])
+          ) {
+            same = false
+            break
+          }
+        }
+        if (same) {
+          result.splice(start + size, size)
+          changed = true
+          break
+        }
+      }
+      if (changed) break
+    }
+  }
+
+  return result
+}
+
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = []
   const seenIds = new Set<string>()
 
-  for (const message of messages) {
+  for (const message of collapseRepeatedBlocks(messages)) {
     if (seenIds.has(message.messageId)) continue
 
     const assistantIndex = result.findIndex((existing) =>
-      sameAssistantMessage(existing, message),
+      sameAssistantMessage(existing, message)
     )
     if (assistantIndex >= 0) {
       const existing = result[assistantIndex]
@@ -57,7 +92,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     }
 
     const duplicateUser = result.some((existing) =>
-      sameUserMessage(existing, message),
+      sameUserMessage(existing, message)
     )
     if (duplicateUser) continue
 
@@ -65,5 +100,5 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     result.push(message)
   }
 
-  return result
+  return collapseRepeatedBlocks(result)
 }

@@ -6,7 +6,10 @@ import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { useQueryClient } from "@tanstack/react-query"
 import { dedupeRequest } from "@/lib/requestDedupe"
-import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
+import {
+  inferRestoredChatStatus,
+  statusFromBackendSession,
+} from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
 import { tryAcquireActiveRunReconcileLock } from "@/lib/activeRunReconcileLock"
 import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
@@ -44,8 +47,17 @@ import type {
 import { extractText } from "@/components/ChatView/utils"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
-import { localSyncGetMessages, localSyncSetMessages, localSyncSetStatus, localSyncSubscribeMessages } from "@/lib/localFirstSync"
-import { persistentCacheDeletePrefix, persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
+import {
+  localSyncGetMessages,
+  localSyncSetMessages,
+  localSyncSetStatus,
+  localSyncSubscribeMessages,
+} from "@/lib/localFirstSync"
+import {
+  persistentCacheDeletePrefix,
+  persistentCacheGet,
+  persistentCacheSet,
+} from "@/lib/persistentCache"
 import {
   cleanUserMessageText,
   deduplicateRawMessages,
@@ -179,7 +191,11 @@ async function fetchChatBootstrap(
     }).catch(() => ({ branches: [] })),
   ])
   if (freshHistory.messages?.length) {
-    void persistentCacheSet(historyCacheKey, freshHistory.messages.slice(-200), { ttlMs: 1000 * 60 * 60 * 24 })
+    void persistentCacheSet(
+      historyCacheKey,
+      freshHistory.messages.slice(-200),
+      { ttlMs: 1000 * 60 * 60 * 24 }
+    )
   }
   return { history: freshHistory, branchData }
 }
@@ -205,9 +221,12 @@ async function reconcileChatHistory(
   sessionKey: string,
   status?: StreamStatus | null
 ): Promise<ChatMessage[]> {
-  const history = await invoke<{ messages: unknown[] }>("middleware_chat_history", {
-    input: { sessionKey },
-  })
+  const history = await invoke<{ messages: unknown[] }>(
+    "middleware_chat_history",
+    {
+      input: { sessionKey },
+    }
+  )
   const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
   await localSyncSetMessages(sessionKey, parsed.messages, status ?? null)
   return parsed.messages
@@ -215,8 +234,7 @@ async function reconcileChatHistory(
 
 function isActiveRunStatus(status: StreamStatus | null | undefined) {
   return Boolean(
-    status &&
-      !["idle", "connected", "done", "error"].includes(status)
+    status && !["idle", "connected", "done", "error"].includes(status)
   )
 }
 
@@ -229,7 +247,11 @@ async function loadChatBootstrap(
     return cached.value instanceof Promise ? await cached.value : cached.value
   }
 
-  const value = dedupeRequest(`chat-bootstrap:${sessionKey}`, () => fetchStableChatBootstrap(sessionKey), { ttlMs: CHAT_BOOTSTRAP_TTL_MS })
+  const value = dedupeRequest(
+    `chat-bootstrap:${sessionKey}`,
+    () => fetchStableChatBootstrap(sessionKey),
+    { ttlMs: CHAT_BOOTSTRAP_TTL_MS }
+  )
 
   chatBootstrapCache.set(sessionKey, {
     expiresAt: now + CHAT_BOOTSTRAP_TTL_MS,
@@ -257,14 +279,16 @@ export function useChatMessages(
   const cachedMessages = !hasInitial
     ? getCachedChatSessionMessages(sessionKey)
     : null
-  const cachedStatus = !hasInitial ? getCachedChatSessionStatus(sessionKey) : null
+  const cachedStatus = !hasInitial
+    ? getCachedChatSessionStatus(sessionKey)
+    : null
   const queryClient = useQueryClient()
   const instanceIdRef = useRef(randomId())
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
-    hasInitial ? initialMessages : cachedMessages ?? []
+    hasInitial ? initialMessages : (cachedMessages ?? [])
   )
   const [status, setLocalStatus] = useState<StreamStatus>(
-    hasInitial ? "thinking" : cachedStatus ?? "idle"
+    hasInitial ? "thinking" : (cachedStatus ?? "idle")
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -273,28 +297,39 @@ export function useChatMessages(
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
   const restartInFlightRef = useRef(false)
-  const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : cachedStatus ?? "idle")
+  const statusRef = useRef<StreamStatus>(
+    hasInitial ? "thinking" : (cachedStatus ?? "idle")
+  )
   const isSendingRef = useRef(false)
 
-  const schedulePersistentMessages = useCallback((next: ChatMessage[]) => {
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
-    if (next.length === 0) return
-    persistTimerRef.current = setTimeout(() => {
-      void persistentCacheSet(`session:${sessionKey}:uiMessages`, next.slice(-200), { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS })
-      void localSyncSetMessages(sessionKey, next, statusRef.current)
-    }, 250)
-  }, [sessionKey])
+  const schedulePersistentMessages = useCallback(
+    (next: ChatMessage[]) => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+      if (next.length === 0) return
+      persistTimerRef.current = setTimeout(() => {
+        void persistentCacheSet(
+          `session:${sessionKey}:uiMessages`,
+          next.slice(-200),
+          { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS }
+        )
+        void localSyncSetMessages(sessionKey, next, statusRef.current)
+      }, 250)
+    },
+    [sessionKey]
+  )
 
   const setMessages = useCallback(
     (update: SetStateAction<ChatMessage[]>) => {
       setLocalMessages((prev) => {
-        const next = typeof update === "function" ? update(prev) : update
+        const next = dedupeChatMessages(
+          typeof update === "function" ? update(prev) : update
+        )
         publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
         schedulePersistentMessages(next)
         return next
       })
     },
-    [schedulePersistentMessages, sessionKey],
+    [schedulePersistentMessages, sessionKey]
   )
 
   const setStatus = useCallback(
@@ -302,12 +337,14 @@ export function useChatMessages(
       setLocalStatus((prev) => {
         const next = typeof update === "function" ? update(prev) : update
         publishChatSessionStatus(sessionKey, next, instanceIdRef.current)
-        void persistentCacheSet(`session:${sessionKey}:status`, next, { ttlMs: CHAT_HISTORY_PERSIST_TTL_MS })
+        void persistentCacheSet(`session:${sessionKey}:status`, next, {
+          ttlMs: CHAT_HISTORY_PERSIST_TTL_MS,
+        })
         void localSyncSetStatus(sessionKey, next)
         return next
       })
     },
-    [sessionKey],
+    [sessionKey]
   )
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -338,7 +375,9 @@ export function useChatMessages(
   const lastSmoothScrollAtRef = useRef(0)
   const lastStreamEventAtRef = useRef(Date.now())
   const activeReconcileInFlightRef = useRef(false)
-  const messagesRef = useRef<ChatMessage[]>(hasInitial ? initialMessages : cachedMessages ?? [])
+  const messagesRef = useRef<ChatMessage[]>(
+    hasInitial ? initialMessages : (cachedMessages ?? [])
+  )
 
   useEffect(() => {
     cacheChatActivity(sessionKey, {
@@ -371,8 +410,9 @@ export function useChatMessages(
       (nextMessages, sourceId) => {
         if (sourceId === instanceIdRef.current) return
         setLocalMessages(nextMessages)
-        for (const message of nextMessages) seenIds.current.add(message.messageId)
-      },
+        for (const message of nextMessages)
+          seenIds.current.add(message.messageId)
+      }
     )
     const unsubscribeStatus = subscribeChatSessionStatus(
       sessionKey,
@@ -380,7 +420,7 @@ export function useChatMessages(
         if (sourceId === instanceIdRef.current) return
         statusRef.current = nextStatus
         setLocalStatus(nextStatus)
-      },
+      }
     )
     return () => {
       unsubscribeMessages()
@@ -456,18 +496,22 @@ export function useChatMessages(
       const [freshMessages, sessionsResult] = await Promise.all([
         reconcileChatHistory(sessionKey, statusRef.current).catch(() => null),
         invoke<{
-          sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+          sessions: Array<{
+            key?: string
+            sessionKey?: string
+            status?: string
+          }>
         }>("middleware_sessions_list", { input: {} }).catch(() => null),
       ])
       const backendSession = sessionsResult?.sessions?.find(
-        (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+        (item) => item.key === sessionKey || item.sessionKey === sessionKey
       )
       if (freshMessages?.length) {
         setMessages((prev) => dedupeChatMessages([...prev, ...freshMessages]))
       }
       const nextStatus = statusFromBackendSession(
         backendSession?.status,
-        freshMessages?.length ? freshMessages : messagesRef.current,
+        freshMessages?.length ? freshMessages : messagesRef.current
       )
       if (backendSession?.status || !isActiveRunStatus(nextStatus)) {
         setStatus(nextStatus)
@@ -476,7 +520,9 @@ export function useChatMessages(
           setErrorMessage(null)
         }
       }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.chatBootstrap(sessionKey),
+      })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
     } finally {
       activeReconcileInFlightRef.current = false
@@ -548,18 +594,28 @@ export function useChatMessages(
           if (incoming === "error") {
             void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             setTimeout(() => {
-              void reconcileChatHistory(sessionKey, "error").then((fresh) => {
-                if (fresh.length) setMessages((prev) => dedupeChatMessages([...prev, ...fresh]))
-              }).catch(() => undefined)
+              void reconcileChatHistory(sessionKey, "error")
+                .then((fresh) => {
+                  if (fresh.length)
+                    setMessages((prev) =>
+                      dedupeChatMessages([...prev, ...fresh])
+                    )
+                })
+                .catch(() => undefined)
             }, 500)
             setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
             void persistentCacheDeletePrefix(`session:${sessionKey}:history`)
             setTimeout(() => {
-              void reconcileChatHistory(sessionKey, "done").then((fresh) => {
-                if (fresh.length) setMessages((prev) => dedupeChatMessages([...prev, ...fresh]))
-              }).catch(() => undefined)
+              void reconcileChatHistory(sessionKey, "done")
+                .then((fresh) => {
+                  if (fresh.length)
+                    setMessages((prev) =>
+                      dedupeChatMessages([...prev, ...fresh])
+                    )
+                })
+                .catch(() => undefined)
             }, 500)
             flushToolsToLastAssistant()
             pendingToolMapRef.current.clear()
@@ -945,11 +1001,19 @@ export function useChatMessages(
         if (cancelled || !cached?.length) return
         setLoading(false)
         setMessages(cached)
-        setStatus(inferRestoredChatStatus(cached, getCachedChatSessionStatus(sessionKey)))
+        setStatus(
+          inferRestoredChatStatus(
+            cached,
+            getCachedChatSessionStatus(sessionKey)
+          )
+        )
         if (localState?.status) setStatus(localState.status)
-        else void persistentCacheGet<StreamStatus>(`session:${sessionKey}:status`).then((cachedStatus) => {
-          if (!cancelled && cachedStatus) setStatus(cachedStatus)
-        })
+        else
+          void persistentCacheGet<StreamStatus>(
+            `session:${sessionKey}:status`
+          ).then((cachedStatus) => {
+            if (!cancelled && cachedStatus) setStatus(cachedStatus)
+          })
       })
     }
     const seededMessages =
@@ -969,20 +1033,33 @@ export function useChatMessages(
       }
       setLoading(false)
       setMessages(seededMessages)
-      setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
-      void queryClient.fetchQuery({
-        queryKey: queryKeys.sessions(),
-        queryFn: () => invoke<{
-          sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
-        }>("middleware_sessions_list", { input: {} }),
-        staleTime: queryStaleTime.sessions,
-      })
+      setStatus(
+        inferRestoredChatStatus(
+          seededMessages,
+          getCachedChatSessionStatus(sessionKey)
+        )
+      )
+      void queryClient
+        .fetchQuery({
+          queryKey: queryKeys.sessions(),
+          queryFn: () =>
+            invoke<{
+              sessions: Array<{
+                key?: string
+                sessionKey?: string
+                status?: string
+              }>
+            }>("middleware_sessions_list", { input: {} }),
+          staleTime: queryStaleTime.sessions,
+        })
         .then((result) => {
           if (cancelled) return
           const backendSession = (result.sessions || []).find(
-            (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+            (item) => item.key === sessionKey || item.sessionKey === sessionKey
           )
-          setStatus(statusFromBackendSession(backendSession?.status, seededMessages))
+          setStatus(
+            statusFromBackendSession(backendSession?.status, seededMessages)
+          )
         })
         .catch(() => undefined)
     } else {
@@ -993,11 +1070,14 @@ export function useChatMessages(
 
     if (cachedActivity) {
       pendingToolMapRef.current = new Map(
-        cachedActivity.pendingTools.map((tool) => [tool.id, tool]),
+        cachedActivity.pendingTools.map((tool) => [tool.id, tool])
       )
       setPendingTools(cachedActivity.pendingTools)
       spawnMapRef.current = new Map(
-        cachedActivity.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]),
+        cachedActivity.spawnedSubagents.map((spawn) => [
+          spawn.toolCallId,
+          spawn,
+        ])
       )
       setSpawnedSubagents(cachedActivity.spawnedSubagents)
       setStatus(cachedActivity.status)
@@ -1010,11 +1090,26 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
-    const unsubscribeLocalFirst = localSyncSubscribeMessages(sessionKey, (state) => {
-      if (state.messages.length === 0) return
-      setMessages(state.messages)
-      if (state.status) setStatus(state.status)
-    })
+    const unsubscribeLocalFirst = localSyncSubscribeMessages(
+      sessionKey,
+      (state) => {
+        if (state.messages.length === 0) return
+        const next = dedupeChatMessages(state.messages)
+        setLocalMessages((prev) => {
+          if (
+            prev.length === next.length &&
+            prev.every(
+              (message, index) => message.messageId === next[index]?.messageId
+            )
+          ) {
+            return prev
+          }
+          publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
+          return next
+        })
+        if (state.status) setStatus(state.status)
+      }
+    )
     let unsubscribeStream: (() => void) | null = null
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
@@ -1413,17 +1508,26 @@ export function useChatMessages(
             })
             const eventType = (data as { type?: string }).type
             if (eventType === "chat.message" || eventType === "chat.status") {
-              void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
-              void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.chatBootstrap(sessionKey),
+              })
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.sessions(),
+              })
             }
           },
           () => {
             const current = statusRef.current
-            if (!cancelled && (isSendingRef.current || isActiveRunStatus(current))) {
-              setStatus((prev) => isActiveRunStatus(prev) ? "thinking" : prev)
+            if (
+              !cancelled &&
+              (isSendingRef.current || isActiveRunStatus(current))
+            ) {
+              setStatus((prev) => (isActiveRunStatus(prev) ? "thinking" : prev))
               setStatusLabel("Live updates reconnecting…")
               void reconcileActiveRun().catch(() => undefined)
-              void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.sessions(),
+              })
             }
           }
         )
@@ -1540,7 +1644,9 @@ export function useChatMessages(
     async (payload: ChatComposerSubmit, retryMessageId?: string) => {
       const trimmed = payload.text.trim()
       if (!trimmed || sendingGuardRef.current) return false
-      const runsAlongsideGeneration = Boolean(isGenerating && payload.runWhileGenerating)
+      const runsAlongsideGeneration = Boolean(
+        isGenerating && payload.runWhileGenerating
+      )
       sendingGuardRef.current = true
       setIsSending(true)
       setErrorMessage(null)
@@ -1621,7 +1727,13 @@ export function useChatMessages(
             execPolicy: payload.execPolicy,
           },
         })
-        setMessages((prev) => prev.map((m) => m.messageId === optimisticId ? { ...m, sendStatus: undefined, sendError: null } : m))
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.messageId === optimisticId
+              ? { ...m, sendStatus: undefined, sendError: null }
+              : m
+          )
+        )
         emit("chat:activity")
         return true
       } catch (error) {
@@ -1629,7 +1741,19 @@ export function useChatMessages(
         setErrorMessage(message)
         setStatus("error")
         restartInFlightRef.current = false
-        setMessages((prev) => prev.map((m) => m.messageId === optimisticId ? { ...m, isOptimistic: true, sendStatus: "failed", sendError: message, retryPayload: payload } : m))
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.messageId === optimisticId
+              ? {
+                  ...m,
+                  isOptimistic: true,
+                  sendStatus: "failed",
+                  sendError: message,
+                  retryPayload: payload,
+                }
+              : m
+          )
+        )
         return false
       } finally {
         sendingGuardRef.current = false
