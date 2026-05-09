@@ -115,16 +115,7 @@ function ToolRow({
               : "text-foreground/20"
           )}
         >
-          {hasDetails ? (
-            <VscChevronDown
-              className={cn(
-                "size-3 transition-transform",
-                !open && "-rotate-90"
-              )}
-            />
-          ) : (
-            <VscChevronRight className="size-3" />
-          )}
+          <VscChevronRight className="size-3" />
         </span>
       </button>
 
