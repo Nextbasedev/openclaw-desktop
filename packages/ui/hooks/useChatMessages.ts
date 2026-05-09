@@ -134,6 +134,7 @@ function parseExecApproval(
 }
 
 const CHAT_BOOTSTRAP_TTL_MS = 5000
+const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 const chatBootstrapCache = new Map<
@@ -901,6 +902,17 @@ export function useChatMessages(
     isAtBottomRef.current = true
     let cancelled = false
     let unsubscribeStream: (() => void) | null = null
+    let bootstrapSettled = false
+    let loadingTimeout: ReturnType<typeof setTimeout> | null = null
+
+    if (!seededMessages) {
+      loadingTimeout = setTimeout(() => {
+        if (cancelled || bootstrapSettled) return
+        setLoading(false)
+        setMessages([])
+        setStatus("idle")
+      }, CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS)
+    }
 
     async function init() {
       try {
@@ -909,6 +921,11 @@ export function useChatMessages(
           queryFn: () => loadChatBootstrap(sessionKey),
           staleTime: queryStaleTime.chatBootstrap,
         })
+        bootstrapSettled = true
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+          loadingTimeout = null
+        }
         if (cancelled) return
 
         const rawAll = (history.messages as RawMessage[]) || []
@@ -1304,6 +1321,11 @@ export function useChatMessages(
           }
         )
       } catch (e) {
+        bootstrapSettled = true
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+          loadingTimeout = null
+        }
         if (!cancelled) {
           setLoadError(String(e))
           setLoading(false)
@@ -1315,6 +1337,7 @@ export function useChatMessages(
 
     return () => {
       cancelled = true
+      if (loadingTimeout) clearTimeout(loadingTimeout)
       unsubscribeStream?.()
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)
