@@ -17,6 +17,7 @@ export interface ToolCall {
   completedAt?: number
   messageId?: string
   messageIndex?: number
+  messagePreview?: string
   runId?: string
   subagentOf?: string
 }
@@ -175,6 +176,12 @@ function resultStatus(msg: RawHistoryMessage, resultText: string): ToolCallStatu
   return "success"
 }
 
+function previewText(value: string): string | undefined {
+  const text = value.replace(/\s+/g, " ").trim()
+  if (!text) return undefined
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text
+}
+
 function visibleTextFromMessage(msg: RawHistoryMessage): string {
   if (typeof msg.text === "string" && msg.text) return msg.text
   if (typeof msg.content === "string") return msg.content
@@ -193,15 +200,19 @@ export function parseHistoryToolCalls(
   const calls: ToolCall[] = []
   const agents = new Map<string, AgentInfo>()
   const subagentSessionKeys = new Map<string, string>()
-  let pendingCalls: Array<{ id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number }> = []
-  const pendingById = new Map<string, { id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number }>()
+  let pendingCalls: Array<{ id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number; messagePreview?: string }> = []
+  const pendingById = new Map<string, { id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number; messagePreview?: string }>()
   const spawnOrder: string[] = []
   let currentSubagentId: string | null = null
+  let latestUserPreview: string | undefined
 
   for (const [messageIndex, msg] of messages.entries()) {
     const text = visibleTextFromMessage(msg)
 
     if (msg.role === "user" && text) {
+      if (!/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) {
+        latestUserPreview = previewText(text)
+      }
       const completed = /\bstatus:\s*completed successfully\b/i.test(text)
       const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(text)
       if (completed || failed) {
@@ -250,6 +261,7 @@ export function parseHistoryToolCalls(
             status: b.is_error === true || b.isError === true || b.status === "error" ? "error" : undefined,
             messageId: msg.id,
             messageIndex,
+            messagePreview: latestUserPreview,
           }))
           for (const call of pendingCalls) pendingById.set(call.id, call)
         }
@@ -274,6 +286,7 @@ export function parseHistoryToolCalls(
             startedAt: matched.startedAt,
             messageId: matched.messageId,
             messageIndex: matched.messageIndex,
+            messagePreview: matched.messagePreview,
             subagentOf:
               currentSubagentId &&
               matched.name !== "sessions_spawn" &&
@@ -316,6 +329,7 @@ export function parseHistoryToolCalls(
           completedAt: messageTimestampMs(msg),
           messageId: matched.messageId,
           messageIndex: matched.messageIndex,
+          messagePreview: matched.messagePreview,
           subagentOf:
             currentSubagentId &&
             matched.name !== "sessions_spawn" &&
@@ -362,6 +376,7 @@ export function parseHistoryToolCalls(
       startedAt: remaining.startedAt,
       messageId: remaining.messageId,
       messageIndex: remaining.messageIndex,
+      messagePreview: remaining.messagePreview,
       subagentOf:
         currentSubagentId &&
         remaining.name !== "sessions_spawn" &&
