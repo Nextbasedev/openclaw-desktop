@@ -9,6 +9,8 @@ export type ContentBlock = {
   arguments?: unknown
   duration?: string
   durationMs?: number
+  status?: "running" | "success" | "error"
+  isError?: boolean
 }
 
 export type ChatTokenUsage = {

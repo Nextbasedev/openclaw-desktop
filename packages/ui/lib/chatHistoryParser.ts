@@ -64,6 +64,9 @@ export type RawHistoryMessage = {
   toolCallId?: string
   toolName?: string
   details?: unknown
+  isError?: boolean
+  error?: unknown
+  status?: unknown
   model?: string
   provider?: string
   usage?: ChatMessage["usage"]
@@ -103,14 +106,21 @@ function visibleMessageText(raw: RawHistoryMessage): string {
   return ""
 }
 
-function inferToolStatus(resultText: string): InlineToolCall["status"] {
+function inferToolStatus(raw: RawHistoryMessage, resultText: string): InlineToolCall["status"] {
+  if (raw.isError === true || raw.status === "error" || raw.error) return "error"
+  const detailStatus = objectValue(raw.details, "status")
+  const detailExitCode = objectValue(raw.details, "exitCode")
+  if (detailStatus === "error" || detailStatus === "failed") return "error"
+  if (typeof detailExitCode === "number" && Number.isFinite(detailExitCode) && detailExitCode !== 0) return "error"
   if (!resultText) return "success"
   try {
-    const parsed = JSON.parse(resultText) as { status?: unknown }
-    return parsed.status === "error" ? "error" : "success"
+    const parsed = JSON.parse(resultText) as { status?: unknown; error?: unknown; exitCode?: unknown }
+    if (parsed.status === "error" || parsed.status === "failed" || parsed.error) return "error"
+    if (typeof parsed.exitCode === "number" && Number.isFinite(parsed.exitCode) && parsed.exitCode !== 0) return "error"
   } catch {
-    return "success"
+    if (/^\s*(error|failed|exception|traceback)\b/i.test(resultText)) return "error"
   }
+  return "success"
 }
 
 function rawTimestampMs(raw: RawHistoryMessage): number | null {
@@ -372,7 +382,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
         const call: InlineToolCall & { startedAtMs?: number | null } = {
           id: block.id ?? randomId(),
           tool: block.name ?? "unknown",
-          status: "success",
+          status: block.isError || block.status === "error" ? "error" : "success",
           input: block.arguments ?? block.input,
           duration: block.duration,
           startedAtMs: rawTimestampMs(item),
@@ -431,7 +441,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       const matched = resultQueue.shift()
       if (!matched) continue
       const resultText = toolResultText(item)
-      matched.status = inferToolStatus(resultText)
+      matched.status = inferToolStatus(item, resultText)
       matched.resultText = resultText || matched.resultText
       const preciseDurationMs = toolResultDurationMs(item, resultText)
       const fallbackDurationMs = (() => {
