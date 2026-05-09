@@ -38,7 +38,7 @@ describe("chat send routes", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/chat/send",
-      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key" },
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
     });
     expect(res.statusCode).toBe(200);
     expect(context.chatLive.diagnostics().optimisticUserSessions).toBe(1);
@@ -53,7 +53,7 @@ describe("chat send routes", () => {
           text: "hello",
           isOptimistic: true,
           __clientOptimistic: true,
-          __openclaw: { id: "client:stable-key" },
+          __openclaw: { id: "client-ui-1" },
         },
       },
     });

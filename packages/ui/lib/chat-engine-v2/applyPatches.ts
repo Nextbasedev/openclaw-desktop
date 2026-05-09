@@ -15,8 +15,14 @@ function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
 }
 
 function patchMessage(frame: PatchFrame): unknown | null {
-  if (frame.patch.type !== "chat.message.upsert") return null
+  if (frame.patch.type !== "chat.message.upsert" && frame.patch.type !== "chat.message.confirmed") return null
   return patchPayload(frame)?.message ?? null
+}
+
+function patchOptimisticId(frame: PatchFrame): string | null {
+  if (frame.patch.type !== "chat.message.confirmed") return null
+  const id = patchPayload(frame)?.optimisticId
+  return typeof id === "string" && id.trim() ? id : null
 }
 
 function patchRemoveId(frame: PatchFrame): string | null {
@@ -37,8 +43,12 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   const message = patchMessage(frame)
   if (!message) return { ...state, cursor: frame.patch.cursor }
   const parsed = parseChatHistory([message]).messages
+  const optimisticId = patchOptimisticId(frame)
+  const baseMessages = optimisticId
+    ? state.messages.filter((item) => item.messageId !== optimisticId)
+    : state.messages
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages([...state.messages, ...parsed]),
+    messages: dedupeChatMessages([...baseMessages, ...parsed]),
   }
 }

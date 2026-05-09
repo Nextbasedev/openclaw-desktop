@@ -59,28 +59,15 @@ export class ChatLiveIngest {
     const message = isObject(payload.message) ? (payload.message as OpenClawMessage) : null;
     if (!sessionKey || !message) return;
     const optimisticId = this.takeMatchingOptimisticUser(sessionKey, message);
-    if (optimisticId) {
-      const remove = this.context.messages.appendProjectionEvent({
-        sessionKey,
-        eventType: "chat.message.remove",
-        payload: { sessionKey, messageId: optimisticId, reason: "gateway-confirmed" },
-      });
-      this.context.patchBus.broadcast({
-        cursor: remove.cursor,
-        type: remove.eventType,
-        sessionKey: remove.sessionKey,
-        payload: remove.payload,
-        createdAtMs: remove.createdAtMs,
-      });
-    }
     const normalized = normalizeHistoryMessages(sessionKey, [message]);
     const projection = this.context.messages.upsertMessages(normalized);
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
-      eventType: "chat.message.upsert",
+      eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
       payload: {
         sessionKey,
         message,
+        ...(optimisticId ? { optimisticId } : {}),
         messageSeq: payload.messageSeq ?? message.__openclaw?.seq ?? projection.lastSeq,
         lastSeq: projection.lastSeq,
       },
