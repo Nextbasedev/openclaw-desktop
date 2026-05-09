@@ -142,6 +142,10 @@ const ASYNC_RESULT_RE =
 const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
 const MEDIA_REPLY_INSTRUCTION_RE =
   /^To send an image back,[\s\S]*?Keep caption in the text body\.\s*/
+const SENDER_METADATA_RE =
+  /^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/
+const BRACKETED_DAY_TIME_RE =
+  /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/
 
 function stripMediaAttachmentPreamble(text: string): string {
   let result = text
@@ -165,11 +169,13 @@ export function stripGatewayPrefixes(text: string): string {
     result = result.replace(SYSTEM_LINE_RE, "")
   }
   result = stripMediaAttachmentPreamble(result)
+  result = result.replace(SENDER_METADATA_RE, "")
   result = result.replace(CRON_HEADER_RE, "")
   result = result.replace(CURRENT_TIME_RE, "")
   result = result.replace(MESSAGE_TOOL_RE, "")
   result = result.replace(ASYNC_RESULT_RE, "")
   result = result.replace(TIMESTAMP_PREFIX_RE, "")
+  result = result.replace(BRACKETED_DAY_TIME_RE, "")
   result = result.replace(BARE_TIMESTAMP_RE, "")
   return result.trim()
 }
