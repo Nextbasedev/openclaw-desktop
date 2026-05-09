@@ -857,106 +857,6 @@ export function ChatView({
     return null
   }, [renderedMessages])
 
-  if (activeSubKey && activeSubagent) {
-    return (
-      <SubagentFullChat
-        sessionKey={activeSubKey}
-        label={activeSubagent.label}
-        status={activeSubagent.status}
-        fallbackPrompt={activeSubagentFallbackPrompt}
-        fallbackText={activeSubagentFallbackText}
-        onBack={closeSubagent}
-      />
-    )
-  }
-
-  const liveTool = pendingTools.find(
-    (tool) =>
-      tool.status === "running" &&
-      tool.tool !== "sessions_spawn" &&
-      tool.tool !== "subagents" &&
-      tool.tool !== "sessions_yield"
-  )
-  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
-  const liveToolText = liveTool
-    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
-    : null
-
-  const statusText =
-    liveToolText ??
-    (status === "thinking"
-      ? "Thinking - waiting for the next event..."
-      : status === "queued"
-        ? statusLabel
-          ? `Queued - ${statusLabel}...`
-          : "Queued..."
-        : status === "running"
-          ? statusLabel
-            ? `Running - ${statusLabel}...`
-            : "Running..."
-          : status === "collect"
-            ? statusLabel
-              ? `Collecting - ${statusLabel}...`
-              : "Collecting..."
-            : status === "tool_running"
-              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
-              : status === "streaming"
-                ? "Responding..."
-                : status === "stopping"
-                  ? "Stopping..."
-                  : status === "restarting"
-                    ? "Restarting..."
-                    : isGenerating
-                      ? statusLabel
-                        ? `${statusLabel}...`
-                        : "Thinking - waiting for the next event..."
-                      : null)
-
-  if (loading && messages.length === 0) {
-    return <ChatLoadingSkeleton />
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex h-full w-full items-center justify-center px-8">
-        <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
-          <p className="text-sm font-medium text-red-400">
-            Failed to load session
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
-        <AnimatedGreeting />
-        <ChatBox
-          onSend={wrappedSend}
-          disabled={false}
-          isGenerating={isGenerating}
-          historyMessages={userMessageHistory}
-          onAbort={handleAbort}
-          initialPrompt={composerSeed}
-          replyTo={replyTo}
-          onCancelReply={cancelReply}
-          onModelSelect={handleSessionModelSelect}
-          modelSwitching={modelSwitching}
-          glowOnMount
-        />
-        {status === "error" && (
-          <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-            <p className="text-sm text-red-400">
-              {errorMessage || "Something went wrong. Try again."}
-            </p>
-          </div>
-        )}
-      </div>
-    )
-  }
-
   const assistantMessages = messages.filter((m) => m.role === "assistant")
   const lastTwoAssistantIds = new Set(
     assistantMessages.slice(-2).map((m) => m.messageId)
@@ -1169,6 +1069,106 @@ export function ChatView({
     ]
   )
 
+  if (activeSubKey && activeSubagent) {
+    return (
+      <SubagentFullChat
+        sessionKey={activeSubKey}
+        label={activeSubagent.label}
+        status={activeSubagent.status}
+        fallbackPrompt={activeSubagentFallbackPrompt}
+        fallbackText={activeSubagentFallbackText}
+        onBack={closeSubagent}
+      />
+    )
+  }
+
+  const liveTool = pendingTools.find(
+    (tool) =>
+      tool.status === "running" &&
+      tool.tool !== "sessions_spawn" &&
+      tool.tool !== "subagents" &&
+      tool.tool !== "sessions_yield"
+  )
+  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
+  const liveToolText = liveTool
+    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
+    : null
+
+  const statusText =
+    liveToolText ??
+    (status === "thinking"
+      ? "Thinking - waiting for the next event..."
+      : status === "queued"
+        ? statusLabel
+          ? `Queued - ${statusLabel}...`
+          : "Queued..."
+        : status === "running"
+          ? statusLabel
+            ? `Running - ${statusLabel}...`
+            : "Running..."
+          : status === "collect"
+            ? statusLabel
+              ? `Collecting - ${statusLabel}...`
+              : "Collecting..."
+            : status === "tool_running"
+              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
+              : status === "streaming"
+                ? "Responding..."
+                : status === "stopping"
+                  ? "Stopping..."
+                  : status === "restarting"
+                    ? "Restarting..."
+                    : isGenerating
+                      ? statusLabel
+                        ? `${statusLabel}...`
+                        : "Thinking - waiting for the next event..."
+                      : null)
+
+  if (loading && messages.length === 0) {
+    return <ChatLoadingSkeleton />
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-8">
+        <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
+          <p className="text-sm font-medium text-red-400">
+            Failed to load session
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (messages.length === 0) {
+    return (
+      <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
+        <AnimatedGreeting />
+        <ChatBox
+          onSend={wrappedSend}
+          disabled={false}
+          isGenerating={isGenerating}
+          historyMessages={userMessageHistory}
+          onAbort={handleAbort}
+          initialPrompt={composerSeed}
+          replyTo={replyTo}
+          onCancelReply={cancelReply}
+          onModelSelect={handleSessionModelSelect}
+          modelSwitching={modelSwitching}
+          glowOnMount
+        />
+        {status === "error" && (
+          <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
+            <p className="text-sm text-red-400">
+              {errorMessage || "Something went wrong. Try again."}
+            </p>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
       {/* Sub-header for chat actions & pins */}
@@ -1226,7 +1226,8 @@ export function ChatView({
         data={renderedMessages}
         className="flex-1"
         scrollerRef={(ref) => {
-          scrollContainerRef.current = ref instanceof HTMLDivElement ? ref : null
+          scrollContainerRef.current =
+            ref instanceof HTMLDivElement ? ref : null
         }}
         onScroll={handleScroll}
         initialTopMostItemIndex={{ index: "LAST", align: "end" }}
