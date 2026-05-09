@@ -100,7 +100,28 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   const seenIds = new Set<string>()
 
   for (const message of collapseRepeatedBlocks(messages)) {
-    if (seenIds.has(message.messageId)) continue
+    const sameIdIndex = result.findIndex(
+      (existing) => existing.messageId === message.messageId
+    )
+    if (sameIdIndex >= 0) {
+      const existing = result[sameIdIndex]
+      result[sameIdIndex] = {
+        ...existing,
+        ...message,
+        text:
+          message.text.trim().length >= existing.text.trim().length
+            ? message.text
+            : existing.text,
+        createdAt: existing.createdAt || message.createdAt,
+        embeds: message.embeds ?? existing.embeds,
+        usage: message.usage ?? existing.usage,
+        stopReason: message.stopReason ?? existing.stopReason,
+        model: message.model ?? existing.model,
+        toolCalls: message.toolCalls ?? existing.toolCalls,
+      }
+      seenIds.add(message.messageId)
+      continue
+    }
 
     const assistantIndex = result.findIndex((existing) =>
       sameAssistantMessage(existing, message)

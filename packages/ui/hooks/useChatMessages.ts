@@ -413,7 +413,16 @@ export function useChatMessages(
         (item) => item.key === sessionKey || item.sessionKey === sessionKey
       )
       if (freshMessages?.length) {
-        setMessages((prev) => dedupeChatMessages([...prev, ...freshMessages]))
+        setMessages((prev) => {
+          const freshIds = new Set(freshMessages.map((message) => message.messageId))
+          const keptOptimistic = prev.filter(
+            (message) =>
+              message.isOptimistic &&
+              !freshIds.has(message.messageId) &&
+              !freshMessages.some((fresh) => sameUserMessage(fresh, message))
+          )
+          return dedupeChatMessages([...freshMessages, ...keptOptimistic])
+        })
       }
       const nextStatus = statusFromBackendSession(
         backendSession?.status,
@@ -1317,7 +1326,6 @@ export function useChatMessages(
         const allMessages = dedupeChatMessages(filtered)
 
         setMessages((prev) => {
-          if (prev.length === 0) return allMessages
           const histIds = new Set(allMessages.map((hm) => hm.messageId))
           const kept = prev.filter(
             (pm) =>
@@ -1327,6 +1335,14 @@ export function useChatMessages(
           )
           return dedupeChatMessages([...allMessages, ...kept])
         })
+        const restoredStatus = inferRestoredChatStatus(allMessages, statusRef.current)
+        if (!isActiveRunStatus(restoredStatus) || isActiveRunStatus(statusRef.current)) {
+          setStatus(restoredStatus)
+          if (restoredStatus === "done" || restoredStatus === "idle") {
+            setStatusLabel(null)
+            clearCachedChatActivity(sessionKey)
+          }
+        }
         setLoading(false)
         forceScrollToBottom(true)
 
@@ -1343,6 +1359,12 @@ export function useChatMessages(
             if (next.cursor !== v2CursorRef.current) v2CursorRef.current = next.cursor
             if (next.messages !== messagesRef.current) {
               setMessages(next.messages)
+              const restoredStatus = inferRestoredChatStatus(next.messages, statusRef.current)
+              if (isActiveRunStatus(statusRef.current) && !isActiveRunStatus(restoredStatus)) {
+                setStatus(restoredStatus)
+                setStatusLabel(null)
+                clearCachedChatActivity(sessionKey)
+              }
             }
           }
         )
@@ -1581,6 +1603,12 @@ export function useChatMessages(
               : m
           )
         )
+        const restoredStatus = inferRestoredChatStatus(messagesRef.current, statusRef.current)
+        if (!isActiveRunStatus(restoredStatus)) {
+          setStatus(restoredStatus)
+          setStatusLabel(null)
+          clearCachedChatActivity(sessionKey)
+        }
         emit("chat:activity")
         return true
       } catch (error) {
