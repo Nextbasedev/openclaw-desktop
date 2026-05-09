@@ -22,8 +22,11 @@ export function inferLiveToolStatus(
   if (phase === "update") return "running"
   if (!resultText) return "success"
   try {
-    const parsed = JSON.parse(resultText) as { status?: unknown; error?: unknown }
-    if (parsed.status === "error" || parsed.error) return "error"
+    const parsed = JSON.parse(resultText) as { status?: unknown; error?: unknown; exitCode?: unknown; details?: { status?: unknown; exitCode?: unknown } }
+    if (parsed.status === "error" || parsed.status === "failed" || parsed.error) return "error"
+    if (typeof parsed.exitCode === "number" && parsed.exitCode !== 0) return "error"
+    if (parsed.details?.status === "error" || parsed.details?.status === "failed") return "error"
+    if (typeof parsed.details?.exitCode === "number" && parsed.details.exitCode !== 0) return "error"
   } catch {
     if (/^\s*(error|failed|exception)\b/i.test(resultText)) return "error"
   }

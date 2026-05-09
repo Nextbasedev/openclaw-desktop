@@ -16,6 +16,12 @@ describe("live tool call event helpers", () => {
     expect(inferLiveToolStatus("result", output, true)).toBe("error")
   })
 
+  it("treats non-zero exit code results as errors", () => {
+    const output = liveToolResultText({ status: "completed", exitCode: 1 })
+
+    expect(inferLiveToolStatus("result", output, false)).toBe("error")
+  })
+
   it("treats normal result events as success with output", () => {
     const output = liveToolResultText("done")
 

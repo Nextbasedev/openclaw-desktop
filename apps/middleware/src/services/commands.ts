@@ -122,6 +122,24 @@ function formatHistoryDuration(ms: number) {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+function historyToolResultStatus(message: any) {
+  if (message?.isError === true || message?.status === "error" || message?.error) return "error"
+  const details = message?.details
+  const detailsStatus = valueFromObject(details, "status")
+  const exitCode = valueFromObject(details, "exitCode")
+  if (detailsStatus === "error" || detailsStatus === "failed") return "error"
+  if (typeof exitCode === "number" && Number.isFinite(exitCode) && exitCode !== 0) return "error"
+  const text = historyText(message)
+  try {
+    const parsed = JSON.parse(text)
+    const parsedStatus = valueFromObject(parsed, "status")
+    const parsedExitCode = valueFromObject(parsed, "exitCode")
+    if (parsedStatus === "error" || parsedStatus === "failed" || valueFromObject(parsed, "error")) return "error"
+    if (typeof parsedExitCode === "number" && Number.isFinite(parsedExitCode) && parsedExitCode !== 0) return "error"
+  } catch {}
+  return "success"
+}
+
 function attachToolDurationsToHistoryMessages(messages: any[]) {
   const cloned = messages.map((message) => {
     if (!Array.isArray(message?.content)) return message
@@ -156,6 +174,9 @@ function attachToolDurationsToHistoryMessages(messages: any[]) {
     const fallbackMs = finishedAt !== null && entry.startedAt !== null ? finishedAt - entry.startedAt : null
     const durationMs = preciseMs ?? fallbackMs
     const duration = typeof durationMs === "number" ? formatHistoryDuration(durationMs) : undefined
+    const status = historyToolResultStatus(message)
+    entry.block.status = status
+    if (status === "error") entry.block.isError = true
     if (duration) {
       entry.block.duration = duration
       entry.block.durationMs = durationMs
