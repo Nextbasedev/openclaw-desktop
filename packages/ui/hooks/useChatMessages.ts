@@ -824,7 +824,19 @@ export function useChatMessages(
           } else {
             seenIds.current.add(id)
             setMessages((prev) => {
-              const lastMsg = prev[prev.length - 1]
+              const toolIds = new Set(pendingToolMapRef.current.keys())
+              const withoutLiveToolPlaceholder =
+                toolIds.size > 0
+                  ? prev.filter(
+                      (message) =>
+                        !(
+                          message.role === "assistant" &&
+                          !message.text.trim() &&
+                          message.toolCalls?.some((tool) => toolIds.has(tool.id))
+                        )
+                    )
+                  : prev
+              const lastMsg = withoutLiveToolPlaceholder[withoutLiveToolPlaceholder.length - 1]
               const lastAssistant =
                 lastMsg?.role === "assistant" ? lastMsg : null
               const lastTrimmed = lastAssistant?.text.trim() ?? ""
@@ -836,7 +848,7 @@ export function useChatMessages(
                 ) {
                   const longer =
                     text.length >= lastTrimmed.length ? text : lastTrimmed
-                  return prev.map((m) =>
+                  return withoutLiveToolPlaceholder.map((m) =>
                     m.messageId === lastAssistant.messageId
                       ? {
                           ...m,
@@ -846,13 +858,17 @@ export function useChatMessages(
                           usage: ev.usage ?? m.usage,
                           stopReason: ev.stopReason ?? m.stopReason,
                           model: ev.model ?? m.model,
+                          toolCalls: mergeToolCalls(
+                            m.toolCalls,
+                            Array.from(pendingToolMapRef.current.values())
+                          ),
                           animateText: true,
                         }
                       : m
                   )
                 }
                 const merged = lastTrimmed + "\n\n" + text
-                return prev.map((m) =>
+                return withoutLiveToolPlaceholder.map((m) =>
                   m.messageId === lastAssistant.messageId
                     ? {
                         ...m,
@@ -862,13 +878,17 @@ export function useChatMessages(
                         usage: ev.usage ?? m.usage,
                         stopReason: ev.stopReason ?? m.stopReason,
                         model: ev.model ?? m.model,
+                        toolCalls: mergeToolCalls(
+                          m.toolCalls,
+                          Array.from(pendingToolMapRef.current.values())
+                        ),
                         animateText: true,
                       }
                     : m
                 )
               }
               return [
-                ...prev.filter((m) => m.messageId !== id),
+                ...withoutLiveToolPlaceholder.filter((m) => m.messageId !== id),
                 {
                   messageId: id,
                   role: "assistant",
@@ -878,6 +898,10 @@ export function useChatMessages(
                   usage: ev.usage ?? null,
                   stopReason: ev.stopReason ?? null,
                   embeds: pendingEmbeds,
+                  toolCalls:
+                    pendingToolMapRef.current.size > 0
+                      ? Array.from(pendingToolMapRef.current.values())
+                      : undefined,
                   animateText: true,
                 },
               ]
