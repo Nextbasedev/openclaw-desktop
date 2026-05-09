@@ -374,6 +374,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           tool: block.name ?? "unknown",
           status: "success",
           input: block.arguments ?? block.input,
+          duration: block.duration,
           startedAtMs: rawTimestampMs(item),
         }
         pendingToolCalls.push(call)

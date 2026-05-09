@@ -87,11 +87,90 @@ function friendlyAssistantError(message: any) {
   return `Error: ${raw}`
 }
 
+function historyTimestampMs(message: any) {
+  if (typeof message?.timestamp === "number" && Number.isFinite(message.timestamp)) return message.timestamp
+  if (typeof message?.createdAt === "string") {
+    const parsed = Date.parse(message.createdAt)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function historyText(message: any) {
+  return typeof message?.text === "string" ? message.text : textFromContent(message?.content)
+}
+
+function valueFromObject(value: unknown, key: string) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined
+}
+
+function historyToolResultDurationMs(message: any) {
+  const detailTookMs = valueFromObject(message?.details, "tookMs")
+  if (typeof detailTookMs === "number" && Number.isFinite(detailTookMs)) return detailTookMs
+  const text = historyText(message)
+  try {
+    const parsed = JSON.parse(text)
+    const tookMs = valueFromObject(parsed, "tookMs")
+    if (typeof tookMs === "number" && Number.isFinite(tookMs)) return tookMs
+  } catch {}
+  return null
+}
+
+function formatHistoryDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms < 0) return undefined
+  if (ms < 100) return "0.1s"
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function attachToolDurationsToHistoryMessages(messages: any[]) {
+  const cloned = messages.map((message) => {
+    if (!Array.isArray(message?.content)) return message
+    const hasToolCall = message.content.some((block: any) => block?.type === "toolCall" || block?.type === "tool_use")
+    return hasToolCall ? { ...message, content: message.content.map((block: any) => ({ ...block })) } : message
+  })
+  const pending: Array<{ block: any; startedAt: number | null }> = []
+  const byId = new Map<string, { block: any; startedAt: number | null }>()
+
+  for (const message of cloned) {
+    if (message?.role === "assistant" && Array.isArray(message.content)) {
+      const startedAt = historyTimestampMs(message)
+      for (const block of message.content) {
+        if (block?.type !== "toolCall" && block?.type !== "tool_use") continue
+        const entry = { block, startedAt }
+        pending.push(entry)
+        if (typeof block.id === "string") byId.set(block.id, entry)
+      }
+      continue
+    }
+
+    if (message?.role !== "tool" && message?.role !== "tool_result" && message?.role !== "toolResult") continue
+    const explicitId = typeof message.toolCallId === "string" ? message.toolCallId : null
+    const entry = explicitId ? byId.get(explicitId) ?? null : pending[0] ?? null
+    if (!entry) continue
+    if (explicitId) byId.delete(explicitId)
+    const pendingIndex = pending.indexOf(entry)
+    if (pendingIndex >= 0) pending.splice(pendingIndex, 1)
+
+    const preciseMs = historyToolResultDurationMs(message)
+    const finishedAt = historyTimestampMs(message)
+    const fallbackMs = finishedAt !== null && entry.startedAt !== null ? finishedAt - entry.startedAt : null
+    const durationMs = preciseMs ?? fallbackMs
+    const duration = typeof durationMs === "number" ? formatHistoryDuration(durationMs) : undefined
+    if (duration) {
+      entry.block.duration = duration
+      entry.block.durationMs = durationMs
+    }
+  }
+
+  return cloned
+}
+
 function normalizeHistoryPayload(payload: any) {
   if (!payload || !Array.isArray(payload.messages)) return payload
+  const messagesWithDurations = attachToolDurationsToHistoryMessages(payload.messages)
   const normalized = {
     ...payload,
-    messages: payload.messages.map((message: any) => {
+    messages: messagesWithDurations.map((message: any) => {
       if (message?.role === "user") {
         const rawText = typeof message.text === "string" ? message.text : textFromContent(message.content)
         if (rawText.includes("[Bootstrap truncation warning]")) {
