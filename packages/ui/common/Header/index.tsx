@@ -21,7 +21,7 @@ import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
 import { invoke } from "@/lib/ipc"
-import { routeUrl } from "@/lib/app-router"
+import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
 
@@ -464,7 +464,7 @@ function HeaderTab({
   onSelect: () => void
   onClose: () => void
   onOpenWindow?: () => void
-  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragStart?: (event: DragEvent<HTMLElement>) => void
   onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
@@ -476,12 +476,13 @@ function HeaderTab({
       return
     }
     if (tab.kind === "chat" && tab.chat?.id) {
-      window.open(routeUrl(`/${tab.chat.id}`), "_blank", "noopener,noreferrer")
+      void openRouteInNewWindow(`/${tab.chat.id}`, tab.title)
     }
   }
   const tabButton = (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -498,6 +499,12 @@ function HeaderTab({
         setMenuOpen(true)
       }}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
       className={cn(
         "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
         activeAndFocused
@@ -649,7 +656,7 @@ function HeaderTab({
           <VscClose className="size-3.5" />
         </span>
       )}
-    </button>
+    </div>
   )
 
   return (
