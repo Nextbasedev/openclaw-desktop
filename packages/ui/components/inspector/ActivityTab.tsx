@@ -253,6 +253,25 @@ export function ActivityTab({
     return [...calls].reverse()
   }, [selectedNode, filter])
 
+  const groupedCalls = useMemo(() => {
+    const groups: Array<{ key: string; label: string; calls: typeof filteredCalls }> = []
+    for (const call of filteredCalls) {
+      const key = call.messageId ?? (call.messageIndex !== undefined ? `idx:${call.messageIndex}` : "unknown")
+      const existing = groups.find((group) => group.key === key)
+      if (existing) {
+        existing.calls.push(call)
+        continue
+      }
+      const turnNumber = call.messageIndex !== undefined ? call.messageIndex + 1 : groups.length + 1
+      groups.push({
+        key,
+        label: key === "unknown" ? "Live / ungrouped tools" : `Message ${turnNumber}`,
+        calls: [call],
+      })
+    }
+    return groups
+  }, [filteredCalls])
+
   const runningCount =
     selectedNode?.calls.filter((c) => c.status === "running")
       .length ?? 0
@@ -431,15 +450,26 @@ export function ActivityTab({
                 />
               </div>
             )}
-            {filteredCalls.map((call) => (
-              <ToolCallRow
-                key={call.id}
-                call={call}
-                open={openToolId === call.id}
-                onOpenChange={handleToolOpenChange}
-                focused={call.id === focusedToolCallId}
-                onFocusHandled={onClearFocusedToolCall}
-              />
+            {groupedCalls.map((group) => (
+              <div key={group.key} className="mb-2">
+                <div className="sticky top-0 z-10 mb-1 flex items-center gap-2 bg-background/95 px-1 py-1 backdrop-blur">
+                  <span className="h-px flex-1 bg-border/40" />
+                  <span className="rounded-full border border-border/40 bg-card px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {group.label} · {group.calls.length} tool{group.calls.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="h-px flex-1 bg-border/40" />
+                </div>
+                {group.calls.map((call) => (
+                  <ToolCallRow
+                    key={call.id}
+                    call={call}
+                    open={openToolId === call.id}
+                    onOpenChange={handleToolOpenChange}
+                    focused={call.id === focusedToolCallId}
+                    onFocusHandled={onClearFocusedToolCall}
+                  />
+                ))}
+              </div>
             ))}
             {filteredCalls.length === 0 && !selectedSubagentSessionKey && (
               <div className="flex min-h-28 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">

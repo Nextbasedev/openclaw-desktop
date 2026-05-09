@@ -341,6 +341,7 @@ export function useAgentActivity(sessionKey: string | null) {
           ...fallback,
           input: data.args as Record<string, unknown> | undefined,
           startedAt: existing?.startedAt ?? Date.now(),
+          messageId: existing?.messageId ?? runId,
         }))
       } else if (phase === "update") {
         const call = existing ?? fallback
@@ -405,6 +406,7 @@ export function useAgentActivity(sessionKey: string | null) {
             duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
             startedAt: existing?.startedAt ?? Date.now(),
+            messageId: existing?.messageId ?? (data.messageId as string | undefined),
           }))
           changed = true
         }

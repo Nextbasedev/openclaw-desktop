@@ -15,6 +15,8 @@ export interface ToolCall {
   output?: string
   startedAt?: number
   completedAt?: number
+  messageId?: string
+  messageIndex?: number
   runId?: string
   subagentOf?: string
 }
@@ -191,12 +193,12 @@ export function parseHistoryToolCalls(
   const calls: ToolCall[] = []
   const agents = new Map<string, AgentInfo>()
   const subagentSessionKeys = new Map<string, string>()
-  let pendingCalls: Array<{ id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus }> = []
-  const pendingById = new Map<string, { id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus }>()
+  let pendingCalls: Array<{ id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number }> = []
+  const pendingById = new Map<string, { id: string; name: string; args: unknown; startedAt?: number; duration?: string; status?: ToolCallStatus; messageId?: string; messageIndex?: number }>()
   const spawnOrder: string[] = []
   let currentSubagentId: string | null = null
 
-  for (const msg of messages) {
+  for (const [messageIndex, msg] of messages.entries()) {
     const text = visibleTextFromMessage(msg)
 
     if (msg.role === "user" && text) {
@@ -246,6 +248,8 @@ export function parseHistoryToolCalls(
             startedAt,
             duration: b.duration,
             status: b.is_error === true || b.isError === true || b.status === "error" ? "error" : undefined,
+            messageId: msg.id,
+            messageIndex,
           }))
           for (const call of pendingCalls) pendingById.set(call.id, call)
         }
@@ -268,6 +272,8 @@ export function parseHistoryToolCalls(
             input: matched.args as Record<string, unknown> | undefined,
             output: resultText || undefined,
             startedAt: matched.startedAt,
+            messageId: matched.messageId,
+            messageIndex: matched.messageIndex,
             subagentOf:
               currentSubagentId &&
               matched.name !== "sessions_spawn" &&
@@ -308,6 +314,8 @@ export function parseHistoryToolCalls(
           output: resultText || undefined,
           startedAt: matched.startedAt,
           completedAt: messageTimestampMs(msg),
+          messageId: matched.messageId,
+          messageIndex: matched.messageIndex,
           subagentOf:
             currentSubagentId &&
             matched.name !== "sessions_spawn" &&
@@ -352,6 +360,8 @@ export function parseHistoryToolCalls(
       duration: remaining.duration,
       input: remaining.args as Record<string, unknown> | undefined,
       startedAt: remaining.startedAt,
+      messageId: remaining.messageId,
+      messageIndex: remaining.messageIndex,
       subagentOf:
         currentSubagentId &&
         remaining.name !== "sessions_spawn" &&
