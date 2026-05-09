@@ -13,6 +13,7 @@ import {
   buildTree,
   finalizeStaleRunningActivity,
 } from "@/components/inspector/activity-types"
+import { inferLiveToolStatus, liveToolResultText } from "@/lib/liveToolCalls"
 import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
@@ -45,6 +46,16 @@ function stringifyToolOutput(value: unknown): string | undefined {
   if (typeof value === "string") return value
   if (value == null) return undefined
   try { return JSON.stringify(value, null, 2) } catch { return String(value) }
+}
+
+function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): ToolCall {
+  if (!existing) return incoming
+  const merged = { ...existing, ...incoming }
+  if (existing.duration && existing.status !== "running") merged.duration = existing.duration
+  if (existing.startedAt && !incoming.startedAt) merged.startedAt = existing.startedAt
+  if (existing.output && !incoming.output) merged.output = existing.output
+  if (existing.status === "error") merged.status = "error"
+  return merged
 }
 
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
@@ -142,9 +153,10 @@ export function useAgentActivity(sessionKey: string | null) {
         let changed = false
         for (const call of subParsed.calls) {
           const existing = callMapRef.current.get(call.id)
-          if (!existing || existing.status !== call.status) {
-            call.subagentOf = agentId
-            callMapRef.current.set(call.id, call)
+          call.subagentOf = agentId
+          const merged = mergeActivityCall(existing, call)
+          if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+            callMapRef.current.set(call.id, merged)
             changed = true
           }
         }
@@ -321,34 +333,37 @@ export function useAgentActivity(sessionKey: string | null) {
       }
 
       if (phase === "calling" || phase === "start") {
-        map.set(toolCallId, {
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...fallback,
           input: data.args as Record<string, unknown> | undefined,
-          startedAt: Date.now(),
-        })
+          startedAt: existing?.startedAt ?? Date.now(),
+        }))
       } else if (phase === "update") {
         const call = existing ?? fallback
-        map.set(toolCallId, {
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
           status: "running",
           output: stringifyToolOutput(data.partialResult ?? data.output ?? data.content ?? data.details) ?? call.output,
-        })
+        }))
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
-        const duration = call.startedAt
-          ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-          : undefined
+        const duration = call.duration && call.status !== "running"
+          ? call.duration
+          : call.startedAt
+            ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+            : undefined
         const result = data.result ?? data.output ?? data.content ?? data.details
         const output =
           phase === "error"
-            ? ((data.error as string) ?? "Unknown error")
+            ? stringifyToolOutput(data.error ?? result) ?? "Unknown error"
             : stringifyToolOutput(result)
-        map.set(toolCallId, {
+        const resultText = liveToolResultText(data.error ?? result)
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
-          status: phase === "error" ? "error" : "success",
+          status: inferLiveToolStatus(phase, resultText, data.isError),
           duration,
           output,
-        })
+        }))
       }
       syncState()
     },
@@ -381,10 +396,12 @@ export function useAgentActivity(sessionKey: string | null) {
           if (!toolCallId || !name) continue
           if (callMapRef.current.has(toolCallId)) continue
 
+          const status = record.isError === true || record.status === "error" ? "error" : "running"
           callMapRef.current.set(toolCallId, {
             id: toolCallId,
             tool: name,
-            status: "running",
+            status,
+            duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
             startedAt: Date.now(),
           })
@@ -492,7 +509,7 @@ export function useAgentActivity(sessionKey: string | null) {
           ? finalizeStaleRunningActivity(parsed.calls, parsed.agents)
           : parsed
         for (const call of reconciled.calls) {
-          callMapRef.current.set(call.id, call)
+          callMapRef.current.set(call.id, mergeActivityCall(callMapRef.current.get(call.id), call))
         }
         for (const [id, info] of reconciled.agents) {
           agentsRef.current.set(id, info)
