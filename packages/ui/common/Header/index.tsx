@@ -11,14 +11,17 @@ import {
   VscSplitHorizontal,
   VscTerminal,
 } from "react-icons/vsc"
+import { LuExternalLink } from "react-icons/lu"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { WindowControls } from "@/components/WindowControls"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
 import { invoke } from "@/lib/ipc"
+import { routeUrl } from "@/lib/app-router"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
 
@@ -43,6 +46,7 @@ type HeaderProps = {
   editorGroups?: EditorGroupsState | null
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
+  onOpenChatTabWindow?: (tab: EditorTab) => void
   onMoveChatTab?: (
     tabId: string,
     sourceGroupId: "group-1" | "group-2",
@@ -79,6 +83,7 @@ export function Header({
   editorGroups = null,
   onSelectChatTab,
   onCloseChatTab,
+  onOpenChatTabWindow,
   onMoveChatTab,
   onNewChat,
   showSplitButton = false,
@@ -263,6 +268,11 @@ export function Header({
                       isFocusedGroup={isFocusedGroup}
                       onSelect={() => onSelectChatTab?.(group.id, tab.id)}
                       onClose={() => onCloseChatTab?.(tab.id)}
+                      onOpenWindow={
+                        tab.kind === "chat"
+                          ? () => onOpenChatTabWindow?.(tab)
+                          : undefined
+                      }
                       onDragStart={(event) => {
                         event.dataTransfer.setData("text/tab-id", tab.id)
                         event.dataTransfer.setData("text/source-group", group.id)
@@ -444,6 +454,7 @@ function HeaderTab({
   isFocusedGroup = true,
   onSelect,
   onClose,
+  onOpenWindow,
   onDragStart,
   onDragEnd,
 }: {
@@ -452,17 +463,40 @@ function HeaderTab({
   isFocusedGroup?: boolean
   onSelect: () => void
   onClose: () => void
+  onOpenWindow?: () => void
   onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
   onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
   const tabLabel = `${tab.subtitle} / ${tab.title}`
+  const [menuOpen, setMenuOpen] = useState(false)
+  const openTabWindow = () => {
+    if (onOpenWindow) {
+      onOpenWindow()
+      return
+    }
+    if (tab.kind === "chat" && tab.chat?.id) {
+      window.open(routeUrl(`/${tab.chat.id}`), "_blank", "noopener,noreferrer")
+    }
+  }
   const tabButton = (
     <button
       type="button"
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onDoubleClick={(event) => {
+        if (tab.kind !== "chat") return
+        event.preventDefault()
+        event.stopPropagation()
+        openTabWindow()
+      }}
+      onContextMenu={(event) => {
+        if (tab.kind !== "chat") return
+        event.preventDefault()
+        event.stopPropagation()
+        setMenuOpen(true)
+      }}
       onClick={onSelect}
       className={cn(
         "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
@@ -524,30 +558,97 @@ function HeaderTab({
           </span>
         </div>
       </div>
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation()
-          onClose()
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault()
+      {tab.kind === "chat" && (
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="Open tab menu"
+              title="Tab options"
+              onClick={(e) => {
+                e.stopPropagation()
+                setMenuOpen((open) => !open)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setMenuOpen((open) => !open)
+                }
+              }}
+              className={cn(
+                "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+                isActive || menuOpen ? "opacity-100" : "opacity-0",
+                isActive
+                  ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+                  : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+              )}
+            >
+              <Icons.MoreVertical size={14} strokeWidth={1.5} />
+            </span>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            side="bottom"
+            sideOffset={6}
+            className="z-[9999] w-44 gap-0 rounded-xl border border-white/[0.08] bg-[#1B1B1D]/95 p-1 shadow-2xl backdrop-blur-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                setMenuOpen(false)
+                openTabWindow()
+              }}
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium text-foreground/80 transition-colors hover:bg-foreground/8 hover:text-foreground"
+            >
+              <LuExternalLink className="size-3.5" />
+              Open as new window
+            </button>
+            <div className="my-0.5 h-px bg-border/20" />
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                setMenuOpen(false)
+                onClose()
+              }}
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium text-foreground/80 transition-colors hover:bg-foreground/8 hover:text-foreground"
+            >
+              <VscClose className="size-3.5" />
+              Close tab
+            </button>
+          </PopoverContent>
+        </Popover>
+      )}
+      {tab.kind !== "chat" && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
             e.stopPropagation()
             onClose()
-          }
-        }}
-        className={cn(
-          "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
-          isActive ? "opacity-100" : "opacity-0",
-          isActive
-            ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
-            : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
-        )}
-      >
-        <VscClose className="size-3.5" />
-      </span>
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              e.stopPropagation()
+              onClose()
+            }
+          }}
+          className={cn(
+            "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+            isActive ? "opacity-100" : "opacity-0",
+            isActive
+              ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+              : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+          )}
+        >
+          <VscClose className="size-3.5" />
+        </span>
+      )}
     </button>
   )
 

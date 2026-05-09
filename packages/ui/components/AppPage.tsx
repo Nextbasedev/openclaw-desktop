@@ -1226,6 +1226,13 @@ function AppShell({
     }
   }, [editorGroups, handleChatSelect, handleNewChat, handleTopicSelect])
 
+  const handleOpenChatTabWindow = useCallback((tab: EditorTab) => {
+    if (tab.kind !== "chat") return
+    const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+    if (!chatId || chatId === tab.id) return
+    window.open(routeUrl(`/${chatId}`), "_blank", "noopener,noreferrer")
+  }, [])
+
   const handleEditorTabMove = useCallback((
     tabId: string,
     sourceGroupId: EditorGroupId,
@@ -1737,6 +1744,7 @@ function AppShell({
         editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
+        onOpenChatTabWindow={effectiveActiveTab === "chat" ? handleOpenChatTabWindow : undefined}
         onMoveChatTab={effectiveActiveTab === "chat" ? handleEditorTabMove : undefined}
         onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
         showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
