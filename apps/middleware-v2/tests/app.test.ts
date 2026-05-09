@@ -1,0 +1,37 @@
+import { describe, expect, test } from "vitest";
+import { createApp } from "../src/app.js";
+import type { MiddlewareV2Config } from "../src/config/env.js";
+
+const config: MiddlewareV2Config = {
+  host: "127.0.0.1",
+  port: 8989,
+  databasePath: "/tmp/openclaw-middleware-v2-test.sqlite",
+  openclawGatewayUrl: "ws://127.0.0.1:18789",
+  nodeEnv: "test",
+};
+
+describe("middleware-v2 app", () => {
+  test("health returns service metadata", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "GET", url: "/health" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, service: "openclaw-middleware-v2" });
+    await app.close();
+  });
+
+  test("system info exposes configured v2 port", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "GET", url: "/api/system/info" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, port: 8989 });
+    await app.close();
+  });
+
+  test("chat bootstrap validates sessionKey", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ ok: false, error: { code: "INVALID_QUERY" } });
+    await app.close();
+  });
+});

@@ -1,0 +1,117 @@
+import type Database from "better-sqlite3";
+import { fromJson, toJson } from "../../db/json.js";
+import type { ProjectedMessage, ProjectionEvent } from "./types.js";
+
+export class MessageRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  upsertSession(session: { sessionKey: string; sessionId?: string | null; data: unknown; updatedAtMs?: number }) {
+    this.db.prepare(`
+      INSERT INTO v2_sessions(session_key, session_id, data_json, updated_at_ms)
+      VALUES (@sessionKey, @sessionId, @dataJson, @updatedAtMs)
+      ON CONFLICT(session_key) DO UPDATE SET
+        session_id = excluded.session_id,
+        data_json = excluded.data_json,
+        updated_at_ms = excluded.updated_at_ms
+    `).run({
+      sessionKey: session.sessionKey,
+      sessionId: session.sessionId ?? null,
+      dataJson: toJson(session.data),
+      updatedAtMs: session.updatedAtMs ?? Date.now(),
+    });
+  }
+
+  upsertMessages(messages: ProjectedMessage[]) {
+    if (messages.length === 0) return { upserted: 0, lastSeq: 0 };
+    const insert = this.db.prepare(`
+      INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
+      VALUES (@sessionKey, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
+      ON CONFLICT(session_key, openclaw_seq) DO UPDATE SET
+        message_id = excluded.message_id,
+        role = excluded.role,
+        data_json = excluded.data_json,
+        updated_at_ms = excluded.updated_at_ms
+    `);
+    const offset = this.db.prepare(`
+      INSERT INTO v2_gateway_offsets(session_key, last_openclaw_seq, updated_at_ms)
+      VALUES (@sessionKey, @lastSeq, @updatedAtMs)
+      ON CONFLICT(session_key) DO UPDATE SET
+        last_openclaw_seq = max(v2_gateway_offsets.last_openclaw_seq, excluded.last_openclaw_seq),
+        updated_at_ms = excluded.updated_at_ms
+    `);
+    const tx = this.db.transaction((rows: ProjectedMessage[]) => {
+      let lastSeq = 0;
+      for (const message of rows) {
+        insert.run({
+          sessionKey: message.sessionKey,
+          openclawSeq: message.openclawSeq,
+          messageId: message.messageId,
+          role: message.role,
+          dataJson: toJson(message.data),
+          updatedAtMs: message.updatedAtMs,
+        });
+        lastSeq = Math.max(lastSeq, message.openclawSeq);
+      }
+      offset.run({ sessionKey: rows[0]?.sessionKey, lastSeq, updatedAtMs: Date.now() });
+      return lastSeq;
+    });
+    const lastSeq = tx(messages) as number;
+    return { upserted: messages.length, lastSeq };
+  }
+
+  appendProjectionEvent(params: { sessionKey?: string | null; eventType: string; payload: unknown; createdAtMs?: number }): ProjectionEvent {
+    const createdAtMs = params.createdAtMs ?? Date.now();
+    const info = this.db.prepare(`
+      INSERT INTO v2_projection_events(session_key, event_type, payload_json, created_at_ms)
+      VALUES (@sessionKey, @eventType, @payloadJson, @createdAtMs)
+    `).run({
+      sessionKey: params.sessionKey ?? null,
+      eventType: params.eventType,
+      payloadJson: toJson(params.payload),
+      createdAtMs,
+    });
+    return {
+      cursor: Number(info.lastInsertRowid),
+      sessionKey: params.sessionKey ?? null,
+      eventType: params.eventType,
+      payload: params.payload,
+      createdAtMs,
+    };
+  }
+
+  listMessages(sessionKey: string, opts: { afterSeq?: number; limit?: number } = {}): ProjectedMessage[] {
+    const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
+    const rows = this.db.prepare(`
+      SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
+      ORDER BY openclaw_seq ASC
+      LIMIT @limit
+    `).all({ sessionKey, afterSeq: opts.afterSeq ?? 0, limit }) as Array<{
+      session_key: string;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+    }>;
+    return rows.map((row) => ({
+      sessionKey: row.session_key,
+      openclawSeq: row.openclaw_seq,
+      messageId: row.message_id,
+      role: row.role,
+      data: fromJson(row.data_json),
+      updatedAtMs: row.updated_at_ms,
+    }));
+  }
+
+  diagnostics() {
+    return this.db.prepare(`
+      SELECT
+        (SELECT count(*) FROM v2_sessions) AS sessions,
+        (SELECT count(*) FROM v2_messages) AS messages,
+        (SELECT count(*) FROM v2_projection_events) AS projectionEvents,
+        (SELECT max(cursor) FROM v2_projection_events) AS latestCursor
+    `).get() as { sessions: number; messages: number; projectionEvents: number; latestCursor: number | null };
+  }
+}
