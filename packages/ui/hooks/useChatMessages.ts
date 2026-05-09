@@ -1384,39 +1384,13 @@ export function useChatMessages(
           }
         )
 
-        unsubscribeStream = subscribeChatStream(
-          sessionKey,
-          ({ data }) => {
-            if (cancelled) return
-            handleStreamEvent({
-              streamId: sessionKey,
-              event: data as StreamEventPayload["event"],
-            })
-            const eventType = (data as { type?: string }).type
-            if (eventType === "chat.message" || eventType === "chat.status") {
-              void queryClient.invalidateQueries({
-                queryKey: queryKeys.chatBootstrap(sessionKey),
-              })
-              void queryClient.invalidateQueries({
-                queryKey: queryKeys.sessions(),
-              })
-            }
-          },
-          () => {
-            const current = statusRef.current
-            if (
-              !cancelled &&
-              (isSendingRef.current || isActiveRunStatus(current))
-            ) {
-              setStatus((prev) => (isActiveRunStatus(prev) ? "thinking" : prev))
-              setStatusLabel("Live updates reconnecting…")
-              void reconcileActiveRun().catch(() => undefined)
-              void queryClient.invalidateQueries({
-                queryKey: queryKeys.sessions(),
-              })
-            }
-          }
-        )
+        // V2 is the single source of truth for chat messages.
+        // Do not also subscribe to the legacy chat stream here: running both
+        // streams races two independent sources into the same React message
+        // array and can produce duplicate user bubbles or assistant-only turns
+        // in secondary windows. Tool/status events need first-class V2 patches
+        // instead of legacy message mutation.
+        unsubscribeStream = null
       } catch (e) {
         bootstrapSettled = true
         if (loadingTimeout) {

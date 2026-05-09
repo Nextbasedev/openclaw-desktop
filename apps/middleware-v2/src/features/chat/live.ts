@@ -8,7 +8,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeText(value: string) {
-  return value.trim().replace(/\s+/g, " ");
+  return value
+    .replace(/^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/i, "")
+    .replace(/^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/i, "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 export class ChatLiveIngest {
