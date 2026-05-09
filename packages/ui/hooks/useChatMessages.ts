@@ -438,6 +438,30 @@ export function useChatMessages(
     [mergeToolCalls]
   )
 
+  const refreshFinishedToolFromHistory = useCallback(
+    async (toolCallId: string) => {
+      try {
+        const history = await invoke<{ messages: RawMessage[] }>(
+          "middleware_chat_history",
+          { input: { sessionKey } }
+        )
+        const parsed = parseChatHistory(history.messages ?? [])
+        const historyTool = parsed.messages
+          .flatMap((message) => message.toolCalls ?? [])
+          .find((tool) => tool.id === toolCallId)
+        if (!historyTool?.resultText) return
+        const current = pendingToolMapRef.current.get(toolCallId)
+        const merged = current ? { ...current, ...historyTool } : historyTool
+        pendingToolMapRef.current.set(toolCallId, merged)
+        setPendingTools(Array.from(pendingToolMapRef.current.values()))
+        mergeToolsIntoLastAssistant([merged])
+      } catch {
+        // Best-effort live repair: history may not be flushed yet.
+      }
+    },
+    [mergeToolsIntoLastAssistant, sessionKey]
+  )
+
   const flushToolsToLastAssistant = useCallback(() => {
     mergeToolsIntoLastAssistant(Array.from(pendingToolMapRef.current.values()))
   }, [mergeToolsIntoLastAssistant])
@@ -640,6 +664,10 @@ export function useChatMessages(
             }
             pendingToolMapRef.current.set(toolCallId, updatedCall)
             mergeToolsIntoLastAssistant([updatedCall])
+            if ((phase === "result" || phase === "error") && !updatedCall.resultText) {
+              window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), 250)
+              window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), 1000)
+            }
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
               if (prev) {
@@ -855,7 +883,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoLastAssistant, upsertSpawn]
+    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoLastAssistant, refreshFinishedToolFromHistory, upsertSpawn]
   )
 
   useEffect(() => {
