@@ -3,7 +3,8 @@
   "identifier": "default",
   "description": "Grants default and window-control permissions",
   "windows": [
-    "main"
+    "main",
+    "openclaw-chat-*"
   ],
   "permissions": [
     "core:default",
