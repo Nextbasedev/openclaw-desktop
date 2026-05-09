@@ -58,51 +58,53 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         : { key: input.sessionKey, execSecurity, execAsk });
     }
 
-    await context.chatLive.ensureSessionSubscribed(input.sessionKey);
+    return context.sendQueue.run(input.sessionKey, async () => {
+          await context.chatLive.ensureSessionSubscribed(input.sessionKey);
 
-    const prepared = prepareMessageAndAttachments(rawMessage, input.attachments);
-    const nowIso = new Date().toISOString();
-    const clientMessage = {
-      role: "user",
-      text: prepared.message,
-      createdAt: nowIso,
-      isOptimistic: true,
-      __clientOptimistic: true,
-      __openclaw: {
-        id: input.clientMessageId || `client:${input.idempotencyKey}`,
-      },
-    };
-    context.chatLive.addOptimisticUser(input.sessionKey, {
-      id: clientMessage.__openclaw.id,
-      text: prepared.message,
-    });
-    const event = context.messages.appendProjectionEvent({
-      sessionKey: input.sessionKey,
-      eventType: "chat.message.upsert",
-      payload: {
-        sessionKey: input.sessionKey,
-        message: clientMessage,
-        optimistic: true,
-        idempotencyKey: input.idempotencyKey,
-      },
-    });
-    context.patchBus.broadcast({
-      cursor: event.cursor,
-      type: event.eventType,
-      sessionKey: event.sessionKey,
-      payload: event.payload,
-      createdAtMs: event.createdAtMs,
-    });
+          const prepared = prepareMessageAndAttachments(rawMessage, input.attachments);
+          const nowIso = new Date().toISOString();
+          const clientMessage = {
+            role: "user",
+            text: prepared.message,
+            createdAt: nowIso,
+            isOptimistic: true,
+            __clientOptimistic: true,
+            __openclaw: {
+              id: input.clientMessageId || `client:${input.idempotencyKey}`,
+            },
+          };
+          context.chatLive.addOptimisticUser(input.sessionKey, {
+            id: clientMessage.__openclaw.id,
+            text: prepared.message,
+          });
+          const event = context.messages.appendProjectionEvent({
+            sessionKey: input.sessionKey,
+            eventType: "chat.message.upsert",
+            payload: {
+              sessionKey: input.sessionKey,
+              message: clientMessage,
+              optimistic: true,
+              idempotencyKey: input.idempotencyKey,
+            },
+          });
+          context.patchBus.broadcast({
+            cursor: event.cursor,
+            type: event.eventType,
+            sessionKey: event.sessionKey,
+            payload: event.payload,
+            createdAtMs: event.createdAtMs,
+          });
 
-    const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
-      sessionKey: input.sessionKey,
-      message: prepared.message,
-      timeoutMs: input.timeoutMs || 120_000,
-      idempotencyKey: input.idempotencyKey,
-      ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
-    }, input.timeoutMs || 130_000);
+          const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
+            sessionKey: input.sessionKey,
+            message: prepared.message,
+            timeoutMs: input.timeoutMs || 120_000,
+            idempotencyKey: input.idempotencyKey,
+            ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
+          }, input.timeoutMs || 130_000);
 
-    return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
+          return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
+    });
   });
 
   app.post("/api/chat/abort", async (request) => {

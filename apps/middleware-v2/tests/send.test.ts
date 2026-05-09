@@ -79,6 +79,24 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("serializes sends per session", async () => {
+    const app = await createApp(config("queue"));
+    const context = contextOf(app);
+    const order: string[] = [];
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method !== "chat.send") return { ok: true };
+      order.push(`start:${params?.idempotencyKey}`);
+      await new Promise((resolve) => setTimeout(resolve, params?.idempotencyKey === "one" ? 40 : 0));
+      order.push(`end:${params?.idempotencyKey}`);
+      return { runId: params?.idempotencyKey };
+    });
+    const first = app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "first", idempotencyKey: "one" } });
+    const second = app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "second", idempotencyKey: "two" } });
+    await Promise.all([first, second]);
+    expect(order).toEqual(["start:one", "end:one", "start:two", "end:two"]);
+    await app.close();
+  });
+
   test("abort forwards to Gateway chat.abort", async () => {
     const app = await createApp(config("abort"));
     const context = contextOf(app);

@@ -8,6 +8,7 @@ import { openDatabase, type MiddlewareDatabase } from "./db/connection.js";
 import { GatewayClient } from "./features/gateway/client.js";
 import { MessageRepository } from "./features/chat/repo.messages.js";
 import { ChatLiveIngest } from "./features/chat/live.js";
+import { SessionSendQueue } from "./features/chat/send-queue.js";
 import { PatchBus, registerPatchRoutes } from "./features/patches.js";
 import { registerSystemRoutes } from "./features/system/routes.js";
 import { registerGatewayRoutes } from "./features/gateway/routes.js";
@@ -20,6 +21,7 @@ export type AppContext = {
   db: MiddlewareDatabase;
   messages: MessageRepository;
   chatLive: ChatLiveIngest;
+  sendQueue: SessionSendQueue;
   patchBus: PatchBus;
   startedAtMs: number;
 };
@@ -36,6 +38,7 @@ export async function createApp(config: MiddlewareV2Config) {
     db,
     messages,
     chatLive: undefined as unknown as ChatLiveIngest,
+    sendQueue: new SessionSendQueue(),
     patchBus,
     startedAtMs: Date.now(),
   };
