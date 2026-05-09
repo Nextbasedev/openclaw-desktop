@@ -450,13 +450,13 @@ export function ActivityTab({
               </div>
             )}
             {groupedCalls.map((group) => (
-              <div key={group.key} className="mb-2">
-                <div className="sticky top-0 z-10 mb-1 flex items-center gap-2 bg-background/95 px-1 py-1 backdrop-blur">
-                  <span className="max-w-[46%] truncate text-[10px] font-medium text-muted-foreground/70">
+              <div key={group.key} className="mb-3 first:mt-0">
+                <div className="sticky top-0 z-10 mb-1.5 flex items-center gap-2 py-1.5">
+                  <span className="max-w-[48%] truncate text-[10px] font-medium tracking-wide text-muted-foreground/65">
                     {group.label}
                   </span>
-                  <span className="h-px flex-1 bg-border/40" />
-                  <span className="size-1.5 shrink-0 rounded-full bg-border" />
+                  <span className="h-px flex-1 bg-gradient-to-r from-border/50 via-border/25 to-transparent" />
+                  <span className="size-1.5 shrink-0 rounded-full bg-border/70 shadow-[0_0_10px_rgba(255,255,255,0.12)]" />
                 </div>
                 {group.calls.map((call) => (
                   <ToolCallRow
