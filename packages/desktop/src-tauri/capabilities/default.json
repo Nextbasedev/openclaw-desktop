@@ -6,6 +6,10 @@
     "main",
     "openclaw-chat-*"
   ],
+  "webviews": [
+    "main",
+    "openclaw-chat-*"
+  ],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",
