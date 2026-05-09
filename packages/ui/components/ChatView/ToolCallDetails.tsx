@@ -90,26 +90,32 @@ export function ToolCallDetails({
         </DetailBlock>
       )}
       {showDivider && <div className="h-px bg-transparent" />}
-      {outputText ? (
-        <DetailBlock
-          label={call.status === "error" ? "Error" : "Output"}
-          tone={call.status === "error" ? "error" : "success"}
-        >
-          {outputText}
-        </DetailBlock>
-      ) : call.status === "running" ? (
-        <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75">
-          Waiting for this tool to return output...
+      <div className="grid transition-[grid-template-rows] duration-300 ease-out" style={{ gridTemplateRows: outputText || call.status === "running" || waitingForOutput || showEmptyState ? "1fr" : "0fr" }}>
+        <div className="overflow-hidden">
+          <div className="transition-all duration-300 ease-out animate-in fade-in-0 slide-in-from-top-1">
+            {outputText ? (
+              <DetailBlock
+                label={call.status === "error" ? "Error" : "Output"}
+                tone={call.status === "error" ? "error" : "success"}
+              >
+                {outputText}
+              </DetailBlock>
+            ) : call.status === "running" ? (
+              <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75 transition-opacity duration-300">
+                Waiting for this tool to return output...
+              </div>
+            ) : waitingForOutput ? (
+              <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75 transition-opacity duration-300">
+                Loading tool output...
+              </div>
+            ) : showEmptyState ? (
+              <div className="bg-black/20 px-5 py-4 text-[12px] text-[#9CA3AF]/75 transition-opacity duration-300">
+                No inline input or output was captured for this tool.
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : waitingForOutput ? (
-        <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75">
-          Loading tool output...
-        </div>
-      ) : showEmptyState ? (
-        <div className="bg-black/20 px-5 py-4 text-[12px] text-[#9CA3AF]/75">
-          No inline input or output was captured for this tool.
-        </div>
-      ) : null}
+      </div>
     </div>
   )
 }
