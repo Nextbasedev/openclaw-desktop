@@ -59,6 +59,10 @@ import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 type RawMessage = {
   id?: string
   messageId?: string
+  __openclaw?: {
+    id?: string
+    seq?: number
+  }
   role: string
   text?: string
   content?: string | ContentBlock[]
@@ -87,12 +91,26 @@ type ChatBootstrapData = {
   v2Cursor?: number
 }
 
+function stableRawMessageId(raw: RawMessage): string {
+  const openclawId = raw.__openclaw?.id
+  if (typeof openclawId === "string" && openclawId.trim()) return openclawId
+  if (raw.id) return raw.id
+  if (raw.messageId) return raw.messageId
+  const seq = raw.__openclaw?.seq
+  if (typeof seq === "number" && Number.isFinite(seq)) {
+    return `openclaw:${Math.floor(seq)}`
+  }
+  const text = (raw.text || extractText(raw.content)).trim().replace(/\s+/g, " ").slice(0, 160)
+  if (raw.role && raw.createdAt && text) return `${raw.role}:${raw.createdAt}:${text}`
+  return randomId()
+}
+
 function rawToChatMessage(
   raw: RawMessage,
   fallbackRole: "user" | "assistant"
 ): ChatMessage {
   return {
-    messageId: raw.id ?? raw.messageId ?? randomId(),
+    messageId: stableRawMessageId(raw),
     role:
       raw.role === "user"
         ? "user"
@@ -1001,10 +1019,7 @@ export function useChatMessages(
         for (let rawIdx = 0; rawIdx < raw.length; rawIdx++) {
           const m = raw[rawIdx]
           if (m.role === "user") {
-            const id =
-              ((m as Record<string, unknown>).id as string) ||
-              ((m as Record<string, unknown>).messageId as string) ||
-              randomId()
+            const id = stableRawMessageId(m)
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
             const text = rawText ? cleanUserMessageText(rawText) : ""
@@ -1081,10 +1096,7 @@ export function useChatMessages(
             pendingToolCalls = []
             resultQueue = []
           } else if (m.role === "assistant") {
-            const id =
-              ((m as Record<string, unknown>).id as string) ||
-              ((m as Record<string, unknown>).messageId as string) ||
-              randomId()
+            const id = stableRawMessageId(m)
             seenIds.current.add(id)
 
             const blocks = Array.isArray(m.content)
