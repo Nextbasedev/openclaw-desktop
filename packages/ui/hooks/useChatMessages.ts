@@ -410,11 +410,18 @@ export function useChatMessages(
     []
   )
 
-  const mergeToolsIntoLastAssistant = useCallback(
+  const mergeToolsIntoCurrentAssistant = useCallback(
     (tools: InlineToolCall[]) => {
       if (tools.length === 0) return
       setMessages((prev) => {
-        for (let i = prev.length - 1; i >= 0; i--) {
+        const latestUserIndex = (() => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].role === "user") return i
+          }
+          return -1
+        })()
+
+        for (let i = prev.length - 1; i > latestUserIndex; i--) {
           if (prev[i].role === "assistant") {
             const updated = [...prev]
             updated[i] = {
@@ -424,14 +431,18 @@ export function useChatMessages(
             return updated
           }
         }
+
+        const insertAt = latestUserIndex >= 0 ? latestUserIndex + 1 : prev.length
+        const placeholder = {
+          messageId: randomId(),
+          role: "assistant" as const,
+          text: "",
+          toolCalls: tools,
+        }
         return [
-          ...prev,
-          {
-            messageId: randomId(),
-            role: "assistant" as const,
-            text: "",
-            toolCalls: tools,
-          },
+          ...prev.slice(0, insertAt),
+          placeholder,
+          ...prev.slice(insertAt),
         ]
       })
     },
@@ -454,17 +465,17 @@ export function useChatMessages(
         const merged = current ? { ...current, ...historyTool } : historyTool
         pendingToolMapRef.current.set(toolCallId, merged)
         setPendingTools(Array.from(pendingToolMapRef.current.values()))
-        mergeToolsIntoLastAssistant([merged])
+        mergeToolsIntoCurrentAssistant([merged])
       } catch {
         // Best-effort live repair: history may not be flushed yet.
       }
     },
-    [mergeToolsIntoLastAssistant, sessionKey]
+    [mergeToolsIntoCurrentAssistant, sessionKey]
   )
 
   const flushToolsToLastAssistant = useCallback(() => {
-    mergeToolsIntoLastAssistant(Array.from(pendingToolMapRef.current.values()))
-  }, [mergeToolsIntoLastAssistant])
+    mergeToolsIntoCurrentAssistant(Array.from(pendingToolMapRef.current.values()))
+  }, [mergeToolsIntoCurrentAssistant])
 
   const handleStreamEvent = useCallback(
     (payload: StreamEventPayload) => {
@@ -663,7 +674,7 @@ export function useChatMessages(
                 : call.approval,
             }
             pendingToolMapRef.current.set(toolCallId, updatedCall)
-            mergeToolsIntoLastAssistant([updatedCall])
+            mergeToolsIntoCurrentAssistant([updatedCall])
             if ((phase === "result" || phase === "error") && !updatedCall.resultText) {
               for (const delayMs of [0, 100, 300, 700, 1500]) {
                 window.setTimeout(
@@ -887,7 +898,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoLastAssistant, refreshFinishedToolFromHistory, upsertSpawn]
+    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoCurrentAssistant, refreshFinishedToolFromHistory, upsertSpawn]
   )
 
   useEffect(() => {
