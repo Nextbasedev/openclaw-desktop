@@ -60,6 +60,10 @@ export type RawHistoryMessage = {
   content?: string | ContentBlock[]
   errorMessage?: string | null
   createdAt?: string
+  timestamp?: number
+  toolCallId?: string
+  toolName?: string
+  details?: unknown
   model?: string
   provider?: string
   usage?: ChatMessage["usage"]
@@ -107,6 +111,47 @@ function inferToolStatus(resultText: string): InlineToolCall["status"] {
   } catch {
     return "success"
   }
+}
+
+function rawTimestampMs(raw: RawHistoryMessage): number | null {
+  if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
+    return raw.timestamp
+  }
+  if (raw.createdAt) {
+    const parsed = Date.parse(raw.createdAt)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function formatDuration(ms: number): string | undefined {
+  if (!Number.isFinite(ms) || ms < 0) return undefined
+  if (ms < 100) return "0.1s"
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function objectValue(value: unknown, key: string): unknown {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)[key]
+    : undefined
+}
+
+function toolResultDurationMs(
+  raw: RawHistoryMessage,
+  resultText: string
+): number | null {
+  const detailTookMs = objectValue(raw.details, "tookMs")
+  if (typeof detailTookMs === "number" && Number.isFinite(detailTookMs)) {
+    return detailTookMs
+  }
+  try {
+    const parsed = JSON.parse(resultText) as unknown
+    const tookMs = objectValue(parsed, "tookMs")
+    if (typeof tookMs === "number" && Number.isFinite(tookMs)) return tookMs
+  } catch {
+    // Result text is not guaranteed to be JSON.
+  }
+  return null
 }
 
 export function stripBootstrap(t: string): string {
@@ -280,7 +325,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
   const messages: ChatMessage[] = []
   const subagents: SpawnedSubagent[] = []
   let pendingToolCalls: InlineToolCall[] = []
-  let resultQueue: InlineToolCall[] = []
+  let resultQueue: Array<InlineToolCall & { startedAtMs?: number | null }> = []
   const subagentByToolId = new Map<
     string,
     SpawnedSubagent & { terminal?: boolean }
@@ -324,11 +369,12 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
 
     if (role === "assistant") {
       for (const block of toolBlocks(item)) {
-        const call: InlineToolCall = {
+        const call: InlineToolCall & { startedAtMs?: number | null } = {
           id: block.id ?? randomId(),
           tool: block.name ?? "unknown",
           status: "success",
           input: block.arguments ?? block.input,
+          startedAtMs: rawTimestampMs(item),
         }
         pendingToolCalls.push(call)
         resultQueue.push(call)
@@ -386,6 +432,18 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       const resultText = toolResultText(item)
       matched.status = inferToolStatus(resultText)
       matched.resultText = resultText || matched.resultText
+      const preciseDurationMs = toolResultDurationMs(item, resultText)
+      const fallbackDurationMs = (() => {
+        const finishedAt = rawTimestampMs(item)
+        return finishedAt !== null &&
+          matched.startedAtMs !== null &&
+          matched.startedAtMs !== undefined
+          ? finishedAt - matched.startedAtMs
+          : null
+      })()
+      matched.duration =
+        formatDuration(preciseDurationMs ?? fallbackDurationMs ?? -1) ??
+        matched.duration
       const subagent = subagentByToolId.get(matched.id)
       if (subagent && matched.tool === "sessions_spawn") {
         const childKey = extractSubagentSessionKey(resultText)

@@ -305,6 +305,61 @@ describe("parseChatHistory", () => {
     )
   })
 
+  it("restores persisted tool durations from tool result tookMs", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "web_fetch",
+            arguments: { url: "https://example.com" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "web_fetch",
+        timestamp: 5000,
+        details: { tookMs: 1234 },
+        content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "1.2s")
+  })
+
+  it("falls back to assistant and tool result timestamps for history tool durations", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "exec",
+            arguments: { command: "echo hi" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "exec",
+        timestamp: 3650,
+        content: [{ type: "text", text: "hi" }],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "2.6s")
+  })
+
   it("restores reply previews from markdown quotes with blank quoted lines", () => {
     const assistantText =
       "First assistant line.\n\nSecond assistant paragraph with enough text to represent a stored reply preview."
