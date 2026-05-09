@@ -68,6 +68,8 @@ export type RawHistoryMessage = {
   provider?: string
   usage?: ChatMessage["usage"]
   stopReason?: string | null
+  isOptimistic?: boolean
+  __clientOptimistic?: boolean
 }
 
 export type ParsedChatHistory = {
@@ -292,6 +294,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           model: item.model,
           usage: item.usage,
           stopReason: item.stopReason,
+          isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
           replyTo: reply?.replyTo,
         })
       }
