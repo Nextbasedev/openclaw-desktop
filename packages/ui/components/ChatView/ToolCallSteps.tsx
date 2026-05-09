@@ -27,10 +27,14 @@ function decisionLabel(decision: ApprovalDecision) {
 
 function ToolRow({
   call,
+  open,
+  onOpenChange,
   onSelect,
   onResolveApproval,
 }: {
   call: InlineToolCall
+  open: boolean
+  onOpenChange: (id: string, open: boolean) => void
   onSelect?: (id: string) => void
   onResolveApproval?: (
     approvalId: string,
@@ -38,7 +42,6 @@ function ToolRow({
   ) => Promise<void> | void
 }) {
   const { inputText, outputText, hasDetails } = getToolDetailState(call)
-  const [open, setOpen] = useState(false)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -66,7 +69,7 @@ function ToolRow({
         onClick={(e) => {
           e.stopPropagation()
           if (hasDetails) {
-            setOpen((prev) => !prev)
+            onOpenChange(call.id, !open)
           } else {
             onSelect?.(call.id)
           }
@@ -203,6 +206,11 @@ export function ToolCallSteps({
   ) => Promise<void> | void
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const [openToolId, setOpenToolId] = useState<string | null>(null)
+
+  function handleToolOpenChange(id: string, nextOpen: boolean) {
+    setOpenToolId(nextOpen ? id : null)
+  }
 
   const total = tools.length
   const rest = total - 1
@@ -230,6 +238,8 @@ export function ToolCallSteps({
         <div className="ml-1 border-l border-border/20 pl-1.5">
           <ToolRow
             call={collapsedTop}
+            open={openToolId === collapsedTop.id}
+            onOpenChange={handleToolOpenChange}
             onSelect={onSelectTool}
             onResolveApproval={onResolveApproval}
           />
@@ -278,6 +288,8 @@ export function ToolCallSteps({
                 <ToolRow
                   key={call.id}
                   call={call}
+                  open={openToolId === call.id}
+                  onOpenChange={handleToolOpenChange}
                   onSelect={onSelectTool}
                   onResolveApproval={onResolveApproval}
                 />
