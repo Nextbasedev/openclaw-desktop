@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscPass, VscError } from "react-icons/vsc"
 import type { ToolCall, ToolCallStatus } from "./activity-types"
@@ -68,14 +68,17 @@ function truncateOutput(text: string): string {
 
 export function ToolCallRow({
   call,
+  open,
+  onOpenChange,
   focused,
   onFocusHandled,
 }: {
   call: ToolCall
+  open: boolean
+  onOpenChange: (id: string, open: boolean) => void
   focused?: boolean
   onFocusHandled?: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
   const hasDetails = call.input || call.output
   const dot = DOT_COLORS[call.status]
@@ -84,7 +87,7 @@ export function ToolCallRow({
   useEffect(() => {
     if (!focused) return
     const timer = hasDetails
-      ? window.setTimeout(() => setOpen(true), 0)
+      ? window.setTimeout(() => onOpenChange(call.id, true), 0)
       : null
     const frame = requestAnimationFrame(() => {
       rowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -94,13 +97,13 @@ export function ToolCallRow({
       if (timer !== null) window.clearTimeout(timer)
       cancelAnimationFrame(frame)
     }
-  }, [focused, hasDetails, onFocusHandled])
+  }, [call.id, focused, hasDetails, onFocusHandled, onOpenChange])
 
   return (
     <div ref={rowRef} className="activity-item px-1 py-1">
       <button
         type="button"
-        onClick={() => hasDetails && setOpen((p) => !p)}
+        onClick={() => hasDetails && onOpenChange(call.id, !open)}
         className={cn(
           "flex w-full items-center gap-3 rounded-md px-1.5 py-1 text-left transition-colors",
           hasDetails ? "cursor-pointer" : "cursor-default",

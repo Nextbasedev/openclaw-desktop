@@ -206,6 +206,11 @@ export function ActivityTab({
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [filter, setFilter] = useState<"all" | "success" | "error">("all")
+  const [openToolId, setOpenToolId] = useState<string | null>(null)
+
+  function handleToolOpenChange(id: string, open: boolean) {
+    setOpenToolId(open ? id : null)
+  }
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
 
@@ -428,6 +433,8 @@ export function ActivityTab({
               <ToolCallRow
                 key={call.id}
                 call={call}
+                open={openToolId === call.id}
+                onOpenChange={handleToolOpenChange}
                 focused={call.id === focusedToolCallId}
                 onFocusHandled={onClearFocusedToolCall}
               />
