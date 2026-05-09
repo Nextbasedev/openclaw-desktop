@@ -1,3 +1,4 @@
+import { cleanUserMessageText } from "../../lib/chatHistoryParser"
 import { randomId } from "../../lib/id"
 import {
   extractSubagentSessionKey,
@@ -213,7 +214,7 @@ export function parseHistoryToolCalls(
 
     if (msg.role === "user" && text) {
       if (!/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/.test(text)) {
-        latestUserPreview = previewText(text)
+        latestUserPreview = previewText(cleanUserMessageText(text))
         latestUserMessageId = msg.id
         latestUserMessageIndex = messageIndex
       }
