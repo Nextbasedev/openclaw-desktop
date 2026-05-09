@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscPass, VscError } from "react-icons/vsc"
 import type { ToolCall, ToolCallStatus } from "./activity-types"
@@ -102,8 +102,18 @@ export function ToolCallRow({
   const hasDetails = call.input || call.output || waitingForOutput || showEmptyState
   const dot = DOT_COLORS[call.status]
   const isError = call.status === "error"
-  const inputText = useMemo(() => open && call.input ? formatInput(call.input) : "", [call.input, open])
-  const outputText = useMemo(() => open && call.output ? truncateOutput(call.output) : "", [call.output, open])
+  const [renderDetails, setRenderDetails] = useState(open)
+  const inputText = useMemo(() => renderDetails && call.input ? formatInput(call.input) : "", [call.input, renderDetails])
+  const outputText = useMemo(() => renderDetails && call.output ? truncateOutput(call.output) : "", [call.output, renderDetails])
+
+  useEffect(() => {
+    if (open) {
+      setRenderDetails(true)
+      return
+    }
+    const timer = window.setTimeout(() => setRenderDetails(false), 180)
+    return () => window.clearTimeout(timer)
+  }, [open])
 
   useEffect(() => {
     if (!focused) return
@@ -160,9 +170,20 @@ export function ToolCallRow({
         </div>
       </button>
 
-      {hasDetails && open && (
-        <div className="mt-2 mb-2 overflow-hidden rounded-lg border border-border/30 bg-[#121212]">
-              {call.input && (
+      {hasDetails && (
+        <div
+          className="grid transition-[grid-template-rows] duration-[180ms] ease-out"
+          style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+        >
+          <div className="overflow-hidden">
+            {renderDetails && (
+              <div
+                className={cn(
+                  "mt-2 mb-2 overflow-hidden rounded-lg border border-border/30 bg-[#121212] transition-all duration-[180ms] ease-out",
+                  open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0",
+                )}
+              >
+                {call.input && (
                 <div>
                   <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/55">
@@ -173,11 +194,11 @@ export function ToolCallRow({
                     {inputText}
                   </pre>
                 </div>
-              )}
-              {call.input && (call.output || waitingForOutput || showEmptyState) && (
-                <div className="h-px bg-white/6" />
-              )}
-              {call.output ? (
+                )}
+                {call.input && (call.output || waitingForOutput || showEmptyState) && (
+                  <div className="h-px bg-white/6" />
+                )}
+                {call.output ? (
                 <div>
                   <div className="border-b border-white/6 bg-white/2 px-5 py-2.5">
                     <p
@@ -198,15 +219,18 @@ export function ToolCallRow({
                     {outputText}
                   </pre>
                 </div>
-              ) : waitingForOutput ? (
-                <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
-                  Waiting for this tool to return output...
-                </div>
-              ) : showEmptyState ? (
-                <div className="px-5 py-4 text-[12px] text-muted-foreground/60">
-                  No inline output was captured for this tool.
-                </div>
-              ) : null}
+                ) : waitingForOutput ? (
+                  <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
+                    Waiting for this tool to return output...
+                  </div>
+                ) : showEmptyState ? (
+                  <div className="px-5 py-4 text-[12px] text-muted-foreground/60">
+                    No inline output was captured for this tool.
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

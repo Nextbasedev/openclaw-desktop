@@ -458,7 +458,7 @@ export function useAgentActivity(sessionKey: string | null) {
             duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
             startedAt: existing?.startedAt ?? Date.now(),
-            messageId: liveTurnMessageId(existing?.messageId, (data.messageId as string | undefined) ?? liveTurn.messageId),
+            messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),
             messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
           }))
           changed = true
