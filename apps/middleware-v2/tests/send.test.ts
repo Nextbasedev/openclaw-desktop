@@ -41,6 +41,7 @@ describe("chat send routes", () => {
       payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key" },
     });
     expect(res.statusCode).toBe(200);
+    expect(context.chatLive.diagnostics().optimisticUserSessions).toBe(1);
     expect(patches[0]).toMatchObject({
       type: "chat.message.upsert",
       sessionKey: "s1",
