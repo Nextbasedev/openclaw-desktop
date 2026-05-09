@@ -665,13 +665,11 @@ export function useChatMessages(
             pendingToolMapRef.current.set(toolCallId, updatedCall)
             mergeToolsIntoLastAssistant([updatedCall])
             if ((phase === "result" || phase === "error") && !updatedCall.resultText) {
-              for (const delayMs of [900, 1800]) {
-                window.setTimeout(() => {
-                  const latest = pendingToolMapRef.current.get(toolCallId)
-                  if (!latest?.resultText) {
-                    void refreshFinishedToolFromHistory(toolCallId)
-                  }
-                }, delayMs)
+              for (const delayMs of [0, 100, 300, 700, 1500]) {
+                window.setTimeout(
+                  () => void refreshFinishedToolFromHistory(toolCallId),
+                  delayMs
+                )
               }
             }
             if (name === "sessions_spawn") {
