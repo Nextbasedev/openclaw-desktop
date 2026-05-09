@@ -163,6 +163,11 @@ export default function Page() {
 
   useEffect(() => {
     async function checkToken() {
+      const route = parseRoute(getRoutePath())
+      if (route.kind === "chat" || route.kind === "topic" || route.kind === "inspector") {
+        setHasToken(true)
+        return
+      }
       try {
         const s = await invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
         setHasToken(!!s.hasConnection)
@@ -302,6 +307,8 @@ function AppShell({
           localStorage.getItem("jarvis.autoDetect") === "true"
       } catch {}
       if (!autoDetect) return
+      const route = parseRoute(getRoutePath())
+      if (route.kind === "chat" || route.kind === "topic" || route.kind === "inspector") return
 
       try {
         const s = await invoke<{
