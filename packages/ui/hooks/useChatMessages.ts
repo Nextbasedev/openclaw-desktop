@@ -1171,6 +1171,7 @@ export function useChatMessages(
                   name?: string
                   arguments?: unknown
                   input?: unknown
+                  duration?: string
                 }>)
               : []
             const tcBlocks = blocks.filter(
@@ -1182,6 +1183,7 @@ export function useChatMessages(
                 tool: b.name ?? "unknown",
                 status: "success",
                 input: b.arguments ?? b.input,
+                duration: b.duration,
                 startedAtMs: rawMessageTimestampMs(m),
               }
               pendingToolCalls.push(call)

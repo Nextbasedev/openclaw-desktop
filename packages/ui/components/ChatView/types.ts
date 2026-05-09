@@ -7,6 +7,8 @@ export type ContentBlock = {
   name?: string
   input?: unknown
   arguments?: unknown
+  duration?: string
+  durationMs?: number
 }
 
 export type ChatTokenUsage = {
