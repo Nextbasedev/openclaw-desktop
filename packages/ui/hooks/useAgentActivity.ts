@@ -13,7 +13,7 @@ import {
   buildTree,
   finalizeStaleRunningActivity,
 } from "@/components/inspector/activity-types"
-import { inferLiveToolStatus, liveToolResultText } from "@/lib/liveToolCalls"
+import { inferLiveToolStatus, liveToolEventResultText } from "@/lib/liveToolCalls"
 import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
@@ -42,12 +42,6 @@ function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   })
 }
 
-function stringifyToolOutput(value: unknown): string | undefined {
-  if (typeof value === "string") return value
-  if (value == null) return undefined
-  try { return JSON.stringify(value, null, 2) } catch { return String(value) }
-}
-
 function finalizeActivityCall(call: ToolCall): ToolCall {
   if (call.status !== "running") return call
   return {
@@ -63,7 +57,8 @@ function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): 
   if (existing.duration && existing.status !== "running") merged.duration = existing.duration
   if (existing.startedAt && !incoming.startedAt) merged.startedAt = existing.startedAt
   if (existing.output && !incoming.output) merged.output = existing.output
-  if (existing.status === "error") merged.status = "error"
+  if (incoming.output && incoming.output !== existing.output) merged.output = incoming.output
+  if (existing.status === "error" || incoming.status === "error") merged.status = "error"
   return merged
 }
 
@@ -349,10 +344,11 @@ export function useAgentActivity(sessionKey: string | null) {
         }))
       } else if (phase === "update") {
         const call = existing ?? fallback
+        const resultText = liveToolEventResultText(data)
         map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
-          status: "running",
-          output: stringifyToolOutput(data.partialResult ?? data.output ?? data.content ?? data.details) ?? call.output,
+          status: inferLiveToolStatus(phase, resultText, data.isError),
+          output: resultText || call.output,
         }))
       } else if (phase === "result" || phase === "error") {
         const call = existing ?? fallback
@@ -361,12 +357,8 @@ export function useAgentActivity(sessionKey: string | null) {
           : call.startedAt
             ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
             : undefined
-        const result = data.result ?? data.output ?? data.content ?? data.details
-        const output =
-          phase === "error"
-            ? stringifyToolOutput(data.error ?? result) ?? "Unknown error"
-            : stringifyToolOutput(result)
-        const resultText = liveToolResultText(data.error ?? result)
+        const resultText = liveToolEventResultText(data)
+        const output = resultText || (phase === "error" ? "Unknown error" : call.output)
         map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
           status: inferLiveToolStatus(phase, resultText, data.isError),
@@ -403,17 +395,17 @@ export function useAgentActivity(sessionKey: string | null) {
                   : null
           const name = typeof record.name === "string" ? record.name : null
           if (!toolCallId || !name) continue
-          if (callMapRef.current.has(toolCallId)) continue
 
-          const status = record.isError === true || record.status === "error" ? "error" : "running"
-          callMapRef.current.set(toolCallId, {
+          const existing = callMapRef.current.get(toolCallId)
+          const status = record.isError === true || record.status === "error" ? "error" : existing?.status ?? "running"
+          callMapRef.current.set(toolCallId, mergeActivityCall(existing, {
             id: toolCallId,
             tool: name,
             status,
             duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
-            startedAt: Date.now(),
-          })
+            startedAt: existing?.startedAt ?? Date.now(),
+          }))
           changed = true
         }
       }

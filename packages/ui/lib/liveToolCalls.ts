@@ -13,6 +13,18 @@ export function liveToolResultText(result: unknown) {
   }
 }
 
+export function liveToolEventResultText(eventData: Record<string, unknown>) {
+  return liveToolResultText(
+    eventData.result ??
+      eventData.partialResult ??
+      eventData.error ??
+      eventData.message ??
+      eventData.output ??
+      eventData.content ??
+      eventData.details
+  )
+}
+
 export function inferLiveToolStatus(
   phase: string | null,
   resultText: string,
