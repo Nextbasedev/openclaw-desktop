@@ -262,10 +262,9 @@ export function ActivityTab({
         existing.calls.push(call)
         continue
       }
-      const turnNumber = call.messageIndex !== undefined ? call.messageIndex + 1 : groups.length + 1
       groups.push({
         key,
-        label: key === "unknown" ? "Live / ungrouped tools" : `Message ${turnNumber}`,
+        label: call.messagePreview ?? "Live / ungrouped tools",
         calls: [call],
       })
     }
@@ -453,11 +452,11 @@ export function ActivityTab({
             {groupedCalls.map((group) => (
               <div key={group.key} className="mb-2">
                 <div className="sticky top-0 z-10 mb-1 flex items-center gap-2 bg-background/95 px-1 py-1 backdrop-blur">
-                  <span className="h-px flex-1 bg-border/40" />
-                  <span className="rounded-full border border-border/40 bg-card px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {group.label} · {group.calls.length} tool{group.calls.length === 1 ? "" : "s"}
+                  <span className="max-w-[46%] truncate text-[10px] font-medium text-muted-foreground/70">
+                    {group.label}
                   </span>
                   <span className="h-px flex-1 bg-border/40" />
+                  <span className="size-1.5 shrink-0 rounded-full bg-border" />
                 </div>
                 {group.calls.map((call) => (
                   <ToolCallRow
