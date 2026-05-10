@@ -37,13 +37,6 @@ export function nextRevealLength({
   return Math.min(targetLength, currentLength + step)
 }
 
-function commonPrefixLength(a: string, b: string) {
-  const limit = Math.min(a.length, b.length)
-  let i = 0
-  while (i < limit && a.charCodeAt(i) === b.charCodeAt(i)) i++
-  return i
-}
-
 function shouldReduceMotion(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -113,8 +106,7 @@ export function useStreamingText(
     if (!target.startsWith(displayRef.current)) {
       stopAnimation()
       lastFrameAtRef.current = 0
-      const prefix = commonPrefixLength(displayRef.current, target)
-      const next = canAnimate ? displayRef.current.slice(0, prefix) : target
+      const next = canAnimate ? "" : target
       displayRef.current = next
       revealActiveRef.current = canAnimate
       commitState(next, canAnimate)
