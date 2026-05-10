@@ -1324,7 +1324,7 @@ export function ChatView({
 
           {statusText && (
             <div className="mt-4 flex items-center pl-1">
-              <span className="thinking-shimmer text-[13px] font-medium tracking-[-0.01em]">
+              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
                 {statusText}
               </span>
             </div>
