@@ -102,7 +102,75 @@ function compactLabel(input: unknown, fallback: string) {
   return typeof input === "string" && input.trim() ? input.trim() : fallback
 }
 
+function textFromUnknown(value: unknown): string {
+  if (typeof value === "string") return value
+  if (Array.isArray(value)) return value.map((item) => {
+    if (typeof item === "string") return item
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const block = item as Record<string, unknown>
+      return typeof block.text === "string" ? block.text : ""
+    }
+    return ""
+  }).join("")
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const object = value as Record<string, unknown>
+    if (typeof object.text === "string") return object.text
+    if (typeof object.content === "string") return object.content
+    if (Array.isArray(object.content)) return textFromUnknown(object.content)
+  }
+  if (value == null) return ""
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function toolResultText(message: Record<string, unknown>) {
+  return textFromUnknown(message.text ?? message.content ?? message.result)
+}
+
+function inferToolStatus(text: string): InlineToolCall["status"] {
+  return new RegExp("\\b(error|failed|denied|rejected)\\b", "i").test(text) ? "error" : "success"
+}
+
+function parseExecApproval(text: string): InlineToolCall["approval"] | undefined {
+  if (!text.includes("Approval required")) return undefined
+  const fullMatch = text.match(new RegExp("Approval required \\(id\\s+([^,\\s)]+),\\s+full\\s+([^)]+)\\)", "i"))
+  const slug = fullMatch?.[1]?.trim()
+  const id = fullMatch?.[2]?.trim() || slug
+  if (!id) return undefined
+  const command = text.match(new RegExp("Command:\\s*```(?:sh)?\\s*\\n([\\s\\S]*?)\\n```", "i"))?.[1]?.trim()
+  const replyLine = text.match(new RegExp("Reply with:\\s*/approve\\s+\\S+\\s+([^\\n]+)", "i"))?.[1] ?? "allow-once|deny"
+  const allowedDecisions = replyLine
+    .split("|")
+    .map((item) => item.trim())
+    .filter((item): item is "allow-once" | "allow-always" | "deny" => item === "allow-once" || item === "allow-always" || item === "deny")
+  return { id, slug, command, allowedDecisions: allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"] }
+}
+
+function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message) return false
+  const role = message.role
+  if (role !== "tool" && role !== "tool_result" && role !== "toolResult") return false
+  const pendingIndex = state.pendingTools.findIndex((tool) => tool.status === "running")
+  if (pendingIndex < 0) return false
+  const resultText = toolResultText(message)
+  const existing = state.pendingTools[pendingIndex]
+  const next = [...state.pendingTools]
+  next[pendingIndex] = {
+    ...existing,
+    status: inferToolStatus(resultText),
+    resultText: resultText || existing.resultText,
+    approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
+  }
+  state.pendingTools = next
+  return true
+}
+
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
+  if (applyToolResultFromPatch(state, frame)) return
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return
   const blocks = toolCallBlocks(message)

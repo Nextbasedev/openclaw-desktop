@@ -79,6 +79,49 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("updates live tool result and approval metadata from V2 patches", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc-approval", name: "exec", input: { command: "touch /tmp/x" } }],
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "tool",
+            text: "Approval required (id exec-123, full approval-456)\nCommand: ```sh\ntouch /tmp/x\n```\nReply with: /approve exec-123 allow-once|deny",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
+      {
+        id: "tc-approval",
+        status: "success",
+        approval: { id: "approval-456", slug: "exec-123", command: "touch /tmp/x", allowedDecisions: ["allow-once", "deny"] },
+      },
+    ])
+  })
+
   test("warms React Query bootstrap cache from global store", () => {
     const client = createOpenClawQueryClient()
     seedGlobalChatSession({
