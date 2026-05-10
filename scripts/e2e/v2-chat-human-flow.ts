@@ -217,6 +217,16 @@ try {
           history.set(sessionKey, [...current, assistantTool]);
           emitGateway(context, "session.message", { sessionKey, message: assistantTool, messageSeq: assistantTool.__openclaw.seq });
         }, 300);
+        setTimeout(() => {
+          const current = history.get(sessionKey) ?? [];
+          const approvalResult = {
+            role: "tool",
+            text: `Approval required (id exec-${sessionKey}, full approval-${sessionKey})\nCommand: \`\`\`sh\necho browser\n\`\`\`\nReply with: /approve exec-${sessionKey} allow-once|deny`,
+            __openclaw: { id: `tool-result-${sessionKey}`, seq: current.length + 1 },
+          };
+          history.set(sessionKey, [...current, approvalResult]);
+          emitGateway(context, "session.message", { sessionKey, message: approvalResult, messageSeq: approvalResult.__openclaw.seq });
+        }, 650);
       }
       setTimeout(() => {
         const current = history.get(sessionKey) ?? [];
@@ -329,6 +339,12 @@ try {
   const toolReloadText = compactText(await toolPage.eval<string>(`document.body.innerText`));
   assert(toolReloadText.includes(`tool:exec:tool-${toolSession}`), "refresh lost projected tool call");
   assert(toolReloadText.includes(`tool:sessions_spawn:spawn-${toolSession}`), "refresh lost projected subagent spawn");
+  await delay(400);
+  const approvalLiveText = compactText(await toolPage.eval<string>(`document.body.innerText`));
+  assert(approvalLiveText.includes(`Approval required (id exec-${toolSession}, full approval-${toolSession})`), "live approval result did not render");
+  await toolPage.reload();
+  const approvalReloadText = compactText(await toolPage.eval<string>(`document.body.innerText`));
+  assert(approvalReloadText.includes(`Approval required (id exec-${toolSession}, full approval-${toolSession})`), "refresh lost approval result");
 
   console.log(JSON.stringify({ ok: true, reconnectStatusReadyMs, reconnectAnswerMs, scenarios: [
     "same-session cross-tab thinking",
@@ -339,6 +355,7 @@ try {
     "Chat A receives final answer while another chat is open",
     "close tab mid-run and reconnect keeps user+thinking and receives answer",
     "live tool/subagent patch appears in browser and survives refresh",
+    "approval result patch appears in browser and survives refresh",
   ] }, null, 2));
 } finally {
   for (const page of pages) page.close();
