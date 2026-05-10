@@ -955,6 +955,9 @@ export function useChatMessages(
               const lastAssistant =
                 lastMsg?.role === "assistant" ? lastMsg : null
               const lastTrimmed = lastAssistant?.text.trim() ?? ""
+              const hasActiveToolTurn =
+                pendingToolMapRef.current.size > 0 ||
+                Boolean(lastAssistant?.toolCalls?.some((tool) => tool.status === "running"))
               if (lastAssistant && lastTrimmed.length > 0) {
                 if (
                   lastTrimmed === text ||
@@ -982,8 +985,29 @@ export function useChatMessages(
                       : m
                   )
                 }
+                if (hasActiveToolTurn) {
+                  const merged = lastTrimmed + "\n\n" + text
+                  return withoutLiveToolPlaceholder.map((m) =>
+                    m.messageId === lastAssistant.messageId
+                      ? {
+                          ...m,
+                          text: merged,
+                          createdAt: m.createdAt || timestamp,
+                          embeds: pendingEmbeds ?? m.embeds,
+                          usage: ev.usage ?? m.usage,
+                          stopReason: ev.stopReason ?? m.stopReason,
+                          model: ev.model ?? m.model,
+                          toolCalls: mergeToolCalls(
+                            m.toolCalls,
+                            Array.from(pendingToolMapRef.current.values())
+                          ),
+                          animateText: true,
+                        }
+                      : m
+                  )
+                }
               }
-              return dedupeChatMessages([
+              return [
                 ...withoutLiveToolPlaceholder.filter((m) => m.messageId !== id),
                 {
                   messageId: id,
@@ -1000,7 +1024,7 @@ export function useChatMessages(
                       : undefined,
                   animateText: true,
                 },
-              ])
+              ]
             })
           }
           scrollToBottom(false)
