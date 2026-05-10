@@ -210,7 +210,8 @@ try {
   const sameSession = `human-same-${Date.now()}`;
   const pageA = await newPage(`${base}/__v2-human-flow?sessionKey=${sameSession}`);
   const pageB = await newPage(`${base}/__v2-human-flow?sessionKey=${sameSession}`);
-  const pageOther = await newPage(`${base}/__v2-human-flow?sessionKey=human-other-${Date.now()}`);
+  const otherSession = `human-other-${Date.now()}`;
+  const pageOther = await newPage(`${base}/__v2-human-flow?sessionKey=${otherSession}`);
   pages.push(pageA, pageB, pageOther);
   await delay(700);
 
@@ -235,11 +236,31 @@ try {
   assert(bFinal.includes(`answer for ${sameSession}`), "refreshed same-session tab did not receive final answer");
   assert(!otherFinal.includes(`answer for ${sameSession}`), "different-session tab leaked final answer");
 
+  const sessionA = `human-a-${Date.now()}`;
+  const sessionB = `human-b-${Date.now()}`;
+  const tabA = await newPage(`${base}/__v2-human-flow?sessionKey=${sessionA}`);
+  const tabB = await newPage(`${base}/__v2-human-flow?sessionKey=${sessionB}`);
+  pages.push(tabA, tabB);
+  await delay(500);
+  await tabB.eval(`window.__beforeSwitchText = document.body.innerText`);
+  await tabA.eval(`document.querySelector('#send').click()`);
+  await delay(250);
+  const bDuringAGeneration = compactText(await tabB.eval<string>(`document.body.innerText`));
+  assert(!bDuringAGeneration.includes("human flow message"), "Chat B changed when Chat A started generating");
+  assert(!bDuringAGeneration.includes(`answer for ${sessionA}`), "Chat B received Chat A answer while A was generating");
+  await delay(1200);
+  const aAfterSwitchBack = compactText(await tabA.eval<string>(`document.body.innerText`));
+  const bAfterAComplete = compactText(await tabB.eval<string>(`document.body.innerText`));
+  assert(aAfterSwitchBack.includes(`answer for ${sessionA}`), "Chat A did not keep/receive answer after B was open");
+  assert(!bAfterAComplete.includes(`answer for ${sessionA}`), "Chat B leaked Chat A final answer");
+
   console.log(JSON.stringify({ ok: true, scenarios: [
     "same-session cross-tab thinking",
     "different-session isolation",
     "refresh before assistant starts preserves user+thinking",
     "refreshed tab receives final answer",
+    "Chat A generating while Chat B open remains isolated",
+    "Chat A receives final answer while another chat is open",
   ] }, null, 2));
 } finally {
   for (const page of pages) page.close();
