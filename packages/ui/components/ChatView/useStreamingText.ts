@@ -2,17 +2,17 @@
 
 import { useEffect, useRef, useState } from "react"
 
-const MAX_VISIBLE_LAG = 1_800
+const MAX_VISIBLE_LAG = 1_400
 const MIN_FRAME_MS = 16
 
 export function charsPerSecondForBacklog(backlog: number): number {
-  if (backlog > 2_400) return 2_400
-  if (backlog > 1_200) return 1_600
-  if (backlog > 640) return 950
-  if (backlog > 320) return 620
-  if (backlog > 120) return 360
-  if (backlog > 40) return 220
-  return 120
+  if (backlog > 2_400) return 3_200
+  if (backlog > 1_200) return 2_200
+  if (backlog > 640) return 1_300
+  if (backlog > 320) return 820
+  if (backlog > 120) return 480
+  if (backlog > 40) return 280
+  return 150
 }
 
 export function nextRevealLength({
