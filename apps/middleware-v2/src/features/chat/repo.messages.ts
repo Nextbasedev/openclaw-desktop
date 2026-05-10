@@ -2,11 +2,30 @@ import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
 import type { ProjectedMessage, ProjectionEvent } from "./types.js";
 
+function normalizeText(value: string) {
+  return value
+    .replace(/^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/i, "")
+    .replace(/^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/i, "")
+    .replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/i, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 function textOf(data: unknown): string {
   if (!data || typeof data !== "object" || Array.isArray(data)) return "";
   const maybe = data as { text?: unknown; content?: unknown };
-  if (typeof maybe.text === "string") return maybe.text.trim();
-  if (typeof maybe.content === "string") return maybe.content.trim();
+  if (typeof maybe.text === "string") return normalizeText(maybe.text);
+  if (typeof maybe.content === "string") return normalizeText(maybe.content);
+  if (Array.isArray(maybe.content)) {
+    return normalizeText(maybe.content.map((block) => {
+      if (typeof block === "string") return block;
+      if (block && typeof block === "object" && !Array.isArray(block)) {
+        const text = (block as { text?: unknown }).text;
+        return typeof text === "string" ? text : "";
+      }
+      return "";
+    }).join(""));
+  }
   return "";
 }
 
