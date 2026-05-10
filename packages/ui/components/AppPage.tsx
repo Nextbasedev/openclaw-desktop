@@ -889,6 +889,21 @@ function AppShell({
     setActiveTopic(null)
     setInitialMessages(undefined)
 
+    const cached = resolvedChatCacheRef.current.get(chat.id)
+    if (cached) {
+      setActiveChat(cached.chat)
+      setActiveSessionKey(cached.sessionKey)
+      setActiveSessionTitle(cached.title)
+      window.history.pushState(null, "", routeUrl(`/${cached.chat.id}`))
+    } else if (isRealChatSessionKey(chat.sessionKey)) {
+      const title = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
+      setActiveChat(chat)
+      setActiveSessionKey(chat.sessionKey)
+      setActiveSessionTitle(title)
+      resolvedChatCacheRef.current.set(chat.id, { chat, sessionKey: chat.sessionKey, title })
+      window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+    }
+
     try {
       const resolved = await ensureChatSession(chat)
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
@@ -898,10 +913,12 @@ function AppShell({
       window.history.pushState(null, "", routeUrl(`/${resolved.chat.id}`))
     } catch (err) {
       console.error("Failed to open chat session", err)
-      setActiveChat(chat)
-      setActiveSessionKey(null)
-      setActiveSessionTitle(null)
-      window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+      if (!cached && !isRealChatSessionKey(chat.sessionKey)) {
+        setActiveChat(chat)
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
+        window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+      }
     }
   }, [])
 
