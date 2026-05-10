@@ -36,7 +36,16 @@ const html = `<!doctype html>
     const statusEl = document.getElementById('status');
     const messagesEl = document.getElementById('messages');
     function idOf(m) { return m && (m.__openclaw?.id || m.id || m.messageId || (m.role + ':' + (m.text || ''))); }
-    function textOf(m) { return m && (m.text || (Array.isArray(m.content) ? m.content.map((b) => b.text || '').join('') : m.content) || ''); }
+    function textOf(m) {
+      if (!m) return '';
+      const blocks = Array.isArray(m.content) ? m.content : [];
+      const toolText = blocks
+        .filter((b) => b && (b.type === 'toolCall' || b.type === 'tool_use'))
+        .map((b) => 'tool:' + (b.name || 'unknown') + ':' + (b.id || ''))
+        .join(' ');
+      const text = m.text || blocks.map((b) => b.text || '').join('') || m.content || '';
+      return [text, toolText].filter(Boolean).join(' ');
+    }
     function render() {
       messagesEl.innerHTML = '';
       for (const message of messages) {
@@ -194,6 +203,21 @@ try {
       const user = { role: "user", text: typeof (params as { message?: unknown })?.message === "string" ? (params as { message: string }).message : "human flow message", __openclaw: { id: `user-${sessionKey}-${Date.now()}`, seq: existing.length + 1 } };
       history.set(sessionKey, [...existing, user]);
       const delayMs = sessionKey.includes("slow") ? 1800 : 900;
+      if (sessionKey.includes("toolflow")) {
+        setTimeout(() => {
+          const current = history.get(sessionKey) ?? [];
+          const assistantTool = {
+            role: "assistant",
+            content: [
+              { type: "toolCall", id: `tool-${sessionKey}`, name: "exec", input: { command: "echo browser" } },
+              { type: "toolCall", id: `spawn-${sessionKey}`, name: "sessions_spawn", input: { task: "Browser subagent audit", label: "Browser Subagent" } },
+            ],
+            __openclaw: { id: `assistant-tool-${sessionKey}`, seq: current.length + 1 },
+          };
+          history.set(sessionKey, [...current, assistantTool]);
+          emitGateway(context, "session.message", { sessionKey, message: assistantTool, messageSeq: assistantTool.__openclaw.seq });
+        }, 300);
+      }
       setTimeout(() => {
         const current = history.get(sessionKey) ?? [];
         const assistant = { role: "assistant", text: `answer for ${sessionKey}`, __openclaw: { id: `assistant-${sessionKey}`, seq: current.length + 1 } };
@@ -292,6 +316,20 @@ try {
   }
   assert(reconnectAnswerMs >= 0, "close/reconnect did not receive continuous answer");
 
+  const toolSession = `human-toolflow-${Date.now()}`;
+  const toolPage = await newPage(`${base}/__v2-human-flow?sessionKey=${toolSession}`);
+  pages.push(toolPage);
+  await delay(500);
+  await toolPage.eval(`document.querySelector('#send').click()`);
+  await delay(550);
+  const toolMidText = compactText(await toolPage.eval<string>(`document.body.innerText`));
+  assert(toolMidText.includes(`tool:exec:tool-${toolSession}`), "live tool call did not render in browser stream");
+  assert(toolMidText.includes(`tool:sessions_spawn:spawn-${toolSession}`), "live subagent spawn did not render in browser stream");
+  await toolPage.reload();
+  const toolReloadText = compactText(await toolPage.eval<string>(`document.body.innerText`));
+  assert(toolReloadText.includes(`tool:exec:tool-${toolSession}`), "refresh lost projected tool call");
+  assert(toolReloadText.includes(`tool:sessions_spawn:spawn-${toolSession}`), "refresh lost projected subagent spawn");
+
   console.log(JSON.stringify({ ok: true, reconnectStatusReadyMs, reconnectAnswerMs, scenarios: [
     "same-session cross-tab thinking",
     "different-session isolation",
@@ -300,6 +338,7 @@ try {
     "Chat A generating while Chat B open remains isolated",
     "Chat A receives final answer while another chat is open",
     "close tab mid-run and reconnect keeps user+thinking and receives answer",
+    "live tool/subagent patch appears in browser and survives refresh",
   ] }, null, 2));
 } finally {
   for (const page of pages) page.close();
