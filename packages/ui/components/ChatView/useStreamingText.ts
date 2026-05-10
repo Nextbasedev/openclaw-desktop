@@ -82,17 +82,6 @@ export function useStreamingText(
     const reduceMotion = shouldReduceMotion()
     const canAnimate = Boolean(streaming && !reduceMotion)
 
-    if (!canAnimate) {
-      stopAnimation()
-      displayRef.current = target
-      revealActiveRef.current = false
-      commitState(target, false)
-      completeRef.current?.()
-      return () => {
-        cancelled = true
-      }
-    }
-
     if (reduceMotion) {
       stopAnimation()
       displayRef.current = target
