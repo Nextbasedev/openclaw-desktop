@@ -33,6 +33,7 @@ import { invoke } from "@/lib/ipc"
 import { emit } from "@/lib/events"
 import { toast } from "react-toastify"
 import { motion, AnimatePresence } from "framer-motion"
+import { LuArrowDown } from "react-icons/lu"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import type {
@@ -228,9 +229,11 @@ export function ChatView({
     errorMessage,
     isSending,
     isGenerating,
+    isAtBottom,
     bottomRef,
     scrollContainerRef,
     onScroll,
+    jumpToBottom,
     handleSend,
     handleAbort,
     handleEdit,
@@ -1324,8 +1327,9 @@ export function ChatView({
 
           {statusText && (
             <div className="mt-4 flex items-center pl-1">
-              <span className="thinking-shimmer text-[13px] font-medium tracking-[-0.01em]">
-                {statusText}
+              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                {statusText.replace(/\.{3}$/, "")}
+                <span className="thinking-ellipsis" aria-hidden="true" />
               </span>
             </div>
           )}
@@ -1337,6 +1341,34 @@ export function ChatView({
               </p>
             </div>
           )}
+
+          <AnimatePresence initial={false}>
+            {!isAtBottom && (
+              <motion.button
+                type="button"
+                initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                onClick={jumpToBottom}
+                className="group fixed right-6 bottom-28 z-30 flex size-10 items-center justify-center rounded-full border border-border/40 bg-card/95 text-muted-foreground shadow-[0_12px_36px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-border/70 hover:text-foreground"
+                aria-label="Scroll to bottom"
+              >
+                <span className={cn(
+                  "absolute inset-0 flex items-center justify-center transition-all duration-150",
+                  isGenerating ? "opacity-100 scale-100 group-hover:opacity-0 group-hover:scale-75" : "opacity-0 scale-75",
+                )}>
+                  <TypingDots />
+                </span>
+                <LuArrowDown
+                  className={cn(
+                    "size-4 transition-all duration-150",
+                    isGenerating ? "opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" : "opacity-100 scale-100",
+                  )}
+                />
+              </motion.button>
+            )}
+          </AnimatePresence>
 
           <div ref={bottomRef} className="h-8" />
         </div>
