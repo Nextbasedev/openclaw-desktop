@@ -190,12 +190,17 @@ try {
     const sessionKey = params?.sessionKey || params?.key || "";
     if (method === "chat.history") return { sessionKey, messages: history.get(sessionKey) ?? [] };
     if (method === "chat.send") {
+      const existing = history.get(sessionKey) ?? [];
+      const user = { role: "user", text: typeof (params as { message?: unknown })?.message === "string" ? (params as { message: string }).message : "human flow message", __openclaw: { id: `user-${sessionKey}-${Date.now()}`, seq: existing.length + 1 } };
+      history.set(sessionKey, [...existing, user]);
+      const delayMs = sessionKey.includes("slow") ? 1800 : 900;
       setTimeout(() => {
-        const assistant = { role: "assistant", text: `answer for ${sessionKey}`, __openclaw: { id: `assistant-${sessionKey}`, seq: 2 } };
-        history.set(sessionKey, [...(history.get(sessionKey) ?? []), assistant]);
-        emitGateway(context, "session.message", { sessionKey, message: assistant, messageSeq: 2 });
+        const current = history.get(sessionKey) ?? [];
+        const assistant = { role: "assistant", text: `answer for ${sessionKey}`, __openclaw: { id: `assistant-${sessionKey}`, seq: current.length + 1 } };
+        history.set(sessionKey, [...current, assistant]);
+        emitGateway(context, "session.message", { sessionKey, message: assistant, messageSeq: assistant.__openclaw.seq });
         emitGateway(context, "sessions.changed", { sessionKey, status: "done" });
-      }, 900);
+      }, delayMs);
       return { runId: `run-${Date.now()}`, status: "started" };
     }
     return { ok: true };
@@ -254,13 +259,47 @@ try {
   assert(aAfterSwitchBack.includes(`answer for ${sessionA}`), "Chat A did not keep/receive answer after B was open");
   assert(!bAfterAComplete.includes(`answer for ${sessionA}`), "Chat B leaked Chat A final answer");
 
-  console.log(JSON.stringify({ ok: true, scenarios: [
+  const closeReconnectSession = `human-slow-close-${Date.now()}`;
+  const closePage = await newPage(`${base}/__v2-human-flow?sessionKey=${closeReconnectSession}`);
+  pages.push(closePage);
+  await delay(500);
+  await closePage.eval(`document.querySelector('#send').click()`);
+  await delay(350);
+  closePage.close();
+  await delay(700);
+  const reconnectStart = Date.now();
+  const reconnectPage = await newPage(`${base}/__v2-human-flow?sessionKey=${closeReconnectSession}`);
+  pages.push(reconnectPage);
+  let reconnectStatus = await reconnectPage.eval<string>(`document.querySelector('#status').textContent`);
+  let reconnectText = await reconnectPage.eval<string>(`document.body.innerText`);
+  let reconnectStatusReadyMs = -1;
+  for (let i = 0; i < 20 && reconnectStatus === "loading"; i++) {
+    await delay(50);
+    reconnectStatus = await reconnectPage.eval<string>(`document.querySelector('#status').textContent`);
+    reconnectText = await reconnectPage.eval<string>(`document.body.innerText`);
+    reconnectStatusReadyMs = Date.now() - reconnectStart;
+  }
+  assert(reconnectStatus === "thinking", `close/reconnect did not restore thinking, got ${reconnectStatus}`);
+  assert(reconnectText.includes("human flow message"), "close/reconnect lost sent user message");
+  let reconnectAnswerMs = -1;
+  for (let i = 0; i < 40; i++) {
+    const text = compactText(await reconnectPage.eval<string>(`document.body.innerText`));
+    if (text.includes(`answer for ${closeReconnectSession}`)) {
+      reconnectAnswerMs = Date.now() - reconnectStart;
+      break;
+    }
+    await delay(100);
+  }
+  assert(reconnectAnswerMs >= 0, "close/reconnect did not receive continuous answer");
+
+  console.log(JSON.stringify({ ok: true, reconnectStatusReadyMs, reconnectAnswerMs, scenarios: [
     "same-session cross-tab thinking",
     "different-session isolation",
     "refresh before assistant starts preserves user+thinking",
     "refreshed tab receives final answer",
     "Chat A generating while Chat B open remains isolated",
     "Chat A receives final answer while another chat is open",
+    "close tab mid-run and reconnect keeps user+thinking and receives answer",
   ] }, null, 2));
 } finally {
   for (const page of pages) page.close();
