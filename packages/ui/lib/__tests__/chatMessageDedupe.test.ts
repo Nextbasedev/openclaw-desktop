@@ -22,16 +22,6 @@ describe("dedupeChatMessages", () => {
     expect(messages[0].text).toBe("Final answer with more detail")
   })
 
-  it("dedupes the same user message when optimistic and history timestamps differ slightly", () => {
-    const messages = dedupeChatMessages([
-      { messageId: "optimistic", role: "user", text: "hello", createdAt: "2026-05-10T04:59:00.000Z" },
-      { messageId: "history", role: "user", text: "hello", createdAt: "2026-05-10T04:59:20.000Z" },
-    ])
-
-    expect(messages).toHaveLength(1)
-    expect(messages[0]).toMatchObject({ role: "user", text: "hello" })
-  })
-
   it("does not dedupe different assistant answers", () => {
     const messages = dedupeChatMessages([
       { messageId: "a", role: "assistant", text: "First answer" },

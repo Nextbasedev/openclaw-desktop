@@ -260,14 +260,12 @@ export function MarkdownContent({
   className,
   embeds,
   streaming,
-  cursorActive,
   onRevealComplete,
 }: {
   text: string
   className?: string
   embeds?: EmbedContent[]
   streaming?: boolean
-  cursorActive?: boolean
   onRevealComplete?: () => void
 }) {
   const { displayText, isRevealing } = useStreamingText(
@@ -281,12 +279,7 @@ export function MarkdownContent({
   )
 
   return (
-    <div className={cn(
-      "prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]",
-      isRevealing && "streaming-text",
-      isRevealing && cursorActive && "streaming-cursor",
-      className,
-    )}>
+    <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]", isRevealing && "streaming-text", className)}>
       {parts.map((part, i) =>
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />
