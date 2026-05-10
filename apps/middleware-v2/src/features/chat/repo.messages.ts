@@ -25,6 +25,16 @@ function isOptimisticConflict(existing: { message_id: string | null; role: strin
 export class MessageRepository {
   constructor(private readonly db: Database.Database) {}
 
+  getSession(sessionKey: string): { sessionKey: string; sessionId: string | null; data: unknown; updatedAtMs: number } | null {
+    const row = this.db.prepare(`
+      SELECT session_key, session_id, data_json, updated_at_ms
+      FROM v2_sessions
+      WHERE session_key = @sessionKey
+    `).get({ sessionKey }) as { session_key: string; session_id: string | null; data_json: string; updated_at_ms: number } | undefined;
+    if (!row) return null;
+    return { sessionKey: row.session_key, sessionId: row.session_id, data: fromJson(row.data_json), updatedAtMs: row.updated_at_ms };
+  }
+
   upsertSession(session: { sessionKey: string; sessionId?: string | null; data: unknown; updatedAtMs?: number }) {
     this.db.prepare(`
       INSERT INTO v2_sessions(session_key, session_id, data_json, updated_at_ms)

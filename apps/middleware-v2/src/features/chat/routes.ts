@@ -15,10 +15,15 @@ type ChatHistoryResponse = {
   sessionKey?: string;
   sessionId?: string;
   messages?: unknown[];
+  status?: string;
   thinkingLevel?: string;
   fastMode?: boolean;
   verboseLevel?: string;
 };
+
+function objectData(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
 
 const sendBody = z.object({
   sessionKey: z.string().min(1),
@@ -103,6 +108,24 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             payload: event.payload,
             createdAtMs: event.createdAtMs,
           });
+          const statusEvent = context.messages.appendProjectionEvent({
+            sessionKey: input.sessionKey,
+            eventType: "chat.status",
+            payload: {
+              sessionKey: input.sessionKey,
+              status: "thinking",
+              statusLabel: "Thinking",
+              optimistic: true,
+              idempotencyKey: input.idempotencyKey,
+            },
+          });
+          context.patchBus.broadcast({
+            cursor: statusEvent.cursor,
+            type: statusEvent.eventType,
+            sessionKey: statusEvent.sessionKey,
+            payload: statusEvent.payload,
+            createdAtMs: statusEvent.createdAtMs,
+          });
 
           const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
             sessionKey: input.sessionKey,
@@ -137,16 +160,20 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
+    const existingSession = context.messages.getSession(sessionKey);
+    const sessionData = {
+      ...objectData(existingSession?.data),
+      sessionKey,
+      sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+      ...(history.status ? { status: history.status } : {}),
+      thinkingLevel: history.thinkingLevel,
+      fastMode: history.fastMode,
+      verboseLevel: history.verboseLevel,
+    };
     context.messages.upsertSession({
       sessionKey,
-      sessionId: history.sessionId ?? null,
-      data: {
-        sessionKey,
-        sessionId: history.sessionId ?? null,
-        thinkingLevel: history.thinkingLevel,
-        fastMode: history.fastMode,
-        verboseLevel: history.verboseLevel,
-      },
+      sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+      data: sessionData,
     });
     const projection = context.messages.upsertMessages(normalized);
     const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000 }).map((message) => message.data);
@@ -164,6 +191,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       sessionId: history.sessionId ?? null,
       messages: projectedMessages,
       messageCount: projectedMessages.length,
+      sessionStatus: typeof sessionData.status === "string" ? sessionData.status : null,
       thinkingLevel: history.thinkingLevel,
       fastMode: history.fastMode,
       verboseLevel: history.verboseLevel,

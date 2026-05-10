@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { dedupeRequest } from "@/lib/requestDedupe"
 import {
   inferRestoredChatStatus,
+  statusAfterSendAck,
   statusFromBackendSession,
 } from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
@@ -53,7 +54,8 @@ import {
   sendChatV2,
   type PatchFrame,
 } from "@/lib/chat-engine-v2/client"
-import { applyChatPatch } from "@/lib/chat-engine-v2/applyPatches"
+import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
+import { warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 
 type RawMessage = {
@@ -88,7 +90,7 @@ type BranchSummary = {
 }
 
 type ChatBootstrapData = {
-  history: { messages: unknown[] }
+  history: { messages: unknown[]; sessionStatus?: string | null }
   branchData: { branches: BranchSummary[] }
   v2Cursor?: number
 }
@@ -185,6 +187,7 @@ async function fetchChatBootstrap(
   const [freshHistory, branchData] = await Promise.all([
     fetchChatBootstrapV2(sessionKey).then((result) => ({
       messages: result.messages,
+      sessionStatus: result.sessionStatus,
       v2Cursor: result.projection?.cursor,
     })),
     invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
@@ -290,6 +293,7 @@ export function useChatMessages(
     (update: SetStateAction<StreamStatus>) => {
       setLocalStatus((prev) => {
         const next = typeof update === "function" ? update(prev) : update
+        statusRef.current = next
         return next
       })
     },
@@ -929,18 +933,23 @@ export function useChatMessages(
     let cancelled = false
     const seededMessages =
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
+    const cachedBootstrap = !seededMessages
+      ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
+      : null
+    const warmMessages = warmBootstrapMessages(seededMessages, cachedBootstrap)
 
     setLoadError(null)
     setErrorMessage(null)
     seenIds.current.clear()
 
-    if (seededMessages) {
-      for (const message of seededMessages) {
+    if (warmMessages) {
+      for (const message of warmMessages) {
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
-      setMessages(seededMessages)
-      setStatus(inferRestoredChatStatus(seededMessages, statusRef.current))
+      setMessages(warmMessages)
+      setStatus(cachedBootstrap?.history.sessionStatus ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages) : inferRestoredChatStatus(warmMessages, statusRef.current))
+      if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
     } else {
       setLoading(true)
       setMessages([])
@@ -974,7 +983,7 @@ export function useChatMessages(
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
 
-    if (!seededMessages) {
+    if (!warmMessages) {
       loadingTimeout = setTimeout(() => {
         if (cancelled || bootstrapSettled) return
         setLoading(false)
@@ -1350,8 +1359,8 @@ export function useChatMessages(
           )
           return dedupeChatMessages([...allMessages, ...kept])
         })
-        const restoredStatus = inferRestoredChatStatus(allMessages, statusRef.current)
-        if (!isActiveRunStatus(restoredStatus) || isActiveRunStatus(statusRef.current)) {
+        const restoredStatus = history.sessionStatus ? statusFromBackendSession(history.sessionStatus, allMessages) : inferRestoredChatStatus(allMessages, statusRef.current)
+        if (history.sessionStatus || !isActiveRunStatus(restoredStatus) || isActiveRunStatus(statusRef.current)) {
           setStatus(restoredStatus)
           if (restoredStatus === "done" || restoredStatus === "idle") {
             setStatusLabel(null)
@@ -1367,6 +1376,17 @@ export function useChatMessages(
             if (cancelled || frame.type !== "patch") return
             const patch = frame as PatchFrame
             if (patch.patch.sessionKey && patch.patch.sessionKey !== sessionKey) return
+            const patchStatus = statusFromPatch(patch)
+            if (patchStatus) {
+              setStatus(patchStatus.status)
+              setStatusLabel(patchStatus.label)
+              if (isActiveRunStatus(patchStatus.status)) markOptimisticChatActivity(sessionKey, patchStatus.label)
+              else clearCachedChatActivity(sessionKey)
+            } else if (patchImpliesActiveRun(patch) && !isActiveRunStatus(statusRef.current)) {
+              setStatus("thinking")
+              setStatusLabel("Thinking")
+              markOptimisticChatActivity(sessionKey)
+            }
             const next = applyChatPatch(
               { cursor: v2CursorRef.current, messages: messagesRef.current },
               patch
@@ -1593,9 +1613,9 @@ export function useChatMessages(
               : m
           )
         )
-        const restoredStatus = inferRestoredChatStatus(messagesRef.current, statusRef.current)
-        if (!isActiveRunStatus(restoredStatus)) {
-          setStatus(restoredStatus)
+        const ackStatus = statusAfterSendAck(messagesRef.current, statusRef.current)
+        if (ackStatus) {
+          setStatus(ackStatus)
           setStatusLabel(null)
           clearCachedChatActivity(sessionKey)
         }

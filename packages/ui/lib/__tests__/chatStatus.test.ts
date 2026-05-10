@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { inferRestoredChatStatus, statusFromBackendSession } from "../chatStatus"
+import { inferRestoredChatStatus, statusAfterSendAck, statusFromBackendSession } from "../chatStatus"
 
 describe("inferRestoredChatStatus", () => {
   it("restores completed cached conversations as done, not thinking", () => {
@@ -27,6 +27,16 @@ describe("inferRestoredChatStatus", () => {
         "error",
       ),
     ).toBe("error")
+  })
+})
+
+describe("statusAfterSendAck", () => {
+  it("keeps thinking after send ack when no assistant has arrived yet", () => {
+    expect(statusAfterSendAck([{ messageId: "u1", role: "user", text: "Do work" }], "thinking")).toBeNull()
+  })
+
+  it("allows terminal completed status after assistant exists", () => {
+    expect(statusAfterSendAck([{ messageId: "a1", role: "assistant", text: "Done" }], "thinking")).toBe("done")
   })
 })
 

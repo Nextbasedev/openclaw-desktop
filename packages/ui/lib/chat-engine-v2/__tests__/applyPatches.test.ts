@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { applyChatPatch } from "../applyPatches"
+import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "../applyPatches"
 import { dedupeChatMessages } from "../../chatMessageDedupe"
 
 describe("applyChatPatch", () => {
@@ -95,6 +95,20 @@ describe("applyChatPatch", () => {
     })
     expect(confirmed.messages).toHaveLength(1)
     expect(confirmed.messages[0]).toMatchObject({ messageId: "oc_4", role: "user", text: "byy" })
+  })
+
+  test("extracts V2 status patches for cross-tab thinking", () => {
+    expect(statusFromPatch({
+      type: "patch",
+      patch: { cursor: 1, type: "chat.status", sessionKey: "s1", payload: { status: "thinking", statusLabel: "Thinking" }, createdAtMs: 1 },
+    })).toEqual({ status: "thinking", label: "Thinking" })
+  })
+
+  test("treats optimistic user patches as active run signals", () => {
+    expect(patchImpliesActiveRun({
+      type: "patch",
+      patch: { cursor: 1, type: "chat.message.upsert", sessionKey: "s1", payload: { optimistic: true, message: { role: "user", text: "hi" } }, createdAtMs: 1 },
+    })).toBe(true)
   })
 
   test("merges bootstrap history and patch messages with the same OpenClaw id", () => {

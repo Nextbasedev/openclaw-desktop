@@ -41,3 +41,11 @@ export function inferRestoredChatStatus(
 
   return statusFromBackendSession(null, messages)
 }
+
+export function statusAfterSendAck(
+  messages: ChatMessage[] | undefined | null,
+  currentStatus: StreamStatus | null,
+): StreamStatus | null {
+  const restoredStatus = inferRestoredChatStatus(messages, currentStatus)
+  return restoredStatus === "done" || restoredStatus === "error" ? restoredStatus : null
+}

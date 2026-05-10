@@ -64,6 +64,16 @@ describe("chat send routes", () => {
         },
       },
     });
+    expect(patches[1]).toMatchObject({
+      type: "chat.status",
+      sessionKey: "s1",
+      payload: {
+        status: "thinking",
+        statusLabel: "Thinking",
+        optimistic: true,
+        idempotencyKey: "stable-key",
+      },
+    });
     await app.close();
   });
 
@@ -104,6 +114,21 @@ describe("chat send routes", () => {
         { role: "assistant", text: "assistant arrived before user echo", __openclaw: { id: "assistant-seq-1", seq: 1 } },
       ],
     });
+    await app.close();
+  });
+
+  test("bootstrap preserves projected running session status for refresh recovery", async () => {
+    const app = await createApp(config("bootstrap-status"));
+    const context = contextOf(app);
+    context.messages.upsertSession({ sessionKey: "s1", sessionId: null, data: { sessionKey: "s1", status: "running" } });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") return { sessionKey: "s1", messages: [{ role: "user", text: "hello", __openclaw: { id: "u1", seq: 1 } }] };
+      return { ok: true };
+    });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({ sessionStatus: "running" });
     await app.close();
   });
 
