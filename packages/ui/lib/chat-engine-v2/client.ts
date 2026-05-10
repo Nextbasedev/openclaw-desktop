@@ -55,6 +55,7 @@ export type HelloFrame = {
   clientId: string
   afterCursor: number
   replayCount: number
+  replayHasMore?: boolean
 }
 
 export type StreamFrame = PatchFrame | HelloFrame
@@ -64,14 +65,30 @@ export async function fetchChatBootstrapV2(sessionKey: string, limit = 200): Pro
   return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`)
 }
 
+async function replayPatchBacklog(afterCursor: number, onFrame: (frame: StreamFrame) => void) {
+  let cursor = Math.max(0, afterCursor)
+  for (let i = 0; i < 25; i++) {
+    const params = new URLSearchParams({ afterCursor: String(cursor), limit: "1000" })
+    const body = await fetchJson<{ patches: PatchFrame["patch"][]; hasMore: boolean; latestCursor: number }>(`/api/patches?${params.toString()}`)
+    for (const patch of body.patches) onFrame({ type: "patch", patch })
+    if (!body.hasMore || body.latestCursor <= cursor) break
+    cursor = body.latestCursor
+  }
+}
+
 export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFrame) => void): () => void {
   if (typeof window === "undefined") return () => undefined
+  const startCursor = Math.max(0, afterCursor)
   const url = new URL(`${getMiddlewareV2Url()}/api/stream/ws`)
-  url.searchParams.set("afterCursor", String(Math.max(0, afterCursor)))
+  url.searchParams.set("afterCursor", String(startCursor))
   const ws = new WebSocket(url.toString().replace(/^http/, "ws"))
   ws.onmessage = (event) => {
     try {
-      onFrame(JSON.parse(String(event.data)) as StreamFrame)
+      const frame = JSON.parse(String(event.data)) as StreamFrame
+      onFrame(frame)
+      if (frame.type === "hello" && frame.replayHasMore) {
+        void replayPatchBacklog(startCursor, onFrame).catch(() => undefined)
+      }
     } catch {
       // ignore malformed frame
     }

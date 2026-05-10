@@ -30,6 +30,7 @@ const html = `<!doctype html>
   <script>
     const params = new URLSearchParams(location.search);
     const sessionKey = params.get('sessionKey') || 'human-flow-default';
+    const staleCursor = params.get('staleCursor');
     let cursor = 0;
     let messages = [];
     let ws;
@@ -78,16 +79,28 @@ const html = `<!doctype html>
       const res = await fetch('/api/chat/bootstrap?sessionKey=' + encodeURIComponent(sessionKey) + '&limit=100');
       const body = await res.json();
       messages = body.messages || [];
-      cursor = body.projection?.cursor || cursor;
+      cursor = staleCursor !== null ? Number(staleCursor) || 0 : (body.projection?.cursor || cursor);
       statusEl.textContent = body.sessionStatus === 'running' ? 'thinking' : (messages.some((m) => m.role === 'assistant') ? 'done' : 'idle');
       render();
       openStream();
     }
+    async function replayBacklog(afterCursor) {
+      let nextCursor = afterCursor;
+      for (let i = 0; i < 10; i++) {
+        const res = await fetch('/api/patches?afterCursor=' + nextCursor + '&limit=1000');
+        const body = await res.json();
+        for (const patch of body.patches || []) applyPatch(patch);
+        if (!body.hasMore || body.latestCursor <= nextCursor) break;
+        nextCursor = body.latestCursor;
+      }
+    }
     function openStream() {
       if (ws) ws.close();
-      ws = new WebSocket(location.origin.replace(/^http/, 'ws') + '/api/stream/ws?afterCursor=' + cursor);
+      const startCursor = cursor;
+      ws = new WebSocket(location.origin.replace(/^http/, 'ws') + '/api/stream/ws?afterCursor=' + startCursor);
       ws.onmessage = (event) => {
         const frame = JSON.parse(event.data);
+        if (frame.type === 'hello' && frame.replayHasMore) void replayBacklog(startCursor);
         if (frame.type === 'patch') applyPatch(frame.patch);
       };
     }
@@ -326,6 +339,20 @@ try {
   }
   assert(reconnectAnswerMs >= 0, "close/reconnect did not receive continuous answer");
 
+  const staleSession = `human-stale-${Date.now()}`;
+  for (let i = 0; i < 1005; i++) {
+    const message = { role: "assistant", text: `stale backlog ${i}`, __openclaw: { id: `stale-${i}`, seq: i + 1 } };
+    history.set(staleSession, [...(history.get(staleSession) ?? []), message]);
+    emitGateway(context, "session.message", { sessionKey: staleSession, message, messageSeq: i + 1 });
+  }
+  const stalePage = await newPage(`${base}/__v2-human-flow?sessionKey=${staleSession}&staleCursor=0`);
+  pages.push(stalePage);
+  await delay(3000);
+  const staleText = compactText(await stalePage.eval<string>(`document.body.innerText`));
+  const staleDebug = await stalePage.eval<string>(`Array.from(document.querySelectorAll('.message')).slice(-10).map((el) => el.textContent).join(' | ')`);
+  assert(staleText.includes("stale backlog 0"), "stale cursor recovery lost first backlog message: " + staleDebug);
+  assert(staleDebug.includes("stale backlog 1004"), "stale cursor recovery lost final backlog message beyond ws replay window: " + staleDebug);
+
   const toolSession = `human-toolflow-${Date.now()}`;
   const toolPage = await newPage(`${base}/__v2-human-flow?sessionKey=${toolSession}`);
   pages.push(toolPage);
@@ -354,6 +381,7 @@ try {
     "Chat A generating while Chat B open remains isolated",
     "Chat A receives final answer while another chat is open",
     "close tab mid-run and reconnect keeps user+thinking and receives answer",
+    "stale cursor recovers backlog beyond websocket replay window",
     "live tool/subagent patch appears in browser and survives refresh",
     "approval result patch appears in browser and survives refresh",
   ] }, null, 2));
