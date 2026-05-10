@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
 import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
@@ -285,16 +286,26 @@ export function ToolCallSteps({
                 open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
               )}
             >
-              {tools.map((call) => (
-                <ToolRow
-                  key={call.id}
-                  call={call}
-                  open={openToolId === call.id}
-                  onOpenChange={handleToolOpenChange}
-                  onSelect={onSelectTool}
-                  onResolveApproval={onResolveApproval}
-                />
-              ))}
+              <AnimatePresence initial={false}>
+                {tools.map((call) => (
+                  <motion.div
+                    key={call.id}
+                    layout="position"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <ToolRow
+                      call={call}
+                      open={openToolId === call.id}
+                      onOpenChange={handleToolOpenChange}
+                      onSelect={onSelectTool}
+                      onResolveApproval={onResolveApproval}
+                    />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
               <button
                 type="button"
                 onClick={() => setOpen(false)}

@@ -284,7 +284,7 @@ export function MarkdownContent({
     <div className={cn(
       "prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]",
       isRevealing && "streaming-text",
-      isRevealing && cursorActive && "streaming-cursor",
+      cursorActive && "streaming-cursor",
       className,
     )}>
       {parts.map((part, i) =>
