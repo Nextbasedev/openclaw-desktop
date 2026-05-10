@@ -7,14 +7,24 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   return Boolean(a.isOptimistic || b.isOptimistic)
 }
 
+export function mergeAssistantTextIfSameTurn(existing: string, incoming: string): string | null {
+  const current = existing.trim()
+  const next = incoming.trim()
+  if (!current) return next || null
+  if (!next) return current
+  if (current === next) return current
+  if (next.startsWith(current)) return next
+  if (current.startsWith(next)) return current
+  return null
+}
+
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
   const aText = a.text.trim()
   const bText = b.text.trim()
   if (!aText || !bText) return false
   if (a.messageId === b.messageId) return true
-  if (aText === bText) return true
-  return aText.startsWith(bText) || bText.startsWith(aText)
+  return mergeAssistantTextIfSameTurn(aText, bText) !== null
 }
 
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
