@@ -34,6 +34,17 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("normalizer preserves message id fields and explicit fallback seq", () => {
+    const rows = normalizeHistoryMessages("s1", [
+      { id: "gateway-a", role: "assistant", text: "a" },
+      { messageId: "gateway-b", role: "assistant", text: "b" },
+    ], 100, 7);
+    expect(rows).toMatchObject([
+      { openclawSeq: 7, messageId: "gateway-a" },
+      { openclawSeq: 8, messageId: "gateway-b" },
+    ]);
+  });
+
   test("projection cursor increases monotonically", () => {
     const db = openDatabase({ databasePath: testDbPath("cursor") });
     const repo = new MessageRepository(db);

@@ -104,6 +104,13 @@ describe("applyChatPatch", () => {
     })).toEqual({ status: "thinking", label: "Thinking" })
   })
 
+  test("extracts terminal status from session.upsert patches", () => {
+    expect(statusFromPatch({
+      type: "patch",
+      patch: { cursor: 1, type: "session.upsert", sessionKey: "s1", payload: { status: "done" }, createdAtMs: 1 },
+    })).toEqual({ status: "done", label: null })
+  })
+
   test("treats optimistic user patches as active run signals", () => {
     expect(patchImpliesActiveRun({
       type: "patch",

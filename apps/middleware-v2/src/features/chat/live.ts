@@ -67,7 +67,10 @@ export class ChatLiveIngest {
     const message = isObject(payload.message) ? (payload.message as OpenClawMessage) : null;
     if (!sessionKey || !message) return;
     const optimisticId = this.takeMatchingOptimisticUser(sessionKey, message);
-    const normalized = normalizeHistoryMessages(sessionKey, [message]);
+    const payloadSeq = typeof payload.messageSeq === "number" && Number.isFinite(payload.messageSeq) && payload.messageSeq > 0
+      ? Math.floor(payload.messageSeq)
+      : null;
+    const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projection = this.context.messages.upsertMessages(normalized);
     if (optimisticId) this.context.messages.deleteMessageById(sessionKey, optimisticId);
     const patch = this.context.messages.appendProjectionEvent({
