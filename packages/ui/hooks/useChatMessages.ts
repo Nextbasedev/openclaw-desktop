@@ -101,29 +101,6 @@ function formatToolDuration(ms: number): string | undefined {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function collapseRepeatedAssistantText(text: string) {
-  const trimmed = text.trim()
-  if (!trimmed) return trimmed
-
-  const lines = trimmed.split("\n")
-  for (let split = 1; split < lines.length; split++) {
-    const left = lines.slice(0, split).join("\n").trim()
-    const right = lines.slice(split).join("\n").trim()
-    if (!left || !right) continue
-    if (left === right) return left
-  }
-
-  const compact = (value: string) => value.replace(/\s+/g, " ").trim()
-  for (let split = 1; split < lines.length; split++) {
-    const left = lines.slice(0, split).join("\n").trim()
-    const right = lines.slice(split).join("\n").trim()
-    if (!left || !right) continue
-    if (compact(left) === compact(right)) return left
-  }
-
-  return trimmed
-}
-
 function objectValue(value: unknown, key: string): unknown {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)[key]
@@ -906,7 +883,7 @@ export function useChatMessages(
           }
           const rawText = ev.text || extractText(ev.content)
           if (!rawText) break
-          const text = collapseRepeatedAssistantText(rawText)
+          const text = rawText.trim()
           if (!text) break
           const timestamp = ev.createdAt || new Date().toISOString()
           const pendingEmbeds =
