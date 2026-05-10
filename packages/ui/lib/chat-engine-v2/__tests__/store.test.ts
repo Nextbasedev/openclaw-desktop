@@ -6,6 +6,7 @@ import {
   ingestGlobalChatPatchForTests,
   seedGlobalChatSession,
   subscribeGlobalChatSession,
+  sweepStaleGlobalChatSessions,
 } from "../store"
 
 vi.mock("../client", () => ({
@@ -160,6 +161,39 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
       { toolCallId: "spawn-link", sessionKey: "agent:main:subagent:abc", status: "working" },
     ])
+  })
+
+  test("sweeps stale active tools and subagents", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "toolCall", id: "tool-stale", name: "exec", input: { command: "sleep 999" } },
+              { type: "toolCall", id: "spawn-stale", name: "sessions_spawn", input: { task: "never returns" } },
+            ],
+          },
+        },
+      },
+    })
+
+    sweepStaleGlobalChatSessions(10_000, 5_000)
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "idle",
+      pendingTools: [
+        { id: "tool-stale", status: "error" },
+        { id: "spawn-stale", status: "error" },
+      ],
+      spawnedSubagents: [{ toolCallId: "spawn-stale", status: "failed" }],
+    })
   })
 
   test("warms React Query bootstrap cache from global store", () => {

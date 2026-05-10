@@ -13,6 +13,7 @@ type SessionState = {
   statusLabel: string | null
   pendingTools: InlineToolCall[]
   spawnedSubagents: SpawnedSubagent[]
+  lastPatchAtMs: number
 }
 
 type Listener = (state: SessionState, frame?: PatchFrame) => void
@@ -28,11 +29,14 @@ const ACTIVE_STATUSES = new Set<StreamStatus>([
   "restarting",
 ])
 
+const STALE_ACTIVE_RUN_MS = 5 * 60 * 1000
+
 const states = new Map<string, SessionState>()
 const listeners = new Map<string, Set<Listener>>()
 let globalCursor = 0
 let unsubscribeStream: (() => void) | null = null
 let queryClientRef: QueryClient | null = null
+let sweepInterval: ReturnType<typeof setInterval> | null = null
 
 function cloneState(state: SessionState): SessionState {
   return {
@@ -42,11 +46,12 @@ function cloneState(state: SessionState): SessionState {
     statusLabel: state.statusLabel,
     pendingTools: state.pendingTools,
     spawnedSubagents: state.spawnedSubagents,
+    lastPatchAtMs: state.lastPatchAtMs,
   }
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [] }
+  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0 }
 }
 
 function getOrCreate(sessionKey: string): SessionState {
@@ -270,6 +275,7 @@ function handlePatch(frame: PatchFrame) {
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
   state.messages = next.messages
+  state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
   notify(sessionKey, frame)
 }
@@ -281,6 +287,9 @@ function handleFrame(frame: StreamFrame) {
 
 export function ensureGlobalChatEngine(queryClient?: QueryClient) {
   if (queryClient) queryClientRef = queryClient
+  if (!sweepInterval && typeof window !== "undefined") {
+    sweepInterval = setInterval(() => sweepStaleGlobalChatSessions(), 60_000)
+  }
   if (unsubscribeStream) return
   unsubscribeStream = openPatchStreamV2(globalCursor, handleFrame)
 }
@@ -323,6 +332,26 @@ export function updateGlobalChatSessionActivity(params: {
   notify(params.sessionKey)
 }
 
+export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE_ACTIVE_RUN_MS) {
+  for (const [sessionKey, state] of states) {
+    if (!ACTIVE_STATUSES.has(state.status)) continue
+    if (!state.lastPatchAtMs || nowMs - state.lastPatchAtMs < staleMs) continue
+    state.status = "idle"
+    state.statusLabel = null
+    state.pendingTools = state.pendingTools.map((tool) =>
+      tool.status === "running"
+        ? { ...tool, status: "error", resultText: tool.resultText ?? "Timed out waiting for tool result." }
+        : tool
+    )
+    state.spawnedSubagents = state.spawnedSubagents.map((spawn) =>
+      spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working"
+        ? { ...spawn, status: "failed" }
+        : spawn
+    )
+    notify(sessionKey)
+  }
+}
+
 export function getGlobalChatSession(sessionKey: string): SessionState | null {
   const state = states.get(sessionKey)
   return state ? cloneState(state) : null
@@ -353,5 +382,9 @@ export function clearGlobalChatEngineForTests() {
   if (unsubscribeStream) {
     unsubscribeStream()
     unsubscribeStream = null
+  }
+  if (sweepInterval) {
+    clearInterval(sweepInterval)
+    sweepInterval = null
   }
 }
