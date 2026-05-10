@@ -35,7 +35,7 @@ const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "
 const VALID_STATUSES = new Set<StreamStatus>(["idle", "connected", "queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting", "done", "error"])
 
 export function statusFromPatch(frame: PatchFrame): { status: StreamStatus; label: string | null } | null {
-  if (frame.patch.type !== "chat.status" && frame.patch.type !== "session.status") return null
+  if (frame.patch.type !== "chat.status" && frame.patch.type !== "session.status" && frame.patch.type !== "session.upsert") return null
   const payload = patchPayload(frame)
   const status = payload?.status
   if (typeof status !== "string" || !VALID_STATUSES.has(status as StreamStatus)) return null
