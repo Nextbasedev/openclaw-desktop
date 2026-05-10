@@ -258,22 +258,6 @@ function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
 function StreamingTextBlock({ text }: { text: string }) {
   const segments = text.split(/(```[\s\S]*?(?:```|$))/g).filter(Boolean)
 
-  function renderInline(textValue: string) {
-    return textValue.split(/(`[^`\n]+`)/g).map((part, partIndex) => {
-      if (part.startsWith("`") && part.endsWith("`") && part.length > 1) {
-        return (
-          <code
-            key={partIndex}
-            className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]"
-          >
-            {part.slice(1, -1)}
-          </code>
-        )
-      }
-      return part
-    })
-  }
-
   return (
     <div className="max-w-full min-w-0 break-words text-foreground/85 [overflow-wrap:anywhere]">
       {segments.map((segment, index) => {
@@ -298,7 +282,7 @@ function StreamingTextBlock({ text }: { text: string }) {
               key={`${index}-${paragraphIndex}`}
               className="my-2.5 whitespace-pre-wrap break-words leading-[1.75] text-foreground/85 [overflow-wrap:anywhere] first:mt-0 last:mb-0"
             >
-              {renderInline(paragraph)}
+              {paragraph}
             </p>
           )
         })
