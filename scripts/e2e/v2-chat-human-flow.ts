@@ -353,6 +353,31 @@ try {
   assert(staleText.includes("stale backlog 0"), "stale cursor recovery lost first backlog message: " + staleDebug);
   assert(staleDebug.includes("stale backlog 1004"), "stale cursor recovery lost final backlog message beyond ws replay window: " + staleDebug);
 
+  const rapidA = `human-rapid-a-${Date.now()}`;
+  const rapidB = `human-rapid-b-${Date.now()}`;
+  const rapidA1 = await newPage(`${base}/__v2-human-flow?sessionKey=${rapidA}`);
+  const rapidA2 = await newPage(`${base}/__v2-human-flow?sessionKey=${rapidA}`);
+  const rapidB1 = await newPage(`${base}/__v2-human-flow?sessionKey=${rapidB}`);
+  pages.push(rapidA1, rapidA2, rapidB1);
+  await delay(500);
+  await rapidA1.eval(`document.querySelector('#send').click()`);
+  await delay(120);
+  await rapidB1.eval(`document.querySelector('#send').click()`);
+  for (let i = 0; i < 4; i++) {
+    await rapidA2.reload();
+    await rapidB1.reload();
+  }
+  await delay(1600);
+  const rapidA1Text = compactText(await rapidA1.eval<string>(`document.body.innerText`));
+  const rapidA2Text = compactText(await rapidA2.eval<string>(`document.body.innerText`));
+  const rapidB1Text = compactText(await rapidB1.eval<string>(`document.body.innerText`));
+  assert(rapidA1Text.includes(`answer for ${rapidA}`), "rapid split-pane A primary missed answer");
+  assert(rapidA2Text.includes(`answer for ${rapidA}`), "rapid split-pane A secondary missed answer after reloads");
+  assert(rapidB1Text.includes(`answer for ${rapidB}`), "rapid split-pane B missed answer after reloads");
+  assert(!rapidA1Text.includes(`answer for ${rapidB}`), "rapid split-pane A leaked B answer");
+  assert(!rapidA2Text.includes(`answer for ${rapidB}`), "rapid split-pane A secondary leaked B answer");
+  assert(!rapidB1Text.includes(`answer for ${rapidA}`), "rapid split-pane B leaked A answer");
+
   const toolSession = `human-toolflow-${Date.now()}`;
   const toolPage = await newPage(`${base}/__v2-human-flow?sessionKey=${toolSession}`);
   pages.push(toolPage);
@@ -382,6 +407,7 @@ try {
     "Chat A receives final answer while another chat is open",
     "close tab mid-run and reconnect keeps user+thinking and receives answer",
     "stale cursor recovers backlog beyond websocket replay window",
+    "rapid split-pane same/different sessions survive reload stress",
     "live tool/subagent patch appears in browser and survives refresh",
     "approval result patch appears in browser and survives refresh",
   ] }, null, 2));
