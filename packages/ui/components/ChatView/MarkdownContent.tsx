@@ -255,42 +255,6 @@ function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
   return parts
 }
 
-function StreamingTextBlock({ text }: { text: string }) {
-  const segments = text.split(/(```[\s\S]*?(?:```|$))/g).filter(Boolean)
-
-  return (
-    <div className="max-w-full min-w-0 break-words text-foreground/85 [overflow-wrap:anywhere]">
-      {segments.map((segment, index) => {
-        if (segment.startsWith("```")) {
-          const body = segment
-            .replace(/^```[^\n]*\n?/, "")
-            .replace(/```$/, "")
-          return (
-            <pre
-              key={index}
-              className="my-2 max-w-full overflow-x-auto rounded-xl border border-border/20 bg-black/25 px-4 py-3 font-mono text-[13px] leading-[1.65] text-foreground/80"
-            >
-              {body}
-            </pre>
-          )
-        }
-
-        return segment.split(/\n{2,}/).map((paragraph, paragraphIndex) => {
-          if (!paragraph) return null
-          return (
-            <p
-              key={`${index}-${paragraphIndex}`}
-              className="my-2.5 whitespace-pre-wrap break-words leading-[1.75] text-foreground/85 [overflow-wrap:anywhere] first:mt-0 last:mb-0"
-            >
-              {paragraph}
-            </p>
-          )
-        })
-      })}
-    </div>
-  )
-}
-
 export function MarkdownContent({
   text,
   className,
@@ -315,7 +279,6 @@ export function MarkdownContent({
     () => splitTextAndEmbeds(displayText, embeds),
     [displayText, embeds],
   )
-  const useLiveRenderer = Boolean(streaming || isRevealing)
 
   return (
     <div className={cn(
@@ -327,8 +290,6 @@ export function MarkdownContent({
       {parts.map((part, i) =>
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />
-        ) : useLiveRenderer ? (
-          <StreamingTextBlock key={`stream-${i}`} text={part.value} />
         ) : (
           <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm, remarkBreaks]} components={mdComponents}>
             {part.value}
