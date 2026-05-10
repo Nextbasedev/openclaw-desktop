@@ -33,6 +33,7 @@ export type ChatBootstrapV2 = {
   ok: boolean
   sessionKey: string
   sessionId?: string | null
+  sessionStatus?: string | null
   messages: unknown[]
   messageCount: number
   projection?: { cursor?: number; lastSeq?: number; liveSubscribed?: boolean }
