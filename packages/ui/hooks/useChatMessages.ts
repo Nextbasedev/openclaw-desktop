@@ -1007,7 +1007,7 @@ export function useChatMessages(
                   )
                 }
               }
-              return [
+              return dedupeChatMessages([
                 ...withoutLiveToolPlaceholder.filter((m) => m.messageId !== id),
                 {
                   messageId: id,
@@ -1024,7 +1024,7 @@ export function useChatMessages(
                       : undefined,
                   animateText: true,
                 },
-              ]
+              ])
             })
           }
           scrollToBottom(false)
