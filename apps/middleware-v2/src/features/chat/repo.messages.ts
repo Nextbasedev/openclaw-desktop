@@ -59,6 +59,41 @@ export class MessageRepository {
     return { upserted: messages.length, lastSeq };
   }
 
+  nextMessageSeq(sessionKey: string): number {
+    const row = this.db.prepare(`
+      SELECT max(openclaw_seq) AS maxSeq
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+    `).get({ sessionKey }) as { maxSeq?: number | null } | undefined;
+    return Math.max(0, Number(row?.maxSeq ?? 0)) + 1;
+  }
+
+  insertOptimisticMessage(message: ProjectedMessage) {
+    this.db.prepare(`
+      INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
+      VALUES (@sessionKey, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
+      ON CONFLICT(session_key, openclaw_seq) DO UPDATE SET
+        message_id = excluded.message_id,
+        role = excluded.role,
+        data_json = excluded.data_json,
+        updated_at_ms = excluded.updated_at_ms
+    `).run({
+      sessionKey: message.sessionKey,
+      openclawSeq: message.openclawSeq,
+      messageId: message.messageId,
+      role: message.role,
+      dataJson: toJson(message.data),
+      updatedAtMs: message.updatedAtMs,
+    });
+  }
+
+  deleteMessageById(sessionKey: string, messageId: string) {
+    return this.db.prepare(`
+      DELETE FROM v2_messages
+      WHERE session_key = @sessionKey AND message_id = @messageId
+    `).run({ sessionKey, messageId }).changes;
+  }
+
   appendProjectionEvent(params: { sessionKey?: string | null; eventType: string; payload: unknown; createdAtMs?: number }): ProjectionEvent {
     const createdAtMs = params.createdAtMs ?? Date.now();
     const info = this.db.prepare(`

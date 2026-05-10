@@ -77,6 +77,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             id: clientMessage.__openclaw.id,
             text: prepared.message,
           });
+          const optimisticCreatedAtMs = Date.now();
+          context.messages.insertOptimisticMessage({
+            sessionKey: input.sessionKey,
+            openclawSeq: context.messages.nextMessageSeq(input.sessionKey),
+            messageId: clientMessage.__openclaw.id,
+            role: "user",
+            data: clientMessage,
+            updatedAtMs: optimisticCreatedAtMs,
+          });
           const event = context.messages.appendProjectionEvent({
             sessionKey: input.sessionKey,
             eventType: "chat.message.upsert",
@@ -140,20 +149,21 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       },
     });
     const projection = context.messages.upsertMessages(normalized);
+    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000 }).map((message) => message.data);
     await context.chatLive.ensureSessionSubscribed(sessionKey);
     const event = context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: messages.length, lastSeq: projection.lastSeq },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: projection.lastSeq },
     });
 
     return {
       ok: true,
-      source: "openclaw-gateway",
+      source: "middleware-v2-projection",
       sessionKey,
       sessionId: history.sessionId ?? null,
-      messages,
-      messageCount: messages.length,
+      messages: projectedMessages,
+      messageCount: projectedMessages.length,
       thinkingLevel: history.thinkingLevel,
       fastMode: history.fastMode,
       verboseLevel: history.verboseLevel,

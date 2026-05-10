@@ -69,6 +69,7 @@ export class ChatLiveIngest {
     const optimisticId = this.takeMatchingOptimisticUser(sessionKey, message);
     const normalized = normalizeHistoryMessages(sessionKey, [message]);
     const projection = this.context.messages.upsertMessages(normalized);
+    if (optimisticId) this.context.messages.deleteMessageById(sessionKey, optimisticId);
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
