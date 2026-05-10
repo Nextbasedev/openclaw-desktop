@@ -1141,7 +1141,7 @@ export function ChatView({
     )
   }
 
-  if (messages.length === 0) {
+  if (messages.length === 0 && !isGenerating) {
     return (
       <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
         <AnimatedGreeting />
