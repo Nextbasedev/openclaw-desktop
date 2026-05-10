@@ -73,6 +73,80 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
   })
 }
 
+
+function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
+  const payload = frame.patch.payload
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : null
+}
+
+function patchMessage(frame: PatchFrame): Record<string, unknown> | null {
+  if (frame.patch.type !== "chat.message.upsert" && frame.patch.type !== "chat.message.confirmed") return null
+  const message = patchPayload(frame)?.message
+  return message && typeof message === "object" && !Array.isArray(message)
+    ? (message as Record<string, unknown>)
+    : null
+}
+
+function toolCallBlocks(message: Record<string, unknown>) {
+  const content = message.content
+  if (!Array.isArray(content)) return []
+  return content.filter((block): block is Record<string, unknown> => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return false
+    return block.type === "toolCall" || block.type === "tool_use"
+  })
+}
+
+function compactLabel(input: unknown, fallback: string) {
+  return typeof input === "string" && input.trim() ? input.trim() : fallback
+}
+
+function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message || message.role !== "assistant") return
+  const blocks = toolCallBlocks(message)
+  if (!blocks.length) return
+
+  const pending = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
+  const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+
+  for (const block of blocks) {
+    const id = compactLabel(block.id, `tool-${frame.patch.cursor}-${pending.size + 1}`)
+    const tool = compactLabel(block.name, "unknown")
+    const input = block.arguments ?? block.input
+    const existing = pending.get(id)
+    pending.set(id, {
+      ...(existing ?? { id, tool, status: "running" as const, startedAt: Date.now() }),
+      tool,
+      input: input ?? existing?.input,
+    })
+
+    if (tool === "sessions_spawn" && !spawns.has(id)) {
+      const args = input && typeof input === "object" && !Array.isArray(input)
+        ? (input as Record<string, unknown>)
+        : {}
+      const task = typeof args.task === "string" ? args.task : ""
+      const fallback = task ? `${task.slice(0, 60)}${task.length > 60 ? "..." : ""}` : `Sub-agent ${spawns.size + 1}`
+      spawns.set(id, {
+        id: `spawn:${id}`,
+        label: compactLabel(args.label ?? args.agentId, fallback),
+        task,
+        sessionKey: null,
+        status: "spawning",
+        toolCallId: id,
+      })
+    }
+  }
+
+  state.pendingTools = Array.from(pending.values())
+  state.spawnedSubagents = Array.from(spawns.values())
+  if (!ACTIVE_STATUSES.has(state.status)) {
+    state.status = "tool_running"
+    state.statusLabel = "Running tool"
+  }
+}
+
 function notify(sessionKey: string, frame?: PatchFrame) {
   const state = states.get(sessionKey)
   if (!state) return
@@ -102,6 +176,7 @@ function handlePatch(frame: PatchFrame) {
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
   state.messages = next.messages
+  applyActivityFromPatch(state, frame)
   notify(sessionKey, frame)
 }
 
@@ -170,6 +245,10 @@ export function subscribeGlobalChatSession(sessionKey: string, listener: Listene
     set.delete(listener)
     if (set.size === 0) listeners.delete(sessionKey)
   }
+}
+
+export function ingestGlobalChatPatchForTests(frame: PatchFrame) {
+  handlePatch(frame)
 }
 
 export function clearGlobalChatEngineForTests() {
