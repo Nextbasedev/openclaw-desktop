@@ -496,7 +496,7 @@ body {
 }
 
 .streaming-text {
-  transition: min-height 0.18s ease-out;
+  transition: height 0.15s ease-out;
 }
 
 .streaming-text> :last-child::after {
@@ -506,23 +506,22 @@ body {
   height: 1em;
   margin-left: 2px;
   vertical-align: text-bottom;
-  border-radius: 999px;
   background-color: currentColor;
-  opacity: 0.72;
-  transform: translateY(1px) scaleY(0.92);
-  transform-origin: center bottom;
-  animation: cursor-glow 1.05s ease-in-out infinite;
+  opacity: 0.7;
+  animation: cursor-blink 0.6s steps(2) infinite;
 }
 
-@keyframes cursor-glow {
-  0%, 100% {
-    opacity: 0.34;
-    transform: translateY(1px) scaleY(0.82);
+@keyframes cursor-blink {
+  0% {
+    opacity: 0.7;
   }
 
   50% {
-    opacity: 0.82;
-    transform: translateY(1px) scaleY(1);
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 0.7;
   }
 }
 
