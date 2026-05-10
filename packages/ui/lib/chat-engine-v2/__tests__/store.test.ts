@@ -1,0 +1,48 @@
+import { describe, expect, test, vi, afterEach } from "vitest"
+import { createOpenClawQueryClient, queryKeys } from "../../query"
+import {
+  clearGlobalChatEngineForTests,
+  getGlobalChatSession,
+  seedGlobalChatSession,
+  subscribeGlobalChatSession,
+} from "../store"
+
+vi.mock("../client", () => ({
+  openPatchStreamV2: vi.fn(() => () => undefined),
+}))
+
+afterEach(() => clearGlobalChatEngineForTests())
+
+describe("global V2 chat engine store", () => {
+  test("retains session messages while no ChatView subscriber is mounted", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      cursor: 4,
+      status: "thinking",
+    })
+
+    let latest = getGlobalChatSession("s1")
+    expect(latest).toMatchObject({ cursor: 4, status: "thinking", messages: [{ messageId: "u1" }] })
+
+    const unsubscribe = subscribeGlobalChatSession("s1", (state) => { latest = state })
+    unsubscribe()
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ cursor: 4, status: "thinking", messages: [{ messageId: "u1" }] })
+  })
+
+  test("warms React Query bootstrap cache from global store", () => {
+    const client = createOpenClawQueryClient()
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      queryClient: client,
+      messages: [{ messageId: "a1", role: "assistant", text: "cached globally" }],
+      cursor: 9,
+      status: "done",
+    })
+
+    const cached = client.getQueryData(queryKeys.chatBootstrap("s1")) as { history: { messages: unknown[] }, v2Cursor: number }
+    expect(cached.history.messages).toMatchObject([{ messageId: "a1", text: "cached globally" }])
+    expect(cached.v2Cursor).toBe(9)
+  })
+})
