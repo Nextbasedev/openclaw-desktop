@@ -1332,15 +1332,18 @@ export function ChatView({
               <motion.div
                 key={statusText.replace(/\.{3}$/, "")}
                 layout="position"
-                initial={{ opacity: 0, y: 4 }}
+                initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -3 }}
+                exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                className="mt-4 flex items-center pl-1"
+                className="mt-4 flex max-w-[85%] items-center pl-1"
               >
-                <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                  {statusText.replace(/\.{3}$/, "")}
-                  <span className="thinking-ellipsis" aria-hidden="true" />
+                <span className="thinking-status-pill">
+                  <span className="thinking-rail" aria-hidden="true" />
+                  <span className="thinking-shimmer min-w-0 truncate text-[13px] font-medium tracking-[-0.01em]">
+                    {statusText.replace(/\.{3}$/, "")}
+                  </span>
+                  <span className="thinking-ellipsis shrink-0" aria-hidden="true" />
                 </span>
               </motion.div>
             )}
