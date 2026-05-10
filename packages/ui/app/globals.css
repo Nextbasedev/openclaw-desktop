@@ -604,15 +604,16 @@ body {
 .thinking-shimmer {
   color: transparent;
   background-image: linear-gradient(
-    110deg,
-    color-mix(in oklab, var(--muted-foreground) 68%, transparent) 0%,
-    color-mix(in oklab, var(--muted-foreground) 76%, transparent) 36%,
-    color-mix(in oklab, var(--foreground) 94%, transparent) 48%,
-    color-mix(in oklab, var(--foreground) 94%, transparent) 52%,
-    color-mix(in oklab, var(--muted-foreground) 76%, transparent) 64%,
-    color-mix(in oklab, var(--muted-foreground) 68%, transparent) 100%
+    128deg,
+    color-mix(in oklab, var(--muted-foreground) 66%, transparent) 0%,
+    color-mix(in oklab, var(--muted-foreground) 74%, transparent) 42%,
+    color-mix(in oklab, var(--foreground) 88%, transparent) 47%,
+    #ffffff 50%,
+    color-mix(in oklab, var(--foreground) 88%, transparent) 53%,
+    color-mix(in oklab, var(--muted-foreground) 74%, transparent) 58%,
+    color-mix(in oklab, var(--muted-foreground) 66%, transparent) 100%
   );
-  background-size: 280% 100%;
+  background-size: 340% 100%;
   background-clip: text;
   -webkit-background-clip: text;
   animation: thinking-shimmer 2.6s linear infinite;
