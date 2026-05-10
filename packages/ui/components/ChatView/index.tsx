@@ -1228,12 +1228,7 @@ export function ChatView({
                   : liveSubagents
 
               return (
-                <motion.div
-                  key={msg.messageId}
-                  id={`message-${msg.messageId}`}
-                  layout="position"
-                  transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                >
+                <div key={msg.messageId} id={`message-${msg.messageId}`}>
                   {msg.role === "assistant" &&
                     filteredToolCalls &&
                     filteredToolCalls.length > 0 && (
@@ -1312,7 +1307,7 @@ export function ChatView({
                       />
                     </div>
                   )}
-                </motion.div>
+                </div>
               )
             })}
           </div>
@@ -1327,24 +1322,14 @@ export function ChatView({
             )}
           </AnimatePresence>
 
-          <AnimatePresence mode="popLayout" initial={false}>
-            {statusText && (
-              <motion.div
-                key={statusText.replace(/\.{3}$/, "")}
-                layout="position"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -3 }}
-                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                className="mt-4 flex items-center pl-1"
-              >
-                <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                  {statusText.replace(/\.{3}$/, "")}
-                  <span className="thinking-ellipsis" aria-hidden="true" />
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {statusText && (
+            <div className="mt-4 flex items-center pl-1">
+              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                {statusText.replace(/\.{3}$/, "")}
+                <span className="thinking-ellipsis" aria-hidden="true" />
+              </span>
+            </div>
+          )}
 
           {status === "error" && (
             <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
