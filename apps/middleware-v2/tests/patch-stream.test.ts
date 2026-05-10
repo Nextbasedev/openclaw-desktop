@@ -65,6 +65,22 @@ describe("patch stream", () => {
     expect(body.latestCursor).toBeGreaterThan(0);
   });
 
+  test("websocket marks replayHasMore when stale cursor exceeds replay window", async () => {
+    const app = await createApp(config("stale-ws"));
+    apps.push(app);
+    const context = contextOf(app);
+    for (let i = 0; i < 1001; i++) {
+      context.messages.appendProjectionEvent({ sessionKey: "s1", eventType: "chat.message.upsert", payload: { n: i } });
+    }
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("missing server address");
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/stream/ws?afterCursor=0`);
+    const hello = await waitForMessage(ws);
+    expect(hello).toMatchObject({ type: "hello", replayCount: 1000, replayHasMore: true });
+    ws.close();
+  });
+
   test("websocket opens and registers a patch client", async () => {
     const app = await createApp(config("ws"));
     apps.push(app);

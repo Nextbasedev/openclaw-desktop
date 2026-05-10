@@ -107,9 +107,11 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     const id = crypto.randomUUID();
     const client = { id, socket, connectedAtMs: Date.now(), lastSentCursor: afterCursor };
     context.patchBus.addClient(client);
-    const replay = listPatchesAfter(context, afterCursor, 1000);
-    socket.send(JSON.stringify({ type: "hello", clientId: id, afterCursor, replayCount: replay.length }));
-    for (const patch of replay) {
+    const replay = listPatchesAfter(context, afterCursor, 1001);
+    const replayHasMore = replay.length > 1000;
+    const replayWindow = replay.slice(0, 1000);
+    socket.send(JSON.stringify({ type: "hello", clientId: id, afterCursor, replayCount: replayWindow.length, replayHasMore }));
+    for (const patch of replayWindow) {
       socket.send(JSON.stringify({ type: "patch", patch }));
       client.lastSentCursor = patch.cursor;
     }
