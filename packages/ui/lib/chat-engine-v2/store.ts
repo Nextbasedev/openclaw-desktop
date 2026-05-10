@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import { queryKeys } from "../query"
+import { extractSubagentSessionKey } from "../subagentSession"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2, type PatchFrame, type StreamFrame } from "./client"
 
@@ -154,7 +155,16 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
   if (!message) return false
   const role = message.role
   if (role !== "tool" && role !== "tool_result" && role !== "toolResult") return false
-  const pendingIndex = state.pendingTools.findIndex((tool) => tool.status === "running")
+  const explicitId = typeof message.toolCallId === "string"
+    ? message.toolCallId
+    : typeof message.tool_call_id === "string"
+      ? message.tool_call_id
+      : typeof message.id === "string"
+        ? message.id
+        : null
+  const pendingIndex = explicitId
+    ? state.pendingTools.findIndex((tool) => tool.id === explicitId)
+    : state.pendingTools.findIndex((tool) => tool.status === "running")
   if (pendingIndex < 0) return false
   const resultText = toolResultText(message)
   const existing = state.pendingTools[pendingIndex]
@@ -166,6 +176,22 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
     approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
   }
   state.pendingTools = next
+
+  if (existing.tool === "sessions_spawn") {
+    const childKey = extractSubagentSessionKey(message) ?? extractSubagentSessionKey(resultText)
+    state.spawnedSubagents = state.spawnedSubagents.map((spawn) => {
+      if (spawn.toolCallId !== existing.id) return spawn
+      return {
+        ...spawn,
+        sessionKey: childKey ?? spawn.sessionKey,
+        status: next[pendingIndex].status === "error"
+          ? "failed"
+          : (childKey ?? spawn.sessionKey)
+            ? "working"
+            : "linking",
+      }
+    })
+  }
   return true
 }
 
