@@ -334,6 +334,7 @@ export function useChatMessages(
   const [loading, setLoading] = useState(!hasInitial)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const [isAtBottom, setIsAtBottom] = useState(true)
   const sendingGuardRef = useRef(false)
   const restartInFlightRef = useRef(false)
   const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : cachedStatus ?? "idle")
@@ -444,9 +445,11 @@ export function useChatMessages(
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    if (Date.now() < programmaticScrollUntilRef.current) return
-    isAtBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    const nextAtBottom = distanceFromBottom < 120
+    if (Date.now() < programmaticScrollUntilRef.current && nextAtBottom) return
+    isAtBottomRef.current = nextAtBottom
+    setIsAtBottom(nextAtBottom)
   }, [])
 
   const scrollToBottom = useCallback((smooth = false) => {
@@ -466,6 +469,7 @@ export function useChatMessages(
         behavior: allowSmooth ? "smooth" : "auto",
       })
       isAtBottomRef.current = true
+      setIsAtBottom(true)
       scrollFrameRef.current = null
     }
     scrollFrameRef.current = requestAnimationFrame(scroll)
@@ -485,6 +489,7 @@ export function useChatMessages(
         behavior: smooth ? "smooth" : "auto",
       })
       isAtBottomRef.current = true
+      setIsAtBottom(true)
       scrollFrameRef.current = null
     }
     scrollFrameRef.current = requestAnimationFrame(() => {
@@ -2146,6 +2151,10 @@ export function useChatMessages(
     )
   }, [])
 
+  const jumpToBottom = useCallback(() => {
+    forceScrollToBottom(true)
+  }, [forceScrollToBottom])
+
   return {
     messages,
     status,
@@ -2155,9 +2164,11 @@ export function useChatMessages(
     errorMessage,
     isSending,
     isGenerating,
+    isAtBottom,
     bottomRef,
     scrollContainerRef,
     onScroll,
+    jumpToBottom,
     handleSend,
     handleAbort,
     handleEdit,
