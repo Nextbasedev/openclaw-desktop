@@ -54,7 +54,7 @@ import {
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
+import { ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
 
 type RawMessage = {
   id?: string
@@ -301,17 +301,25 @@ export function useChatMessages(
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const [pendingTools, setPendingTools] = useState<InlineToolCall[]>([])
+  const [pendingTools, setLocalPendingTools] = useState<InlineToolCall[]>([])
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
   const embedsMapRef = useRef<
     Map<string, { ref: string; content: string; title?: string }>
   >(new Map())
 
-  const [spawnedSubagents, setSpawnedSubagents] = useState<SpawnedSubagent[]>(
+  const [spawnedSubagents, setLocalSpawnedSubagents] = useState<SpawnedSubagent[]>(
     []
   )
   const [editPreview, setEditPreview] = useState<EditPreviewState | null>(null)
   const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
+  const setPendingTools = useCallback((next: InlineToolCall[]) => {
+    setLocalPendingTools(next)
+    updateGlobalChatSessionActivity({ sessionKey, pendingTools: next })
+  }, [sessionKey])
+  const setSpawnedSubagents = useCallback((next: SpawnedSubagent[]) => {
+    setLocalSpawnedSubagents(next)
+    updateGlobalChatSessionActivity({ sessionKey, spawnedSubagents: next })
+  }, [sessionKey])
   const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const doneAfterYieldRef = useRef(0)
   const editPreviewSourceRef = useRef<EventSource | null>(null)
@@ -951,6 +959,14 @@ export function useChatMessages(
       setMessages(warmMessages)
       setStatus(cachedGlobal?.status ?? (cachedBootstrap?.history.sessionStatus ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages) : inferRestoredChatStatus(warmMessages, statusRef.current)))
       setStatusLabel(cachedGlobal?.statusLabel ?? null)
+      if (cachedGlobal?.pendingTools) {
+        pendingToolMapRef.current = new Map(cachedGlobal.pendingTools.map((tool) => [tool.id, tool]))
+        setPendingTools(cachedGlobal.pendingTools)
+      }
+      if (cachedGlobal?.spawnedSubagents) {
+        spawnMapRef.current = new Map(cachedGlobal.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+        setSpawnedSubagents(cachedGlobal.spawnedSubagents)
+      }
       if (typeof cachedGlobal?.cursor === "number") v2CursorRef.current = cachedGlobal.cursor
       else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
     } else {
@@ -959,7 +975,7 @@ export function useChatMessages(
       setStatus("idle")
     }
 
-    if (cachedActivity) {
+    if (!cachedGlobal && cachedActivity) {
       pendingToolMapRef.current = new Map(
         cachedActivity.pendingTools.map((tool) => [tool.id, tool])
       )
@@ -1357,6 +1373,8 @@ export function useChatMessages(
           messages: allMessages,
           cursor: typeof v2Cursor === "number" ? v2Cursor : v2CursorRef.current,
           status: bootstrapStatus,
+          pendingTools: Array.from(pendingToolMapRef.current.values()),
+          spawnedSubagents: Array.from(spawnMapRef.current.values()),
           queryClient,
         })
 
@@ -1386,6 +1404,10 @@ export function useChatMessages(
           (state) => {
             if (cancelled) return
             v2CursorRef.current = state.cursor
+            pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
+            spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+            setLocalPendingTools(state.pendingTools)
+            setLocalSpawnedSubagents(state.spawnedSubagents)
             setStatus(state.status)
             setStatusLabel(state.statusLabel)
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, state.statusLabel)
