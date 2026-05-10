@@ -38,7 +38,27 @@ const sendBody = z.object({
   execPolicy: z.unknown().optional(),
 });
 
+const approvalResolveBody = z.object({
+  approvalId: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  decision: z.enum(["allow-once", "allow-always", "deny"]),
+});
+
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
+  app.post("/api/exec/approval/resolve", async (request) => {
+    const parsed = approvalResolveBody.safeParse(request.body);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid approval resolve body", "INVALID_BODY", parsed.error.flatten());
+    }
+    const approvalId = parsed.data.approvalId ?? parsed.data.id;
+    if (!approvalId) throw new HttpError(400, "approvalId is required", "BAD_REQUEST");
+    const result = await context.gateway.request<Record<string, unknown>>("exec.approval.resolve", {
+      id: approvalId,
+      decision: parsed.data.decision,
+    }, 30_000);
+    return { ok: true, approvalId, decision: parsed.data.decision, ...result };
+  });
+
   app.post("/api/chat/send", async (request) => {
     const parsed = sendBody.safeParse(request.body);
     if (!parsed.success) {

@@ -132,3 +132,13 @@ export async function abortChatV2(input: { sessionKey: string; runId?: string })
     body: JSON.stringify(input),
   })
 }
+
+export async function resolveExecApprovalV2(input: {
+  approvalId: string
+  decision: "allow-once" | "allow-always" | "deny"
+}): Promise<{ ok: boolean; approvalId: string; decision: string }> {
+  return fetchJson<{ ok: boolean; approvalId: string; decision: string }>("/api/exec/approval/resolve", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
