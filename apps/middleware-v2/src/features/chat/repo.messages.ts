@@ -2,6 +2,26 @@ import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
 import type { ProjectedMessage, ProjectionEvent } from "./types.js";
 
+function textOf(data: unknown): string {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+  const maybe = data as { text?: unknown; content?: unknown };
+  if (typeof maybe.text === "string") return maybe.text.trim();
+  if (typeof maybe.content === "string") return maybe.content.trim();
+  return "";
+}
+
+function isOptimisticData(data: unknown) {
+  return Boolean(data && typeof data === "object" && !Array.isArray(data) && (data as { __clientOptimistic?: unknown }).__clientOptimistic);
+}
+
+function isOptimisticConflict(existing: { message_id: string | null; role: string | null; data_json: string }, incoming: ProjectedMessage) {
+  const existingData = fromJson(existing.data_json);
+  if (!isOptimisticData(existingData)) return false;
+  if (existing.message_id && incoming.messageId && existing.message_id === incoming.messageId) return false;
+  if (existing.role === "user" && incoming.role === "user" && textOf(existingData) === textOf(incoming.data)) return false;
+  return true;
+}
+
 export class MessageRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -32,6 +52,16 @@ export class MessageRepository {
         data_json = excluded.data_json,
         updated_at_ms = excluded.updated_at_ms
     `);
+    const existingAtSeq = this.db.prepare(`
+      SELECT message_id, role, data_json
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND openclaw_seq = @openclawSeq
+    `);
+    const maxSeq = this.db.prepare(`
+      SELECT max(openclaw_seq) AS maxSeq
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+    `);
     const offset = this.db.prepare(`
       INSERT INTO v2_gateway_offsets(session_key, last_openclaw_seq, updated_at_ms)
       VALUES (@sessionKey, @lastSeq, @updatedAtMs)
@@ -42,9 +72,18 @@ export class MessageRepository {
     const tx = this.db.transaction((rows: ProjectedMessage[]) => {
       let lastSeq = 0;
       for (const message of rows) {
-        insert.run({
+        let openclawSeq = message.openclawSeq;
+        const existing = existingAtSeq.get({
           sessionKey: message.sessionKey,
           openclawSeq: message.openclawSeq,
+        }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
+        if (existing && isOptimisticConflict(existing, message)) {
+          const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
+          openclawSeq = Math.max(message.openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
+        }
+        insert.run({
+          sessionKey: message.sessionKey,
+          openclawSeq,
           messageId: message.messageId,
           role: message.role,
           dataJson: toJson(message.data),

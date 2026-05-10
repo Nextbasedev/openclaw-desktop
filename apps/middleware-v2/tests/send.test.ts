@@ -67,6 +67,46 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("bootstrap keeps pending optimistic user when Gateway history is missing the user echo", async () => {
+    const app = await createApp(config("bootstrap-optimistic-conflict"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r1" };
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          messages: [
+            {
+              role: "assistant",
+              text: "assistant arrived before user echo",
+              __openclaw: { id: "assistant-seq-1", seq: 1 },
+            },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "pending user", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+    expect(send.statusCode).toBe(200);
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      source: "middleware-v2-projection",
+      messageCount: 2,
+      messages: [
+        { role: "user", text: "pending user", __openclaw: { id: "client-ui-1" } },
+        { role: "assistant", text: "assistant arrived before user echo", __openclaw: { id: "assistant-seq-1", seq: 1 } },
+      ],
+    });
+    await app.close();
+  });
+
   test("forwards stable idempotencyKey to Gateway chat.send", async () => {
     const app = await createApp(config("forward"));
     const context = contextOf(app);
