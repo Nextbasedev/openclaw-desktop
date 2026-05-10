@@ -122,6 +122,46 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("links spawned subagent from sessions_spawn tool result", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "spawn-link", name: "sessions_spawn", input: { task: "Audit" } }],
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "tool",
+            toolCallId: "spawn-link",
+            text: '{"childSessionKey":"agent:main:subagent:abc"}',
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-link", sessionKey: "agent:main:subagent:abc", status: "working" },
+    ])
+  })
+
   test("warms React Query bootstrap cache from global store", () => {
     const client = createOpenClawQueryClient()
     seedGlobalChatSession({

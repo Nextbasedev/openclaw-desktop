@@ -975,7 +975,10 @@ export function useChatMessages(
       setStatus("idle")
     }
 
-    if (!cachedGlobal && cachedActivity) {
+    if (cachedGlobal) {
+      // Activity already restored from the global V2 chat engine above.
+      // Do not clear it here: remounting ChatView must not wipe live tools/subagents.
+    } else if (cachedActivity) {
       pendingToolMapRef.current = new Map(
         cachedActivity.pendingTools.map((tool) => [tool.id, tool])
       )

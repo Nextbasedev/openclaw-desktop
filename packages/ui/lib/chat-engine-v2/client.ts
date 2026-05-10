@@ -82,13 +82,25 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
   const url = new URL(`${getMiddlewareV2Url()}/api/stream/ws`)
   url.searchParams.set("afterCursor", String(startCursor))
   const ws = new WebSocket(url.toString().replace(/^http/, "ws"))
+  let backlogReplay: Promise<void> | null = null
+  const liveBuffer: StreamFrame[] = []
   ws.onmessage = (event) => {
     try {
       const frame = JSON.parse(String(event.data)) as StreamFrame
-      onFrame(frame)
       if (frame.type === "hello" && frame.replayHasMore) {
-        void replayPatchBacklog(startCursor, onFrame).catch(() => undefined)
+        backlogReplay = replayPatchBacklog(startCursor, onFrame)
+          .then(() => {
+            for (const buffered of liveBuffer.splice(0)) onFrame(buffered)
+          })
+          .catch(() => undefined)
+        onFrame(frame)
+        return
       }
+      if (backlogReplay && frame.type === "patch") {
+        liveBuffer.push(frame)
+        return
+      }
+      onFrame(frame)
     } catch {
       // ignore malformed frame
     }
