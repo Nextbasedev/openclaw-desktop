@@ -55,7 +55,7 @@ import {
   type PatchFrame,
 } from "@/lib/chat-engine-v2/client"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "@/lib/chat-engine-v2/applyPatches"
-import { warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
+import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 
 type RawMessage = {
@@ -283,10 +283,11 @@ export function useChatMessages(
           typeof update === "function" ? update(prev) : update
         )
         schedulePersistentMessages(next)
+        updateCachedBootstrapMessages(queryClient, sessionKey, next)
         return next
       })
     },
-    [schedulePersistentMessages, sessionKey]
+    [queryClient, schedulePersistentMessages, sessionKey]
   )
 
   const setStatus = useCallback(
