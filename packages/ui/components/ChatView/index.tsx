@@ -23,6 +23,7 @@ import {
   visibleMessages,
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
+import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
 import { windowChatMessages } from "@/lib/messageWindow"
 import { toast } from "react-toastify"
@@ -470,9 +471,13 @@ export function ChatView({
       approvalId: string,
       decision: "allow-once" | "allow-always" | "deny"
     ) => {
-      await invoke("middleware_exec_approval_resolve", {
-        input: { approvalId, decision },
-      })
+      try {
+        await resolveExecApprovalV2({ approvalId, decision })
+      } catch {
+        await invoke("middleware_exec_approval_resolve", {
+          input: { approvalId, decision },
+        })
+      }
       emit("chat:activity")
     },
     []

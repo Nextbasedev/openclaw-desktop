@@ -20,6 +20,21 @@ function contextOf(app: Awaited<ReturnType<typeof createApp>>): AppContext {
 }
 
 describe("chat send routes", () => {
+  test("resolves exec approval through Gateway", async () => {
+    const app = await createApp(config("approval-resolve"));
+    const context = contextOf(app);
+    const request = vi.spyOn(context.gateway, "request").mockResolvedValue({ resolved: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/exec/approval/resolve",
+      payload: { approvalId: "approval-1", decision: "allow-once" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, approvalId: "approval-1", decision: "allow-once", resolved: true });
+    expect(request).toHaveBeenCalledWith("exec.approval.resolve", { id: "approval-1", decision: "allow-once" }, 30_000);
+    await app.close();
+  });
+
   test("validates idempotencyKey", async () => {
     const app = await createApp(config("validation"));
     const res = await app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "hi" } });
