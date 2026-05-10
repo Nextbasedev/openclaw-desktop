@@ -117,6 +117,28 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("send stores projected running status so refresh before assistant starts recovers thinking", async () => {
+    const app = await createApp(config("send-status-refresh"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r1" };
+      if (method === "chat.history") return { sessionKey: "s1", messages: [] };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+    expect(send.statusCode).toBe(200);
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({ sessionStatus: "running" });
+    await app.close();
+  });
+
   test("bootstrap preserves projected running session status for refresh recovery", async () => {
     const app = await createApp(config("bootstrap-status"));
     const context = contextOf(app);

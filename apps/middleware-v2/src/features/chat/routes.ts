@@ -108,6 +108,18 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             payload: event.payload,
             createdAtMs: event.createdAtMs,
           });
+          const existingSession = context.messages.getSession(input.sessionKey);
+          context.messages.upsertSession({
+            sessionKey: input.sessionKey,
+            sessionId: existingSession?.sessionId ?? null,
+            data: {
+              ...objectData(existingSession?.data),
+              sessionKey: input.sessionKey,
+              sessionId: existingSession?.sessionId ?? null,
+              status: "running",
+              statusLabel: "Thinking",
+            },
+          });
           const statusEvent = context.messages.appendProjectionEvent({
             sessionKey: input.sessionKey,
             eventType: "chat.status",
