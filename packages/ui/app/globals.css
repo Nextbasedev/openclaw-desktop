@@ -593,24 +593,28 @@ body {
   }
 }
 @keyframes thinking-shimmer {
-  0% {
-    background-position: 180% 50%;
+  from {
+    background-position: 140% 50%;
   }
-  100% {
-    background-position: -80% 50%;
+  to {
+    background-position: -40% 50%;
   }
 }
 
 .thinking-shimmer {
   color: transparent;
   background-image: linear-gradient(
-    100deg,
-    color-mix(in oklab, var(--muted-foreground) 62%, transparent),
-    color-mix(in oklab, var(--foreground) 92%, transparent),
-    color-mix(in oklab, var(--muted-foreground) 62%, transparent)
+    110deg,
+    color-mix(in oklab, var(--muted-foreground) 68%, transparent) 0%,
+    color-mix(in oklab, var(--muted-foreground) 76%, transparent) 36%,
+    color-mix(in oklab, var(--foreground) 94%, transparent) 48%,
+    color-mix(in oklab, var(--foreground) 94%, transparent) 52%,
+    color-mix(in oklab, var(--muted-foreground) 76%, transparent) 64%,
+    color-mix(in oklab, var(--muted-foreground) 68%, transparent) 100%
   );
-  background-size: 220% 100%;
+  background-size: 280% 100%;
   background-clip: text;
   -webkit-background-clip: text;
-  animation: thinking-shimmer 1.45s ease-in-out infinite;
+  animation: thinking-shimmer 2.6s linear infinite;
+  will-change: background-position;
 }
