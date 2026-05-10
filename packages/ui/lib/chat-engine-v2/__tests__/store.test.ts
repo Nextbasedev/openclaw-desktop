@@ -31,6 +31,20 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ cursor: 4, status: "thinking", messages: [{ messageId: "u1" }] })
   })
 
+  test("retains tools and subagents while no ChatView subscriber is mounted", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      pendingTools: [{ id: "tool-1", tool: "exec", status: "running" }],
+      spawnedSubagents: [{ id: "spawn:1", label: "Worker", status: "working", toolCallId: "tool-1", sessionKey: "agent:sub" }],
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      pendingTools: [{ id: "tool-1", status: "running" }],
+      spawnedSubagents: [{ toolCallId: "tool-1", status: "working" }],
+    })
+  })
+
   test("warms React Query bootstrap cache from global store", () => {
     const client = createOpenClawQueryClient()
     seedGlobalChatSession({

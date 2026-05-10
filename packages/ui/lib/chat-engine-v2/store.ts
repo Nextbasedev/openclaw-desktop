@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import type { ChatMessage, StreamStatus } from "../../components/ChatView/types"
+import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import { queryKeys } from "../query"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
@@ -10,6 +10,8 @@ type SessionState = {
   messages: ChatMessage[]
   status: StreamStatus
   statusLabel: string | null
+  pendingTools: InlineToolCall[]
+  spawnedSubagents: SpawnedSubagent[]
 }
 
 type Listener = (state: SessionState, frame?: PatchFrame) => void
@@ -37,11 +39,13 @@ function cloneState(state: SessionState): SessionState {
     messages: state.messages,
     status: state.status,
     statusLabel: state.statusLabel,
+    pendingTools: state.pendingTools,
+    spawnedSubagents: state.spawnedSubagents,
   }
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], status: "idle", statusLabel: null }
+  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [] }
 }
 
 function getOrCreate(sessionKey: string): SessionState {
@@ -118,6 +122,8 @@ export function seedGlobalChatSession(params: {
   cursor?: number
   status?: StreamStatus
   statusLabel?: string | null
+  pendingTools?: InlineToolCall[]
+  spawnedSubagents?: SpawnedSubagent[]
   queryClient?: QueryClient
 }) {
   if (params.queryClient) queryClientRef = params.queryClient
@@ -126,8 +132,25 @@ export function seedGlobalChatSession(params: {
   state.cursor = Math.max(state.cursor, params.cursor ?? 0)
   if (params.status) state.status = params.status
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
+  if (params.pendingTools) state.pendingTools = params.pendingTools
+  if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
   globalCursor = Math.max(globalCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)
+  notify(params.sessionKey)
+}
+
+export function updateGlobalChatSessionActivity(params: {
+  sessionKey: string
+  pendingTools?: InlineToolCall[]
+  spawnedSubagents?: SpawnedSubagent[]
+  status?: StreamStatus
+  statusLabel?: string | null
+}) {
+  const state = getOrCreate(params.sessionKey)
+  if (params.pendingTools) state.pendingTools = params.pendingTools
+  if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
+  if (params.status) state.status = params.status
+  if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   notify(params.sessionKey)
 }
 
