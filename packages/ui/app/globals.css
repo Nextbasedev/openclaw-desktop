@@ -499,7 +499,7 @@ body {
   transition: min-height 0.18s ease-out;
 }
 
-.streaming-text> :last-child::after {
+.streaming-cursor> :last-child::after {
   content: "";
   display: inline-block;
   width: 2px;
@@ -583,7 +583,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
 
   .streaming-text,
-  .streaming-text> :last-child::after {
+  .streaming-cursor> :last-child::after {
     animation: none;
     transition: none;
   }

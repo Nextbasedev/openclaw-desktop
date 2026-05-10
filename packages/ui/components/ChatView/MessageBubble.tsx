@@ -724,6 +724,7 @@ export function MessageBubble({
                   text={message.text}
                   embeds={message.embeds}
                   streaming={isActivelyStreaming || message.animateText}
+                  cursorActive={Boolean(isActivelyStreaming)}
                   onRevealComplete={() =>
                     onTextAnimationComplete?.(message.messageId)
                   }
