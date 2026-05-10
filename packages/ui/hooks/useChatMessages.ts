@@ -101,6 +101,28 @@ function formatToolDuration(ms: number): string | undefined {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+function mergeAssistantTextOverlap(existing: string, incoming: string) {
+  const current = existing.trimEnd()
+  const next = incoming.trimStart()
+  if (!current) return next
+  if (!next) return current
+  if (current === next) return current
+  if (next.startsWith(current)) return next
+  if (current.startsWith(next)) return current
+
+  const maxOverlap = Math.min(current.length, next.length)
+  for (let size = maxOverlap; size >= 24; size--) {
+    if (current.slice(-size) === next.slice(0, size)) {
+      return `${current}${next.slice(size)}`
+    }
+  }
+
+  if (next.includes(current)) return next
+  if (current.includes(next)) return current
+
+  return `${current}\n\n${next}`
+}
+
 function objectValue(value: unknown, key: string): unknown {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)[key]
@@ -986,7 +1008,7 @@ export function useChatMessages(
                   )
                 }
                 if (hasActiveToolTurn) {
-                  const merged = lastTrimmed + "\n\n" + text
+                  const merged = mergeAssistantTextOverlap(lastAssistant.text, text)
                   return withoutLiveToolPlaceholder.map((m) =>
                     m.messageId === lastAssistant.messageId
                       ? {
