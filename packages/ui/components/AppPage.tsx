@@ -344,28 +344,14 @@ function AppShell({
 
   const lastActiveSessionKeyRef = useRef<string | null>(null)
 
-  // Keep the previous session alive (hidden) so its SSE connection
-  // and notification logic survive when the user switches away.
-  const [backgroundSessionKey, setBackgroundSessionKey] = useState<string | null>(null)
-  const [backgroundSessionTitle, setBackgroundSessionTitle] = useState<string | null>(null)
-  const prevActiveSessionKeyRef = useRef<string | null>(null)
-  const prevActiveSessionTitleRef = useRef<string | null>(null)
   const initialRouteAppliedRef = useRef(false)
   const initialConnectRedirectAppliedRef = useRef(false)
 
   useEffect(() => {
-    const prevKey = prevActiveSessionKeyRef.current
-    const prevTitle = prevActiveSessionTitleRef.current
-    if (prevKey && prevKey !== activeSessionKey) {
-      setBackgroundSessionKey(prevKey)
-      setBackgroundSessionTitle(prevTitle)
-    }
     if (activeSessionKey) {
       lastActiveSessionKeyRef.current = activeSessionKey
     }
-    prevActiveSessionKeyRef.current = activeSessionKey
-    prevActiveSessionTitleRef.current = activeSessionTitle
-  }, [activeSessionKey, activeSessionTitle])
+  }, [activeSessionKey])
 
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [editorGroups, dispatchGroups] = useReducer(
@@ -477,10 +463,6 @@ function AppShell({
       routeRequestRef.current += 1
       resolvedChatCacheRef.current.clear()
       clearConversationState()
-      setBackgroundSessionKey(null)
-      setBackgroundSessionTitle(null)
-      prevActiveSessionKeyRef.current = null
-      prevActiveSessionTitleRef.current = null
       lastActiveSessionKeyRef.current = null
       setCronConversationTarget(null)
       setPendingPrompt(null)
@@ -1724,40 +1706,6 @@ function AppShell({
     onResetOnboarding()
   }, [onDeleteAccount, onResetOnboarding])
 
-  const visibleSessionKeys = new Set(
-    [
-      activeSessionKey,
-      backgroundSessionKey,
-      ...editorGroups.groups.map((group) => group.sessionData?.sessionKey ?? null),
-    ].filter((key): key is string => Boolean(key)),
-  )
-  const warmChatSessions = effectiveActiveTab === "chat"
-    ? Array.from(
-        new Map(
-          allTabs
-            .filter((tab) => tab.kind === "chat")
-            .map((tab) => {
-              const data = tabDataRef.current.get(tab.id)
-              const cached = data?.chat
-                ? resolvedChatCacheRef.current.get(data.chat.id)
-                : null
-              const sessionKey = cached?.sessionKey ?? data?.chat?.sessionKey
-              if (!data?.chat || !sessionKey || visibleSessionKeys.has(sessionKey)) {
-                return null
-              }
-              return [
-                sessionKey,
-                {
-                  sessionKey,
-                  title: cached?.title ?? data.chat.name,
-                },
-              ] as const
-            })
-            .filter((entry): entry is readonly [string, { sessionKey: string; title: string }] => Boolean(entry)),
-        ).values(),
-      ).slice(0, 6)
-    : []
-
   return (
     <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
@@ -1926,25 +1874,6 @@ function AppShell({
                 onNavigateToChat={handleCronJobNavigate}
                 onForkNavigate={handleForkNavigate}
               />
-            )}
-            {(backgroundSessionKey || warmChatSessions.length > 0) && (
-              <div className="hidden">
-                {backgroundSessionKey && backgroundSessionKey !== activeSessionKey && !editorGroups.groups.some((g) => g.sessionData?.sessionKey === backgroundSessionKey) && (
-                  <ChatView
-                    sessionKey={backgroundSessionKey}
-                    sessionTitle={backgroundSessionTitle ?? undefined}
-                    isBackgroundSession
-                  />
-                )}
-                {warmChatSessions.map((session) => (
-                  <ChatView
-                    key={`warm:${session.sessionKey}`}
-                    sessionKey={session.sessionKey}
-                    sessionTitle={session.title}
-                    isBackgroundSession
-                  />
-                ))}
-              </div>
             )}
           </main>
         </div>
