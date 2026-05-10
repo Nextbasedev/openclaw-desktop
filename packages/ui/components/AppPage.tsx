@@ -882,7 +882,7 @@ function AppShell({
 
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
     setConnectAutoOpenEnabled(false)
-    routeRequestRef.current += 1
+    const requestId = ++routeRequestRef.current
     setPendingPrompt(null)
     setComposerError(null)
     setActiveTab("chat")
@@ -906,12 +906,14 @@ function AppShell({
 
     try {
       const resolved = await ensureChatSession(chat)
+      if (routeRequestRef.current !== requestId) return
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
       setActiveChat(resolved.chat)
       setActiveSessionKey(resolved.sessionKey)
       setActiveSessionTitle(resolved.title)
       window.history.pushState(null, "", routeUrl(`/${resolved.chat.id}`))
     } catch (err) {
+      if (routeRequestRef.current !== requestId) return
       console.error("Failed to open chat session", err)
       if (!cached && !isRealChatSessionKey(chat.sessionKey)) {
         setActiveChat(chat)
