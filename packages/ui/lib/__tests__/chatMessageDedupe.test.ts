@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { dedupeChatMessages, mergeAssistantTextIfSameTurn } from "../chatMessageDedupe"
-
-describe("mergeAssistantTextIfSameTurn", () => {
-  it("merges only identical or prefix/superset assistant text", () => {
-    expect(mergeAssistantTextIfSameTurn("hello", "hello world")).toBe("hello world")
-    expect(mergeAssistantTextIfSameTurn("hello world", "hello")).toBe("hello world")
-    expect(mergeAssistantTextIfSameTurn("first response", "second response")).toBeNull()
-  })
-})
+import { dedupeChatMessages } from "../chatMessageDedupe"
 
 describe("dedupeChatMessages", () => {
   it("merges duplicate assistant messages from cache and stream", () => {
