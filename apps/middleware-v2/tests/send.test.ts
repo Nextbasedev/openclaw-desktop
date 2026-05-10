@@ -42,6 +42,13 @@ describe("chat send routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(context.chatLive.diagnostics().optimisticUserSessions).toBe(1);
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      source: "middleware-v2-projection",
+      messageCount: 1,
+      messages: [{ role: "user", text: "hello", __openclaw: { id: "client-ui-1" } }],
+    });
     expect(patches[0]).toMatchObject({
       type: "chat.message.upsert",
       sessionKey: "s1",
