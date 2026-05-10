@@ -132,7 +132,7 @@ describe("chat send routes", () => {
     await app.close();
   });
 
-  test("send stores projected running status so refresh before assistant starts recovers thinking", async () => {
+  test("send clears projected running status after Gateway completes", async () => {
     const app = await createApp(config("send-status-refresh"));
     const context = contextOf(app);
     vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
@@ -150,7 +150,7 @@ describe("chat send routes", () => {
 
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
     expect(bootstrap.statusCode).toBe(200);
-    expect(bootstrap.json()).toMatchObject({ sessionStatus: "running" });
+    expect(bootstrap.json()).toMatchObject({ sessionStatus: "done" });
     await app.close();
   });
 

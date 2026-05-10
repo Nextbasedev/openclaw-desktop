@@ -27,6 +27,8 @@ import { initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
+import { sendChatV2 } from "@/lib/chat-engine-v2/client"
+import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
@@ -1517,8 +1519,9 @@ function AppShell({
         input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
       })
 
+      const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
-        messageId: randomId(),
+        messageId: optimisticId,
         role: "user",
         text,
         createdAt: new Date().toISOString(),
@@ -1540,12 +1543,12 @@ function AppShell({
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
 
-      await invoke("middleware_chat_send", {
-        input: {
-          sessionKey: sessionResult.session.key,
-          text,
-          attachments: payload.attachments,
-        },
+      await sendChatV2({
+        sessionKey: sessionResult.session.key,
+        text,
+        attachments: payload.attachments,
+        idempotencyKey: chatSendIdempotencyKey(sessionResult.session.key, optimisticId),
+        clientMessageId: optimisticId,
       })
 
       try {
@@ -1604,8 +1607,9 @@ function AppShell({
           },
         },
       )
+      const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
-        messageId: randomId(),
+        messageId: optimisticId,
         role: "user",
         text,
         createdAt: new Date().toISOString(),
@@ -1622,12 +1626,12 @@ function AppShell({
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(activeTopic.name)
 
-      await invoke("middleware_chat_send", {
-        input: {
-          sessionKey: sessionResult.session.key,
-          text,
-          attachments: payload.attachments,
-        },
+      await sendChatV2({
+        sessionKey: sessionResult.session.key,
+        text,
+        attachments: payload.attachments,
+        idempotencyKey: chatSendIdempotencyKey(sessionResult.session.key, optimisticId),
+        clientMessageId: optimisticId,
       })
     } catch (err) {
       console.error("Topic quick send failed", err)
