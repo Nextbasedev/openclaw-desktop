@@ -12,7 +12,7 @@ describe("stream reveal pacing", () => {
 
   it("keeps very large buffers from lagging too far behind", () => {
     const next = nextRevealLength({ currentLength: 0, targetLength: 4_000, elapsedMs: 16 })
-    expect(4_000 - next).toBeLessThanOrEqual(1_800)
+    expect(4_000 - next).toBeLessThanOrEqual(1_400)
   })
 
   it("never reveals beyond target length", () => {
