@@ -1323,9 +1323,8 @@ export function ChatView({
           </AnimatePresence>
 
           {statusText && (
-            <div className="mt-4 flex items-center gap-2 pl-1">
-              <TypingDots />
-              <span className="text-[12px] text-muted-foreground">
+            <div className="mt-4 flex items-center pl-1">
+              <span className="thinking-shimmer text-[13px] font-medium tracking-[-0.01em]">
                 {statusText}
               </span>
             </div>
