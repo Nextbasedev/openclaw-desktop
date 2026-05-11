@@ -274,6 +274,44 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   }
 }
 
+
+function hasActiveToolOrSubagent(state: SessionState) {
+  return (
+    state.pendingTools.some((tool) => tool.status === "running") ||
+    state.spawnedSubagents.some((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working")
+  )
+}
+
+function hasAssistantAnswerAfterLatestUser(state: SessionState) {
+  let latestUserIndex = -1
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    if (state.messages[i]?.role === "user") {
+      latestUserIndex = i
+      break
+    }
+  }
+  const start = latestUserIndex >= 0 ? latestUserIndex + 1 : 0
+  for (let i = state.messages.length - 1; i >= start; i--) {
+    const message = state.messages[i]
+    if (message?.role !== "assistant") continue
+    if (message.toolCalls?.some((tool) => tool.status === "running")) return false
+    if (message.text.trim().length > 0) return true
+  }
+  return false
+}
+
+function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
+  if (!ACTIVE_STATUSES.has(state.status)) return false
+  if (patchType !== "chat.message.upsert" && patchType !== "chat.message.confirmed") return false
+  if (hasActiveToolOrSubagent(state)) return false
+  if (!hasAssistantAnswerAfterLatestUser(state)) return false
+  state.status = "done"
+  state.statusLabel = null
+  state.activityStartedAtMs = 0
+  finalizeActiveToolsForTerminalStatus(state, "done")
+  return true
+}
+
 function notify(sessionKey: string, frame?: PatchFrame) {
   const state = states.get(sessionKey)
   if (!state) return
@@ -335,6 +373,7 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
+  const autoFinalized = maybeFinalizeAnsweredRun(state, frame.patch.type)
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
       sessionKey,
@@ -342,6 +381,7 @@ function handlePatch(frame: PatchFrame) {
       to: state.status,
       statusLabel: state.statusLabel,
       cursor: state.cursor,
+      autoFinalized,
     })
   }
   frontendLog("stream", "global-chat-session.patch-applied", {

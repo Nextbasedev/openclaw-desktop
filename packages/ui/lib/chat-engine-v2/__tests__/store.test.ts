@@ -177,6 +177,33 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("auto-finalizes thinking when assistant answer arrives without running tools", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: { sessionKey: "s1", optimistic: true, message: { role: "user", text: "hello" } },
+      },
+    })
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking" })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: { sessionKey: "s1", message: { role: "assistant", text: "answer" } },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
+  })
+
   test("does not complete genuinely running tools before final status", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
