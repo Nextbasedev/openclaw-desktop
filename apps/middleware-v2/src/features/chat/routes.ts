@@ -48,9 +48,9 @@ function isTerminalSendStatus(status: unknown) {
   return typeof status === "string" && ["done", "complete", "completed", "success", "succeeded", "finished"].includes(status.trim().toLowerCase());
 }
 
-function gatewaySendCompleted(result: Record<string, unknown>, history: ChatHistoryResponse | null) {
-  if (isTerminalSendStatus(result.status) || isTerminalSendStatus(history?.status)) return true;
-  return Boolean(history?.messages?.some((message) => objectData(message).role === "assistant"));
+function gatewaySendCompleted(result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null) {
+  if (isTerminalSendStatus(result.status)) return true;
+  return Boolean(currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser);
 }
 
 function localRunId(idempotencyKey: string) {
@@ -352,12 +352,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               log.warn("gateway.history.load.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
               return null;
             });
+            let currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null = null;
             if (history?.messages?.length) {
               const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
-              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
+              const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, message.openclawSeq), 0);
+              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && message.openclawSeq >= optimisticSeq && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
               const confirmedUser = gatewayUserEcho
                 ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
                 : null;
+              const currentUserSeq = confirmedUser?.openclawSeq ?? gatewayUserEcho?.openclawSeq ?? null;
+              currentHistory = {
+                currentUserRepresented: Boolean(gatewayUserEcho),
+                assistantAfterCurrentUser: currentUserSeq !== null && normalized.some((message) => message.role === "assistant" && message.openclawSeq > currentUserSeq),
+              };
               if (confirmedUser) {
                 log.info("optimistic.user.confirmed", {
                   sessionKey: input.sessionKey,
@@ -370,7 +377,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 ? normalized.filter((message) => message !== gatewayUserEcho)
                 : normalized;
               const projection = context.messages.upsertMessages(normalizedToUpsert);
-              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, confirmedOptimistic: Boolean(confirmedUser) });
+              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, historyMaxSeq, optimisticSeq, confirmedOptimistic: Boolean(confirmedUser), currentUserRepresented: currentHistory.currentUserRepresented, assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser });
               if (confirmedUser) {
                 const confirmedEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
@@ -400,6 +407,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 log.info("patch.broadcast", { sessionKey: input.sessionKey, type: confirmedEvent.eventType, cursor: confirmedEvent.cursor, messageSeq: confirmedUser.openclawSeq, role: confirmedUser.role, runId });
               }
               for (const projected of projection.changedMessages) {
+                if (!currentHistory.currentUserRepresented || currentUserSeq === null || projected.openclawSeq <= currentUserSeq) {
+                  log.info("history.patch.skip_stale_for_current_run", { sessionKey: input.sessionKey, messageSeq: projected.openclawSeq, role: projected.role, runId, optimisticSeq, currentUserRepresented: currentHistory.currentUserRepresented });
+                  continue;
+                }
                 const semanticType = projected.role === "assistant" ? "chat.assistant.final" : projected.role === "user" ? "chat.user.confirmed" : "chat.message.upsert";
                 const historyEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
@@ -428,7 +439,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               }
             }
 
-            if (gatewaySendCompleted(result, history)) {
+            if (gatewaySendCompleted(result, currentHistory)) {
               context.runs.updateRunStatus(runId, "done", { statusLabel: null });
               const doneRun = context.runs.getRun(runId);
               const doneEvent = context.messages.appendProjectionEvent({
@@ -470,7 +481,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: "done", idempotencyKey: input.idempotencyKey });
             }
 
-            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, history), status: typeof result.status === "string" ? result.status : undefined });
+            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, currentHistory), status: typeof result.status === "string" ? result.status : undefined });
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {
             context.runs.updateRunStatus(runId, "error", { statusLabel: error instanceof Error ? error.message : "Message failed", error: errorMeta(error) });

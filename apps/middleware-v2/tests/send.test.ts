@@ -168,6 +168,61 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("send does not finish current run from stale pre-send Gateway history", async () => {
+    const app = await createApp(config("send-stale-history-current-run"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    const staleHistory = Array.from({ length: 52 }, (_, index) => {
+      const seq = index + 1;
+      return {
+        role: seq % 2 === 0 ? "assistant" : "user",
+        text: seq === 52 ? "old assistant answer" : `old message ${seq}`,
+        __openclaw: { id: `old-${seq}`, seq },
+      };
+    });
+    context.messages.upsertMessages(staleHistory.map((message) => ({
+      sessionKey: "s1",
+      openclawSeq: message.__openclaw.seq,
+      messageId: message.__openclaw.id,
+      role: message.role,
+      data: message,
+      updatedAtMs: Date.now(),
+    })));
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { accepted: true, runId: "gateway-run-1", status: "started" };
+      if (method === "chat.history") return { sessionKey: "s1", messages: staleHistory };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "current user message", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+
+    expect(send.statusCode).toBe(200);
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "chat.message.upsert", payload: expect.objectContaining({ message: expect.objectContaining({ role: "user", text: "current user message" }) }) }),
+      expect.objectContaining({ type: "chat.status", payload: expect.objectContaining({ status: "thinking", activeRun: expect.objectContaining({ runId: "run:stable-key" }) }) }),
+    ]));
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "chat.message.upsert", payload: expect.objectContaining({ semanticType: "chat.assistant.final", messageSeq: 52, runId: "run:stable-key" }) }),
+      expect.objectContaining({ type: "chat.status", payload: expect.objectContaining({ status: "done", runId: "run:stable-key" }) }),
+    ]));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      sessionStatus: "running",
+      runStatus: "thinking",
+      activeRun: { runId: "run:stable-key", status: "thinking" },
+    });
+    const messages = bootstrap.json().messages as Array<{ role: string; text?: string; __openclaw?: { id?: string } }>;
+    expect(messages[52]).toMatchObject({ role: "user", text: "current user message", __openclaw: { id: "client-ui-1" } });
+    await app.close();
+  });
+
   test("send keeps projected running status when Gateway only accepts an async run", async () => {
     const app = await createApp(config("send-status-started"));
     const context = contextOf(app);
