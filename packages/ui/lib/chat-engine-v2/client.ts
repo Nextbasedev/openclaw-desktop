@@ -87,14 +87,51 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+export type RunStatusV2 = "idle" | "queued" | "thinking" | "streaming" | "tool_running" | "done" | "error" | "aborted"
+
+export type ActiveRunV2 = {
+  runId: string
+  gatewayRunId?: string | null
+  clientMessageId?: string | null
+  idempotencyKey?: string | null
+  status: RunStatusV2 | string
+  statusLabel?: string | null
+  startedAtMs?: number
+  updatedAtMs?: number
+}
+
+export type ToolCallProjectionV2 = {
+  toolCallId?: string
+  id?: string
+  sessionKey?: string
+  runId?: string | null
+  messageId?: string | null
+  name?: string
+  phase?: string
+  status?: "running" | "success" | "error" | string
+  argsMeta?: unknown
+  resultMeta?: unknown
+  startedAtMs?: number
+  finishedAtMs?: number | null
+  updatedAtMs?: number
+}
+
 export type ChatBootstrapV2 = {
   ok: boolean
+  source?: string
+  projectionVersion?: number
   sessionKey: string
   sessionId?: string | null
   sessionStatus?: string | null
+  runStatus?: RunStatusV2 | string
+  statusLabel?: string | null
+  activeRun?: ActiveRunV2 | null
   messages: unknown[]
   messageCount: number
-  projection?: { cursor?: number; lastSeq?: number; liveSubscribed?: boolean }
+  tools?: ToolCallProjectionV2[]
+  toolCalls?: ToolCallProjectionV2[]
+  cursor?: number
+  projection?: { cursor?: number; lastSeq?: number; liveSubscribed?: boolean; version?: number }
 }
 
 export type PatchFrame = {
@@ -114,6 +151,8 @@ export type HelloFrame = {
   afterCursor: number
   replayCount: number
   replayHasMore?: boolean
+  replayWindowExceeded?: boolean
+  recovery?: "bootstrap" | string | null
 }
 
 export type StreamFrame = PatchFrame | HelloFrame
@@ -164,6 +203,12 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
         replayCount: frame.type === "hello" ? frame.replayCount : undefined,
         replayHasMore: frame.type === "hello" ? frame.replayHasMore : undefined,
       }, "debug")
+      if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
+        frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: startCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery"))
+        onFrame(frame)
+        return
+      }
       if (frame.type === "hello" && frame.replayHasMore) {
         frontendLog("stream", "patch-stream.backlog.start", { afterCursor: startCursor, replayCount: frame.replayCount }, "debug")
         backlogReplay = replayPatchBacklog(startCursor, onFrame)

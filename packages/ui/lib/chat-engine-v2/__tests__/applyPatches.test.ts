@@ -94,7 +94,32 @@ describe("applyChatPatch", () => {
       },
     })
     expect(confirmed.messages).toHaveLength(1)
-    expect(confirmed.messages[0]).toMatchObject({ messageId: "oc_4", role: "user", text: "byy" })
+    expect(confirmed.messages[0]).toMatchObject({ messageId: "client:key", role: "user", text: "byy", isOptimistic: false })
+  })
+
+  test("applies semantic confirmed user patch by canonical client id", () => {
+    const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", messageId: "client-1", message: { role: "user", text: "hello", isOptimistic: true, __openclaw: { id: "client-1" } } },
+        createdAtMs: 1,
+      },
+    })
+    const confirmed = applyChatPatch(withOptimistic, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.confirmed", messageId: "client-1", optimisticId: "client-1", gatewayMessageId: "gateway-1", message: { role: "user", text: "hello", __openclaw: { id: "gateway-1", seq: 4 } } },
+        createdAtMs: 2,
+      },
+    })
+    expect(confirmed.messages).toHaveLength(1)
+    expect(confirmed.messages[0]).toMatchObject({ messageId: "client-1", role: "user", text: "hello", isOptimistic: false })
   })
 
   test("extracts V2 status patches for cross-tab thinking", () => {
@@ -111,7 +136,14 @@ describe("applyChatPatch", () => {
     })).toEqual({ status: "done", label: null })
   })
 
-  test("treats optimistic user patches as active run signals", () => {
+  test("extracts canonical runStatus patches", () => {
+    expect(statusFromPatch({
+      type: "patch",
+      patch: { cursor: 1, type: "chat.tool.result", sessionKey: "s1", payload: { semanticType: "chat.tool.result", runStatus: "tool_running", statusLabel: "exec" }, createdAtMs: 1 },
+    })).toEqual({ status: "tool_running", label: "exec" })
+  })
+
+  test("treats optimistic user patches as legacy defensive active run signals", () => {
     expect(patchImpliesActiveRun({
       type: "patch",
       patch: { cursor: 1, type: "chat.message.upsert", sessionKey: "s1", payload: { optimistic: true, message: { role: "user", text: "hi" } }, createdAtMs: 1 },

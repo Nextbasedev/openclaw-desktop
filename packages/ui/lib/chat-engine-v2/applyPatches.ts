@@ -14,14 +14,31 @@ function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
   return payload as Record<string, unknown>
 }
 
+function isMessagePatchType(type: string) {
+  return type === "chat.message.upsert" ||
+    type === "chat.message.confirmed" ||
+    type === "chat.user.created" ||
+    type === "chat.user.confirmed" ||
+    type === "chat.assistant.started" ||
+    type === "chat.assistant.delta" ||
+    type === "chat.assistant.final"
+}
+
+function patchSemanticType(frame: PatchFrame): string {
+  const semanticType = patchPayload(frame)?.semanticType
+  return typeof semanticType === "string" && semanticType.trim() ? semanticType : frame.patch.type
+}
+
 function patchMessage(frame: PatchFrame): unknown | null {
-  if (frame.patch.type !== "chat.message.upsert" && frame.patch.type !== "chat.message.confirmed") return null
+  if (!isMessagePatchType(frame.patch.type) && !isMessagePatchType(patchSemanticType(frame))) return null
   return patchPayload(frame)?.message ?? null
 }
 
 function patchOptimisticId(frame: PatchFrame): string | null {
-  if (frame.patch.type !== "chat.message.confirmed") return null
-  const id = patchPayload(frame)?.optimisticId
+  const type = patchSemanticType(frame)
+  if (frame.patch.type !== "chat.message.confirmed" && type !== "chat.user.confirmed") return null
+  const payload = patchPayload(frame)
+  const id = payload?.optimisticId ?? payload?.clientMessageId ?? payload?.messageId
   return typeof id === "string" && id.trim() ? id : null
 }
 
@@ -34,19 +51,27 @@ function patchRemoveId(frame: PatchFrame): string | null {
 const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting"])
 const VALID_STATUSES = new Set<StreamStatus>(["idle", "connected", "queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting", "done", "error"])
 
+function normalizePatchStatus(value: unknown): StreamStatus | null {
+  if (value === "aborted") return "error"
+  if (typeof value !== "string" || !VALID_STATUSES.has(value as StreamStatus)) return null
+  return value as StreamStatus
+}
+
 export function statusFromPatch(frame: PatchFrame): { status: StreamStatus; label: string | null } | null {
-  if (frame.patch.type !== "chat.status" && frame.patch.type !== "session.status" && frame.patch.type !== "session.upsert") return null
   const payload = patchPayload(frame)
-  const status = payload?.status
-  if (typeof status !== "string" || !VALID_STATUSES.has(status as StreamStatus)) return null
+  const semanticType = patchSemanticType(frame)
+  const hasCanonicalStatus = typeof payload?.runStatus === "string" || semanticType.startsWith("chat.run.")
+  if (frame.patch.type !== "chat.status" && frame.patch.type !== "session.status" && frame.patch.type !== "session.upsert" && !hasCanonicalStatus) return null
+  const status = normalizePatchStatus(payload?.runStatus ?? payload?.status)
+  if (!status) return null
   const label = payload?.statusLabel ?? payload?.label ?? null
-  return { status: status as StreamStatus, label: typeof label === "string" ? label : null }
+  return { status, label: typeof label === "string" ? label : null }
 }
 
 export function patchImpliesActiveRun(frame: PatchFrame): boolean {
   const status = statusFromPatch(frame)
   if (status) return ACTIVE_STATUSES.has(status.status)
-  if (frame.patch.type !== "chat.message.upsert" && frame.patch.type !== "chat.message.confirmed") return false
+  if (!isMessagePatchType(frame.patch.type) && !isMessagePatchType(patchSemanticType(frame))) return false
   const payload = patchPayload(frame)
   const message = patchMessage(frame)
   if (!message || typeof message !== "object" || Array.isArray(message)) return false
@@ -67,11 +92,17 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   if (!message) return { ...state, cursor: frame.patch.cursor }
   const parsed = parseChatHistory([message]).messages
   const optimisticId = patchOptimisticId(frame)
-  const baseMessages = optimisticId
-    ? state.messages.filter((item) => item.messageId !== optimisticId)
+  const payload = patchPayload(frame)
+  const canonicalMessageId = typeof payload?.messageId === "string" && payload.messageId.trim() ? payload.messageId : optimisticId
+  const normalized = canonicalMessageId
+    ? parsed.map((item) => item.role === "user" ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null } : item)
+    : parsed
+  const idsToReplace = new Set([optimisticId, canonicalMessageId].filter((id): id is string => Boolean(id)))
+  const baseMessages = idsToReplace.size > 0
+    ? state.messages.filter((item) => !idsToReplace.has(item.messageId))
     : state.messages
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages([...baseMessages, ...parsed]),
+    messages: dedupeChatMessages([...baseMessages, ...normalized]),
   }
 }
