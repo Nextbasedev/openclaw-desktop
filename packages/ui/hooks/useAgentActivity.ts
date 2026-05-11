@@ -355,9 +355,8 @@ export function useAgentActivity(sessionKey: string | null) {
         sessionKey: subKey,
       })
     }
-    startSubagentPoll(subKey, agentId)
     syncState()
-  }, [startSubagentPoll, syncState])
+  }, [syncState])
 
   const discoverSubagentKey = useCallback(
     (subKey: string) => {
@@ -499,18 +498,10 @@ export function useAgentActivity(sessionKey: string | null) {
           messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
           messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
         }))
-        for (const delayMs of [0, 100, 300, 700, 1500, 3000, 5000, 8000]) {
-          window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), delayMs)
-        }
-        if (!output) {
-          for (const delayMs of [1000, 3000, 6000]) {
-            window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), delayMs)
-          }
-        }
       }
       syncState()
     },
-    [refreshFinishedToolFromHistory, sessionKey, syncState],
+    [sessionKey, syncState],
   )
 
   const processMessage = useCallback(
@@ -592,16 +583,9 @@ export function useAgentActivity(sessionKey: string | null) {
           syncState()
         })
       }
-      for (const [subKey, agentId] of subKeyToAgentRef.current) {
-        void fetchSubagentHistory(subKey, agentId).then((phase) => {
-          if (!phase || isActiveSubagent(phase)) {
-            startSubagentPoll(subKey, agentId)
-          }
-        })
-      }
       syncState()
     }, 3000)
-  }, [fetchSubagentHistory, startSubagentPoll, syncState, sessionKey])
+  }, [syncState, sessionKey])
 
   const handleStreamResume = useCallback(() => {
     if (doneTimerRef.current) {
