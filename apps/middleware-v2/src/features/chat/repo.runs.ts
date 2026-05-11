@@ -1,0 +1,245 @@
+import type Database from "better-sqlite3";
+import { fromJson, toJson } from "../../db/json.js";
+
+export type RunStatus = "queued" | "thinking" | "streaming" | "tool_running" | "done" | "error" | "aborted";
+export type ToolPhase = "start" | "calling" | "result" | "error";
+export type ToolStatus = "running" | "success" | "error";
+
+export type ProjectedRun = {
+  runId: string;
+  sessionKey: string;
+  clientMessageId: string | null;
+  idempotencyKey: string | null;
+  gatewayRunId: string | null;
+  status: RunStatus;
+  statusLabel: string | null;
+  startedAtMs: number;
+  finishedAtMs: number | null;
+  error: unknown;
+  updatedAtMs: number;
+};
+
+export type ProjectedToolCall = {
+  toolCallId: string;
+  sessionKey: string;
+  runId: string | null;
+  messageId: string | null;
+  name: string;
+  phase: ToolPhase;
+  status: ToolStatus;
+  argsMeta: unknown;
+  resultMeta: unknown;
+  startedAtMs: number;
+  finishedAtMs: number | null;
+  updatedAtMs: number;
+};
+
+function rowToRun(row: Record<string, unknown>): ProjectedRun {
+  return {
+    runId: String(row.run_id),
+    sessionKey: String(row.session_key),
+    clientMessageId: typeof row.client_message_id === "string" ? row.client_message_id : null,
+    idempotencyKey: typeof row.idempotency_key === "string" ? row.idempotency_key : null,
+    gatewayRunId: typeof row.gateway_run_id === "string" ? row.gateway_run_id : null,
+    status: row.status as RunStatus,
+    statusLabel: typeof row.status_label === "string" ? row.status_label : null,
+    startedAtMs: Number(row.started_at_ms),
+    finishedAtMs: typeof row.finished_at_ms === "number" ? row.finished_at_ms : null,
+    error: typeof row.error_json === "string" ? fromJson(row.error_json) : null,
+    updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+function rowToTool(row: Record<string, unknown>): ProjectedToolCall {
+  return {
+    toolCallId: String(row.tool_call_id),
+    sessionKey: String(row.session_key),
+    runId: typeof row.run_id === "string" ? row.run_id : null,
+    messageId: typeof row.message_id === "string" ? row.message_id : null,
+    name: String(row.name ?? "unknown"),
+    phase: row.phase as ToolPhase,
+    status: row.status as ToolStatus,
+    argsMeta: typeof row.args_meta_json === "string" ? fromJson(row.args_meta_json) : null,
+    resultMeta: typeof row.result_meta_json === "string" ? fromJson(row.result_meta_json) : null,
+    startedAtMs: Number(row.started_at_ms),
+    finishedAtMs: typeof row.finished_at_ms === "number" ? row.finished_at_ms : null,
+    updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+export class RunRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  upsertRun(run: {
+    runId: string;
+    sessionKey: string;
+    clientMessageId?: string | null;
+    idempotencyKey?: string | null;
+    gatewayRunId?: string | null;
+    status: RunStatus;
+    statusLabel?: string | null;
+    startedAtMs?: number;
+    finishedAtMs?: number | null;
+    error?: unknown;
+    updatedAtMs?: number;
+  }): ProjectedRun {
+    const now = run.updatedAtMs ?? Date.now();
+    const startedAtMs = run.startedAtMs ?? now;
+    this.db.prepare(`
+      INSERT INTO v2_runs(run_id, session_key, client_message_id, idempotency_key, gateway_run_id, status, status_label, started_at_ms, finished_at_ms, error_json, updated_at_ms)
+      VALUES (@runId, @sessionKey, @clientMessageId, @idempotencyKey, @gatewayRunId, @status, @statusLabel, @startedAtMs, @finishedAtMs, @errorJson, @updatedAtMs)
+      ON CONFLICT(run_id) DO UPDATE SET
+        session_key = excluded.session_key,
+        client_message_id = COALESCE(excluded.client_message_id, v2_runs.client_message_id),
+        idempotency_key = COALESCE(excluded.idempotency_key, v2_runs.idempotency_key),
+        gateway_run_id = COALESCE(excluded.gateway_run_id, v2_runs.gateway_run_id),
+        status = excluded.status,
+        status_label = excluded.status_label,
+        finished_at_ms = excluded.finished_at_ms,
+        error_json = excluded.error_json,
+        updated_at_ms = excluded.updated_at_ms
+    `).run({
+      runId: run.runId,
+      sessionKey: run.sessionKey,
+      clientMessageId: run.clientMessageId ?? null,
+      idempotencyKey: run.idempotencyKey ?? null,
+      gatewayRunId: run.gatewayRunId ?? null,
+      status: run.status,
+      statusLabel: run.statusLabel ?? null,
+      startedAtMs,
+      finishedAtMs: run.finishedAtMs ?? null,
+      errorJson: run.error === undefined || run.error === null ? null : toJson(run.error),
+      updatedAtMs: now,
+    });
+    return this.getRun(run.runId)!;
+  }
+
+  updateRunStatus(runId: string, status: RunStatus, params: { statusLabel?: string | null; error?: unknown; finishedAtMs?: number | null; updatedAtMs?: number } = {}) {
+    const now = params.updatedAtMs ?? Date.now();
+    const finishedAtMs = params.finishedAtMs ?? (["done", "error", "aborted"].includes(status) ? now : null);
+    this.db.prepare(`
+      UPDATE v2_runs
+      SET status = @status, status_label = @statusLabel, finished_at_ms = @finishedAtMs, error_json = @errorJson, updated_at_ms = @updatedAtMs
+      WHERE run_id = @runId
+    `).run({
+      runId,
+      status,
+      statusLabel: params.statusLabel ?? null,
+      finishedAtMs,
+      errorJson: params.error === undefined || params.error === null ? null : toJson(params.error),
+      updatedAtMs: now,
+    });
+    return this.getRun(runId);
+  }
+
+  getRun(runId: string): ProjectedRun | null {
+    const row = this.db.prepare(`SELECT * FROM v2_runs WHERE run_id = @runId`).get({ runId }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
+  findRunByGatewayRunId(gatewayRunId: string): ProjectedRun | null {
+    const row = this.db.prepare(`SELECT * FROM v2_runs WHERE gateway_run_id = @gatewayRunId ORDER BY started_at_ms DESC LIMIT 1`).get({ gatewayRunId }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
+  findRunByClientMessage(sessionKey: string, clientMessageId: string): ProjectedRun | null {
+    const row = this.db.prepare(`SELECT * FROM v2_runs WHERE session_key = @sessionKey AND client_message_id = @clientMessageId ORDER BY started_at_ms DESC LIMIT 1`).get({ sessionKey, clientMessageId }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
+  findRunByIdempotencyKey(sessionKey: string, idempotencyKey: string): ProjectedRun | null {
+    const row = this.db.prepare(`SELECT * FROM v2_runs WHERE session_key = @sessionKey AND idempotency_key = @idempotencyKey ORDER BY started_at_ms DESC LIMIT 1`).get({ sessionKey, idempotencyKey }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
+  findLatestPendingRun(sessionKey: string): ProjectedRun | null {
+    const row = this.db.prepare(`
+      SELECT * FROM v2_runs
+      WHERE session_key = @sessionKey AND status IN ('queued', 'thinking', 'streaming', 'tool_running')
+      ORDER BY started_at_ms DESC
+      LIMIT 1
+    `).get({ sessionKey }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
+  latestRun(sessionKey: string): ProjectedRun | null {
+    const row = this.db.prepare(`SELECT * FROM v2_runs WHERE session_key = @sessionKey ORDER BY updated_at_ms DESC LIMIT 1`).get({ sessionKey }) as Record<string, unknown> | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
+  upsertToolCall(tool: {
+    toolCallId: string;
+    sessionKey: string;
+    runId?: string | null;
+    messageId?: string | null;
+    name?: string | null;
+    phase: ToolPhase;
+    status?: ToolStatus;
+    argsMeta?: unknown;
+    resultMeta?: unknown;
+    startedAtMs?: number;
+    finishedAtMs?: number | null;
+    updatedAtMs?: number;
+  }): ProjectedToolCall {
+    const now = tool.updatedAtMs ?? Date.now();
+    const status = tool.status ?? (tool.phase === "error" ? "error" : tool.phase === "result" ? "success" : "running");
+    const finishedAtMs = tool.finishedAtMs ?? (status === "running" ? null : now);
+    this.db.prepare(`
+      INSERT INTO v2_tool_calls(tool_call_id, session_key, run_id, message_id, name, phase, status, args_meta_json, result_meta_json, started_at_ms, finished_at_ms, updated_at_ms)
+      VALUES (@toolCallId, @sessionKey, @runId, @messageId, @name, @phase, @status, @argsMetaJson, @resultMetaJson, @startedAtMs, @finishedAtMs, @updatedAtMs)
+      ON CONFLICT(session_key, tool_call_id) DO UPDATE SET
+        run_id = COALESCE(excluded.run_id, v2_tool_calls.run_id),
+        message_id = COALESCE(excluded.message_id, v2_tool_calls.message_id),
+        name = COALESCE(NULLIF(excluded.name, 'unknown'), v2_tool_calls.name),
+        phase = excluded.phase,
+        status = excluded.status,
+        args_meta_json = COALESCE(excluded.args_meta_json, v2_tool_calls.args_meta_json),
+        result_meta_json = COALESCE(excluded.result_meta_json, v2_tool_calls.result_meta_json),
+        finished_at_ms = excluded.finished_at_ms,
+        updated_at_ms = excluded.updated_at_ms
+    `).run({
+      toolCallId: tool.toolCallId,
+      sessionKey: tool.sessionKey,
+      runId: tool.runId ?? null,
+      messageId: tool.messageId ?? null,
+      name: tool.name ?? "unknown",
+      phase: tool.phase,
+      status,
+      argsMetaJson: tool.argsMeta === undefined || tool.argsMeta === null ? null : toJson(tool.argsMeta),
+      resultMetaJson: tool.resultMeta === undefined || tool.resultMeta === null ? null : toJson(tool.resultMeta),
+      startedAtMs: tool.startedAtMs ?? now,
+      finishedAtMs,
+      updatedAtMs: now,
+    });
+    return this.getToolCall(tool.sessionKey, tool.toolCallId)!;
+  }
+
+  getToolCall(sessionKey: string, toolCallId: string): ProjectedToolCall | null {
+    const row = this.db.prepare(`SELECT * FROM v2_tool_calls WHERE session_key = @sessionKey AND tool_call_id = @toolCallId`).get({ sessionKey, toolCallId }) as Record<string, unknown> | undefined;
+    return row ? rowToTool(row) : null;
+  }
+
+  listToolCalls(sessionKey: string, runId?: string): ProjectedToolCall[] {
+    const rows = runId
+      ? this.db.prepare(`SELECT * FROM v2_tool_calls WHERE session_key = @sessionKey AND run_id = @runId ORDER BY started_at_ms ASC`).all({ sessionKey, runId })
+      : this.db.prepare(`SELECT * FROM v2_tool_calls WHERE session_key = @sessionKey ORDER BY started_at_ms ASC`).all({ sessionKey });
+    return (rows as Record<string, unknown>[]).map(rowToTool);
+  }
+
+  hasRunningTools(sessionKey: string, runId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1 FROM v2_tool_calls
+      WHERE session_key = @sessionKey AND run_id = @runId AND status = 'running'
+      LIMIT 1
+    `).get({ sessionKey, runId }) as unknown;
+    return Boolean(row);
+  }
+
+  diagnostics() {
+    return this.db.prepare(`
+      SELECT
+        (SELECT count(*) FROM v2_runs) AS runs,
+        (SELECT count(*) FROM v2_tool_calls) AS toolCalls
+    `).get() as { runs: number; toolCalls: number };
+  }
+}

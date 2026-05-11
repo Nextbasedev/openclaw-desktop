@@ -154,6 +154,58 @@ export class MessageRepository {
     });
   }
 
+  confirmOptimisticUser(sessionKey: string, optimisticId: string, gatewayMessage: ProjectedMessage) {
+    const existing = this.db.prepare(`
+      SELECT openclaw_seq, data_json
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND message_id = @optimisticId
+      LIMIT 1
+    `).get({ sessionKey, optimisticId }) as { openclaw_seq: number; data_json: string } | undefined;
+    if (!existing) return null;
+
+    if (gatewayMessage.messageId && gatewayMessage.messageId !== optimisticId) {
+      this.db.prepare(`
+        DELETE FROM v2_messages
+        WHERE session_key = @sessionKey AND message_id = @gatewayMessageId
+      `).run({ sessionKey, gatewayMessageId: gatewayMessage.messageId });
+    }
+    this.db.prepare(`
+      DELETE FROM v2_messages
+      WHERE session_key = @sessionKey AND openclaw_seq = @gatewaySeq AND message_id IS NOT @optimisticId
+    `).run({ sessionKey, gatewaySeq: gatewayMessage.openclawSeq, optimisticId });
+
+    const data = {
+      ...gatewayMessage.data,
+      isOptimistic: false,
+      __clientOptimistic: false,
+      __openclaw: {
+        ...(gatewayMessage.data.__openclaw ?? {}),
+        id: optimisticId,
+        gatewayId: gatewayMessage.messageId,
+        gatewaySeq: gatewayMessage.openclawSeq,
+      },
+    } as OpenClawMessage;
+    const confirmed: ProjectedMessage = {
+      ...gatewayMessage,
+      openclawSeq: existing.openclaw_seq,
+      messageId: optimisticId,
+      data,
+      updatedAtMs: gatewayMessage.updatedAtMs,
+    };
+    this.db.prepare(`
+      UPDATE v2_messages
+      SET role = @role, data_json = @dataJson, updated_at_ms = @updatedAtMs
+      WHERE session_key = @sessionKey AND message_id = @optimisticId
+    `).run({
+      sessionKey,
+      optimisticId,
+      role: confirmed.role,
+      dataJson: toJson(confirmed.data),
+      updatedAtMs: confirmed.updatedAtMs,
+    });
+    return confirmed;
+  }
+
   deleteMessageById(sessionKey: string, messageId: string) {
     return this.db.prepare(`
       DELETE FROM v2_messages
