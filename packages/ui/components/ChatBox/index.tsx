@@ -286,91 +286,94 @@ export function ChatBox({
     }
   }
 
-  const voiceShortcutRef = React.useRef({
-    pushToTalkActive: false,
-    ctrlMetaTapCandidate: false,
-  })
-
-  React.useEffect(() => {
-    function isMetaKeyEvent(event: KeyboardEvent) {
-      return (
-        event.key === "Meta" ||
-        event.key === "OS" ||
-        event.code === "MetaLeft" ||
-        event.code === "MetaRight"
-      )
-    }
-
-    function isPushToTalkEvent(event: KeyboardEvent) {
-      return (
-        event.code === "Space" &&
-        (event.metaKey || event.getModifierState("Meta"))
-      )
-    }
-
-    function isVoiceToggleShortcut(event: KeyboardEvent) {
-      const isModifierKey = event.key === "Control" || isMetaKeyEvent(event)
-      return (
-        isModifierKey &&
-        event.ctrlKey &&
-        (event.metaKey || event.getModifierState("Meta")) &&
-        !event.altKey &&
-        !event.shiftKey
-      )
-    }
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.repeat) return
-      const shortcut = voiceShortcutRef.current
-
-      if (isVoiceToggleShortcut(event)) {
-        shortcut.ctrlMetaTapCandidate = true
-        return
-      }
-      if (
-        shortcut.ctrlMetaTapCandidate &&
-        event.key !== "Control" &&
-        !isMetaKeyEvent(event)
-      ) {
-        shortcut.ctrlMetaTapCandidate = false
-      }
-
-      if (isPushToTalkEvent(event)) {
-        event.preventDefault()
-        shortcut.pushToTalkActive = true
-        handleVoiceStart()
-      }
-    }
-
-    function onKeyUp(event: KeyboardEvent) {
-      const shortcut = voiceShortcutRef.current
-
-      if (
-        (event.code === "Space" || isMetaKeyEvent(event)) &&
-        shortcut.pushToTalkActive
-      ) {
-        event.preventDefault()
-        shortcut.pushToTalkActive = false
-        handleVoiceStop()
-        return
-      }
-
-      if (
-        (event.key === "Control" || isMetaKeyEvent(event)) &&
-        shortcut.ctrlMetaTapCandidate
-      ) {
-        shortcut.ctrlMetaTapCandidate = false
-        handleVoiceToggle()
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown)
-    window.addEventListener("keyup", onKeyUp)
-    return () => {
-      window.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("keyup", onKeyUp)
-    }
-  }, [handleVoiceStart, handleVoiceStop, handleVoiceToggle])
+  // Voice-to-text keyboard shortcuts intentionally disabled.
+  // (The mic button is removed from the composer UI.)
+  //
+  // const voiceShortcutRef = React.useRef({
+  //   pushToTalkActive: false,
+  //   ctrlMetaTapCandidate: false,
+  // })
+  //
+  // React.useEffect(() => {
+  //   function isMetaKeyEvent(event: KeyboardEvent) {
+  //     return (
+  //       event.key === "Meta" ||
+  //       event.key === "OS" ||
+  //       event.code === "MetaLeft" ||
+  //       event.code === "MetaRight"
+  //     )
+  //   }
+  //
+  //   function isPushToTalkEvent(event: KeyboardEvent) {
+  //     return (
+  //       event.code === "Space" &&
+  //       (event.metaKey || event.getModifierState("Meta"))
+  //     )
+  //   }
+  //
+  //   function isVoiceToggleShortcut(event: KeyboardEvent) {
+  //     const isModifierKey = event.key === "Control" || isMetaKeyEvent(event)
+  //     return (
+  //       isModifierKey &&
+  //       event.ctrlKey &&
+  //       (event.metaKey || event.getModifierState("Meta")) &&
+  //       !event.altKey &&
+  //       !event.shiftKey
+  //     )
+  //   }
+  //
+  //   function onKeyDown(event: KeyboardEvent) {
+  //     if (event.repeat) return
+  //     const shortcut = voiceShortcutRef.current
+  //
+  //     if (isVoiceToggleShortcut(event)) {
+  //       shortcut.ctrlMetaTapCandidate = true
+  //       return
+  //     }
+  //     if (
+  //       shortcut.ctrlMetaTapCandidate &&
+  //       event.key !== "Control" &&
+  //       !isMetaKeyEvent(event)
+  //     ) {
+  //       shortcut.ctrlMetaTapCandidate = false
+  //     }
+  //
+  //     if (isPushToTalkEvent(event)) {
+  //       event.preventDefault()
+  //       shortcut.pushToTalkActive = true
+  //       handleVoiceStart()
+  //     }
+  //   }
+  //
+  //   function onKeyUp(event: KeyboardEvent) {
+  //     const shortcut = voiceShortcutRef.current
+  //
+  //     if (
+  //       (event.code === "Space" || isMetaKeyEvent(event)) &&
+  //       shortcut.pushToTalkActive
+  //     ) {
+  //       event.preventDefault()
+  //       shortcut.pushToTalkActive = false
+  //       handleVoiceStop()
+  //       return
+  //     }
+  //
+  //     if (
+  //       (event.key === "Control" || isMetaKeyEvent(event)) &&
+  //       shortcut.ctrlMetaTapCandidate
+  //     ) {
+  //       shortcut.ctrlMetaTapCandidate = false
+  //       handleVoiceToggle()
+  //     }
+  //   }
+  //
+  //   window.addEventListener("keydown", onKeyDown)
+  //   window.addEventListener("keyup", onKeyUp)
+  //   return () => {
+  //     window.removeEventListener("keydown", onKeyDown)
+  //     window.removeEventListener("keyup", onKeyUp)
+  //   }
+  // }, [handleVoiceStart, handleVoiceStop, handleVoiceToggle])
 
   React.useEffect(() => {
     if (initialPrompt != null) {

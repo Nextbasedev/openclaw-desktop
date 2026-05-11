@@ -30,4 +30,25 @@ describe("dedupeChatMessages", () => {
 
     expect(messages).toHaveLength(2)
   })
+
+  it("dedupes optimistic user message against history copy with attachment marker", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "history-user",
+        role: "user",
+        text: "some time when i am leave current session and back\n\n[Attached image: image.png]",
+        createdAt: "2026-05-11T18:32:00.000Z",
+      },
+      {
+        messageId: "optimistic-user",
+        role: "user",
+        text: "some time when i am leave current session and back",
+        createdAt: "2026-05-11T18:32:02.000Z",
+        isOptimistic: true,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].messageId).toBe("history-user")
+  })
 })

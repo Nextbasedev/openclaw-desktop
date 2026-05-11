@@ -30,12 +30,14 @@ function ToolRow({
   open,
   onOpenChange,
   onSelect,
+  onInteract,
   onResolveApproval,
 }: {
   call: InlineToolCall
   open: boolean
   onOpenChange: (id: string, open: boolean) => void
   onSelect?: (id: string) => void
+  onInteract?: () => void
   onResolveApproval?: (
     approvalId: string,
     decision: ApprovalDecision
@@ -68,6 +70,7 @@ function ToolRow({
         type="button"
         onClick={(e) => {
           e.stopPropagation()
+          onInteract?.()
           if (hasDetails) {
             onOpenChange(call.id, !open)
           } else {
@@ -103,12 +106,14 @@ function ToolRow({
           onClick={(e) => {
             if (!onSelect) return
             e.stopPropagation()
+            onInteract?.()
             onSelect(call.id)
           }}
           onKeyDown={(e) => {
             if (!onSelect || (e.key !== "Enter" && e.key !== " ")) return
             e.preventDefault()
             e.stopPropagation()
+            onInteract?.()
             onSelect(call.id)
           }}
           className={cn(
@@ -169,6 +174,7 @@ function ToolRow({
                     disabled={Boolean(resolving)}
                     onClick={(e) => {
                       e.stopPropagation()
+                      onInteract?.()
                       void resolve(decision)
                     }}
                     className={cn(
@@ -196,11 +202,13 @@ export function ToolCallSteps({
   tools,
   defaultOpen = false,
   onSelectTool,
+  onInteract,
   onResolveApproval,
 }: {
   tools: InlineToolCall[]
   defaultOpen?: boolean
   onSelectTool?: (id: string) => void
+  onInteract?: () => void
   onResolveApproval?: (
     approvalId: string,
     decision: ApprovalDecision
@@ -210,6 +218,7 @@ export function ToolCallSteps({
   const [openToolId, setOpenToolId] = useState<string | null>(null)
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
+    onInteract?.()
     setOpenToolId(nextOpen ? id : null)
   }
 
@@ -242,6 +251,7 @@ export function ToolCallSteps({
             open={openToolId === collapsedTop.id}
             onOpenChange={handleToolOpenChange}
             onSelect={onSelectTool}
+            onInteract={onInteract}
             onResolveApproval={onResolveApproval}
           />
         </div>
@@ -256,7 +266,10 @@ export function ToolCallSteps({
     >
       <button
         type="button"
-        onClick={() => setOpen((p) => !p)}
+        onClick={() => {
+          onInteract?.()
+          setOpen((p) => !p)
+        }}
         className={cn(
           "mb-0.5 flex cursor-pointer items-center gap-1.5 py-1",
           "text-muted-foreground/60 transition-colors hover:text-muted-foreground"
@@ -292,12 +305,16 @@ export function ToolCallSteps({
                   open={openToolId === call.id}
                   onOpenChange={handleToolOpenChange}
                   onSelect={onSelectTool}
+                  onInteract={onInteract}
                   onResolveApproval={onResolveApproval}
                 />
               ))}
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  onInteract?.()
+                  setOpen(false)
+                }}
                 className={cn(
                   "mt-1 flex cursor-pointer items-center gap-1 py-1",
                   "text-[11px] text-muted-foreground/40 transition-colors hover:text-muted-foreground"
@@ -313,7 +330,10 @@ export function ToolCallSteps({
         {!open && (
           <div
             className="relative cursor-pointer"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              onInteract?.()
+              setOpen(true)
+            }}
           >
             <div className="relative z-10 flex items-center gap-2.5 rounded-lg bg-card px-2.5 py-[6px]">
               <ToolIcon status={collapsedTop.status} />

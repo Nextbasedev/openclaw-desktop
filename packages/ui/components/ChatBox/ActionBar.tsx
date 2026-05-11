@@ -17,8 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { WebSearchIcon, VoiceIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
-import { VoiceWaveIcon } from "./VoiceWaveIcon"
+import { WebSearchIcon, SendArrowIcon, StopSquareIcon } from "./Icons"
 import type { ModelEntry } from "@/hooks/useModels"
 
 type ActionBarProps = {
@@ -222,38 +221,10 @@ export function ActionBar({
           </PopoverContent>
         </Popover>
 
-        {/* Voice button */}
-        <button
-          type="button"
-          onClick={onVoiceToggle}
-          disabled={!voiceSupported}
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full transition-all",
-            isRecording
-              ? "cursor-pointer border border-foreground/60 bg-secondary text-foreground"
-              : voiceSupported
-                ? voiceReady
-                  ? "cursor-pointer text-muted-foreground hover:text-foreground"
-                  : "cursor-pointer text-muted-foreground/45 hover:text-foreground"
-                : "cursor-not-allowed text-muted-foreground/30"
-          )}
-          aria-label={isRecording ? "Stop recording" : "Voice input"}
-          title={
-            !voiceSupported
-              ? "Voice input not supported in this browser"
-              : !voiceReady
-                ? voiceDisabledReason || "Configure voice input"
-                : isRecording
-                  ? "Stop recording"
-                  : "Voice input (Ctrl+Win)"
-          }
-        >
-          {isRecording ? (
-            <VoiceWaveIcon className="size-[20px]" />
-          ) : (
-            <VoiceIcon className="size-[26px]" />
-          )}
-        </button>
+        {/*
+          Voice-to-text button intentionally removed from the message input UI.
+          (Keyboard shortcuts are also disabled in ChatBox.)
+        */}
 
         {/* Send / Stop controls */}
         {isGenerating && !canSendWhileGenerating && (

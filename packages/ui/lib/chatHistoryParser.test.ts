@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 import {
   cleanUserMessageText,
@@ -256,6 +256,29 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[1]?.stopReason, "error")
   })
 
+  it("keeps gateway-injected agent failure replies visible", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      {
+        role: "assistant",
+        provider: "openclaw",
+        model: "gateway-injected",
+        content: [
+          {
+            type: "text",
+            text: "Agent failed before reply: Malformed agent session key.",
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(
+      parsed.messages[1]?.text,
+      "Agent failed before reply: Malformed agent session key.",
+    )
+  })
+
   it("does not create visible messages for gateway-only user entries", () => {
     const parsed = parseChatHistory([
       {
@@ -331,6 +354,63 @@ describe("parseChatHistory", () => {
     ])
 
     assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "1.2s")
+  })
+
+  it("keeps tool calls running until their result is present", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "exec",
+            arguments: { command: "sleep 1" },
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.status, "running")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.resultText, undefined)
+  })
+
+  it("matches tool results by toolCallId when restoring output", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "first",
+            arguments: {},
+          },
+          {
+            type: "toolCall",
+            id: "tc2",
+            name: "second",
+            arguments: {},
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc2",
+        toolName: "second",
+        timestamp: 2500,
+        content: [{ type: "text", text: "second output" }],
+      },
+    ])
+
+    const calls = parsed.messages[0]?.toolCalls ?? []
+    assert.equal(calls.find((call) => call.id === "tc1")?.status, "running")
+    assert.equal(calls.find((call) => call.id === "tc2")?.status, "success")
+    assert.equal(calls.find((call) => call.id === "tc2")?.resultText, "second output")
   })
 
   it("falls back to assistant and tool result timestamps for history tool durations", () => {

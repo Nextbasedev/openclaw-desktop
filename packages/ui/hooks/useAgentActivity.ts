@@ -75,6 +75,9 @@ function finalizeActivityCall(call: ToolCall): ToolCall {
 function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): ToolCall {
   if (!existing) return incoming
   const merged = { ...existing, ...incoming }
+  if (existing.status !== "running" && incoming.status === "running") {
+    merged.status = existing.status
+  }
   if (existing.duration && existing.status !== "running") merged.duration = existing.duration
   if (existing.startedAt && !incoming.startedAt) merged.startedAt = existing.startedAt
   if (existing.output && !incoming.output) merged.output = existing.output
@@ -111,6 +114,22 @@ function isBackendRunningStatus(status: unknown) {
   return status === "running" || status === "queued" || status === "starting"
 }
 
+function isToolTerminalPhase(phase: string | null): boolean {
+  return (
+    phase === "result" ||
+    phase === "error" ||
+    phase === "done" ||
+    phase === "complete" ||
+    phase === "completed" ||
+    phase === "success" ||
+    phase === "failed"
+  )
+}
+
+function isToolErrorPhase(phase: string | null): boolean {
+  return phase === "error" || phase === "failed"
+}
+
 async function shouldFinalizeStaleActivity(sessionKey: string) {
   try {
     const result = await invoke<{
@@ -137,9 +156,6 @@ export function useAgentActivity(sessionKey: string | null) {
   )
   const spawnQueueRef = useRef<string[]>([])
   const subKeyToAgentRef = useRef<Map<string, string>>(new Map())
-  const activeSubPollsRef = useRef<
-    Map<string, ReturnType<typeof setTimeout>>
-  >(new Map())
   const cancelledRef = useRef(false)
 
   const syncState = useCallback(() => {
@@ -148,38 +164,12 @@ export function useAgentActivity(sessionKey: string | null) {
     setSubKeyToAgent(Array.from(subKeyToAgentRef.current.entries()))
   }, [])
 
-  const refreshFinishedToolFromHistory = useCallback(async (toolCallId: string) => {
-    if (!sessionKey) return
-    try {
-      const history = await invoke<{ messages: RawHistoryMessage[] }>(
-        "middleware_chat_history",
-        { input: { sessionKey, timeoutMs: 5_000 } },
-      )
-      if (cancelledRef.current) return
-      const parsed = parseHistoryToolCalls(history.messages ?? [])
-      const fromHistory = parsed.calls.find((call) => call.id === toolCallId)
-      if (!fromHistory) return
-      const existing = callMapRef.current.get(toolCallId)
-      const merged = mergeActivityCall(existing, fromHistory)
-      if (JSON.stringify(existing) === JSON.stringify(merged)) return
-      callMapRef.current.set(toolCallId, merged)
-      syncState()
-    } catch {}
-  }, [sessionKey, syncState])
-
-  const stopSubagentPoll = useCallback((subKey: string) => {
-    const timer = activeSubPollsRef.current.get(subKey)
-    if (timer) {
-      clearTimeout(timer)
-      activeSubPollsRef.current.delete(subKey)
-    }
-  }, [])
-
-  const stopAllSubagentPolls = useCallback(() => {
-    for (const [, timer] of activeSubPollsRef.current) {
-      clearTimeout(timer)
-    }
-    activeSubPollsRef.current.clear()
+  const resetVisibleState = useCallback((clearStreamStatus: boolean) => {
+    setToolCalls([])
+    setAgents(new Map())
+    setSubKeyToAgent([])
+    if (clearStreamStatus) setStreamStatus(null)
+    setHistoryLoaded(false)
   }, [])
 
   const fetchSubagentHistory = useCallback(
@@ -237,32 +227,6 @@ export function useAgentActivity(sessionKey: string | null) {
     [syncState],
   )
 
-  const startSubagentPoll = useCallback(
-    (subKey: string, agentId: string) => {
-      if (activeSubPollsRef.current.has(subKey)) return
-      subKeyToAgentRef.current.set(subKey, agentId)
-
-      const poll = () => {
-        if (cancelledRef.current) return
-        fetchSubagentHistory(subKey, agentId).then(() => {
-          if (cancelledRef.current) return
-          const agentInfo = agentsRef.current.get(agentId)
-          const isDone =
-            agentInfo?.phase === "done" ||
-            agentInfo?.phase === "error"
-          if (isDone) {
-            activeSubPollsRef.current.delete(subKey)
-            return
-          }
-          const timer = setTimeout(poll, 1000)
-          activeSubPollsRef.current.set(subKey, timer)
-        })
-      }
-      poll()
-    },
-    [fetchSubagentHistory],
-  )
-
   const attachSubagentSession = useCallback((
     agentId: string,
     subKey: string,
@@ -276,9 +240,8 @@ export function useAgentActivity(sessionKey: string | null) {
         sessionKey: subKey,
       })
     }
-    startSubagentPoll(subKey, agentId)
     syncState()
-  }, [startSubagentPoll, syncState])
+  }, [syncState])
 
   const discoverSubagentKey = useCallback(
     (subKey: string) => {
@@ -328,7 +291,10 @@ export function useAgentActivity(sessionKey: string | null) {
           if (!spawnQueueRef.current.includes(agentId)) {
             spawnQueueRef.current.push(agentId)
           }
-        } else if (phase === "spawn_linked" || phase === "result") {
+        } else if (
+          phase === "spawn_linked" ||
+          (isToolTerminalPhase(phase) && !isToolErrorPhase(phase))
+        ) {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
             ...(prev ?? { runId: agentId, label }),
@@ -336,7 +302,7 @@ export function useAgentActivity(sessionKey: string | null) {
           })
           const childSessionKey = extractSubagentSessionKey(data)
           if (childSessionKey) attachSubagentSession(agentId, childSessionKey)
-        } else if (phase === "error") {
+        } else if (isToolErrorPhase(phase)) {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
             ...(prev ?? { runId: agentId, label }),
@@ -352,7 +318,11 @@ export function useAgentActivity(sessionKey: string | null) {
           label: `sub-${subagentOf.slice(-6)}`,
         })
       }
-      if (subagentOf && name === "sessions_yield" && phase === "error") {
+      if (
+        subagentOf &&
+        name === "sessions_yield" &&
+        isToolErrorPhase(phase)
+      ) {
         const current = agentsRef.current.get(subagentOf)
         agentsRef.current.set(subagentOf, {
           ...(current ?? {
@@ -365,7 +335,8 @@ export function useAgentActivity(sessionKey: string | null) {
       if (
         subagentOf &&
         name === "sessions_yield" &&
-        phase === "result"
+        isToolTerminalPhase(phase) &&
+        !isToolErrorPhase(phase)
       ) {
         const current = agentsRef.current.get(subagentOf)
         agentsRef.current.set(subagentOf, {
@@ -395,7 +366,7 @@ export function useAgentActivity(sessionKey: string | null) {
           messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
           messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
         }))
-      } else if (phase === "result" || phase === "error") {
+      } else if (isToolTerminalPhase(phase)) {
         const call = existing ?? fallback
         const duration = call.duration && call.status !== "running"
           ? call.duration
@@ -403,7 +374,7 @@ export function useAgentActivity(sessionKey: string | null) {
             ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
             : undefined
         const resultText = liveToolEventResultText(data)
-        const output = resultText || (phase === "error" ? "Unknown error" : call.output)
+        const output = resultText || (isToolErrorPhase(phase) ? "Unknown error" : call.output)
         map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
           status: inferLiveToolStatus(phase, resultText, data.isError),
@@ -412,15 +383,10 @@ export function useAgentActivity(sessionKey: string | null) {
           messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
           messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
         }))
-        if (!output) {
-          for (const delayMs of [0, 100, 300, 700, 1500]) {
-            window.setTimeout(() => void refreshFinishedToolFromHistory(toolCallId), delayMs)
-          }
-        }
       }
       syncState()
     },
-    [refreshFinishedToolFromHistory, sessionKey, syncState],
+    [sessionKey, syncState],
   )
 
   const processMessage = useCallback(
@@ -502,16 +468,9 @@ export function useAgentActivity(sessionKey: string | null) {
           syncState()
         })
       }
-      for (const [subKey, agentId] of subKeyToAgentRef.current) {
-        void fetchSubagentHistory(subKey, agentId).then((phase) => {
-          if (!phase || isActiveSubagent(phase)) {
-            startSubagentPoll(subKey, agentId)
-          }
-        })
-      }
       syncState()
     }, 3000)
-  }, [fetchSubagentHistory, startSubagentPoll, syncState, sessionKey])
+  }, [syncState, sessionKey])
 
   const handleStreamResume = useCallback(() => {
     if (doneTimerRef.current) {
@@ -521,7 +480,6 @@ export function useAgentActivity(sessionKey: string | null) {
   }, [])
 
   useEffect(() => {
-    stopAllSubagentPolls()
     cancelledRef.current = false
 
     if (!sessionKey) {
@@ -529,21 +487,14 @@ export function useAgentActivity(sessionKey: string | null) {
       agentsRef.current.clear()
       spawnQueueRef.current = []
       subKeyToAgentRef.current.clear()
-      setToolCalls([])
-      setAgents(new Map())
-      setSubKeyToAgent([])
-      setStreamStatus(null)
-      setHistoryLoaded(false)
+      queueMicrotask(() => resetVisibleState(true))
       return
     }
     callMapRef.current.clear()
     agentsRef.current.clear()
     spawnQueueRef.current = []
     subKeyToAgentRef.current.clear()
-    setToolCalls([])
-    setAgents(new Map())
-    setSubKeyToAgent([])
-    setHistoryLoaded(false)
+    queueMicrotask(() => resetVisibleState(false))
 
     const activeSessionKey = sessionKey
 
@@ -633,7 +584,6 @@ export function useAgentActivity(sessionKey: string | null) {
     return () => {
       cancelledRef.current = true
       unsubscribeStream()
-      stopAllSubagentPolls()
       if (doneTimerRef.current) {
         clearTimeout(doneTimerRef.current)
         doneTimerRef.current = null
@@ -646,10 +596,14 @@ export function useAgentActivity(sessionKey: string | null) {
     processMessage,
     syncState,
     fetchSubagentHistory,
-    stopAllSubagentPolls,
     handleStreamDone,
     handleStreamResume,
+    resetVisibleState,
   ])
+
+  // Do not poll full chat history while the activity panel is open. The live
+  // stream drives activity updates; history is only loaded on panel/session open
+  // and via targeted repair calls after terminal tool/subagent events.
 
   const tree = buildTree(toolCalls, streamStatus, agents)
   const isLive =
