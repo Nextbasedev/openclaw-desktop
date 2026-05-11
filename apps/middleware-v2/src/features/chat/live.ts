@@ -1,7 +1,7 @@
 import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
-import { normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage } from "./types.js";
 import { canonicalPatchPayload } from "./projection.js";
 
@@ -191,12 +191,11 @@ export class ChatLiveIngest {
     const messageOpenClaw = isObject(message.__openclaw) ? message.__openclaw as Record<string, unknown> : {};
     const clientMessageId = typeof messageOpenClaw.clientMessageId === "string" ? messageOpenClaw.clientMessageId : typeof message.clientMessageId === "string" ? message.clientMessageId : null;
     const idempotencyKey = typeof messageOpenClaw.idempotencyKey === "string" ? messageOpenClaw.idempotencyKey : typeof message.idempotencyKey === "string" ? message.idempotencyKey : null;
-    let index = clientMessageId ? entries.findIndex((entry) => entry.id === clientMessageId) : -1;
-    if (index < 0 && idempotencyKey) index = entries.findIndex((entry) => entry.idempotencyKey === idempotencyKey);
-    if (index < 0 && entries.length === 1 && now - entries[0]!.createdAtMs < 10 * 60 * 1000) index = 0;
+    const text = textFromMessage(message);
+    let index = clientMessageId ? entries.findIndex((entry) => entry.id === clientMessageId && messageTextMatchesSent(text, entry.text)) : -1;
+    if (index < 0 && idempotencyKey) index = entries.findIndex((entry) => entry.idempotencyKey === idempotencyKey && messageTextMatchesSent(text, entry.text));
     if (index < 0) {
-      const text = normalizeMessageText(textFromMessage(message));
-      index = text ? entries.findIndex((entry) => entry.text === text && now - entry.createdAtMs < 10 * 60 * 1000) : -1;
+      index = text ? entries.findIndex((entry) => messageTextMatchesSent(text, entry.text) && now - entry.createdAtMs < 10 * 60 * 1000) : -1;
     }
     if (index < 0) {
       this.optimisticUsers.set(sessionKey, entries.filter((entry) => now - entry.createdAtMs < 10 * 60 * 1000));

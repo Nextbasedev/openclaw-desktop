@@ -113,6 +113,55 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("does not match the only pending optimistic user to a stale live user echo with different text", async () => {
+    const app = await createApp(config("stale-live-user-no-confirm"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.chatLive.addOptimisticUser("s1", { id: "client-1", text: "good night now", createdAtMs: Date.now() });
+    context.messages.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 1,
+      messageId: "client-1",
+      role: "user",
+      data: { role: "user", text: "good night now", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1" } },
+      updatedAtMs: Date.now(),
+    });
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 1,
+        message: {
+          role: "user",
+          text: "byy",
+          __openclaw: { id: "gateway-stale", seq: 1 },
+        },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.confirmed",
+        payload: expect.objectContaining({ optimisticId: "client-1" }),
+      }),
+    ]));
+    expect(context.messages.listMessages("s1")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "client-1", role: "user", data: expect.objectContaining({ text: "good night now" }) }),
+      expect.objectContaining({ messageId: "gateway-stale", role: "user", data: expect.objectContaining({ text: "byy" }) }),
+    ]));
+    await app.close();
+  });
+
   test("confirms optimistic user echoes from content blocks and uses positive fallback seq", async () => {
     const app = await createApp(config("content-optimistic-confirm"));
     const context = contextOf(app);
