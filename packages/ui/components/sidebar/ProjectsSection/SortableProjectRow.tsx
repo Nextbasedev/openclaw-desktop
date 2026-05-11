@@ -10,6 +10,7 @@ import { MenuAction } from "./MenuAction"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { SortableTopicRow } from "./SortableTopicRow"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
+import { SidebarLabelTooltip } from "../SidebarLabelTooltip"
 
 type Props = {
   projectId: string
@@ -55,20 +56,22 @@ export function SortableProjectRow({
   const rowContent = (
     <>
       <div className="group/row group/project relative flex items-center">
-        <button
-          onClick={onProjectClick}
-          className="flex flex-1 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 text-foreground/90 hover:bg-foreground/4 hover:text-foreground"
-        >
-          {isPinned && (
-            <span onClick={(e) => { e.stopPropagation(); onTogglePinProject() }} title="Unpin" className="flex shrink-0 cursor-pointer items-center justify-center">
-              <Icons.Pin size={13} strokeWidth={2} className="text-foreground/70" />
+        <SidebarLabelTooltip label={project.name} disabled={menuOpen}>
+          <button
+            onClick={onProjectClick}
+            className="flex flex-1 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 text-foreground/90 hover:bg-foreground/4 hover:text-foreground"
+          >
+            {isPinned && (
+              <span onClick={(e) => { e.stopPropagation(); onTogglePinProject() }} title="Unpin" className="flex shrink-0 cursor-pointer items-center justify-center">
+                <Icons.Pin size={13} strokeWidth={2} className="text-foreground/70" />
+              </span>
+            )}
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <Icons.Files size={14} strokeWidth={1.5} className="transition-colors text-foreground/90 group-hover/project:text-foreground" />
             </span>
-          )}
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-            <Icons.Files size={14} strokeWidth={1.5} className="transition-colors text-foreground/90 group-hover/project:text-foreground" />
-          </span>
-          <span className="flex-1 truncate text-[13px] font-normal leading-tight">{project.name}</span>
-        </button>
+            <span className="flex-1 truncate text-[13px] font-normal leading-tight">{project.name}</span>
+          </button>
+        </SidebarLabelTooltip>
 
         <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>

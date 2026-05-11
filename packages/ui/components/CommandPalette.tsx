@@ -6,6 +6,11 @@ import { cn } from "@/lib/utils"
 import { usePlatform } from "@/hooks/usePlatform"
 import { invoke } from "@/lib/ipc"
 import {
+  searchBackfill,
+  searchGlobal,
+  type GlobalSearchResponse,
+} from "@/lib/api/search"
+import {
   LuSearch,
   LuSun,
   LuTerminal,
@@ -16,7 +21,12 @@ import {
   LuRefreshCw,
   LuPower,
   LuSparkles,
+  LuFolder,
+  LuMessageSquare,
+  LuHash,
 } from "react-icons/lu"
+import type { ActiveChat } from "@/types/chat"
+import type { ActiveTopic } from "@/types/project"
 
 type Session = {
   key: string
@@ -38,6 +48,16 @@ type CommandPaletteProps = {
   open: boolean
   onClose: () => void
   onNavigateChat: (sessionKey?: string) => void | Promise<void>
+  onNavigateProject: (projectId: string) => void | Promise<void>
+  onNavigateTopic: (topic: ActiveTopic) => void | Promise<void>
+  onNavigateDirectChat: (chat: ActiveChat) => void | Promise<void>
+  onNavigateSearchMessage: (input: {
+    chat?: ActiveChat
+    sessionKey: string
+    messageId?: string
+    snippet: string
+    query?: string
+  }) => void | Promise<void>
   onNewChat: () => void
   onSendPrompt: (prompt: string) => void
   onOpenSettings: () => void
@@ -80,11 +100,19 @@ const PROMPT_SUGGESTIONS: { chip: string; prompt: string }[] = [
 type FlatItem =
   | { type: "recent"; id: string; session: Session }
   | { type: "action"; id: string; action: QuickAction }
+  | { type: "project"; id: string; project: GlobalSearchResponse["projects"][number] }
+  | { type: "topic"; id: string; topic: GlobalSearchResponse["topics"][number] }
+  | { type: "chat"; id: string; chat: GlobalSearchResponse["chats"][number] }
+  | { type: "message"; id: string; message: GlobalSearchResponse["messages"][number] }
 
 export function CommandPalette({
   open,
   onClose,
   onNavigateChat,
+  onNavigateProject,
+  onNavigateTopic,
+  onNavigateDirectChat,
+  onNavigateSearchMessage,
   onNewChat,
   onSendPrompt,
   onOpenSettings,
@@ -94,11 +122,25 @@ export function CommandPalette({
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [recentSessions, setRecentSessions] = useState<Session[]>([])
+  const [searchResults, setSearchResults] = useState<GlobalSearchResponse>({
+    projects: [],
+    topics: [],
+    chats: [],
+    messages: [],
+  })
+  const [searchLoading, setSearchLoading] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const platform = usePlatform()
   const isMac = platform === "macos"
+  const typedQuery = query.trim()
+  const hasSearchQuery = debouncedQuery.trim().length >= 2
+  const hasTypedSearchQuery = typedQuery.length >= 2
+  const isPendingDebounce =
+    hasTypedSearchQuery && typedQuery !== debouncedQuery.trim()
+  const showSearchLoading = searchLoading || isPendingDebounce
+  const showSearchResults = hasSearchQuery && !showSearchLoading
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 200)
@@ -145,7 +187,56 @@ export function CommandPalette({
         setRecentSessions(sorted)
       })
       .catch(() => setRecentSessions([]))
+
+    void searchBackfill("", 8).catch(() => {})
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    if (!hasSearchQuery) {
+      setSearchResults({ projects: [], topics: [], chats: [], messages: [] })
+      setSearchLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setSearchLoading(true)
+    setSearchResults({ projects: [], topics: [], chats: [], messages: [] })
+    searchGlobal(debouncedQuery, 5)
+      .then((result) => {
+        if (cancelled) return
+        if (result.messages.length > 0) {
+          setSearchResults(result)
+          void searchBackfill("", 8).catch(() => {})
+          return
+        }
+        searchBackfill(debouncedQuery, 12)
+          .then(async ({ indexedSessions }) => {
+            if (cancelled) return
+            if (indexedSessions > 0) {
+              const refreshed = await searchGlobal(debouncedQuery, 5)
+              if (!cancelled) setSearchResults(refreshed)
+              return
+            }
+            setSearchResults(result)
+          })
+          .catch(() => {
+            if (!cancelled) setSearchResults(result)
+          })
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSearchResults({ projects: [], topics: [], chats: [], messages: [] })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSearchLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [debouncedQuery, hasSearchQuery, open])
 
   const filteredRecent = debouncedQuery
     ? recentSessions.filter((s) =>
@@ -157,15 +248,91 @@ export function CommandPalette({
     ? QUICK_ACTIONS.filter((a) => a.label.toLowerCase().includes(debouncedQuery.toLowerCase()))
     : QUICK_ACTIONS
 
-  const allItems = useMemo<FlatItem[]>(() => [
-    ...filteredRecent.map((s) => ({ type: "recent" as const, id: s.key, session: s })),
-    ...filteredActions.map((a) => ({ type: "action" as const, id: a.id, action: a })),
-  ], [filteredRecent, filteredActions])
+  const allItems = useMemo<FlatItem[]>(() => {
+    if (showSearchResults) {
+      return [
+        ...searchResults.projects.map((project) => ({
+          type: "project" as const,
+          id: `project:${project.id}`,
+          project,
+        })),
+        ...searchResults.topics.map((topic) => ({
+          type: "topic" as const,
+          id: `topic:${topic.id}`,
+          topic,
+        })),
+        ...searchResults.chats.map((chat) => ({
+          type: "chat" as const,
+          id: `chat:${chat.id}`,
+          chat,
+        })),
+        ...searchResults.messages.map((message) => ({
+          type: "message" as const,
+          id: `message:${message.id}`,
+          message,
+        })),
+      ]
+    }
+    return [
+      ...filteredRecent.map((s) => ({ type: "recent" as const, id: s.key, session: s })),
+      ...filteredActions.map((a) => ({ type: "action" as const, id: a.id, action: a })),
+    ]
+  }, [filteredRecent, filteredActions, searchResults, showSearchResults])
 
   const dispatchItem = useCallback((item: FlatItem) => {
     onClose()
     if (item.type === "recent") {
       onNavigateChat(item.session.key)
+      return
+    }
+    if (item.type === "project") {
+      void onNavigateProject(item.project.id)
+      return
+    }
+    if (item.type === "topic") {
+      void onNavigateTopic({
+        id: item.topic.id,
+        name: item.topic.name,
+        projectId: item.topic.projectId,
+        projectName: item.topic.projectName,
+      })
+      return
+    }
+    if (item.type === "chat") {
+      if (item.chat.sessionKey && debouncedQuery.trim()) {
+        void onNavigateSearchMessage({
+          chat: {
+            id: item.chat.id,
+            name: item.chat.name,
+            sessionKey: item.chat.sessionKey,
+          },
+          sessionKey: item.chat.sessionKey,
+          snippet: debouncedQuery.trim(),
+          query: debouncedQuery.trim(),
+        })
+        return
+      }
+      void onNavigateDirectChat({
+        id: item.chat.id,
+        name: item.chat.name,
+        sessionKey: item.chat.sessionKey,
+      })
+      return
+    }
+    if (item.type === "message") {
+      void onNavigateSearchMessage({
+        chat: item.message.chatId && item.message.chatName
+          ? {
+              id: item.message.chatId,
+              name: item.message.chatName,
+              sessionKey: item.message.sessionKey,
+            }
+          : undefined,
+        sessionKey: item.message.sessionKey,
+        messageId: item.message.messageId,
+        snippet: item.message.snippet,
+        query: debouncedQuery.trim(),
+      })
       return
     }
     switch (item.action.id) {
@@ -183,7 +350,18 @@ export function CommandPalette({
         break
       }
     }
-  }, [onClose, onNavigateChat, onNewChat, onToggleTerminal, onOpenSettings, onToggleTheme])
+  }, [
+    onClose,
+    onNavigateChat,
+    onNavigateDirectChat,
+    onNavigateProject,
+    onNavigateSearchMessage,
+    onNavigateTopic,
+    onNewChat,
+    onToggleTerminal,
+    onOpenSettings,
+    onToggleTheme,
+  ])
 
   const handlePromptClick = useCallback((prompt: string) => {
     onClose()
@@ -271,8 +449,122 @@ export function CommandPalette({
 
         {/* Scrollable results */}
         <div ref={listRef} className="max-h-[360px] overflow-y-auto scroll-smooth px-2 py-2 scrollbar-hide">
+          {hasSearchQuery && (
+            <>
+              {false && showSearchLoading && (
+                <div className="hidden px-5 py-6 text-center text-[13px] text-muted-foreground dark:text-white/35">
+                  Searching…
+                </div>
+              )}
+
+              {showSearchLoading && (
+                <div className="px-3 py-3">
+                  <SearchLoadingSkeleton />
+                </div>
+              )}
+
+              {showSearchResults && searchResults.projects.length > 0 && (
+                <div className="px-2 py-1.5">
+                  <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
+                    Projects
+                  </p>
+                  {searchResults.projects.map((project) => {
+                    itemIndex++
+                    const idx = itemIndex
+                    return (
+                      <PaletteRow
+                        key={project.id}
+                        icon={<LuFolder size={14} />}
+                        label={project.name}
+                        subtitle={`${project.topicCount} topics • ${project.sessionCount} chats`}
+                        selected={selectedIndex === idx}
+                        testId={`command-project-${project.id}`}
+                        onClick={() => dispatchItem({ type: "project", id: `project:${project.id}`, project })}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+
+              {showSearchResults && searchResults.topics.length > 0 && (
+                <div className="px-2 py-1.5">
+                  <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
+                    Topics
+                  </p>
+                  {searchResults.topics.map((topic) => {
+                    itemIndex++
+                    const idx = itemIndex
+                    return (
+                      <PaletteRow
+                        key={topic.id}
+                        icon={<LuHash size={14} />}
+                        label={topic.name}
+                        subtitle={`${topic.projectName} • ${topic.sessionCount} chats`}
+                        selected={selectedIndex === idx}
+                        testId={`command-topic-${topic.id}`}
+                        onClick={() => dispatchItem({ type: "topic", id: `topic:${topic.id}`, topic })}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+
+              {showSearchResults && searchResults.chats.length > 0 && (
+                <div className="px-2 py-1.5">
+                  <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
+                    Chats
+                  </p>
+                  {searchResults.chats.map((chat) => {
+                    itemIndex++
+                    const idx = itemIndex
+                    const context = chat.topicName
+                      ? `${chat.topicName} • ${chat.projectName ?? "Topic"}`
+                      : chat.projectName ?? "Standalone chat"
+                    return (
+                      <PaletteRow
+                        key={chat.id}
+                        icon={<LuMessageSquare size={14} />}
+                        label={chat.name}
+                        subtitle={context}
+                        selected={selectedIndex === idx}
+                        testId={`command-chat-${chat.id}`}
+                        onClick={() => dispatchItem({ type: "chat", id: `chat:${chat.id}`, chat })}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+
+              {showSearchResults && searchResults.messages.length > 0 && (
+                <div className="px-2 py-1.5">
+                  <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
+                    Messages
+                  </p>
+                  {searchResults.messages.map((message) => {
+                    itemIndex++
+                    const idx = itemIndex
+                    const context = message.chatName
+                      ? `${message.chatName} • ${message.topicName ?? message.projectName ?? "Chat"}`
+                      : message.topicName ?? message.projectName ?? "Conversation"
+                    return (
+                      <PaletteRow
+                        key={message.id}
+                        icon={<LuSearch size={14} />}
+                        label={message.snippet}
+                        subtitle={context}
+                        selected={selectedIndex === idx}
+                        testId={`command-message-${message.id}`}
+                        onClick={() => dispatchItem({ type: "message", id: `message:${message.id}`, message })}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
           {/* Recent */}
-          {filteredRecent.length > 0 && (
+          {!hasSearchQuery && filteredRecent.length > 0 && (
             <div className="px-2 py-1.5">
               <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
                 Recent
@@ -296,7 +588,7 @@ export function CommandPalette({
           )}
 
           {/* Quick Actions */}
-          {filteredActions.length > 0 && (
+          {!hasSearchQuery && filteredActions.length > 0 && (
             <div className="px-2 py-1.5">
               <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground dark:text-white/35">
                 Quick Actions
@@ -334,7 +626,13 @@ export function CommandPalette({
             </div>
           )}
 
-          {filteredRecent.length === 0 && filteredActions.length === 0 && (
+          {!showSearchLoading && hasSearchQuery && allItems.length === 0 && (
+            <div className="px-5 py-8 text-center text-[13px] text-muted-foreground dark:text-white/35">
+              No projects, topics, chats, or messages found.
+            </div>
+          )}
+
+          {!hasSearchQuery && filteredRecent.length === 0 && filteredActions.length === 0 && (
             <div className="px-5 py-8 text-center text-[13px] text-muted-foreground dark:text-white/35">
               No results found.
             </div>
@@ -377,9 +675,38 @@ function PromptMarquee({
   )
 }
 
+function SearchLoadingSkeleton() {
+  return (
+    <div className="space-y-4">
+      {["Projects", "Chats", "Messages"].map((section, sectionIndex) => (
+        <div key={section} className="px-2 py-1.5">
+          <div className="px-2.5 pb-2">
+            <div className="h-2 w-16 rounded-full bg-muted/70 dark:bg-white/[0.08]" />
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: sectionIndex === 2 ? 2 : 1 }).map((_, rowIndex) => (
+              <div
+                key={`${section}-${rowIndex}`}
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+              >
+                <div className="size-6 rounded-md bg-muted/70 dark:bg-white/[0.08]" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="h-3 w-2/5 rounded-full bg-muted/70 dark:bg-white/[0.08]" />
+                  <div className="h-2.5 w-1/3 rounded-full bg-muted/45 dark:bg-white/[0.05]" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function PaletteRow({
   icon,
   label,
+  subtitle,
   trailing,
   selected,
   testId,
@@ -387,6 +714,7 @@ function PaletteRow({
 }: {
   icon: React.ReactNode
   label: string
+  subtitle?: string
   trailing?: React.ReactNode
   selected: boolean
   testId?: string
@@ -419,7 +747,14 @@ function PaletteRow({
       )}>
         {icon}
       </span>
-      <span className="flex-1 truncate text-[13px] leading-5">{label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] leading-5">{label}</span>
+        {subtitle ? (
+          <span className="block truncate text-[11px] leading-4 text-muted-foreground/80 dark:text-white/35">
+            {subtitle}
+          </span>
+        ) : null}
+      </span>
       {trailing}
     </button>
   )
