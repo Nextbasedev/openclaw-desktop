@@ -41,9 +41,42 @@ describe("statusAfterSendAck", () => {
 })
 
 describe("statusFromBackendSession", () => {
-  it("uses backend running state as the source of truth", () => {
+  it("keeps backend running when no assistant answer exists", () => {
     expect(statusFromBackendSession("running", [])).toBe("thinking")
     expect(statusFromBackendSession("queued", [])).toBe("thinking")
+  })
+
+  it("does not trust stale backend running once an assistant answered after the latest user", () => {
+    expect(
+      statusFromBackendSession("running", [
+        { messageId: "u1", role: "user", text: "who is supreme" },
+        { messageId: "a1", role: "assistant", text: "You, Dixit 😄" },
+      ]),
+    ).toBe("done")
+  })
+
+  it("does not mark done when the latest user has no assistant answer yet", () => {
+    expect(
+      statusFromBackendSession("running", [
+        { messageId: "u1", role: "user", text: "first" },
+        { messageId: "a1", role: "assistant", text: "old answer" },
+        { messageId: "u2", role: "user", text: "new question" },
+      ]),
+    ).toBe("thinking")
+  })
+
+  it("keeps running when the only post-user assistant block still has a running tool", () => {
+    expect(
+      statusFromBackendSession("running", [
+        { messageId: "u1", role: "user", text: "run tool" },
+        {
+          messageId: "a1",
+          role: "assistant",
+          text: "",
+          toolCalls: [{ id: "t1", tool: "exec", status: "running" }],
+        },
+      ]),
+    ).toBe("thinking")
   })
 
   it("uses backend idle state to clear stale thinking", () => {

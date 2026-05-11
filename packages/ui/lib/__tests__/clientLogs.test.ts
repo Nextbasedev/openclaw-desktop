@@ -66,3 +66,19 @@ describe("client frontend logging safety", () => {
     expect(text).not.toContain("token=secret")
   })
 })
+
+
+it("redacts tauri invoke headers from request metadata", () => {
+  const meta = __clientLogsForTests.requestMeta("http://ipc.localhost/plugin%3Aevent%7Clisten", {
+    method: "POST",
+    headers: {
+      "tauri-invoke-key": "secret-ish",
+      "tauri-callback": "123",
+      "content-type": "application/json",
+    },
+  })
+  expect(meta.headers?.["tauri-invoke-key"]).toBe("[redacted]")
+  expect(meta.headers?.["tauri-callback"]).toBe("[redacted]")
+  expect(meta.headers?.["content-type"]).toBe("application/json")
+  expect(JSON.stringify(meta)).not.toContain("secret-ish")
+})
