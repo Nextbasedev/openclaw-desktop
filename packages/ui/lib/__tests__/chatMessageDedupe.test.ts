@@ -48,6 +48,37 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
+  it("does not collapse numbered assistant messages with prefix-like text", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "a8", role: "assistant", text: "Stress Chat 13 assistant 8" },
+      { messageId: "a80", role: "assistant", text: "Stress Chat 13 assistant 80" },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual(["a8", "a80"])
+  })
+
+  it("preserves attachments when duplicate message ids are merged", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "same",
+        role: "user",
+        text: "check this",
+        attachments: [{ name: "screenshot.png", mimeType: "image/png" }],
+      },
+      {
+        messageId: "same",
+        role: "user",
+        text: "check this",
+        createdAt: "2026-05-08T10:00:03.000Z",
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].attachments).toEqual([
+      { name: "screenshot.png", mimeType: "image/png" },
+    ])
+  })
+
   it("reconciles optimistic user messages with nearby canonical history", () => {
     const messages = dedupeChatMessages([
       {

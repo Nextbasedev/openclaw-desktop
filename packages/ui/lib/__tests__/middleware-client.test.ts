@@ -14,6 +14,7 @@ function mockStorage() {
   const eventTarget = new EventTarget()
   vi.stubGlobal("window", {
     ...globalThis,
+    location: { hostname: "localhost" },
     addEventListener: eventTarget.addEventListener.bind(eventTarget),
     removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
     dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
@@ -101,6 +102,22 @@ describe("middleware onboarding client", () => {
     }))
 
     await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toBeNull()
+  })
+
+  it("does not probe localhost middleware when opened from a remote host", async () => {
+    Object.defineProperty(window, "location", { value: { hostname: "100.79.189.15" }, configurable: true })
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rewrites stale loopback middleware URLs when opened from a remote host", () => {
+    Object.defineProperty(window, "location", { value: { hostname: "100.79.189.15" }, configurable: true })
+    saveMiddlewareConnection({ url: "http://127.0.0.1:8787/", token: "abc" })
+
+    expect(getMiddlewareConnection()).toEqual({ url: "http://100.79.189.15:8787", token: "abc" })
   })
 
   it("claims remote pairing code and receives token", async () => {

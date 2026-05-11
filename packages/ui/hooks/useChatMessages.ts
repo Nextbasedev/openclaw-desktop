@@ -941,11 +941,17 @@ export function useChatMessages(
     const seededMessages =
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     ensureGlobalChatEngine(queryClient)
-    const cachedGlobal = !seededMessages ? getGlobalChatSession(sessionKey) : null
-    const cachedBootstrap = !seededMessages && !cachedGlobal
+    const cachedGlobal = getGlobalChatSession(sessionKey)
+    const useCachedGlobal = Boolean(
+      cachedGlobal &&
+        (!seededMessages ||
+          cachedGlobal.messages.length > seededMessages.length ||
+          cachedGlobal.messages.some((message) => message.role === "assistant"))
+    )
+    const cachedBootstrap = !useCachedGlobal
       ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
       : null
-    const warmMessages = seededMessages ?? cachedGlobal?.messages ?? warmBootstrapMessages(undefined, cachedBootstrap)
+    const warmMessages = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
 
     setLoadError(null)
     setErrorMessage(null)
@@ -957,17 +963,17 @@ export function useChatMessages(
       }
       setLoading(false)
       setMessages(warmMessages)
-      setStatus(cachedGlobal?.status ?? (cachedBootstrap?.history.sessionStatus ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages) : inferRestoredChatStatus(warmMessages, statusRef.current)))
-      setStatusLabel(cachedGlobal?.statusLabel ?? null)
-      if (cachedGlobal?.pendingTools) {
+      setStatus(useCachedGlobal && cachedGlobal?.status ? cachedGlobal.status : (cachedBootstrap?.history.sessionStatus ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages) : inferRestoredChatStatus(warmMessages, statusRef.current)))
+      setStatusLabel(useCachedGlobal ? cachedGlobal?.statusLabel ?? null : null)
+      if (useCachedGlobal && cachedGlobal?.pendingTools) {
         pendingToolMapRef.current = new Map(cachedGlobal.pendingTools.map((tool) => [tool.id, tool]))
         setPendingTools(cachedGlobal.pendingTools)
       }
-      if (cachedGlobal?.spawnedSubagents) {
+      if (useCachedGlobal && cachedGlobal?.spawnedSubagents) {
         spawnMapRef.current = new Map(cachedGlobal.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
         setSpawnedSubagents(cachedGlobal.spawnedSubagents)
       }
-      if (typeof cachedGlobal?.cursor === "number") v2CursorRef.current = cachedGlobal.cursor
+      if (useCachedGlobal && typeof cachedGlobal?.cursor === "number") v2CursorRef.current = cachedGlobal.cursor
       else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
     } else {
       setLoading(true)
@@ -975,7 +981,7 @@ export function useChatMessages(
       setStatus("idle")
     }
 
-    if (cachedGlobal) {
+    if (useCachedGlobal) {
       // Activity already restored from the global V2 chat engine above.
       // Do not clear it here: remounting ChatView must not wipe live tools/subagents.
     } else if (cachedActivity) {

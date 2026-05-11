@@ -11,12 +11,30 @@ function isTauriRuntime(): boolean {
   )
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname)
+}
+
 function isLoopbackServerUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
-    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(parsed.hostname)
+    return isLoopbackHost(parsed.hostname)
   } catch {
     return false
+  }
+}
+
+function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
+  if (typeof window === "undefined") return rawUrl
+  const browserHostname = window.location?.hostname
+  if (!browserHostname || isLoopbackHost(browserHostname)) return rawUrl
+  try {
+    const url = new URL(rawUrl)
+    if (!isLoopbackHost(url.hostname)) return rawUrl
+    url.hostname = browserHostname
+    return url.toString()
+  } catch {
+    return rawUrl
   }
 }
 
@@ -45,9 +63,10 @@ function queryString(values: Record<string, string | undefined>): string {
 function middlewareStreamUrl(path: string): string | null {
   if (typeof window === "undefined") return null
   try {
-    const url = localStorage.getItem("openclaw.middleware.url")?.replace(/\/+$/, "")
+    const storedUrl = localStorage.getItem("openclaw.middleware.url")?.replace(/\/+$/, "")
     const token = localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
-    if (!url) return null
+    if (!storedUrl) return null
+    const url = rewriteLoopbackForRemoteBrowser(storedUrl)
     const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ""
     if (path === "/api/stream/cron") return `${url}/api/stream/cron${tokenQuery}`
     const ptyMatch = path.match(/^\/api\/stream\/pty\/([^/]+)$/)

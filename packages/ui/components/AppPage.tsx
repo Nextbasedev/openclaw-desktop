@@ -435,8 +435,9 @@ function AppShell({
     })
   }, [activeSessionKey, activeChat, activeSessionTitle, editorGroups.focusedGroupId])
 
+  type ChatMessage = import("@/components/ChatView/types").ChatMessage
   type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true; attachments?: Array<{ name: string; mimeType: string; content?: string; size?: number }> }
-  const [initialMessages, setInitialMessages] = useState<OptimisticMsg[] | undefined>()
+  const [initialMessages, setInitialMessages] = useState<ChatMessage[] | undefined>()
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
@@ -459,6 +460,28 @@ function AppShell({
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
   }, [])
+
+  const recoverToDraftRoute = useCallback(() => {
+    clearConversationState()
+    setActiveTab("chat")
+    dispatchGroups({
+      type: "ADD_TAB",
+      groupId: editorGroups.focusedGroupId,
+      tab: createDraftTab(editorGroups.focusedGroupId),
+    })
+    if (getRoutePath() !== "/") window.history.replaceState(null, "", routeUrl("/"))
+  }, [clearConversationState, editorGroups.focusedGroupId])
+
+  useEffect(() => {
+    if (!activeChat || activeSessionKey || !isUndecidedChatTitle(activeChat.name)) return
+    const timer = window.setTimeout(() => {
+      const route = parseRoute(getRoutePath())
+      if (route.kind === "chat" && route.chatId === activeChat.id && !resolvedChatCacheRef.current.has(activeChat.id)) {
+        recoverToDraftRoute()
+      }
+    }, 2500)
+    return () => window.clearTimeout(timer)
+  }, [activeChat, activeSessionKey, recoverToDraftRoute])
 
   useEffect(() => {
     function resetMiddlewareScopedUi() {
@@ -504,6 +527,11 @@ function AppShell({
       setComposerError(null)
       setActiveTab("chat")
       clearConversationState()
+      dispatchGroups({
+        type: "ADD_TAB",
+        groupId: editorGroups.focusedGroupId,
+        tab: createDraftTab(editorGroups.focusedGroupId),
+      })
       return
     }
 
@@ -530,8 +558,7 @@ function AppShell({
           (chat) => chat.id === route.chatId,
         )
         if (!found || found.archived) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
           return
         }
 
@@ -548,8 +575,7 @@ function AppShell({
         setActiveSessionTitle(resolved.title)
       } catch {
         if (isCurrentPath()) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
         }
       }
       return
@@ -578,8 +604,7 @@ function AppShell({
           (p) => p.id === route.projectId && !p.archived,
         )
         if (!project) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
           return
         }
 
@@ -594,8 +619,7 @@ function AppShell({
           (t) => t.id === route.topicId && !t.archived,
         )
         if (!topic) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
           return
         }
 
@@ -624,12 +648,11 @@ function AppShell({
         }
       } catch {
         if (isCurrentPath()) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
         }
       }
     }
-  }, [clearConversationState])
+  }, [clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute])
 
   // Restore state from URL on mount
   useEffect(() => {
@@ -1506,6 +1529,7 @@ function AppShell({
     setComposerError(null)
     setQuickSending(true)
     try {
+      const targetGroupId = editorGroups.focusedGroupId
       const fallbackName = fallbackChatNameFromText(text)
       const result = await invoke<{ chat: { id: string; name: string } }>(
         "middleware_chats_create",
@@ -1537,12 +1561,24 @@ function AppShell({
       setInitialMessages(optimisticMessages)
       setActiveTab("chat")
       setActiveTopic(null)
-      setActiveChat({ id: result.chat.id, name: fallbackName, sessionKey: sessionResult.session.key })
+      const createdChat = { id: result.chat.id, name: fallbackName, sessionKey: sessionResult.session.key }
+      const sessionData = { chat: createdChat, sessionKey: sessionResult.session.key, title: fallbackName }
+      resolvedChatCacheRef.current.set(result.chat.id, sessionData)
+      setActiveChat(createdChat)
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(fallbackName)
+      dispatchGroups({
+        type: "ADD_TAB",
+        groupId: targetGroupId,
+        tab: { id: `chat:${result.chat.id}`, title: fallbackName, subtitle: "Chat", kind: "chat", chat: createdChat },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: targetGroupId,
+        sessionData,
+      })
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
-
       await sendChatV2({
         sessionKey: sessionResult.session.key,
         text,
@@ -1550,7 +1586,6 @@ function AppShell({
         idempotencyKey: chatSendIdempotencyKey(sessionResult.session.key, optimisticId),
         clientMessageId: optimisticId,
       })
-
       try {
         const { name } = await invoke<{ name: string }>(
           "middleware_autonaming_quick",
@@ -1560,10 +1595,22 @@ function AppShell({
         await invoke("middleware_chats_rename", {
           input: { chatId: result.chat.id, name: finalName },
         })
+        const renamedChat = { ...createdChat, name: finalName }
+        resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey: sessionResult.session.key, title: finalName })
         setActiveChat((prev) =>
           prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
         )
         setActiveSessionTitle(finalName)
+        dispatchGroups({
+          type: "UPDATE_TAB",
+          tabId: `chat:${result.chat.id}`,
+          updates: { title: finalName, chat: renamedChat },
+        })
+        dispatchGroups({
+          type: "SET_SESSION_DATA",
+          groupId: targetGroupId,
+          sessionData: { chat: renamedChat, sessionKey: sessionResult.session.key, title: finalName },
+        })
         setChatRefreshTrigger((n) => n + 1)
       } catch (err) {
         console.error("Auto-naming chat failed", err)
@@ -1586,7 +1633,7 @@ function AppShell({
     } finally {
       setQuickSending(false)
     }
-  }, [activeSpaceId, clearConversationState, quickSending])
+  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, quickSending])
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
@@ -1806,11 +1853,14 @@ function AppShell({
                     const group = editorGroups.groups.find((g) => g.id === groupId)
                     const groupSessionData = group?.sessionData
                     if (groupSessionData) {
+                      const isFocusedActiveSession = group.id === editorGroups.focusedGroupId && groupSessionData.sessionKey === activeSessionKey
                       return (
                         <ChatView
                           key={`pane:${groupSessionData.chat.id}:${groupSessionData.sessionKey}`}
                           sessionKey={groupSessionData.sessionKey}
                           sessionTitle={groupSessionData.title}
+                          initialMessages={isFocusedActiveSession ? initialMessages : undefined}
+                          onFirstMessageSent={isFocusedActiveSession ? handleFirstMessageSent : undefined}
                           forkContext={{ type: "chat" }}
                         />
                       )

@@ -29,6 +29,28 @@ const LOCAL_MIDDLEWARE_URLS = [
   "http://localhost:8787",
 ]
 
+function isLoopbackHost(hostname: string) {
+  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "0.0.0.0"
+}
+
+function getBrowserHostname() {
+  if (typeof window === "undefined") return null
+  return window.location?.hostname || null
+}
+
+function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
+  const browserHostname = getBrowserHostname()
+  if (!browserHostname || isLoopbackHost(browserHostname)) return rawUrl
+  try {
+    const url = new URL(rawUrl)
+    if (!isLoopbackHost(url.hostname)) return rawUrl
+    url.hostname = browserHostname
+    return url.toString()
+  } catch {
+    return rawUrl
+  }
+}
+
 function trimTrailingSlash(value: string) {
   return value.trim().replace(/\/+$/, "")
 }
@@ -38,7 +60,7 @@ export function getMiddlewareConnection(): MiddlewareConnection | null {
   const url = localStorage.getItem(URL_KEY)?.trim() ?? ""
   const token = localStorage.getItem(TOKEN_KEY)?.trim() ?? ""
   if (!url) return null
-  return { url, token }
+  return { url: trimTrailingSlash(rewriteLoopbackForRemoteBrowser(url)), token }
 }
 
 function clearWorkspaceScopeCache() {
@@ -75,7 +97,8 @@ export function clearMiddlewareConnection() {
 export async function middlewareFetch<T>(path: string, init: RequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
   if (!connection) throw new Error("Middleware connection is not configured")
   const token = connection.token.trim()
-  const response = await fetch(`${trimTrailingSlash(connection.url)}${path}`, {
+  const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connection.url))
+  const response = await fetch(`${url}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -92,7 +115,7 @@ export async function middlewareFetch<T>(path: string, init: RequestInit = {}, c
 }
 
 export async function testMiddlewareConnection(input: MiddlewareConnection): Promise<MiddlewareHealth> {
-  const url = trimTrailingSlash(input.url)
+  const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(input.url))
   const healthRes = await fetch(`${url}/health`, { headers: { "Cache-Control": "no-cache" } })
   if (!healthRes.ok) throw new Error(`Middleware health failed (${healthRes.status})`)
   const health = await healthRes.json() as MiddlewareHealth
@@ -114,6 +137,8 @@ export async function claimMiddlewarePairing(input: { url: string; code: string 
 }
 
 export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promise<MiddlewarePairingResult | null> {
+  const browserHostname = getBrowserHostname()
+  if (browserHostname && !isLoopbackHost(browserHostname)) return null
   for (const rawUrl of urls) {
     const url = trimTrailingSlash(rawUrl)
     try {

@@ -132,11 +132,11 @@ describe("chat send routes", () => {
     await app.close();
   });
 
-  test("send clears projected running status after Gateway completes", async () => {
+  test("send clears projected running status after Gateway reports completion", async () => {
     const app = await createApp(config("send-status-refresh"));
     const context = contextOf(app);
     vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
-      if (method === "chat.send") return { runId: "r1" };
+      if (method === "chat.send") return { runId: "r1", status: "done" };
       if (method === "chat.history") return { sessionKey: "s1", messages: [] };
       return { ok: true };
     });
@@ -151,6 +151,76 @@ describe("chat send routes", () => {
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
     expect(bootstrap.statusCode).toBe(200);
     expect(bootstrap.json()).toMatchObject({ sessionStatus: "done" });
+    await app.close();
+  });
+
+  test("send keeps projected running status when Gateway only accepts an async run", async () => {
+    const app = await createApp(config("send-status-started"));
+    const context = contextOf(app);
+    const patches: unknown[] = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { accepted: true, runId: "r1", status: "started" };
+      if (method === "chat.history") return { sessionKey: "s1", messages: [] };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+    expect(send.statusCode).toBe(200);
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "chat.status", payload: expect.objectContaining({ status: "thinking" }) }),
+    ]));
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "chat.status", payload: expect.objectContaining({ status: "done" }) }),
+    ]));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({ sessionStatus: "running" });
+    await app.close();
+  });
+
+  test("send reconciles Gateway history after chat.send so UI recovers missed live events", async () => {
+    const app = await createApp(config("send-history-reconcile"));
+    const context = contextOf(app);
+    const patches: unknown[] = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r1" };
+      if (method === "chat.history") return {
+        sessionKey: "s1",
+        messages: [
+          { role: "user", text: "hello", __openclaw: { id: "u1", seq: 1 } },
+          { role: "assistant", text: "world", __openclaw: { id: "a1", seq: 2 } },
+        ],
+      };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+    expect(send.statusCode).toBe(200);
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "chat.message.upsert", payload: expect.objectContaining({ message: expect.objectContaining({ role: "assistant", text: "world" }) }) }),
+      expect.objectContaining({ type: "chat.status", payload: expect.objectContaining({ status: "done" }) }),
+    ]));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      sessionStatus: "done",
+      messages: [
+        { role: "user", text: "hello" },
+        { role: "assistant", text: "world" },
+      ],
+    });
     await app.close();
   });
 

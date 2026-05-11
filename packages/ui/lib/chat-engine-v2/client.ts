@@ -1,16 +1,34 @@
-const DEFAULT_V2_URL = "http://127.0.0.1:8989"
+const DEFAULT_V2_URL = "http://127.0.0.1:8999"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
 
 function trimTrailingSlash(value: string) {
   return value.trim().replace(/\/+$/, "")
 }
 
+function isLoopbackHost(hostname: string) {
+  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1"
+}
+
+function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
+  if (typeof window === "undefined") return rawUrl
+  if (isLoopbackHost(window.location.hostname)) return rawUrl
+  try {
+    const url = new URL(rawUrl)
+    if (!isLoopbackHost(url.hostname)) return rawUrl
+    url.hostname = window.location.hostname
+    url.port = "8999"
+    return url.toString()
+  } catch {
+    return rawUrl
+  }
+}
+
 export function getMiddlewareV2Url(): string {
   if (typeof window !== "undefined") {
     const stored = localStorage.getItem(V2_URL_KEY)?.trim()
-    if (stored) return trimTrailingSlash(stored)
+    if (stored) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(stored))
   }
-  return trimTrailingSlash(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_V2_URL)
+  return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_V2_URL))
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
