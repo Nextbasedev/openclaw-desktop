@@ -373,11 +373,16 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   runId,
                 });
               }
-              const normalizedToUpsert = confirmedUser && gatewayUserEcho
-                ? normalized.filter((message) => message !== gatewayUserEcho)
-                : normalized;
-              const projection = context.messages.upsertMessages(normalizedToUpsert);
-              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, historyMaxSeq, optimisticSeq, confirmedOptimistic: Boolean(confirmedUser), currentUserRepresented: currentHistory.currentUserRepresented, assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser });
+              const isStalePreSendHistory = !currentHistory.currentUserRepresented && historyMaxSeq < optimisticSeq;
+              const normalizedToUpsert = isStalePreSendHistory
+                ? []
+                : confirmedUser && gatewayUserEcho
+                  ? normalized.filter((message) => message !== gatewayUserEcho)
+                  : normalized;
+              const projection = normalizedToUpsert.length > 0
+                ? context.messages.upsertMessages(normalizedToUpsert)
+                : { upserted: 0, lastSeq: context.messages.nextMessageSeq(input.sessionKey) - 1, changedMessages: [] };
+              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, historyMaxSeq, optimisticSeq, confirmedOptimistic: Boolean(confirmedUser), currentUserRepresented: currentHistory.currentUserRepresented, assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser, skippedStalePreSendHistory: isStalePreSendHistory });
               if (confirmedUser) {
                 const confirmedEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,

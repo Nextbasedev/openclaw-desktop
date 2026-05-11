@@ -1903,13 +1903,24 @@ export function useChatMessages(
           autonomyMode: payload.autonomyMode,
           execPolicy: payload.execPolicy,
         })
-        setMessages((prev) =>
-          prev.map((m) =>
+        const ackMessages = dedupeChatMessages(
+          messagesRef.current.map((m) =>
             m.messageId === optimisticId
               ? { ...m, sendStatus: undefined, sendError: null }
               : m
           )
         )
+        setMessages(ackMessages)
+        seedGlobalChatSession({
+          sessionKey,
+          messages: ackMessages,
+          cursor: v2CursorRef.current,
+          status: runsAlongsideGeneration ? statusRef.current : "thinking",
+          statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
+          pendingTools: Array.from(pendingToolMapRef.current.values()),
+          spawnedSubagents: Array.from(spawnMapRef.current.values()),
+          queryClient,
+        })
         // Send ACK is not lifecycle truth. Wait for canonical runStatus patches
         // or bootstrap recovery before clearing/completing the visible run.
         frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
