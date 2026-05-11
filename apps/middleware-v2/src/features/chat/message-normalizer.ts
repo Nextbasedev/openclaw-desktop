@@ -31,6 +31,13 @@ export function normalizeMessageText(value: string): string {
     .replace(/\s+/g, " ");
 }
 
+export function messageTextMatchesSent(candidateText: string, sentText: string): boolean {
+  const candidate = normalizeMessageText(candidateText);
+  const sent = normalizeMessageText(sentText);
+  if (!candidate || !sent) return false;
+  return candidate === sent || candidate.endsWith(` ${sent}`);
+}
+
 export function readOpenClawSeq(message: OpenClawMessage, fallbackSeq: number): number {
   const seq = message.__openclaw?.seq;
   return typeof seq === "number" && Number.isFinite(seq) && seq > 0 ? Math.floor(seq) : fallbackSeq;

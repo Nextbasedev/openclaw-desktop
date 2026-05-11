@@ -283,6 +283,47 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("does not confirm current optimistic user with stale latest Gateway user history", async () => {
+    const app = await createApp(config("send-history-stale-user-no-confirm"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r1", status: "done" };
+      if (method === "chat.history") return {
+        sessionKey: "s1",
+        messages: [
+          { role: "user", text: "byy", __openclaw: { id: "stale-user", seq: 1 } },
+          { role: "assistant", text: "Bye Dixit 🤝 Sleep well.", __openclaw: { id: "stale-assistant", seq: 2 } },
+        ],
+      };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "good night now", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+
+    expect(send.statusCode).toBe(200);
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.confirmed",
+        payload: expect.objectContaining({ optimisticId: "client-ui-1" }),
+      }),
+    ]));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    const messages = bootstrap.json().messages as Array<{ role: string; text?: string; __openclaw?: { id?: string } }>;
+    expect(messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", text: "good night now", __openclaw: expect.objectContaining({ id: "client-ui-1" }) }),
+    ]));
+    expect(messages.filter((message) => message.role === "user" && message.text === "byy")).toHaveLength(1);
+    await app.close();
+  });
+
   test("bootstrap preserves projected running session status for refresh recovery", async () => {
     const app = await createApp(config("bootstrap-status"));
     const context = contextOf(app);

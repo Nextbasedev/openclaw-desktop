@@ -1,5 +1,5 @@
 import type { ChatMessage, StreamStatus } from "../../components/ChatView/types"
-import { parseChatHistory } from "../chatHistoryParser"
+import { cleanUserMessageText, parseChatHistory } from "../chatHistoryParser"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import type { PatchFrame } from "./client"
 
@@ -46,6 +46,26 @@ function patchRemoveId(frame: PatchFrame): string | null {
   if (frame.patch.type !== "chat.message.remove") return null
   const id = patchPayload(frame)?.messageId
   return typeof id === "string" && id.trim() ? id : null
+}
+
+function normalizedUserText(value: string): string {
+  return cleanUserMessageText(value).replace(/\s+/g, " ").trim()
+}
+
+function userTextMatchesSent(candidateText: string, sentText: string): boolean {
+  const candidate = normalizedUserText(candidateText)
+  const sent = normalizedUserText(sentText)
+  if (!candidate || !sent) return false
+  return candidate === sent || candidate.endsWith(` ${sent}`)
+}
+
+function rejectsStaleConfirmedUser(state: ApplyPatchState, optimisticId: string | null, normalized: ChatMessage[]): boolean {
+  if (!optimisticId) return false
+  const confirmed = normalized.find((item) => item.role === "user")
+  if (!confirmed) return false
+  const existing = state.messages.find((item) => item.messageId === optimisticId)
+  if (!existing || existing.role !== "user") return false
+  return !userTextMatchesSent(confirmed.text, existing.text)
 }
 
 const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting"])
@@ -97,6 +117,9 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   const normalized = canonicalMessageId
     ? parsed.map((item) => item.role === "user" ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null } : item)
     : parsed
+  if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
+    return { ...state, cursor: frame.patch.cursor }
+  }
   const idsToReplace = new Set([optimisticId, canonicalMessageId].filter((id): id is string => Boolean(id)))
   const baseMessages = idsToReplace.size > 0
     ? state.messages.filter((item) => !idsToReplace.has(item.messageId))

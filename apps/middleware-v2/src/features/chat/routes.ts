@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
-import { normalizeHistoryMessages } from "./message-normalizer.js";
+import { messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
@@ -354,7 +354,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             });
             if (history?.messages?.length) {
               const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
-              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user");
+              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
               const confirmedUser = gatewayUserEcho
                 ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
                 : null;
