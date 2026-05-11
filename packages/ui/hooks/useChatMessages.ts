@@ -1031,10 +1031,12 @@ export function useChatMessages(
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
+    const mountStartedAtMs = Date.now()
 
     if (!warmMessages) {
       loadingTimeout = setTimeout(() => {
         if (cancelled || bootstrapSettled) return
+        frontendLog("status", "chat.loading-timeout", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs }, "warn")
         setLoading(false)
         setMessages([])
         setStatus("idle")
@@ -1042,7 +1044,8 @@ export function useChatMessages(
     }
 
     async function init() {
-      frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages) })
+      const bootstrapStartedAtMs = Date.now()
+      frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs })
       try {
         const { history, branchData, v2Cursor } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
@@ -1056,6 +1059,8 @@ export function useChatMessages(
           rawMessageCount: (history.messages as RawMessage[] | undefined)?.length ?? 0,
           branchCount: branchData.branches?.length ?? 0,
           v2Cursor,
+          durationMs: Date.now() - bootstrapStartedAtMs,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
@@ -1440,6 +1445,8 @@ export function useChatMessages(
           status: restoredStatus,
           pendingToolCount: pendingToolMapRef.current.size,
           spawnedSubagentCount: spawnMapRef.current.size,
+          durationMs: Date.now() - bootstrapStartedAtMs,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
         forceScrollToBottom(true)
 
@@ -1454,6 +1461,17 @@ export function useChatMessages(
             setLocalSpawnedSubagents(state.spawnedSubagents)
             setStatus(state.status)
             setStatusLabel(state.statusLabel)
+            frontendLog("status", "chat.render-factors", {
+              sessionKey,
+              status: state.status,
+              statusLabel: state.statusLabel,
+              cursor: state.cursor,
+              messageCount: state.messages.length,
+              pendingToolCount: state.pendingTools.length,
+              runningToolCount: state.pendingTools.filter((tool) => tool.status === "running").length,
+              spawnedSubagentCount: state.spawnedSubagents.length,
+              activeSubagentCount: state.spawnedSubagents.filter((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working").length,
+            }, "debug")
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, state.statusLabel)
             else clearCachedChatActivity(sessionKey)
             setMessages(state.messages)
@@ -1472,6 +1490,8 @@ export function useChatMessages(
         frontendLog("chat", "chat.bootstrap.fail", {
           sessionKey,
           error: e instanceof Error ? { kind: e.name, message: redactText(e.message) } : { kind: "Error", message: redactText(String(e)) },
+          durationMs: Date.now() - bootstrapStartedAtMs,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         }, "error")
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)

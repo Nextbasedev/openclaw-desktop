@@ -8,6 +8,22 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function contentFactorSummary(message: Record<string, unknown>) {
+  const content = message.content;
+  const blocks = Array.isArray(content) ? content : [];
+  const toolCallCount = blocks.filter((block) => {
+    const item = isObject(block) ? block : {};
+    return item.type === "toolCall" || item.type === "tool_use";
+  }).length;
+  return {
+    role: typeof message.role === "string" ? message.role : "unknown",
+    hasText: typeof message.text === "string" && message.text.trim().length > 0,
+    contentBlockCount: blocks.length,
+    toolCallCount,
+    isToolResult: message.role === "tool" || message.role === "tool_result" || message.role === "toolResult",
+  };
+}
+
 export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
@@ -54,7 +70,7 @@ export class ChatLiveIngest {
   }
 
   private handleGatewayEvent(event: GatewayEvent) {
-    this.log.info("gateway.event", { event: event.event });
+    this.log.info("gateway.event", { event: event.event, hasPayload: isObject(event.payload) });
     if (event.event === "session.message") {
       this.handleSessionMessage(event.payload);
       return;
@@ -69,7 +85,9 @@ export class ChatLiveIngest {
     const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
     const message = isObject(payload.message) ? (payload.message as OpenClawMessage) : null;
     if (!sessionKey || !message) return;
+    const receivedAtMs = Date.now();
     const optimisticId = this.takeMatchingOptimisticUser(sessionKey, message);
+    this.log.info("message.factor.received", { sessionKey, ...contentFactorSummary(message as Record<string, unknown>), optimisticMatched: Boolean(optimisticId) });
     const payloadSeq = typeof payload.messageSeq === "number" && Number.isFinite(payload.messageSeq) && payload.messageSeq > 0
       ? Math.floor(payload.messageSeq)
       : null;
@@ -79,6 +97,7 @@ export class ChatLiveIngest {
     const projection = this.context.messages.upsertMessages(normalized);
     this.log.info("message.persist", {
       sessionKey,
+      ingestDurationMs: Date.now() - receivedAtMs,
       role: projectedMessage.role,
       messageId: projectedMessage.messageId,
       messageSeq: projectedMessage.openclawSeq,
@@ -108,7 +127,7 @@ export class ChatLiveIngest {
       payload: patch.payload,
       createdAtMs: patch.createdAtMs,
     });
-    this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor });
+    this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, ingestDurationMs: Date.now() - receivedAtMs });
   }
 
   private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): string | null {
