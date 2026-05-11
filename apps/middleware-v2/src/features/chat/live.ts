@@ -108,6 +108,21 @@ export class ChatLiveIngest {
     const projection = confirmed ? { upserted: 1, lastSeq: confirmed.openclawSeq } : this.context.messages.upsertMessages(normalized);
     const emittedMessage = confirmed?.data ?? message;
     const emittedSeq = confirmed?.openclawSeq ?? projectedMessage.openclawSeq;
+    const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
+    if (projectedMessage.role === "assistant" && associatedRun && !this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) {
+      this.context.runs.updateRunStatus(associatedRun.runId, "done", { statusLabel: null });
+      this.context.messages.upsertSession({
+        sessionKey,
+        sessionId: this.context.messages.getSession(sessionKey)?.sessionId ?? null,
+        data: {
+          ...this.objectData(this.context.messages.getSession(sessionKey)?.data),
+          sessionKey,
+          status: "done",
+          statusLabel: null,
+        },
+      });
+    }
+    const runForPatch = associatedRun ? this.context.runs.getRun(associatedRun.runId) : null;
     this.log.info("message.persist", {
       sessionKey,
       ingestDurationMs: Date.now() - receivedAtMs,
@@ -117,7 +132,8 @@ export class ChatLiveIngest {
       upserted: projection.upserted,
       lastSeq: projection.lastSeq,
       optimisticMatched: Boolean(optimisticId),
-      runId: optimistic?.runId,
+      runId: runForPatch?.runId ?? optimistic?.runId,
+      runStatus: runForPatch?.status,
     });
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
@@ -125,13 +141,13 @@ export class ChatLiveIngest {
       payload: canonicalPatchPayload({
         sessionKey,
         semanticType: optimisticId ? "chat.user.confirmed" : projectedMessage.role === "assistant" ? "chat.assistant.final" : "chat.message.upsert",
-        run: optimistic?.runId ? this.context.runs.getRun(optimistic.runId) : null,
+        run: runForPatch,
         messageId: confirmed?.messageId ?? projectedMessage.messageId,
         payload: {
           sessionKey,
           message: emittedMessage,
           ...(optimisticId ? { optimisticId, gatewayMessageId: projectedMessage.messageId } : {}),
-          ...(optimistic?.runId ? { runId: optimistic.runId } : {}),
+          ...(runForPatch?.runId ? { runId: runForPatch.runId } : optimistic?.runId ? { runId: optimistic.runId } : {}),
           messageSeq: emittedSeq,
           lastSeq: projection.lastSeq,
         },
@@ -145,6 +161,26 @@ export class ChatLiveIngest {
       createdAtMs: patch.createdAtMs,
     });
     this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, ingestDurationMs: Date.now() - receivedAtMs });
+  }
+
+  private associatedRunForMessage(sessionKey: string, message: OpenClawMessage, optimisticRunId?: string | null) {
+    const explicitRunId = this.readRunId(message);
+    if (explicitRunId) {
+      return this.context.runs.findRunByGatewayRunId(explicitRunId) ?? this.context.runs.getRun(explicitRunId) ?? this.context.runs.findLatestPendingRun(sessionKey);
+    }
+    if (optimisticRunId) return this.context.runs.getRun(optimisticRunId) ?? this.context.runs.findLatestPendingRun(sessionKey);
+    if (message.role === "assistant") return this.context.runs.findLatestPendingRun(sessionKey);
+    return null;
+  }
+
+  private readRunId(message: OpenClawMessage): string | null {
+    const openclaw = isObject(message.__openclaw) ? message.__openclaw as Record<string, unknown> : {};
+    const runId = openclaw.runId ?? message.runId ?? message.gatewayRunId;
+    return typeof runId === "string" && runId.trim() ? runId.trim() : null;
+  }
+
+  private objectData(value: unknown): Record<string, unknown> {
+    return isObject(value) ? value : {};
   }
 
   private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): { id: string; runId?: string; idempotencyKey?: string } | null {
