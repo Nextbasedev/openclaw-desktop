@@ -134,6 +134,12 @@ function rawTimestampMs(raw: RawHistoryMessage): number | null {
   return null
 }
 
+function createdAtIso(raw: RawHistoryMessage): string | undefined {
+  if (raw.createdAt) return raw.createdAt
+  const ts = rawTimestampMs(raw)
+  return ts !== null ? new Date(ts).toISOString() : undefined
+}
+
 function formatDuration(ms: number): string | undefined {
   if (!Number.isFinite(ms) || ms < 0) return undefined
   if (ms < 100) return "0.1s"
@@ -368,7 +374,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           messageId: messageId(item),
           role: "user",
           text: reply ? reply.displayText : text,
-          createdAt: item.createdAt,
+          createdAt: createdAtIso(item),
           model: item.model,
           usage: item.usage,
           stopReason: item.stopReason,
@@ -425,7 +431,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           if (text) last.text = last.text ? `${last.text}\n\n${text}` : text
           last.toolCalls = [...(last.toolCalls ?? []), ...pendingToolCalls]
           last.messageId = messageId(item)
-          last.createdAt = item.createdAt ?? last.createdAt
+          last.createdAt = createdAtIso(item) ?? last.createdAt
           last.model = item.model ?? last.model
           last.usage = item.usage ?? last.usage
           last.stopReason = item.stopReason ?? last.stopReason
@@ -434,7 +440,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             messageId: messageId(item),
             role: "assistant",
             text,
-            createdAt: item.createdAt,
+            createdAt: createdAtIso(item),
             model: item.model,
             usage: item.usage,
             stopReason: item.stopReason,
