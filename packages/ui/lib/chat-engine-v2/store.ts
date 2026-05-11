@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
 import { dedupeChatMessages } from "../chatMessageDedupe"
+import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
@@ -59,6 +60,7 @@ function getOrCreate(sessionKey: string): SessionState {
   if (existing) return existing
   const next = defaultState()
   states.set(sessionKey, next)
+  frontendLog("session", "global-chat-session.create", { sessionKey }, "debug")
   return next
 }
 
@@ -280,6 +282,7 @@ function handlePatch(frame: PatchFrame) {
   }
   const state = getOrCreate(sessionKey)
   globalCursor = Math.max(globalCursor, frame.patch.cursor)
+  const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
     state.status = patchStatus.status
@@ -294,6 +297,23 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
+  if (previousStatus !== state.status) {
+    frontendLog("status", "global-chat-session.status-change", {
+      sessionKey,
+      from: previousStatus,
+      to: state.status,
+      statusLabel: state.statusLabel,
+      cursor: state.cursor,
+    })
+  }
+  frontendLog("stream", "global-chat-session.patch-applied", {
+    sessionKey,
+    cursor: frame.patch.cursor,
+    patchType: frame.patch.type,
+    messageCount: state.messages.length,
+    pendingToolCount: state.pendingTools.length,
+    spawnedSubagentCount: state.spawnedSubagents.length,
+  }, "debug")
   notify(sessionKey, frame)
 }
 
@@ -306,8 +326,10 @@ export function ensureGlobalChatEngine(queryClient?: QueryClient) {
   if (queryClient) queryClientRef = queryClient
   if (!sweepInterval && typeof window !== "undefined") {
     sweepInterval = setInterval(() => sweepStaleGlobalChatSessions(), 60_000)
+    frontendLog("session", "global-chat-engine.sweep.start", { intervalMs: 60_000 }, "debug")
   }
   if (unsubscribeStream) return
+  frontendLog("stream", "global-chat-engine.connect.start", { afterCursor: globalCursor })
   unsubscribeStream = openPatchStreamV2(globalCursor, handleFrame)
 }
 
@@ -332,6 +354,14 @@ export function seedGlobalChatSession(params: {
   if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
   globalCursor = Math.max(globalCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)
+  frontendLog("session", "global-chat-session.seed", {
+    sessionKey: params.sessionKey,
+    messageCount: state.messages.length,
+    cursor: state.cursor,
+    status: state.status,
+    pendingToolCount: state.pendingTools.length,
+    spawnedSubagentCount: state.spawnedSubagents.length,
+  }, "debug")
   notify(params.sessionKey)
 }
 
@@ -348,6 +378,13 @@ export function updateGlobalChatSessionActivity(params: {
   if (params.status) state.status = params.status
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
+  frontendLog("status", "global-chat-session.activity-update", {
+    sessionKey: params.sessionKey,
+    status: state.status,
+    statusLabel: state.statusLabel,
+    pendingToolCount: state.pendingTools.length,
+    spawnedSubagentCount: state.spawnedSubagents.length,
+  }, "debug")
   notify(params.sessionKey)
 }
 
@@ -355,6 +392,7 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
   for (const [sessionKey, state] of states) {
     if (!ACTIVE_STATUSES.has(state.status)) continue
     if (!state.lastPatchAtMs || nowMs - state.lastPatchAtMs < staleMs) continue
+    const previousStatus = state.status
     state.status = "idle"
     state.statusLabel = null
     state.pendingTools = state.pendingTools.map((tool) =>
@@ -367,6 +405,12 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
         ? { ...spawn, status: "failed" }
         : spawn
     )
+    frontendLog("status", "global-chat-session.stale-active-reset", {
+      sessionKey,
+      from: previousStatus,
+      to: state.status,
+      staleMs,
+    }, "warn")
     notify(sessionKey)
   }
 }
@@ -381,10 +425,12 @@ export function subscribeGlobalChatSession(sessionKey: string, listener: Listene
   const set = listeners.get(sessionKey) ?? new Set<Listener>()
   set.add(listener)
   listeners.set(sessionKey, set)
+  frontendLog("session", "global-chat-session.subscribe", { sessionKey, listenerCount: set.size }, "debug")
   const state = states.get(sessionKey)
   if (state) listener(cloneState(state))
   return () => {
     set.delete(listener)
+    frontendLog("session", "global-chat-session.unsubscribe", { sessionKey, listenerCount: set.size }, "debug")
     if (set.size === 0) listeners.delete(sessionKey)
   }
 }

@@ -1,3 +1,5 @@
+import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
+
 const DEFAULT_V2_URL = "http://127.0.0.1:8999"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
 
@@ -31,20 +33,58 @@ export function getMiddlewareV2Url(): string {
   return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_V2_URL))
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${getMiddlewareV2Url()}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  })
-  const text = await response.text()
-  const body = text ? JSON.parse(text) : null
-  if (!response.ok) {
-    throw new Error(body?.error?.message ?? `Middleware V2 request failed (${response.status})`)
+function summarizeV2Body(body: BodyInit | null | undefined): unknown {
+  if (!body) return undefined
+  if (typeof body !== "string") return { type: (body as { constructor?: { name?: string } }).constructor?.name ?? "body" }
+  try {
+    return sanitizeForLog(JSON.parse(body))
+  } catch {
+    return { type: "text", length: body.length, preview: "[omitted]" }
   }
-  return body as T
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const startedAt = performance.now()
+  const method = (init?.method ?? "GET").toUpperCase()
+  const baseUrl = getMiddlewareV2Url()
+  frontendLog("api", "middleware-v2.fetch.start", {
+    method,
+    path: sanitizeUrlForLog(path),
+    baseUrl: sanitizeUrlForLog(baseUrl),
+    body: summarizeV2Body(init?.body),
+  }, "debug")
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    })
+    const text = await response.text()
+    const body = text ? JSON.parse(text) : null
+    const durationMs = Math.round(performance.now() - startedAt)
+    frontendLog("api", response.ok ? "middleware-v2.fetch.end" : "middleware-v2.fetch.fail", {
+      method,
+      path: sanitizeUrlForLog(path),
+      durationMs,
+      status: response.status,
+      statusText: response.statusText || undefined,
+      error: response.ok ? undefined : redactText(body?.error?.message ?? `Middleware V2 request failed (${response.status})`),
+    }, response.ok ? "info" : "error")
+    if (!response.ok) {
+      throw new Error(body?.error?.message ?? `Middleware V2 request failed (${response.status})`)
+    }
+    return body as T
+  } catch (error) {
+    frontendLog("api", "middleware-v2.fetch.fail", {
+      method,
+      path: sanitizeUrlForLog(path),
+      durationMs: Math.round(performance.now() - startedAt),
+      error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+    }, "error")
+    throw error
+  }
 }
 
 export type ChatBootstrapV2 = {
@@ -99,18 +139,43 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
   const startCursor = Math.max(0, afterCursor)
   const url = new URL(`${getMiddlewareV2Url()}/api/stream/ws`)
   url.searchParams.set("afterCursor", String(startCursor))
-  const ws = new WebSocket(url.toString().replace(/^http/, "ws"))
+  const wsUrl = url.toString().replace(/^http/, "ws")
+  frontendLog("stream", "patch-stream.start", { url: sanitizeUrlForLog(wsUrl), afterCursor: startCursor })
+  const ws = new WebSocket(wsUrl)
   let backlogReplay: Promise<void> | null = null
   const liveBuffer: StreamFrame[] = []
+  ws.onopen = () => {
+    frontendLog("stream", "patch-stream.open", { url: sanitizeUrlForLog(wsUrl), afterCursor: startCursor })
+  }
+  ws.onerror = () => {
+    frontendLog("stream", "patch-stream.error", { url: sanitizeUrlForLog(wsUrl), afterCursor: startCursor }, "error")
+  }
+  ws.onclose = (event) => {
+    frontendLog("stream", "patch-stream.close", { url: sanitizeUrlForLog(wsUrl), code: event.code, clean: event.wasClean }, event.wasClean ? "info" : "warn")
+  }
   ws.onmessage = (event) => {
     try {
       const frame = JSON.parse(String(event.data)) as StreamFrame
+      frontendLog("stream", "patch-stream.event", {
+        frameType: frame.type,
+        cursor: frame.type === "patch" ? frame.patch.cursor : undefined,
+        patchType: frame.type === "patch" ? frame.patch.type : undefined,
+        sessionKey: frame.type === "patch" ? frame.patch.sessionKey : undefined,
+        replayCount: frame.type === "hello" ? frame.replayCount : undefined,
+        replayHasMore: frame.type === "hello" ? frame.replayHasMore : undefined,
+      }, "debug")
       if (frame.type === "hello" && frame.replayHasMore) {
+        frontendLog("stream", "patch-stream.backlog.start", { afterCursor: startCursor, replayCount: frame.replayCount }, "debug")
         backlogReplay = replayPatchBacklog(startCursor, onFrame)
           .then(() => {
+            frontendLog("stream", "patch-stream.backlog.end", { bufferedEvents: liveBuffer.length }, "debug")
             for (const buffered of liveBuffer.splice(0)) onFrame(buffered)
           })
-          .catch(() => undefined)
+          .catch((error) => {
+            frontendLog("stream", "patch-stream.backlog.error", {
+              error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+            }, "error")
+          })
         onFrame(frame)
         return
       }
@@ -119,11 +184,16 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
         return
       }
       onFrame(frame)
-    } catch {
-      // ignore malformed frame
+    } catch (error) {
+      frontendLog("stream", "patch-stream.malformed-event", {
+        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+      }, "warn")
     }
   }
-  return () => ws.close()
+  return () => {
+    frontendLog("stream", "patch-stream.unsubscribe", { url: sanitizeUrlForLog(wsUrl) }, "debug")
+    ws.close()
+  }
 }
 
 export type SendChatV2Input = {

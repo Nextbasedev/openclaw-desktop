@@ -23,7 +23,7 @@ import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
-import { initClientLogs } from "@/lib/clientLogs"
+import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
@@ -299,6 +299,8 @@ function AppShell({
     installDesktopRouteShim()
     initClientLogs()
     initFrontendCacheRealtimeInvalidation()
+    frontendLog("ui", "app.bootstrap", { route: getRoutePath() })
+    return () => frontendLog("ui", "app.unmount", { route: getRoutePath() })
   }, [])
 
   useEffect(() => {
@@ -353,7 +355,8 @@ function AppShell({
     if (activeSessionKey) {
       lastActiveSessionKeyRef.current = activeSessionKey
     }
-  }, [activeSessionKey])
+    frontendLog("session", "active-session.change", { sessionKey: activeSessionKey, title: activeSessionTitle })
+  }, [activeSessionKey, activeSessionTitle])
 
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
   const [editorGroups, dispatchGroups] = useReducer(
@@ -368,6 +371,16 @@ function AppShell({
     { chat: ActiveChat; sessionKey: string; title: string }
   >())
   activeChatRef.current = activeChat
+
+  useEffect(() => {
+    frontendLog("chat", "active-chat.change", {
+      chatId: activeChat?.id ?? null,
+      chatName: activeChat?.name ?? null,
+      sessionKey: activeChat?.sessionKey ?? activeSessionKey,
+      activeTopicId: activeTopic?.id ?? null,
+      activeTopicName: activeTopic?.name ?? null,
+    })
+  }, [activeChat, activeSessionKey, activeTopic])
 
   const focusedGroup = getFocusedGroup(editorGroups)
   const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
@@ -505,6 +518,7 @@ function AppShell({
 
   const activateRoute = useCallback(async (route: ParsedRoute) => {
     routeRequestRef.current += 1
+    frontendLog("ui", "route.activate.start", { route, requestId: routeRequestRef.current })
 
     if (route.kind === "inspector") {
       setPendingPrompt(null)
@@ -570,10 +584,12 @@ function AppShell({
         if (!isCurrentPath()) return
 
         resolvedChatCacheRef.current.set(found.id, resolved)
+        frontendLog("ui", "route.chat.resolved", { chatId: found.id, sessionKey: resolved.sessionKey, title: resolved.title })
         setActiveChat(resolved.chat)
         setActiveSessionKey(resolved.sessionKey)
         setActiveSessionTitle(resolved.title)
-      } catch {
+      } catch (error) {
+        frontendLog("ui", "route.chat.fail", { chatId: route.chatId, error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) } }, "error")
         if (isCurrentPath()) {
           recoverToDraftRoute()
         }
@@ -640,13 +656,16 @@ function AppShell({
 
         const session = (sessionResult.sessions || []).find((s) => !s.hidden)
         if (session) {
+          frontendLog("ui", "route.topic.resolved", { projectId: route.projectId, topicId: route.topicId, sessionKey: session.key })
           setActiveSessionKey(session.key)
           setActiveSessionTitle(session.label?.trim() || nextTopic.name)
         } else {
+          frontendLog("ui", "route.topic.resolved", { projectId: route.projectId, topicId: route.topicId, sessionKey: null })
           setActiveSessionKey(null)
           setActiveSessionTitle(null)
         }
-      } catch {
+      } catch (error) {
+        frontendLog("ui", "route.topic.fail", { projectId: route.projectId, topicId: route.topicId, error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) } }, "error")
         if (isCurrentPath()) {
           recoverToDraftRoute()
         }
@@ -664,6 +683,7 @@ function AppShell({
   // Handle browser back/forward
   useEffect(() => {
     function onPopState() {
+      frontendLog("ui", "route.popstate", { route: getRoutePath() })
       void activateRoute(parseRoute(getRoutePath()))
     }
     window.addEventListener("popstate", onPopState)
@@ -1523,6 +1543,13 @@ function AppShell({
 
   const handleQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
+    frontendLog("composer", "quick-send.attempt", {
+      hasText: Boolean(text),
+      textLength: text.length,
+      attachmentCount: payload.attachments?.length ?? 0,
+      quickSending,
+      activeSpaceId,
+    })
     if (quickSending || !text) return
     if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
@@ -1579,6 +1606,12 @@ function AppShell({
       })
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
+      frontendLog("composer", "quick-send.dispatch", {
+        chatId: result.chat.id,
+        sessionKey: sessionResult.session.key,
+        optimisticId,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
       await sendChatV2({
         sessionKey: sessionResult.session.key,
         text,
@@ -1616,6 +1649,7 @@ function AppShell({
         console.error("Auto-naming chat failed", err)
       }
     } catch (err) {
+      frontendLog("composer", "quick-send.fail", { error: err instanceof Error ? { kind: err.name, message: err.message } : { kind: "Error", message: String(err) } }, "error")
       console.error("Quick send failed", err)
       if (isGatewayError(err)) {
         showGatewayError(err instanceof Error ? err.message : undefined)
@@ -1637,6 +1671,13 @@ function AppShell({
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
+    frontendLog("composer", "topic-quick-send.attempt", {
+      hasText: Boolean(text),
+      textLength: text.length,
+      attachmentCount: payload.attachments?.length ?? 0,
+      quickSending,
+      topicId: activeTopic?.id ?? null,
+    })
     if (quickSending || !text || !activeTopic) return
     if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
@@ -1673,6 +1714,12 @@ function AppShell({
       setActiveSessionKey(sessionResult.session.key)
       setActiveSessionTitle(activeTopic.name)
 
+      frontendLog("composer", "topic-quick-send.dispatch", {
+        topicId: activeTopic.id,
+        sessionKey: sessionResult.session.key,
+        optimisticId,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
       await sendChatV2({
         sessionKey: sessionResult.session.key,
         text,
@@ -1681,6 +1728,7 @@ function AppShell({
         clientMessageId: optimisticId,
       })
     } catch (err) {
+      frontendLog("composer", "topic-quick-send.fail", { error: err instanceof Error ? { kind: err.name, message: err.message } : { kind: "Error", message: String(err) } }, "error")
       console.error("Topic quick send failed", err)
       if (isGatewayError(err)) {
         showGatewayError(err instanceof Error ? err.message : undefined)
