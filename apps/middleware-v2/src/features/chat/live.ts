@@ -1,4 +1,5 @@
 import type { AppContext } from "../../app.js";
+import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage } from "./types.js";
@@ -7,11 +8,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-
 export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
   private optimisticUsers = new Map<string, Array<{ id: string; text: string; createdAtMs: number }>>();
+  private readonly log = createLogger("chat-live");
 
   constructor(private readonly context: AppContext) {}
 
@@ -20,16 +21,28 @@ export class ChatLiveIngest {
     if (!this.listening) {
       this.context.gateway.onEvent((event) => this.handleGatewayEvent(event));
       this.listening = true;
+      this.log.info("gateway.listener.attached", { listenerCount: 1 });
     }
-    if (this.subscribed.has(sessionKey)) return;
-    await this.context.gateway.request("sessions.messages.subscribe", { key: sessionKey });
-    this.subscribed.add(sessionKey);
+    if (this.subscribed.has(sessionKey)) {
+      this.log.info("session.subscribe.skip", { sessionKey, reason: "already-subscribed" });
+      return;
+    }
+    this.log.info("session.subscribe.start", { sessionKey });
+    try {
+      await this.context.gateway.request("sessions.messages.subscribe", { key: sessionKey });
+      this.subscribed.add(sessionKey);
+      this.log.info("session.subscribe.end", { sessionKey, subscribedSessions: this.subscribed.size });
+    } catch (error) {
+      this.log.error("session.subscribe.fail", { sessionKey, ...errorMeta(error) });
+      throw error;
+    }
   }
 
   addOptimisticUser(sessionKey: string, message: { id: string; text: string; createdAtMs?: number }) {
     const entries = this.optimisticUsers.get(sessionKey) ?? [];
     entries.push({ id: message.id, text: normalizeMessageText(message.text), createdAtMs: message.createdAtMs ?? Date.now() });
     this.optimisticUsers.set(sessionKey, entries.slice(-50));
+    this.log.info("optimistic.user.add", { sessionKey, messageId: message.id, pendingOptimistic: this.optimisticUsers.get(sessionKey)?.length ?? 0 });
   }
 
   diagnostics() {
@@ -41,6 +54,7 @@ export class ChatLiveIngest {
   }
 
   private handleGatewayEvent(event: GatewayEvent) {
+    this.log.info("gateway.event", { event: event.event });
     if (event.event === "session.message") {
       this.handleSessionMessage(event.payload);
       return;
@@ -63,7 +77,19 @@ export class ChatLiveIngest {
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
     const projection = this.context.messages.upsertMessages(normalized);
-    if (optimisticId) this.context.messages.deleteMessageById(sessionKey, optimisticId);
+    this.log.info("message.persist", {
+      sessionKey,
+      role: projectedMessage.role,
+      messageId: projectedMessage.messageId,
+      messageSeq: projectedMessage.openclawSeq,
+      upserted: projection.upserted,
+      lastSeq: projection.lastSeq,
+      optimisticMatched: Boolean(optimisticId),
+    });
+    if (optimisticId) {
+      const deleted = this.context.messages.deleteMessageById(sessionKey, optimisticId);
+      this.log.info("optimistic.user.confirm", { sessionKey, optimisticId, deleted });
+    }
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
@@ -82,6 +108,7 @@ export class ChatLiveIngest {
       payload: patch.payload,
       createdAtMs: patch.createdAtMs,
     });
+    this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor });
   }
 
   private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): string | null {
@@ -106,7 +133,10 @@ export class ChatLiveIngest {
     if (!isObject(payload)) return;
     const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
     if (!sessionKey) return;
-    this.context.messages.upsertSession({ sessionKey, sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null, data: payload });
+    const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : null;
+    const status = typeof payload.status === "string" ? payload.status : null;
+    this.context.messages.upsertSession({ sessionKey, sessionId, data: payload });
+    this.log.info("session.persist", { sessionKey, sessionId, status });
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "session.upsert",
@@ -119,5 +149,6 @@ export class ChatLiveIngest {
       payload: patch.payload,
       createdAtMs: patch.createdAtMs,
     });
+    this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status });
   }
 }

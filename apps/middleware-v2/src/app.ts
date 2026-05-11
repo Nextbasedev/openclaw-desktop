@@ -14,6 +14,7 @@ import { registerSystemRoutes } from "./features/system/routes.js";
 import { registerGatewayRoutes } from "./features/gateway/routes.js";
 import { registerDiagnosticsRoutes } from "./features/diagnostics/routes.js";
 import { registerChatRoutes } from "./features/chat/routes.js";
+import { createLogger, errorMeta, safePathFromUrl } from "./lib/logger.js";
 
 export type AppContext = {
   config: MiddlewareV2Config;
@@ -28,6 +29,7 @@ export type AppContext = {
 
 export async function createApp(config: MiddlewareV2Config) {
   const app = Fastify({ logger: false });
+  const log = createLogger("http");
   const db = openDatabase(config);
   const gateway = new GatewayClient(config);
   const messages = new MessageRepository(db);
@@ -48,6 +50,36 @@ export async function createApp(config: MiddlewareV2Config) {
   await app.register(cors, { origin: true, credentials: false });
   await app.register(sensible);
   await app.register(websocket);
+
+  app.addHook("onRequest", async (request) => {
+    log.info("request.start", {
+      requestId: request.id,
+      method: request.method,
+      path: safePathFromUrl(request.url),
+      remoteAddress: request.ip,
+    });
+  });
+  app.addHook("onResponse", async (request, reply) => {
+    log.info("request.end", {
+      requestId: request.id,
+      method: request.method,
+      path: safePathFromUrl(request.url),
+      statusCode: reply.statusCode,
+      statusText: reply.raw.statusMessage,
+      durationMs: Math.round(reply.elapsedTime),
+    });
+  });
+  app.addHook("onError", async (request, reply, error) => {
+    const errorStatusCode = typeof error.statusCode === "number" ? error.statusCode : reply.statusCode >= 400 ? reply.statusCode : 500;
+    log.error("request.fail", {
+      requestId: request.id,
+      method: request.method,
+      path: safePathFromUrl(request.url),
+      statusCode: errorStatusCode,
+      statusText: reply.raw.statusMessage,
+      ...errorMeta(error),
+    });
+  });
 
   registerErrorHandler(app);
   await registerSystemRoutes(app, context);

@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import type { MiddlewareV2Config } from "../src/config/env.js";
@@ -18,6 +18,10 @@ function config(name: string): MiddlewareV2Config {
 function contextOf(app: Awaited<ReturnType<typeof createApp>>): AppContext {
   return (app as typeof app & { v2Context: AppContext }).v2Context;
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("chat send routes", () => {
   test("resolves exec approval through Gateway", async () => {
@@ -237,6 +241,37 @@ describe("chat send routes", () => {
     expect(bootstrap.statusCode).toBe(200);
     expect(bootstrap.json()).toMatchObject({ sessionStatus: "running" });
     await app.close();
+  });
+
+  test("logs send lifecycle metadata without user message content", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const app = await createApp(config("send-logs"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r1", status: "done" };
+      if (method === "chat.history") return { sessionKey: "s1", messages: [] };
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: {
+        sessionKey: "s1",
+        text: "super secret user message",
+        idempotencyKey: "stable-key",
+        attachments: [{ name: "safe.txt", mimeType: "text/plain", size: 12, content: "secret file content" }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const output = spy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("send.start");
+    expect(output).toContain("session.status.persist");
+    expect(output).toContain("safe.txt");
+    expect(output).not.toContain("super secret user message");
+    expect(output).not.toContain("secret file content");
+    await app.close();
+    spy.mockRestore();
   });
 
   test("forwards stable idempotencyKey to Gateway chat.send", async () => {
