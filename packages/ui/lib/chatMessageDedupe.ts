@@ -1,11 +1,28 @@
 import type { ChatMessage } from "../components/ChatView/types"
 
+function normalizeUserTextForDedupe(text: string) {
+  return text
+    .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
+    .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function hasSameAttachments(a: ChatMessage, b: ChatMessage) {
+  const aNames = (a.attachments ?? []).map((item) => item.name).sort().join("|")
+  const bNames = (b.attachments ?? []).map((item) => item.name).sort().join("|")
+  return aNames === bNames
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
-  if (a.text.trim() !== b.text.trim()) return false
+  const aText = normalizeUserTextForDedupe(a.text)
+  const bText = normalizeUserTextForDedupe(b.text)
+  if (!aText || aText !== bText) return false
+  if (!hasSameAttachments(a, b) && !a.isOptimistic && !b.isOptimistic) return false
   // When returning to a session, the optimistic local user message may have a
-  // slightly different timestamp than the persisted history copy. Treat it as
-  // the same message so it does not get appended after the assistant response.
+  // slightly different timestamp or may omit history's attachment marker text.
+  // Treat it as the same message so it does not get appended after the reply.
   if (a.isOptimistic || b.isOptimistic) return true
   if (a.createdAt && b.createdAt) return a.createdAt === b.createdAt
   return false
