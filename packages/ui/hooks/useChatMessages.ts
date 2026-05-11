@@ -95,6 +95,12 @@ function rawMessageTimestampMs(raw: RawMessage): number | null {
   return null
 }
 
+function createdAtFromRawMessage(raw: RawMessage): string | undefined {
+  if (raw.createdAt) return raw.createdAt
+  const ts = rawMessageTimestampMs(raw)
+  return ts !== null ? new Date(ts).toISOString() : undefined
+}
+
 function streamMessageLooksFinal(
   ev: StreamEventPayload["event"],
   text: string,
@@ -1395,7 +1401,7 @@ export function useChatMessages(
                 messageId: id,
                 role: "user",
                 text: reply ? reply.displayText : text,
-                createdAt: m.createdAt,
+                createdAt: createdAtFromRawMessage(m),
                 model: m.model,
                 usage: m.usage,
                 stopReason: m.stopReason,
@@ -1493,7 +1499,7 @@ export function useChatMessages(
                   ? lastEntry.text + "\n\n" + text
                   : text
                 lastEntry.messageId = id
-                lastEntry.createdAt = m.createdAt || lastEntry.createdAt
+                lastEntry.createdAt = createdAtFromRawMessage(m) || lastEntry.createdAt
                 lastEntry.model = m.model ?? lastEntry.model
                 lastEntry.usage = m.usage ?? lastEntry.usage
                 lastEntry.stopReason = m.stopReason ?? lastEntry.stopReason
@@ -1523,7 +1529,7 @@ export function useChatMessages(
                 messageId: id,
                 role: "assistant",
                 text,
-                createdAt: m.createdAt,
+                createdAt: createdAtFromRawMessage(m),
                 model: m.model,
                 usage: m.usage,
                 stopReason: m.stopReason,
@@ -1539,7 +1545,7 @@ export function useChatMessages(
                 messageId: id,
                 role: "assistant",
                 text: "",
-                createdAt: m.createdAt,
+                createdAt: createdAtFromRawMessage(m),
                 model: m.model,
                 usage: m.usage,
                 stopReason: m.stopReason,
