@@ -289,16 +289,38 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             });
             if (history?.messages?.length) {
               const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
+              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user");
+              const optimisticDeleted = input.clientMessageId && gatewayUserEcho
+                ? context.messages.deleteMessageById(input.sessionKey, input.clientMessageId)
+                : 0;
+              if (optimisticDeleted) {
+                log.info("optimistic.user.replace", {
+                  sessionKey: input.sessionKey,
+                  optimisticId: input.clientMessageId,
+                  gatewayMessageId: gatewayUserEcho?.messageId ?? null,
+                });
+              }
               const projection = context.messages.upsertMessages(normalized);
-              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq });
+              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, optimisticDeleted });
+              let confirmedOptimistic = false;
               for (const projected of projection.changedMessages) {
+                const shouldConfirmOptimistic = Boolean(
+                  optimisticDeleted &&
+                    input.clientMessageId &&
+                    !confirmedOptimistic &&
+                    projected.role === "user" &&
+                    gatewayUserEcho &&
+                    projected.openclawSeq === gatewayUserEcho.openclawSeq
+                );
+                if (shouldConfirmOptimistic) confirmedOptimistic = true;
                 const historyEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
-                  eventType: "chat.message.upsert",
+                  eventType: shouldConfirmOptimistic ? "chat.message.confirmed" : "chat.message.upsert",
                   payload: {
                     sessionKey: input.sessionKey,
                     message: projected.data,
                     messageSeq: projected.openclawSeq,
+                    ...(shouldConfirmOptimistic ? { optimisticId: input.clientMessageId } : {}),
                   },
                 });
                 context.patchBus.broadcast({
