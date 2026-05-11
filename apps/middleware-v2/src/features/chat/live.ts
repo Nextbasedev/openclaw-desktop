@@ -3,6 +3,7 @@ import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage } from "./types.js";
+import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -256,14 +257,51 @@ export class ChatLiveIngest {
     if (!run) return;
     const status = typeof payload.status === "string" ? payload.status.toLowerCase() : typeof payload.phase === "string" ? payload.phase.toLowerCase() : null;
     if (status === "final" || status === "done" || status === "completed") {
-      if (!this.context.runs.hasRunningTools(sessionKey, run.runId)) this.context.runs.updateRunStatus(run.runId, "done", { statusLabel: null });
+      // Wait for the canonical assistant session.message before broadcasting done.
+      // Gateway can emit chat/final before the final persisted assistant message,
+      // and an early done patch makes the UI drop the Thinking/streaming row.
+      this.log.info("chat.event.final.defer", { sessionKey, runId: run.runId, gatewayRunId });
       return;
     }
     if (status === "error" || status === "failed") {
-      this.context.runs.updateRunStatus(run.runId, "error", { statusLabel: typeof payload.error === "string" ? payload.error : "Run failed", error: payload.error ?? payload });
+      const updated = this.context.runs.updateRunStatus(run.runId, "error", { statusLabel: typeof payload.error === "string" ? payload.error : "Run failed", error: payload.error ?? payload });
+      if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.error");
       return;
     }
-    if (status === "streaming" || typeof payload.delta === "string") this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: null });
+    if (status === "streaming" || typeof payload.delta === "string" || typeof payload.text === "string") {
+      const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
+      if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
+    }
+  }
+
+  private broadcastRunStatus(sessionKey: string, run: ProjectedRun, semanticType: string) {
+    this.context.messages.upsertSession({
+      sessionKey,
+      sessionId: this.context.messages.getSession(sessionKey)?.sessionId ?? null,
+      data: {
+        ...this.objectData(this.context.messages.getSession(sessionKey)?.data),
+        sessionKey,
+        status: run.status === "done" ? "done" : run.status === "error" ? "error" : "running",
+        statusLabel: run.statusLabel,
+      },
+    });
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.status",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType,
+        run,
+        payload: {
+          sessionKey,
+          runId: run.runId,
+          status: run.status,
+          statusLabel: run.statusLabel,
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    this.log.info("status.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status: run.status, statusLabel: run.statusLabel, semanticType });
   }
 
   private safeResultMeta(value: unknown) {
