@@ -61,7 +61,7 @@ describe("patch stream", () => {
     const res = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0&limit=1" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body).toMatchObject({ ok: true, count: 1, hasMore: true });
+    expect(body).toMatchObject({ ok: true, count: 1, hasMore: true, replayWindowExceeded: true, recovery: "bootstrap" });
     expect(body.latestCursor).toBeGreaterThan(0);
   });
 
@@ -77,7 +77,7 @@ describe("patch stream", () => {
     if (!address || typeof address === "string") throw new Error("missing server address");
     const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/stream/ws?afterCursor=0`);
     const hello = await waitForMessage(ws);
-    expect(hello).toMatchObject({ type: "hello", replayCount: 1000, replayHasMore: true });
+    expect(hello).toMatchObject({ type: "hello", replayCount: 1000, replayHasMore: true, replayWindowExceeded: true, recovery: "bootstrap" });
     ws.close();
   });
 

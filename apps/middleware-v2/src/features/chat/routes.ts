@@ -6,6 +6,7 @@ import { createLogger, errorMeta } from "../../lib/logger.js";
 import { normalizeHistoryMessages } from "./message-normalizer.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
+import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
@@ -216,6 +217,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             startedAtMs: sendStartedAtMs,
             updatedAtMs: Date.now(),
           });
+          const optimisticRun = context.runs.getRun(runId);
           const clientMessage = {
             role: "user",
             text: prepared.message,
@@ -249,13 +251,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           const event = context.messages.appendProjectionEvent({
             sessionKey: input.sessionKey,
             eventType: "chat.message.upsert",
-            payload: {
+            payload: canonicalPatchPayload({
               sessionKey: input.sessionKey,
-              message: clientMessage,
-              optimistic: true,
-              idempotencyKey: input.idempotencyKey,
-              runId,
-            },
+              semanticType: "chat.user.created",
+              run: optimisticRun,
+              messageId: clientMessage.__openclaw.id,
+              payload: {
+                sessionKey: input.sessionKey,
+                message: clientMessage,
+                optimistic: true,
+                idempotencyKey: input.idempotencyKey,
+                runId,
+              },
+            }),
           });
           context.patchBus.broadcast({
             cursor: event.cursor,
@@ -281,14 +289,21 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           const statusEvent = context.messages.appendProjectionEvent({
             sessionKey: input.sessionKey,
             eventType: "chat.status",
-            payload: {
+            payload: canonicalPatchPayload({
               sessionKey: input.sessionKey,
-              status: "thinking",
-              statusLabel: "Thinking",
-              optimistic: true,
-              idempotencyKey: input.idempotencyKey,
-              runId,
-            },
+              semanticType: "chat.run.status",
+              run: optimisticRun,
+              legacyStatus: "thinking",
+              legacyStatusLabel: "Thinking",
+              payload: {
+                sessionKey: input.sessionKey,
+                status: "thinking",
+                statusLabel: "Thinking",
+                optimistic: true,
+                idempotencyKey: input.idempotencyKey,
+                runId,
+              },
+            }),
           });
           context.patchBus.broadcast({
             cursor: statusEvent.cursor,
@@ -360,14 +375,20 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 const confirmedEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
                   eventType: "chat.message.confirmed",
-                  payload: {
+                  payload: canonicalPatchPayload({
                     sessionKey: input.sessionKey,
-                    message: confirmedUser.data,
-                    messageSeq: confirmedUser.openclawSeq,
-                    optimisticId: clientMessageId,
-                    gatewayMessageId: gatewayUserEcho?.messageId ?? null,
-                    runId,
-                  },
+                    semanticType: "chat.user.confirmed",
+                    run: context.runs.getRun(runId),
+                    messageId: confirmedUser.messageId,
+                    payload: {
+                      sessionKey: input.sessionKey,
+                      message: confirmedUser.data,
+                      messageSeq: confirmedUser.openclawSeq,
+                      optimisticId: clientMessageId,
+                      gatewayMessageId: gatewayUserEcho?.messageId ?? null,
+                      runId,
+                    },
+                  }),
                 });
                 context.patchBus.broadcast({
                   cursor: confirmedEvent.cursor,
@@ -379,15 +400,22 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 log.info("patch.broadcast", { sessionKey: input.sessionKey, type: confirmedEvent.eventType, cursor: confirmedEvent.cursor, messageSeq: confirmedUser.openclawSeq, role: confirmedUser.role, runId });
               }
               for (const projected of projection.changedMessages) {
+                const semanticType = projected.role === "assistant" ? "chat.assistant.final" : projected.role === "user" ? "chat.user.confirmed" : "chat.message.upsert";
                 const historyEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
                   eventType: "chat.message.upsert",
-                  payload: {
+                  payload: canonicalPatchPayload({
                     sessionKey: input.sessionKey,
-                    message: projected.data,
-                    messageSeq: projected.openclawSeq,
-                    runId,
-                  },
+                    semanticType,
+                    run: context.runs.getRun(runId),
+                    messageId: projected.messageId,
+                    payload: {
+                      sessionKey: input.sessionKey,
+                      message: projected.data,
+                      messageSeq: projected.openclawSeq,
+                      runId,
+                    },
+                  }),
                 });
                 context.patchBus.broadcast({
                   cursor: historyEvent.cursor,
@@ -402,16 +430,23 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
             if (gatewaySendCompleted(result, history)) {
               context.runs.updateRunStatus(runId, "done", { statusLabel: null });
+              const doneRun = context.runs.getRun(runId);
               const doneEvent = context.messages.appendProjectionEvent({
                 sessionKey: input.sessionKey,
                 eventType: "chat.status",
-                payload: {
+                payload: canonicalPatchPayload({
                   sessionKey: input.sessionKey,
-                  status: "done",
-                  statusLabel: null,
-                  idempotencyKey: input.idempotencyKey,
-                  runId,
-                },
+                  semanticType: "chat.run.done",
+                  run: doneRun,
+                  legacyStatus: "done",
+                  payload: {
+                    sessionKey: input.sessionKey,
+                    status: "done",
+                    statusLabel: null,
+                    idempotencyKey: input.idempotencyKey,
+                    runId,
+                  },
+                }),
               });
               context.messages.upsertSession({
                 sessionKey: input.sessionKey,
@@ -443,13 +478,20 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             const errorEvent = context.messages.appendProjectionEvent({
               sessionKey: input.sessionKey,
               eventType: "chat.status",
-              payload: {
+              payload: canonicalPatchPayload({
                 sessionKey: input.sessionKey,
-                status: "error",
-                statusLabel: error instanceof Error ? error.message : "Message failed",
-                idempotencyKey: input.idempotencyKey,
-                runId,
-              },
+                semanticType: "chat.run.error",
+                run: context.runs.getRun(runId),
+                legacyStatus: "error",
+                legacyStatusLabel: error instanceof Error ? error.message : "Message failed",
+                payload: {
+                  sessionKey: input.sessionKey,
+                  status: "error",
+                  statusLabel: error instanceof Error ? error.message : "Message failed",
+                  idempotencyKey: input.idempotencyKey,
+                  runId,
+                },
+              }),
             });
             const statusLabel = error instanceof Error ? error.message : "Message failed";
             context.messages.upsertSession({
@@ -543,25 +585,16 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: true } });
 
-    return {
-      ok: true,
-      source: "middleware-v2-projection",
+    return buildChatBootstrapSnapshot(context, {
       sessionKey,
-      sessionId: history.sessionId ?? null,
+      sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+      sessionData,
       messages: projectedMessages,
       messageCount: projectedMessages.length,
-      sessionStatus: typeof sessionData.status === "string" ? sessionData.status : null,
-      thinkingLevel: history.thinkingLevel,
-      fastMode: history.fastMode,
-      verboseLevel: history.verboseLevel,
-      projection: {
-        enabled: true,
-        upserted: projection.upserted,
-        lastSeq: projection.lastSeq,
-        cursor: event.cursor,
-        liveSubscribed: true,
-      },
-    };
+      cursor: event.cursor,
+      projection: { upserted: projection.upserted, lastSeq: projection.lastSeq, liveSubscribed: true },
+      historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
+    });
   });
 
   app.get("/api/chat/messages", async (request) => {

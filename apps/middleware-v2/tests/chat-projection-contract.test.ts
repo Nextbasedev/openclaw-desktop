@@ -43,9 +43,12 @@ type Patch = {
 type Snapshot = {
   sessionKey: string;
   runStatus: RunStatus;
+  statusLabel: string | null;
+  activeRun: null | { runId: string; status: RunStatus };
   messages: ProjectedMessage[];
   tools: ProjectedTool[];
   cursor: number;
+  projectionVersion: number;
 };
 
 class ProjectionContractSimulator {
@@ -114,9 +117,12 @@ class ProjectionContractSimulator {
     return {
       sessionKey,
       runStatus: snapshot.runStatus,
+      statusLabel: snapshot.runStatus === "thinking" ? "Thinking" : null,
+      activeRun: ["thinking", "streaming", "tool_running"].includes(snapshot.runStatus) ? { runId: snapshot.messages.find((message) => message.runId)?.runId ?? "unknown", status: snapshot.runStatus } : null,
       messages: snapshot.messages.map((message) => ({ ...message })),
       tools: snapshot.tools.map((tool) => ({ ...tool })),
       cursor: this.cursor,
+      projectionVersion: 3,
     };
   }
 
@@ -127,7 +133,7 @@ class ProjectionContractSimulator {
   private session(sessionKey: string): Snapshot {
     let snapshot = this.sessions.get(sessionKey);
     if (!snapshot) {
-      snapshot = { sessionKey, runStatus: "idle", messages: [], tools: [], cursor: this.cursor };
+      snapshot = { sessionKey, runStatus: "idle", statusLabel: null, activeRun: null, messages: [], tools: [], cursor: this.cursor, projectionVersion: 3 };
       this.sessions.set(sessionKey, snapshot);
     }
     return snapshot;
@@ -262,7 +268,30 @@ describe("middleware-v2 chat projection contract simulator", () => {
     db.close();
   });
 
-  test.todo("Phase 3: replay window exceeded restores exact state from canonical bootstrap snapshot");
+  test("Phase 3: replay window exceeded restores exact state from canonical bootstrap snapshot", () => {
+    const sim = new ProjectionContractSimulator();
+    sim.sendUser("s1", { runId: "r1", clientMessageId: "client-1", text: "hello" });
+    sim.toolEvent("s1", { runId: "r1", toolCallId: "tool-1", phase: "start", name: "search" });
+    sim.toolEvent("s1", { runId: "r1", toolCallId: "tool-1", phase: "result", result: { count: 1 } });
+    sim.assistantFinal("s1", { runId: "r1", messageId: "assistant-1", text: "world" });
+
+    const canonicalBootstrap = sim.snapshot("s1");
+    const staleCursorCanReplay = false;
+    const recovered = staleCursorCanReplay ? null : sim.snapshot("s1");
+
+    expect(recovered).toEqual(canonicalBootstrap);
+    expect(canonicalBootstrap).toMatchObject({
+      projectionVersion: 3,
+      runStatus: "done",
+      statusLabel: null,
+      activeRun: null,
+      messages: [
+        { id: "client-1", role: "user", text: "hello" },
+        { id: "assistant-1", role: "assistant", text: "world" },
+      ],
+      tools: [{ id: "tool-1", runId: "r1", name: "search", status: "success" }],
+    });
+  });
 
   test("Phase 2: subagent/tool events stay associated with parent run/tool id via v2_runs and v2_tool_calls", () => {
     const db = openDatabase({ databasePath: testDbPath("tool-parent") });

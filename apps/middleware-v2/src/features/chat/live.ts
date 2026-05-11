@@ -3,6 +3,7 @@ import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage } from "./types.js";
+import { canonicalPatchPayload } from "./projection.js";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -121,14 +122,20 @@ export class ChatLiveIngest {
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
-      payload: {
+      payload: canonicalPatchPayload({
         sessionKey,
-        message: emittedMessage,
-        ...(optimisticId ? { optimisticId, gatewayMessageId: projectedMessage.messageId } : {}),
-        ...(optimistic?.runId ? { runId: optimistic.runId } : {}),
-        messageSeq: emittedSeq,
-        lastSeq: projection.lastSeq,
-      },
+        semanticType: optimisticId ? "chat.user.confirmed" : projectedMessage.role === "assistant" ? "chat.assistant.final" : "chat.message.upsert",
+        run: optimistic?.runId ? this.context.runs.getRun(optimistic.runId) : null,
+        messageId: confirmed?.messageId ?? projectedMessage.messageId,
+        payload: {
+          sessionKey,
+          message: emittedMessage,
+          ...(optimisticId ? { optimisticId, gatewayMessageId: projectedMessage.messageId } : {}),
+          ...(optimistic?.runId ? { runId: optimistic.runId } : {}),
+          messageSeq: emittedSeq,
+          lastSeq: projection.lastSeq,
+        },
+      }),
     });
     this.context.patchBus.broadcast({
       cursor: patch.cursor,
@@ -193,7 +200,13 @@ export class ChatLiveIngest {
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : "chat.tool.started",
-      payload: { sessionKey, toolCall: tool },
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : "chat.tool.started",
+        run: tool.runId ? this.context.runs.getRun(tool.runId) : run,
+        tool,
+        payload: { sessionKey, toolCall: tool },
+      }),
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
