@@ -3,6 +3,46 @@ import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "../apply
 import { dedupeChatMessages } from "../../chatMessageDedupe"
 
 describe("applyChatPatch", () => {
+  test("ignores idle runStatus on plain message upsert without active run", () => {
+    expect(statusFromPatch({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.message.upsert",
+          runStatus: "idle",
+          status: "idle",
+          activeRun: null,
+          message: { role: "user", text: "gateway echo" },
+        },
+        createdAtMs: 1,
+      },
+    })).toBeNull()
+  })
+
+  test("still accepts assistant final done status from message upsert", () => {
+    expect(statusFromPatch({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          status: "done",
+          activeRun: null,
+          message: { role: "assistant", text: "answer" },
+        },
+        createdAtMs: 2,
+      },
+    })).toMatchObject({ status: "done" })
+  })
+
   test("ignores stale cursors", () => {
     const state = { cursor: 2, messages: [] }
     const next = applyChatPatch(state, {
