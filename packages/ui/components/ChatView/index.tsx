@@ -805,18 +805,16 @@ export function ChatView({
         }
 
         if (isSending || shouldLetSmoothSendScrollFinish) {
-          el.scrollTo({
-            top: el.scrollHeight,
-            behavior: "smooth",
-          })
+          jumpToBottom()
           return
         }
 
         if (isGenerating || distanceFromBottom < 260) {
-          el.scrollTo({
-            top: el.scrollHeight,
-            behavior: distanceFromBottom < 80 ? "auto" : "smooth",
-          })
+          if (distanceFromBottom < 80) {
+            el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+            return
+          }
+          jumpToBottom()
         }
       })
     })
@@ -827,7 +825,7 @@ export function ChatView({
       if (frame !== null) cancelAnimationFrame(frame)
       observer.disconnect()
     }
-  }, [isSending, isGenerating, scrollContainerRef])
+  }, [isSending, isGenerating, scrollContainerRef, jumpToBottom])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1351,21 +1349,17 @@ export function ChatView({
                 exit={{ opacity: 0, y: 8, scale: 0.96 }}
                 transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
                 onClick={jumpToBottom}
-                className="group fixed right-6 bottom-28 z-30 flex size-10 items-center justify-center rounded-full border border-border/40 bg-card/95 text-muted-foreground shadow-[0_12px_36px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-border/70 hover:text-foreground"
-                aria-label="Scroll to bottom"
+                className="group fixed right-6 bottom-28 z-30 flex h-11 items-center gap-2 rounded-full border border-violet-300/40 bg-gradient-to-r from-violet-500/95 via-indigo-500/95 to-sky-500/95 px-4 text-sm font-medium text-white shadow-[0_16px_40px_rgba(88,80,236,0.36)] ring-1 ring-white/15 backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-white/60 hover:shadow-[0_20px_52px_rgba(88,80,236,0.46)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-200/70"
+                aria-label="Jump to latest message"
               >
-                <span className={cn(
-                  "absolute inset-0 flex items-center justify-center transition-all duration-150",
-                  isGenerating ? "opacity-100 scale-100 group-hover:opacity-0 group-hover:scale-75" : "opacity-0 scale-75",
-                )}>
-                  <TypingDots />
-                </span>
-                <LuArrowDown
-                  className={cn(
-                    "size-4 transition-all duration-150",
-                    isGenerating ? "opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" : "opacity-100 scale-100",
-                  )}
-                />
+                <LuArrowDown className="size-4 shrink-0 transition-transform group-hover:translate-y-0.5" />
+                <span>Latest</span>
+                {isGenerating && (
+                  <span
+                    className="ml-0.5 size-2 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.95)] animate-pulse"
+                    aria-hidden="true"
+                  />
+                )}
               </motion.button>
             )}
           </AnimatePresence>
