@@ -5,6 +5,7 @@ import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import { normalizeHistoryMessages } from "./message-normalizer.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
+import type { RunStatus } from "./repo.runs.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
@@ -49,6 +50,22 @@ function isTerminalSendStatus(status: unknown) {
 function gatewaySendCompleted(result: Record<string, unknown>, history: ChatHistoryResponse | null) {
   if (isTerminalSendStatus(result.status) || isTerminalSendStatus(history?.status)) return true;
   return Boolean(history?.messages?.some((message) => objectData(message).role === "assistant"));
+}
+
+function localRunId(idempotencyKey: string) {
+  return `run:${idempotencyKey}`;
+}
+
+function runStatusFromGateway(status: unknown): RunStatus | null {
+  if (typeof status !== "string") return null;
+  const normalized = status.trim().toLowerCase();
+  if (["done", "complete", "completed", "success", "succeeded", "finished"].includes(normalized)) return "done";
+  if (["error", "failed", "failure"].includes(normalized)) return "error";
+  if (["aborted", "abort", "cancelled", "canceled"].includes(normalized)) return "aborted";
+  if (["streaming"].includes(normalized)) return "streaming";
+  if (["queued", "pending"].includes(normalized)) return "queued";
+  if (["started", "running", "thinking", "accepted"].includes(normalized)) return "thinking";
+  return null;
 }
 
 function nowMs() {
@@ -187,6 +204,18 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             sourceAttachments: attachmentMetadata(input.attachments),
           });
           const nowIso = new Date().toISOString();
+          const runId = localRunId(input.idempotencyKey);
+          const clientMessageId = input.clientMessageId || `client:${input.idempotencyKey}`;
+          context.runs.upsertRun({
+            runId,
+            sessionKey: input.sessionKey,
+            clientMessageId,
+            idempotencyKey: input.idempotencyKey,
+            status: "thinking",
+            statusLabel: "Thinking",
+            startedAtMs: sendStartedAtMs,
+            updatedAtMs: Date.now(),
+          });
           const clientMessage = {
             role: "user",
             text: prepared.message,
@@ -194,12 +223,17 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             isOptimistic: true,
             __clientOptimistic: true,
             __openclaw: {
-              id: input.clientMessageId || `client:${input.idempotencyKey}`,
+              id: clientMessageId,
+              clientMessageId,
+              idempotencyKey: input.idempotencyKey,
+              runId,
             },
           };
           context.chatLive.addOptimisticUser(input.sessionKey, {
             id: clientMessage.__openclaw.id,
             text: prepared.message,
+            runId,
+            idempotencyKey: input.idempotencyKey,
           });
           const optimisticCreatedAtMs = Date.now();
           const optimisticSeq = context.messages.nextMessageSeq(input.sessionKey);
@@ -220,6 +254,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               message: clientMessage,
               optimistic: true,
               idempotencyKey: input.idempotencyKey,
+              runId,
             },
           });
           context.patchBus.broadcast({
@@ -252,6 +287,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               statusLabel: "Thinking",
               optimistic: true,
               idempotencyKey: input.idempotencyKey,
+              runId,
             },
           });
           context.patchBus.broadcast({
@@ -274,6 +310,20 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
             }, input.timeoutMs || 130_000);
             log.info("gateway.chat.send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(gatewaySendStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), status: typeof result.status === "string" ? result.status : undefined, runId: typeof result.runId === "string" ? result.runId : undefined });
+            const gatewayRunId = typeof result.runId === "string" && result.runId.trim() ? result.runId.trim() : null;
+            const gatewayRunStatus = runStatusFromGateway(result.status) ?? "thinking";
+            context.runs.upsertRun({
+              runId,
+              sessionKey: input.sessionKey,
+              clientMessageId,
+              idempotencyKey: input.idempotencyKey,
+              gatewayRunId,
+              status: gatewayRunStatus,
+              statusLabel: gatewayRunStatus === "thinking" ? "Thinking" : null,
+              startedAtMs: sendStartedAtMs,
+              finishedAtMs: ["done", "error", "aborted"].includes(gatewayRunStatus) ? Date.now() : null,
+              updatedAtMs: Date.now(),
+            });
 
             const historyLoadStartedAtMs = nowMs();
             log.info("gateway.history.load.start", { sessionKey: input.sessionKey, limit: 200, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
@@ -290,37 +340,53 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             if (history?.messages?.length) {
               const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
               const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user");
-              const optimisticDeleted = input.clientMessageId && gatewayUserEcho
-                ? context.messages.deleteMessageById(input.sessionKey, input.clientMessageId)
-                : 0;
-              if (optimisticDeleted) {
-                log.info("optimistic.user.replace", {
+              const confirmedUser = gatewayUserEcho
+                ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
+                : null;
+              if (confirmedUser) {
+                log.info("optimistic.user.confirmed", {
                   sessionKey: input.sessionKey,
-                  optimisticId: input.clientMessageId,
+                  optimisticId: clientMessageId,
                   gatewayMessageId: gatewayUserEcho?.messageId ?? null,
+                  runId,
                 });
               }
-              const projection = context.messages.upsertMessages(normalized);
-              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, optimisticDeleted });
-              let confirmedOptimistic = false;
+              const normalizedToUpsert = confirmedUser && gatewayUserEcho
+                ? normalized.filter((message) => message !== gatewayUserEcho)
+                : normalized;
+              const projection = context.messages.upsertMessages(normalizedToUpsert);
+              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, confirmedOptimistic: Boolean(confirmedUser) });
+              if (confirmedUser) {
+                const confirmedEvent = context.messages.appendProjectionEvent({
+                  sessionKey: input.sessionKey,
+                  eventType: "chat.message.confirmed",
+                  payload: {
+                    sessionKey: input.sessionKey,
+                    message: confirmedUser.data,
+                    messageSeq: confirmedUser.openclawSeq,
+                    optimisticId: clientMessageId,
+                    gatewayMessageId: gatewayUserEcho?.messageId ?? null,
+                    runId,
+                  },
+                });
+                context.patchBus.broadcast({
+                  cursor: confirmedEvent.cursor,
+                  type: confirmedEvent.eventType,
+                  sessionKey: confirmedEvent.sessionKey,
+                  payload: confirmedEvent.payload,
+                  createdAtMs: confirmedEvent.createdAtMs,
+                });
+                log.info("patch.broadcast", { sessionKey: input.sessionKey, type: confirmedEvent.eventType, cursor: confirmedEvent.cursor, messageSeq: confirmedUser.openclawSeq, role: confirmedUser.role, runId });
+              }
               for (const projected of projection.changedMessages) {
-                const shouldConfirmOptimistic = Boolean(
-                  optimisticDeleted &&
-                    input.clientMessageId &&
-                    !confirmedOptimistic &&
-                    projected.role === "user" &&
-                    gatewayUserEcho &&
-                    projected.openclawSeq === gatewayUserEcho.openclawSeq
-                );
-                if (shouldConfirmOptimistic) confirmedOptimistic = true;
                 const historyEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
-                  eventType: shouldConfirmOptimistic ? "chat.message.confirmed" : "chat.message.upsert",
+                  eventType: "chat.message.upsert",
                   payload: {
                     sessionKey: input.sessionKey,
                     message: projected.data,
                     messageSeq: projected.openclawSeq,
-                    ...(shouldConfirmOptimistic ? { optimisticId: input.clientMessageId } : {}),
+                    runId,
                   },
                 });
                 context.patchBus.broadcast({
@@ -330,11 +396,12 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   payload: historyEvent.payload,
                   createdAtMs: historyEvent.createdAtMs,
                 });
-                log.info("patch.broadcast", { sessionKey: input.sessionKey, type: historyEvent.eventType, cursor: historyEvent.cursor, messageSeq: projected.openclawSeq, role: projected.role });
+                log.info("patch.broadcast", { sessionKey: input.sessionKey, type: historyEvent.eventType, cursor: historyEvent.cursor, messageSeq: projected.openclawSeq, role: projected.role, runId });
               }
             }
 
             if (gatewaySendCompleted(result, history)) {
+              context.runs.updateRunStatus(runId, "done", { statusLabel: null });
               const doneEvent = context.messages.appendProjectionEvent({
                 sessionKey: input.sessionKey,
                 eventType: "chat.status",
@@ -343,6 +410,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   status: "done",
                   statusLabel: null,
                   idempotencyKey: input.idempotencyKey,
+                  runId,
                 },
               });
               context.messages.upsertSession({
@@ -370,6 +438,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, history), status: typeof result.status === "string" ? result.status : undefined });
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {
+            context.runs.updateRunStatus(runId, "error", { statusLabel: error instanceof Error ? error.message : "Message failed", error: errorMeta(error) });
             log.error("send.fail", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...errorMeta(error) });
             const errorEvent = context.messages.appendProjectionEvent({
               sessionKey: input.sessionKey,
@@ -379,6 +448,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                 status: "error",
                 statusLabel: error instanceof Error ? error.message : "Message failed",
                 idempotencyKey: input.idempotencyKey,
+                runId,
               },
             });
             const statusLabel = error instanceof Error ? error.message : "Message failed";
@@ -412,7 +482,18 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (!parsed.success) throw new HttpError(400, "Invalid chat abort body", "INVALID_BODY", parsed.error.flatten());
     log.info("abort.start", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId });
     const result = await context.gateway.request<Record<string, unknown>>("chat.abort", parsed.data, 30_000);
-    log.info("abort.end", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, status: typeof result.status === "string" ? result.status : undefined });
+    const projectedRun = parsed.data.runId
+      ? context.runs.getRun(parsed.data.runId) ?? context.runs.findRunByGatewayRunId(parsed.data.runId)
+      : context.runs.findLatestPendingRun(parsed.data.sessionKey);
+    if (projectedRun) {
+      context.runs.updateRunStatus(projectedRun.runId, "aborted", { statusLabel: null });
+      context.messages.upsertSession({
+        sessionKey: parsed.data.sessionKey,
+        sessionId: context.messages.getSession(parsed.data.sessionKey)?.sessionId ?? null,
+        data: { ...objectData(context.messages.getSession(parsed.data.sessionKey)?.data), sessionKey: parsed.data.sessionKey, status: "aborted", statusLabel: null },
+      });
+    }
+    log.info("abort.end", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, projectedRunId: projectedRun?.runId, status: typeof result.status === "string" ? result.status : undefined });
     return { ok: true, ...result };
   });
 

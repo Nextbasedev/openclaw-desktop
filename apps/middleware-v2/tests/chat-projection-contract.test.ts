@@ -1,4 +1,12 @@
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { openDatabase } from "../src/db/connection.js";
+import { RunRepository } from "../src/features/chat/repo.runs.js";
+
+function testDbPath(name: string) {
+  return path.join(os.tmpdir(), `openclaw-v2-contract-${name}-${Date.now()}-${Math.random()}.sqlite`);
+}
 
 type Role = "user" | "assistant";
 type RunStatus = "idle" | "thinking" | "streaming" | "tool_running" | "done" | "error" | "aborted";
@@ -239,8 +247,46 @@ describe("middleware-v2 chat projection contract simulator", () => {
     expect(sim.replay(cursor, "s1").every((patch) => patch.sessionKey === "s1")).toBe(true);
   });
 
-  test.todo("Phase 2: assistant final without explicit done becomes done only when no active tools are persisted in v2_tool_calls");
-  test.todo("Phase 2: replay window exceeded restores exact state from canonical bootstrap snapshot");
-  test.todo("Phase 2: subagent/tool events stay associated with parent run/tool id via v2_runs and v2_tool_calls");
-  test.todo("Phase 2: error/abort clears active run and projected status via v2_runs");
+  test("Phase 2: assistant final without explicit done becomes done only when no active tools are persisted in v2_tool_calls", () => {
+    const db = openDatabase({ databasePath: testDbPath("assistant-final-tools") });
+    const repo = new RunRepository(db);
+    repo.upsertRun({ runId: "r1", sessionKey: "s1", status: "thinking", startedAtMs: 100, updatedAtMs: 100 });
+    repo.upsertToolCall({ sessionKey: "s1", runId: "r1", toolCallId: "tool-1", name: "search", phase: "start", updatedAtMs: 150 });
+
+    expect(repo.hasRunningTools("s1", "r1")).toBe(true);
+    expect(repo.updateRunStatus("r1", repo.hasRunningTools("s1", "r1") ? "tool_running" : "done")).toMatchObject({ status: "tool_running" });
+
+    repo.upsertToolCall({ sessionKey: "s1", runId: "r1", toolCallId: "tool-1", phase: "result", resultMeta: { type: "object" }, updatedAtMs: 200 });
+    expect(repo.hasRunningTools("s1", "r1")).toBe(false);
+    expect(repo.updateRunStatus("r1", repo.hasRunningTools("s1", "r1") ? "tool_running" : "done", { updatedAtMs: 250 })).toMatchObject({ status: "done", finishedAtMs: 250 });
+    db.close();
+  });
+
+  test.todo("Phase 3: replay window exceeded restores exact state from canonical bootstrap snapshot");
+
+  test("Phase 2: subagent/tool events stay associated with parent run/tool id via v2_runs and v2_tool_calls", () => {
+    const db = openDatabase({ databasePath: testDbPath("tool-parent") });
+    const repo = new RunRepository(db);
+    repo.upsertRun({ runId: "local-r1", sessionKey: "s1", gatewayRunId: "gateway-r1", status: "thinking" });
+    const run = repo.findRunByGatewayRunId("gateway-r1");
+    repo.upsertToolCall({ sessionKey: "s1", runId: run?.runId, toolCallId: "tool-1", name: "subagent", phase: "start" });
+
+    expect(repo.getToolCall("s1", "tool-1")).toMatchObject({ runId: "local-r1", name: "subagent", status: "running" });
+    expect(repo.listToolCalls("s1", "local-r1")).toHaveLength(1);
+    db.close();
+  });
+
+  test("Phase 2: error/abort clears active run and projected status via v2_runs", () => {
+    const db = openDatabase({ databasePath: testDbPath("terminal-runs") });
+    const repo = new RunRepository(db);
+    repo.upsertRun({ runId: "r1", sessionKey: "s1", status: "thinking", updatedAtMs: 100 });
+    expect(repo.findLatestPendingRun("s1")).toMatchObject({ runId: "r1" });
+    expect(repo.updateRunStatus("r1", "error", { statusLabel: "failed", updatedAtMs: 200 })).toMatchObject({ status: "error", statusLabel: "failed", finishedAtMs: 200 });
+    expect(repo.findLatestPendingRun("s1")).toBeNull();
+
+    repo.upsertRun({ runId: "r2", sessionKey: "s1", status: "thinking", updatedAtMs: 300 });
+    expect(repo.updateRunStatus("r2", "aborted", { updatedAtMs: 400 })).toMatchObject({ status: "aborted", finishedAtMs: 400 });
+    expect(repo.findLatestPendingRun("s1")).toBeNull();
+    db.close();
+  });
 });

@@ -7,6 +7,7 @@ import { registerErrorHandler } from "./lib/errors.js";
 import { openDatabase, type MiddlewareDatabase } from "./db/connection.js";
 import { GatewayClient } from "./features/gateway/client.js";
 import { MessageRepository } from "./features/chat/repo.messages.js";
+import { RunRepository } from "./features/chat/repo.runs.js";
 import { ChatLiveIngest } from "./features/chat/live.js";
 import { SessionSendQueue } from "./features/chat/send-queue.js";
 import { PatchBus, registerPatchRoutes } from "./features/patches.js";
@@ -21,6 +22,7 @@ export type AppContext = {
   gateway: GatewayClient;
   db: MiddlewareDatabase;
   messages: MessageRepository;
+  runs: RunRepository;
   chatLive: ChatLiveIngest;
   sendQueue: SessionSendQueue;
   patchBus: PatchBus;
@@ -33,12 +35,14 @@ export async function createApp(config: MiddlewareV2Config) {
   const db = openDatabase(config);
   const gateway = new GatewayClient(config);
   const messages = new MessageRepository(db);
+  const runs = new RunRepository(db);
   const patchBus = new PatchBus();
   const context: AppContext = {
     config,
     gateway,
     db,
     messages,
+    runs,
     chatLive: undefined as unknown as ChatLiveIngest,
     sendQueue: new SessionSendQueue(),
     patchBus,

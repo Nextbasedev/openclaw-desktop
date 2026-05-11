@@ -27,7 +27,7 @@ function contentFactorSummary(message: Record<string, unknown>) {
 export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
-  private optimisticUsers = new Map<string, Array<{ id: string; text: string; createdAtMs: number }>>();
+  private optimisticUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs: number }>>();
   private readonly log = createLogger("chat-live");
 
   constructor(private readonly context: AppContext) {}
@@ -54,9 +54,9 @@ export class ChatLiveIngest {
     }
   }
 
-  addOptimisticUser(sessionKey: string, message: { id: string; text: string; createdAtMs?: number }) {
+  addOptimisticUser(sessionKey: string, message: { id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs?: number }) {
     const entries = this.optimisticUsers.get(sessionKey) ?? [];
-    entries.push({ id: message.id, text: normalizeMessageText(message.text), createdAtMs: message.createdAtMs ?? Date.now() });
+    entries.push({ id: message.id, text: normalizeMessageText(message.text), runId: message.runId, idempotencyKey: message.idempotencyKey, createdAtMs: message.createdAtMs ?? Date.now() });
     this.optimisticUsers.set(sessionKey, entries.slice(-50));
     this.log.info("optimistic.user.add", { sessionKey, messageId: message.id, pendingOptimistic: this.optimisticUsers.get(sessionKey)?.length ?? 0 });
   }
@@ -77,6 +77,14 @@ export class ChatLiveIngest {
     }
     if (event.event === "sessions.changed") {
       this.handleSessionsChanged(event.payload);
+      return;
+    }
+    if (event.event === "session.tool") {
+      this.handleSessionTool(event.payload);
+      return;
+    }
+    if (event.event === "chat" || event.event === "chat.delta" || event.event === "chat.final") {
+      this.handleChatEvent(event.payload);
     }
   }
 
@@ -86,37 +94,39 @@ export class ChatLiveIngest {
     const message = isObject(payload.message) ? (payload.message as OpenClawMessage) : null;
     if (!sessionKey || !message) return;
     const receivedAtMs = Date.now();
-    const optimisticId = this.takeMatchingOptimisticUser(sessionKey, message);
-    this.log.info("message.factor.received", { sessionKey, ...contentFactorSummary(message as Record<string, unknown>), optimisticMatched: Boolean(optimisticId) });
+    const optimistic = this.takeMatchingOptimisticUser(sessionKey, message);
+    const optimisticId = optimistic?.id ?? null;
+    this.log.info("message.factor.received", { sessionKey, ...contentFactorSummary(message as Record<string, unknown>), optimisticMatched: Boolean(optimisticId), runId: optimistic?.runId });
     const payloadSeq = typeof payload.messageSeq === "number" && Number.isFinite(payload.messageSeq) && payload.messageSeq > 0
       ? Math.floor(payload.messageSeq)
       : null;
     const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
-    const projection = this.context.messages.upsertMessages(normalized);
+    const confirmed = optimisticId ? this.context.messages.confirmOptimisticUser(sessionKey, optimisticId, projectedMessage) : null;
+    const projection = confirmed ? { upserted: 1, lastSeq: confirmed.openclawSeq } : this.context.messages.upsertMessages(normalized);
+    const emittedMessage = confirmed?.data ?? message;
+    const emittedSeq = confirmed?.openclawSeq ?? projectedMessage.openclawSeq;
     this.log.info("message.persist", {
       sessionKey,
       ingestDurationMs: Date.now() - receivedAtMs,
       role: projectedMessage.role,
       messageId: projectedMessage.messageId,
-      messageSeq: projectedMessage.openclawSeq,
+      messageSeq: emittedSeq,
       upserted: projection.upserted,
       lastSeq: projection.lastSeq,
       optimisticMatched: Boolean(optimisticId),
+      runId: optimistic?.runId,
     });
-    if (optimisticId) {
-      const deleted = this.context.messages.deleteMessageById(sessionKey, optimisticId);
-      this.log.info("optimistic.user.confirm", { sessionKey, optimisticId, deleted });
-    }
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
       payload: {
         sessionKey,
-        message,
-        ...(optimisticId ? { optimisticId } : {}),
-        messageSeq: projectedMessage.openclawSeq,
+        message: emittedMessage,
+        ...(optimisticId ? { optimisticId, gatewayMessageId: projectedMessage.messageId } : {}),
+        ...(optimistic?.runId ? { runId: optimistic.runId } : {}),
+        messageSeq: emittedSeq,
         lastSeq: projection.lastSeq,
       },
     });
@@ -130,14 +140,21 @@ export class ChatLiveIngest {
     this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, ingestDurationMs: Date.now() - receivedAtMs });
   }
 
-  private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): string | null {
+  private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): { id: string; runId?: string; idempotencyKey?: string } | null {
     if (message.role !== "user") return null;
-    const text = normalizeMessageText(textFromMessage(message));
-    if (!text) return null;
     const entries = this.optimisticUsers.get(sessionKey);
     if (!entries?.length) return null;
     const now = Date.now();
-    const index = entries.findIndex((entry) => entry.text === text && now - entry.createdAtMs < 10 * 60 * 1000);
+    const messageOpenClaw = isObject(message.__openclaw) ? message.__openclaw as Record<string, unknown> : {};
+    const clientMessageId = typeof messageOpenClaw.clientMessageId === "string" ? messageOpenClaw.clientMessageId : typeof message.clientMessageId === "string" ? message.clientMessageId : null;
+    const idempotencyKey = typeof messageOpenClaw.idempotencyKey === "string" ? messageOpenClaw.idempotencyKey : typeof message.idempotencyKey === "string" ? message.idempotencyKey : null;
+    let index = clientMessageId ? entries.findIndex((entry) => entry.id === clientMessageId) : -1;
+    if (index < 0 && idempotencyKey) index = entries.findIndex((entry) => entry.idempotencyKey === idempotencyKey);
+    if (index < 0 && entries.length === 1 && now - entries[0]!.createdAtMs < 10 * 60 * 1000) index = 0;
+    if (index < 0) {
+      const text = normalizeMessageText(textFromMessage(message));
+      index = text ? entries.findIndex((entry) => entry.text === text && now - entry.createdAtMs < 10 * 60 * 1000) : -1;
+    }
     if (index < 0) {
       this.optimisticUsers.set(sessionKey, entries.filter((entry) => now - entry.createdAtMs < 10 * 60 * 1000));
       return null;
@@ -145,7 +162,68 @@ export class ChatLiveIngest {
     const [match] = entries.splice(index, 1);
     if (entries.length > 0) this.optimisticUsers.set(sessionKey, entries);
     else this.optimisticUsers.delete(sessionKey);
-    return match?.id ?? null;
+    return match ? { id: match.id, runId: match.runId, idempotencyKey: match.idempotencyKey } : null;
+  }
+
+  private handleSessionTool(payload: unknown) {
+    if (!isObject(payload)) return;
+    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : typeof payload.key === "string" ? payload.key : null;
+    if (!sessionKey) return;
+    const toolCallId = typeof payload.toolCallId === "string" ? payload.toolCallId : typeof payload.id === "string" ? payload.id : null;
+    if (!toolCallId) return;
+    const gatewayRunId = typeof payload.runId === "string" ? payload.runId : null;
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    const rawPhase = typeof payload.phase === "string" ? payload.phase.toLowerCase() : typeof payload.status === "string" ? payload.status.toLowerCase() : "start";
+    const phase = rawPhase === "error" || rawPhase === "failed" ? "error" : rawPhase === "result" || rawPhase === "done" || rawPhase === "success" ? "result" : rawPhase === "calling" ? "calling" : "start";
+    const name = typeof payload.name === "string" ? payload.name : typeof payload.toolName === "string" ? payload.toolName : "unknown";
+    const tool = this.context.runs.upsertToolCall({
+      sessionKey,
+      toolCallId,
+      runId: run?.runId ?? gatewayRunId,
+      messageId: typeof payload.messageId === "string" ? payload.messageId : null,
+      name,
+      phase,
+      argsMeta: isObject(payload.args) ? { keys: Object.keys(payload.args).slice(0, 20) } : null,
+      resultMeta: phase === "result" ? this.safeResultMeta(payload.result) : phase === "error" ? this.safeResultMeta(payload.error) : null,
+    });
+    if (run) {
+      if (tool.status === "running") this.context.runs.updateRunStatus(run.runId, "tool_running", { statusLabel: name });
+      else if (!this.context.runs.hasRunningTools(sessionKey, run.runId)) this.context.runs.updateRunStatus(run.runId, "thinking", { statusLabel: "Thinking" });
+    }
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : "chat.tool.started",
+      payload: { sessionKey, toolCall: tool },
+    });
+    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
+  }
+
+  private handleChatEvent(payload: unknown) {
+    if (!isObject(payload)) return;
+    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
+    if (!sessionKey) return;
+    const gatewayRunId = typeof payload.runId === "string" ? payload.runId : null;
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    if (!run) return;
+    const status = typeof payload.status === "string" ? payload.status.toLowerCase() : typeof payload.phase === "string" ? payload.phase.toLowerCase() : null;
+    if (status === "final" || status === "done" || status === "completed") {
+      if (!this.context.runs.hasRunningTools(sessionKey, run.runId)) this.context.runs.updateRunStatus(run.runId, "done", { statusLabel: null });
+      return;
+    }
+    if (status === "error" || status === "failed") {
+      this.context.runs.updateRunStatus(run.runId, "error", { statusLabel: typeof payload.error === "string" ? payload.error : "Run failed", error: payload.error ?? payload });
+      return;
+    }
+    if (status === "streaming" || typeof payload.delta === "string") this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: null });
+  }
+
+  private safeResultMeta(value: unknown) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string") return { type: "string", length: value.length };
+    if (Array.isArray(value)) return { type: "array", length: value.length };
+    if (isObject(value)) return { type: "object", keys: Object.keys(value).slice(0, 20) };
+    return { type: typeof value };
   }
 
   private handleSessionsChanged(payload: unknown) {
