@@ -256,6 +256,29 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[1]?.stopReason, "error")
   })
 
+  it("keeps gateway-injected agent failure replies visible", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      {
+        role: "assistant",
+        provider: "openclaw",
+        model: "gateway-injected",
+        content: [
+          {
+            type: "text",
+            text: "Agent failed before reply: Malformed agent session key.",
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(
+      parsed.messages[1]?.text,
+      "Agent failed before reply: Malformed agent session key.",
+    )
+  })
+
   it("does not create visible messages for gateway-only user entries", () => {
     const parsed = parseChatHistory([
       {
