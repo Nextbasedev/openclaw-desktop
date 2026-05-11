@@ -11,21 +11,44 @@ export type LogEntry = {
   message: string
 }
 
+export type FrontendLogCategory =
+  | "api"
+  | "connection"
+  | "session"
+  | "chat"
+  | "composer"
+  | "stream"
+  | "status"
+  | "ui"
+  | "runtime"
+
+export type FrontendLogContext = Record<string, unknown>
+
 const MAX_ENTRIES = 1000
+const SECRET_VALUE = "[redacted]"
+const OMITTED_VALUE = "[omitted]"
+const MAX_STRING_CHARS = 300
+const MAX_ARRAY_ITEMS = 20
+const MAX_OBJECT_KEYS = 40
+
 let buffer: LogEntry[] = []
 const subscribers = new Set<(entries: LogEntry[]) => void>()
 let initialized = false
 let counter = 0
+let fetchCounter = 0
+let originalConsole: Record<LogLevel, (...args: unknown[]) => void> | null = null
 
 let notifyScheduled = false
 function notify() {
   if (notifyScheduled) return
   notifyScheduled = true
-  requestAnimationFrame(() => {
+  const flush = () => {
     notifyScheduled = false
     const snapshot = buffer.slice()
     subscribers.forEach((fn) => fn(snapshot))
-  })
+  }
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(flush)
+  else setTimeout(flush, 0)
 }
 
 function pushFrontend(level: LogLevel, message: string) {
@@ -44,14 +67,158 @@ function pushFrontend(level: LogLevel, message: string) {
   notify()
 }
 
+function isSensitiveKey(key: string) {
+  const lower = key.toLowerCase()
+  return (
+    lower === "authorization" ||
+    lower === "cookie" ||
+    lower === "set-cookie" ||
+    lower === "x-api-key" ||
+    lower === "api-key" ||
+    lower === "password" ||
+    lower === "secret" ||
+    lower === "token" ||
+    lower === "middlewaretoken" ||
+    lower === "middleware-token" ||
+    lower.includes("token") ||
+    lower.includes("secret") ||
+    lower.includes("password") ||
+    lower.includes("credential") ||
+    lower.includes("cookie")
+  )
+}
+
+function isContentKey(key: string) {
+  const lower = key.toLowerCase()
+  return (
+    lower === "text" ||
+    lower === "content" ||
+    lower === "message" ||
+    lower === "body" ||
+    lower === "prompt" ||
+    lower === "transcript" ||
+    lower === "snippet" ||
+    lower === "free_text" ||
+    lower === "freetext"
+  )
+}
+
+export function redactText(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/(authorization\s*[:=]\s*)[^\s,;]+/gi, `$1${SECRET_VALUE}`)
+    .replace(/(cookie\s*[:=]\s*)[^\n]+/gi, `$1${SECRET_VALUE}`)
+    .replace(/([?&](?:token|key|code|secret|password|auth|session)[^=]*=)[^&\s]+/gi, `$1${SECRET_VALUE}`)
+    .replace(/(sk-[A-Za-z0-9_-]{8,})/g, SECRET_VALUE)
+    .replace(/(ghp_[A-Za-z0-9_]+)/g, SECRET_VALUE)
+}
+
+function truncate(text: string, max = MAX_STRING_CHARS): string {
+  return text.length > max ? `${text.slice(0, max)}…(truncated)` : text
+}
+
+function looksLikeFileMetadata(value: Record<string, unknown>) {
+  return (
+    typeof value.name === "string" &&
+    (typeof value.mimeType === "string" || typeof value.type === "string" || typeof value.size === "number")
+  )
+}
+
+function sanitizeFileMetadata(value: Record<string, unknown>) {
+  return {
+    name: typeof value.name === "string" ? truncate(value.name, 120) : undefined,
+    type:
+      typeof value.mimeType === "string"
+        ? value.mimeType
+        : typeof value.type === "string"
+          ? value.type
+          : undefined,
+    size: typeof value.size === "number" ? value.size : undefined,
+  }
+}
+
+export function sanitizeForLog(value: unknown, key = "", depth = 0): unknown {
+  if (isSensitiveKey(key)) return SECRET_VALUE
+  if (isContentKey(key)) return OMITTED_VALUE
+  if (value == null) return value
+  if (typeof value === "string") return truncate(redactText(value))
+  if (typeof value === "number" || typeof value === "boolean") return value
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: truncate(redactText(value.message)),
+    }
+  }
+  if (typeof File !== "undefined" && value instanceof File) {
+    return { name: value.name, type: value.type, size: value.size }
+  }
+  if (typeof Blob !== "undefined" && value instanceof Blob) {
+    return { type: value.type, size: value.size }
+  }
+  if (value instanceof ArrayBuffer) return { type: "ArrayBuffer", size: value.byteLength }
+  if (Array.isArray(value)) {
+    const items = value.slice(0, MAX_ARRAY_ITEMS).map((item) => sanitizeForLog(item, key, depth + 1))
+    if (value.length > MAX_ARRAY_ITEMS) items.push(`…${value.length - MAX_ARRAY_ITEMS} more`)
+    return items
+  }
+  if (typeof value === "object") {
+    if (depth >= 3) return `[${(value as { constructor?: { name?: string } }).constructor?.name ?? "object"}]`
+    const record = value as Record<string, unknown>
+    if (looksLikeFileMetadata(record)) return sanitizeFileMetadata(record)
+    const out: Record<string, unknown> = {}
+    const entries = Object.entries(record).slice(0, MAX_OBJECT_KEYS)
+    for (const [childKey, childValue] of entries) {
+      out[childKey] = sanitizeForLog(childValue, childKey, depth + 1)
+    }
+    if (Object.keys(record).length > MAX_OBJECT_KEYS) out.__truncatedKeys = Object.keys(record).length - MAX_OBJECT_KEYS
+    return out
+  }
+  return String(value)
+}
+
+export function sanitizeUrlForLog(rawUrl: string): string {
+  const safeRaw = redactText(rawUrl)
+  try {
+    const url = new URL(safeRaw, typeof window !== "undefined" ? window.location.href : "http://localhost")
+    const queryKeys = Array.from(url.searchParams.keys()).filter((key) => !isSensitiveKey(key))
+    const querySuffix = queryKeys.length > 0 ? `?${queryKeys.map((key) => `${key}=…`).join("&")}` : ""
+    return `${url.origin}${url.pathname}${querySuffix}`
+  } catch {
+    const [path] = safeRaw.split("?")
+    return path || "[invalid-url]"
+  }
+}
+
+function formatContext(context?: FrontendLogContext): string {
+  if (!context || Object.keys(context).length === 0) return ""
+  try {
+    return ` ${JSON.stringify(sanitizeForLog(context))}`
+  } catch {
+    return ""
+  }
+}
+
+export function frontendLog(
+  category: FrontendLogCategory,
+  event: string,
+  context?: FrontendLogContext,
+  level: LogLevel = "info",
+) {
+  const message = `[OpenClaw frontend:${category}] ${event}${formatContext(context)}`
+  pushFrontend(level, message)
+  const writer = originalConsole?.[level] ?? (typeof console !== "undefined" ? console[level] : null)
+  if (writer) writer(message)
+}
+
 function formatArg(arg: unknown): string {
-  if (typeof arg === "string") return arg
+  if (typeof arg === "string") return truncate(redactText(arg), 2000)
   if (arg instanceof Error) {
-    return arg.stack ? `${arg.name}: ${arg.message}\n${arg.stack}` : `${arg.name}: ${arg.message}`
+    const message = `${arg.name}: ${redactText(arg.message)}`
+    return arg.stack ? truncate(redactText(`${message}\n${arg.stack}`), 4000) : message
   }
   if (typeof arg === "object" && arg !== null) {
     try {
-      return JSON.stringify(arg, null, 2)
+      return JSON.stringify(sanitizeForLog(arg), null, 2)
     } catch {
       return String(arg)
     }
@@ -74,68 +241,8 @@ function shouldSkipNetworkUrl(url: string): boolean {
   )
 }
 
-const FETCH_BODY_PREVIEW_BYTES = 4096
-
-function maskSensitive(name: string, value: string): string {
-  const lower = name.toLowerCase()
-  if (
-    lower === "authorization" ||
-    lower === "cookie" ||
-    lower === "set-cookie" ||
-    lower === "x-api-key" ||
-    lower.includes("token")
-  ) {
-    return "***"
-  }
-  return value
-}
-
-function tryPrettyJson(text: string): string {
-  const trimmed = text.trim()
-  if (
-    !trimmed ||
-    !(trimmed.startsWith("{") || trimmed.startsWith("["))
-  ) {
-    return text
-  }
-  try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2)
-  } catch {
-    return text
-  }
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max) + "…(truncated)" : text
-}
-
-function summarizeRequestBody(init?: RequestInit): string | null {
-  const body = init?.body
-  if (body == null) return null
-  if (typeof body === "string") {
-    return truncate(tryPrettyJson(body), FETCH_BODY_PREVIEW_BYTES)
-  }
-  if (body instanceof URLSearchParams) return body.toString()
-  if (body instanceof FormData) return "<FormData>"
-  if (body instanceof Blob) return `<Blob ${body.size}B ${body.type}>`
-  if (body instanceof ArrayBuffer)
-    return `<ArrayBuffer ${body.byteLength}B>`
-  return `<${(body as { constructor?: { name?: string } }).constructor?.name ?? "body"}>`
-}
-
-async function readResponseBodyPreview(res: Response): Promise<string | null> {
-  try {
-    const cloned = res.clone()
-    const text = await cloned.text()
-    if (!text) return null
-    return truncate(tryPrettyJson(text), FETCH_BODY_PREVIEW_BYTES)
-  } catch {
-    return null
-  }
-}
-
-function summarizeHeaders(headers?: HeadersInit): string | null {
-  if (!headers) return null
+function summarizeRequestHeaders(headers?: HeadersInit): Record<string, string> | undefined {
+  if (!headers) return undefined
   let entries: [string, string][] = []
   if (headers instanceof Headers) {
     headers.forEach((value, key) => entries.push([key, value]))
@@ -144,35 +251,78 @@ function summarizeHeaders(headers?: HeadersInit): string | null {
   } else {
     entries = Object.entries(headers as Record<string, string>)
   }
-  if (entries.length === 0) return null
-  return entries.map(([k, v]) => `${k}: ${maskSensitive(k, v)}`).join("\n")
+  if (entries.length === 0) return undefined
+  const out: Record<string, string> = {}
+  for (const [key, value] of entries) out[key] = isSensitiveKey(key) ? SECRET_VALUE : truncate(redactText(String(value)), 120)
+  return out
 }
 
-function summarizeResponseHeaders(res: Response): string | null {
-  const entries: [string, string][] = []
-  res.headers.forEach((value, key) => entries.push([key, value]))
-  if (entries.length === 0) return null
-  return entries.map(([k, v]) => `${k}: ${maskSensitive(k, v)}`).join("\n")
+function summarizeBody(body: BodyInit | null | undefined): unknown {
+  if (body == null) return undefined
+  if (typeof body === "string") {
+    try {
+      const parsed = JSON.parse(body)
+      return { type: "json", shape: sanitizeForLog(parsed) }
+    } catch {
+      return { type: "text", length: body.length, preview: OMITTED_VALUE }
+    }
+  }
+  if (body instanceof URLSearchParams) return { type: "URLSearchParams", keys: Array.from(body.keys()).filter((key) => !isSensitiveKey(key)) }
+  if (typeof FormData !== "undefined" && body instanceof FormData) {
+    const fields: Array<Record<string, unknown>> = []
+    body.forEach((value, key) => {
+      if (isSensitiveKey(key) || isContentKey(key)) fields.push({ key, value: isSensitiveKey(key) ? SECRET_VALUE : OMITTED_VALUE })
+      else fields.push({ key, value: sanitizeForLog(value, key) })
+    })
+    return { type: "FormData", fields }
+  }
+  if (typeof Blob !== "undefined" && body instanceof Blob) return { type: "Blob", size: body.size, mimeType: body.type }
+  if (body instanceof ArrayBuffer) return { type: "ArrayBuffer", size: body.byteLength }
+  return { type: (body as { constructor?: { name?: string } }).constructor?.name ?? "body" }
 }
 
-function detectEmbeddedError(text: string): string | null {
-  const trimmed = text.trim()
-  if (!trimmed.startsWith("{")) return null
-  try {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>
-    if (typeof parsed.error === "string" && parsed.error.length > 0) {
-      return parsed.error
-    }
-    if (parsed.ok === false) return "ok: false"
-    if (
-      parsed.success === false &&
-      typeof parsed.message === "string"
-    ) {
-      return parsed.message
-    }
-    return null
-  } catch {
-    return null
+function responseMeta(res: Response) {
+  return {
+    status: res.status,
+    statusText: res.statusText || undefined,
+    contentType: res.headers.get("content-type") ?? undefined,
+    contentLength: res.headers.get("content-length") ?? undefined,
+  }
+}
+
+function errorMeta(error: unknown) {
+  if (error instanceof DOMException) {
+    return { kind: error.name, message: redactText(error.message) }
+  }
+  if (error instanceof Error) {
+    return { kind: error.name || "Error", message: redactText(error.message) }
+  }
+  return { kind: "Error", message: redactText(String(error)) }
+}
+
+function requestMeta(input: RequestInfo | URL, init?: RequestInit) {
+  let url: string
+  let method: string
+  let requestHeaders: HeadersInit | undefined
+  if (typeof input === "string") {
+    url = input
+    method = init?.method ?? "GET"
+    requestHeaders = init?.headers
+  } else if (input instanceof URL) {
+    url = input.toString()
+    method = init?.method ?? "GET"
+    requestHeaders = init?.headers
+  } else {
+    url = input.url
+    method = init?.method ?? input.method ?? "GET"
+    requestHeaders = init?.headers ?? input.headers
+  }
+  return {
+    url,
+    safeUrl: sanitizeUrlForLog(url),
+    method: method.toUpperCase(),
+    headers: summarizeRequestHeaders(requestHeaders),
+    body: summarizeBody(init?.body ?? null),
   }
 }
 
@@ -184,95 +334,41 @@ function instrumentFetch() {
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
-    let url: string
-    let method: string
-    if (typeof input === "string") {
-      url = input
-      method = init?.method ?? "GET"
-    } else if (input instanceof URL) {
-      url = input.toString()
-      method = init?.method ?? "GET"
-    } else {
-      url = input.url
-      method = init?.method ?? input.method ?? "GET"
-    }
+    const meta = requestMeta(input, init)
+    if (shouldSkipNetworkUrl(meta.url)) return originalFetch(input, init)
 
-    if (shouldSkipNetworkUrl(url)) return originalFetch(input, init)
-
+    fetchCounter += 1
+    const requestId = `req-${fetchCounter}`
     const start = performance.now()
+    frontendLog("api", "request.start", {
+      requestId,
+      method: meta.method,
+      url: meta.safeUrl,
+      headers: meta.headers,
+      body: meta.body,
+    }, "debug")
+
     try {
       const res = await originalFetch(input, init)
-      const dur = Math.round(performance.now() - start)
-
-      if (res.ok) {
-        const contentType = res.headers.get("content-type") ?? ""
-        const contentLength = Number.parseInt(
-          res.headers.get("content-length") ?? "0",
-          10,
-        )
-        const looksJson = contentType.includes("json")
-        const isStream =
-          contentType.includes("event-stream") ||
-          contentType.includes("octet-stream")
-        const reasonableSize =
-          !Number.isFinite(contentLength) ||
-          contentLength === 0 ||
-          contentLength < 64 * 1024
-
-        if (looksJson && !isStream && reasonableSize) {
-          const peek = await readResponseBodyPreview(res)
-          const embedded = peek ? detectEmbeddedError(peek) : null
-          if (embedded) {
-            const requestBody = summarizeRequestBody(init)
-            const lines: string[] = [
-              `[fetch ${res.status} embedded-error] ${method.toUpperCase()} ${url} (${dur}ms): ${embedded}`,
-            ]
-            if (requestBody) lines.push(`Request body:\n${requestBody}`)
-            if (peek) lines.push(`Response body:\n${peek}`)
-            pushFrontend("warn", lines.join("\n\n"))
-            return res
-          }
-        }
-
-        pushFrontend(
-          "info",
-          `[fetch ${res.status}] ${method.toUpperCase()} ${url} (${dur}ms)`,
-        )
-        return res
-      }
-
-      const [responseBody, requestBody, requestHeaders, responseHeaders] =
-        await Promise.all([
-          readResponseBodyPreview(res),
-          Promise.resolve(summarizeRequestBody(init)),
-          Promise.resolve(summarizeHeaders(init?.headers)),
-          Promise.resolve(summarizeResponseHeaders(res)),
-        ])
-
-      const lines: string[] = [
-        `[fetch ${res.status} ${res.statusText || "Error"}] ${method.toUpperCase()} ${url} (${dur}ms)`,
-      ]
-      if (requestHeaders) lines.push(`Request headers:\n${requestHeaders}`)
-      if (requestBody) lines.push(`Request body:\n${requestBody}`)
-      if (responseHeaders)
-        lines.push(`Response headers:\n${responseHeaders}`)
-      if (responseBody) lines.push(`Response body:\n${responseBody}`)
-      pushFrontend("error", lines.join("\n\n"))
+      const durationMs = Math.round(performance.now() - start)
+      const level: LogLevel = res.ok ? "info" : "error"
+      frontendLog("api", res.ok ? "request.end" : "request.fail", {
+        requestId,
+        method: meta.method,
+        url: meta.safeUrl,
+        durationMs,
+        ...responseMeta(res),
+      }, level)
       return res
     } catch (err) {
-      const dur = Math.round(performance.now() - start)
-      const message = err instanceof Error ? err.message : String(err)
-      const stack =
-        err instanceof Error && err.stack ? `\nStack:\n${err.stack}` : ""
-      const requestBody = summarizeRequestBody(init)
-      const requestHeaders = summarizeHeaders(init?.headers)
-      const lines: string[] = [
-        `[fetch network error] ${method.toUpperCase()} ${url} (${dur}ms): ${message}`,
-      ]
-      if (requestHeaders) lines.push(`Request headers:\n${requestHeaders}`)
-      if (requestBody) lines.push(`Request body:\n${requestBody}`)
-      if (stack) lines.push(stack.trimStart())
-      pushFrontend("error", lines.join("\n\n"))
+      const durationMs = Math.round(performance.now() - start)
+      frontendLog("api", "request.fail", {
+        requestId,
+        method: meta.method,
+        url: meta.safeUrl,
+        durationMs,
+        error: errorMeta(err),
+      }, "error")
       throw err
     }
   }
@@ -288,9 +384,12 @@ function instrumentEventSource() {
   class WrappedEventSource extends OriginalES {
     constructor(url: string | URL, init?: EventSourceInit) {
       super(url, init)
-      const u = url.toString()
-      if (shouldSkipNetworkUrl(u)) return
-      pushFrontend("info", `[SSE open] ${u}`)
+      const safeUrl = sanitizeUrlForLog(url.toString())
+      if (shouldSkipNetworkUrl(url.toString())) return
+      frontendLog("stream", "sse.open", { url: safeUrl, withCredentials: init?.withCredentials ?? false })
+      this.addEventListener("open", () => {
+        frontendLog("stream", "sse.ready", { url: safeUrl }, "debug")
+      })
       this.addEventListener("error", () => {
         const state =
           this.readyState === 0
@@ -298,12 +397,11 @@ function instrumentEventSource() {
             : this.readyState === 1
               ? "open"
               : "closed"
-        pushFrontend("error", `[SSE error] ${u} (state=${state})`)
+        frontendLog("stream", "sse.error", { url: safeUrl, readyState: state }, "error")
       })
       this.addEventListener("error_event", (e) => {
         const data = (e as MessageEvent).data
-        const text = typeof data === "string" ? data : formatArg(data)
-        pushFrontend("error", `[SSE error_event] ${u}\n${text}`)
+        frontendLog("stream", "sse.error_event", { url: safeUrl, data: sanitizeForLog(data) }, "error")
       })
     }
   }
@@ -318,22 +416,22 @@ function instrumentWebSocket() {
   class WrappedWebSocket extends OriginalWS {
     constructor(url: string | URL, protocols?: string | string[]) {
       super(url, protocols)
-      const u = typeof url === "string" ? url : url.toString()
-      pushFrontend("info", `[WS connecting] ${u}`)
+      const safeUrl = sanitizeUrlForLog(typeof url === "string" ? url : url.toString())
+      frontendLog("stream", "ws.connect.start", { url: safeUrl, protocols: Array.isArray(protocols) ? protocols.length : protocols ? 1 : 0 })
       this.addEventListener("open", () => {
-        pushFrontend("info", `[WS open] ${u}`)
+        frontendLog("stream", "ws.connect.success", { url: safeUrl })
       })
       this.addEventListener("error", () => {
-        pushFrontend("error", `[WS error] ${u}`)
+        frontendLog("stream", "ws.connect.fail", { url: safeUrl }, "error")
       })
       this.addEventListener("close", (e) => {
         const ce = e as CloseEvent
-        const level: LogLevel = ce.wasClean ? "info" : "warn"
-        const reason = ce.reason ? `, reason=${ce.reason}` : ""
-        pushFrontend(
-          level,
-          `[WS close] ${u} (code=${ce.code}${reason})`,
-        )
+        frontendLog("stream", "ws.disconnect", {
+          url: safeUrl,
+          code: ce.code,
+          clean: ce.wasClean,
+          reason: ce.reason ? redactText(ce.reason) : undefined,
+        }, ce.wasClean ? "info" : "warn")
       })
     }
   }
@@ -346,7 +444,7 @@ export function initClientLogs() {
   if (typeof window === "undefined") return
   initialized = true
 
-  const original = {
+  originalConsole = {
     log: window.console.log.bind(window.console),
     info: window.console.info.bind(window.console),
     warn: window.console.warn.bind(window.console),
@@ -358,7 +456,7 @@ export function initClientLogs() {
     (level: LogLevel) =>
     (...args: unknown[]) => {
       pushFrontend(level, formatArgs(args))
-      original[level](...args)
+      originalConsole?.[level](...args)
     }
 
   window.console.log = wrap("log")
@@ -367,17 +465,20 @@ export function initClientLogs() {
   window.console.error = wrap("error")
   window.console.debug = wrap("debug")
 
-  window.addEventListener("error", (e) => {
-    const where = e.filename
-      ? ` (${e.filename}:${e.lineno}:${e.colno})`
-      : ""
-    pushFrontend("error", `Uncaught: ${e.message}${where}`)
-  })
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("error", (e) => {
+      const where = e.filename
+        ? ` (${sanitizeUrlForLog(e.filename)}:${e.lineno}:${e.colno})`
+        : ""
+      frontendLog("runtime", "window.error", { message: e.message, where }, "error")
+    })
 
-  window.addEventListener("unhandledrejection", (e) => {
-    pushFrontend("error", `Unhandled rejection: ${formatArg(e.reason)}`)
-  })
+    window.addEventListener("unhandledrejection", (e) => {
+      frontendLog("runtime", "unhandledrejection", { reason: e.reason }, "error")
+    })
+  }
 
+  frontendLog("runtime", "client-logs.initialized", { href: sanitizeUrlForLog(window.location?.href ?? "unknown") }, "debug")
   instrumentFetch()
   instrumentEventSource()
   instrumentWebSocket()
@@ -423,7 +524,7 @@ export function parseBackendLog(content: string): LogEntry[] {
       timestamp,
       level: inferLevel(message),
       source: "backend",
-      message,
+      message: redactText(message),
     })
   }
   return entries
@@ -442,6 +543,13 @@ function inferLevel(message: string): LogLevel {
   if (lower.includes("warn") || lower.includes("warning")) return "warn"
   if (lower.includes("debug")) return "debug"
   return "info"
+}
+
+export const __clientLogsForTests = {
+  requestMeta,
+  summarizeBody,
+  errorMeta,
+  pushFrontend,
 }
 
 if (typeof window !== "undefined") {

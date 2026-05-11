@@ -21,6 +21,7 @@ import {
   markOptimisticChatActivity,
 } from "@/lib/chatActivityStore"
 import { emit } from "@/lib/events"
+import { frontendLog, redactText } from "@/lib/clientLogs"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
   cacheAttachments,
@@ -233,6 +234,17 @@ function isActiveRunStatus(status: StreamStatus | null | undefined) {
   )
 }
 
+function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
+  return {
+    count: attachments?.length ?? 0,
+    files: attachments?.map((attachment) => ({
+      name: attachment.name,
+      type: attachment.mimeType,
+      size: attachment.size,
+    })),
+  }
+}
+
 async function loadChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData> {
@@ -292,6 +304,9 @@ export function useChatMessages(
     (update: SetStateAction<StreamStatus>) => {
       setLocalStatus((prev) => {
         const next = typeof update === "function" ? update(prev) : update
+        if (prev !== next) {
+          frontendLog("status", "chat.status-change", { sessionKey, from: prev, to: next })
+        }
         statusRef.current = next
         return next
       })
@@ -938,6 +953,12 @@ export function useChatMessages(
 
   useEffect(() => {
     let cancelled = false
+    frontendLog("chat", "chat.mount", {
+      sessionKey,
+      hasInitialMessages: Boolean(initialMessages?.length),
+      initialMessageCount: initialMessages?.length ?? 0,
+      instanceId: instanceIdRef.current,
+    })
     const seededMessages =
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     ensureGlobalChatEngine(queryClient)
@@ -1021,6 +1042,7 @@ export function useChatMessages(
     }
 
     async function init() {
+      frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages) })
       try {
         const { history, branchData, v2Cursor } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
@@ -1029,6 +1051,12 @@ export function useChatMessages(
         })
         if (typeof v2Cursor === "number") v2CursorRef.current = v2Cursor
         bootstrapSettled = true
+        frontendLog("chat", "chat.bootstrap.loaded", {
+          sessionKey,
+          rawMessageCount: (history.messages as RawMessage[] | undefined)?.length ?? 0,
+          branchCount: branchData.branches?.length ?? 0,
+          v2Cursor,
+        })
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
           loadingTimeout = null
@@ -1406,6 +1434,13 @@ export function useChatMessages(
           }
         }
         setLoading(false)
+        frontendLog("chat", "chat.bootstrap.applied", {
+          sessionKey,
+          messageCount: allMessages.length,
+          status: restoredStatus,
+          pendingToolCount: pendingToolMapRef.current.size,
+          spawnedSubagentCount: spawnMapRef.current.size,
+        })
         forceScrollToBottom(true)
 
         unsubscribeV2Stream = subscribeGlobalChatSession(
@@ -1434,6 +1469,10 @@ export function useChatMessages(
         unsubscribeStream = null
       } catch (e) {
         bootstrapSettled = true
+        frontendLog("chat", "chat.bootstrap.fail", {
+          sessionKey,
+          error: e instanceof Error ? { kind: e.name, message: redactText(e.message) } : { kind: "Error", message: redactText(String(e)) },
+        }, "error")
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
           loadingTimeout = null
@@ -1448,6 +1487,7 @@ export function useChatMessages(
     init()
 
     return () => {
+      frontendLog("chat", "chat.unmount", { sessionKey, instanceId: instanceIdRef.current })
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
@@ -1545,6 +1585,16 @@ export function useChatMessages(
     async (payload: ChatComposerSubmit, retryMessageId?: string) => {
       const trimmed = payload.text.trim()
       if (!trimmed || sendingGuardRef.current) return false
+      frontendLog("composer", "chat.send.start", {
+        sessionKey,
+        retry: Boolean(retryMessageId),
+        hasText: Boolean(trimmed),
+        textLength: trimmed.length,
+        attachments: attachmentLogMeta(payload.attachments),
+        runWhileGenerating: Boolean(payload.runWhileGenerating),
+        hasReplyTo: Boolean(payload.replyTo),
+        autonomyMode: payload.autonomyMode,
+      })
       const runsAlongsideGeneration = Boolean(
         isGenerating && payload.runWhileGenerating
       )
@@ -1611,6 +1661,7 @@ export function useChatMessages(
       try {
         if (isGenerating && !payload.runWhileGenerating) {
           restartInFlightRef.current = true
+          frontendLog("chat", "chat.restart-before-send", { sessionKey, status: statusRef.current })
           setStatus("restarting")
           setStatusLabel(null)
           await abortChatV2({ sessionKey })
@@ -1640,10 +1691,16 @@ export function useChatMessages(
           setStatusLabel(null)
           clearCachedChatActivity(sessionKey)
         }
+        frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId, ackStatus })
         emit("chat:activity")
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        frontendLog("composer", "chat.send.fail", {
+          sessionKey,
+          optimisticId,
+          error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+        }, "error")
         setErrorMessage(message)
         setStatus("error")
         restartInFlightRef.current = false
@@ -1664,6 +1721,7 @@ export function useChatMessages(
       } finally {
         sendingGuardRef.current = false
         setIsSending(false)
+        frontendLog("composer", "chat.send.settled", { sessionKey, optimisticId })
       }
     },
     [isGenerating, sessionKey, forceScrollToBottom]

@@ -12,6 +12,7 @@ import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
 import { invoke } from "@/lib/ipc"
+import { frontendLog } from "@/lib/clientLogs"
 import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import { GlassDialog } from "@/components/ui/GlassDialog"
 import { LuX } from "react-icons/lu"
@@ -99,6 +100,7 @@ export function ChatBox({
     composerReducer,
     initialComposerState
   )
+  const lastComposerPhaseRef = React.useRef(composerState.phase)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const {
     commands,
@@ -385,6 +387,19 @@ export function ChatBox({
     }
   }, [voiceState])
 
+  React.useEffect(() => {
+    if (lastComposerPhaseRef.current !== composerState.phase) {
+      frontendLog("composer", "composer.phase-change", {
+        from: lastComposerPhaseRef.current,
+        to: composerState.phase,
+        hasPendingText: Boolean(composerState.pendingText),
+        pendingAttachmentCount: composerState.pendingAttachments?.length ?? 0,
+        error: Boolean(composerState.error),
+      })
+      lastComposerPhaseRef.current = composerState.phase
+    }
+  }, [composerState.error, composerState.pendingAttachments?.length, composerState.pendingText, composerState.phase])
+
   const hasInput = input.trim().length > 0 || attachments.length > 0
   const isSlashCommandInput = /^([/@])\S*/.test(input)
   const selectedModelRef = sessionModelId ?? currentModel
@@ -450,6 +465,15 @@ export function ChatBox({
 
   async function handleSend() {
     const text = input.trim()
+    frontendLog("composer", "composer.submit.attempt", {
+      hasText: Boolean(text),
+      textLength: text.length,
+      attachmentCount: attachments.length,
+      isGenerating: Boolean(isGenerating),
+      disabled: Boolean(isComposerDisabled),
+      isPreparingAttachments,
+      hasReplyTo: Boolean(replyTo),
+    })
     if (modelSwitching) {
       setAttachmentError("Switching model… please wait")
       return
@@ -471,11 +495,14 @@ export function ChatBox({
       draftBeforeHistoryRef.current = ""
       if (textareaRef.current) textareaRef.current.style.height = "auto"
       setSlashMenuOpen(false)
+      frontendLog("composer", "composer.stop.start", {})
       dispatchComposer({ type: "stop_start" })
       try {
         await onAbort?.()
+        frontendLog("composer", "composer.stop.done", {})
         dispatchComposer({ type: "stop_done" })
       } catch {
+        frontendLog("composer", "composer.stop.fail", {}, "error")
         dispatchComposer({
           type: "send_failed",
           error: "Could not stop generation. Try again.",
@@ -502,12 +529,18 @@ export function ChatBox({
     if (isGenerating) {
       dispatchComposer({ type: "restart_start", payload })
       try {
+        frontendLog("composer", "composer.restart-send.start", {
+          attachmentCount: payload.attachments?.length ?? 0,
+          textLength: payload.text.length,
+        })
         await onSend?.(payload)
+        frontendLog("composer", "composer.restart-send.success", {})
         dispatchComposer({ type: "send_success" })
         clearAttachments()
         setAttachmentError(null)
         setSlashMenuOpen(false)
       } catch {
+        frontendLog("composer", "composer.restart-send.fail", {}, "error")
         setInput(payload.text)
         dispatchComposer({
           type: "send_failed",
@@ -523,12 +556,18 @@ export function ChatBox({
     }
     dispatchComposer({ type: "send_start", payload, generating: false })
     try {
+      frontendLog("composer", "composer.send.start", {
+        attachmentCount: payload.attachments?.length ?? 0,
+        textLength: payload.text.length,
+      })
       await onSend?.(payload)
+      frontendLog("composer", "composer.send.success", {})
       dispatchComposer({ type: "send_success" })
       clearAttachments()
       setAttachmentError(null)
       setSlashMenuOpen(false)
     } catch {
+      frontendLog("composer", "composer.send.fail", {}, "error")
       setInput(payload.text)
       dispatchComposer({
         type: "send_failed",

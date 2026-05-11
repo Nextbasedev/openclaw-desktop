@@ -1,3 +1,5 @@
+import { frontendLog, redactText, sanitizeUrlForLog } from "./clientLogs"
+
 const URL_KEY = "openclaw.middleware.url"
 const TOKEN_KEY = "openclaw.middleware.token"
 const ACTIVE_PROJECT_KEY = "openclaw.activeProjectId"
@@ -72,6 +74,10 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
   const next = { url: trimTrailingSlash(input.url), token: input.token.trim() }
   const previous = getMiddlewareConnection()
   const changed = previous?.url !== next.url
+  frontendLog("connection", changed ? "middleware.save.changed" : "middleware.save.updated", {
+    url: sanitizeUrlForLog(next.url),
+    hadToken: Boolean(next.token),
+  })
   localStorage.setItem(URL_KEY, next.url)
   localStorage.setItem(TOKEN_KEY, next.token)
   localStorage.setItem("jarvis.gatewayActive", "true")
@@ -84,6 +90,9 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
 export function clearMiddlewareConnection() {
   if (typeof window === "undefined") return
   const previous = getMiddlewareConnection()
+  frontendLog("connection", "middleware.disconnect", {
+    url: previous ? sanitizeUrlForLog(previous.url) : null,
+  })
   localStorage.removeItem(URL_KEY)
   localStorage.removeItem(TOKEN_KEY)
   localStorage.setItem("jarvis.gatewayActive", "false")
@@ -96,31 +105,73 @@ export function clearMiddlewareConnection() {
 
 export async function middlewareFetch<T>(path: string, init: RequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
   if (!connection) throw new Error("Middleware connection is not configured")
+  const startedAt = performance.now()
+  const method = (init.method ?? "GET").toUpperCase()
   const token = connection.token.trim()
   const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connection.url))
-  const response = await fetch(`${url}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
-      ...(init.headers ?? {}),
-    },
-  })
-  const text = await response.text()
-  const body = text ? JSON.parse(text) : null
-  if (!response.ok) {
-    throw new Error(body?.error?.message ?? `Middleware request failed (${response.status})`)
+  frontendLog("api", "middleware.fetch.start", {
+    method,
+    path: sanitizeUrlForLog(path),
+    baseUrl: sanitizeUrlForLog(url),
+    hasToken: Boolean(token),
+  }, "debug")
+  try {
+    const response = await fetch(`${url}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        ...(init.headers ?? {}),
+      },
+    })
+    const text = await response.text()
+    const body = text ? JSON.parse(text) : null
+    const durationMs = Math.round(performance.now() - startedAt)
+    frontendLog("api", response.ok ? "middleware.fetch.end" : "middleware.fetch.fail", {
+      method,
+      path: sanitizeUrlForLog(path),
+      durationMs,
+      status: response.status,
+      statusText: response.statusText || undefined,
+      error: response.ok ? undefined : redactText(body?.error?.message ?? `Middleware request failed (${response.status})`),
+    }, response.ok ? "info" : "error")
+    if (!response.ok) {
+      throw new Error(body?.error?.message ?? `Middleware request failed (${response.status})`)
+    }
+    return body as T
+  } catch (error) {
+    frontendLog("api", "middleware.fetch.fail", {
+      method,
+      path: sanitizeUrlForLog(path),
+      durationMs: Math.round(performance.now() - startedAt),
+      error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+    }, "error")
+    throw error
   }
-  return body as T
 }
 
 export async function testMiddlewareConnection(input: MiddlewareConnection): Promise<MiddlewareHealth> {
   const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(input.url))
-  const healthRes = await fetch(`${url}/health`, { headers: { "Cache-Control": "no-cache" } })
-  if (!healthRes.ok) throw new Error(`Middleware health failed (${healthRes.status})`)
-  const health = await healthRes.json() as MiddlewareHealth
-  await middlewareFetch("/api/version", {}, { url, token: input.token.trim() })
-  return health
+  frontendLog("connection", "middleware.connect.start", { url: sanitizeUrlForLog(url), hasToken: Boolean(input.token.trim()) })
+  try {
+    const healthRes = await fetch(`${url}/health`, { headers: { "Cache-Control": "no-cache" } })
+    if (!healthRes.ok) throw new Error(`Middleware health failed (${healthRes.status})`)
+    const health = await healthRes.json() as MiddlewareHealth
+    await middlewareFetch("/api/version", {}, { url, token: input.token.trim() })
+    frontendLog("connection", "middleware.connect.success", {
+      url: sanitizeUrlForLog(url),
+      service: health.service,
+      version: health.version,
+      gatewayConnected: health.openclaw?.connected,
+    })
+    return health
+  } catch (error) {
+    frontendLog("connection", "middleware.connect.fail", {
+      url: sanitizeUrlForLog(url),
+      error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+    }, "error")
+    throw error
+  }
 }
 
 export async function claimMiddlewarePairing(input: { url: string; code: string }): Promise<MiddlewarePairingResult> {
@@ -142,6 +193,7 @@ export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promi
   for (const rawUrl of urls) {
     const url = trimTrailingSlash(rawUrl)
     try {
+      frontendLog("connection", "middleware.detect.probe", { url: sanitizeUrlForLog(url) }, "debug")
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 800)
       const health = await fetch(`${url}/health`, { signal: controller.signal, headers: { "Cache-Control": "no-cache" } })
@@ -149,8 +201,14 @@ export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promi
       if (!health.ok) continue
       const healthBody = await health.json().catch(() => null) as MiddlewareHealth | null
       if (!healthBody?.openclaw?.connected) continue
+      frontendLog("connection", "middleware.detect.success", { url: sanitizeUrlForLog(url) })
       return { ok: true, url, token: "", mode: "local" }
-    } catch {}
+    } catch (error) {
+      frontendLog("connection", "middleware.detect.fail", {
+        url: sanitizeUrlForLog(url),
+        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+      }, "debug")
+    }
   }
   return null
 }

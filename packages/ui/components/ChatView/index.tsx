@@ -25,6 +25,7 @@ import {
 import { invoke } from "@/lib/ipc"
 import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
+import { frontendLog } from "@/lib/clientLogs"
 import { windowChatMessages } from "@/lib/messageWindow"
 import { toast } from "react-toastify"
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
@@ -424,12 +425,38 @@ export function ChatView({
   })
 
   useEffect(() => {
+    frontendLog("chat", "chat-view.mount", { sessionKey, sessionTitle, isBackgroundSession })
+    return () => frontendLog("chat", "chat-view.unmount", { sessionKey, isBackgroundSession })
+  }, [isBackgroundSession, sessionKey, sessionTitle])
+
+  useEffect(() => {
+    frontendLog("status", "chat-view.render-state", {
+      sessionKey,
+      status,
+      statusLabel,
+      loading,
+      loadError: Boolean(loadError),
+      isSending,
+      isGenerating,
+      messageCount: messages.length,
+      pendingToolCount: pendingTools.length,
+      spawnedSubagentCount: spawnedSubagents.length,
+    }, "debug")
+  }, [isGenerating, isSending, loadError, loading, messages.length, pendingTools.length, sessionKey, spawnedSubagents.length, status, statusLabel])
+
+  useEffect(() => {
     setComposerSeed(initialPrompt ?? "")
   }, [initialPrompt])
 
   const openSubagent = useCallback(
     (sub: SpawnedSubagent) => {
       if (!sub.sessionKey || sub.sessionKey === sessionKey) return
+      frontendLog("session", "subagent.open", {
+        parentSessionKey: sessionKey,
+        childSessionKey: sub.sessionKey,
+        status: sub.status,
+        toolCallId: sub.toolCallId,
+      })
       setActiveSubagent({ ...sub, sessionKey: sub.sessionKey })
       setInternalSubagentKey(sub.sessionKey)
       onSubagentOpen?.(sub.sessionKey)
@@ -438,10 +465,11 @@ export function ChatView({
   )
 
   const closeSubagent = useCallback(() => {
+    frontendLog("session", "subagent.close", { parentSessionKey: sessionKey, childSessionKey: activeSubKey })
     setActiveSubagent(null)
     setInternalSubagentKey(null)
     onSubagentOpen?.(null)
-  }, [onSubagentOpen])
+  }, [activeSubKey, onSubagentOpen, sessionKey])
 
   const activeSubagentFallbackText = useMemo(() => {
     if (!activeSubagent || !isSubagentSessionKey(activeSubagent.sessionKey)) {
@@ -516,6 +544,13 @@ export function ChatView({
 
   const wrappedSend = useCallback(
     async (payload: ChatComposerSubmit) => {
+      frontendLog("composer", "chat-view.send.request", {
+        sessionKey,
+        hasText: Boolean(payload.text.trim()),
+        textLength: payload.text.trim().length,
+        attachmentCount: payload.attachments?.length ?? 0,
+        isModelSwitching: modelSwitching,
+      })
       if (modelSwitching) {
         toast.info("Switching model… please wait before sending.")
         return
