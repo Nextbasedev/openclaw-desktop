@@ -82,19 +82,18 @@ const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware on this VPS.
 
 Use this repo/branch:
 https://github.com/Nextbasedev/openclaw-desktop.git
-branch: new-arch
+branch: main
 
 Requirements:
-1. Install or update the Middleware from this repo.
-2. Run it as an auto-restarting service so it survives crashes and reboot.
-3. Confirm the OpenClaw Gateway/runtime is running on this VPS.
-4. Choose the best URL that my Desktop can reach:
-   - If this VPS has a domain with HTTPS, use https://domain.com
-   - If using Tailscale, use the Tailscale MagicDNS name or 100.x.y.z address
-   - If only LAN/private network, use the reachable private IP
-   - If public IP is exposed, use http://PUBLIC_IP:8787 or the configured reverse proxy URL
-5. If using firewall/security group, allow the Middleware port or configure reverse proxy.
-6. Test /health from the chosen URL and make sure openclaw.connected is true.
+Install or update the Middleware from this repo.
+Run it as an auto-restarting service so it survives crashes and reboot.
+Confirm the OpenClaw Gateway/runtime is running on this VPS.
+Choose the best URL that my Desktop can reach:
+If using Tailscale, use the Tailscale MagicDNS name or 100.x.y.z address
+If only LAN/private network, use the reachable private IP
+If public IP is exposed, use http://public_ip:8787/ or the configured reverse proxy URL
+If using firewall/security group, allow the Middleware port or configure reverse proxy.
+Test /health from the chosen URL and make sure openclaw.connected is true.
 
 When finished, give me only:
 Middleware URL: <reachable-url>
