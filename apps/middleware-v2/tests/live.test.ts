@@ -36,6 +36,83 @@ describe("patch replay", () => {
 });
 
 describe("chat live ingest", () => {
+  test("assistant final without a run id completes the pending run and canonical bootstrap", async () => {
+    const app = await createApp(config("assistant-final-pending-run"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "sessions.messages.subscribe") return { ok: true };
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          messages: [
+            { role: "assistant", text: "NO_REPLY", provider: "openai-codex", stopReason: "stop", __openclaw: { id: "assistant-1", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    context.runs.upsertRun({ runId: "run-pending", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    context.messages.upsertSession({ sessionKey: "s1", sessionId: "session-1", data: { sessionKey: "s1", sessionId: "session-1", status: "running", statusLabel: "Thinking" }, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          text: "NO_REPLY",
+          provider: "openai-codex",
+          model: "gpt-5.5",
+          stopReason: "stop",
+          __openclaw: { id: "assistant-1", seq: 2 },
+        },
+      },
+    });
+
+    expect(context.messages.listMessages("s1")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", messageId: "assistant-1" }),
+    ]));
+    expect(context.runs.getRun("run-pending")).toMatchObject({ status: "done", statusLabel: null });
+    expect(context.runs.findLatestPendingRun("s1")).toBeNull();
+    expect(context.messages.getSession("s1")?.data).toMatchObject({ status: "done", statusLabel: null });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          semanticType: "chat.assistant.final",
+          runId: "run-pending",
+          runStatus: "done",
+          activeRun: null,
+          statusLabel: null,
+          messageSeq: 2,
+        }),
+      }),
+    ]));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "done",
+      activeRun: null,
+      statusLabel: null,
+      messages: [expect.objectContaining({ role: "assistant", text: "NO_REPLY" })],
+    });
+    await app.close();
+  });
+
   test("confirms optimistic user echoes from content blocks and uses positive fallback seq", async () => {
     const app = await createApp(config("content-optimistic-confirm"));
     const context = contextOf(app);
