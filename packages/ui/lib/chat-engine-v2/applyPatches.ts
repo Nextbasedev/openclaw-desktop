@@ -42,6 +42,31 @@ function patchOptimisticId(frame: PatchFrame): string | null {
   return typeof id === "string" && id.trim() ? id : null
 }
 
+function patchMessageSeq(frame: PatchFrame): number | undefined {
+  const payload = patchPayload(frame)
+  const payloadSeq = payload?.messageSeq
+  if (typeof payloadSeq === "number" && Number.isFinite(payloadSeq)) return Math.floor(payloadSeq)
+  const message = patchMessage(frame)
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    const openclaw = (message as { __openclaw?: { seq?: unknown } }).__openclaw
+    const seq = openclaw?.seq
+    if (typeof seq === "number" && Number.isFinite(seq)) return Math.floor(seq)
+  }
+  return undefined
+}
+
+function sortByGatewayIndex(messages: ChatMessage[]) {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const aIndex = a.message.gatewayIndex
+      const bIndex = b.message.gatewayIndex
+      if (typeof aIndex === "number" && typeof bIndex === "number" && aIndex !== bIndex) return aIndex - bIndex
+      return a.index - b.index
+    })
+    .map((item) => item.message)
+}
+
 function patchRemoveId(frame: PatchFrame): string | null {
   if (frame.patch.type !== "chat.message.remove") return null
   const id = patchPayload(frame)?.messageId
@@ -114,9 +139,13 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   const optimisticId = patchOptimisticId(frame)
   const payload = patchPayload(frame)
   const canonicalMessageId = typeof payload?.messageId === "string" && payload.messageId.trim() ? payload.messageId : optimisticId
-  const normalized = canonicalMessageId
-    ? parsed.map((item) => item.role === "user" ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null } : item)
+  const messageSeq = patchMessageSeq(frame)
+  const withSeq = typeof messageSeq === "number"
+    ? parsed.map((item) => ({ ...item, gatewayIndex: item.gatewayIndex ?? messageSeq }))
     : parsed
+  const normalized = canonicalMessageId
+    ? withSeq.map((item) => item.role === "user" ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null } : item)
+    : withSeq
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
   }
@@ -126,6 +155,6 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     : state.messages
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages([...baseMessages, ...normalized]),
+    messages: sortByGatewayIndex(dedupeChatMessages([...baseMessages, ...normalized])),
   }
 }
