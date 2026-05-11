@@ -1,15 +1,14 @@
 import type { ChatMessage } from "../components/ChatView/types"
+import { cleanUserMessageText } from "./chatHistoryParser"
+
+const ATTACHMENT_PLACEHOLDER_RE =
+  /(?:^|\n)\s*\[Attached [^:\]]+: [^\]]+\]\s*/g
 
 function normalizedUserText(value: string) {
-  return value
-    .replace(/^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/i, "")
-    .replace(/^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/i, "")
-    .replace(/^\[Attached images?:[^\]]+\]\s*/gim, "")
-    .replace(/^\[Attached audio(?: file)?:[^\]]+\]\s*/gim, "")
-    .replace(/^\[Attached file:[^\]]+\]\s*/gim, "")
-    .replace(/<attached-file\b[\s\S]*?<\/attached-file>/gi, "")
-    .trim()
+  return cleanUserMessageText(value)
+    .replace(ATTACHMENT_PLACEHOLDER_RE, " ")
     .replace(/\s+/g, " ")
+    .trim()
 }
 
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
@@ -29,6 +28,14 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   return Boolean(a.isOptimistic || b.isOptimistic)
 }
 
+function isAssistantPrefixUpdate(shorter: string, longer: string) {
+  if (!longer.startsWith(shorter)) return false
+  const nextChar = longer.charAt(shorter.length)
+  // Streaming updates extend at token/word boundaries. Do not collapse distinct
+  // numbered messages such as "assistant 8" and "assistant 80".
+  return nextChar === "" || /[\s.,!?;:)'"`\]}]/.test(nextChar)
+}
+
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
   const aText = a.text.trim()
@@ -36,7 +43,9 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (!aText || !bText) return false
   if (a.messageId === b.messageId) return true
   if (aText === bText) return true
-  return aText.startsWith(bText) || bText.startsWith(aText)
+  return aText.length <= bText.length
+    ? isAssistantPrefixUpdate(aText, bText)
+    : isAssistantPrefixUpdate(bText, aText)
 }
 
 function messageSignature(message: ChatMessage) {
@@ -133,6 +142,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         stopReason: message.stopReason ?? existing.stopReason,
         model: message.model ?? existing.model,
         toolCalls: message.toolCalls ?? existing.toolCalls,
+        attachments: message.attachments ?? existing.attachments,
       }
       seenIds.add(message.messageId)
       continue
@@ -155,6 +165,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         usage: preferred.usage ?? existing.usage,
         stopReason: preferred.stopReason ?? existing.stopReason,
         model: preferred.model ?? existing.model,
+        attachments: preferred.attachments ?? existing.attachments,
       }
       seenIds.add(message.messageId)
       continue

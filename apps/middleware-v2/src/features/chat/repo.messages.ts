@@ -1,32 +1,11 @@
 import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
-import type { ProjectedMessage, ProjectionEvent } from "./types.js";
-
-function normalizeText(value: string) {
-  return value
-    .replace(/^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/i, "")
-    .replace(/^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/i, "")
-    .replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/i, "")
-    .trim()
-    .replace(/\s+/g, " ");
-}
+import { normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import type { OpenClawMessage, ProjectedMessage, ProjectionEvent } from "./types.js";
 
 function textOf(data: unknown): string {
   if (!data || typeof data !== "object" || Array.isArray(data)) return "";
-  const maybe = data as { text?: unknown; content?: unknown };
-  if (typeof maybe.text === "string") return normalizeText(maybe.text);
-  if (typeof maybe.content === "string") return normalizeText(maybe.content);
-  if (Array.isArray(maybe.content)) {
-    return normalizeText(maybe.content.map((block) => {
-      if (typeof block === "string") return block;
-      if (block && typeof block === "object" && !Array.isArray(block)) {
-        const text = (block as { text?: unknown }).text;
-        return typeof text === "string" ? text : "";
-      }
-      return "";
-    }).join(""));
-  }
-  return "";
+  return normalizeMessageText(textFromMessage(data as OpenClawMessage));
 }
 
 function isOptimisticData(data: unknown) {
@@ -71,7 +50,7 @@ export class MessageRepository {
   }
 
   upsertMessages(messages: ProjectedMessage[]) {
-    if (messages.length === 0) return { upserted: 0, lastSeq: 0 };
+    if (messages.length === 0) return { upserted: 0, lastSeq: 0, changedMessages: [] as ProjectedMessage[] };
     const insert = this.db.prepare(`
       INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
       VALUES (@sessionKey, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
@@ -85,6 +64,12 @@ export class MessageRepository {
       SELECT message_id, role, data_json
       FROM v2_messages
       WHERE session_key = @sessionKey AND openclaw_seq = @openclawSeq
+    `);
+    const existingById = this.db.prepare(`
+      SELECT openclaw_seq
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND message_id = @messageId
+      LIMIT 1
     `);
     const maxSeq = this.db.prepare(`
       SELECT max(openclaw_seq) AS maxSeq
@@ -100,31 +85,45 @@ export class MessageRepository {
     `);
     const tx = this.db.transaction((rows: ProjectedMessage[]) => {
       let lastSeq = 0;
+      const changedMessages: ProjectedMessage[] = [];
       for (const message of rows) {
         let openclawSeq = message.openclawSeq;
-        const existing = existingAtSeq.get({
-          sessionKey: message.sessionKey,
-          openclawSeq: message.openclawSeq,
-        }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
-        if (existing && isOptimisticConflict(existing, message)) {
-          const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
-          openclawSeq = Math.max(message.openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
-        }
-        insert.run({
+        const idMatch = message.messageId
+          ? existingById.get({ sessionKey: message.sessionKey, messageId: message.messageId }) as { openclaw_seq: number } | undefined
+          : undefined;
+        if (idMatch?.openclaw_seq) openclawSeq = idMatch.openclaw_seq;
+
+        let existing = existingAtSeq.get({
           sessionKey: message.sessionKey,
           openclawSeq,
-          messageId: message.messageId,
-          role: message.role,
-          dataJson: toJson(message.data),
-          updatedAtMs: message.updatedAtMs,
-        });
-        lastSeq = Math.max(lastSeq, message.openclawSeq);
+        }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
+        if (!idMatch && existing && isOptimisticConflict(existing, message)) {
+          const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
+          openclawSeq = Math.max(message.openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
+          existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
+        }
+
+        const dataJson = toJson(message.data);
+        const changed = !existing || existing.message_id !== message.messageId || existing.role !== message.role || existing.data_json !== dataJson;
+        const storedMessage = openclawSeq === message.openclawSeq ? message : { ...message, openclawSeq };
+        if (changed) {
+          insert.run({
+            sessionKey: message.sessionKey,
+            openclawSeq,
+            messageId: message.messageId,
+            role: message.role,
+            dataJson,
+            updatedAtMs: message.updatedAtMs,
+          });
+          changedMessages.push(storedMessage);
+        }
+        lastSeq = Math.max(lastSeq, openclawSeq);
       }
       offset.run({ sessionKey: rows[0]?.sessionKey, lastSeq, updatedAtMs: Date.now() });
-      return lastSeq;
+      return { lastSeq, changedMessages };
     });
-    const lastSeq = tx(messages) as number;
-    return { upserted: messages.length, lastSeq };
+    const result = tx(messages) as { lastSeq: number; changedMessages: ProjectedMessage[] };
+    return { upserted: result.changedMessages.length, lastSeq: result.lastSeq, changedMessages: result.changedMessages };
   }
 
   nextMessageSeq(sessionKey: string): number {

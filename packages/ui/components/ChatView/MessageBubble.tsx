@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
+import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -14,6 +15,10 @@ import {
   LuPin,
   LuRefreshCw,
   LuArrowUp,
+  LuDownload,
+  LuFile,
+  LuFileText,
+  LuImage,
   LuPaperclip,
   LuReply,
   LuThumbsDown,
@@ -35,6 +40,12 @@ import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
 import { getSlashCommandName } from "@/lib/controlSlashCommands"
+import { formatAttachmentSize } from "@/lib/chatAttachments"
+import {
+  chatAttachmentHref,
+  chatAttachmentTypeLabel,
+  getChatAttachmentKind,
+} from "@/lib/chatAttachmentPreview"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
@@ -216,6 +227,136 @@ function formatTokenCount(value?: number | null): string | null {
   if (value >= 1_000)
     return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`
   return String(value)
+}
+
+type MessageAttachment = NonNullable<ChatMessage["attachments"]>[number]
+
+function attachmentLabel(attachment: MessageAttachment) {
+  const parts = [chatAttachmentTypeLabel(attachment)]
+  if (typeof attachment.size === "number" && attachment.size >= 0) {
+    parts.push(formatAttachmentSize(attachment.size))
+  }
+  return parts.join(" • ")
+}
+
+function AttachmentFileIcon({ kind }: { kind: "pdf" | "file" }) {
+  if (kind === "pdf") return <LuFileText className="size-4" />
+  return <LuFile className="size-4" />
+}
+
+function MessageAttachments({
+  attachments,
+  isUser,
+}: {
+  attachments?: ChatMessage["attachments"]
+  isUser: boolean
+}) {
+  if (!attachments || attachments.length === 0) return null
+
+  return (
+    <div className={cn("mt-2 space-y-2", isUser ? "text-white" : "text-foreground")}>
+      {attachments.map((attachment, index) => {
+        const href = chatAttachmentHref(attachment)
+        const kind = getChatAttachmentKind(attachment)
+        const key = `${attachment.name}-${index}`
+
+        if (kind === "image" && href) {
+          return (
+            <a
+              key={key}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              download={attachment.url ? undefined : attachment.name}
+              className={cn(
+                "block max-w-full overflow-hidden rounded-xl border transition-colors",
+                isUser
+                  ? "border-white/10 bg-black/15 hover:border-white/20"
+                  : "border-border/35 bg-foreground/[0.03] hover:border-border/60"
+              )}
+              aria-label={`Open attachment ${attachment.name}`}
+            >
+              <Image
+                src={href}
+                alt={attachment.name}
+                width={640}
+                height={420}
+                unoptimized
+                className="max-h-80 w-full max-w-md object-contain"
+              />
+              <div
+                className={cn(
+                  "flex items-center gap-2 border-t px-3 py-2 text-[11px]",
+                  isUser
+                    ? "border-white/10 text-white/70"
+                    : "border-border/25 text-muted-foreground"
+                )}
+              >
+                <LuImage className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                <span className="shrink-0">{attachmentLabel(attachment)}</span>
+              </div>
+            </a>
+          )
+        }
+
+        const fileKind = kind === "pdf" ? "pdf" : "file"
+        const card = (
+          <div
+            className={cn(
+              "flex max-w-full items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors",
+              isUser
+                ? "border-white/10 bg-black/15 text-white hover:border-white/20"
+                : "border-border/35 bg-foreground/[0.03] text-foreground hover:border-border/60"
+            )}
+          >
+            <div
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                kind === "pdf"
+                  ? "bg-red-400/12 text-red-200"
+                  : isUser
+                    ? "bg-white/10 text-white/75"
+                    : "bg-muted/45 text-muted-foreground"
+              )}
+            >
+              <AttachmentFileIcon kind={fileKind} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium leading-snug">
+                {attachment.name}
+              </p>
+              <p
+                className={cn(
+                  "truncate text-[11px]",
+                  isUser ? "text-white/60" : "text-muted-foreground"
+                )}
+              >
+                {attachmentLabel(attachment)}
+              </p>
+            </div>
+            {href && <LuDownload className="size-4 shrink-0 opacity-55" />}
+          </div>
+        )
+
+        if (!href) return <div key={key}>{card}</div>
+
+        return (
+          <a
+            key={key}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            download={attachment.url ? undefined : attachment.name}
+            className="block max-w-full"
+            aria-label={`Open attachment ${attachment.name}`}
+          >
+            {card}
+          </a>
+        )
+      })}
+    </div>
+  )
 }
 
 function ResponseMetadata({ message }: { message: ChatMessage }) {
@@ -534,7 +675,7 @@ export function MessageBubble({
     closeSelectionComposer,
     message.messageId,
     onAskSelectedText,
-    selectionAction?.text,
+    selectionAction,
     selectionComment,
   ])
 
@@ -546,7 +687,7 @@ export function MessageBubble({
     closeSelectionComposer,
     message.messageId,
     onAskSelectedText,
-    selectionAction?.text,
+    selectionAction,
   ])
 
   useEffect(() => {
@@ -581,7 +722,7 @@ export function MessageBubble({
       document.removeEventListener("touchend", handlePointerUp)
       document.removeEventListener("selectionchange", handleSelectionChange)
     }
-  }, [isUser, onAskSelectedText, updateSelectionAction])
+  }, [isUser, onAskSelectedText, selectionAction, updateSelectionAction])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -739,6 +880,10 @@ export function MessageBubble({
                   }
                 />
               )}
+              <MessageAttachments
+                attachments={message.attachments}
+                isUser={isUser}
+              />
               {!isUser && <RichContentPreview message={message} />}
             </div>
             {isUser && message.sendStatus === "sending" && (

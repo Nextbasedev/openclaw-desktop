@@ -123,6 +123,91 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("final done status completes any active tool rows that missed explicit results", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "tc-stale",
+                name: "exec",
+                input: { command: "for f in memory/*.md; do cat $f; done" },
+              },
+            ],
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          sessionKey: "s1",
+          message: { role: "assistant", text: "Done — I checked the files." },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "session.upsert",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: { status: "done" },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "done",
+      pendingTools: [{ id: "tc-stale", tool: "exec", status: "success" }],
+    })
+  })
+
+  test("does not complete genuinely running tools before final status", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "tc-live",
+                name: "exec",
+                input: { command: "sleep 10" },
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "tool_running",
+      pendingTools: [{ id: "tc-live", status: "running" }],
+    })
+  })
+
   test("links spawned subagent from sessions_spawn tool result", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -206,8 +291,12 @@ describe("global V2 chat engine store", () => {
       status: "done",
     })
 
-    const cached = client.getQueryData(queryKeys.chatBootstrap("s1")) as { history: { messages: unknown[] }, v2Cursor: number }
+    const cached = client.getQueryData(queryKeys.chatBootstrap("s1")) as {
+      history: { messages: unknown[]; sessionStatus?: string }
+      v2Cursor: number
+    }
     expect(cached.history.messages).toMatchObject([{ messageId: "a1", text: "cached globally" }])
+    expect(cached.history.sessionStatus).toBe("done")
     expect(cached.v2Cursor).toBe(9)
   })
 })

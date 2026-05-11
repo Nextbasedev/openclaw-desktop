@@ -1087,13 +1087,15 @@ export function ChatView({
     )
   }
 
-  const liveTool = pendingTools.find(
-    (tool) =>
-      tool.status === "running" &&
-      tool.tool !== "sessions_spawn" &&
-      tool.tool !== "subagents" &&
-      tool.tool !== "sessions_yield"
-  )
+  const liveTool = isGenerating
+    ? pendingTools.find(
+        (tool) =>
+          tool.status === "running" &&
+          tool.tool !== "sessions_spawn" &&
+          tool.tool !== "subagents" &&
+          tool.tool !== "sessions_yield"
+      )
+    : undefined
   const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
   const liveToolText = liveTool
     ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`

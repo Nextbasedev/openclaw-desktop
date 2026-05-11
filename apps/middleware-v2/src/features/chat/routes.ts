@@ -25,6 +25,15 @@ function objectData(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function isTerminalSendStatus(status: unknown) {
+  return typeof status === "string" && ["done", "complete", "completed", "success", "succeeded", "finished"].includes(status.trim().toLowerCase());
+}
+
+function gatewaySendCompleted(result: Record<string, unknown>, history: ChatHistoryResponse | null) {
+  if (isTerminalSendStatus(result.status) || isTerminalSendStatus(history?.status)) return true;
+  return Boolean(history?.messages?.some((message) => objectData(message).role === "assistant"));
+}
+
 const sendBody = z.object({
   sessionKey: z.string().min(1),
   text: z.string().optional(),
@@ -168,34 +177,63 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
             }, input.timeoutMs || 130_000);
 
-            const doneEvent = context.messages.appendProjectionEvent({
+            const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
               sessionKey: input.sessionKey,
-              eventType: "chat.status",
-              payload: {
+              limit: 200,
+            }).catch(() => null);
+            if (history?.messages?.length) {
+              const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
+              const projection = context.messages.upsertMessages(normalized);
+              for (const projected of projection.changedMessages) {
+                const historyEvent = context.messages.appendProjectionEvent({
+                  sessionKey: input.sessionKey,
+                  eventType: "chat.message.upsert",
+                  payload: {
+                    sessionKey: input.sessionKey,
+                    message: projected.data,
+                    messageSeq: projected.openclawSeq,
+                  },
+                });
+                context.patchBus.broadcast({
+                  cursor: historyEvent.cursor,
+                  type: historyEvent.eventType,
+                  sessionKey: historyEvent.sessionKey,
+                  payload: historyEvent.payload,
+                  createdAtMs: historyEvent.createdAtMs,
+                });
+              }
+            }
+
+            if (gatewaySendCompleted(result, history)) {
+              const doneEvent = context.messages.appendProjectionEvent({
                 sessionKey: input.sessionKey,
-                status: "done",
-                statusLabel: null,
-                idempotencyKey: input.idempotencyKey,
-              },
-            });
-            context.messages.upsertSession({
-              sessionKey: input.sessionKey,
-              sessionId: existingSession?.sessionId ?? null,
-              data: {
-                ...objectData(context.messages.getSession(input.sessionKey)?.data),
+                eventType: "chat.status",
+                payload: {
+                  sessionKey: input.sessionKey,
+                  status: "done",
+                  statusLabel: null,
+                  idempotencyKey: input.idempotencyKey,
+                },
+              });
+              context.messages.upsertSession({
                 sessionKey: input.sessionKey,
                 sessionId: existingSession?.sessionId ?? null,
-                status: "done",
-                statusLabel: null,
-              },
-            });
-            context.patchBus.broadcast({
-              cursor: doneEvent.cursor,
-              type: doneEvent.eventType,
-              sessionKey: doneEvent.sessionKey,
-              payload: doneEvent.payload,
-              createdAtMs: doneEvent.createdAtMs,
-            });
+                data: {
+                  ...objectData(context.messages.getSession(input.sessionKey)?.data),
+                  sessionKey: input.sessionKey,
+                  sessionId: existingSession?.sessionId ?? null,
+                  status: "done",
+                  statusLabel: null,
+                },
+              });
+              context.patchBus.broadcast({
+                cursor: doneEvent.cursor,
+                type: doneEvent.eventType,
+                sessionKey: doneEvent.sessionKey,
+                payload: doneEvent.payload,
+                createdAtMs: doneEvent.createdAtMs,
+              });
+            }
 
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {

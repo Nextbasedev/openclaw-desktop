@@ -71,7 +71,7 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       history: {
         ...(cached.history ?? {}),
         messages: state.messages,
-        sessionStatus: ACTIVE_STATUSES.has(state.status) ? "running" : cached.history?.sessionStatus,
+        sessionStatus: ACTIVE_STATUSES.has(state.status) ? "running" : state.status,
       },
       branchData: cached.branchData ?? { branches: [] },
       v2Cursor: Math.max(cached.v2Cursor ?? 0, state.cursor),
@@ -200,6 +200,22 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
   return true
 }
 
+function finalizeActiveToolsForTerminalStatus(state: SessionState, status: StreamStatus) {
+  if (status !== "done" && status !== "error") return
+  state.pendingTools = state.pendingTools.map((tool) => {
+    if (tool.status !== "running") return tool
+    return {
+      ...tool,
+      status: status === "error" ? "error" : "success",
+      resultText:
+        tool.resultText ??
+        (status === "error"
+          ? "Run ended before this tool reported a result."
+          : tool.resultText),
+    }
+  })
+}
+
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   if (applyToolResultFromPatch(state, frame)) return
   const message = patchMessage(frame)
@@ -268,6 +284,7 @@ function handlePatch(frame: PatchFrame) {
   if (patchStatus) {
     state.status = patchStatus.status
     state.statusLabel = patchStatus.label
+    finalizeActiveToolsForTerminalStatus(state, patchStatus.status)
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
     state.status = "thinking"
     state.statusLabel = "Thinking"
@@ -311,6 +328,7 @@ export function seedGlobalChatSession(params: {
   if (params.status) state.status = params.status
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.pendingTools) state.pendingTools = params.pendingTools
+  if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
   if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
   globalCursor = Math.max(globalCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)
@@ -329,6 +347,7 @@ export function updateGlobalChatSessionActivity(params: {
   if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
   if (params.status) state.status = params.status
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
+  if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
   notify(params.sessionKey)
 }
 
