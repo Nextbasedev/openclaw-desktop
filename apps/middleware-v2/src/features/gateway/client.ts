@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
 import type { MiddlewareV2Config } from "../../config/env.js";
+import { createLogger, errorMeta, safeUrlForLog } from "../../lib/logger.js";
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 const PROTOCOL_VERSION = 3;
@@ -67,6 +68,30 @@ function authPayload(params: { deviceId: string; scopes: string[]; signedAt: num
     normalize(CLIENT.platform),
     "",
   ].join("|");
+}
+
+function summarizeGatewayParams(params: Record<string, unknown>) {
+  return {
+    sessionKey: typeof params.sessionKey === "string" ? params.sessionKey : typeof params.key === "string" ? params.key : undefined,
+    hasMessage: typeof params.message === "string" && params.message.length > 0,
+    idempotencyKey: typeof params.idempotencyKey === "string" ? params.idempotencyKey : undefined,
+    limit: typeof params.limit === "number" ? params.limit : undefined,
+    timeoutMs: typeof params.timeoutMs === "number" ? params.timeoutMs : undefined,
+    attachmentCount: Array.isArray(params.attachments) ? params.attachments.length : undefined,
+  };
+}
+
+function summarizeGatewayPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return { type: typeof payload };
+  const record = payload as Record<string, unknown>;
+  return {
+    ok: record.ok,
+    status: typeof record.status === "string" ? record.status : undefined,
+    runId: typeof record.runId === "string" ? record.runId : undefined,
+    sessionKey: typeof record.sessionKey === "string" ? record.sessionKey : undefined,
+    sessionId: typeof record.sessionId === "string" ? record.sessionId : undefined,
+    messageCount: Array.isArray(record.messages) ? record.messages.length : undefined,
+  };
 }
 
 async function readConfigFile() {
@@ -136,6 +161,7 @@ export class GatewayClient {
   private connecting: Promise<void> | null = null;
   private lastError: string | null = null;
   private connectedAtMs: number | null = null;
+  private readonly log = createLogger("gateway");
 
   constructor(private readonly config: MiddlewareV2Config) {}
 
@@ -153,33 +179,62 @@ export class GatewayClient {
   async connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return;
     if (this.connecting) return this.connecting;
-    this.connecting = this.connectOnce().finally(() => { this.connecting = null; });
+    this.log.info("connect.start", { gatewayUrl: safeUrlForLog(this.config.openclawGatewayUrl) });
+    this.connecting = this.connectOnce()
+      .then(() => { this.log.info("connect.end", { connected: true, pendingRequests: this.pending.size }); })
+      .catch((error) => {
+        this.lastError = error instanceof Error ? error.message : String(error);
+        this.log.error("connect.fail", errorMeta(error));
+        throw error;
+      })
+      .finally(() => { this.connecting = null; });
     return this.connecting;
   }
 
   async reconnect() {
-    this.close();
+    this.log.warn("reconnect.start", { connected: this.ws?.readyState === WebSocket.OPEN, pendingRequests: this.pending.size });
+    this.close("reconnect");
     await this.connect();
+    this.log.info("reconnect.end", { connected: this.ws?.readyState === WebSocket.OPEN });
   }
 
   async request<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 30_000): Promise<T> {
+    const startedAt = Date.now();
     await this.connect();
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error("Gateway websocket is not open");
     const id = crypto.randomUUID();
+    this.log.info("request.start", {
+      requestId: id,
+      method,
+      timeoutMs,
+      pendingRequests: this.pending.size,
+      params: summarizeGatewayParams(params),
+    });
     return new Promise<T>((resolve, reject) => {
+      const fail = (error: unknown) => {
+        this.log.error("request.fail", { requestId: id, method, durationMs: Date.now() - startedAt, ...errorMeta(error) });
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`timeout waiting for ${method}`));
+        fail(new Error(`timeout waiting for ${method}`));
       }, timeoutMs);
       this.pending.set(id, {
         timer,
-        reject,
+        reject: fail,
         resolve: (response) => {
           if (!response.ok) {
-            reject(new Error(response.error?.message ?? `${method} failed`));
+            fail(new Error(response.error?.message ?? `${method} failed`));
             return;
           }
+          this.log.info("request.end", {
+            requestId: id,
+            method,
+            durationMs: Date.now() - startedAt,
+            pendingRequests: this.pending.size,
+            payload: summarizeGatewayPayload(response.payload),
+          });
           resolve(response.payload as T);
         },
       });
@@ -192,9 +247,10 @@ export class GatewayClient {
     return () => this.listeners.delete(listener);
   }
 
-  close() {
+  close(reason = "close") {
     const ws = this.ws;
     this.ws = null;
+    this.log.info("disconnect", { reason, hadSocket: Boolean(ws), pendingRequests: this.pending.size });
     if (ws) {
       ws.off("message", this.handleMessage);
       ws.off("close", this.handleDisconnect);
@@ -216,11 +272,14 @@ export class GatewayClient {
     if (!token) throw new Error("OpenClaw gateway token is missing");
     const identity = await readIdentity();
     const ws = new WebSocket(gatewayUrl);
+    this.log.info("socket.open.start", { gatewayUrl: safeUrlForLog(gatewayUrl) });
     await waitOpen(ws);
+    this.log.info("socket.open.end", { gatewayUrl: safeUrlForLog(gatewayUrl) });
     const challenge = await waitFor(ws, (message) => message.type === "event" && message.event === "connect.challenge", "connect.challenge");
     const payload = (challenge as GatewayEvent).payload as { nonce?: string } | undefined;
     const nonce = payload?.nonce;
     if (!nonce) throw new Error("Gateway connect.challenge missing nonce");
+    this.log.info("auth.challenge", { hasNonce: true });
     const signedAt = Date.now();
     const scopes = DEFAULT_SCOPES;
     const signature = sign(identity.privateKeyPem, authPayload({ deviceId: identity.deviceId, scopes, signedAt, token, nonce }));
@@ -253,6 +312,7 @@ export class GatewayClient {
     this.ws = ws;
     this.connectedAtMs = Date.now();
     this.lastError = null;
+    this.log.info("auth.connected", { connectedAtMs: this.connectedAtMs, listenerCount: this.listeners.size });
   }
 
   private handleMessage = (raw: WebSocket.RawData) => {
@@ -273,6 +333,7 @@ export class GatewayClient {
 
   private handleDisconnect = (error?: Error) => {
     this.lastError = error?.message ?? "Gateway disconnected";
-    this.close();
+    this.log.warn("socket.disconnect", { ...errorMeta(error ?? new Error("Gateway disconnected")), pendingRequests: this.pending.size });
+    this.close("socket-disconnect");
   };
 }
