@@ -1344,22 +1344,15 @@ export function ChatView({
             {!isAtBottom && (
               <motion.button
                 type="button"
-                initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                initial={{ opacity: 0, y: 10, scale: 0.92 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                exit={{ opacity: 0, y: 10, scale: 0.92 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                 onClick={jumpToBottom}
-                className="group fixed right-6 bottom-28 z-30 flex h-11 items-center gap-2 rounded-full border border-violet-300/40 bg-gradient-to-r from-violet-500/95 via-indigo-500/95 to-sky-500/95 px-4 text-sm font-medium text-white shadow-[0_16px_40px_rgba(88,80,236,0.36)] ring-1 ring-white/15 backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-white/60 hover:shadow-[0_20px_52px_rgba(88,80,236,0.46)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-200/70"
+                className="group fixed right-6 bottom-28 z-30 flex size-10 items-center justify-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-1 ring-white/10 backdrop-blur-xl transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-border hover:bg-muted/95 hover:shadow-[0_14px_36px_rgba(0,0,0,0.34)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 aria-label="Jump to latest message"
               >
-                <LuArrowDown className="size-4 shrink-0 transition-transform group-hover:translate-y-0.5" />
-                <span>Latest</span>
-                {isGenerating && (
-                  <span
-                    className="ml-0.5 size-2 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.95)] animate-pulse"
-                    aria-hidden="true"
-                  />
-                )}
+                <LuArrowDown className="size-4 transition-transform group-hover:translate-y-0.5" />
               </motion.button>
             )}
           </AnimatePresence>
