@@ -237,6 +237,11 @@ function rawToChatMessage(
   raw: RawMessage,
   fallbackRole: "user" | "assistant"
 ): ChatMessage {
+  const createdAt =
+    raw.createdAt ??
+    (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)
+      ? new Date(raw.timestamp).toISOString()
+      : undefined)
   return {
     messageId: raw.id ?? raw.messageId ?? randomId(),
     role:
@@ -246,7 +251,7 @@ function rawToChatMessage(
           ? "assistant"
           : fallbackRole,
     text: raw.text || extractText(raw.content),
-    createdAt: raw.createdAt,
+    createdAt,
     model: raw.model,
     usage: raw.usage ?? null,
     stopReason: raw.stopReason ?? null,
