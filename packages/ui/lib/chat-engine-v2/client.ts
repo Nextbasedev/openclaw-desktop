@@ -1,6 +1,6 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
 
-const DEFAULT_V2_URL = "http://127.0.0.1:8999"
+const DEFAULT_V2_URL = "http://127.0.0.1:8989"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
 
 function trimTrailingSlash(value: string) {
@@ -18,7 +18,7 @@ function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
     const url = new URL(rawUrl)
     if (!isLoopbackHost(url.hostname)) return rawUrl
     url.hostname = window.location.hostname
-    url.port = "8999"
+    url.port = "8989"
     return url.toString()
   } catch {
     return rawUrl
