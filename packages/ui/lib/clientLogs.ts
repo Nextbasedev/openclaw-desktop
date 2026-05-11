@@ -73,6 +73,8 @@ function isSensitiveKey(key: string) {
     lower === "authorization" ||
     lower === "cookie" ||
     lower === "set-cookie" ||
+    lower.startsWith("tauri-") ||
+    lower.includes("invoke-key") ||
     lower === "x-api-key" ||
     lower === "api-key" ||
     lower === "password" ||
