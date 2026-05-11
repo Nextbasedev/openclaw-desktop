@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { useQueryClient } from "@tanstack/react-query"
+import { flushSync } from "react-dom"
 import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import {
   inferRestoredChatStatus,
@@ -1806,8 +1807,10 @@ export function useChatMessages(
         isGenerating && payload.runWhileGenerating
       )
       sendingGuardRef.current = true
-      setIsSending(true)
-      setErrorMessage(null)
+      flushSync(() => {
+        setIsSending(true)
+        setErrorMessage(null)
+      })
       const optimisticId = retryMessageId ?? randomId()
       if (!runsAlongsideGeneration) {
         pendingToolMapRef.current.clear()
@@ -1861,22 +1864,24 @@ export function useChatMessages(
         ...messagesRef.current.filter((m) => m.messageId !== optimisticId),
         optimisticMessage,
       ])
-      setMessages(optimisticMessages)
-      seedGlobalChatSession({
-        sessionKey,
-        messages: optimisticMessages,
-        cursor: v2CursorRef.current,
-        status: runsAlongsideGeneration ? statusRef.current : "thinking",
-        statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
-        pendingTools: Array.from(pendingToolMapRef.current.values()),
-        spawnedSubagents: Array.from(spawnMapRef.current.values()),
-        queryClient,
+      flushSync(() => {
+        setMessages(optimisticMessages)
+        seedGlobalChatSession({
+          sessionKey,
+          messages: optimisticMessages,
+          cursor: v2CursorRef.current,
+          status: runsAlongsideGeneration ? statusRef.current : "thinking",
+          statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
+          pendingTools: Array.from(pendingToolMapRef.current.values()),
+          spawnedSubagents: Array.from(spawnMapRef.current.values()),
+          queryClient,
+        })
+        if (!runsAlongsideGeneration) {
+          markOptimisticChatActivity(sessionKey)
+          setStatus("thinking")
+          setStatusLabel("Thinking")
+        }
       })
-      if (!runsAlongsideGeneration) {
-        markOptimisticChatActivity(sessionKey)
-        setStatus("thinking")
-        setStatusLabel("Thinking")
-      }
       forceScrollToBottom(true)
       try {
         if (isGenerating && !payload.runWhileGenerating) {
