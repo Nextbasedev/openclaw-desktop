@@ -31,6 +31,7 @@ import * as version from "../services/version.service.js"
 import * as sandbox from "../services/sandbox.service.js"
 import * as pins from "../services/pins.service.js"
 import * as feedback from "../services/feedback.service.js"
+import * as search from "../services/search.service.js"
 
 type Handler = (input: Record<string, unknown>) => unknown | Promise<unknown>
 
@@ -161,6 +162,10 @@ export const commandRegistry: Record<string, Handler> = {
   middleware_chats_delete: (i) => chats.chatsDelete(i as { chatId: string }),
   middleware_chats_attach_session: (i) => chats.chatsAttachSession(i as { chatId: string; sessionKey: string }),
   middleware_chats_update_activity: (i) => chats.chatsUpdateActivity(i as { chatId: string }),
+
+  // Search
+  middleware_search_global: (i) => search.searchGlobal(i as { query: string; limit?: number }),
+  middleware_search_backfill: (i) => search.searchBackfill(i as { query?: string; limit?: number } | undefined),
 
   // Spaces
   middleware_spaces_list: () => spaces.spacesList(),
