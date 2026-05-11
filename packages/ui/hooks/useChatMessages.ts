@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { dedupeRequest } from "@/lib/requestDedupe"
 import { inferRestoredChatStatus, statusFromBackendSession } from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
-import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
+import { dedupeChatMessages, mergeAssistantText, sameUserMessage } from "@/lib/chatMessageDedupe"
 import {
   cacheChatActivity,
   clearCachedChatActivity,
@@ -1047,7 +1047,7 @@ export function useChatMessages(
                       : m
                   )
                 }
-                const merged = lastTrimmed + "\n\n" + text
+                const merged = mergeAssistantText(lastTrimmed, text)
                 return withoutLiveToolPlaceholder.map((m) =>
                   m.messageId === lastAssistant.messageId
                     ? {
@@ -1382,9 +1382,7 @@ export function useChatMessages(
             if (lastEntry?.role === "assistant") {
               lastEntry.gatewayIndex = rawIdx
               if (text) {
-                lastEntry.text = lastEntry.text
-                  ? lastEntry.text + "\n\n" + text
-                  : text
+                lastEntry.text = mergeAssistantText(lastEntry.text, text)
                 lastEntry.messageId = id
                 lastEntry.createdAt = createdAtFromRawMessage(m) || lastEntry.createdAt
                 lastEntry.model = m.model ?? lastEntry.model

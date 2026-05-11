@@ -8,6 +8,7 @@ import type {
 } from "../components/ChatView/types"
 import { extractText } from "../components/ChatView/utils"
 import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagentSession"
+import { mergeAssistantText } from "./chatMessageDedupe"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
 
@@ -428,7 +429,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       if (text || pendingToolCalls.length > 0) {
         const last = messages.at(-1)
         if (last?.role === "assistant") {
-          if (text) last.text = last.text ? `${last.text}\n\n${text}` : text
+          if (text) last.text = mergeAssistantText(last.text, text)
           last.toolCalls = [...(last.toolCalls ?? []), ...pendingToolCalls]
           last.messageId = messageId(item)
           last.createdAt = createdAtIso(item) ?? last.createdAt

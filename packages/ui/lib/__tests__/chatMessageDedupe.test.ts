@@ -51,4 +51,36 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(1)
     expect(messages[0].messageId).toBe("history-user")
   })
+
+  it("merges duplicate assistant partial text without repeating the first word", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "partial", role: "assistant", text: "NO_REPLY\n\nMerged" },
+      { messageId: "final", role: "assistant", text: "Merged `fix/new-bugs` into `main` and pushed." },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe("Merged `fix/new-bugs` into `main` and pushed.")
+  })
+
+  it("merges duplicate assistant tool sections by tool id", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "tools-a",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "read-1", tool: "read", status: "success" }],
+      },
+      {
+        messageId: "tools-b",
+        role: "assistant",
+        text: "Done",
+        toolCalls: [{ id: "read-1", tool: "read", status: "success", duration: "0.5s" }],
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe("Done")
+    expect(messages[0].toolCalls).toHaveLength(1)
+    expect(messages[0].toolCalls?.[0].duration).toBe("0.5s")
+  })
 })
