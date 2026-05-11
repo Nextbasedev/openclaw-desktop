@@ -228,6 +228,51 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("confirms and replaces optimistic user when gateway history echoes the sent message", async () => {
+    const app = await createApp(config("send-history-confirms-optimistic"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "r1", status: "done" };
+      if (method === "chat.history") return {
+        sessionKey: "s1",
+        messages: [
+          { role: "user", text: "> prior\n\nhello", __openclaw: { id: "gateway-user-1", seq: 1 } },
+          { role: "assistant", text: "world", __openclaw: { id: "a1", seq: 2 } },
+        ],
+      };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+
+    expect(send.statusCode).toBe(200);
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.confirmed",
+        payload: expect.objectContaining({
+          optimisticId: "client-ui-1",
+          message: expect.objectContaining({ role: "user", text: "> prior\n\nhello" }),
+        }),
+      }),
+    ]));
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    const messages = bootstrap.json().messages as Array<{ role: string; text?: string }>;
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(messages).toMatchObject([
+      { role: "user", text: "> prior\n\nhello" },
+      { role: "assistant", text: "world" },
+    ]);
+    await app.close();
+  });
+
   test("bootstrap preserves projected running session status for refresh recovery", async () => {
     const app = await createApp(config("bootstrap-status"));
     const context = contextOf(app);

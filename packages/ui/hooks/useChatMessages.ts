@@ -1662,24 +1662,37 @@ export function useChatMessages(
           }))
         )
       }
-      setMessages((prev) => [
-        ...prev.filter((m) => m.messageId !== optimisticId),
-        {
-          messageId: optimisticId,
-          role: "user" as const,
-          text: trimmed,
-          createdAt: new Date().toISOString(),
-          isOptimistic: true,
-          sendStatus: "sending",
-          sendError: null,
-          retryPayload: payload,
-          replyTo,
-          attachments: messageAttachments,
-        },
+      const optimisticMessage: ChatMessage = {
+        messageId: optimisticId,
+        role: "user" as const,
+        text: trimmed,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true,
+        sendStatus: "sending",
+        sendError: null,
+        retryPayload: payload,
+        replyTo,
+        attachments: messageAttachments,
+      }
+      const optimisticMessages = dedupeChatMessages([
+        ...messagesRef.current.filter((m) => m.messageId !== optimisticId),
+        optimisticMessage,
       ])
+      setMessages(optimisticMessages)
+      seedGlobalChatSession({
+        sessionKey,
+        messages: optimisticMessages,
+        cursor: v2CursorRef.current,
+        status: runsAlongsideGeneration ? statusRef.current : "thinking",
+        statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
+        pendingTools: Array.from(pendingToolMapRef.current.values()),
+        spawnedSubagents: Array.from(spawnMapRef.current.values()),
+        queryClient,
+      })
       if (!runsAlongsideGeneration) {
         markOptimisticChatActivity(sessionKey)
         setStatus("thinking")
+        setStatusLabel("Thinking")
       }
       forceScrollToBottom(true)
       try {
