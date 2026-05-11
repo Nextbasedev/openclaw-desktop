@@ -93,6 +93,20 @@ function rejectsStaleConfirmedUser(state: ApplyPatchState, optimisticId: string 
   return !userTextMatchesSent(confirmed.text, existing.text)
 }
 
+function matchingUserIdsAtGatewayIndex(state: ApplyPatchState, normalized: ChatMessage[], messageSeq: number | undefined): string[] {
+  if (typeof messageSeq !== "number") return []
+  const incomingUser = normalized.find((item) => item.role === "user")
+  if (!incomingUser) return []
+  return state.messages
+    .filter((item) =>
+      item.role === "user" &&
+      item.gatewayIndex === messageSeq &&
+      item.messageId !== incomingUser.messageId &&
+      userTextMatchesSent(item.text, incomingUser.text)
+    )
+    .map((item) => item.messageId)
+}
+
 const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting"])
 const VALID_STATUSES = new Set<StreamStatus>(["idle", "connected", "queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting", "done", "error"])
 
@@ -141,7 +155,7 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   const canonicalMessageId = typeof payload?.messageId === "string" && payload.messageId.trim() ? payload.messageId : optimisticId
   const messageSeq = patchMessageSeq(frame)
   const withSeq = typeof messageSeq === "number"
-    ? parsed.map((item) => ({ ...item, gatewayIndex: item.gatewayIndex ?? messageSeq }))
+    ? parsed.map((item) => ({ ...item, gatewayIndex: messageSeq }))
     : parsed
   const normalized = canonicalMessageId
     ? withSeq.map((item) => item.role === "user" ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null } : item)
@@ -149,7 +163,11 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
   }
-  const idsToReplace = new Set([optimisticId, canonicalMessageId].filter((id): id is string => Boolean(id)))
+  const idsToReplace = new Set([
+    optimisticId,
+    canonicalMessageId,
+    ...matchingUserIdsAtGatewayIndex(state, normalized, messageSeq),
+  ].filter((id): id is string => Boolean(id)))
   const baseMessages = idsToReplace.size > 0
     ? state.messages.filter((item) => !idsToReplace.has(item.messageId))
     : state.messages
