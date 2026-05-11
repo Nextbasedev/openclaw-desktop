@@ -445,6 +445,16 @@ function handlePatch(frame: PatchFrame) {
     return
   }
   const state = getOrCreate(sessionKey)
+  if (frame.patch.cursor <= state.cursor) {
+    globalCursor = Math.max(globalCursor, state.cursor, frame.patch.cursor)
+    frontendLog("stream", "global-chat-session.patch-stale-skip", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      stateCursor: state.cursor,
+      patchType: frame.patch.type,
+    }, "debug")
+    return
+  }
   globalCursor = Math.max(globalCursor, frame.patch.cursor)
   const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
@@ -501,6 +511,9 @@ export function ensureGlobalChatEngine(queryClient?: QueryClient) {
   if (!sweepInterval && typeof window !== "undefined") {
     sweepInterval = setInterval(() => sweepStaleGlobalChatSessions(), 60_000)
     frontendLog("session", "global-chat-engine.sweep.start", { intervalMs: 60_000 }, "debug")
+  }
+  for (const state of states.values()) {
+    globalCursor = Math.max(globalCursor, state.cursor)
   }
   if (unsubscribeStream) return
   frontendLog("stream", "global-chat-engine.connect.start", { afterCursor: globalCursor })

@@ -16,6 +16,32 @@ vi.mock("../client", () => ({
 afterEach(() => clearGlobalChatEngineForTests())
 
 describe("global V2 chat engine store", () => {
+  test("skips replay patches older than seeded bootstrap cursor", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 100,
+      status: "done",
+      messages: [{ messageId: "existing", role: "assistant", text: "already loaded" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 50,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 50,
+        payload: { runStatus: "thinking", statusLabel: "Thinking", message: { role: "user", text: "old replay" } },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      cursor: 100,
+      status: "done",
+      messages: [{ messageId: "existing", text: "already loaded" }],
+    })
+  })
+
   test("retains session messages while no ChatView subscriber is mounted", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
