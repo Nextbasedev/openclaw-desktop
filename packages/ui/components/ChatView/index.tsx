@@ -357,6 +357,7 @@ export function ChatView({
   const messageContentRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(messages.length)
   const suppressResizeFollowUntilRef = useRef(0)
+  const suppressToolInteractionFollowUntilRef = useRef(0)
   const initialScrollDoneRef = useRef(false)
   const lastAppliedHighlightRef = useRef<string | null>(null)
 
@@ -834,6 +835,10 @@ export function ChatView({
     if (activePopoverId) setActivePopoverId(null)
   }, [onScroll, activePopoverId])
 
+  const suppressToolInteractionFollow = useCallback(() => {
+    suppressToolInteractionFollowUntilRef.current = Date.now() + 700
+  }, [])
+
   useEffect(() => {
     const previousCount = previousMessageCountRef.current
     previousMessageCountRef.current = messages.length
@@ -866,6 +871,10 @@ export function ChatView({
           el.scrollHeight - el.scrollTop - el.clientHeight
         const shouldLetSmoothSendScrollFinish =
           Date.now() < suppressResizeFollowUntilRef.current
+        const shouldPreserveToolInteractionScroll =
+          Date.now() < suppressToolInteractionFollowUntilRef.current
+
+        if (shouldPreserveToolInteractionScroll) return
 
         if (!initialScrollDoneRef.current) {
           el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
@@ -874,18 +883,16 @@ export function ChatView({
         }
 
         if (isSending || shouldLetSmoothSendScrollFinish) {
-          el.scrollTo({
-            top: el.scrollHeight,
-            behavior: "smooth",
-          })
+          jumpToBottom()
           return
         }
 
         if (isGenerating || distanceFromBottom < 260) {
-          el.scrollTo({
-            top: el.scrollHeight,
-            behavior: distanceFromBottom < 80 ? "auto" : "smooth",
-          })
+          if (distanceFromBottom < 80) {
+            el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+            return
+          }
+          jumpToBottom()
         }
       })
     })
@@ -896,7 +903,7 @@ export function ChatView({
       if (frame !== null) cancelAnimationFrame(frame)
       observer.disconnect()
     }
-  }, [isSending, isGenerating, scrollContainerRef])
+  }, [isSending, isGenerating, scrollContainerRef, jumpToBottom])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1034,13 +1041,15 @@ export function ChatView({
     )
   }
 
-  const liveTool = pendingTools.find(
-    (tool) =>
-      tool.status === "running" &&
-      tool.tool !== "sessions_spawn" &&
-      tool.tool !== "subagents" &&
-      tool.tool !== "sessions_yield"
-  )
+  const liveTool = isGenerating
+    ? pendingTools.find(
+        (tool) =>
+          tool.status === "running" &&
+          tool.tool !== "sessions_spawn" &&
+          tool.tool !== "subagents" &&
+          tool.tool !== "sessions_yield"
+      )
+    : undefined
   const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
   const liveToolText = liveTool
     ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
@@ -1111,6 +1120,14 @@ export function ChatView({
           modelSwitching={modelSwitching}
           glowOnMount
         />
+        {statusText && (
+          <div className="flex items-center pl-1">
+            <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+              {statusText.replace(/\.{3}$/, "")}
+              <span className="thinking-ellipsis" aria-hidden="true" />
+            </span>
+          </div>
+        )}
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
             <p className="text-sm text-red-400">
@@ -1313,6 +1330,7 @@ export function ChatView({
                           tools={filteredToolCalls}
                           defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
                           onSelectTool={onSelectTool}
+                          onInteract={suppressToolInteractionFollow}
                           onResolveApproval={resolveExecApproval}
                         />
                       </div>
@@ -1379,6 +1397,7 @@ export function ChatView({
                         tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
+                        onInteract={suppressToolInteractionFollow}
                         onResolveApproval={resolveExecApproval}
                       />
                     </div>
@@ -1415,35 +1434,27 @@ export function ChatView({
             </div>
           )}
 
+
+          <div ref={bottomRef} className="h-8" />
+        </div>
+
+        <div className="sticky bottom-4 z-30 flex justify-end px-4 pb-4 pointer-events-none">
           <AnimatePresence initial={false}>
             {!isAtBottom && (
               <motion.button
                 type="button"
-                initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
                 onClick={jumpToBottom}
-                className="group fixed right-6 bottom-28 z-30 flex size-10 items-center justify-center rounded-full border border-border/40 bg-card/95 text-muted-foreground shadow-[0_12px_36px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-border/70 hover:text-foreground"
-                aria-label="Scroll to bottom"
+                className="pointer-events-auto grid size-10 place-items-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-1 ring-white/10 backdrop-blur-xl transition-[border-color,background-color,box-shadow] hover:border-border hover:bg-muted/95 hover:shadow-[0_12px_32px_rgba(0,0,0,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                aria-label="Jump to latest message"
               >
-                <span className={cn(
-                  "absolute inset-0 flex items-center justify-center transition-all duration-150",
-                  isGenerating ? "opacity-100 scale-100 group-hover:opacity-0 group-hover:scale-75" : "opacity-0 scale-75",
-                )}>
-                  <TypingDots />
-                </span>
-                <LuArrowDown
-                  className={cn(
-                    "size-4 transition-all duration-150",
-                    isGenerating ? "opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100" : "opacity-100 scale-100",
-                  )}
-                />
+                <LuArrowDown className="block size-4 shrink-0" strokeWidth={2.25} />
               </motion.button>
             )}
           </AnimatePresence>
-
-          <div ref={bottomRef} className="h-8" />
         </div>
       </div>
 
