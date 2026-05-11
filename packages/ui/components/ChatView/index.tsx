@@ -1051,6 +1051,14 @@ export function ChatView({
           modelSwitching={modelSwitching}
           glowOnMount
         />
+        {statusText && (
+          <div className="flex items-center pl-1">
+            <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+              {statusText.replace(/\.{3}$/, "")}
+              <span className="thinking-ellipsis" aria-hidden="true" />
+            </span>
+          </div>
+        )}
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
             <p className="text-sm text-red-400">
@@ -1353,6 +1361,11 @@ export function ChatView({
             </div>
           )}
 
+
+          <div ref={bottomRef} className="h-8" />
+        </div>
+
+        <div className="sticky bottom-4 z-30 flex justify-end px-4 pb-4 pointer-events-none">
           <AnimatePresence initial={false}>
             {!isAtBottom && (
               <motion.button
@@ -1362,15 +1375,13 @@ export function ChatView({
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
                 onClick={jumpToBottom}
-                className="fixed right-6 bottom-28 z-30 grid size-10 place-items-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-1 ring-white/10 backdrop-blur-xl transition-[border-color,background-color,box-shadow] hover:border-border hover:bg-muted/95 hover:shadow-[0_12px_32px_rgba(0,0,0,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                className="pointer-events-auto grid size-10 place-items-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-1 ring-white/10 backdrop-blur-xl transition-[border-color,background-color,box-shadow] hover:border-border hover:bg-muted/95 hover:shadow-[0_12px_32px_rgba(0,0,0,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 aria-label="Jump to latest message"
               >
                 <LuArrowDown className="block size-4 shrink-0" strokeWidth={2.25} />
               </motion.button>
             )}
           </AnimatePresence>
-
-          <div ref={bottomRef} className="h-8" />
         </div>
       </div>
 
