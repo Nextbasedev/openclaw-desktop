@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { activeChatStreamCount, subscribeChatStream } from "../chatStream"
+import {
+  activeChatStreamCount,
+  CHAT_STREAM_CLOSE_GRACE_MS,
+  subscribeChatStream,
+} from "../chatStream"
 import {
   clearChatSessionStoreForTests,
   publishChatSessionMessages,
@@ -58,7 +62,7 @@ describe("chat tab load characteristics", () => {
     expect(MockEventSource.instances[0].closed).toBe(false)
 
     unsubscribers[2]()
-    vi.advanceTimersByTime(300)
+    vi.advanceTimersByTime(CHAT_STREAM_CLOSE_GRACE_MS)
     expect(MockEventSource.instances[0].closed).toBe(true)
     expect(activeChatStreamCount()).toBe(0)
   })

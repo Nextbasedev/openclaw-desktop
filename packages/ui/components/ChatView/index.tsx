@@ -338,6 +338,7 @@ export function ChatView({
   const messageContentRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(messages.length)
   const suppressResizeFollowUntilRef = useRef(0)
+  const suppressToolInteractionFollowUntilRef = useRef(0)
   const initialScrollDoneRef = useRef(false)
 
   const [dbPins, setDbPins] = useState<{
@@ -765,6 +766,10 @@ export function ChatView({
     if (activePopoverId) setActivePopoverId(null)
   }, [onScroll, activePopoverId])
 
+  const suppressToolInteractionFollow = useCallback(() => {
+    suppressToolInteractionFollowUntilRef.current = Date.now() + 700
+  }, [])
+
   useEffect(() => {
     const previousCount = previousMessageCountRef.current
     previousMessageCountRef.current = messages.length
@@ -797,6 +802,10 @@ export function ChatView({
           el.scrollHeight - el.scrollTop - el.clientHeight
         const shouldLetSmoothSendScrollFinish =
           Date.now() < suppressResizeFollowUntilRef.current
+        const shouldPreserveToolInteractionScroll =
+          Date.now() < suppressToolInteractionFollowUntilRef.current
+
+        if (shouldPreserveToolInteractionScroll) return
 
         if (!initialScrollDoneRef.current) {
           el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
@@ -965,13 +974,15 @@ export function ChatView({
     )
   }
 
-  const liveTool = pendingTools.find(
-    (tool) =>
-      tool.status === "running" &&
-      tool.tool !== "sessions_spawn" &&
-      tool.tool !== "subagents" &&
-      tool.tool !== "sessions_yield"
-  )
+  const liveTool = isGenerating
+    ? pendingTools.find(
+        (tool) =>
+          tool.status === "running" &&
+          tool.tool !== "sessions_spawn" &&
+          tool.tool !== "subagents" &&
+          tool.tool !== "sessions_yield"
+      )
+    : undefined
   const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
   const liveToolText = liveTool
     ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
@@ -1240,6 +1251,7 @@ export function ChatView({
                           tools={filteredToolCalls}
                           defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
                           onSelectTool={onSelectTool}
+                          onInteract={suppressToolInteractionFollow}
                           onResolveApproval={resolveExecApproval}
                         />
                       </div>
@@ -1306,6 +1318,7 @@ export function ChatView({
                         tools={filteredPending}
                         defaultOpen
                         onSelectTool={onSelectTool}
+                        onInteract={suppressToolInteractionFollow}
                         onResolveApproval={resolveExecApproval}
                       />
                     </div>

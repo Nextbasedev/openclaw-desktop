@@ -30,7 +30,7 @@ export function inferLiveToolStatus(
   resultText: string,
   isError?: unknown
 ): InlineToolCall["status"] {
-  if (phase === "error" || isError === true) return "error"
+  if (phase === "error" || phase === "failed" || isError === true) return "error"
   if (phase === "update") return "running"
   if (!resultText) return "success"
   try {
