@@ -177,7 +177,7 @@ describe("global V2 chat engine store", () => {
     })
   })
 
-  test("auto-finalizes thinking when assistant answer arrives without running tools", () => {
+  test("does not auto-finalize thinking from assistant text without canonical run status", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
       patch: {
@@ -201,7 +201,67 @@ describe("global V2 chat engine store", () => {
       },
     })
 
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking" })
+  })
+
+  test("canonical run status patch finalizes assistant answer without frontend inference", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: { semanticType: "chat.user.created", runStatus: "thinking", statusLabel: "Thinking", message: { role: "user", text: "hello", __openclaw: { id: "client-1" } } },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: { semanticType: "chat.assistant.final", runStatus: "done", statusLabel: null, message: { role: "assistant", text: "answer", __openclaw: { id: "a1" } } },
+      },
+    })
+
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
+  })
+
+  test("active run and canonical tool patch drive visible running/tool state", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      status: "tool_running",
+      statusLabel: "web_search",
+      pendingTools: [{ id: "tool-1", tool: "web_search", status: "running", startedAt: 100 }],
+    })
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "tool_running",
+      statusLabel: "web_search",
+      pendingTools: [{ id: "tool-1", tool: "web_search", status: "running" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "done",
+          statusLabel: null,
+          toolCall: { toolCallId: "tool-1", name: "web_search", status: "success", resultMeta: { count: 3 } },
+        },
+      },
+    })
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "done",
+      pendingTools: [{ id: "tool-1", tool: "web_search", status: "success" }],
+    })
   })
 
   test("does not complete genuinely running tools before final status", () => {

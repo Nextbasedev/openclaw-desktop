@@ -5,7 +5,7 @@ import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
-import { openPatchStreamV2, type PatchFrame, type StreamFrame } from "./client"
+import { openPatchStreamV2, type PatchFrame, type StreamFrame, type ToolCallProjectionV2 } from "./client"
 
 type SessionState = {
   cursor: number
@@ -77,9 +77,11 @@ function getOrCreate(sessionKey: string): SessionState {
 function cacheBootstrap(sessionKey: string, state: SessionState) {
   if (!queryClientRef || state.messages.length === 0) return
   queryClientRef.setQueryData(queryKeys.chatBootstrap(sessionKey), (existing: unknown) => {
-    const cached = existing && typeof existing === "object" ? existing as { history?: Record<string, unknown>; branchData?: unknown; v2Cursor?: number } : {}
+    const cached = existing && typeof existing === "object" ? existing as { history?: Record<string, unknown>; branchData?: unknown; v2Cursor?: number; source?: string; projectionVersion?: number; runStatus?: string; statusLabel?: string | null; tools?: InlineToolCall[] } : {}
     return {
       ...cached,
+      source: cached.source ?? "middleware-v2-projection",
+      projectionVersion: cached.projectionVersion ?? 3,
       history: {
         ...(cached.history ?? {}),
         messages: state.messages,
@@ -87,6 +89,9 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       },
       branchData: cached.branchData ?? { branches: [] },
       v2Cursor: Math.max(cached.v2Cursor ?? 0, state.cursor),
+      runStatus: state.status,
+      statusLabel: state.statusLabel,
+      tools: state.pendingTools,
     }
   })
 }
@@ -99,8 +104,23 @@ function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
     : null
 }
 
+function patchSemanticType(frame: PatchFrame): string {
+  const semanticType = patchPayload(frame)?.semanticType
+  return typeof semanticType === "string" && semanticType.trim() ? semanticType : frame.patch.type
+}
+
+function isMessagePatchType(type: string) {
+  return type === "chat.message.upsert" ||
+    type === "chat.message.confirmed" ||
+    type === "chat.user.created" ||
+    type === "chat.user.confirmed" ||
+    type === "chat.assistant.started" ||
+    type === "chat.assistant.delta" ||
+    type === "chat.assistant.final"
+}
+
 function patchMessage(frame: PatchFrame): Record<string, unknown> | null {
-  if (frame.patch.type !== "chat.message.upsert" && frame.patch.type !== "chat.message.confirmed") return null
+  if (!isMessagePatchType(frame.patch.type) && !isMessagePatchType(patchSemanticType(frame))) return null
   const message = patchPayload(frame)?.message
   return message && typeof message === "object" && !Array.isArray(message)
     ? (message as Record<string, unknown>)
@@ -228,7 +248,48 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
   })
 }
 
+function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | null {
+  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+    ? tool.toolCallId
+    : typeof tool.id === "string" && tool.id.trim()
+      ? tool.id
+      : null
+  if (!id) return null
+  const status = tool.status === "error" ? "error" : tool.status === "success" ? "success" : "running"
+  return {
+    id,
+    tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
+    status,
+    startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+    input: tool.argsMeta,
+    resultText: tool.resultMeta ? textFromUnknown(tool.resultMeta) : undefined,
+  }
+}
+
+function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
+  const payload = patchPayload(frame)
+  const tool = payload?.toolCall
+  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
+  const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
+  if (!inline) return false
+  const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
+  pending.set(inline.id, { ...(pending.get(inline.id) ?? inline), ...inline })
+  state.pendingTools = Array.from(pending.values())
+
+  if (inline.tool === "sessions_spawn") {
+    const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+    const existing = spawns.get(inline.id)
+    spawns.set(inline.id, {
+      ...(existing ?? { id: `spawn:${inline.id}`, label: "Sub-agent", task: undefined, sessionKey: null, toolCallId: inline.id }),
+      status: inline.status === "error" ? "failed" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
+    })
+    state.spawnedSubagents = Array.from(spawns.values())
+  }
+  return true
+}
+
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
+  if (applyCanonicalToolFromPatch(state, frame)) return
   if (applyToolResultFromPatch(state, frame)) return
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return
@@ -301,8 +362,10 @@ function hasAssistantAnswerAfterLatestUser(state: SessionState) {
 }
 
 function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
+  // Legacy/corrupt-stream fallback only. In the normal middleware-v2 contract,
+  // run completion is authoritative via canonical runStatus/chat.run.* patches.
   if (!ACTIVE_STATUSES.has(state.status)) return false
-  if (patchType !== "chat.message.upsert" && patchType !== "chat.message.confirmed") return false
+  if (patchType !== "legacy:assistant-answer-fallback") return false
   if (hasActiveToolOrSubagent(state)) return false
   if (!hasAssistantAnswerAfterLatestUser(state)) return false
   state.status = "done"
@@ -366,6 +429,8 @@ function handlePatch(frame: PatchFrame) {
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
     if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
     state.status = "thinking"
+    // Defensive fallback for pre-Phase-3 optimistic patches only; canonical
+    // middleware-v2 patches should carry runStatus/statusLabel explicitly.
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
@@ -373,7 +438,7 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
-  const autoFinalized = maybeFinalizeAnsweredRun(state, frame.patch.type)
+  const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
       sessionKey,
