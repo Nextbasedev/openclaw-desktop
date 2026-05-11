@@ -119,10 +119,18 @@ function normalizePatchStatus(value: unknown): StreamStatus | null {
 export function statusFromPatch(frame: PatchFrame): { status: StreamStatus; label: string | null } | null {
   const payload = patchPayload(frame)
   const semanticType = patchSemanticType(frame)
-  const hasCanonicalStatus = typeof payload?.runStatus === "string" || typeof payload?.activeRun === "object" || semanticType.startsWith("chat.run.")
-  if (frame.patch.type !== "chat.status" && frame.patch.type !== "session.status" && frame.patch.type !== "session.upsert" && !hasCanonicalStatus) return null
+  const isStatusPatch = frame.patch.type === "chat.status" || frame.patch.type === "session.status" || frame.patch.type === "session.upsert"
+  const activeRun = payload?.activeRun
+  const hasActiveRun = Boolean(activeRun && typeof activeRun === "object" && !Array.isArray(activeRun))
+  const hasCanonicalStatus = typeof payload?.runStatus === "string" || hasActiveRun || semanticType.startsWith("chat.run.")
+  if (!isStatusPatch && !hasCanonicalStatus) return null
   const status = normalizePatchStatus(payload?.runStatus ?? payload?.status)
   if (!status) return null
+  // Non-status message patches may carry projection defaults like runStatus:"idle"
+  // when they are plain Gateway echoes with no active/final run. Do not let
+  // those clear an actually active Thinking/Streaming UI state.
+  if (!isStatusPatch && !hasActiveRun && !semanticType.startsWith("chat.run.") && !semanticType.startsWith("chat.tool.") && status !== "done" && status !== "error") return null
+  if (!isStatusPatch && !hasActiveRun && status === "idle") return null
   const label = payload?.statusLabel ?? payload?.label ?? null
   return { status, label: typeof label === "string" ? label : null }
 }
