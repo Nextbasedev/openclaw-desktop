@@ -735,29 +735,9 @@ export function useAgentActivity(sessionKey: string | null) {
     resetVisibleState,
   ])
 
-  useEffect(() => {
-    if (!sessionKey || !historyLoaded) return
-    const streamIsLive =
-      streamStatus === "thinking" ||
-      streamStatus === "tool_running" ||
-      streamStatus === "streaming"
-    const hasRunningTools = toolCalls.some((call) => call.status === "running")
-    if (!streamIsLive && !hasRunningTools) return
-
-    const timer = window.setInterval(() => {
-      void refreshActivityFromHistory()
-    }, 1500)
-
-    return () => {
-      window.clearInterval(timer)
-    }
-  }, [
-    sessionKey,
-    historyLoaded,
-    streamStatus,
-    toolCalls,
-    refreshActivityFromHistory,
-  ])
+  // Do not poll full chat history while the activity panel is open. The live
+  // stream drives activity updates; history is only loaded on panel/session open
+  // and via targeted repair calls after terminal tool/subagent events.
 
   const tree = buildTree(toolCalls, streamStatus, agents)
   const isLive =
