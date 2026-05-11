@@ -122,6 +122,35 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(1)
   })
 
+  it("replaces optimistic user with later canonical echo when ids differ", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "optimistic",
+        role: "user",
+        text: "not fully awak",
+        createdAt: "2026-05-08T10:00:00.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      },
+      {
+        messageId: "gateway-user",
+        role: "user",
+        text: "not fully awak",
+        createdAt: "2026-05-08T10:00:01.000Z",
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      messageId: "gateway-user",
+      role: "user",
+      text: "not fully awak",
+      isOptimistic: false,
+      sendStatus: undefined,
+      sendError: null,
+    })
+  })
+
   it("does not reconcile optimistic user messages far from canonical history", () => {
     const messages = dedupeChatMessages([
       {

@@ -171,10 +171,31 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
       continue
     }
 
-    const duplicateUser = result.some((existing) =>
+    const duplicateUserIndex = result.findIndex((existing) =>
       sameUserMessage(existing, message)
     )
-    if (duplicateUser) continue
+    if (duplicateUserIndex >= 0) {
+      const existing = result[duplicateUserIndex]
+      const preferIncoming =
+        Boolean(existing.isOptimistic && !message.isOptimistic) ||
+        Boolean(existing.sendStatus && !message.sendStatus)
+      const preferred = preferIncoming ? message : existing
+      const fallback = preferIncoming ? existing : message
+      result[duplicateUserIndex] = {
+        ...fallback,
+        ...preferred,
+        messageId: preferred.messageId,
+        text: preferred.text.trim() ? preferred.text : fallback.text,
+        createdAt: fallback.createdAt || preferred.createdAt,
+        attachments: preferred.attachments ?? fallback.attachments,
+        replyTo: preferred.replyTo ?? fallback.replyTo,
+        isOptimistic: preferIncoming ? false : preferred.isOptimistic,
+        sendStatus: preferIncoming ? undefined : preferred.sendStatus,
+        sendError: preferIncoming ? null : preferred.sendError,
+      }
+      seenIds.add(message.messageId)
+      continue
+    }
 
     seenIds.add(message.messageId)
     result.push(message)
