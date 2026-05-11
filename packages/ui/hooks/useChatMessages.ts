@@ -967,15 +967,6 @@ export function useChatMessages(
             }
             pendingToolMapRef.current.set(toolCallId, updatedCall)
             mergeToolsIntoCurrentAssistant([updatedCall])
-            if (isToolTerminalPhase(phase)) {
-              for (const delayMs of [0, 100, 300, 700, 1500, 3000, 5000, 8000]) {
-                window.setTimeout(
-                  () => void refreshFinishedToolFromHistory(toolCallId),
-                  delayMs
-                )
-              }
-              window.setTimeout(() => void reconcileLiveStateFromHistory(), 1000)
-            }
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
               if (prev) {
@@ -1716,8 +1707,7 @@ export function useChatMessages(
               event: data as StreamEventPayload["event"],
             })
             const eventType = (data as { type?: string }).type
-            if (eventType === "chat.message" || eventType === "chat.status") {
-              void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
+            if (eventType === "chat.status") {
               void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
             }
           },
@@ -1819,58 +1809,9 @@ export function useChatMessages(
   // We only do targeted history fetches as best-effort repair after terminal tool
   // events (see refreshFinishedToolFromHistory / reconcileLiveStateFromHistory).
 
-  useEffect(() => {
-    if (subagentPollRef.current) clearInterval(subagentPollRef.current)
-    const hasRunning = spawnedSubagents.some((s) => isActiveSubagent(s.status))
-    if (!hasRunning) return
-
-    subagentPollRef.current = setInterval(async () => {
-      for (const sub of spawnedSubagents) {
-        if (!isActiveSubagent(sub.status) || !sub.sessionKey) continue
-        try {
-          const hist = await invoke<{ messages: unknown[] }>(
-            "middleware_chat_history",
-            { input: { sessionKey: sub.sessionKey } }
-          )
-          const msgs = (hist.messages ?? []) as RawMessage[]
-          let isDone = false
-          for (const m of msgs) {
-            if (m.role !== "assistant") continue
-            const blocks = Array.isArray(m.content)
-              ? (m.content as Array<{ type?: string; name?: string }>)
-              : []
-            if (
-              blocks.some(
-                (b) =>
-                  (b.type === "toolCall" || b.type === "tool_use") &&
-                  b.name === "sessions_yield"
-              )
-            ) {
-              isDone = true
-              break
-            }
-          }
-          if (!isDone) {
-            const lastMsg = msgs[msgs.length - 1]
-            if (lastMsg?.role === "assistant") {
-              const text = lastMsg.text || extractText(lastMsg.content)
-              if (text) isDone = true
-            }
-          }
-          if (isDone) {
-            upsertSpawn({ ...sub, status: "completed" })
-          }
-        } catch {}
-      }
-    }, 2000)
-
-    return () => {
-      if (subagentPollRef.current) {
-        clearInterval(subagentPollRef.current)
-        subagentPollRef.current = null
-      }
-    }
-  }, [spawnedSubagents, upsertSpawn])
+  // Avoid polling subagent histories during normal generation. Subagent cards are
+  // updated from live stream/tool events; history is fetched only when opening a
+  // session/subagent view.
 
   const handleSend = useCallback(
     async (payload: ChatComposerSubmit) => {
