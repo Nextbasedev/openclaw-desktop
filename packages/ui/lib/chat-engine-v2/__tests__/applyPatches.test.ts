@@ -210,6 +210,96 @@ describe("applyChatPatch", () => {
     expect(state.messages[2]).toMatchObject({ messageId: "client-2", isOptimistic: false })
   })
 
+  test("merges canonical gateway user into confirmed optimistic user by sequence when ids differ", () => {
+    const text = "fastqa2 B 1778517449764"
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 107,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          messageId: "client-b",
+          message: {
+            role: "user",
+            text,
+            isOptimistic: true,
+            __clientOptimistic: true,
+            __openclaw: { id: "client-b", clientMessageId: "client-b" },
+          },
+          optimistic: true,
+        },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 109,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          messageId: "client-b",
+          optimisticId: "client-b",
+          clientMessageId: "client-b",
+          messageSeq: 3,
+          message: {
+            role: "user",
+            content: text,
+            __openclaw: { id: "client-b", seq: 2, gatewayId: null, gatewaySeq: 2 },
+            isOptimistic: false,
+            __clientOptimistic: false,
+          },
+        },
+        createdAtMs: 2,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 113,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.message.upsert",
+          messageId: "gateway-b",
+          messageSeq: 3,
+          message: {
+            role: "user",
+            content: [{ type: "text", text: `Sender (untrusted metadata):\n\`\`\`json\n{\n  \"id\": \"gateway-client\"\n}\n\`\`\`\n\n[Mon 2026-05-11 16:37 UTC] ${text}` }],
+            timestamp: 1778517465974,
+            __openclaw: { id: "gateway-b", seq: 3 },
+          },
+        },
+        createdAtMs: 3,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 114,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "assistant-b",
+          messageSeq: 4,
+          message: { role: "assistant", text, __openclaw: { id: "assistant-b", seq: 4 } },
+        },
+        createdAtMs: 4,
+      },
+    })
+
+    expect(state.messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+      `user:${text}`,
+      `assistant:${text}`,
+    ])
+    expect(state.messages.filter((message) => message.role === "user" && message.text === text)).toHaveLength(1)
+    expect(state.messages[0]).toMatchObject({ messageId: "gateway-b", role: "user", gatewayIndex: 3, isOptimistic: false })
+  })
+
   test("extracts V2 status patches for cross-tab thinking", () => {
     expect(statusFromPatch({
       type: "patch",
