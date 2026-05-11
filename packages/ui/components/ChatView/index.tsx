@@ -1344,15 +1344,15 @@ export function ChatView({
             {!isAtBottom && (
               <motion.button
                 type="button"
-                initial={{ opacity: 0, y: 10, scale: 0.92 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.92 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
                 onClick={jumpToBottom}
-                className="group fixed right-6 bottom-28 z-30 flex size-10 items-center justify-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-1 ring-white/10 backdrop-blur-xl transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-border hover:bg-muted/95 hover:shadow-[0_14px_36px_rgba(0,0,0,0.34)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                className="fixed right-6 bottom-28 z-30 grid size-10 place-items-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-1 ring-white/10 backdrop-blur-xl transition-[border-color,background-color,box-shadow] hover:border-border hover:bg-muted/95 hover:shadow-[0_12px_32px_rgba(0,0,0,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 aria-label="Jump to latest message"
               >
-                <LuArrowDown className="size-4 transition-transform group-hover:translate-y-0.5" />
+                <LuArrowDown className="block size-4 shrink-0" strokeWidth={2.25} />
               </motion.button>
             )}
           </AnimatePresence>
