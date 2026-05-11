@@ -15,6 +15,7 @@ type SessionState = {
   pendingTools: InlineToolCall[]
   spawnedSubagents: SpawnedSubagent[]
   lastPatchAtMs: number
+  activityStartedAtMs: number
 }
 
 type Listener = (state: SessionState, frame?: PatchFrame) => void
@@ -48,11 +49,12 @@ function cloneState(state: SessionState): SessionState {
     pendingTools: state.pendingTools,
     spawnedSubagents: state.spawnedSubagents,
     lastPatchAtMs: state.lastPatchAtMs,
+    activityStartedAtMs: state.activityStartedAtMs,
   }
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0 }
+  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0 }
 }
 
 function getOrCreate(sessionKey: string): SessionState {
@@ -274,6 +276,31 @@ function notify(sessionKey: string, frame?: PatchFrame) {
   for (const listener of callbacks) listener(snapshot, frame)
 }
 
+function oldestRunningToolAgeMs(state: SessionState, now = Date.now()) {
+  const starts = state.pendingTools
+    .filter((tool) => tool.status === "running" && typeof tool.startedAt === "number")
+    .map((tool) => tool.startedAt as number)
+  if (starts.length === 0) return null
+  return Math.max(0, now - Math.min(...starts))
+}
+
+function loadingFactorSummary(state: SessionState, patchType: string) {
+  const now = Date.now()
+  return {
+    patchType,
+    status: state.status,
+    statusLabel: state.statusLabel,
+    messageCount: state.messages.length,
+    pendingToolCount: state.pendingTools.length,
+    runningToolCount: state.pendingTools.filter((tool) => tool.status === "running").length,
+    spawnedSubagentCount: state.spawnedSubagents.length,
+    activeSubagentCount: state.spawnedSubagents.filter((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working").length,
+    oldestRunningToolAgeMs: oldestRunningToolAgeMs(state, now),
+    activeRunAgeMs: state.activityStartedAtMs ? Math.max(0, now - state.activityStartedAtMs) : null,
+    cursor: state.cursor,
+  }
+}
+
 function handlePatch(frame: PatchFrame) {
   const sessionKey = frame.patch.sessionKey
   if (!sessionKey) {
@@ -285,10 +312,13 @@ function handlePatch(frame: PatchFrame) {
   const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
+    if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
+    if (!ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = 0
     state.status = patchStatus.status
     state.statusLabel = patchStatus.label
     finalizeActiveToolsForTerminalStatus(state, patchStatus.status)
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
+    if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
     state.status = "thinking"
     state.statusLabel = "Thinking"
   }
@@ -308,12 +338,15 @@ function handlePatch(frame: PatchFrame) {
   }
   frontendLog("stream", "global-chat-session.patch-applied", {
     sessionKey,
-    cursor: frame.patch.cursor,
-    patchType: frame.patch.type,
-    messageCount: state.messages.length,
-    pendingToolCount: state.pendingTools.length,
-    spawnedSubagentCount: state.spawnedSubagents.length,
+    patchCursor: frame.patch.cursor,
+    ...loadingFactorSummary(state, frame.patch.type),
   }, "debug")
+  if (ACTIVE_STATUSES.has(state.status) || state.pendingTools.some((tool) => tool.status === "running")) {
+    frontendLog("status", "chat.loading-factors", {
+      sessionKey,
+      ...loadingFactorSummary(state, frame.patch.type),
+    }, "info")
+  }
   notify(sessionKey, frame)
 }
 
@@ -347,7 +380,10 @@ export function seedGlobalChatSession(params: {
   const state = getOrCreate(params.sessionKey)
   state.messages = dedupeChatMessages(params.messages)
   state.cursor = Math.max(state.cursor, params.cursor ?? 0)
-  if (params.status) state.status = params.status
+  if (params.status) {
+    state.status = params.status
+    state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status) ? (state.activityStartedAtMs || Date.now()) : 0
+  }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.pendingTools) state.pendingTools = params.pendingTools
   if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
@@ -375,7 +411,10 @@ export function updateGlobalChatSessionActivity(params: {
   const state = getOrCreate(params.sessionKey)
   if (params.pendingTools) state.pendingTools = params.pendingTools
   if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
-  if (params.status) state.status = params.status
+  if (params.status) {
+    state.status = params.status
+    state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status) ? (state.activityStartedAtMs || Date.now()) : 0
+  }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
   frontendLog("status", "global-chat-session.activity-update", {

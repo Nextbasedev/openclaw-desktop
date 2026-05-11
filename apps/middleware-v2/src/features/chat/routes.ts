@@ -51,6 +51,45 @@ function gatewaySendCompleted(result: Record<string, unknown>, history: ChatHist
   return Boolean(history?.messages?.some((message) => objectData(message).role === "assistant"));
 }
 
+function nowMs() {
+  return Date.now();
+}
+
+function elapsedMs(startedAtMs: number) {
+  return Math.max(0, Date.now() - startedAtMs);
+}
+
+function messageFactorSummary(messages: unknown[]) {
+  let assistantCount = 0;
+  let userCount = 0;
+  let toolResultCount = 0;
+  let toolCallCount = 0;
+  let lastRole: string | null = null;
+  for (const raw of messages) {
+    const message = objectData(raw);
+    const role = typeof message.role === "string" ? message.role : "unknown";
+    lastRole = role;
+    if (role === "assistant") assistantCount += 1;
+    else if (role === "user") userCount += 1;
+    else if (role === "tool" || role === "tool_result" || role === "toolResult") toolResultCount += 1;
+    const content = message.content;
+    if (Array.isArray(content)) {
+      toolCallCount += content.filter((block) => {
+        const item = objectData(block);
+        return item.type === "toolCall" || item.type === "tool_use";
+      }).length;
+    }
+  }
+  return {
+    total: messages.length,
+    userCount,
+    assistantCount,
+    toolCallCount,
+    toolResultCount,
+    lastRole,
+  };
+}
+
 const sendBody = z.object({
   sessionKey: z.string().min(1),
   text: z.string().optional(),
@@ -95,6 +134,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       throw new HttpError(400, "Invalid chat send body", "INVALID_BODY", parsed.error.flatten());
     }
     const input = parsed.data;
+    const sendStartedAtMs = nowMs();
     const rawMessage = input.text ?? input.message ?? "";
     if (!rawMessage.trim()) throw new HttpError(400, "message is required", "BAD_REQUEST");
     log.info("send.start", {
@@ -108,13 +148,14 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       agentId: input.agentId || "main",
     });
 
+    const sessionCreateStartedAtMs = nowMs();
     log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label) });
     await context.gateway.request("sessions.create", {
       key: input.sessionKey,
       agentId: input.agentId || "main",
       label: input.label || "New Chat",
     }).then(() => {
-      log.info("session.create.end", { sessionKey: input.sessionKey });
+      log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs) });
     }).catch((error) => {
       log.warn("session.create.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
       return null;
@@ -132,8 +173,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     }
 
     return context.sendQueue.run(input.sessionKey, async () => {
-          log.info("send.queue.enter", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey });
+          log.info("send.queue.enter", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
+          const subscribeStartedAtMs = nowMs();
           await context.chatLive.ensureSessionSubscribed(input.sessionKey);
+          log.info("send.factor.subscribe.ready", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(subscribeStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
 
           const prepared = prepareMessageAndAttachments(rawMessage, input.attachments);
           log.info("send.prepared", {
@@ -221,7 +264,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           log.info("status.broadcast", { sessionKey: input.sessionKey, type: statusEvent.eventType, cursor: statusEvent.cursor, status: "thinking", idempotencyKey: input.idempotencyKey });
 
           try {
-            log.info("gateway.chat.send.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, gatewayAttachmentCount: prepared.attachments?.length ?? 0 });
+            const gatewaySendStartedAtMs = nowMs();
+            log.info("gateway.chat.send.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, gatewayAttachmentCount: prepared.attachments?.length ?? 0, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
             const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
               sessionKey: input.sessionKey,
               message: prepared.message,
@@ -229,14 +273,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               idempotencyKey: input.idempotencyKey,
               ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
             }, input.timeoutMs || 130_000);
-            log.info("gateway.chat.send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, status: typeof result.status === "string" ? result.status : undefined, runId: typeof result.runId === "string" ? result.runId : undefined });
+            log.info("gateway.chat.send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(gatewaySendStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), status: typeof result.status === "string" ? result.status : undefined, runId: typeof result.runId === "string" ? result.runId : undefined });
 
-            log.info("gateway.history.load.start", { sessionKey: input.sessionKey, limit: 200 });
+            const historyLoadStartedAtMs = nowMs();
+            log.info("gateway.history.load.start", { sessionKey: input.sessionKey, limit: 200, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
             const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
               sessionKey: input.sessionKey,
               limit: 200,
             }).then((loaded) => {
-              log.info("gateway.history.load.end", { sessionKey: input.sessionKey, messageCount: loaded.messages?.length ?? 0, status: loaded.status ?? null, sessionId: loaded.sessionId ?? null });
+              log.info("gateway.history.load.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(historyLoadStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), messageFactors: messageFactorSummary(loaded.messages ?? []), status: loaded.status ?? null, sessionId: loaded.sessionId ?? null });
               return loaded;
             }).catch((error) => {
               log.warn("gateway.history.load.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
@@ -300,7 +345,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               log.info("status.broadcast", { sessionKey: input.sessionKey, type: doneEvent.eventType, cursor: doneEvent.cursor, status: "done", idempotencyKey: input.idempotencyKey });
             }
 
-            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, completed: gatewaySendCompleted(result, history), status: typeof result.status === "string" ? result.status : undefined });
+            log.info("send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, totalDurationMs: elapsedMs(sendStartedAtMs), completed: gatewaySendCompleted(result, history), status: typeof result.status === "string" ? result.status : undefined });
             return { ok: true, sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...result };
           } catch (error) {
             log.error("send.fail", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, ...errorMeta(error) });
@@ -354,13 +399,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (!parsed.success) {
       throw new HttpError(400, "Invalid chat bootstrap query", "INVALID_QUERY", parsed.error.flatten());
     }
+    const bootstrapStartedAtMs = nowMs();
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey, limit: parsed.data.limit, hasMaxChars: parsed.data.maxChars !== undefined });
+    const gatewayHistoryStartedAtMs = nowMs();
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
       sessionKey: parsed.data.sessionKey,
       ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
       ...(parsed.data.maxChars ? { maxChars: parsed.data.maxChars } : {}),
     });
-    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, messageCount: history.messages?.length ?? 0, status: history.status ?? null });
+    log.info("bootstrap.gateway.history", { sessionKey: history.sessionKey ?? parsed.data.sessionKey, sessionId: history.sessionId ?? null, durationMs: elapsedMs(gatewayHistoryStartedAtMs), messageFactors: messageFactorSummary(history.messages ?? []), status: history.status ?? null });
 
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
@@ -391,7 +438,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       eventType: "chat.bootstrap",
       payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: projection.lastSeq },
     });
-    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor });
+    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: true } });
 
     return {
       ok: true,
