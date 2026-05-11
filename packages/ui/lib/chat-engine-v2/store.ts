@@ -5,7 +5,8 @@ import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
-import { openPatchStreamV2, type PatchFrame, type StreamFrame, type ToolCallProjectionV2 } from "./client"
+import { openPatchStreamV2 } from "./client"
+import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
 
 type SessionState = {
   cursor: number
@@ -74,33 +75,60 @@ function getOrCreate(sessionKey: string): SessionState {
   return next
 }
 
+function legacySessionStatusFromStreamStatus(status: StreamStatus): string | null {
+  // Compatibility mirror for old ChatView/cache readers only. The canonical
+  // middleware-v2 contract is runStatus/statusLabel/activeRun.
+  if (ACTIVE_STATUSES.has(status)) return "running"
+  return status === "idle" || status === "connected" ? null : status
+}
+
+function inlineToolToProjection(sessionKey: string, tool: InlineToolCall): ToolCallProjectionV2 {
+  return {
+    toolCallId: tool.id,
+    id: tool.id,
+    sessionKey,
+    name: tool.tool,
+    status: tool.status,
+    argsMeta: tool.input,
+    resultMeta: tool.resultText,
+    startedAtMs: tool.startedAt,
+  }
+}
+
 function cacheBootstrap(sessionKey: string, state: SessionState) {
   if (!queryClientRef || state.messages.length === 0) return
   queryClientRef.setQueryData(queryKeys.chatBootstrap(sessionKey), (existing: unknown) => {
-    const cached = existing && typeof existing === "object" ? existing as { history?: Record<string, unknown>; branchData?: unknown; v2Cursor?: number; source?: string; projectionVersion?: number; runStatus?: string; statusLabel?: string | null; tools?: InlineToolCall[] } : {}
+    const cached = existing && typeof existing === "object" ? existing as CachedChatBootstrapV2 : {}
+    const cursor = Math.max(cached.cursor ?? cached.v2Cursor ?? 0, state.cursor)
+    const tools = state.pendingTools.map((tool) => inlineToolToProjection(sessionKey, tool))
     return {
       ...cached,
       source: cached.source ?? "middleware-v2-projection",
-      projectionVersion: cached.projectionVersion ?? 3,
+      projectionVersion: cached.projectionVersion ?? CHAT_PROJECTION_VERSION,
+      messages: state.messages,
+      messageCount: state.messages.length,
+      cursor,
+      v2Cursor: cursor,
+      runStatus: state.status,
+      statusLabel: state.statusLabel,
+      activeRun: cached.activeRun ?? null,
+      tools,
+      toolCalls: tools,
       history: {
         ...(cached.history ?? {}),
         messages: state.messages,
-        sessionStatus: ACTIVE_STATUSES.has(state.status) ? "running" : state.status,
+        sessionStatus: legacySessionStatusFromStreamStatus(state.status),
       },
       branchData: cached.branchData ?? { branches: [] },
-      v2Cursor: Math.max(cached.v2Cursor ?? 0, state.cursor),
-      runStatus: state.status,
-      statusLabel: state.statusLabel,
-      tools: state.pendingTools,
-    }
+    } satisfies CachedChatBootstrapV2
   })
 }
 
 
-function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
+function patchPayload(frame: PatchFrame): PatchPayloadV2 | null {
   const payload = frame.patch.payload
   return payload && typeof payload === "object" && !Array.isArray(payload)
-    ? (payload as Record<string, unknown>)
+    ? (payload as PatchPayloadV2)
     : null
 }
 

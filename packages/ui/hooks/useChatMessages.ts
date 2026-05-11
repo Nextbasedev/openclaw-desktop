@@ -93,13 +93,18 @@ type BranchSummary = {
 type ChatBootstrapData = {
   source?: string
   projectionVersion?: number
-  history: { messages: unknown[]; sessionStatus?: string | null }
+  messages: unknown[]
+  messageCount?: number
   branchData: { branches: BranchSummary[] }
+  cursor?: number
   v2Cursor?: number
   runStatus?: RunStatusV2 | string
   statusLabel?: string | null
   activeRun?: ActiveRunV2 | null
   tools?: ToolCallProjectionV2[]
+  toolCalls?: ToolCallProjectionV2[]
+  // Compatibility mirror only. Prefer top-level messages/cursor/runStatus.
+  history: { messages: unknown[]; sessionStatus?: string | null }
 }
 
 function stableRawMessageId(raw: RawMessage): string {
@@ -196,12 +201,13 @@ async function fetchChatBootstrap(
       source: result.source,
       projectionVersion: result.projectionVersion ?? result.projection?.version,
       messages: result.messages,
-      sessionStatus: result.sessionStatus,
+      messageCount: result.messageCount,
+      legacySessionStatus: result.sessionStatus,
       runStatus: result.runStatus,
       statusLabel: result.statusLabel ?? null,
       activeRun: result.activeRun ?? null,
       tools: result.tools ?? result.toolCalls ?? [],
-      v2Cursor: result.cursor ?? result.projection?.cursor,
+      cursor: result.cursor ?? result.projection?.cursor,
     })),
     invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
       input: { sourceSessionKey: sessionKey },
@@ -210,13 +216,20 @@ async function fetchChatBootstrap(
   return {
     source: freshHistory.source,
     projectionVersion: freshHistory.projectionVersion,
-    history: freshHistory,
+    messages: freshHistory.messages,
+    messageCount: freshHistory.messageCount,
+    history: {
+      messages: freshHistory.messages,
+      sessionStatus: freshHistory.legacySessionStatus,
+    },
     branchData,
-    v2Cursor: freshHistory.v2Cursor,
+    cursor: freshHistory.cursor,
+    v2Cursor: freshHistory.cursor,
     runStatus: freshHistory.runStatus,
     statusLabel: freshHistory.statusLabel,
     activeRun: freshHistory.activeRun,
     tools: freshHistory.tools,
+    toolCalls: freshHistory.tools,
   }
 }
 
@@ -229,7 +242,7 @@ async function fetchStableChatBootstrap(
     attempt < CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES;
     attempt++
   ) {
-    const messages = (latest.history.messages as RawMessage[]) || []
+    const messages = (latest.messages as RawMessage[]) || []
     if (!isTransientSlashCommandHistory(messages)) return latest
     await delay(CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS)
     latest = await fetchChatBootstrap(sessionKey)
@@ -1135,18 +1148,19 @@ export function useChatMessages(
       const bootstrapStartedAtMs = Date.now()
       frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs })
       try {
-        const { history, branchData, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
+        const { messages: bootstrapMessages, history, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
           queryFn: () => loadChatBootstrap(sessionKey),
           staleTime: queryStaleTime.chatBootstrap,
         })
-        if (typeof v2Cursor === "number") v2CursorRef.current = v2Cursor
+        const bootstrapCursor = typeof canonicalCursor === "number" ? canonicalCursor : v2Cursor
+        if (typeof bootstrapCursor === "number") v2CursorRef.current = bootstrapCursor
         bootstrapSettled = true
         frontendLog("chat", "chat.bootstrap.loaded", {
           sessionKey,
-          rawMessageCount: (history.messages as RawMessage[] | undefined)?.length ?? 0,
+          rawMessageCount: (bootstrapMessages as RawMessage[] | undefined)?.length ?? 0,
           branchCount: branchData.branches?.length ?? 0,
-          v2Cursor,
+          cursor: bootstrapCursor,
           source,
           projectionVersion,
           runStatus,
@@ -1163,7 +1177,7 @@ export function useChatMessages(
 
         const isCanonicalBootstrap = source === "middleware-v2-projection" || typeof projectionVersion === "number"
         if (isCanonicalBootstrap) {
-          const canonicalMessages = dedupeChatMessages(parseChatHistory((history.messages as RawMessage[]) || []).messages)
+          const canonicalMessages = dedupeChatMessages(parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages)
           const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
           const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
           pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
@@ -1173,7 +1187,7 @@ export function useChatMessages(
           seedGlobalChatSession({
             sessionKey,
             messages: canonicalMessages,
-            cursor: typeof v2Cursor === "number" ? v2Cursor : v2CursorRef.current,
+            cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
             status: canonicalStatus,
             statusLabel: canonicalLabel,
             pendingTools: inlineTools,
@@ -1193,7 +1207,7 @@ export function useChatMessages(
             messageCount: canonicalMessages.length,
             status: canonicalStatus,
             statusLabel: canonicalLabel,
-            cursor: v2Cursor,
+            cursor: bootstrapCursor,
             pendingToolCount: inlineTools.length,
             spawnedSubagentCount: canonicalSpawns.length,
             canonical: true,
@@ -1226,7 +1240,7 @@ export function useChatMessages(
         // the canonical projection contract. This path may infer from raw
         // history, but it is not authoritative for normal Phase-4 operation.
         frontendLog("chat", "chat.bootstrap.legacy-fallback", { sessionKey, source, projectionVersion }, "warn")
-        const rawAll = (history.messages as RawMessage[]) || []
+        const rawAll = (bootstrapMessages as RawMessage[]) || []
         const normalizedHistory = parseChatHistory(rawAll)
         const raw = deduplicateRawMessages(rawAll) as RawMessage[]
         const histMsgs: ChatMessage[] = []
@@ -1571,7 +1585,7 @@ export function useChatMessages(
         seedGlobalChatSession({
           sessionKey,
           messages: allMessages,
-          cursor: typeof v2Cursor === "number" ? v2Cursor : v2CursorRef.current,
+          cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
           status: bootstrapStatus,
           pendingTools: Array.from(pendingToolMapRef.current.values()),
           spawnedSubagents: Array.from(spawnMapRef.current.values()),
