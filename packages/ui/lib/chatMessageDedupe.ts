@@ -3,8 +3,12 @@ import type { ChatMessage } from "../components/ChatView/types"
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   if (a.text.trim() !== b.text.trim()) return false
+  // When returning to a session, the optimistic local user message may have a
+  // slightly different timestamp than the persisted history copy. Treat it as
+  // the same message so it does not get appended after the assistant response.
+  if (a.isOptimistic || b.isOptimistic) return true
   if (a.createdAt && b.createdAt) return a.createdAt === b.createdAt
-  return Boolean(a.isOptimistic || b.isOptimistic)
+  return false
 }
 
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
