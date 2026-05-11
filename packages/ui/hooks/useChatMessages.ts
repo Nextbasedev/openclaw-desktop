@@ -466,7 +466,13 @@ export function useChatMessages(
     if (!el) return
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     const nextAtBottom = distanceFromBottom < 120
-    if (Date.now() < programmaticScrollUntilRef.current && nextAtBottom) return
+    if (Date.now() < programmaticScrollUntilRef.current) {
+      if (!isAtBottomRef.current) {
+        isAtBottomRef.current = true
+        setIsAtBottom(true)
+      }
+      return
+    }
     isAtBottomRef.current = nextAtBottom
     setIsAtBottom(nextAtBottom)
   }, [])
