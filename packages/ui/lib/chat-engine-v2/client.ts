@@ -1,4 +1,6 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
+import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
+export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
 const DEFAULT_V2_URL = "http://127.0.0.1:8989"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
@@ -86,76 +88,6 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw error
   }
 }
-
-export type RunStatusV2 = "idle" | "queued" | "thinking" | "streaming" | "tool_running" | "done" | "error" | "aborted"
-
-export type ActiveRunV2 = {
-  runId: string
-  gatewayRunId?: string | null
-  clientMessageId?: string | null
-  idempotencyKey?: string | null
-  status: RunStatusV2 | string
-  statusLabel?: string | null
-  startedAtMs?: number
-  updatedAtMs?: number
-}
-
-export type ToolCallProjectionV2 = {
-  toolCallId?: string
-  id?: string
-  sessionKey?: string
-  runId?: string | null
-  messageId?: string | null
-  name?: string
-  phase?: string
-  status?: "running" | "success" | "error" | string
-  argsMeta?: unknown
-  resultMeta?: unknown
-  startedAtMs?: number
-  finishedAtMs?: number | null
-  updatedAtMs?: number
-}
-
-export type ChatBootstrapV2 = {
-  ok: boolean
-  source?: string
-  projectionVersion?: number
-  sessionKey: string
-  sessionId?: string | null
-  sessionStatus?: string | null
-  runStatus?: RunStatusV2 | string
-  statusLabel?: string | null
-  activeRun?: ActiveRunV2 | null
-  messages: unknown[]
-  messageCount: number
-  tools?: ToolCallProjectionV2[]
-  toolCalls?: ToolCallProjectionV2[]
-  cursor?: number
-  projection?: { cursor?: number; lastSeq?: number; liveSubscribed?: boolean; version?: number }
-}
-
-export type PatchFrame = {
-  type: "patch"
-  patch: {
-    cursor: number
-    type: "chat.message.upsert" | "chat.message.confirmed" | "chat.message.remove" | "session.upsert" | string
-    sessionKey: string | null
-    payload: unknown
-    createdAtMs: number
-  }
-}
-
-export type HelloFrame = {
-  type: "hello"
-  clientId: string
-  afterCursor: number
-  replayCount: number
-  replayHasMore?: boolean
-  replayWindowExceeded?: boolean
-  recovery?: "bootstrap" | string | null
-}
-
-export type StreamFrame = PatchFrame | HelloFrame
 
 export async function fetchChatBootstrapV2(sessionKey: string, limit = 200): Promise<ChatBootstrapV2> {
   const params = new URLSearchParams({ sessionKey, limit: String(limit) })

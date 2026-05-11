@@ -1,17 +1,17 @@
 import type { ChatMessage, StreamStatus } from "../../components/ChatView/types"
 import { cleanUserMessageText, parseChatHistory } from "../chatHistoryParser"
 import { dedupeChatMessages } from "../chatMessageDedupe"
-import type { PatchFrame } from "./client"
+import type { PatchFrame, PatchPayloadV2 } from "./types"
 
 type ApplyPatchState = {
   cursor: number
   messages: ChatMessage[]
 }
 
-function patchPayload(frame: PatchFrame): Record<string, unknown> | null {
+function patchPayload(frame: PatchFrame): PatchPayloadV2 | null {
   const payload = frame.patch.payload
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null
-  return payload as Record<string, unknown>
+  return payload as PatchPayloadV2
 }
 
 function isMessagePatchType(type: string) {
@@ -44,7 +44,7 @@ function patchOptimisticId(frame: PatchFrame): string | null {
 
 function patchMessageSeq(frame: PatchFrame): number | undefined {
   const payload = patchPayload(frame)
-  const payloadSeq = payload?.messageSeq
+  const payloadSeq = payload?.messageSeq ?? payload?.gatewayIndex
   if (typeof payloadSeq === "number" && Number.isFinite(payloadSeq)) return Math.floor(payloadSeq)
   const message = patchMessage(frame)
   if (message && typeof message === "object" && !Array.isArray(message)) {
@@ -119,7 +119,7 @@ function normalizePatchStatus(value: unknown): StreamStatus | null {
 export function statusFromPatch(frame: PatchFrame): { status: StreamStatus; label: string | null } | null {
   const payload = patchPayload(frame)
   const semanticType = patchSemanticType(frame)
-  const hasCanonicalStatus = typeof payload?.runStatus === "string" || semanticType.startsWith("chat.run.")
+  const hasCanonicalStatus = typeof payload?.runStatus === "string" || typeof payload?.activeRun === "object" || semanticType.startsWith("chat.run.")
   if (frame.patch.type !== "chat.status" && frame.patch.type !== "session.status" && frame.patch.type !== "session.upsert" && !hasCanonicalStatus) return null
   const status = normalizePatchStatus(payload?.runStatus ?? payload?.status)
   if (!status) return null
