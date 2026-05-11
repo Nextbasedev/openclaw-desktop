@@ -148,6 +148,68 @@ describe("applyChatPatch", () => {
     expect(confirmed.messages[0]).toMatchObject({ messageId: "client-1", role: "user", text: "hello", isOptimistic: false })
   })
 
+  test("keeps consecutive sends in seq order when an earlier assistant final arrives late", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", messageId: "client-1", messageSeq: 1, message: { role: "user", text: "hii what is your name", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1", seq: 1 } } },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", messageId: "client-2", messageSeq: 3, message: { role: "user", text: "ella you are my bff", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-2", seq: 3 } } },
+        createdAtMs: 2,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.assistant.final", messageId: "assistant-1", messageSeq: 2, message: { role: "assistant", text: "My name is Ella.", __openclaw: { id: "assistant-1", seq: 2 } } },
+        createdAtMs: 3,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 4,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.confirmed", messageId: "client-2", optimisticId: "client-2", gatewayMessageId: "gateway-user-2", messageSeq: 3, message: { role: "user", text: "ella you are my bff", __openclaw: { id: "gateway-user-2", seq: 3 } } },
+        createdAtMs: 4,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 5,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.assistant.final", messageId: "assistant-2", messageSeq: 4, message: { role: "assistant", text: "Aww, bff status accepted.", __openclaw: { id: "assistant-2", seq: 4 } } },
+        createdAtMs: 5,
+      },
+    })
+
+    expect(state.messages.map((message) => `${message.role}:${message.text}`)).toEqual([
+      "user:hii what is your name",
+      "assistant:My name is Ella.",
+      "user:ella you are my bff",
+      "assistant:Aww, bff status accepted.",
+    ])
+    expect(state.messages.filter((message) => message.role === "user" && message.text === "ella you are my bff")).toHaveLength(1)
+    expect(state.messages[2]).toMatchObject({ messageId: "client-2", isOptimistic: false })
+  })
+
   test("extracts V2 status patches for cross-tab thinking", () => {
     expect(statusFromPatch({
       type: "patch",

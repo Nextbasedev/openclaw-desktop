@@ -77,14 +77,21 @@ export type ParsedChatHistory = {
   subagents: SpawnedSubagent[]
 }
 
+function openclawSeq(raw: RawHistoryMessage) {
+  const seq = raw.__openclaw?.seq
+  return typeof seq === "number" && Number.isFinite(seq)
+    ? Math.floor(seq)
+    : undefined
+}
+
 function messageId(raw: RawHistoryMessage) {
   const openclawId = raw.__openclaw?.id
   if (typeof openclawId === "string" && openclawId.trim()) return openclawId
   if (raw.id) return raw.id
   if (raw.messageId) return raw.messageId
-  const seq = raw.__openclaw?.seq
-  if (typeof seq === "number" && Number.isFinite(seq)) {
-    return `openclaw:${Math.floor(seq)}`
+  const seq = openclawSeq(raw)
+  if (typeof seq === "number") {
+    return `openclaw:${seq}`
   }
   const text = visibleMessageText(raw).trim().replace(/\s+/g, " ").slice(0, 160)
   if (raw.role && raw.createdAt && text) return `${raw.role}:${raw.createdAt}:${text}`
@@ -296,6 +303,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           stopReason: item.stopReason,
           isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
           replyTo: reply?.replyTo,
+          gatewayIndex: openclawSeq(item),
         })
       }
       pendingToolCalls = []
@@ -343,6 +351,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           last.model = item.model ?? last.model
           last.usage = item.usage ?? last.usage
           last.stopReason = item.stopReason ?? last.stopReason
+          last.gatewayIndex = openclawSeq(item) ?? last.gatewayIndex
         } else {
           messages.push({
             messageId: messageId(item),
@@ -354,6 +363,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             stopReason: item.stopReason,
             toolCalls:
               pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+            gatewayIndex: openclawSeq(item),
           })
         }
         pendingToolCalls = []
