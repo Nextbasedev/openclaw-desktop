@@ -33,6 +33,14 @@ const ACTIVE_STATUSES = new Set<StreamStatus>([
 
 const STALE_ACTIVE_RUN_MS = 5 * 60 * 1000
 
+function isTerminalOrIdleStatus(status: StreamStatus) {
+  return !ACTIVE_STATUSES.has(status)
+}
+
+function normalizeStatusLabel(status: StreamStatus, label: string | null | undefined) {
+  return isTerminalOrIdleStatus(status) ? null : (label ?? null)
+}
+
 const states = new Map<string, SessionState>()
 const listeners = new Map<string, Set<Listener>>()
 let globalCursor = 0
@@ -315,12 +323,12 @@ function handlePatch(frame: PatchFrame) {
     if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
     if (!ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = 0
     state.status = patchStatus.status
-    state.statusLabel = patchStatus.label
+    state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
     finalizeActiveToolsForTerminalStatus(state, patchStatus.status)
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
     if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
     state.status = "thinking"
-    state.statusLabel = "Thinking"
+    state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
@@ -385,6 +393,7 @@ export function seedGlobalChatSession(params: {
     state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status) ? (state.activityStartedAtMs || Date.now()) : 0
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
+  if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
   if (params.pendingTools) state.pendingTools = params.pendingTools
   if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
   if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
@@ -416,6 +425,7 @@ export function updateGlobalChatSessionActivity(params: {
     state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status) ? (state.activityStartedAtMs || Date.now()) : 0
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
+  if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
   if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
   frontendLog("status", "global-chat-session.activity-update", {
     sessionKey: params.sessionKey,

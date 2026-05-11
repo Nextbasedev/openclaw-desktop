@@ -281,6 +281,47 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("clears stale Thinking labels when a session becomes done", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "a1", role: "assistant", text: "done" }],
+      status: "done",
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
+  })
+
+  test("ignores stale labels when activity update writes terminal status", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    // Import lazily through the existing module binding above would be awkward; use a terminal patch
+    // to exercise the same status-label normalization path used by live updates.
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "session.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: { status: "done", statusLabel: "Thinking" },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
+  })
+
   test("warms React Query bootstrap cache from global store", () => {
     const client = createOpenClawQueryClient()
     seedGlobalChatSession({

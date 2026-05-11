@@ -234,6 +234,10 @@ function isActiveRunStatus(status: StreamStatus | null | undefined) {
   )
 }
 
+function normalizeStatusLabelForStatus(status: StreamStatus | null | undefined, label: string | null | undefined) {
+  return isActiveRunStatus(status) ? (label ?? null) : null
+}
+
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
   return {
     count: attachments?.length ?? 0,
@@ -358,7 +362,7 @@ export function useChatMessages(
   useEffect(() => {
     cacheChatActivity(sessionKey, {
       status,
-      statusLabel,
+      statusLabel: normalizeStatusLabelForStatus(status, statusLabel),
       pendingTools,
       spawnedSubagents,
     })
@@ -551,7 +555,7 @@ export function useChatMessages(
             }
             return incoming
           })
-          setStatusLabel(ev.label || ev.name || null)
+          setStatusLabel(normalizeStatusLabelForStatus(incoming, ev.label || ev.name || null))
           if (incoming === "error") {
             setTimeout(() => {
               void reconcileChatHistory(sessionKey, "error")
@@ -985,7 +989,7 @@ export function useChatMessages(
       setLoading(false)
       setMessages(warmMessages)
       setStatus(useCachedGlobal && cachedGlobal?.status ? cachedGlobal.status : (cachedBootstrap?.history.sessionStatus ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages) : inferRestoredChatStatus(warmMessages, statusRef.current)))
-      setStatusLabel(useCachedGlobal ? cachedGlobal?.statusLabel ?? null : null)
+      setStatusLabel(useCachedGlobal ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel) : null)
       if (useCachedGlobal && cachedGlobal?.pendingTools) {
         pendingToolMapRef.current = new Map(cachedGlobal.pendingTools.map((tool) => [tool.id, tool]))
         setPendingTools(cachedGlobal.pendingTools)
@@ -1018,7 +1022,7 @@ export function useChatMessages(
       )
       setSpawnedSubagents(cachedActivity.spawnedSubagents)
       setStatus(cachedActivity.status)
-      setStatusLabel(cachedActivity.statusLabel)
+      setStatusLabel(normalizeStatusLabelForStatus(cachedActivity.status, cachedActivity.statusLabel))
     } else {
       pendingToolMapRef.current.clear()
       setPendingTools([])
@@ -1460,11 +1464,11 @@ export function useChatMessages(
             setLocalPendingTools(state.pendingTools)
             setLocalSpawnedSubagents(state.spawnedSubagents)
             setStatus(state.status)
-            setStatusLabel(state.statusLabel)
+            setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
             frontendLog("status", "chat.render-factors", {
               sessionKey,
               status: state.status,
-              statusLabel: state.statusLabel,
+              statusLabel: normalizeStatusLabelForStatus(state.status, state.statusLabel),
               cursor: state.cursor,
               messageCount: state.messages.length,
               pendingToolCount: state.pendingTools.length,
@@ -1472,7 +1476,7 @@ export function useChatMessages(
               spawnedSubagentCount: state.spawnedSubagents.length,
               activeSubagentCount: state.spawnedSubagents.filter((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working").length,
             }, "debug")
-            if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, state.statusLabel)
+            if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
             else clearCachedChatActivity(sessionKey)
             setMessages(state.messages)
           }
