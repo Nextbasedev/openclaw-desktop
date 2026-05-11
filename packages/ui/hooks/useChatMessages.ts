@@ -1807,11 +1807,22 @@ export function useChatMessages(
     const hasUnresolvedTools = pendingTools.some(
       (tool) => tool.status === "running",
     )
-    if (!isGenerating && !hasUnresolvedTools) return
+    // Polling full chat history is expensive. Only do it as a best-effort repair
+    // when we have running tools that may have missed terminal events.
+    if (!hasUnresolvedTools) return
 
+    let ticks = 0
+    let inFlight = false
     const timer = window.setInterval(() => {
-      void reconcileLiveStateFromHistory()
-    }, 1500)
+      if (inFlight) return
+      inFlight = true
+      ticks += 1
+      Promise.resolve(reconcileLiveStateFromHistory()).finally(() => {
+        inFlight = false
+      })
+      // Safety stop: avoid runaway polling if something is stuck.
+      if (ticks >= 20) window.clearInterval(timer)
+    }, 2500)
 
     return () => {
       window.clearInterval(timer)
