@@ -102,12 +102,15 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     const patches = listPatchesAfter(context, afterCursor, limit);
     const latestCursor = patches.at(-1)?.cursor ?? afterCursor;
     log.info("patches.read.end", { afterCursor, limit, count: patches.length, latestCursor, hasMore: patches.length === limit });
+    const hasMore = patches.length === limit;
     return {
       ok: true,
       patches,
       count: patches.length,
       latestCursor,
-      hasMore: patches.length === limit,
+      hasMore,
+      replayWindowExceeded: hasMore,
+      recovery: hasMore ? "bootstrap" : null,
     };
   });
 
@@ -126,7 +129,15 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     const replay = listPatchesAfter(context, afterCursor, 1001);
     const replayHasMore = replay.length > 1000;
     const replayWindow = replay.slice(0, 1000);
-    socket.send(JSON.stringify({ type: "hello", clientId: id, afterCursor, replayCount: replayWindow.length, replayHasMore }));
+    socket.send(JSON.stringify({
+      type: "hello",
+      clientId: id,
+      afterCursor,
+      replayCount: replayWindow.length,
+      replayHasMore,
+      replayWindowExceeded: replayHasMore,
+      recovery: replayHasMore ? "bootstrap" : null,
+    }));
     log.info("stream.replay", { clientId: id, afterCursor, replayCount: replayWindow.length, replayHasMore });
     for (const patch of replayWindow) {
       socket.send(JSON.stringify({ type: "patch", patch }));
