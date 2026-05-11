@@ -274,8 +274,7 @@ export function isAbortedGatewayArtifact(message: RawHistoryMessage) {
   const text = visibleMessageText(message).toLowerCase()
   return (
     text.includes("aborted") ||
-    text.includes("operation was aborted") ||
-    text.includes("agent failed before reply")
+    text.includes("operation was aborted")
   )
 }
 

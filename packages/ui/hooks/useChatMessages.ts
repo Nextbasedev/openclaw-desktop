@@ -95,6 +95,23 @@ function rawMessageTimestampMs(raw: RawMessage): number | null {
   return null
 }
 
+function streamMessageLooksFinal(
+  ev: StreamEventPayload["event"],
+  text: string,
+): boolean {
+  if (!text.trim()) return false
+  if (ev.stopReason) return true
+  return ev.model === "gateway-injected"
+}
+
+function streamMessageLooksFailed(
+  ev: StreamEventPayload["event"],
+  text: string,
+): boolean {
+  if (ev.stopReason === "error") return true
+  return /^(?:[^\w]+)?\s*(error:|agent failed before reply:)/i.test(text)
+}
+
 function formatToolDuration(ms: number): string | undefined {
   if (!Number.isFinite(ms) || ms < 0) return undefined
   if (ms < 100) return "0.1s"
@@ -376,6 +393,8 @@ export function useChatMessages(
   const [editPreview, setEditPreview] = useState<EditPreviewState | null>(null)
   const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
   const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const streamErrorRepairTimerRef = useRef<number | null>(null)
+  const streamErrorFinalTimerRef = useRef<number | null>(null)
   const doneAfterYieldRef = useRef(0)
   const editPreviewSourceRef = useRef<EventSource | null>(null)
   const [streamGeneration, setStreamGeneration] = useState(0)
@@ -623,6 +642,9 @@ export function useChatMessages(
               (prev === "thinking" || prev === "restarting") &&
               (incoming === "connected" || incoming === "idle")
             ) {
+              return prev
+            }
+            if (prev === "done" && incoming === "streaming") {
               return prev
             }
             return incoming
@@ -1028,6 +1050,11 @@ export function useChatMessages(
             })
           }
           scrollToBottom(true)
+          if (streamMessageLooksFinal(ev, text)) {
+            const failed = streamMessageLooksFailed(ev, text)
+            if (failed) setErrorMessage(text)
+            setStatus(failed ? "error" : "done")
+          }
           break
         }
         case "chat.error":
@@ -1529,10 +1556,44 @@ export function useChatMessages(
               current === "stopping" ||
               current === "restarting"
             if (!cancelled && activelyWaiting) {
-              setErrorMessage("Connection to server lost")
-              setStatus("error")
-              clearCachedChatActivity(sessionKey)
               void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
+              if (streamErrorRepairTimerRef.current) {
+                clearTimeout(streamErrorRepairTimerRef.current)
+              }
+              streamErrorRepairTimerRef.current = window.setTimeout(() => {
+                const latest = statusRef.current
+                if (
+                  cancelled ||
+                  (latest !== "thinking" &&
+                    latest !== "tool_running" &&
+                    latest !== "streaming" &&
+                    latest !== "stopping" &&
+                    latest !== "restarting")
+                ) {
+                  return
+                }
+                setStreamGeneration((value) => value + 1)
+              }, 1200)
+              if (streamErrorFinalTimerRef.current) {
+                clearTimeout(streamErrorFinalTimerRef.current)
+              }
+              streamErrorFinalTimerRef.current = window.setTimeout(() => {
+                const latest = statusRef.current
+                if (
+                  cancelled ||
+                  (latest !== "thinking" &&
+                    latest !== "tool_running" &&
+                    latest !== "streaming" &&
+                    latest !== "stopping" &&
+                    latest !== "restarting")
+                ) {
+                  return
+                }
+                setErrorMessage("Connection to server lost")
+                setStatus("error")
+                clearCachedChatActivity(sessionKey)
+              }, 9000)
             }
           }
         )
@@ -1558,6 +1619,14 @@ export function useChatMessages(
       if (subagentPollRef.current) {
         clearInterval(subagentPollRef.current)
         subagentPollRef.current = null
+      }
+      if (streamErrorRepairTimerRef.current) {
+        clearTimeout(streamErrorRepairTimerRef.current)
+        streamErrorRepairTimerRef.current = null
+      }
+      if (streamErrorFinalTimerRef.current) {
+        clearTimeout(streamErrorFinalTimerRef.current)
+        streamErrorFinalTimerRef.current = null
       }
     }
   }, [
