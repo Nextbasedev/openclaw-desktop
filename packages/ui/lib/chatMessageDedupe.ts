@@ -14,6 +14,13 @@ function normalizedUserText(value: string) {
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   if (normalizedUserText(a.text) !== normalizedUserText(b.text)) return false
+  if (
+    typeof a.gatewayIndex === "number" &&
+    typeof b.gatewayIndex === "number" &&
+    a.gatewayIndex === b.gatewayIndex
+  ) {
+    return true
+  }
   if (a.createdAt && b.createdAt) {
     if (a.createdAt === b.createdAt) return true
     if (a.isOptimistic || b.isOptimistic) {

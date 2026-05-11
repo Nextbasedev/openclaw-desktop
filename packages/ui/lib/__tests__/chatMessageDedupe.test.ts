@@ -171,6 +171,28 @@ describe("dedupeChatMessages", () => {
 
     expect(messages).toHaveLength(2)
   })
+
+  it("merges user duplicates that share the same backend sequence", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "optimistic-confirmed",
+        role: "user",
+        text: "hii",
+        createdAt: "2026-05-11T17:49:00.000Z",
+        gatewayIndex: 3,
+      },
+      {
+        messageId: "gateway-canonical",
+        role: "user",
+        text: "Sender (untrusted metadata):\n```json\n{\n  \"id\": \"gateway-client\"\n}\n```\n\n[Mon 2026-05-11 17:49 UTC] hii",
+        createdAt: "2026-05-11T17:49:06.000Z",
+        gatewayIndex: 3,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].messageId).toBe("optimistic-confirmed")
+  })
 })
 
 it("collapses repeated contiguous history blocks", () => {
