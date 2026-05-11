@@ -430,8 +430,6 @@ export function useChatMessages(
   )
   const [editPreview, setEditPreview] = useState<EditPreviewState | null>(null)
   const spawnMapRef = useRef<Map<string, SpawnedSubagent>>(new Map())
-  const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const streamErrorRepairTimerRef = useRef<number | null>(null)
   const streamErrorFinalTimerRef = useRef<number | null>(null)
   const doneAfterYieldRef = useRef(0)
   const editPreviewSourceRef = useRef<EventSource | null>(null)
@@ -644,108 +642,6 @@ export function useChatMessages(
     },
     [mergeToolCalls]
   )
-
-  const refreshFinishedToolFromHistory = useCallback(
-    async (toolCallId: string) => {
-      try {
-        const history = await invoke<{ messages: RawMessage[] }>(
-          "middleware_chat_history",
-          { input: { sessionKey } }
-        )
-        const parsed = parseChatHistory(history.messages ?? [])
-        const historyTool = parsed.messages
-          .flatMap((message) => message.toolCalls ?? [])
-          .find((tool) => tool.id === toolCallId)
-        if (!historyTool) return
-        const current = pendingToolMapRef.current.get(toolCallId)
-        if (
-          current &&
-          !historyTool.resultText &&
-          !historyTool.duration &&
-          historyTool.status === current.status
-        ) {
-          return
-        }
-        const merged = current ? { ...current, ...historyTool } : historyTool
-        pendingToolMapRef.current.set(toolCallId, merged)
-        setPendingTools(Array.from(pendingToolMapRef.current.values()))
-        mergeToolsIntoCurrentAssistant([merged])
-      } catch {
-        // Best-effort live repair: history may not be flushed yet.
-      }
-    },
-    [mergeToolsIntoCurrentAssistant, sessionKey]
-  )
-
-  const reconcileLiveStateFromHistory = useCallback(async () => {
-    try {
-      const history = await invoke<{ messages: RawMessage[] }>(
-        "middleware_chat_history",
-        { input: { sessionKey } }
-      )
-      const parsed = parseChatHistory(history.messages ?? [])
-      const historyMessages = dedupeChatMessages(parsed.messages)
-      const historyTools = new Map(
-        historyMessages
-          .flatMap((message) => message.toolCalls ?? [])
-          .map((tool) => [tool.id, tool])
-      )
-      const repairedTools: InlineToolCall[] = []
-      for (const [toolId, current] of pendingToolMapRef.current) {
-        const historyTool = historyTools.get(toolId)
-        if (!historyTool) continue
-        const shouldApply =
-          Boolean(historyTool.resultText) ||
-          Boolean(historyTool.duration) ||
-          historyTool.status === "error" ||
-          (current.status === "running" && historyTool.status !== "running")
-        if (!shouldApply) continue
-        const merged = { ...current, ...historyTool }
-        pendingToolMapRef.current.set(toolId, merged)
-        repairedTools.push(merged)
-      }
-      if (repairedTools.length > 0) {
-        setPendingTools(Array.from(pendingToolMapRef.current.values()))
-        mergeToolsIntoCurrentAssistant(repairedTools)
-      }
-
-      const lastHistoryMessage = historyMessages.at(-1)
-      const hasCompletedAssistant =
-        lastHistoryMessage?.role === "assistant" &&
-        lastHistoryMessage.text.trim().length > 0
-      if (!hasCompletedAssistant) return
-
-      const hasFailedAssistant = hasFailedAssistantMessage([lastHistoryMessage])
-      setMessages((prev) => {
-        const stableHistory = preserveCompletedToolDurations(prev, historyMessages)
-        const reconciledHistory = finalizeToolCallsOnDone(stableHistory)
-        const histIds = new Set(stableHistory.map((hm) => hm.messageId))
-        const kept = prev.filter(
-          (pm) =>
-            pm.isOptimistic &&
-            !histIds.has(pm.messageId) &&
-            !reconciledHistory.some((hm) => sameUserMessage(hm, pm))
-        )
-        return dedupeChatMessages([...reconciledHistory, ...kept])
-      })
-      pendingToolMapRef.current.clear()
-      setPendingTools([])
-      doneAfterYieldRef.current = 0
-      setStatus(hasFailedAssistant ? "error" : "done")
-      setErrorMessage(hasFailedAssistant ? lastHistoryMessage.text : null)
-      clearCachedChatActivity(sessionKey)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
-    } catch {
-      // Best-effort live repair: the stream path still handles normal updates.
-    }
-  }, [
-    mergeToolsIntoCurrentAssistant,
-    queryClient,
-    sessionKey,
-    setMessages,
-    setStatus,
-  ])
 
   const flushToolsToLastAssistant = useCallback(() => {
     mergeToolsIntoCurrentAssistant(Array.from(pendingToolMapRef.current.values()))
@@ -1210,7 +1106,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, mergeToolsIntoCurrentAssistant, refreshFinishedToolFromHistory, upsertSpawn, finalizePendingTurn, reconcileLiveStateFromHistory]
+    [scrollToBottom, mergeToolsIntoCurrentAssistant, upsertSpawn, finalizePendingTurn]
   )
 
   useEffect(() => {
@@ -1722,24 +1618,6 @@ export function useChatMessages(
               current === "restarting"
             if (!cancelled && activelyWaiting) {
               void queryClient.invalidateQueries({ queryKey: queryKeys.sessions() })
-              void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
-              if (streamErrorRepairTimerRef.current) {
-                clearTimeout(streamErrorRepairTimerRef.current)
-              }
-              streamErrorRepairTimerRef.current = window.setTimeout(() => {
-                const latest = statusRef.current
-                if (
-                  cancelled ||
-                  (latest !== "thinking" &&
-                    latest !== "tool_running" &&
-                    latest !== "streaming" &&
-                    latest !== "stopping" &&
-                    latest !== "restarting")
-                ) {
-                  return
-                }
-                setStreamGeneration((value) => value + 1)
-              }, 1200)
               if (streamErrorFinalTimerRef.current) {
                 clearTimeout(streamErrorFinalTimerRef.current)
               }
@@ -1781,14 +1659,6 @@ export function useChatMessages(
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
       unsubscribeStream?.()
-      if (subagentPollRef.current) {
-        clearInterval(subagentPollRef.current)
-        subagentPollRef.current = null
-      }
-      if (streamErrorRepairTimerRef.current) {
-        clearTimeout(streamErrorRepairTimerRef.current)
-        streamErrorRepairTimerRef.current = null
-      }
       if (streamErrorFinalTimerRef.current) {
         clearTimeout(streamErrorFinalTimerRef.current)
         streamErrorFinalTimerRef.current = null
@@ -1806,8 +1676,6 @@ export function useChatMessages(
 
   // Intentionally avoid background polling `middleware_chat_history` during normal
   // operation. The chat stream (websocket/SSE) is the primary source of truth.
-  // We only do targeted history fetches as best-effort repair after terminal tool
-  // events (see refreshFinishedToolFromHistory / reconcileLiveStateFromHistory).
 
   // Avoid polling subagent histories during normal generation. Subagent cards are
   // updated from live stream/tool events; history is fetched only when opening a

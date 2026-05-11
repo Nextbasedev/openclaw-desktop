@@ -156,9 +156,6 @@ export function useAgentActivity(sessionKey: string | null) {
   )
   const spawnQueueRef = useRef<string[]>([])
   const subKeyToAgentRef = useRef<Map<string, string>>(new Map())
-  const activeSubPollsRef = useRef<
-    Map<string, ReturnType<typeof setTimeout>>
-  >(new Map())
   const cancelledRef = useRef(false)
 
   const syncState = useCallback(() => {
@@ -173,40 +170,6 @@ export function useAgentActivity(sessionKey: string | null) {
     setSubKeyToAgent([])
     if (clearStreamStatus) setStreamStatus(null)
     setHistoryLoaded(false)
-  }, [])
-
-  const refreshFinishedToolFromHistory = useCallback(async (toolCallId: string) => {
-    if (!sessionKey) return
-    try {
-      const history = await invoke<{ messages: RawHistoryMessage[] }>(
-        "middleware_chat_history",
-        { input: { sessionKey, timeoutMs: 5_000 } },
-      )
-      if (cancelledRef.current) return
-      const parsed = parseHistoryToolCalls(history.messages ?? [])
-      const fromHistory = parsed.calls.find((call) => call.id === toolCallId)
-      if (!fromHistory) return
-      const existing = callMapRef.current.get(toolCallId)
-      const merged = mergeActivityCall(existing, fromHistory)
-      if (JSON.stringify(existing) === JSON.stringify(merged)) return
-      callMapRef.current.set(toolCallId, merged)
-      syncState()
-    } catch {}
-  }, [sessionKey, syncState])
-
-  const stopSubagentPoll = useCallback((subKey: string) => {
-    const timer = activeSubPollsRef.current.get(subKey)
-    if (timer) {
-      clearTimeout(timer)
-      activeSubPollsRef.current.delete(subKey)
-    }
-  }, [])
-
-  const stopAllSubagentPolls = useCallback(() => {
-    for (const [, timer] of activeSubPollsRef.current) {
-      clearTimeout(timer)
-    }
-    activeSubPollsRef.current.clear()
   }, [])
 
   const fetchSubagentHistory = useCallback(
@@ -262,84 +225,6 @@ export function useAgentActivity(sessionKey: string | null) {
       return null
     },
     [syncState],
-  )
-
-  const refreshActivityFromHistory = useCallback(async () => {
-    if (!sessionKey) return
-    try {
-      const history = await invoke<{
-        messages: RawHistoryMessage[]
-      }>(
-        "middleware_chat_history",
-        { input: { sessionKey, timeoutMs: 5_000 } },
-      )
-      if (cancelledRef.current) return
-
-      const parsed = parseHistoryToolCalls(history.messages ?? [])
-      const shouldFinalize = await shouldFinalizeStaleActivity(sessionKey)
-      if (cancelledRef.current) return
-
-      const nextCalls = new Map(callMapRef.current)
-      for (const call of parsed.calls) {
-        nextCalls.set(call.id, mergeActivityCall(nextCalls.get(call.id), call))
-      }
-
-      const nextAgents = new Map(agentsRef.current)
-      for (const [id, info] of parsed.agents) {
-        nextAgents.set(id, { ...(nextAgents.get(id) ?? info), ...info })
-        if (info.sessionKey) {
-          subKeyToAgentRef.current.set(info.sessionKey, id)
-        }
-      }
-      for (const [subKey, agentId] of parsed.subagentSessionKeys) {
-        subKeyToAgentRef.current.set(subKey, agentId)
-      }
-
-      if (shouldFinalize) {
-        const reconciled = finalizeStaleRunningActivity(
-          Array.from(nextCalls.values()),
-          nextAgents,
-        )
-        callMapRef.current = new Map(
-          reconciled.calls.map((call) => [call.id, call]),
-        )
-        agentsRef.current = reconciled.agents
-      } else {
-        callMapRef.current = nextCalls
-        agentsRef.current = nextAgents
-      }
-
-      setHistoryLoaded(true)
-      syncState()
-    } catch {
-      if (!cancelledRef.current) setHistoryLoaded(true)
-    }
-  }, [sessionKey, syncState])
-
-  const startSubagentPoll = useCallback(
-    (subKey: string, agentId: string) => {
-      if (activeSubPollsRef.current.has(subKey)) return
-      subKeyToAgentRef.current.set(subKey, agentId)
-
-      const poll = () => {
-        if (cancelledRef.current) return
-        fetchSubagentHistory(subKey, agentId).then(() => {
-          if (cancelledRef.current) return
-          const agentInfo = agentsRef.current.get(agentId)
-          const isDone =
-            agentInfo?.phase === "done" ||
-            agentInfo?.phase === "error"
-          if (isDone) {
-            activeSubPollsRef.current.delete(subKey)
-            return
-          }
-          const timer = setTimeout(poll, 1000)
-          activeSubPollsRef.current.set(subKey, timer)
-        })
-      }
-      poll()
-    },
-    [fetchSubagentHistory],
   )
 
   const attachSubagentSession = useCallback((
@@ -595,7 +480,6 @@ export function useAgentActivity(sessionKey: string | null) {
   }, [])
 
   useEffect(() => {
-    stopAllSubagentPolls()
     cancelledRef.current = false
 
     if (!sessionKey) {
@@ -700,7 +584,6 @@ export function useAgentActivity(sessionKey: string | null) {
     return () => {
       cancelledRef.current = true
       unsubscribeStream()
-      stopAllSubagentPolls()
       if (doneTimerRef.current) {
         clearTimeout(doneTimerRef.current)
         doneTimerRef.current = null
@@ -713,7 +596,6 @@ export function useAgentActivity(sessionKey: string | null) {
     processMessage,
     syncState,
     fetchSubagentHistory,
-    stopAllSubagentPolls,
     handleStreamDone,
     handleStreamResume,
     resetVisibleState,
