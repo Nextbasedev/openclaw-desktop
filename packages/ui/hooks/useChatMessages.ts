@@ -345,22 +345,36 @@ export function useChatMessages(
 ) {
   const hasInitial = initialMessages && initialMessages.length > 0
   const queryClient = useQueryClient()
+  const initialGlobalSession = !hasInitial ? getGlobalChatSession(sessionKey) : null
+  const initialCachedBootstrap = !hasInitial && !initialGlobalSession
+    ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
+    : null
+  const initialWarmMessages = hasInitial
+    ? initialMessages
+    : initialGlobalSession?.messages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
+  const initialWarmStatus = initialGlobalSession?.status ?? (
+    initialCachedBootstrap?.runStatus
+      ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
+      : "idle"
+  )
   const instanceIdRef = useRef(randomId())
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
-    hasInitial ? initialMessages : []
+    () => initialWarmMessages ? dedupeChatMessages(initialWarmMessages) : []
   )
   const [status, setLocalStatus] = useState<StreamStatus>(
-    hasInitial ? "thinking" : "idle"
+    () => hasInitial ? "thinking" : initialWarmStatus
   )
-  const [statusLabel, setStatusLabel] = useState<string | null>(null)
+  const [statusLabel, setStatusLabel] = useState<string | null>(
+    () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
+  )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [loading, setLoading] = useState(!hasInitial)
+  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
   const restartInFlightRef = useRef(false)
   const statusRef = useRef<StreamStatus>(
-    hasInitial ? "thinking" : "idle"
+    hasInitial ? "thinking" : initialWarmStatus
   )
   const isSendingRef = useRef(false)
 
