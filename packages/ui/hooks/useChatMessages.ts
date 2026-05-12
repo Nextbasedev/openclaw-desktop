@@ -197,6 +197,11 @@ function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
   return changed ? next : messages
 }
 
+function hasPendingOptimisticUserTurn(messages: ChatMessage[] | undefined | null) {
+  const last = messages?.[messages.length - 1]
+  return last?.role === "user" && last.isOptimistic === true
+}
+
 function hasFailedAssistantMessage(messages: ChatMessage[]): boolean {
   return messages.some(
     (message) =>
@@ -1128,12 +1133,17 @@ export function useChatMessages(
     seenIds.current.clear()
 
     if (seededMessages) {
+      const pendingInitialSend = hasPendingOptimisticUserTurn(seededMessages)
       for (const message of seededMessages) {
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
       setMessages(seededMessages)
-      setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
+      setStatus(
+        pendingInitialSend
+          ? "thinking"
+          : inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey))
+      )
       void queryClient.fetchQuery({
         queryKey: queryKeys.sessions(),
         queryFn: () => invoke<{
@@ -1146,7 +1156,13 @@ export function useChatMessages(
           const backendSession = (result.sessions || []).find(
             (item) => item.key === sessionKey || item.sessionKey === sessionKey,
           )
-          setStatus(statusFromBackendSession(backendSession?.status, seededMessages))
+          const nextStatus = statusFromBackendSession(
+            backendSession?.status,
+            seededMessages,
+          )
+          setStatus((prev) =>
+            pendingInitialSend && nextStatus === "idle" ? prev : nextStatus
+          )
         })
         .catch(() => undefined)
     } else {
