@@ -1083,6 +1083,27 @@ function AppShell({
 
   const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
 
+  const sessionDataForTab = useCallback((tab?: EditorTab | null): SessionData | null => {
+    if (!tab || tab.kind !== "chat") return null
+    const data = tabDataRef.current.get(tab.id)
+    const chat = data?.chat
+    if (!chat) return null
+    const cached = resolvedChatCacheRef.current.get(chat.id)
+    if (cached) {
+      return {
+        chat: cached.chat,
+        sessionKey: cached.sessionKey,
+        title: cached.title,
+      }
+    }
+    if (!chat.sessionKey) return null
+    return {
+      chat,
+      sessionKey: chat.sessionKey,
+      title: chat.name,
+    }
+  }, [])
+
   useEffect(() => {
     if (activeTopic) {
       const tabId = `topic:${activeTopic.projectId}:${activeTopic.id}`
@@ -1241,6 +1262,11 @@ function AppShell({
   ) => {
     if (sourceGroupId === targetGroupId) return
 
+    const sourceGroup = editorGroups.groups.find((group) => group.id === sourceGroupId)
+    const sourceRemainingTabs =
+      sourceGroup?.tabs.filter((tab) => tab.id !== tabId) ?? []
+    const sourceFallbackTab = sourceRemainingTabs[sourceRemainingTabs.length - 1]
+
     const data = tabDataRef.current.get(tabId)
     const cached = data?.chat ? resolvedChatCacheRef.current.get(data.chat.id) : null
     const movedSessionData: SessionData | null = cached
@@ -1262,6 +1288,12 @@ function AppShell({
       tabId,
       sourceGroupId,
       targetGroupId,
+    })
+
+    dispatchGroups({
+      type: "SET_SESSION_DATA",
+      groupId: sourceGroupId,
+      sessionData: sessionDataForTab(sourceFallbackTab),
     })
 
     dispatchGroups({
@@ -1292,7 +1324,7 @@ function AppShell({
       setComposerError(null)
       window.history.replaceState(null, "", routeUrl("/"))
     }
-  }, [])
+  }, [editorGroups.groups, sessionDataForTab])
 
   const handleFocusGroup = useCallback((groupId: "group-1" | "group-2") => {
     if (groupId === editorGroups.focusedGroupId) return
@@ -1325,6 +1357,10 @@ function AppShell({
     const activeTab = focused.tabs.find((tab) => tab.id === focused.activeTabId)
     if (!activeTab || activeTab.kind === "draft") return
 
+    const remainingTabs = focused.tabs.filter((tab) => tab.id !== activeTab.id)
+    const sourceFallbackTab = remainingTabs[remainingTabs.length - 1]
+    const sourceFallbackSessionData = sessionDataForTab(sourceFallbackTab)
+
     const hasAnotherRealTab = focused.tabs.some(
       (tab) => tab.id !== activeTab.id && tab.kind !== "draft",
     )
@@ -1351,6 +1387,11 @@ function AppShell({
           tabId: activeTab.id,
           sessionData: cached,
         })
+        dispatchGroups({
+          type: "SET_SESSION_DATA",
+          groupId: focused.id,
+          sessionData: sourceFallbackSessionData,
+        })
         setActiveTopic(null)
         setActiveChat(cached.chat)
         setActiveSessionKey(cached.sessionKey)
@@ -1361,6 +1402,11 @@ function AppShell({
         window.history.replaceState(null, "", routeUrl(`/${cached.chat.id}`))
       } else {
         dispatchGroups({ type: "SPLIT_TAB", tabId: activeTab.id, sessionData: null })
+        dispatchGroups({
+          type: "SET_SESSION_DATA",
+          groupId: focused.id,
+          sessionData: sourceFallbackSessionData,
+        })
         ensureChatSession(data.chat)
           .then((resolved) => {
             resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
@@ -1382,8 +1428,13 @@ function AppShell({
       }
     } else {
       dispatchGroups({ type: "SPLIT_TAB", tabId: activeTab.id, sessionData: null })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: focused.id,
+        sessionData: sourceFallbackSessionData,
+      })
     }
-  }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
+  }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups, sessionDataForTab])
 
   const handleSessionNavigate = useCallback(async (sessionKey?: string) => {
     setConnectAutoOpenEnabled(false)
