@@ -48,8 +48,12 @@ function isTerminalSendStatus(status: unknown) {
   return typeof status === "string" && ["done", "complete", "completed", "success", "succeeded", "finished"].includes(status.trim().toLowerCase());
 }
 
-function gatewaySendCompleted(result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null) {
-  if (isTerminalSendStatus(result.status)) return true;
+function gatewaySendCompleted(_result: Record<string, unknown>, currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null) {
+  // Gateway chat.send can return a terminal status before the final assistant
+  // message has reached chat.history/session.message. Do not broadcast done until
+  // the current user echo and an assistant answer after it are both projected.
+  // Otherwise the UI briefly hides Thinking, jumps the list, then receives the
+  // answer a few seconds later.
   return Boolean(currentHistory?.currentUserRepresented && currentHistory.assistantAfterCurrentUser);
 }
 
@@ -334,16 +338,17 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             log.info("gateway.chat.send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(gatewaySendStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), status: typeof result.status === "string" ? result.status : undefined, runId: typeof result.runId === "string" ? result.runId : undefined });
             const gatewayRunId = typeof result.runId === "string" && result.runId.trim() ? result.runId.trim() : null;
             const gatewayRunStatus = runStatusFromGateway(result.status) ?? "thinking";
+            const projectedRunStatus = gatewayRunStatus === "done" ? "thinking" : gatewayRunStatus;
             context.runs.upsertRun({
               runId,
               sessionKey: input.sessionKey,
               clientMessageId,
               idempotencyKey: input.idempotencyKey,
               gatewayRunId,
-              status: gatewayRunStatus,
-              statusLabel: gatewayRunStatus === "thinking" ? "Thinking" : null,
+              status: projectedRunStatus,
+              statusLabel: projectedRunStatus === "thinking" ? "Thinking" : null,
               startedAtMs: sendStartedAtMs,
-              finishedAtMs: ["done", "error", "aborted"].includes(gatewayRunStatus) ? Date.now() : null,
+              finishedAtMs: ["error", "aborted"].includes(projectedRunStatus) ? Date.now() : null,
               updatedAtMs: Date.now(),
             });
 

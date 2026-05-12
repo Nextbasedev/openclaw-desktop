@@ -1235,7 +1235,7 @@ setMessages(warmMessages)
             durationMs: Date.now() - bootstrapStartedAtMs,
             elapsedSinceMountMs: Date.now() - mountStartedAtMs,
           })
-          forceScrollToBottom(true)
+          forceScrollToBottom(false)
 
           unsubscribeV2Stream = subscribeGlobalChatSession(
             sessionKey,
@@ -1643,7 +1643,7 @@ frontendLog("chat", "chat.bootstrap.applied", {
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
-        forceScrollToBottom(true)
+        forceScrollToBottom(false)
 
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
