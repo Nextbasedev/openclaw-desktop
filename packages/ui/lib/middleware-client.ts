@@ -18,6 +18,7 @@ export type MiddlewareHealth = {
   version: string
   host?: string
   openclaw?: { gatewayUrl?: string; connected?: boolean }
+  gateway?: { connected?: boolean; lastError?: string | null }
   pairing?: { enabled?: boolean }
 }
 
@@ -150,6 +151,10 @@ export async function middlewareFetch<T>(path: string, init: RequestInit = {}, c
   }
 }
 
+export function isOpenClawConnected(health: MiddlewareHealth | null | undefined): boolean {
+  return health?.openclaw?.connected === true || health?.gateway?.connected === true
+}
+
 export async function testMiddlewareConnection(input: MiddlewareConnection): Promise<MiddlewareHealth> {
   const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(input.url))
   frontendLog("connection", "middleware.connect.start", { url: sanitizeUrlForLog(url), hasToken: Boolean(input.token.trim()) })
@@ -162,7 +167,7 @@ export async function testMiddlewareConnection(input: MiddlewareConnection): Pro
       url: sanitizeUrlForLog(url),
       service: health.service,
       version: health.version,
-      gatewayConnected: health.openclaw?.connected,
+      gatewayConnected: isOpenClawConnected(health),
     })
     return health
   } catch (error) {
@@ -200,7 +205,7 @@ export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promi
       clearTimeout(timeout)
       if (!health.ok) continue
       const healthBody = await health.json().catch(() => null) as MiddlewareHealth | null
-      if (!healthBody?.openclaw?.connected) continue
+      if (!isOpenClawConnected(healthBody)) continue
       frontendLog("connection", "middleware.detect.success", { url: sanitizeUrlForLog(url) })
       return { ok: true, url, token: "", mode: "local" }
     } catch (error) {
