@@ -96,6 +96,13 @@ type CronConversationTarget = {
   prompt: string
 }
 
+type SearchHighlightTarget = {
+  sessionKey: string
+  messageId?: string
+  snippet: string
+  query?: string
+}
+
 type ParsedRoute =
   | { kind: "chat"; chatId: string }
   | { kind: "topic"; projectId: string; topicId: string }
@@ -442,6 +449,8 @@ function AppShell({
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
+  const [searchHighlightTarget, setSearchHighlightTarget] =
+    useState<SearchHighlightTarget | null>(null)
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
@@ -460,6 +469,7 @@ function AppShell({
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
+    setSearchHighlightTarget(null)
   }, [])
 
   useEffect(() => {
@@ -1312,6 +1322,14 @@ function AppShell({
     }
 
     const focused = getFocusedGroup(editorGroups)
+    const activeTab = focused.tabs.find((tab) => tab.id === focused.activeTabId)
+    if (!activeTab || activeTab.kind === "draft") return
+
+    const hasAnotherRealTab = focused.tabs.some(
+      (tab) => tab.id !== activeTab.id && tab.kind !== "draft",
+    )
+    if (!hasAnotherRealTab) return
+
     if (activeSessionKey && activeChat) {
       dispatchGroups({
         type: "SET_SESSION_DATA",
@@ -1324,18 +1342,13 @@ function AppShell({
       })
     }
 
-    const otherTab = focused.tabs.find(
-      (tab) => tab.id !== focused.activeTabId && tab.kind !== "draft",
-    )
-    if (!otherTab) return
-
-    const data = tabDataRef.current.get(otherTab.id)
+    const data = tabDataRef.current.get(activeTab.id)
     if (data?.chat) {
       const cached = resolvedChatCacheRef.current.get(data.chat.id)
       if (cached) {
         dispatchGroups({
           type: "SPLIT_TAB",
-          tabId: otherTab.id,
+          tabId: activeTab.id,
           sessionData: cached,
         })
         setActiveTopic(null)
@@ -1345,8 +1358,9 @@ function AppShell({
         setInitialMessages(undefined)
         setPendingPrompt(null)
         setComposerError(null)
+        window.history.replaceState(null, "", routeUrl(`/${cached.chat.id}`))
       } else {
-        dispatchGroups({ type: "SPLIT_TAB", tabId: otherTab.id, sessionData: null })
+        dispatchGroups({ type: "SPLIT_TAB", tabId: activeTab.id, sessionData: null })
         ensureChatSession(data.chat)
           .then((resolved) => {
             resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
@@ -1362,11 +1376,12 @@ function AppShell({
             setInitialMessages(undefined)
             setPendingPrompt(null)
             setComposerError(null)
+            window.history.replaceState(null, "", routeUrl(`/${resolved.chat.id}`))
           })
           .catch(() => {})
       }
     } else {
-      dispatchGroups({ type: "SPLIT_TAB", tabId: otherTab.id, sessionData: null })
+      dispatchGroups({ type: "SPLIT_TAB", tabId: activeTab.id, sessionData: null })
     }
   }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
 
@@ -1418,6 +1433,65 @@ function AppShell({
       handleNewChat()
     }
   }, [handleNewChat])
+
+  const handleProjectSearchNavigate = useCallback(async (projectId: string) => {
+    try {
+      localStorage.setItem("openclaw.activeProjectId", projectId)
+    } catch {}
+
+    try {
+      const result = await invoke<{
+        topics: Array<{ id: string; name: string; archived: boolean }>
+      }>("middleware_topics_list", { input: { projectId } })
+      const topic = (result.topics || []).find((item) => !item.archived)
+      if (topic) {
+        const projectResult = await invoke<{
+          projects: Array<{ id: string; name: string; archived: boolean }>
+        }>("middleware_projects_list", { input: {} })
+        const project = (projectResult.projects || []).find(
+          (item) => item.id === projectId && !item.archived,
+        )
+        if (project) {
+          handleTopicSelect({
+            id: topic.id,
+            name: topic.name,
+            projectId,
+            projectName: project.name,
+          })
+          return
+        }
+      }
+    } catch (error) {
+      console.error("Failed to navigate to project search result", error)
+    }
+
+    setPendingPrompt(null)
+    setComposerError(null)
+    setConnectAutoOpenEnabled(false)
+    setActiveTab("chat")
+    clearConversationState()
+    window.history.pushState(null, "", routeUrl("/"))
+  }, [clearConversationState, handleTopicSelect])
+
+  const handleSearchMessageNavigate = useCallback(async (input: {
+    chat?: ActiveChat
+    sessionKey: string
+    messageId?: string
+    snippet: string
+    query?: string
+  }) => {
+    setSearchHighlightTarget({
+      sessionKey: input.sessionKey,
+      messageId: input.messageId,
+      snippet: input.snippet,
+      query: input.query,
+    })
+    if (input.chat) {
+      await handleChatSelect(input.chat)
+      return
+    }
+    await handleSessionNavigate(input.sessionKey)
+  }, [handleChatSelect, handleSessionNavigate])
 
   const handlePromptDraft = useCallback((prompt: string) => {
     setConnectAutoOpenEnabled(false)
@@ -1807,6 +1881,7 @@ function AppShell({
                   onDraftPrompt={handlePromptDraft}
                   onNavigateToChat={handleCronJobNavigate}
                   onForkNavigate={handleForkNavigate}
+                  searchHighlightTarget={searchHighlightTarget}
                 />
               ) : (
                 <EditorGroupsContainer
@@ -1855,6 +1930,7 @@ function AppShell({
                           onDraftPrompt={handlePromptDraft}
                           onNavigateToChat={handleCronJobNavigate}
                           onForkNavigate={handleForkNavigate}
+                          searchHighlightTarget={null}
                         />
                       )
                     }
@@ -1889,6 +1965,7 @@ function AppShell({
                 onDraftPrompt={handlePromptDraft}
                 onNavigateToChat={handleCronJobNavigate}
                 onForkNavigate={handleForkNavigate}
+                searchHighlightTarget={searchHighlightTarget}
               />
             )}
             {(backgroundSessionKey || warmChatSessions.length > 0) && (
@@ -1953,6 +2030,10 @@ function AppShell({
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onNavigateChat={handleSessionNavigate}
+        onNavigateProject={handleProjectSearchNavigate}
+        onNavigateTopic={handleTopicSelect}
+        onNavigateDirectChat={handleChatSelect}
+        onNavigateSearchMessage={handleSearchMessageNavigate}
         onNewChat={() => { setPendingPrompt(null); handleNewChat() }}
         onSendPrompt={handlePromptDraft}
         onOpenSettings={openSettings}
@@ -1991,6 +2072,7 @@ function MainContent({
   onDraftPrompt,
   onNavigateToChat,
   onForkNavigate,
+  searchHighlightTarget,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -2017,6 +2099,7 @@ function MainContent({
   onDraftPrompt?: (prompt: string) => void
   onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
   onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
+  searchHighlightTarget?: SearchHighlightTarget | null
 }) {
   if (activeTab === "settings") {
     return (
@@ -2059,6 +2142,11 @@ function MainContent({
           initialPrompt={pendingPrompt ?? undefined}
           forkContext={activeTopic ? { type: "topic", projectId: activeTopic.projectId, projectName: activeTopic.projectName, topicId: activeTopic.id, topicName: activeTopic.name } : { type: "chat" }}
           onForkNavigate={onForkNavigate}
+          searchHighlightTarget={
+            searchHighlightTarget?.sessionKey === activeSessionKey
+              ? searchHighlightTarget
+              : null
+          }
         />
       </div>
     )

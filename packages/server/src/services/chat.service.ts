@@ -22,6 +22,7 @@ import {
   resolveSkillMention,
   buildMentionContext,
 } from "./skill-runtime.service.js"
+import { indexChatMessage, indexChatMessages } from "./search.service.js"
 import { getDb } from "../db/connection.js"
 import { getAppSetting, generateId, nowIso } from "../db/helpers.js"
 
@@ -334,6 +335,17 @@ export async function chatSend(input: {
           "INSERT INTO sent_messages (id, session_key, text, created_at) VALUES (?, ?, ?, ?)",
         )
         .run(generateId("cmd"), input.sessionKey, input.text, commandTimestamp)
+    } catch {}
+  }
+
+  if (!isCommand) {
+    try {
+      indexChatMessage({
+        sessionKey: input.sessionKey,
+        role: "user",
+        text: input.text,
+        createdAt: commandTimestamp ?? nowIso(),
+      })
     } catch {}
   }
 
@@ -684,6 +696,13 @@ export async function chatHistory(input: { sessionKey: string }) {
         }
       }
     }
+  } catch {}
+
+  try {
+    indexChatMessages({
+      sessionKey: input.sessionKey,
+      messages: msgs,
+    })
   } catch {}
 
   return { ...history, messages: msgs }

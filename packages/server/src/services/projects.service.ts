@@ -17,6 +17,7 @@ import {
 } from "../db/helpers.js"
 import { enqueue } from "../sync/outbox.js"
 import { kickSyncEngine } from "../sync/engine.js"
+import { removeIndexedSessionMessages } from "./search.service.js"
 
 const PROJECT_COLUMNS = "id, name, profile_id, workspace_root, repo_root, archived, unread_count, last_activity_at, created_at, updated_at, pinned"
 
@@ -134,6 +135,9 @@ export function projectsDelete(input: { projectId: string }) {
        WHERE sm.project_id = ?`,
     )
     .all(input.projectId) as Array<{ id: string }>
+  const sessionKeys = db
+    .prepare("SELECT session_key FROM session_mappings WHERE project_id = ?")
+    .all(input.projectId) as Array<{ session_key: string }>
 
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM branches WHERE source_session_key IN (SELECT session_key FROM session_mappings WHERE project_id = ?)").run(input.projectId)
@@ -148,6 +152,7 @@ export function projectsDelete(input: { projectId: string }) {
   tx()
   for (const c of chatIds) enqueue("chat", c.id, "delete")
   for (const t of topicIds) enqueue("topic", t.id, "delete")
+  for (const session of sessionKeys) removeIndexedSessionMessages(session.session_key)
   enqueue("project", input.projectId, "delete")
   kickSyncEngine()
   return { ok: true, projectId: input.projectId }
