@@ -150,7 +150,7 @@ export function SkillDetailView({
           <div className="flex shrink-0 items-center gap-2">
             {detail.installed ? (
               <>
-                <span className="rounded-full bg-emerald-500/10 px-4 py-2 text-[13px] font-medium text-emerald-400">
+                <span className="rounded-md bg-emerald-500/10 px-4 py-2 text-[13px] font-medium text-emerald-400">
                   Installed
                 </span>
                 <button
@@ -158,7 +158,7 @@ export function SkillDetailView({
                   disabled={uninstalling}
                   onClick={handleUninstall}
                   className={cn(
-                    "flex size-9 cursor-pointer items-center justify-center rounded-full",
+                    "flex size-9 cursor-pointer items-center justify-center rounded-md",
                     "text-muted-foreground/50 transition-all duration-200",
                     "hover:bg-red-500/10 hover:text-red-400",
                     "disabled:cursor-not-allowed disabled:opacity-50"
