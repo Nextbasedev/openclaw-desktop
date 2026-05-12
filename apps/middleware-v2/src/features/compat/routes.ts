@@ -407,10 +407,26 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return { ok: true };
   });
 
-  app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request, reply) => {
+  app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
-    const chat = patchById(compatState.chats, request.params.chatId, { sessionKey: body.sessionKey ?? null });
-    if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+    const sessionKey = body.sessionKey ?? null;
+    let chat = patchById(compatState.chats, request.params.chatId, { sessionKey });
+    if (!chat) {
+      const timestamp = nowIso();
+      chat = {
+        id: request.params.chatId,
+        name: body.name || "New Chat",
+        sessionKey,
+        spaceId: body.spaceId || activeSpaceId(),
+        agentId: body.agentId || "main",
+        archived: false,
+        pinned: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        lastActiveAt: timestamp,
+      };
+      compatState.chats.push(chat);
+    }
     return { chat };
   });
 
@@ -668,7 +684,24 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     } catch { return reply.code(404).send({ ok: false, error: { message: "File not found" } }); }
   });
 
-  // --- legacy chat SSE stream (session-filtered) ---
+  // --- legacy SSE streams ---
+  app.get("/api/stream/cron", async (request, reply) => {
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    reply.raw.write("event: cron.ready\ndata: {\"ok\":true}\n\n");
+    const interval = setInterval(() => reply.raw.write(":heartbeat\n\n"), 15_000);
+    await new Promise<void>((resolve) => {
+      request.raw.on("close", () => {
+        clearInterval(interval);
+        resolve();
+      });
+    });
+  });
+
   app.get<{ Params: { sessionKey: string } }>("/api/stream/chat/:sessionKey", async (request, reply) => {
     const sessionKey = decodeURIComponent(request.params.sessionKey);
     reply.raw.writeHead(200, {
