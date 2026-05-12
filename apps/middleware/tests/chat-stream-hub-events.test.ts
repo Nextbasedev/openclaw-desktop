@@ -53,32 +53,6 @@ describe("chat stream hub event mapping", () => {
     expect(output).toContain("failed")
   })
 
-  it("uses sessions.changed lifecycle as the source of truth for terminal status", () => {
-    const c = client()
-    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "start" } } as any)
-    hub.handleGatewayEvent({ type: "event", event: "session.message", payload: { sessionKey: "agent:main:a", message: { id: "m1", role: "assistant", text: "partial", content: [{ type: "text", text: "partial" }] } } } as any)
-    hub.handleGatewayEvent({ type: "event", event: "session.tool", payload: { sessionKey: "agent:main:a", runId: "r1", data: { phase: "result", name: "read", toolCallId: "tc1" } } } as any)
-    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "end" } } as any)
-
-    const output = c.writes.join("\n")
-    expect(output).toContain('"state":"thinking"')
-    expect(output).toContain('"state":"done"')
-    expect(output).not.toContain('"state":"done","label"')
-  })
-
-  it("does not revive thinking from a tool result after the lifecycle has ended", () => {
-    const c = client()
-    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "start" } } as any)
-    hub.handleGatewayEvent({ type: "event", event: "sessions.changed", payload: { sessionKey: "agent:main:a", runId: "r1", phase: "end" } } as any)
-    hub.handleGatewayEvent({ type: "event", event: "session.tool", payload: { sessionKey: "agent:main:a", runId: "r1", data: { phase: "result", name: "read", toolCallId: "tc1" } } } as any)
-
-    const output = c.writes.join("\n")
-    const doneIndex = output.lastIndexOf('"state":"done"')
-    const thinkingAfterDone = output.slice(doneIndex + 1).includes('"state":"thinking"')
-    expect(doneIndex).toBeGreaterThan(-1)
-    expect(thinkingAfterDone).toBe(false)
-  })
-
   it("ignores unrelated subagent events except link bookkeeping placeholder", () => {
     const c = client("agent:main:parent")
     hub.handleGatewayEvent({ type: "event", event: "session.message", payload: { sessionKey: "agent:main:child:subagent:abc", message: { role: "assistant", text: "child" } } } as any)

@@ -12,7 +12,6 @@ type ChatStreamClient = {
 }
 
 const clients = new Map<string, ChatStreamClient>()
-const activeRunIdsBySession = new Map<string, Set<string>>()
 let gateway: MiddlewareGatewayHandle | null = null
 let startingGateway: Promise<void> | null = null
 let retryGatewayTimer: ReturnType<typeof setTimeout> | null = null
@@ -24,35 +23,6 @@ function eventSessionKey(payload: any) {
 
 function matches(client: ChatStreamClient, key: unknown) {
   return typeof key === "string" && (key === client.activeSessionKey || key === client.requestedSessionKey)
-}
-
-function activeRunsForSession(sessionKey: string) {
-  let runs = activeRunIdsBySession.get(sessionKey)
-  if (!runs) {
-    runs = new Set<string>()
-    activeRunIdsBySession.set(sessionKey, runs)
-  }
-  return runs
-}
-
-function sessionHasActiveRun(sessionKey: string) {
-  return (activeRunIdsBySession.get(sessionKey)?.size ?? 0) > 0
-}
-
-function applyLifecycleEvent(sessionKey: string, phase: unknown, runId: unknown) {
-  if (typeof phase !== "string") return null
-  const runs = activeRunsForSession(sessionKey)
-  const id = typeof runId === "string" && runId ? runId : "__unknown__"
-  if (phase === "start") {
-    runs.add(id)
-    return "thinking" as const
-  }
-  if (phase === "end" || phase === "error") {
-    runs.delete(id)
-    if (runs.size === 0) activeRunIdsBySession.delete(sessionKey)
-    return phase === "error" ? "error" as const : "done" as const
-  }
-  return null
 }
 
 export function registerChatStreamClient(params: {
@@ -96,7 +66,6 @@ export function activeChatStreamClientCountForTests() {
 
 export function resetChatStreamHubForTests() {
   clients.clear()
-  activeRunIdsBySession.clear()
   gateway?.close()
   gateway = null
   startingGateway = null
@@ -134,24 +103,7 @@ export function handleGatewayEvent(message: GatewayMessage) {
   const payload = (message as any).payload as any
   const key = eventSessionKey(payload)
 
-  if ((event === "session.message" || event === "session.tool" || event === "sessions.changed") && !key) return
-
-  if (event === "sessions.changed" && typeof key === "string") {
-    const state = applyLifecycleEvent(key, payload?.phase, payload?.runId)
-    if (state) {
-      for (const client of [...clients.values()]) {
-        if (!matches(client, key)) continue
-        const ok = client.send("chat.status", {
-          type: "chat.status",
-          sessionKey: client.activeSessionKey,
-          state,
-          runId: payload?.runId ?? null,
-        })
-        if (!ok) clients.delete(client.id)
-      }
-    }
-    return
-  }
+  if ((event === "session.message" || event === "session.tool") && !key) return
 
   for (const client of [...clients.values()]) {
     if (!matches(client, key)) continue
@@ -171,9 +123,7 @@ export function handleGatewayEvent(message: GatewayMessage) {
         stopReason: payload.message.stopReason ?? null,
       })
       if (!ok) clients.delete(client.id)
-      else if (!sessionHasActiveRun(key as string)) {
-        client.send("chat.status", { type: "chat.status", sessionKey: client.activeSessionKey, state: payload.message.text ? "done" : "streaming" })
-      }
+      else client.send("chat.status", { type: "chat.status", sessionKey: client.activeSessionKey, state: payload.message.text ? "done" : "streaming" })
       continue
     }
     if (event === "session.tool" && payload?.data) {
@@ -194,30 +144,12 @@ export function handleGatewayEvent(message: GatewayMessage) {
         subagentOf: null,
       })
       if (!ok) clients.delete(client.id)
-      else if (data?.phase === "error") {
-        client.send("chat.status", {
-          type: "chat.status",
-          sessionKey: client.activeSessionKey,
-          state: "error",
-          label: data?.name ?? null,
-        })
-      } else if (data?.phase === "result") {
-        if (sessionHasActiveRun(key as string)) {
-          client.send("chat.status", {
-            type: "chat.status",
-            sessionKey: client.activeSessionKey,
-            state: "thinking",
-            label: data?.name ?? null,
-          })
-        }
-      } else {
-        client.send("chat.status", {
-          type: "chat.status",
-          sessionKey: client.activeSessionKey,
-          state: "tool_running",
-          label: data?.name ?? null,
-        })
-      }
+      else client.send("chat.status", {
+        type: "chat.status",
+        sessionKey: client.activeSessionKey,
+        state: data?.phase === "error" ? "error" : data?.phase === "result" ? "thinking" : "tool_running",
+        label: data?.name ?? null,
+      })
     }
   }
 }

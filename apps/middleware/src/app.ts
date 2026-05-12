@@ -288,22 +288,6 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
       const subagentToSpawn = new Map<string, string>()
       const pendingSubagentKeys: string[] = []
       const seenToolEvents = new Set<string>()
-      const activeRunIds = new Set<string>()
-
-      const setRunLifecycle = (phase: unknown, runId: unknown) => {
-        if (typeof phase !== "string") return null
-        const id = typeof runId === "string" && runId ? runId : "__unknown__"
-        if (phase === "start") {
-          activeRunIds.add(id)
-          return "thinking" as const
-        }
-        if (phase === "end" || phase === "error") {
-          activeRunIds.delete(id)
-          return phase === "error" ? "error" as const : "done" as const
-        }
-        return null
-      }
-      const hasActiveRun = () => activeRunIds.size > 0
 
       const isSubagentKey = (key: unknown): key is string => typeof key === "string" && key.includes(":subagent:")
       const matchesSession = (key: unknown) => {
@@ -373,21 +357,6 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           if (isSubagentKey(key)) linkSubagent(key)
         }
 
-        if (message.event === "sessions.changed") {
-          if (!matchesSession(payload?.sessionKey)) return
-          if (isSubagentKey(payload?.sessionKey)) return
-          const state = setRunLifecycle(payload?.phase, payload?.runId)
-          if (state) {
-            send("chat.status", {
-              type: "chat.status",
-              sessionKey,
-              state,
-              runId: payload?.runId ?? null,
-            })
-          }
-          return
-        }
-
         if (message.event === "session.message" && payload?.message) {
           if (!matchesSession(payload.sessionKey)) return
           const content = payload.message.content
@@ -417,7 +386,7 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
           if (payload.message.role === "assistant") {
             emitToolCallsFromContent(send, sessionKey, content)
             send("chat.message", { type: "chat.message", sessionKey, messageId: payload.message.id ?? payload.messageId ?? null, role: payload.message.role, content, text, createdAt: payload.message.createdAt ?? null, model: payload.message.model ?? null, usage: payload.message.usage ?? null, stopReason: payload.message.stopReason ?? null })
-            if (!hasActiveRun()) send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
+            send("chat.status", { type: "chat.status", sessionKey, state: text ? "done" : "streaming" })
           } else {
             emitToolResultFromMessage(send, sessionKey, payload.message)
             const childKey = extractSubagentKey(content ?? payload.message)
@@ -469,30 +438,12 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
             subagentOf: spawnToolCallId ? `spawn:${spawnToolCallId}` : null,
           })
           if (!isSubagent) {
-            if (data?.phase === "error") {
-              send("chat.status", {
-                type: "chat.status",
-                sessionKey,
-                state: "error",
-                label: data?.name ?? null,
-              })
-            } else if (data?.phase === "result") {
-              if (hasActiveRun()) {
-                send("chat.status", {
-                  type: "chat.status",
-                  sessionKey,
-                  state: "thinking",
-                  label: data?.name ?? null,
-                })
-              }
-            } else {
-              send("chat.status", {
-                type: "chat.status",
-                sessionKey,
-                state: "tool_running",
-                label: data?.name ?? null,
-              })
-            }
+            send("chat.status", {
+              type: "chat.status",
+              sessionKey,
+              state: data?.phase === "error" ? "error" : data?.phase === "result" ? "thinking" : "tool_running",
+              label: data?.name ?? null,
+            })
           }
         } else if (message.event === "agent") {
           const eventSessionKey = payload?.sessionKey
