@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { loadEnv, type MiddlewareV2Config } from "../src/config/env.js";
@@ -97,6 +99,40 @@ describe("middleware-v2 app", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ chat: { id: "chat_missing", sessionKey: "agent:main:desktop:test" } });
     await app.close();
+  });
+
+  test("migrates v1 SQLite compat state into v2", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-v1-sqlite-migration-"));
+    const sourcePath = path.join(root, "state.sqlite");
+    const db = new Database(sourcePath);
+    const timestamp = new Date().toISOString();
+    const v1State = {
+      spaces: [{ id: "space_v1", name: "V1 Space", archived: false, deleted: false, sortOrder: 0, createdAt: timestamp, updatedAt: timestamp }],
+      activeSpaceId: "space_v1",
+      chats: [{ id: "chat_v1", name: "V1 Chat", sessionKey: "agent:main:desktop:v1", spaceId: "space_v1", createdAt: timestamp, updatedAt: timestamp }],
+      projects: [{ id: "proj_v1", name: "V1 Project", workspaceRoot: root, repoRoot: root, spaceId: "space_v1", createdAt: timestamp, updatedAt: timestamp }],
+      topics: [{ id: "topic_v1", projectId: "proj_v1", name: "V1 Topic", createdAt: timestamp, updatedAt: timestamp }],
+      sessions: [{ id: "session_v1", sessionKey: "agent:main:desktop:v1", key: "agent:main:desktop:v1", label: "V1 Chat", createdAt: timestamp, updatedAt: timestamp }],
+      commandState: { ignored: true },
+    };
+    db.exec("CREATE TABLE kv_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)");
+    db.prepare("INSERT INTO kv_state(key, value, updated_at) VALUES ('state', ?, ?)").run(JSON.stringify(v1State), timestamp);
+    db.close();
+
+    const app = await createApp(testConfig());
+    const res = await app.inject({ method: "POST", url: "/api/migration/v1-sqlite/import", payload: { sourcePath } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, sourcePath, summary: { imported: 5, updated: 0, spaces: 1, chats: 1, projects: 1, topics: 1, sessions: 1 } });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(bootstrap.json()).toMatchObject({ activeSpaceId: "space_v1" });
+    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([expect.objectContaining({ id: "chat_v1", name: "V1 Chat" })]));
+    expect(bootstrap.json().projects).toEqual(expect.arrayContaining([expect.objectContaining({ id: "proj_v1", name: "V1 Project" })]));
+
+    const second = await app.inject({ method: "POST", url: "/api/migration/v1-sqlite/import", payload: { sourcePath } });
+    expect(second.json()).toMatchObject({ summary: { imported: 0, updated: 5 } });
+    await app.close();
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test("compat chats and sessions survive middleware restart", async () => {

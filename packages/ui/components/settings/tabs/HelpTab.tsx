@@ -55,6 +55,22 @@ type TelegramMigrationImport = {
   failed?: Array<{ sourceSessionKey: string; error: string }>
 }
 
+type V1SqliteMigrationImport = {
+  ok: true
+  sourcePath: string
+  targetPath: string
+  summary: {
+    imported: number
+    updated: number
+    skipped: number
+    spaces: number
+    chats: number
+    projects: number
+    topics: number
+    sessions: number
+  }
+}
+
 export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) {
   function handleClick(link: HelpLink) {
     if (link.label === "Keyboard Shortcuts" && onShortcutsClick) {
@@ -105,6 +121,8 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
       </div>
 
       <MiddlewareUpdateCard />
+
+      <V1SqliteMigrationCard />
 
       <TelegramMigrationCard />
     </div>
@@ -227,6 +245,81 @@ function MiddlewareUpdateCard() {
           <code className="mt-2 block overflow-x-auto rounded bg-muted/40 px-3 py-2 text-[11px] text-foreground">
             curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/main/apps/middleware/scripts/install.sh | sudo bash
           </code>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function V1SqliteMigrationCard() {
+  const [result, setResult] = React.useState<V1SqliteMigrationImport | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState(false)
+
+  async function migrateSqlite() {
+    setBusy(true)
+    setError(null)
+    try {
+      setResult(await invoke<V1SqliteMigrationImport>("middleware_migration_v1_sqlite_import"))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="rounded-md border border-border/50 bg-muted/[0.03] p-5">
+      <div className="flex items-start gap-4">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+          <LuRefreshCw size={16} className={busy ? "animate-spin" : ""} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[13px] font-medium text-foreground">SQLite v1 → v2 migration</h3>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            Migrate your local v1 Middleware SQLite data into the v2 Desktop format. This preserves existing IDs and updates matching records instead of duplicating them.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={migrateSqlite}
+          disabled={busy}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <LuRefreshCw size={13} className={busy ? "animate-spin" : ""} />
+          {busy ? "Migrating…" : "Migrate"}
+        </button>
+      </div>
+
+      {result && (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
+          <LuCheck className="mt-0.5 shrink-0" size={14} />
+          <span>
+            Migrated {result.summary.imported} new and {result.summary.updated} existing records from v1 SQLite.
+          </span>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-3 rounded-md border border-border/35 bg-background/35 p-3 text-[11px] text-muted-foreground">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <Stat label="Spaces" value={result.summary.spaces} />
+            <Stat label="Chats" value={result.summary.chats} />
+            <Stat label="Projects" value={result.summary.projects} />
+            <Stat label="Topics" value={result.summary.topics} />
+            <Stat label="Sessions" value={result.summary.sessions} />
+          </div>
+          <p className="mt-3 truncate border-t border-border/30 pt-3 text-muted-foreground/70">Source: {result.sourcePath}</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
+          <LuCircleAlert className="mt-0.5 shrink-0" size={14} />
+          <span>{error}</span>
         </div>
       )}
     </section>

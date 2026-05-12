@@ -2,6 +2,7 @@ import { execFileSync, spawn as spawnChild, type ChildProcessWithoutNullStreams 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
 import { fromJson, toJson } from "../../db/json.js";
@@ -38,6 +39,22 @@ const compatState = {
 const compatCollections = ["spaces", "chats", "projects", "topics", "sessions"] as const;
 
 type CompatCollection = typeof compatCollections[number];
+
+type V1SqliteMigrationResult = {
+  ok: true;
+  sourcePath: string;
+  targetPath: string;
+  summary: {
+    imported: number;
+    updated: number;
+    skipped: number;
+    spaces: number;
+    chats: number;
+    projects: number;
+    topics: number;
+    sessions: number;
+  };
+};
 
 function loadCompatState(context: AppContext) {
   if (compatState.loadedDbPath === context.config.databasePath) return;
@@ -76,6 +93,92 @@ function saveCompatCollection(context: AppContext, _collection?: CompatCollectio
   saveCompatState(context);
 }
 
+function defaultV1SqlitePath() {
+  return path.join(os.homedir(), ".openclaw", "middleware", "middleware.db");
+}
+
+function normalizeV1SqlitePath(raw?: unknown) {
+  const input = typeof raw === "string" && raw.trim() ? raw.trim() : process.env.MIDDLEWARE_V1_DB || defaultV1SqlitePath();
+  if (input.endsWith(".sqlite") || input.endsWith(".sqlite3") || input.endsWith(".db")) return input;
+  if (input.endsWith(".json")) return input.replace(/\.json$/, ".sqlite");
+  return `${input}.sqlite`;
+}
+
+function recordMergeKey(collection: CompatCollection, record: CompatRecord) {
+  const idValue = typeof record.id === "string" && record.id.trim() ? record.id.trim() : null;
+  if (collection === "sessions") {
+    const key = typeof record.sessionKey === "string" && record.sessionKey.trim()
+      ? record.sessionKey.trim()
+      : typeof record.key === "string" && record.key.trim()
+        ? record.key.trim()
+        : null;
+    return key ? `sessionKey:${key}` : idValue ? `id:${idValue}` : null;
+  }
+  if (collection === "chats") {
+    const key = typeof record.sessionKey === "string" && record.sessionKey.trim() ? record.sessionKey.trim() : null;
+    return idValue ? `id:${idValue}` : key ? `sessionKey:${key}` : null;
+  }
+  return idValue ? `id:${idValue}` : null;
+}
+
+function mergeCompatRecords(collection: CompatCollection, incoming: CompatRecord[]) {
+  let imported = 0;
+  let updated = 0;
+  let skipped = 0;
+  const existing = compatState[collection];
+  const index = new Map<string, number>();
+  existing.forEach((record, i) => {
+    const key = recordMergeKey(collection, record);
+    if (key) index.set(key, i);
+  });
+  for (const record of incoming) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) { skipped += 1; continue; }
+    const key = recordMergeKey(collection, record);
+    if (!key) { skipped += 1; continue; }
+    const at = index.get(key);
+    if (at === undefined) {
+      existing.push(record);
+      index.set(key, existing.length - 1);
+      imported += 1;
+    } else {
+      existing[at] = { ...existing[at], ...record };
+      updated += 1;
+    }
+  }
+  return { imported, updated, skipped };
+}
+
+function readV1State(sourcePath: string): CompatRecord {
+  if (!fs.existsSync(sourcePath)) throw new Error(`v1 SQLite database not found: ${sourcePath}`);
+  const db = new Database(sourcePath, { readonly: true, fileMustExist: true });
+  try {
+    const row = db.prepare("SELECT value FROM kv_state WHERE key = 'state'").get() as { value?: string } | undefined;
+    if (!row?.value) throw new Error("v1 SQLite database does not contain kv_state/state");
+    const value = JSON.parse(row.value);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("v1 SQLite state is not an object");
+    return value as CompatRecord;
+  } finally {
+    db.close();
+  }
+}
+
+function migrateV1SqliteToV2(context: AppContext, sourcePathInput?: unknown): V1SqliteMigrationResult {
+  loadCompatState(context);
+  const sourcePath = normalizeV1SqlitePath(sourcePathInput);
+  const v1State = readV1State(sourcePath);
+  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0 };
+  for (const collection of compatCollections) {
+    const incoming = Array.isArray(v1State[collection]) ? v1State[collection] as CompatRecord[] : [];
+    const result = mergeCompatRecords(collection, incoming);
+    totals.imported += result.imported;
+    totals.updated += result.updated;
+    totals.skipped += result.skipped;
+    totals[collection] = result.imported + result.updated;
+  }
+  if (typeof v1State.activeSpaceId === "string" && v1State.activeSpaceId.trim()) compatState.activeSpaceId = v1State.activeSpaceId;
+  saveCompatState(context);
+  return { ok: true, sourcePath, targetPath: context.config.databasePath, summary: totals };
+}
 
 function ensureDefaultSpace() {
   if (compatState.spaces.length > 0) return compatState.spaces[0];
@@ -996,6 +1099,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   // --- migration stubs ---
   app.get("/api/migration/telegram/scan", async () => ({ sessions: [], count: 0 }));
   app.post("/api/migration/telegram/import", async () => ({ ok: true, imported: 0 }));
+  app.post("/api/migration/v1-sqlite/import", async (request) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    return migrateV1SqliteToV2(context, body.sourcePath);
+  });
 
   // --- self-update stubs ---
   app.get("/api/middleware/update/status", async () => ({ available: false, current: "0.1.0" }));
