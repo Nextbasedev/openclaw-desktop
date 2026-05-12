@@ -730,11 +730,12 @@ export async function getChatHistory(sessionKey: string) {
     const response = await gateway.request<SessionHistoryPayload>("chat.history", { sessionKey, limit: 200 })
     if (!response.ok) throw new Error(response.error?.message ?? "chat.history failed")
     const payload = response.payload
+    const hydrated = await hydrateHistoryAttachments(payload?.messages ?? [], sessionKey)
     return {
       sessionKey,
       thinkingLevel: payload?.thinkingLevel ?? null,
       verboseLevel: payload?.verboseLevel ?? null,
-      messages: (payload?.messages ?? []).map((message) => ({
+      messages: hydrated.map((message) => ({
         id: message.id ?? crypto.randomUUID(),
         role: message.role ?? "assistant",
         content: message.content ?? "",
@@ -765,6 +766,90 @@ type GatewayAttachment = {
   fileName: string
   mimeType: string
   content?: string
+}
+
+type RememberedAttachment = {
+  name: string
+  mimeType: string
+  content: string
+  size?: number
+}
+
+const attachmentMemory = new Map<string, RememberedAttachment[]>()
+
+function attachmentStorePath() {
+  return path.join(os.homedir(), ".openclaw", "state", "desktop-middleware-attachments.json")
+}
+
+function normalizeAttachmentLookupText(text: string) {
+  return String(text || "")
+    .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
+    .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function attachmentLookupKey(sessionKey: string, text: string) {
+  return `${sessionKey}::${crypto.createHash("sha256").update(normalizeAttachmentLookupText(text)).digest("hex")}`
+}
+
+async function readAttachmentStore() {
+  try {
+    const parsed = JSON.parse(await fs.readFile(attachmentStorePath(), "utf8")) as Record<string, RememberedAttachment[]>
+    for (const [key, value] of Object.entries(parsed)) attachmentMemory.set(key, value)
+  } catch {}
+}
+
+async function writeAttachmentStore() {
+  await fs.mkdir(path.dirname(attachmentStorePath()), { recursive: true })
+  await fs.writeFile(attachmentStorePath(), JSON.stringify(Object.fromEntries(attachmentMemory), null, 2))
+}
+
+async function rememberChatAttachments(sessionKey: string, text: string, raw: ChatSendAttachment[] | undefined) {
+  if (!raw?.length || !normalizeAttachmentLookupText(text)) return
+  const attachments: RememberedAttachment[] = raw.flatMap((item) => {
+    if (!item.mimeType?.startsWith("image/") || !item.content) return []
+    return [{ name: item.name || "image", mimeType: item.mimeType, content: item.content, size: item.size }]
+  })
+  if (attachments.length === 0) return
+  await readAttachmentStore()
+  attachmentMemory.set(attachmentLookupKey(sessionKey, text), attachments)
+  await writeAttachmentStore()
+}
+
+function mimeTypeFromFilename(name: string) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg"
+  if (lower.endsWith(".gif")) return "image/gif"
+  if (lower.endsWith(".webp")) return "image/webp"
+  if (lower.endsWith(".svg")) return "image/svg+xml"
+  return "image/png"
+}
+
+function imageAttachmentStubsFromText(text: string) {
+  const match = String(text || "").match(/^\s*\[Attached images?:\s*([^\]]+)\]/im)
+  if (!match) return []
+  return (match[1] ?? "").split(",").map((name) => name.trim()).filter(Boolean).map((name) => ({ name, mimeType: mimeTypeFromFilename(name) }))
+}
+
+async function hydrateHistoryAttachments(messages: any[], sessionKey: string) {
+  await readAttachmentStore()
+  return messages.map((message) => {
+    if (message?.role !== "user") return message
+    const text = typeof message.text === "string" ? message.text : contentBlocksToText(message.content)
+    if (!normalizeAttachmentLookupText(text)) return message
+    const remembered = attachmentMemory.get(attachmentLookupKey(sessionKey, text)) ?? attachmentMemory.get(attachmentLookupKey(sessionKey, normalizeAttachmentLookupText(text)))
+    const baseAttachments = Array.isArray(message.attachments) && message.attachments.length > 0
+      ? message.attachments
+      : remembered ?? imageAttachmentStubsFromText(text)
+    if (!baseAttachments?.length) return message
+    const hydrated = baseAttachments.map((att: any, i: number) => {
+      if (att.content || att.url) return att
+      const match = remembered?.find((item) => item.name === att.name && item.mimeType === att.mimeType) ?? remembered?.[i]
+      return match?.content ? { ...att, content: match.content } : att
+    })
+    return { ...message, attachments: hydrated }
+  })
 }
 
 const TEXT_ATTACHMENT_MIME_TYPES = new Set([
@@ -903,6 +988,7 @@ export async function sendChatMessage(input: {
   const gateway = await connectToOpenClawGateway({ scopes: ["operator.read", "operator.write", "operator.approvals"] })
   try {
     const prepared = prepareMessageAndAttachments(input)
+    await rememberChatAttachments(input.sessionKey, prepared.text, input.attachments)
     const params: Record<string, unknown> = {
       sessionKey: input.sessionKey,
       message: prepared.text,
