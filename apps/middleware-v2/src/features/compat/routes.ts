@@ -307,13 +307,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
     const sessionKey = String(body.sessionKey || `agent:${body.agentId || "main"}:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-    try {
-      await context.gateway.request("sessions.create", {
-        key: sessionKey,
-        agentId: body.agentId || "main",
-        label: body.name || "New Chat",
-      });
-    } catch { /* session may already exist or gateway may be offline in tests */ }
+    void context.gateway.request("sessions.create", {
+      key: sessionKey,
+      agentId: body.agentId || "main",
+      label: body.name || "New Chat",
+    }).catch(() => { /* session may already exist or gateway may be offline */ });
     const chat = {
       id: id("chat"),
       name: body.name || "New Chat",
@@ -433,13 +431,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
     const sessionKey = String(body.sessionKey || `agent:${body.agentId || "main"}:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-    try {
-      await context.gateway.request("sessions.create", {
-        key: sessionKey,
-        agentId: body.agentId || "main",
-        label: body.label || "New Chat",
-      });
-    } catch { /* session may already exist or gateway may be offline in tests */ }
+    void context.gateway.request("sessions.create", {
+      key: sessionKey,
+      agentId: body.agentId || "main",
+      label: body.label || "New Chat",
+    }).catch(() => { /* session may already exist or gateway may be offline */ });
     const session = { id: id("session"), ...body, key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
     compatState.sessions.push(session);
     return { session };
@@ -542,6 +538,145 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       fs.writeFileSync(file, String(body.content ?? ""), "utf8");
       return { ok: true, path: rel };
     } catch { return reply.code(500).send({ ok: false, error: { message: "Write failed" } }); }
+  });
+
+  // --- global workspace (no project scope) ---
+  function globalWorkspaceRoot() {
+    // Use the first project's root, or fall back to cwd
+    const firstProject = compatState.projects.find((p) => notDeleted(p) && (p.workspaceRoot || p.repoRoot || p.path));
+    return firstProject?.workspaceRoot ?? firstProject?.repoRoot ?? firstProject?.path ?? process.cwd();
+  }
+
+  app.get("/api/workspace/capabilities", async () => ({
+    capabilities: { canTree: true, canStat: true, canRead: true, canWrite: true, canDownloadFile: true, canCreateDir: true, canMoveEntry: true, canDeleteEntry: true },
+  }));
+
+  app.get("/api/workspace/tree", async (request) => {
+    const root = globalWorkspaceRoot();
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try {
+      const dir = safeJoin(root, rel);
+      const entries = fs.readdirSync(dir, { withFileTypes: true }).map((entry) => workspaceEntry(root, path.join(dir, entry.name)));
+      return { entries };
+    } catch { return { entries: [] }; }
+  });
+
+  app.get("/api/workspace/stat", async (request, reply) => {
+    const root = globalWorkspaceRoot();
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try { return { entry: workspaceEntry(root, safeJoin(root, rel)) }; }
+    catch { return reply.code(404).send({ ok: false, error: { message: "Not found" } }); }
+  });
+
+  app.get("/api/workspace/file", async (request, reply) => {
+    const root = globalWorkspaceRoot();
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try {
+      const file = safeJoin(root, rel);
+      const content = fs.readFileSync(file, "utf8");
+      return { path: rel, content, encoding: "utf-8", file: { path: rel, content, encoding: "utf-8" } };
+    } catch { return reply.code(404).send({ ok: false, error: { message: "File not found" } }); }
+  });
+
+  app.put("/api/workspace/file", async (request, reply) => {
+    const root = globalWorkspaceRoot();
+    const body = (request.body ?? {}) as CompatRecord;
+    const rel = String(body.path ?? "");
+    try {
+      const file = safeJoin(root, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, String(body.content ?? ""), "utf8");
+      return { ok: true, path: rel };
+    } catch { return reply.code(500).send({ ok: false, error: { message: "Write failed" } }); }
+  });
+
+  app.delete("/api/workspace/file", async (request, reply) => {
+    const root = globalWorkspaceRoot();
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try { fs.unlinkSync(safeJoin(root, rel)); return { ok: true }; }
+    catch { return reply.code(404).send({ ok: false, error: { message: "Not found" } }); }
+  });
+
+  app.post("/api/workspace/mkdir", async (request, reply) => {
+    const root = globalWorkspaceRoot();
+    const body = (request.body ?? {}) as CompatRecord;
+    const rel = String(body.path ?? "");
+    try { fs.mkdirSync(safeJoin(root, rel), { recursive: true }); return { ok: true }; }
+    catch { return reply.code(500).send({ ok: false, error: { message: "mkdir failed" } }); }
+  });
+
+  app.post("/api/workspace/move", async (request, reply) => {
+    const root = globalWorkspaceRoot();
+    const body = (request.body ?? {}) as CompatRecord;
+    try { fs.renameSync(safeJoin(root, String(body.fromPath ?? "")), safeJoin(root, String(body.toPath ?? ""))); return { ok: true }; }
+    catch { return reply.code(500).send({ ok: false, error: { message: "Move failed" } }); }
+  });
+
+  app.get("/api/workspace/download", async (request, reply) => {
+    const root = globalWorkspaceRoot();
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try {
+      const file = safeJoin(root, rel);
+      const content = fs.readFileSync(file);
+      const mimeType = rel.endsWith(".json") ? "application/json" : rel.endsWith(".html") ? "text/html" : "application/octet-stream";
+      return reply.type(mimeType).header("Content-Disposition", `attachment; filename="${path.basename(file)}"`).send(content);
+    } catch { return reply.code(404).send({ ok: false, error: { message: "File not found" } }); }
+  });
+
+  // --- legacy chat SSE stream (session-filtered) ---
+  app.get<{ Params: { sessionKey: string } }>("/api/stream/chat/:sessionKey", async (request, reply) => {
+    const sessionKey = decodeURIComponent(request.params.sessionKey);
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    reply.raw.write(":ok\n\n");
+    // Forward patches from the patch bus filtered by sessionKey
+    const handler = (patch: { cursor: number; type: string; sessionKey: string | null; payload: unknown }) => {
+      if (patch.sessionKey !== sessionKey) return;
+      const eventType = patch.type.startsWith("chat.") ? patch.type : "message";
+      reply.raw.write(`event: ${eventType}\ndata: ${JSON.stringify(patch.payload)}\n\n`);
+    };
+    // Use the PatchBus broadcast by wrapping a fake WebSocket-like client
+    const clientId = `sse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const originalBroadcast = context.patchBus.broadcast.bind(context.patchBus);
+    const wrappedBroadcast = (patch: Parameters<typeof originalBroadcast>[0]) => {
+      handler(patch);
+      return originalBroadcast(patch);
+    };
+    // Monkey-patch is fragile; instead, subscribe to the DB poll
+    const interval = setInterval(() => {
+      // Heartbeat to keep connection alive
+      reply.raw.write(":heartbeat\n\n");
+    }, 15_000);
+    // Listen for patches via a polling approach on the projection events table
+    let lastCursor = 0;
+    try {
+      const latest = context.db.prepare("SELECT MAX(cursor) as c FROM v2_projection_events").get() as { c: number } | undefined;
+      lastCursor = latest?.c ?? 0;
+    } catch { /* table may not exist yet */ }
+    const pollInterval = setInterval(() => {
+      try {
+        const rows = context.db.prepare(
+          "SELECT cursor, session_key, event_type, payload_json, created_at_ms FROM v2_projection_events WHERE cursor > @lastCursor AND session_key = @sessionKey ORDER BY cursor ASC LIMIT 100"
+        ).all({ lastCursor, sessionKey }) as Array<{ cursor: number; session_key: string; event_type: string; payload_json: string; created_at_ms: number }>;
+        for (const row of rows) {
+          const eventType = row.event_type.startsWith("chat.") ? row.event_type : "message";
+          const payload = JSON.parse(row.payload_json);
+          reply.raw.write(`event: ${eventType}\ndata: ${JSON.stringify(payload)}\n\n`);
+          lastCursor = row.cursor;
+        }
+      } catch { /* ignore poll errors */ }
+    }, 500);
+    await new Promise<void>((resolve) => {
+      request.raw.on("close", () => {
+        clearInterval(interval);
+        clearInterval(pollInterval);
+        resolve();
+      });
+    });
   });
 
   // --- commands fallback ---
