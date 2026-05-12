@@ -255,7 +255,12 @@ function MessageAttachments({
   if (!attachments || attachments.length === 0) return null
 
   return (
-    <div className={cn("mt-2 space-y-2", isUser ? "text-white" : "text-foreground")}>
+    <div
+      className={cn(
+        "mt-2 space-y-2",
+        isUser ? "text-white" : "text-foreground"
+      )}
+    >
       {attachments.map((attachment, index) => {
         const href = chatAttachmentHref(attachment)
         const kind = getChatAttachmentKind(attachment)
@@ -294,7 +299,9 @@ function MessageAttachments({
                 )}
               >
                 <LuImage className="size-3.5 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {attachment.name}
+                </span>
                 <span className="shrink-0">{attachmentLabel(attachment)}</span>
               </div>
             </a>
@@ -324,7 +331,7 @@ function MessageAttachments({
               <AttachmentFileIcon kind={fileKind} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-medium leading-snug">
+              <p className="truncate text-[13px] leading-snug font-medium">
                 {attachment.name}
               </p>
               <p
@@ -487,6 +494,7 @@ export function MessageBubble({
   reaction,
   isGenerating,
   isActivelyStreaming,
+  suppressActions,
   popoverOpen,
   onPopoverOpenChange,
 }: {
@@ -516,12 +524,14 @@ export function MessageBubble({
   reaction?: "up" | "down"
   isGenerating?: boolean
   isActivelyStreaming?: boolean
+  suppressActions?: boolean
   popoverOpen?: boolean
   onPopoverOpenChange?: (open: boolean) => void
 }) {
   const isUser = message.role === "user"
   const shouldAnimateSend = isUser && message.isOptimistic
-  const hideAssistantActions = !isUser && Boolean(isActivelyStreaming)
+  const hideAssistantActions =
+    !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const [selectionAction, setSelectionAction] = useState<{
@@ -826,16 +836,19 @@ export function MessageBubble({
                 <>
                   <motion.span
                     aria-hidden="true"
-                    className="pointer-events-none absolute bottom-2 right-0 top-2 w-px bg-white/80"
+                    className="pointer-events-none absolute top-2 right-0 bottom-2 w-px bg-white/80"
                     initial={{ scaleY: 0, opacity: 0, originY: 0 }}
                     animate={{ scaleY: 1, opacity: [0, 0.95, 0] }}
                     transition={{ duration: 0.48, ease: "easeOut" }}
                   />
                   <motion.span
                     aria-hidden="true"
-                    className="pointer-events-none absolute bottom-0 right-2 h-px bg-white/80"
+                    className="pointer-events-none absolute right-2 bottom-0 h-px bg-white/80"
                     initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: "calc(100% - 1rem)", opacity: [0, 0.95, 0] }}
+                    animate={{
+                      width: "calc(100% - 1rem)",
+                      opacity: [0, 0.95, 0],
+                    }}
                     transition={{ duration: 0.4, delay: 0.34, ease: "easeOut" }}
                   />
                 </>
@@ -877,11 +890,15 @@ export function MessageBubble({
             </div>
             {isUser && <RichContentPreview message={message} />}
             {isUser && message.sendStatus === "sending" && (
-              <div className="mt-1 text-[11px] text-muted-foreground/70">Sending…</div>
+              <div className="mt-1 text-[11px] text-muted-foreground/70">
+                Sending…
+              </div>
             )}
             {isUser && message.sendStatus === "failed" && (
               <div className="mt-1 flex max-w-full items-center gap-2 text-[11px] text-rose-300">
-                <span className="min-w-0 truncate">{message.sendError || "Send failed"}</span>
+                <span className="min-w-0 truncate">
+                  {message.sendError || "Send failed"}
+                </span>
                 <button
                   type="button"
                   onClick={() => onRetrySend?.(message.messageId)}
@@ -920,7 +937,7 @@ export function MessageBubble({
                     "fixed z-[9999] flex -translate-x-1/2 -translate-y-full items-center gap-1.5 border border-white/10 bg-[#202020]/98 shadow-[0_18px_50px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-2xl",
                     selectionCommentOpen
                       ? "w-[min(380px,calc(100vw-32px))] rounded-[18px] px-3 py-2"
-                      : "rounded-full p-1.5",
+                      : "rounded-full p-1.5"
                   )}
                   style={{
                     left: selectionAction.left,
@@ -972,7 +989,7 @@ export function MessageBubble({
                       "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
                       !selectionCommentOpen || selectionComment.trim()
                         ? "cursor-pointer bg-white/22 text-white hover:bg-white/30"
-                        : "cursor-default bg-white/[0.08] text-white/32",
+                        : "cursor-default bg-white/[0.08] text-white/32"
                     )}
                     aria-label={
                       selectionCommentOpen && selectionComment.trim()
