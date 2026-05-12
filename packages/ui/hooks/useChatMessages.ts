@@ -532,10 +532,14 @@ export function useChatMessages(
       ? distanceFromBottom < 180
       : distanceFromBottom < 80
     if (Date.now() < programmaticScrollUntilRef.current) {
-      if (!isAtBottomRef.current) {
-        isAtBottomRef.current = true
-        setIsAtBottom(true)
-      }
+      // During smooth programmatic scrolling, keep the jump-to-latest control
+      // visible until the viewport is actually near the bottom. Otherwise the
+      // button can disappear while the browser is still animating toward the
+      // latest message.
+      if (!nextAtBottom) return
+      if (isAtBottomRef.current) return
+      isAtBottomRef.current = true
+      setIsAtBottom(true)
       return
     }
     if (isAtBottomRef.current === nextAtBottom) return
@@ -567,7 +571,6 @@ export function useChatMessages(
   }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
-    isAtBottomRef.current = true
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current)
     }
@@ -579,8 +582,10 @@ export function useChatMessages(
         top: el.scrollHeight,
         behavior: smooth ? "smooth" : "auto",
       })
-      isAtBottomRef.current = true
-      setIsAtBottom(true)
+      if (!smooth) {
+        isAtBottomRef.current = true
+        setIsAtBottom(true)
+      }
       scrollFrameRef.current = null
     }
     scrollFrameRef.current = requestAnimationFrame(() => {
