@@ -44,12 +44,43 @@ function readToolCallId(value: Record<string, unknown>) {
   return typeof id === "string" && id.trim() ? id.trim() : null;
 }
 
-function inferToolResultFromHistory(messages: unknown[], messageIndex: number) {
+function compactResultMeta(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return compactResultMeta(parsed);
+      } catch {
+        // Fall through to compact string metadata.
+      }
+    }
+    return { type: "string", length: value.length };
+  }
+  if (Array.isArray(value)) return { type: "array", length: value.length };
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return {
+      type: "object",
+      keys: Object.keys(record).slice(0, 20),
+      ...(typeof record.childSessionKey === "string" ? { childSessionKey: record.childSessionKey } : {}),
+    };
+  }
+  return { type: typeof value };
+}
+
+function inferToolResultFromHistory(messages: unknown[], messageIndex: number, toolCallId?: string | null) {
   for (let index = messageIndex + 1; index < messages.length; index += 1) {
     const message = messages[index];
     if (!message || typeof message !== "object" || Array.isArray(message)) continue;
     const data = message as Record<string, unknown>;
-    if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") return { status: "success" as const, resultMeta: { inferred: true, reason: "history_tool_result_message" } };
+    if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") {
+      const resultToolCallId = readToolCallId(data);
+      if (!toolCallId || !resultToolCallId || resultToolCallId === toolCallId) {
+        return { status: "success" as const, resultMeta: compactResultMeta(data.result ?? data.text ?? data.content) ?? { inferred: true, reason: "history_tool_result_message" } };
+      }
+    }
     if (data.role === "assistant" && textFromMessage(data).trim()) return { status: "success" as const, resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" } };
   }
   return null;
@@ -67,7 +98,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       const toolCallId = readToolCallId(block);
       const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
       if (!toolCallId || !name) continue;
-      const result = completed ? { status: "success" as const, resultMeta: { inferred: true, reason: "bootstrap_completed_history" } } : inferToolResultFromHistory(messages, messageIndex);
+      const result = completed ? { status: "success" as const, resultMeta: { inferred: true, reason: "bootstrap_completed_history" } } : inferToolResultFromHistory(messages, messageIndex, toolCallId);
       context.runs.upsertToolCall({
         sessionKey,
         toolCallId,
@@ -76,7 +107,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
         name,
         phase: result ? "result" : "calling",
         status: result?.status,
-        argsMeta: objectData(block.arguments ?? block.input),
+        argsMeta: block.arguments ?? block.input ?? null,
         resultMeta: result?.resultMeta,
       });
       inferred += 1;
