@@ -31,6 +31,60 @@ function lastMessageIsAssistantText(messages: unknown[]) {
   return false;
 }
 
+function toolCallBlocks(content: unknown) {
+  if (!Array.isArray(content)) return [];
+  return content.filter((block): block is Record<string, unknown> => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return false;
+    return block.type === "toolCall" || block.type === "tool_use";
+  });
+}
+
+function readToolCallId(value: Record<string, unknown>) {
+  const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function inferToolResultFromHistory(messages: unknown[], messageIndex: number) {
+  for (let index = messageIndex + 1; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
+    const data = message as Record<string, unknown>;
+    if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") return { status: "success" as const, resultMeta: { inferred: true, reason: "history_tool_result_message" } };
+    if (data.role === "assistant" && textFromMessage(data).trim()) return { status: "success" as const, resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" } };
+  }
+  return null;
+}
+
+function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], runId: string | null, completed: boolean) {
+  let inferred = 0;
+  messages.forEach((message, messageIndex) => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return;
+    const data = message as Record<string, unknown>;
+    if (data.role !== "assistant") return;
+    const openclaw = objectData(data.__openclaw);
+    const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
+    for (const block of toolCallBlocks(data.content)) {
+      const toolCallId = readToolCallId(block);
+      const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
+      if (!toolCallId || !name) continue;
+      const result = completed ? { status: "success" as const, resultMeta: { inferred: true, reason: "bootstrap_completed_history" } } : inferToolResultFromHistory(messages, messageIndex);
+      context.runs.upsertToolCall({
+        sessionKey,
+        toolCallId,
+        runId,
+        messageId,
+        name,
+        phase: result ? "result" : "calling",
+        status: result?.status,
+        argsMeta: objectData(block.arguments ?? block.input),
+        resultMeta: result?.resultMeta,
+      });
+      inferred += 1;
+    }
+  });
+  return inferred;
+}
+
 type ChatHistoryResponse = {
   sessionKey?: string;
   sessionId?: string;
@@ -622,6 +676,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq });
 
     const latestRun = context.runs.latestRun(sessionKey);
+    const bootstrapCompleted = isTerminalSendStatus(sessionData.status) || lastMessageIsAssistantText(messages);
+    const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, latestRun?.runId ?? null, bootstrapCompleted);
+    if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: latestRun?.runId ?? null, completed: bootstrapCompleted });
+
     if (latestRun && ACTIVE_RUN_STATUSES.has(latestRun.status) && Date.now() - latestRun.updatedAtMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) {
       const finalizedTools = context.runs.completeRunningTools(sessionKey, latestRun.runId, {
         status: "success",
