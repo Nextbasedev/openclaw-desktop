@@ -220,6 +220,15 @@ export class RunRepository {
     return this.getToolCall(tool.sessionKey, tool.toolCallId)!;
   }
 
+  listRunningToolCalls(sessionKey: string, runId: string): ProjectedToolCall[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM v2_tool_calls
+      WHERE session_key = @sessionKey AND run_id = @runId AND status = 'running'
+      ORDER BY started_at_ms ASC
+    `).all({ sessionKey, runId });
+    return (rows as Record<string, unknown>[]).map(rowToTool);
+  }
+
   completeRunningTools(sessionKey: string, runId: string, params: { status?: Extract<ToolStatus, "success" | "error">; resultMeta?: unknown; updatedAtMs?: number } = {}): number {
     const now = params.updatedAtMs ?? Date.now();
     const status = params.status ?? "success";

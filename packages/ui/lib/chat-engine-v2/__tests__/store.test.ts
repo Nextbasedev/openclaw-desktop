@@ -641,14 +641,21 @@ describe("global V2 chat engine store", () => {
 
     sweepStaleGlobalChatSessions(10_000, 5_000)
 
-    expect(getGlobalChatSession("s1")).toMatchObject({
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({
       status: "idle",
-      pendingTools: [
-        { id: "tool-stale", status: "error" },
-        { id: "spawn-stale", status: "error" },
-      ],
+      pendingTools: [],
       spawnedSubagents: [{ toolCallId: "spawn-stale", status: "failed" }],
     })
+    expect(state?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "assistant",
+        toolCalls: expect.arrayContaining([
+          expect.objectContaining({ id: "tool-stale", status: "error" }),
+          expect.objectContaining({ id: "spawn-stale", status: "error" }),
+        ]),
+      }),
+    ]))
   })
 
   test("clears stale Thinking labels when a session becomes done", () => {

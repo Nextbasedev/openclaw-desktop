@@ -126,8 +126,7 @@ export class ChatLiveIngest {
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
     const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
     if (assistantHasFinalText && associatedRun) {
-      this.context.runs.completeRunningTools(sessionKey, associatedRun.runId, {
-        status: "success",
+      this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId, {
         resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
       });
     }
@@ -268,6 +267,38 @@ export class ChatLiveIngest {
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
+  }
+
+  private completeRunningToolsWithPatches(sessionKey: string, runId: string, params: { resultMeta?: unknown } = {}) {
+    const runningTools = this.context.runs.listRunningToolCalls(sessionKey, runId);
+    if (runningTools.length === 0) return;
+    this.context.runs.completeRunningTools(sessionKey, runId, {
+      status: "success",
+      resultMeta: params.resultMeta,
+    });
+    for (const runningTool of runningTools) {
+      const tool = this.context.runs.getToolCall(sessionKey, runningTool.toolCallId);
+      if (!tool) continue;
+      const event = this.context.messages.appendProjectionEvent({
+        sessionKey,
+        eventType: "chat.tool.result",
+        payload: canonicalPatchPayload({
+          sessionKey,
+          semanticType: "chat.tool.result",
+          run: this.context.runs.getRun(runId),
+          tool,
+          payload: { sessionKey, runId, toolCallId: tool.toolCallId },
+        }),
+      });
+      this.context.patchBus.broadcast({
+        cursor: event.cursor,
+        type: event.eventType,
+        sessionKey: event.sessionKey,
+        payload: event.payload,
+        createdAtMs: event.createdAtMs,
+      });
+      this.log.info("tool.inferred-result.broadcast", { sessionKey, runId, toolCallId: tool.toolCallId, cursor: event.cursor });
+    }
   }
 
   private ingestToolsFromMessage(sessionKey: string, message: OpenClawMessage, run: ProjectedRun | null) {
