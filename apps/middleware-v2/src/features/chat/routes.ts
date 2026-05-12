@@ -170,10 +170,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     const sessionCreateStartedAtMs = nowMs();
     log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label) });
+    const gatewayLabel = (() => {
+      const base = String(input.label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+      const suffix = (input.sessionKey.split(":").pop() || input.sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
+      return `${base} \u00b7 ${suffix}`;
+    })();
     await context.gateway.request("sessions.create", {
       key: input.sessionKey,
       agentId: input.agentId || "main",
-      label: input.label || "New Chat",
+      label: gatewayLabel,
     }).then(() => {
       log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs) });
     }).catch((error) => {
