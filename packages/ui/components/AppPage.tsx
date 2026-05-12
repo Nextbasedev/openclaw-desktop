@@ -1569,9 +1569,6 @@ function AppShell({
         "middleware_sessions_create",
         { input: { agentId: "main", label: fallbackName } },
       )
-      await invoke("middleware_chats_attach_session", {
-        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
-      })
 
       const optimisticMessages: OptimisticMsg[] = [{
         messageId: randomId(),
@@ -1595,6 +1592,10 @@ function AppShell({
       setActiveSessionTitle(fallbackName)
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
+
+      await invoke("middleware_chats_attach_session", {
+        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
+      })
 
       await invoke("middleware_chat_send", {
         input: {
