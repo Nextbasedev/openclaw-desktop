@@ -80,6 +80,14 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("attaching a session recreates missing chat shell", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "POST", url: "/api/chats/chat_missing/session", payload: { sessionKey: "agent:main:desktop:test" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ chat: { id: "chat_missing", sessionKey: "agent:main:desktop:test" } });
+    await app.close();
+  });
+
   test("chat bootstrap validates sessionKey", async () => {
     const app = await createApp(config);
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap" });
