@@ -57,10 +57,13 @@ export async function GET(request: NextRequest) {
 
     const contentType = contentTypeForPath(filePath)
     const range = request.headers.get("range")
+    const download = request.nextUrl.searchParams.get("download") === "1"
+    const fileName = path.basename(filePath).replace(/["\\]/g, "_")
     const commonHeaders = {
       "Content-Type": contentType,
       "Accept-Ranges": "bytes",
       "Cache-Control": "no-store",
+      ...(download ? { "Content-Disposition": `attachment; filename="${fileName}"` } : {}),
     }
 
     if (range) {

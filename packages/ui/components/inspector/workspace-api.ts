@@ -116,6 +116,16 @@ export function remoteWorkspaceMediaUrl(path: string, projectId?: string | null)
   return `${connection.url.replace(/\/+$/, "")}${workspaceBasePath(projectId)}/raw?${params.toString()}`
 }
 
+export function remoteWorkspaceDownloadUrl(path: string, projectId?: string | null): string {
+  const connection = getMiddlewareConnection()
+  if (!connection) return `/api/workspace/media?path=${encodeURIComponent(path)}&download=1`
+
+  const token = connection.token.trim()
+  const params = new URLSearchParams({ path, download: "1" })
+  if (token) params.set("token", token)
+  return `${connection.url.replace(/\/+$/, "")}${workspaceBasePath(projectId)}/raw?${params.toString()}`
+}
+
 export async function saveRemoteWorkspaceFile(input: {
   sessionKey: string
   projectId?: string | null
@@ -152,8 +162,4 @@ export async function moveRemoteWorkspaceEntry(_input: {
   toPath: string
 }): Promise<void> {
   throw new Error("Move is not implemented in the new Middleware workspace API yet")
-}
-
-export function remoteWorkspaceDownloadUrl(_sessionKey: string, _path: string): string {
-  throw new Error("Download is not implemented in the new Middleware workspace API yet")
 }

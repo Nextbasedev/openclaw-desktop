@@ -53,9 +53,13 @@ function contentText(content: unknown) {
 
 function sendRawFile(req: express.Request, res: express.Response, raw: { file: string; contentType: string }) {
   const stat = fs.statSync(raw.file)
+  const fileName = path.basename(raw.file).replace(/["\\]/g, "_")
   res.setHeader("Content-Type", raw.contentType)
   res.setHeader("Accept-Ranges", "bytes")
   res.setHeader("Cache-Control", "no-store")
+  if (req.query.download === "1") {
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`)
+  }
 
   const range = req.header("range")
   if (!range) {

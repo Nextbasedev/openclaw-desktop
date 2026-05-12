@@ -495,7 +495,7 @@ function FilePreviewPane({
   const isMedia = mediaKind !== null
   const readOnlyPath = isReadOnlyWorkspacePath(filePath)
   const canWrite = Boolean(capabilities?.canWrite) && !readOnlyPath
-  const canDownload = Boolean(capabilities?.canDownloadFile)
+  const canDownload = isMedia || Boolean(capabilities?.canDownloadFile)
   const canMove = Boolean(capabilities?.canMoveEntry) && !readOnlyPath
   const canDelete = Boolean(capabilities?.canDeleteEntry) && !readOnlyPath
 
@@ -577,8 +577,8 @@ function FilePreviewPane({
   const [downloaded, setDownloaded] = useState(false)
 
   const handleDownload = useCallback(() => {
-    const url = sessionKey
-      ? remoteWorkspaceDownloadUrl(sessionKey, filePath)
+    const url = isMedia
+      ? remoteWorkspaceDownloadUrl(filePath, projectId)
       : URL.createObjectURL(new Blob([content], { type: "text/plain" }))
     const a = document.createElement("a")
     a.href = url
@@ -586,12 +586,12 @@ function FilePreviewPane({
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    if (!sessionKey) {
+    if (!isMedia) {
       URL.revokeObjectURL(url)
     }
     setDownloaded(true)
     window.setTimeout(() => setDownloaded(false), 2000)
-  }, [content, fileName, filePath, sessionKey])
+  }, [content, fileName, filePath, isMedia, projectId])
 
   const handleRename = useCallback(async () => {
     if (!canMove) return
