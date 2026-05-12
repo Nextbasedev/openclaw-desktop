@@ -106,10 +106,6 @@ export function RichContentPreview({ message }: { message: ChatMessage }) {
     const url = attachmentUrl(attachment)
     if (attachment.mimeType.startsWith("image/") && url) {
       images.push({ attachment, url })
-    } else if (attachment.mimeType.startsWith("image/")) {
-      // Image attachments without content/url cannot render a real preview.
-      // Hide the filename chip; restored/sent images with content render above.
-      continue
     } else {
       others.push(attachment)
     }
