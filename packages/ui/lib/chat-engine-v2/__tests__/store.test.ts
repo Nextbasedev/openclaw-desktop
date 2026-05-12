@@ -207,7 +207,7 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
-  test("does not auto-finalize thinking from assistant text without canonical run status", () => {
+  test("shows streaming after assistant text without auto-finalizing canonical run", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
       patch: {
@@ -231,7 +231,7 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking" })
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
   })
 
   test("defers immediate bare done status and waits for canonical completion", () => {
@@ -270,7 +270,7 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking", statusLabel: "Thinking" })
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
 
     vi.setSystemTime(8_500)
     ingestGlobalChatPatchForTests({
@@ -306,7 +306,7 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking", statusLabel: "Thinking" })
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
 
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -517,6 +517,70 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
       { toolCallId: "spawn-link", sessionKey: "agent:main:subagent:abc", status: "working" },
     ])
+  })
+
+
+  test("shows streaming instead of thinking once assistant text is visible and no tools are active", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      cursor: 1,
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          message: { role: "assistant", text: "Here is the answer." },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "streaming",
+      statusLabel: "Streaming",
+      pendingTools: [],
+    })
+  })
+
+  test("keeps tool_running visible when thinking patches arrive while tools are active", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      cursor: 1,
+      status: "tool_running",
+      statusLabel: "read",
+      pendingTools: [{ id: "tool-1", tool: "read", status: "running" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          message: { role: "assistant", text: "Partial text" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "tool_running",
+      statusLabel: "read",
+      pendingTools: [{ id: "tool-1", status: "running" }],
+    })
   })
 
   test("late tool patches after done do not leave detached completed tools", () => {

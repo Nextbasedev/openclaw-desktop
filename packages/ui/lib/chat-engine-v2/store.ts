@@ -346,6 +346,20 @@ function promoteRunningToolStatus(state: SessionState, label = "Running tool") {
   state.statusLabel = label
 }
 
+function reconcileVisibleActiveStatus(state: SessionState) {
+  if (!ACTIVE_STATUSES.has(state.status)) return
+  const runningTool = state.pendingTools.find((tool) => tool.status === "running")
+  if (runningTool) {
+    promoteRunningToolStatus(state, runningTool.tool || "Running tool")
+    return
+  }
+  if (state.spawnedSubagents.some((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working")) return
+  if (state.status === "thinking" && hasAssistantAnswerAfterLatestUser(state)) {
+    state.status = "streaming"
+    state.statusLabel = "Streaming"
+  }
+}
+
 function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   const payload = patchPayload(frame)
   const tool = payload?.toolCall
@@ -624,6 +638,7 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
+  reconcileVisibleActiveStatus(state)
   if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
   const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
