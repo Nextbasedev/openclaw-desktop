@@ -2,7 +2,7 @@ import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../c
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
-const DEFAULT_V2_URL = "http://127.0.0.1:8989"
+const DEFAULT_V2_URL = "http://127.0.0.1:8787"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
 
 function trimTrailingSlash(value: string) {
@@ -20,7 +20,7 @@ function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
     const url = new URL(rawUrl)
     if (!isLoopbackHost(url.hostname)) return rawUrl
     url.hostname = window.location.hostname
-    url.port = "8989"
+    url.port = "8787"
     return url.toString()
   } catch {
     return rawUrl
