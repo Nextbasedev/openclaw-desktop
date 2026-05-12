@@ -146,9 +146,11 @@ describe("chat send routes", () => {
     await app.close();
   });
 
-  test("send clears projected running status after Gateway reports completion", async () => {
+  test("send does not clear Thinking from terminal ack before assistant projection", async () => {
     const app = await createApp(config("send-status-refresh"));
     const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
     vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
       if (method === "chat.send") return { runId: "r1", status: "done" };
       if (method === "chat.history") return { sessionKey: "s1", messages: [] };
@@ -161,10 +163,17 @@ describe("chat send routes", () => {
       payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
     });
     expect(send.statusCode).toBe(200);
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "chat.status", payload: expect.objectContaining({ status: "done", runId: "run:stable-key" }) }),
+    ]));
 
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
     expect(bootstrap.statusCode).toBe(200);
-    expect(bootstrap.json()).toMatchObject({ sessionStatus: "done" });
+    expect(bootstrap.json()).toMatchObject({
+      sessionStatus: "running",
+      runStatus: "thinking",
+      activeRun: { runId: "run:stable-key", status: "thinking" },
+    });
     await app.close();
   });
 
