@@ -832,6 +832,20 @@ function imageAttachmentStubsFromText(text: string) {
   return (match[1] ?? "").split(",").map((name) => name.trim()).filter(Boolean).map((name) => ({ name, mimeType: mimeTypeFromFilename(name) }))
 }
 
+function imageAttachmentsFromContent(content: unknown) {
+  if (!Array.isArray(content)) return []
+  return content.flatMap((block: any, index: number) => {
+    if (!block || typeof block !== "object" || block.type !== "image" || typeof block.data !== "string") return []
+    const name = typeof block.name === "string" ? block.name : typeof block.fileName === "string" ? block.fileName : `image${index + 1}.png`
+    return [{
+      name,
+      mimeType: typeof block.mimeType === "string" ? block.mimeType : "image/png",
+      content: block.data,
+      size: typeof block.size === "number" ? block.size : undefined,
+    }]
+  })
+}
+
 async function hydrateHistoryAttachments(messages: any[], sessionKey: string) {
   await readAttachmentStore()
   return messages.map((message) => {
@@ -839,9 +853,12 @@ async function hydrateHistoryAttachments(messages: any[], sessionKey: string) {
     const text = typeof message.text === "string" ? message.text : contentBlocksToText(message.content)
     if (!normalizeAttachmentLookupText(text)) return message
     const remembered = attachmentMemory.get(attachmentLookupKey(sessionKey, text)) ?? attachmentMemory.get(attachmentLookupKey(sessionKey, normalizeAttachmentLookupText(text)))
-    const baseAttachments = Array.isArray(message.attachments) && message.attachments.length > 0
-      ? message.attachments
-      : remembered ?? imageAttachmentStubsFromText(text)
+    const contentAttachments = imageAttachmentsFromContent(message.content)
+    const baseAttachments = contentAttachments.length > 0
+      ? [...(Array.isArray(message.attachments) ? message.attachments : []), ...contentAttachments]
+      : Array.isArray(message.attachments) && message.attachments.length > 0
+        ? message.attachments
+        : remembered ?? imageAttachmentStubsFromText(text)
     if (!baseAttachments?.length) return message
     const hydrated = baseAttachments.map((att: any, i: number) => {
       if (att.content || att.url) return att
