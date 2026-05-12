@@ -288,13 +288,7 @@ export function openEventStream(
 // Open external URL — works in both Tauri and browser
 export async function openExternalUrl(url: string): Promise<void> {
   if (isTauriRuntime()) {
-    try {
-      const { openUrl } = await import("@tauri-apps/plugin-opener")
-      await openUrl(url)
-      return
-    } catch {
-      await invoke("middleware_open_url", { input: { url } })
-    }
+    await invoke("open_external_url", { url })
     return
   }
 

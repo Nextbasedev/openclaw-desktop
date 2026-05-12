@@ -1,3 +1,4 @@
+// openclaw header design
 "use client"
 
 import { useEffect, useRef, useState, type DragEvent, type CSSProperties } from "react"
