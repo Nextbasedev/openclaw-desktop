@@ -102,6 +102,71 @@ function workspaceEntry(root: string, full: string, stat = fs.statSync(full)) {
   return { name: path.basename(full), path: path.relative(root, full).replace(/\\/g, "/"), type: stat.isDirectory() ? "directory" : "file", size: stat.size, modifiedAt: stat.mtime.toISOString() };
 }
 
+function readOCPlatformConfig(): CompatRecord {
+  try { return JSON.parse(fs.readFileSync(path.join(os.homedir(), ".openclaw", "openclaw.json"), "utf8")); } catch { return {}; }
+}
+
+function modelRefsFromConfig(cfg: CompatRecord): string[] {
+  const defaults = cfg.agents?.defaults ?? {};
+  const modelMapRefs: string[] = defaults.models && !Array.isArray(defaults.models) && typeof defaults.models === "object"
+    ? Object.entries(defaults.models as Record<string, unknown>).flatMap(([key, value]: [string, unknown]): string[] => {
+        if (typeof value === "string") return [value];
+        if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+        if (value && typeof value === "object") {
+          const obj = value as CompatRecord;
+          const refs = [obj.primary, obj.model, ...(Array.isArray(obj.fallbacks) ? obj.fallbacks : [])].filter(Boolean);
+          return refs.length > 0 ? refs.map(String) : [key];
+        }
+        return [];
+      })
+    : [];
+  const refs = [
+    ...modelMapRefs,
+    ...(Array.isArray(defaults.models) ? (defaults.models as unknown[]).map(String) : []),
+    ...(Array.isArray(defaults.model?.models) ? (defaults.model.models as unknown[]).map(String) : []),
+    defaults.model?.primary ? String(defaults.model.primary) : null,
+    ...(Array.isArray(defaults.model?.fallbacks) ? (defaults.model.fallbacks as unknown[]).map(String) : []),
+    typeof defaults.model === "string" ? defaults.model : null,
+  ];
+  return [...new Set(refs.filter((value): value is string => typeof value === "string" && value.trim().length > 0))];
+}
+
+function normalizeModelEntry(value: unknown) {
+  const ref = typeof value === "string" ? value : String((value as CompatRecord)?.id || (value as CompatRecord)?.model || (value as CompatRecord)?.value || "");
+  const [providerFromRef, idFromRef] = ref.includes("/") ? ref.split(/\/(.+)/) : [String((value as CompatRecord)?.provider || "custom"), ref];
+  const provider = String((value as CompatRecord)?.provider || providerFromRef || "custom");
+  const entryId = String((value as CompatRecord)?.id || idFromRef || ref);
+  return { id: entryId, name: String((value as CompatRecord)?.name || entryId || ref), provider, reasoning: Boolean((value as CompatRecord)?.reasoning) };
+}
+
+function modelsResponse(cfg: CompatRecord) {
+  const refs = modelRefsFromConfig(cfg);
+  const defaultsModels = cfg.agents?.defaults?.models;
+  const rawModels: unknown[] = Array.isArray(defaultsModels)
+    ? defaultsModels as unknown[]
+    : defaultsModels && typeof defaultsModels === "object"
+      ? Object.entries(defaultsModels as Record<string, unknown>).flatMap(([provider, value]: [string, unknown]): unknown[] => {
+          if (typeof value === "string") return [{ provider, id: value.includes("/") ? value.split(/\/(.+)/)[1] : value, name: value }];
+          if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? { provider, id: item.includes("/") ? item.split(/\/(.+)/)[1] : item, name: item } : { provider, ...(item as CompatRecord) });
+          if (value && typeof value === "object") {
+            const obj = value as CompatRecord;
+            const candidates = [obj.primary, obj.model, ...(Array.isArray(obj.fallbacks) ? obj.fallbacks : [])].filter(Boolean);
+            if (candidates.length === 0) return [provider];
+            return candidates.map((item: unknown) => ({ provider, id: String(item).includes("/") ? String(item).split(/\/(.+)/)[1] : String(item), name: String(item) }));
+          }
+          return [];
+        })
+      : Array.isArray(cfg.agents?.defaults?.model?.models)
+        ? cfg.agents.defaults.model.models as unknown[]
+        : refs as unknown[];
+  const models = (rawModels.length ? rawModels : refs).map(normalizeModelEntry);
+  const currentModel = cfg.agents?.defaults?.model?.primary || (typeof cfg.agents?.defaults?.model === "string" ? cfg.agents.defaults.model : null) || refs[0] || null;
+  if (currentModel && !models.some((model) => `${model.provider}/${model.id}` === currentModel || model.id === currentModel)) {
+    models.unshift(normalizeModelEntry(currentModel));
+  }
+  return { models, currentModel, defaultModel: currentModel };
+}
+
 function emptyUsage(days: number, providers: unknown[] = [], unavailable?: string) {
   return {
     range: { days },
@@ -462,6 +527,20 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return emptyUsage(Number(input.days) || 30);
       case "middleware_usage_daily":
         return dailyUsage(Number(input.days) || 30);
+      case "middleware_models_list":
+        return modelsResponse(readOCPlatformConfig());
+      case "middleware_models_set_default": {
+        const modelId = String(input.modelId || input.modelRef || "").trim();
+        if (!modelId) return reply.code(400).send({ ok: false, error: { message: "modelId is required" } });
+        const cfg = readOCPlatformConfig();
+        cfg.agents ??= {}; cfg.agents.defaults ??= {}; cfg.agents.defaults.model ??= {};
+        if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model };
+        cfg.agents.defaults.model.primary = modelId;
+        fs.writeFileSync(path.join(os.homedir(), ".openclaw", "openclaw.json"), JSON.stringify(cfg, null, 2), "utf8");
+        return { ok: true, modelId, currentModel: modelId, defaultModel: modelId };
+      }
+      case "middleware_models_auth_status":
+        return { providers: [], configured: true };
       case "middleware_commands_list":
         return { commands: [] };
       case "middleware_autonaming_quick": {
@@ -522,9 +601,66 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_message_feedback":
       case "middleware_message_feedback_delete":
         return { ok: true };
+      case "middleware_sessions_create": {
+        const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+        const timestamp = nowIso();
+        try {
+          await context.gateway.request("sessions.create", {
+            key: sessionKey,
+            agentId: input.agentId || "main",
+            label: input.label || "New Chat",
+          });
+        } catch { /* session may already exist */ }
+        const session = {
+          id: id("session"),
+          sessionKey,
+          projectId: input.projectId || null,
+          topicId: input.topicId || null,
+          agentId: input.agentId || "main",
+          label: input.label || "New Chat",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        compatState.sessions.push(session);
+        return { session };
+      }
+      case "middleware_chats_create": {
+        const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+        const timestamp = nowIso();
+        try {
+          await context.gateway.request("sessions.create", {
+            key: sessionKey,
+            agentId: input.agentId || "main",
+            label: input.name || "New Chat",
+          });
+        } catch { /* session may already exist */ }
+        const chat = {
+          id: id("chat"),
+          name: input.name || "New Chat",
+          sessionKey,
+          spaceId: input.spaceId || activeSpaceId(),
+          agentId: input.agentId || "main",
+          archived: false,
+          pinned: false,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          lastActiveAt: timestamp,
+        };
+        compatState.chats.push(chat);
+        return { chat, session: { sessionKey } };
+      }
+      case "middleware_chat_stop": {
+        const sk = String(input.sessionKey ?? "");
+        if (!sk) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
+        try { await context.gateway.request("sessions.abort", { sessionKey: sk }); } catch { /* may not be running */ }
+        return { ok: true };
+      }
+      case "middleware_cron_list":
+      case "middleware_cron_get_job":
+        return { jobs: [], job: null };
       default:
-        // Safe fallback: return ok instead of 404 so UI doesn't crash on unimplemented commands
-        return { ok: true, _compat: true, command };
+        // Safe fallback: return empty ok instead of 404 so UI doesn't crash on unimplemented commands
+        return { ok: true };
     }
   });
 
