@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect, type MouseEvent } from "react"
+import { useState, useRef, useEffect, type KeyboardEvent, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
-import { Reorder, useDragControls } from "framer-motion"
+import { Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
-import { useLongPressDrag } from "@/hooks/useLongPressDrag"
 import { cn } from "@/lib/utils"
 
 export type SidebarNavItem = {
@@ -28,8 +27,8 @@ export function SidebarItem({
   collapsed = false,
   draggable = false,
 }: SidebarItemProps) {
-  const dragControls = useDragControls()
-  const longPressDrag = useLongPressDrag(dragControls, 180)
+  const draggingRef = useRef(false)
+  const dragEndTimerRef = useRef<number | null>(null)
   const interactiveClassName = cn(
     "group flex w-full min-w-0 items-center rounded-md font-normal",
     "gap-2.5 text-left text-[13px]",
@@ -80,19 +79,48 @@ export function SidebarItem({
     return btn
   }
 
+  const handleDraggableClick = () => {
+    if (draggingRef.current) return
+    onClick()
+  }
+
+  const handleDraggableKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    event.preventDefault()
+    handleDraggableClick()
+  }
+
   return (
     <Reorder.Item
       value={item.id}
       as="div"
-      dragControls={dragControls}
-      dragListener={false}
+      dragListener
       layout="position"
-      transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
-      style={{ position: "relative", boxShadow: "none", touchAction: "pan-y" }}
-      whileDrag={{ boxShadow: "none" }}
-      {...longPressDrag}
+      dragElastic={0}
+      dragMomentum={false}
+      transition={{ layout: { type: "tween", duration: 0.06, ease: "linear" } }}
+      style={{ position: "relative", boxShadow: "none", touchAction: "none" }}
+      whileDrag={{ zIndex: 50, boxShadow: "none" }}
+      onDragStart={() => {
+        if (dragEndTimerRef.current) window.clearTimeout(dragEndTimerRef.current)
+        draggingRef.current = true
+      }}
+      onDragEnd={() => {
+        dragEndTimerRef.current = window.setTimeout(() => {
+          draggingRef.current = false
+        }, 80)
+      }}
     >
-      {btn}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={handleDraggableClick}
+        onKeyDown={handleDraggableKeyDown}
+        data-testid={`sidebar-nav-${item.id}`}
+        className={cn(interactiveClassName, "select-none")}
+      >
+        {content}
+      </div>
     </Reorder.Item>
   )
 }
