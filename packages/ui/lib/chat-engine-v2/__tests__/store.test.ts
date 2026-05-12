@@ -200,10 +200,11 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")).toMatchObject({
-      status: "done",
-      pendingTools: [{ id: "tc-stale", tool: "exec", status: "success" }],
-    })
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({ status: "done", pendingTools: [] })
+    expect(state?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", text: "Done — I checked the files.", toolCalls: [expect.objectContaining({ id: "tc-stale", tool: "exec", status: "success" })] }),
+    ]))
   })
 
   test("does not auto-finalize thinking from assistant text without canonical run status", () => {
@@ -342,7 +343,7 @@ describe("global V2 chat engine store", () => {
     })
     expect(getGlobalChatSession("s1")).toMatchObject({
       status: "done",
-      pendingTools: [{ id: "tool-1", tool: "web_search", status: "success" }],
+      pendingTools: [],
     })
   })
 
@@ -506,6 +507,41 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
       { toolCallId: "spawn-link", sessionKey: "agent:main:subagent:abc", status: "working" },
     ])
+  })
+
+  test("late tool patches after done do not leave detached completed tools", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "hello" },
+        { messageId: "a1", role: "assistant", text: "final answer" },
+      ],
+      status: "done",
+      pendingTools: [],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "late-tool", name: "read", input: { path: "README.md" } }],
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({ status: "done", pendingTools: [] })
+    expect(state?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "a1", role: "assistant", text: "final answer", toolCalls: [expect.objectContaining({ id: "late-tool", tool: "read", status: "success" })] }),
+    ]))
   })
 
   test("sweeps stale active tools and subagents", () => {

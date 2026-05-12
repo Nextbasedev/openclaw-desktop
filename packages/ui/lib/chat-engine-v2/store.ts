@@ -263,9 +263,45 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
   return true
 }
 
+function mergeToolCalls(existing: InlineToolCall[] | undefined, incoming: InlineToolCall[]) {
+  if (incoming.length === 0) return existing
+  const merged = new Map((existing ?? []).map((tool) => [tool.id, tool]))
+  for (const tool of incoming) {
+    const current = merged.get(tool.id)
+    merged.set(tool.id, { ...(current ?? tool), ...tool })
+  }
+  return Array.from(merged.values())
+}
+
+function latestAssistantIndex(state: SessionState) {
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const message = state.messages[i]
+    if (message?.role === "assistant" && message.text.trim().length > 0) return i
+  }
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    if (state.messages[i]?.role === "assistant") return i
+  }
+  return -1
+}
+
+function attachDetachedToolsToLatestAssistant(state: SessionState, tools = state.pendingTools) {
+  if (tools.length === 0) return false
+  const index = latestAssistantIndex(state)
+  if (index < 0) return false
+  const message = state.messages[index]
+  const movedIds = new Set(tools.map((tool) => tool.id))
+  state.messages = state.messages.map((item, itemIndex) => {
+    if (itemIndex === index) return { ...message, toolCalls: mergeToolCalls(message.toolCalls, tools) }
+    if (item.role !== "assistant" || !item.toolCalls?.some((tool) => movedIds.has(tool.id))) return item
+    const remaining = item.toolCalls.filter((tool) => !movedIds.has(tool.id))
+    return { ...item, toolCalls: remaining.length > 0 ? remaining : undefined }
+  })
+  return true
+}
+
 function finalizeActiveToolsForTerminalStatus(state: SessionState, status: StreamStatus) {
   if (status !== "done" && status !== "error") return
-  state.pendingTools = state.pendingTools.map((tool) => {
+  const finalizedTools: InlineToolCall[] = state.pendingTools.map((tool): InlineToolCall => {
     if (tool.status !== "running") return tool
     return {
       ...tool,
@@ -277,6 +313,11 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
           : tool.resultText),
     }
   })
+  attachDetachedToolsToLatestAssistant(state, finalizedTools)
+  // Terminal sessions should not keep detached live tools around. Otherwise the
+  // UI can render stale tool rows after/below the completed assistant answer,
+  // and old completed tools can leak into the next render cycle.
+  state.pendingTools = []
 }
 
 function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | null {
@@ -300,6 +341,7 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
 function promoteRunningToolStatus(state: SessionState, label = "Running tool") {
   if (!state.pendingTools.some((tool) => tool.status === "running")) return
   if (state.status === "stopping" || state.status === "restarting") return
+  if (isTerminalOrIdleStatus(state.status) && state.status !== "idle" && state.status !== "connected") return
   state.status = "tool_running"
   state.statusLabel = label
 }
@@ -567,6 +609,7 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
+  if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
   const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
