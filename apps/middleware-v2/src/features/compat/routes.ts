@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
 
@@ -50,6 +53,65 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
   if (index < 0) return null;
   records[index] = { ...records[index], ...patch, updatedAt: nowIso() };
   return records[index];
+}
+
+function projectById(projectId: string) {
+  return compatState.projects.find((project) => project.id === projectId && notDeleted(project)) ?? null;
+}
+
+function projectRoot(projectId: string) {
+  const project = projectById(projectId);
+  const root = project?.workspaceRoot ?? project?.repoRoot ?? project?.path;
+  return typeof root === "string" && root.trim() ? root : null;
+}
+
+function safeJoin(root: string, rel = "") {
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(resolvedRoot, rel || ".");
+  if (resolved !== resolvedRoot && !resolved.startsWith(`${resolvedRoot}${path.sep}`)) throw new Error("Path escapes workspace root");
+  return resolved;
+}
+
+function git(repo: string, args: string[]) {
+  return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function gitStatus(repo: string) {
+  const raw = git(repo, ["status", "--short"]);
+  const files = raw.split(/\r?\n/).filter(Boolean).map((line) => ({ path: line.slice(3), status: line.slice(0, 2).trim() || "modified" }));
+  return { dirty: files.length > 0, files };
+}
+
+function gitBranches(repo: string) {
+  const current = git(repo, ["branch", "--show-current"]).trim();
+  const branches = git(repo, ["branch", "--format=%(refname:short)"]).split(/\r?\n/).filter(Boolean).map((name) => ({ name, current: name === current }));
+  return { branches, current };
+}
+
+function workspaceEntry(root: string, full: string, stat = fs.statSync(full)) {
+  return { name: path.basename(full), path: path.relative(root, full).replace(/\\/g, "/"), type: stat.isDirectory() ? "directory" : "file", size: stat.size, modifiedAt: stat.mtime.toISOString() };
+}
+
+function emptyUsage(days: number, providers: unknown[] = [], unavailable?: string) {
+  return {
+    range: { days },
+    summary: { totalCost: 0, totalInputTokens: 0, totalOutputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 },
+    providers,
+    usage: [],
+    source: "middleware-v2-compat",
+    unavailable,
+  };
+}
+
+function dailyUsage(days: number) {
+  const today = new Date();
+  const daily = Array.from({ length: Math.max(1, days) }, (_, index) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (days - index - 1));
+    const date = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    return { date, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, total_tokens: 0, cost_usd: 0 };
+  });
+  return { range: { days }, daily, days: daily, source: "middleware-v2-compat" };
 }
 
 export async function registerCompatRoutes(app: FastifyInstance, context: AppContext) {
@@ -235,5 +297,173 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const session = { id: id("session"), sessionKey: body.sessionKey || id("agent:main:desktop"), ...body, createdAt: timestamp, updatedAt: timestamp };
     compatState.sessions.push(session);
     return { session };
+  });
+
+  // --- project archive ---
+  app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/archive", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const project = patchById(compatState.projects, request.params.projectId, { archived: body.archived ?? true });
+    if (!project) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    return { project };
+  });
+
+  // --- repos ---
+  app.get("/api/repos/recent", async () => ({ repos: [] }));
+  app.post("/api/repos/scan", async () => ({ repos: [] }));
+  app.post("/api/repos/select", async (request) => ({ ok: true, ...(request.body as CompatRecord) }));
+
+  // --- git (project-scoped) ---
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/status", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found or has no workspace root" } });
+    try { return gitStatus(root); } catch { return { dirty: false, files: [] }; }
+  });
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/diff", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const filePath = String((request.query as CompatRecord).path ?? "");
+    try { return { patch: git(root, ["diff", "--", filePath]) }; } catch { return { patch: "" }; }
+  });
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/branches", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    try { return gitBranches(root); } catch { return { branches: [], current: "" }; }
+  });
+  app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/git/checkout", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const body = (request.body ?? {}) as CompatRecord;
+    const branch = String(body.branch ?? body.branchName ?? "");
+    if (!branch) return reply.code(400).send({ ok: false, error: { message: "Branch name required" } });
+    try { git(root, ["checkout", branch]); return { ok: true, branch }; } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Checkout failed" } }); }
+  });
+
+  // --- git (repo-path-scoped, no project) ---
+  app.get("/api/repos/git/status", async (request) => {
+    const repoPath = String((request.query as CompatRecord).path ?? (request.query as CompatRecord).repoPath ?? "");
+    if (!repoPath) return { dirty: false, files: [] };
+    try { return gitStatus(repoPath); } catch { return { dirty: false, files: [] }; }
+  });
+  app.get("/api/repos/git/diff", async (request) => {
+    const query = request.query as CompatRecord;
+    const repoPath = String(query.repoPath ?? "");
+    const filePath = String(query.path ?? "");
+    if (!repoPath) return { patch: "" };
+    try { return { patch: git(repoPath, ["diff", "--", filePath]) }; } catch { return { patch: "" }; }
+  });
+  app.get("/api/repos/git/branches", async (request) => {
+    const repoPath = String((request.query as CompatRecord).path ?? (request.query as CompatRecord).repoPath ?? "");
+    if (!repoPath) return { branches: [], current: "" };
+    try { return gitBranches(repoPath); } catch { return { branches: [], current: "" }; }
+  });
+  app.post("/api/repos/git/checkout", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const repoPath = String(body.repoPath ?? body.path ?? "");
+    const branch = String(body.branch ?? body.branchName ?? "");
+    if (!repoPath || !branch) return reply.code(400).send({ ok: false, error: { message: "repoPath and branch required" } });
+    try { git(repoPath, ["checkout", branch]); return { ok: true, branch }; } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Checkout failed" } }); }
+  });
+
+  // --- workspace (project-scoped) ---
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/tree", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try {
+      const dir = safeJoin(root, rel);
+      const entries = fs.readdirSync(dir, { withFileTypes: true }).map((entry) => workspaceEntry(root, path.join(dir, entry.name)));
+      return { entries };
+    } catch { return { entries: [] }; }
+  });
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/file", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try {
+      const file = safeJoin(root, rel);
+      const content = fs.readFileSync(file, "utf8");
+      return { path: rel, content, encoding: "utf-8", file: { path: rel, content, encoding: "utf-8" } };
+    } catch { return reply.code(404).send({ ok: false, error: { message: "File not found" } }); }
+  });
+  app.put<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/file", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const body = (request.body ?? {}) as CompatRecord;
+    const rel = String(body.path ?? "");
+    try {
+      const file = safeJoin(root, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, String(body.content ?? ""), "utf8");
+      return { ok: true, path: rel };
+    } catch { return reply.code(500).send({ ok: false, error: { message: "Write failed" } }); }
+  });
+
+  // --- commands fallback ---
+  app.post<{ Params: { command: string } }>("/api/commands/:command", async (request, reply) => {
+    const command = request.params.command;
+    const body = (request.body ?? {}) as CompatRecord;
+    const input = (body.input ?? body ?? {}) as CompatRecord;
+
+    switch (command) {
+      case "middleware_usage":
+        return emptyUsage(Number(input.days) || 30);
+      case "middleware_usage_daily":
+        return dailyUsage(Number(input.days) || 30);
+      case "middleware_commands_list":
+        return { commands: [] };
+      case "middleware_autonaming_quick": {
+        const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+        return { name, title: name };
+      }
+      case "middleware_chat_history": {
+        const sessionKey = String(input.sessionKey ?? "");
+        if (!sessionKey) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
+        try {
+          const history = await context.gateway.request<{ messages?: unknown[] }>("sessions.history", { sessionKey }, Number(input.timeoutMs) || 10_000);
+          return { messages: history.messages ?? [] };
+        } catch { return { messages: [] }; }
+      }
+      case "middleware_chat_model_set": {
+        const sessionKey = String(input.sessionKey ?? "");
+        const modelId = String(input.modelId ?? "");
+        if (!sessionKey || !modelId) return reply.code(400).send({ ok: false, error: { message: "sessionKey and modelId required" } });
+        try {
+          await context.gateway.request("sessions.patch", { sessionKey, patch: { model: { primary: modelId } } });
+          return { ok: true };
+        } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Model switch failed" } }); }
+      }
+      case "middleware_connect_bootstrap": {
+        const gateway = context.gateway.status();
+        return { ok: true, gateway, openclaw: { connected: gateway.connected } };
+      }
+      case "middleware_exec_approval_resolve": {
+        const approvalId = String(input.approvalId ?? "");
+        const decision = String(input.decision ?? "deny");
+        if (!approvalId) return reply.code(400).send({ ok: false, error: { message: "approvalId required" } });
+        try {
+          await context.gateway.request("exec.approval.resolve", { approvalId, decision });
+          return { ok: true };
+        } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Approval resolution failed" } }); }
+      }
+      case "middleware_message_feedback":
+      case "middleware_message_feedback_delete":
+        return { ok: true };
+      default:
+        return reply.code(404).send({ ok: false, error: { message: `Command not implemented in middleware-v2: ${command}` } });
+    }
+  });
+
+  // --- migration stubs ---
+  app.get("/api/migration/telegram/scan", async () => ({ sessions: [], count: 0 }));
+  app.post("/api/migration/telegram/import", async () => ({ ok: true, imported: 0 }));
+
+  // --- self-update stubs ---
+  app.get("/api/middleware/update/status", async () => ({ available: false, current: "0.1.0" }));
+  app.post("/api/middleware/update", async () => ({ ok: true, status: "up-to-date" }));
+
+  // --- pairing ---
+  app.get("/pairing/local", async () => {
+    const gateway = context.gateway.status();
+    return { ok: true, url: `http://127.0.0.1:${context.config.port}`, token: "", mode: "local", openclaw: { connected: gateway.connected } };
   });
 }
