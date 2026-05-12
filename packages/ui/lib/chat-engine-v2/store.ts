@@ -3,7 +3,7 @@ import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from 
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
-import { extractSubagentSessionKey } from "../subagentSession"
+import { extractSubagentSessionKey, isSubagentSessionKey } from "../subagentSession"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
@@ -359,8 +359,8 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
         id: `spawn:${id}`,
         label: compactLabel(args.label ?? args.agentId, fallback),
         task,
-        sessionKey: null,
-        status: "spawning",
+        sessionKey: extractSubagentSessionKey(input),
+        status: extractSubagentSessionKey(input) ? "working" : "spawning",
         toolCallId: id,
       })
     }
@@ -369,6 +369,63 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   state.pendingTools = Array.from(pending.values())
   state.spawnedSubagents = Array.from(spawns.values())
   promoteRunningToolStatus(state)
+}
+
+function isActiveSpawnStatus(status: SpawnedSubagent["status"]) {
+  return status === "spawning" || status === "linking" || status === "working"
+}
+
+function childStatusToSpawnStatus(status: StreamStatus): SpawnedSubagent["status"] {
+  if (status === "error") return "failed"
+  if (status === "done") return "completed"
+  // A child message/bootstrap can arrive before the child status patch. Once we
+  // have seen child activity, stop showing the parent as stuck in "linking".
+  return "working"
+}
+
+function syncLinkedSubagentStatus(childSessionKey: string, childStatus: StreamStatus) {
+  const status = childStatusToSpawnStatus(childStatus)
+  for (const [parentKey, parent] of states) {
+    if (parentKey === childSessionKey) continue
+    let changed = false
+    const next = parent.spawnedSubagents.map((spawn) => {
+      if (spawn.sessionKey !== childSessionKey) return spawn
+      if (spawn.status === status) return spawn
+      changed = true
+      return { ...spawn, status }
+    })
+    if (changed) {
+      parent.spawnedSubagents = next
+      notify(parentKey)
+    }
+  }
+}
+
+function linkDiscoveredSubagent(childSessionKey: string, childStatus: StreamStatus) {
+  const candidates: Array<{ sessionKey: string; state: SessionState; index: number }> = []
+  for (const [sessionKey, state] of states) {
+    if (sessionKey === childSessionKey) continue
+    const index = state.spawnedSubagents.findIndex((spawn) =>
+      !spawn.sessionKey && isActiveSpawnStatus(spawn.status)
+    )
+    if (index >= 0) candidates.push({ sessionKey, state, index })
+  }
+  if (candidates.length === 0) return
+  candidates.sort((a, b) => b.state.cursor - a.state.cursor)
+  const candidate = candidates[0]
+  const spawn = candidate.state.spawnedSubagents[candidate.index]
+  candidate.state.spawnedSubagents = candidate.state.spawnedSubagents.map((item, index) =>
+    index === candidate.index
+      ? { ...item, sessionKey: childSessionKey, status: childStatusToSpawnStatus(childStatus) }
+      : item
+  )
+  frontendLog("session", "global-chat-session.subagent-linked-from-child", {
+    parentSessionKey: candidate.sessionKey,
+    childSessionKey,
+    toolCallId: spawn.toolCallId,
+    childStatus,
+  }, "info")
+  notify(candidate.sessionKey)
 }
 
 
@@ -528,6 +585,10 @@ function handlePatch(frame: PatchFrame) {
     patchCursor: frame.patch.cursor,
     ...loadingFactorSummary(state, frame.patch.type),
   }, "debug")
+  if (isSubagentSessionKey(sessionKey)) {
+    linkDiscoveredSubagent(sessionKey, state.status)
+    syncLinkedSubagentStatus(sessionKey, state.status)
+  }
   if (ACTIVE_STATUSES.has(state.status) || state.pendingTools.some((tool) => tool.status === "running")) {
     frontendLog("status", "chat.loading-factors", {
       sessionKey,
