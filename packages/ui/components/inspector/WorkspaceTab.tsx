@@ -524,7 +524,7 @@ function FilePreviewPane({
     setMode(getExt(fileName) === "md" ? "preview" : "edit")
 
     if (mediaKind) {
-      setMediaUrl(remoteWorkspaceMediaUrl(filePath))
+      setMediaUrl(remoteWorkspaceMediaUrl(filePath, projectId))
       setContent("")
       setOriginalContent("")
       setLoading(false)

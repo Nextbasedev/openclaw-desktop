@@ -51,6 +51,43 @@ function contentText(content: unknown) {
   return typeof content === "string" ? content : ""
 }
 
+function sendRawFile(req: express.Request, res: express.Response, raw: { file: string; contentType: string }) {
+  const stat = fs.statSync(raw.file)
+  res.setHeader("Content-Type", raw.contentType)
+  res.setHeader("Accept-Ranges", "bytes")
+  res.setHeader("Cache-Control", "no-store")
+
+  const range = req.header("range")
+  if (!range) {
+    res.setHeader("Content-Length", String(stat.size))
+    fs.createReadStream(raw.file).pipe(res)
+    return
+  }
+
+  const match = range.match(/bytes=(\d*)-(\d*)/)
+  if (!match) {
+    res.status(416).setHeader("Content-Range", `bytes */${stat.size}`)
+    res.end()
+    return
+  }
+
+  const requestedStart = match[1] ? Number(match[1]) : 0
+  const requestedEnd = match[2] ? Number(match[2]) : stat.size - 1
+  const start = Math.max(0, requestedStart)
+  const end = Math.min(stat.size - 1, requestedEnd)
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= stat.size) {
+    res.status(416).setHeader("Content-Range", `bytes */${stat.size}`)
+    res.end()
+    return
+  }
+
+  res.status(206)
+  res.setHeader("Content-Length", String(end - start + 1))
+  res.setHeader("Content-Range", `bytes ${start}-${end}/${stat.size}`)
+  fs.createReadStream(raw.file, { start, end }).pipe(res)
+}
+
 function assistantMessageText(message: any) {
   const text = contentText(message?.content)
   if (text) return text
@@ -235,16 +272,14 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.get("/api/workspace/file", (req, res) => res.json(workspace.readRoot(String(req.query.path ?? ""))))
   app.get("/api/workspace/raw", (req, res) => {
     const raw = workspace.rawRoot(String(req.query.path ?? ""))
-    res.type(raw.contentType)
-    fs.createReadStream(raw.file).pipe(res)
+    sendRawFile(req, res, raw)
   })
   app.put("/api/workspace/file", (req, res) => res.json(workspace.writeRoot(String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
   app.get("/api/projects/:projectId/workspace/tree", (req, res) => res.json(workspace.tree(req.params.projectId, String(req.query.path ?? ""))))
   app.get("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.read(req.params.projectId, String(req.query.path ?? ""))))
   app.get("/api/projects/:projectId/workspace/raw", (req, res) => {
     const raw = workspace.raw(req.params.projectId, String(req.query.path ?? ""))
-    res.type(raw.contentType)
-    fs.createReadStream(raw.file).pipe(res)
+    sendRawFile(req, res, raw)
   })
   app.put("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.write(req.params.projectId, String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
 
