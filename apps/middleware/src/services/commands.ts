@@ -22,6 +22,7 @@ function state(store: Store): any {
   s.commandState.branches ??= []
   s.commandState.activeBranchSessions ??= {}
   s.commandState.skillsEnabled ??= {}
+  s.commandState.chatAttachments ??= {}
   s.spaces ??= []
   s.activeSpaceId ??= null
   s.chats ??= []
@@ -345,6 +346,80 @@ type GatewayAttachment = {
   fileName: string
   mimeType: string
   content?: string
+}
+
+function normalizeAttachmentLookupText(text: string) {
+  return String(text || "")
+    .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
+    .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function attachmentLookupKey(sessionKey: string, text: string) {
+  return `${sessionKey}::${crypto.createHash("sha256").update(normalizeAttachmentLookupText(text)).digest("hex")}`
+}
+
+function imageAttachmentStubsFromText(text: string) {
+  const match = String(text || "").match(/^\s*\[Attached images?:\s*([^\]]+)\]/im)
+  if (!match) return []
+  return match[1]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => ({ name, mimeType: mimeTypeFromFilename(name) }))
+}
+
+function mimeTypeFromFilename(name: string) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg"
+  if (lower.endsWith(".gif")) return "image/gif"
+  if (lower.endsWith(".webp")) return "image/webp"
+  if (lower.endsWith(".svg")) return "image/svg+xml"
+  return "image/png"
+}
+
+function rememberChatAttachments(s: any, sessionKey: string, text: string, raw: unknown) {
+  if (!Array.isArray(raw) || !normalizeAttachmentLookupText(text)) return
+  const attachments = raw
+    .map((item) => item as ChatSendAttachment)
+    .filter((item) => item?.mimeType?.startsWith("image/") && item.content)
+    .map((item) => ({
+      name: item.name || "image",
+      mimeType: item.mimeType,
+      content: item.content,
+      size: item.size,
+    }))
+  if (attachments.length === 0) return
+  s.commandState.chatAttachments ??= {}
+  s.commandState.chatAttachments[attachmentLookupKey(sessionKey, text)] = attachments
+}
+
+function hydrateHistoryAttachments(payload: any, s: any, sessionKey: string) {
+  if (!payload || !Array.isArray(payload.messages)) return payload
+  const store = s.commandState?.chatAttachments ?? {}
+  let changed = false
+  const messages = payload.messages.map((message: any) => {
+    if (message?.role !== "user") return message
+    const text = typeof message.text === "string" ? message.text : textFromContent(message.content)
+    const normalized = normalizeAttachmentLookupText(text)
+    if (!normalized) return message
+    const remembered = store[attachmentLookupKey(sessionKey, text)] ?? store[attachmentLookupKey(sessionKey, normalized)]
+    const stubs = imageAttachmentStubsFromText(text)
+    const attachments = Array.isArray(message.attachments) && message.attachments.length > 0
+      ? message.attachments
+      : remembered ?? stubs
+    if (!attachments || attachments.length === 0) return message
+    const byName = new Map((remembered ?? []).map((att: any) => [`${att.name}:${att.mimeType}`, att]))
+    const hydrated = attachments.map((att: any, i: number) => {
+      if (att.content || att.url) return att
+      const match = byName.get(`${att.name}:${att.mimeType}`) ?? remembered?.[i]
+      return match?.content ? { ...att, content: match.content } : att
+    })
+    changed = true
+    return { ...message, attachments: hydrated }
+  })
+  return changed ? { ...payload, messages } : payload
 }
 
 const TEXT_ATTACHMENT_MIME_TYPES = new Set([
@@ -1490,7 +1565,7 @@ export function commandRoutes(store: Store) {
           const localEntry = readSessionStoreEntry(key)
           const sessionFile = String(localEntry?.entry?.sessionFile || "")
           if (sessionFile && fs.existsSync(sessionFile)) {
-            return normalizeHistoryPayload({ messages: transcriptMessagesFromJsonl(sessionFile) })
+            return hydrateHistoryAttachments(normalizeHistoryPayload({ messages: transcriptMessagesFromJsonl(sessionFile) }), s, key)
           }
 
           const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
@@ -1501,7 +1576,7 @@ export function commandRoutes(store: Store) {
               gw = await connectGateway(["operator.read", "operator.write"])
               const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
               if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
-              return normalizeHistoryPayload(res.payload)
+              return hydrateHistoryAttachments(normalizeHistoryPayload(res.payload), s, key)
             } catch (error) {
               if (isPairingRequiredError(error)) return normalizeHistoryPayload({ messages: [] })
               throw error
@@ -1581,6 +1656,8 @@ export function commandRoutes(store: Store) {
               if (!patched.ok) throw new HttpError(502, patched.error?.message || "sessions.patch failed", "GATEWAY_ERROR")
             }
             const prepared = await prepareMessageAndAttachments(message, input.attachments)
+            rememberChatAttachments(s, key, prepared.message, input.attachments)
+            save(store, s)
             const res = await gw.request("chat.send", {
               sessionKey: key,
               message: prepared.message,
