@@ -27,6 +27,7 @@ import {
 } from "@/lib/chatSessionStore"
 import {
   cacheAttachments,
+  getCachedAttachmentsForText,
   mergeAttachmentsWithCache,
 } from "@/lib/attachmentCache"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
@@ -99,6 +100,32 @@ function createdAtFromRawMessage(raw: RawMessage): string | undefined {
   if (raw.createdAt) return raw.createdAt
   const ts = rawMessageTimestampMs(raw)
   return ts !== null ? new Date(ts).toISOString() : undefined
+}
+
+function stripAttachmentMarkers(text: string) {
+  return text
+    .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
+    .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
+    .trim()
+}
+
+function imageAttachmentsFromText(text: string) {
+  const match = text.match(/^\s*\[Attached images?:\s*([^\]]+)\]/im)
+  if (!match) return []
+  return match[1]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => ({ name, mimeType: mimeTypeFromFilename(name) }))
+}
+
+function mimeTypeFromFilename(name: string) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg"
+  if (lower.endsWith(".gif")) return "image/gif"
+  if (lower.endsWith(".webp")) return "image/webp"
+  if (lower.endsWith(".svg")) return "image/svg+xml"
+  return "image/png"
 }
 
 function streamMessageLooksFinal(
@@ -195,6 +222,11 @@ function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
     return { ...message, toolCalls: message.toolCalls.map(finalizeToolCall) }
   })
   return changed ? next : messages
+}
+
+function hasPendingOptimisticUserTurn(messages: ChatMessage[] | undefined | null) {
+  const last = messages?.[messages.length - 1]
+  return last?.role === "user" && last.isOptimistic === true
 }
 
 function hasFailedAssistantMessage(messages: ChatMessage[]): boolean {
@@ -515,10 +547,14 @@ export function useChatMessages(
       ? distanceFromBottom < 180
       : distanceFromBottom < 80
     if (Date.now() < programmaticScrollUntilRef.current) {
-      if (!isAtBottomRef.current) {
-        isAtBottomRef.current = true
-        setIsAtBottom(true)
-      }
+      // During smooth programmatic scrolling, keep the jump-to-latest control
+      // visible until the viewport is actually near the bottom. Otherwise the
+      // button can disappear while the browser is still animating toward the
+      // latest message.
+      if (!nextAtBottom) return
+      if (isAtBottomRef.current) return
+      isAtBottomRef.current = true
+      setIsAtBottom(true)
       return
     }
     if (isAtBottomRef.current === nextAtBottom) return
@@ -550,7 +586,6 @@ export function useChatMessages(
   }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
-    isAtBottomRef.current = true
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current)
     }
@@ -562,8 +597,10 @@ export function useChatMessages(
         top: el.scrollHeight,
         behavior: smooth ? "smooth" : "auto",
       })
-      isAtBottomRef.current = true
-      setIsAtBottom(true)
+      if (!smooth) {
+        isAtBottomRef.current = true
+        setIsAtBottom(true)
+      }
       scrollFrameRef.current = null
     }
     scrollFrameRef.current = requestAnimationFrame(() => {
@@ -1133,12 +1170,17 @@ export function useChatMessages(
     seenIds.current.clear()
 
     if (seededMessages) {
+      const pendingInitialSend = hasPendingOptimisticUserTurn(seededMessages)
       for (const message of seededMessages) {
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
       setMessages(seededMessages)
-      setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
+      setStatus(
+        pendingInitialSend
+          ? "thinking"
+          : inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey))
+      )
       void queryClient.fetchQuery({
         queryKey: queryKeys.sessions(),
         queryFn: () => invoke<{
@@ -1151,7 +1193,13 @@ export function useChatMessages(
           const backendSession = (result.sessions || []).find(
             (item) => item.key === sessionKey || item.sessionKey === sessionKey,
           )
-          setStatus(statusFromBackendSession(backendSession?.status, seededMessages))
+          const nextStatus = statusFromBackendSession(
+            backendSession?.status,
+            seededMessages,
+          )
+          setStatus((prev) =>
+            pendingInitialSend && nextStatus === "idle" ? prev : nextStatus
+          )
         })
         .catch(() => undefined)
     } else {
@@ -1236,7 +1284,8 @@ export function useChatMessages(
               randomId()
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
-            const text = rawText ? cleanUserMessageText(rawText) : ""
+            const textWithAttachmentMarkers = rawText ? cleanUserMessageText(rawText) : ""
+            const text = stripAttachmentMarkers(textWithAttachmentMarkers)
             const isBootstrapEcho = rawText.includes(
               "[Bootstrap truncation warning]"
             )
@@ -1245,7 +1294,7 @@ export function useChatMessages(
               for (const later of raw.slice(rawIdx + 1)) {
                 if (later.role === "user") {
                   const laterRawText = later.text || extractText(later.content)
-                  if (cleanUserMessageText(laterRawText).trim() === text.trim())
+                  if (stripAttachmentMarkers(cleanUserMessageText(laterRawText)).trim() === text.trim())
                     return false
                 }
                 if (
@@ -1262,7 +1311,7 @@ export function useChatMessages(
               raw.slice(rawIdx + 1).some((later) => {
                 if (later.role !== "user") return false
                 const laterRawText = later.text || extractText(later.content)
-                return cleanUserMessageText(laterRawText).trim() === text.trim()
+                return stripAttachmentMarkers(cleanUserMessageText(laterRawText)).trim() === text.trim()
               })
             const isSubagentAnnounce = text
               ? /agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(text)
@@ -1276,10 +1325,14 @@ export function useChatMessages(
             ) {
               const reply = extractReplyBlock(text, histMsgs)
               const rawAttachments = m.attachments
+              const markerAttachments = imageAttachmentsFromText(textWithAttachmentMarkers)
+              const cachedAttachments = getCachedAttachmentsForText(sessionKey, textWithAttachmentMarkers)
               const resolvedAttachments =
                 rawAttachments && rawAttachments.length > 0
-                  ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments)
-                  : rawAttachments
+                  ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments, textWithAttachmentMarkers)
+                  : markerAttachments.length > 0
+                    ? mergeAttachmentsWithCache(sessionKey, id, markerAttachments, textWithAttachmentMarkers)
+                    : cachedAttachments
               if (resolvedAttachments && resolvedAttachments.length > 0) {
                 cacheAttachments(
                   sessionKey,
@@ -1291,7 +1344,8 @@ export function useChatMessages(
                       mimeType: a.mimeType,
                       content: a.content!,
                       size: a.size,
-                    }))
+                    })),
+                  textWithAttachmentMarkers
                 )
               }
               histMsgs.push({
@@ -1732,7 +1786,8 @@ export function useChatMessages(
             mimeType: a.mimeType,
             content: a.content,
             size: a.size,
-          }))
+          })),
+          trimmed
         )
       }
       setMessages((prev) => [
