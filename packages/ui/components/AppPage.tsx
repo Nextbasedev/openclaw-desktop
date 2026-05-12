@@ -510,6 +510,9 @@ function AppShell({
     if (route.kind === "tab") {
       setPendingPrompt(null)
       setComposerError(null)
+      if (route.tab === "settings") {
+        setSettingsInitialSection("usage")
+      }
       setActiveTab(route.tab)
       clearConversationState()
       return
