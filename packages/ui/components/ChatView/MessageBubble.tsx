@@ -618,14 +618,14 @@ export function MessageBubble({
                 ?.scrollIntoView({ behavior: "smooth", block: "center" })
             }}
             className={cn(
-              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-amber-400/35 bg-amber-400/15 px-2.5 py-1.5 text-left shadow-[inset_4px_0_0_rgba(251,191,36,0.9),0_0_0_1px_rgba(251,191,36,0.08)] transition-colors hover:bg-amber-400/20"
+              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-b-0 border-primary/20 bg-primary/[0.08] px-2.5 pb-1.5 text-left shadow-[inset_3px_0_0_hsl(var(--primary)/0.55)] transition-colors hover:bg-primary/[0.12]"
             )}
           >
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-semibold text-amber-300">
+              <span className="text-[10px] font-medium text-primary/75">
                 {message.replyTo.role === "user" ? "You" : "Assistant"}
               </span>
-              <p className="line-clamp-2 text-[12px] font-medium leading-snug text-amber-50/90">
+              <p className="line-clamp-2 text-[12px] leading-snug text-foreground/70">
                 {message.replyTo.text.slice(0, 150)}
                 {message.replyTo.text.length > 150 ? "…" : ""}
               </p>
