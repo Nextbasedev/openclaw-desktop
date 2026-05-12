@@ -17,6 +17,7 @@ type SessionState = {
   spawnedSubagents: SpawnedSubagent[]
   lastPatchAtMs: number
   activityStartedAtMs: number
+  deferredDoneUntilAssistant: boolean
 }
 
 type Listener = (state: SessionState, frame?: PatchFrame) => void
@@ -33,6 +34,7 @@ const ACTIVE_STATUSES = new Set<StreamStatus>([
 ])
 
 const STALE_ACTIVE_RUN_MS = 5 * 60 * 1000
+const PREMATURE_DONE_GRACE_MS = 10 * 1000
 
 function isTerminalOrIdleStatus(status: StreamStatus) {
   return !ACTIVE_STATUSES.has(status)
@@ -59,11 +61,12 @@ function cloneState(state: SessionState): SessionState {
     spawnedSubagents: state.spawnedSubagents,
     lastPatchAtMs: state.lastPatchAtMs,
     activityStartedAtMs: state.activityStartedAtMs,
+    deferredDoneUntilAssistant: state.deferredDoneUntilAssistant,
   }
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0 }
+  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false }
 }
 
 function getOrCreate(sessionKey: string): SessionState {
@@ -371,14 +374,15 @@ function hasActiveToolOrSubagent(state: SessionState) {
   )
 }
 
-function hasAssistantAnswerAfterLatestUser(state: SessionState) {
-  let latestUserIndex = -1
+function latestUserMessageIndex(state: SessionState) {
   for (let i = state.messages.length - 1; i >= 0; i--) {
-    if (state.messages[i]?.role === "user") {
-      latestUserIndex = i
-      break
-    }
+    if (state.messages[i]?.role === "user") return i
   }
+  return -1
+}
+
+function hasAssistantAnswerAfterLatestUser(state: SessionState) {
+  const latestUserIndex = latestUserMessageIndex(state)
   const start = latestUserIndex >= 0 ? latestUserIndex + 1 : 0
   for (let i = state.messages.length - 1; i >= start; i--) {
     const message = state.messages[i]
@@ -399,7 +403,27 @@ function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
   state.status = "done"
   state.statusLabel = null
   state.activityStartedAtMs = 0
+  state.deferredDoneUntilAssistant = false
   finalizeActiveToolsForTerminalStatus(state, "done")
+  return true
+}
+
+function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
+  if (status !== "done") return false
+  const type = frame.patch.type
+  if (type !== "chat.status" && type !== "session.status" && type !== "session.upsert") return false
+  const payload = patchPayload(frame)
+  return !payload?.message && !payload?.toolCall
+}
+
+function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, status: StreamStatus) {
+  if (!isBareDoneStatusPatch(frame, status)) return false
+  if (!ACTIVE_STATUSES.has(state.status)) return false
+  if (!state.activityStartedAtMs) return false
+  if (Date.now() - state.activityStartedAtMs > PREMATURE_DONE_GRACE_MS) return false
+  if (latestUserMessageIndex(state) < 0) return false
+  if (hasActiveToolOrSubagent(state)) return false
+  if (hasAssistantAnswerAfterLatestUser(state)) return false
   return true
 }
 
@@ -459,11 +483,16 @@ function handlePatch(frame: PatchFrame) {
   const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
-    if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
-    if (!ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = 0
-    state.status = patchStatus.status
-    state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
-    finalizeActiveToolsForTerminalStatus(state, patchStatus.status)
+    if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
+      state.deferredDoneUntilAssistant = true
+    } else {
+      if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
+      if (!ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = 0
+      state.status = patchStatus.status
+      state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
+      state.deferredDoneUntilAssistant = false
+      finalizeActiveToolsForTerminalStatus(state, patchStatus.status)
+    }
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
     if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
     state.status = "thinking"
@@ -476,7 +505,9 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
-  const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
+  const autoFinalized = state.deferredDoneUntilAssistant && hasAssistantAnswerAfterLatestUser(state)
+    ? maybeFinalizeAnsweredRun(state, "legacy:assistant-answer-fallback")
+    : maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
       sessionKey,
@@ -540,6 +571,7 @@ export function seedGlobalChatSession(params: {
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
+  if (params.status) state.deferredDoneUntilAssistant = false
   if (params.pendingTools) state.pendingTools = params.pendingTools
   if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
   if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
@@ -572,6 +604,7 @@ export function updateGlobalChatSessionActivity(params: {
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
+  if (params.status) state.deferredDoneUntilAssistant = false
   if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
   frontendLog("status", "global-chat-session.activity-update", {
     sessionKey: params.sessionKey,
