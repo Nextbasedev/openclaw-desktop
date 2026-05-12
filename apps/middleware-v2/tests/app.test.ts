@@ -35,6 +35,30 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("legacy bootstrap compatibility route returns startup payload", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      service: "openclaw-middleware-v2",
+      spaces: [],
+      activeSpaceId: null,
+      chats: [],
+      projects: [],
+      sessions: [],
+    });
+    await app.close();
+  });
+
+  test("legacy version compatibility route identifies v2", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "GET", url: "/api/version" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, service: "openclaw-middleware-v2" });
+    await app.close();
+  });
+
   test("chat bootstrap validates sessionKey", async () => {
     const app = await createApp(config);
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap" });
