@@ -108,6 +108,26 @@ type ChatBootstrapData = {
   history: { messages: unknown[]; sessionStatus?: string | null }
 }
 
+function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
+  let latestUserIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") {
+      latestUserIndex = i
+      break
+    }
+  }
+  if (latestUserIndex < 0) {
+    return messages.some(
+      (message) => message.role === "assistant" && message.text.trim().length > 0
+    )
+  }
+  for (let i = latestUserIndex + 1; i < messages.length; i++) {
+    const message = messages[i]
+    if (message?.role === "assistant" && message.text.trim().length > 0) return true
+  }
+  return false
+}
+
 function stableRawMessageId(raw: RawMessage): string {
   const openclawId = raw.__openclaw?.id
   if (typeof openclawId === "string" && openclawId.trim()) return openclawId
@@ -557,27 +577,48 @@ export function useChatMessages(
       const backendSession = sessionsResult?.sessions?.find(
         (item) => item.key === sessionKey || item.sessionKey === sessionKey
       )
-      if (freshMessages?.length) {
-        setMessages((prev) => {
-          const freshIds = new Set(freshMessages.map((message) => message.messageId))
-          const keptOptimistic = prev.filter(
-            (message) =>
-              message.isOptimistic &&
-              !freshIds.has(message.messageId) &&
-              !freshMessages.some((fresh) => sameUserMessage(fresh, message))
-          )
-          return dedupeChatMessages([...freshMessages, ...keptOptimistic])
+      const currentStatus = statusRef.current
+      const currentMessages = messagesRef.current
+      const candidateMessages = freshMessages?.length ? freshMessages : currentMessages
+      const activeWithoutFreshAnswer =
+        isActiveRunStatus(currentStatus) &&
+        !hasAssistantAnswerAfterLatestUserMessage(candidateMessages)
+
+      if (activeWithoutFreshAnswer) {
+        // Reconcile is a recovery path, not lifecycle truth. Gateway history can
+        // lag behind live patches for a few seconds after send; replacing the
+        // local optimistic timeline with that partial history makes the latest
+        // Thinking row and previous answer disappear until the final patch lands.
+        frontendLog("status", "chat.reconcile-preserve-active", {
+          sessionKey,
+          status: currentStatus,
+          freshMessageCount: freshMessages?.length ?? 0,
+          currentMessageCount: currentMessages.length,
+          backendStatus: backendSession?.status ?? null,
         })
-      }
-      const nextStatus = statusFromBackendSession(
-        backendSession?.status,
-        freshMessages?.length ? freshMessages : messagesRef.current
-      )
-      if (backendSession?.status || !isActiveRunStatus(nextStatus)) {
-        setStatus(nextStatus)
-        if (nextStatus === "done" || nextStatus === "idle") {
-          setStatusLabel(null)
-          setErrorMessage(null)
+      } else {
+        if (freshMessages?.length) {
+          setMessages((prev) => {
+            const freshIds = new Set(freshMessages.map((message) => message.messageId))
+            const keptOptimistic = prev.filter(
+              (message) =>
+                message.isOptimistic &&
+                !freshIds.has(message.messageId) &&
+                !freshMessages.some((fresh) => sameUserMessage(fresh, message))
+            )
+            return dedupeChatMessages([...freshMessages, ...keptOptimistic])
+          })
+        }
+        const nextStatus = statusFromBackendSession(
+          backendSession?.status,
+          candidateMessages
+        )
+        if (backendSession?.status || !isActiveRunStatus(nextStatus)) {
+          setStatus(nextStatus)
+          if (nextStatus === "done" || nextStatus === "idle") {
+            setStatusLabel(null)
+            setErrorMessage(null)
+          }
         }
       }
       void queryClient.invalidateQueries({
