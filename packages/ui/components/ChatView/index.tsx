@@ -349,13 +349,14 @@ export function ChatView({
         sessionKey,
       }
     )
-      .then(({ pins }) => {
+      .then((res) => {
+        const pins = Array.isArray(res?.pins) ? res.pins : []
         setDbPins({ pins, loaded: true })
         // Apply fetched pins immediately. If IDs match exactly, they'll show up.
         // If IDs mismatch, the reconciliation effect will fix them.
         dispatchMessageAction((prev) => ({
           ...prev,
-          pinnedIds: pins.map((p) => p.messageId),
+          pinnedIds: pins.map((p: { messageId: string }) => p.messageId),
         }))
       })
       .catch(() => {
