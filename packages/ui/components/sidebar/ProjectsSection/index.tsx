@@ -89,7 +89,7 @@ export function ProjectsSection({
                     className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/30 px-2.5 py-2 text-left text-[12px] text-muted-foreground/40 transition-colors hover:border-border/50 hover:text-muted-foreground"
                   >
                     <Icons.Plus size={12} strokeWidth={1.5} />
-                    <span>Create your first project</span>
+                    <span>Create Space</span>
                   </button>
                 )}
 

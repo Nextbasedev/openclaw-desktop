@@ -2,6 +2,29 @@ mod backend;
 #[cfg(target_os = "windows")]
 mod windows_toast;
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+  let trimmed = url.trim();
+  if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+    return Err("Only http(s) URLs can be opened externally".to_string());
+  }
+
+  #[cfg(target_os = "windows")]
+  let result = std::process::Command::new("rundll32")
+    .args(["url.dll,FileProtocolHandler", trimmed])
+    .spawn();
+
+  #[cfg(target_os = "macos")]
+  let result = std::process::Command::new("open").arg(trimmed).spawn();
+
+  #[cfg(all(unix, not(target_os = "macos")))]
+  let result = std::process::Command::new("xdg-open").arg(trimmed).spawn();
+
+  result
+    .map(|_| ())
+    .map_err(|err| format!("Failed to open external URL: {err}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   #[cfg(target_os = "windows")]
@@ -20,12 +43,14 @@ pub fn run() {
   #[cfg(not(target_os = "windows"))]
   let builder = builder.invoke_handler(tauri::generate_handler![
     backend::read_backend_log,
+    open_external_url,
   ]);
 
   #[cfg(target_os = "windows")]
   let builder = builder.invoke_handler(tauri::generate_handler![
     backend::read_backend_log,
     windows_toast::show_reply_notification,
+    open_external_url,
   ]);
 
   let app = builder

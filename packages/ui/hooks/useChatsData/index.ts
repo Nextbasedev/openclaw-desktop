@@ -172,6 +172,11 @@ export function useChatsData(
       )
       const newOnes = chats
         .filter((c) => !prev.includes(c.id))
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() -
+            new Date(a.updatedAt).getTime(),
+        )
         .map((c) => c.id)
       return [...newOnes, ...existing]
     })
@@ -276,17 +281,19 @@ export function useChatsData(
   }, [deleteTarget, loadChats, activeChat, onChatClear])
 
   const sortedChatIds = useMemo(() => {
-    const pinned = chatOrder.filter((id) =>
-      pinnedChats.has(id),
-    )
-    const unpinned = chats
-      .filter((c) => !pinnedChats.has(c.id))
+    const chatIds = new Set(chats.map((chat) => chat.id))
+    const ordered = chatOrder.filter((id) => chatIds.has(id))
+    const missing = chats
+      .filter((chat) => !ordered.includes(chat.id))
       .sort(
         (a, b) =>
           new Date(b.updatedAt).getTime() -
           new Date(a.updatedAt).getTime(),
       )
-      .map((c) => c.id)
+      .map((chat) => chat.id)
+    const allOrdered = [...ordered, ...missing]
+    const pinned = allOrdered.filter((id) => pinnedChats.has(id))
+    const unpinned = allOrdered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
   }, [chatOrder, pinnedChats, chats])
 
