@@ -1082,7 +1082,7 @@ export function useChatMessages(
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
-      setMessages(warmMessages)
+setMessages(warmMessages)
       const warmStatus = useCachedGlobal && cachedGlobal?.status
         ? cachedGlobal.status
         : cachedBootstrap?.runStatus
@@ -1094,7 +1094,13 @@ export function useChatMessages(
       setStatusLabel(useCachedGlobal
         ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
         : normalizeStatusLabelForStatus(warmStatus, cachedBootstrap?.statusLabel))
-      if (useCachedGlobal && cachedGlobal?.pendingTools) {
+      const warmTerminal = warmStatus === "done" || warmStatus === "idle" || warmStatus === "error"
+      if (warmTerminal) {
+        pendingToolMapRef.current.clear()
+        setPendingTools([])
+        clearCachedChatActivity(sessionKey)
+      }
+      if (!warmTerminal && useCachedGlobal && cachedGlobal?.pendingTools) {
         pendingToolMapRef.current = new Map(cachedGlobal.pendingTools.map((tool) => [tool.id, tool]))
         setPendingTools(cachedGlobal.pendingTools)
       }
@@ -1620,13 +1626,15 @@ export function useChatMessages(
         const restoredStatus = bootstrapStatus
         if (history.sessionStatus || !isActiveRunStatus(restoredStatus) || isActiveRunStatus(statusRef.current)) {
           setStatus(restoredStatus)
-          if (restoredStatus === "done" || restoredStatus === "idle") {
+          if (restoredStatus === "done" || restoredStatus === "idle" || restoredStatus === "error") {
             setStatusLabel(null)
+            pendingToolMapRef.current.clear()
+            setPendingTools([])
             clearCachedChatActivity(sessionKey)
           }
         }
         setLoading(false)
-        frontendLog("chat", "chat.bootstrap.applied", {
+frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: allMessages.length,
           status: restoredStatus,
