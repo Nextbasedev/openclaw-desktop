@@ -394,27 +394,23 @@ export function useChatMessages(
   const restartInFlightRef = useRef(false)
   const statusRef = useRef<StreamStatus>(hasInitial ? "thinking" : cachedStatus ?? "idle")
   const isSendingRef = useRef(false)
+  const pendingMessagePublishRef = useRef(false)
+  const pendingStatusPublishRef = useRef(false)
 
   const setMessages = useCallback(
     (update: SetStateAction<ChatMessage[]>) => {
-      setLocalMessages((prev) => {
-        const next = typeof update === "function" ? update(prev) : update
-        publishChatSessionMessages(sessionKey, next, instanceIdRef.current)
-        return next
-      })
+      pendingMessagePublishRef.current = true
+      setLocalMessages(update)
     },
-    [sessionKey],
+    [],
   )
 
   const setStatus = useCallback(
     (update: SetStateAction<StreamStatus>) => {
-      setLocalStatus((prev) => {
-        const next = typeof update === "function" ? update(prev) : update
-        publishChatSessionStatus(sessionKey, next, instanceIdRef.current)
-        return next
-      })
+      pendingStatusPublishRef.current = true
+      setLocalStatus(update)
     },
-    [sessionKey],
+    [],
   )
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -466,6 +462,18 @@ export function useChatMessages(
   }, [status])
 
   useEffect(() => {
+    if (!pendingMessagePublishRef.current) return
+    pendingMessagePublishRef.current = false
+    publishChatSessionMessages(sessionKey, messages, instanceIdRef.current)
+  }, [messages, sessionKey])
+
+  useEffect(() => {
+    if (!pendingStatusPublishRef.current) return
+    pendingStatusPublishRef.current = false
+    publishChatSessionStatus(sessionKey, status, instanceIdRef.current)
+  }, [sessionKey, status])
+
+  useEffect(() => {
     isSendingRef.current = isSending
   }, [isSending])
 
@@ -474,6 +482,7 @@ export function useChatMessages(
       sessionKey,
       (nextMessages, sourceId) => {
         if (sourceId === instanceIdRef.current) return
+        pendingMessagePublishRef.current = false
         setLocalMessages(nextMessages)
         for (const message of nextMessages) seenIds.current.add(message.messageId)
       },
@@ -482,6 +491,7 @@ export function useChatMessages(
       sessionKey,
       (nextStatus, sourceId) => {
         if (sourceId === instanceIdRef.current) return
+        pendingStatusPublishRef.current = false
         statusRef.current = nextStatus
         setLocalStatus(nextStatus)
       },
