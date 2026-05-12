@@ -426,24 +426,48 @@ export function ChatView({
   })
 
   useEffect(() => {
-    frontendLog("chat", "chat-view.mount", { sessionKey, sessionTitle, isBackgroundSession })
-    return () => frontendLog("chat", "chat-view.unmount", { sessionKey, isBackgroundSession })
+    frontendLog("chat", "chat-view.mount", {
+      sessionKey,
+      sessionTitle,
+      isBackgroundSession,
+    })
+    return () =>
+      frontendLog("chat", "chat-view.unmount", {
+        sessionKey,
+        isBackgroundSession,
+      })
   }, [isBackgroundSession, sessionKey, sessionTitle])
 
   useEffect(() => {
-    frontendLog("status", "chat-view.render-state", {
-      sessionKey,
-      status,
-      statusLabel,
-      loading,
-      loadError: Boolean(loadError),
-      isSending,
-      isGenerating,
-      messageCount: messages.length,
-      pendingToolCount: pendingTools.length,
-      spawnedSubagentCount: spawnedSubagents.length,
-    }, "debug")
-  }, [isGenerating, isSending, loadError, loading, messages.length, pendingTools.length, sessionKey, spawnedSubagents.length, status, statusLabel])
+    frontendLog(
+      "status",
+      "chat-view.render-state",
+      {
+        sessionKey,
+        status,
+        statusLabel,
+        loading,
+        loadError: Boolean(loadError),
+        isSending,
+        isGenerating,
+        messageCount: messages.length,
+        pendingToolCount: pendingTools.length,
+        spawnedSubagentCount: spawnedSubagents.length,
+      },
+      "debug"
+    )
+  }, [
+    isGenerating,
+    isSending,
+    loadError,
+    loading,
+    messages.length,
+    pendingTools.length,
+    sessionKey,
+    spawnedSubagents.length,
+    status,
+    statusLabel,
+  ])
 
   useEffect(() => {
     setComposerSeed(initialPrompt ?? "")
@@ -466,7 +490,10 @@ export function ChatView({
   )
 
   const closeSubagent = useCallback(() => {
-    frontendLog("session", "subagent.close", { parentSessionKey: sessionKey, childSessionKey: activeSubKey })
+    frontendLog("session", "subagent.close", {
+      parentSessionKey: sessionKey,
+      childSessionKey: activeSubKey,
+    })
     setActiveSubagent(null)
     setInternalSubagentKey(null)
     onSubagentOpen?.(null)
@@ -598,6 +625,12 @@ export function ChatView({
     [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
+  const latestRenderedUserIndex = useMemo(() => {
+    for (let i = renderedMessages.length - 1; i >= 0; i--) {
+      if (renderedMessages[i].role === "user") return i
+    }
+    return -1
+  }, [renderedMessages])
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -976,6 +1009,21 @@ export function ChatView({
         isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
+      let hasLaterAssistantInSameTurn = false
+      if (msg.role === "assistant") {
+        for (const next of renderedMessages.slice(index + 1)) {
+          if (next.role === "user") break
+          if (next.role === "assistant" && next.text.trim()) {
+            hasLaterAssistantInSameTurn = true
+            break
+          }
+        }
+      }
+      const isActiveTurnAssistant =
+        msg.role === "assistant" && index > latestRenderedUserIndex
+      const suppressAssistantActions =
+        msg.role === "assistant" &&
+        (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
       const showPendingAbove = isActivelyStreaming && pendingTools.length > 0
       const filteredToolCalls = msg.toolCalls
         ? toolCallsWithoutSpawn(msg.toolCalls)
@@ -1056,6 +1104,7 @@ export function ChatView({
               reaction={messageActionState.reactions[msg.messageId]}
               isGenerating={isGenerating}
               isActivelyStreaming={isActivelyStreaming}
+              suppressActions={suppressAssistantActions}
               popoverOpen={activePopoverId === msg.messageId}
               onPopoverOpenChange={(open) =>
                 setActivePopoverId(open ? msg.messageId : null)
@@ -1091,6 +1140,7 @@ export function ChatView({
       isGenerating,
       lastEditableUserId,
       lastTwoAssistantIds,
+      latestRenderedUserIndex,
       markTextAnimationComplete,
       messageActionState.pinnedIds,
       messageActionState.reactions,
