@@ -14,6 +14,23 @@ const bootstrapQuery = z.object({
   maxChars: z.coerce.number().int().positive().optional(),
 });
 
+
+const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
+const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
+
+function lastMessageIsAssistantText(messages: unknown[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
+    const data = message as Record<string, unknown>;
+    const role = typeof data.role === "string" ? data.role : null;
+    const text = textFromMessage(data).trim();
+    if (!role && !text) continue;
+    return role === "assistant" && text.length > 0;
+  }
+  return false;
+}
+
 type ChatHistoryResponse = {
   sessionKey?: string;
   sessionId?: string;
@@ -586,7 +603,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
     const existingSession = context.messages.getSession(sessionKey);
-    const sessionData = {
+    const sessionData: Record<string, unknown> = {
       ...objectData(existingSession?.data),
       sessionKey,
       sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
@@ -603,6 +620,24 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized);
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq });
+
+    const latestRun = context.runs.latestRun(sessionKey);
+    if (latestRun && ACTIVE_RUN_STATUSES.has(latestRun.status) && Date.now() - latestRun.updatedAtMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) {
+      const finalizedTools = context.runs.completeRunningTools(sessionKey, latestRun.runId, {
+        status: "success",
+        resultMeta: { inferred: true, reason: "stale_bootstrap_after_assistant_final" },
+      });
+      context.runs.updateRunStatus(latestRun.runId, "done", { statusLabel: null });
+      sessionData.status = "done";
+      sessionData.statusLabel = null;
+      context.messages.upsertSession({
+        sessionKey,
+        sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+        data: sessionData,
+      });
+      log.warn("bootstrap.stale-run-finalized", { sessionKey, runId: latestRun.runId, previousStatus: latestRun.status, finalizedTools, staleMs: Date.now() - latestRun.updatedAtMs });
+    }
+
     const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000 }).map((message) => message.data);
     log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: parsed.data.limit ?? 1000 });
     await context.chatLive.ensureSessionSubscribed(sessionKey);

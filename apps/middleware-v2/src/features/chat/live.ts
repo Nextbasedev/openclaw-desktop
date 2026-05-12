@@ -26,6 +26,19 @@ function contentFactorSummary(message: Record<string, unknown>) {
   };
 }
 
+function toolCallBlocks(content: unknown) {
+  if (!Array.isArray(content)) return [];
+  return content.filter((block): block is Record<string, unknown> => {
+    if (!isObject(block)) return false;
+    return block.type === "toolCall" || block.type === "tool_use";
+  });
+}
+
+function readToolCallId(value: Record<string, unknown>) {
+  const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
 export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
@@ -110,6 +123,14 @@ export class ChatLiveIngest {
     const emittedMessage = confirmed?.data ?? message;
     const emittedSeq = confirmed?.openclawSeq ?? projectedMessage.openclawSeq;
     const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
+    this.ingestToolsFromMessage(sessionKey, message, associatedRun);
+    const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
+    if (assistantHasFinalText && associatedRun) {
+      this.context.runs.completeRunningTools(sessionKey, associatedRun.runId, {
+        status: "success",
+        resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
+      });
+    }
     if (projectedMessage.role === "assistant" && associatedRun && !this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) {
       this.context.runs.updateRunStatus(associatedRun.runId, "done", { statusLabel: null });
       this.context.messages.upsertSession({
@@ -210,24 +231,25 @@ export class ChatLiveIngest {
 
   private handleSessionTool(payload: unknown) {
     if (!isObject(payload)) return;
-    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : typeof payload.key === "string" ? payload.key : null;
+    const data = isObject(payload.data) ? payload.data : payload;
+    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : typeof payload.key === "string" ? payload.key : typeof data.sessionKey === "string" ? data.sessionKey : typeof data.key === "string" ? data.key : null;
     if (!sessionKey) return;
-    const toolCallId = typeof payload.toolCallId === "string" ? payload.toolCallId : typeof payload.id === "string" ? payload.id : null;
+    const toolCallId = readToolCallId(data);
     if (!toolCallId) return;
-    const gatewayRunId = typeof payload.runId === "string" ? payload.runId : null;
+    const gatewayRunId = typeof payload.runId === "string" ? payload.runId : typeof data.runId === "string" ? data.runId : null;
     const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
-    const rawPhase = typeof payload.phase === "string" ? payload.phase.toLowerCase() : typeof payload.status === "string" ? payload.status.toLowerCase() : "start";
+    const rawPhase = typeof data.phase === "string" ? data.phase.toLowerCase() : typeof data.status === "string" ? data.status.toLowerCase() : "start";
     const phase = rawPhase === "error" || rawPhase === "failed" ? "error" : rawPhase === "result" || rawPhase === "done" || rawPhase === "success" ? "result" : rawPhase === "calling" ? "calling" : "start";
-    const name = typeof payload.name === "string" ? payload.name : typeof payload.toolName === "string" ? payload.toolName : "unknown";
+    const name = typeof data.name === "string" ? data.name : typeof data.toolName === "string" ? data.toolName : "unknown";
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
       toolCallId,
       runId: run?.runId ?? gatewayRunId,
-      messageId: typeof payload.messageId === "string" ? payload.messageId : null,
+      messageId: typeof payload.messageId === "string" ? payload.messageId : typeof data.messageId === "string" ? data.messageId : null,
       name,
       phase,
-      argsMeta: isObject(payload.args) ? { keys: Object.keys(payload.args).slice(0, 20) } : null,
-      resultMeta: phase === "result" ? this.safeResultMeta(payload.result) : phase === "error" ? this.safeResultMeta(payload.error) : null,
+      argsMeta: isObject(data.args) ? { keys: Object.keys(data.args).slice(0, 20) } : null,
+      resultMeta: phase === "result" ? this.safeResultMeta(data.result ?? data.partialResult) : phase === "error" ? this.safeResultMeta(data.error) : null,
     });
     if (run) {
       if (tool.status === "running") this.context.runs.updateRunStatus(run.runId, "tool_running", { statusLabel: name });
@@ -246,6 +268,39 @@ export class ChatLiveIngest {
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
+  }
+
+  private ingestToolsFromMessage(sessionKey: string, message: OpenClawMessage, run: ProjectedRun | null) {
+    const openclaw = isObject(message.__openclaw) ? message.__openclaw as Record<string, unknown> : {};
+    const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof message.id === "string" ? message.id : null;
+    for (const block of toolCallBlocks(message.content)) {
+      const toolCallId = readToolCallId(block);
+      const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
+      if (!toolCallId || !name) continue;
+      this.handleSessionTool({
+        sessionKey,
+        runId: run?.gatewayRunId ?? run?.runId,
+        messageId,
+        toolCallId,
+        name,
+        phase: "calling",
+        args: block.arguments ?? block.input ?? null,
+      });
+    }
+
+    const role = message.role;
+    if (role !== "tool" && role !== "toolResult" && role !== "tool_result") return;
+    const toolCallId = readToolCallId(message as unknown as Record<string, unknown>);
+    if (!toolCallId) return;
+    this.handleSessionTool({
+      sessionKey,
+      runId: run?.gatewayRunId ?? run?.runId,
+      messageId,
+      toolCallId,
+      name: typeof message.name === "string" ? message.name : typeof message.toolName === "string" ? message.toolName : "unknown",
+      phase: "result",
+      result: message.content ?? message.text ?? null,
+    });
   }
 
   private handleChatEvent(payload: unknown) {
