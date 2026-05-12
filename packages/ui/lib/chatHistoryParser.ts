@@ -11,6 +11,7 @@ import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagen
 import { mergeAssistantText } from "./chatMessageDedupe"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
+const REFERENCE_BLOCK_RE = /Reference\s+\d+:\s*\n([\s\S]*?)(?=\n\nReference\s+\d+:|$)/gi
 
 export function extractReplyBlock(
   text: string,
@@ -34,6 +35,11 @@ function extractReplyFromText(
   const displayText = match[2].trim()
   if (!quoted || !displayText) return null
 
+  const referenceReply = extractSelectedReferenceReply(quoted, priorMessages)
+  if (referenceReply) {
+    return { replyTo: referenceReply, displayText }
+  }
+
   for (let i = priorMessages.length - 1; i >= 0; i--) {
     const msg = priorMessages[i]
     if (
@@ -50,6 +56,41 @@ function extractReplyFromText(
   return {
     replyTo: { messageId: "", role: "assistant", text: quoted },
     displayText,
+  }
+}
+
+function extractSelectedReferenceReply(
+  quoted: string,
+  priorMessages: ChatMessage[]
+): ReplyTo | null {
+  const selections: NonNullable<ReplyTo["selections"]> = []
+  REFERENCE_BLOCK_RE.lastIndex = 0
+
+  let match: RegExpExecArray | null
+  while ((match = REFERENCE_BLOCK_RE.exec(quoted)) !== null) {
+    const selectedText = match[1]
+      .replace(/\nComment:[\s\S]*$/i, "")
+      .trim()
+    if (!selectedText) continue
+
+    const sourceMessage = [...priorMessages]
+      .reverse()
+      .find((message) => message.text.includes(selectedText))
+    if (!sourceMessage) continue
+
+    selections.push({
+      messageId: sourceMessage.messageId,
+      text: selectedText,
+    })
+  }
+
+  if (selections.length === 0) return null
+
+  return {
+    messageId: `${selections.at(-1)?.messageId}:selection:${selections.length}`,
+    role: "assistant",
+    text: quoted,
+    selections,
   }
 }
 
