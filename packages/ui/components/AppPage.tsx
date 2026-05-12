@@ -25,7 +25,11 @@ import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { emit } from "@/lib/events"
-import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
+import {
+  getMiddlewareConnection,
+  MIDDLEWARE_CONNECTION_CHANGED_EVENT,
+  MIDDLEWARE_DISCONNECTED_EVENT,
+} from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
@@ -226,6 +230,9 @@ function AppShell({
   onSignOut,
   onDeleteAccount,
 }: AppShellProps) {
+  const [workspaceConnected, setWorkspaceConnected] = useState(
+    !initialConnect,
+  )
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
@@ -263,6 +270,7 @@ function AppShell({
     getRoutePath() === "/"
       ? "chat"
       : activeTab
+  const disconnectedShell = !workspaceConnected && effectiveActiveTab === "connect"
   const fullScreenInspectorOpen = activeTab === "inspector"
 
   const prevTabRef = useRef("chat")
@@ -486,9 +494,13 @@ function AppShell({
       setPendingPrompt(null)
       setComposerError(null)
       setFocusedToolCallId(null)
-      setActiveTab("chat")
       setChatRefreshTrigger((n) => n + 1)
       try { localStorage.removeItem("openclaw.activeProjectId") } catch {}
+      if (!getMiddlewareConnection()) {
+        emit("sidebar:refresh")
+        return
+      }
+      setActiveTab("chat")
       if (getRoutePath() !== "/") window.history.replaceState(null, "", routeUrl("/"))
       emit("sidebar:refresh")
     }
@@ -647,6 +659,30 @@ function AppShell({
     }
   }, [clearConversationState])
 
+  useEffect(() => {
+    function onMiddlewareConnected() {
+      setWorkspaceConnected(true)
+      setConnectAutoOpenEnabled(false)
+      setSidebarOpen(typeof window !== "undefined" ? window.innerWidth >= 1024 : true)
+    }
+    function onMiddlewareDisconnected() {
+      setWorkspaceConnected(false)
+      setConnectAutoOpenEnabled(true)
+      setSidebarOpen(false)
+      setInspectorOpen(false)
+      setTerminalActive(false)
+      settingsPushedRef.current = false
+      window.history.replaceState(null, "", routeUrl("/connect"))
+      void activateRoute({ kind: "tab", tab: "connect" })
+    }
+    window.addEventListener("openclaw:middleware-connected", onMiddlewareConnected)
+    window.addEventListener(MIDDLEWARE_DISCONNECTED_EVENT, onMiddlewareDisconnected)
+    return () => {
+      window.removeEventListener("openclaw:middleware-connected", onMiddlewareConnected)
+      window.removeEventListener(MIDDLEWARE_DISCONNECTED_EVENT, onMiddlewareDisconnected)
+    }
+  }, [activateRoute])
+
   // Restore state from URL on mount
   useEffect(() => {
     if (initialRouteAppliedRef.current) return
@@ -664,11 +700,15 @@ function AppShell({
   }, [activateRoute])
 
   const handleSelectTool = useCallback((toolCallId: string) => {
+    if (!workspaceConnected) return
     if (!inspectorOpen) setInspectorOpen(true)
     setFocusedToolCallId(toolCallId)
-  }, [inspectorOpen])
+  }, [inspectorOpen, workspaceConnected])
 
-  const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
+  const toggleInspector = useCallback(() => {
+    if (!workspaceConnected) return
+    setInspectorOpen((prev) => !prev)
+  }, [workspaceConnected])
   const setChatModePersisted = useCallback((mode: "simple" | "mission") => {
     setChatMode(mode)
     setInspectorOpen(mode === "mission")
@@ -677,6 +717,7 @@ function AppShell({
     } catch {}
   }, [])
   const toggleTerminal = useCallback(() => {
+    if (!workspaceConnected) return
     if (inspectorOpen && terminalActive) {
       setInspectorOpen(false)
       setTerminalActive(false)
@@ -684,9 +725,15 @@ function AppShell({
       setInspectorOpen(true)
       setTerminalActive(true)
     }
-  }, [inspectorOpen, terminalActive])
-  const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
-  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+  }, [inspectorOpen, terminalActive, workspaceConnected])
+  const toggleSidebar = useCallback(() => {
+    if (!workspaceConnected) return
+    setSidebarOpen((prev) => !prev)
+  }, [workspaceConnected])
+  const closeSidebar = useCallback(() => {
+    if (!workspaceConnected) return
+    setSidebarOpen(false)
+  }, [workspaceConnected])
 
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("config")
 
@@ -1871,39 +1918,45 @@ function AppShell({
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
         onOpenLogs={openLogs}
+        showWorkspaceControls={!disconnectedShell}
         onNavigateToChat={handleCronJobNavigate}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
-          collapsed={!sidebarOpen}
-          onClose={closeSidebar}
-          onResizeStart={handleResizeStart}
-          activeTab={effectiveActiveTab}
-          onTabChange={handleTabChange}
-          items={sidebarItems}
-          onItemsReorder={handleItemsReorder}
-          activeTopic={activeTopic}
-          onTopicSelect={handleTopicSelect}
-          onTopicClear={handleTopicClear}
-          activeChat={activeChat}
-          onChatSelect={handleChatSelect}
-          onChatClear={handleChatClear}
-          onNewChat={handleNewChat}
-          chatRefreshTrigger={chatRefreshTrigger}
-          spaces={spaces}
-          activeSpaceId={activeSpaceId}
-          onSpaceSwitch={handleSpaceSwitch}
-          onSpaceCreate={handleSpaceCreate}
-          onSpaceUpdate={updateSpace}
-          onSpaceDelete={handleSpaceDelete}
-        />
+        {!disconnectedShell && (
+          <Sidebar
+            width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+            collapsed={!sidebarOpen}
+            onClose={closeSidebar}
+            onResizeStart={handleResizeStart}
+            activeTab={effectiveActiveTab}
+            onTabChange={handleTabChange}
+            items={sidebarItems}
+            onItemsReorder={handleItemsReorder}
+            activeTopic={activeTopic}
+            onTopicSelect={handleTopicSelect}
+            onTopicClear={handleTopicClear}
+            activeChat={activeChat}
+            onChatSelect={handleChatSelect}
+            onChatClear={handleChatClear}
+            onNewChat={handleNewChat}
+            chatRefreshTrigger={chatRefreshTrigger}
+            spaces={spaces}
+            activeSpaceId={activeSpaceId}
+            onSpaceSwitch={handleSpaceSwitch}
+            onSpaceCreate={handleSpaceCreate}
+            onSpaceUpdate={updateSpace}
+            onSpaceDelete={handleSpaceDelete}
+          />
+        )}
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <main
             ref={mainContentRef}
-            className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out"
+            className={cn(
+              "relative flex flex-1 justify-center overflow-hidden transition-all duration-300 ease-in-out",
+              disconnectedShell ? "items-center" : "items-start",
+            )}
           >
 {effectiveActiveTab === "chat" ? (
               editorGroups.groups.length === 1 ? (
@@ -2020,7 +2073,8 @@ function AppShell({
                 searchHighlightTarget={searchHighlightTarget}
               />
             )}
-            {(backgroundSessionKey || warmChatSessions.length > 0) && (
+            {!disconnectedShell &&
+              (backgroundSessionKey || warmChatSessions.length > 0) && (
               <div className="hidden">
                 {backgroundSessionKey && backgroundSessionKey !== activeSessionKey && !editorGroups.groups.some((g) => g.sessionData?.sessionKey === backgroundSessionKey) && (
                   <ChatView
@@ -2042,28 +2096,32 @@ function AppShell({
           </main>
         </div>
 
-        <InspectorPanel
-          open={inspectorOpen}
-          onClose={toggleInspector}
-          onOpenFullWindow={openInspectorFullWindow}
-          onWidthChange={setInspectorWidth}
-          terminalActive={terminalActive}
-          onTerminalActiveChange={setTerminalActive}
-          sessionKey={activeSessionKey}
-          focusedToolCallId={focusedToolCallId}
-          onClearFocusedToolCall={() => setFocusedToolCallId(null)}
-          projectId={activeTopic?.projectId ?? null}
-          activeAgentId={activeAgentId}
-          onAgentSelect={setActiveAgentId}
-        />
+        {!disconnectedShell && (
+          <InspectorPanel
+            open={inspectorOpen}
+            onClose={toggleInspector}
+            onOpenFullWindow={openInspectorFullWindow}
+            onWidthChange={setInspectorWidth}
+            terminalActive={terminalActive}
+            onTerminalActiveChange={setTerminalActive}
+            sessionKey={activeSessionKey}
+            focusedToolCallId={focusedToolCallId}
+            onClearFocusedToolCall={() => setFocusedToolCallId(null)}
+            projectId={activeTopic?.projectId ?? null}
+            activeAgentId={activeAgentId}
+            onAgentSelect={setActiveAgentId}
+          />
+        )}
       </div>
 
-      <Footer
-        terminalOpen={terminalActive}
-        onToggleTerminal={toggleTerminal}
-      />
+      {!disconnectedShell && (
+        <Footer
+          terminalOpen={terminalActive}
+          onToggleTerminal={toggleTerminal}
+        />
+      )}
 
-      {fullScreenInspectorMounted && (
+      {!disconnectedShell && fullScreenInspectorMounted && (
         <FullScreenInspectorOverlay
           open={fullScreenInspectorVisible}
           activeTab={fullWindowInspectorTab}

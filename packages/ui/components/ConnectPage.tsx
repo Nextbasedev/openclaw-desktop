@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { emit } from "@/lib/events"
 import { ConnectPageView } from "@/components/connect/ConnectPageView"
 import {
+  clearMiddlewareConnection,
   getMiddlewareConnection,
   saveMiddlewareConnection,
   testMiddlewareConnection,
@@ -197,11 +198,7 @@ export default function ConnectPage() {
     setError(null)
     setConnectResult(null)
     setDetectMessage(null)
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("openclaw.middleware.url")
-      localStorage.removeItem("openclaw.middleware.token")
-      localStorage.setItem("jarvis.gatewayActive", "false")
-    }
+    clearMiddlewareConnection()
     setUrl("")
     setToken("")
     setSessionConnected(false)
