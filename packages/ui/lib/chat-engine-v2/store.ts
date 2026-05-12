@@ -297,6 +297,13 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
   }
 }
 
+function promoteRunningToolStatus(state: SessionState, label = "Running tool") {
+  if (!state.pendingTools.some((tool) => tool.status === "running")) return
+  if (state.status === "stopping" || state.status === "restarting") return
+  state.status = "tool_running"
+  state.statusLabel = label
+}
+
 function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   const payload = patchPayload(frame)
   const tool = payload?.toolCall
@@ -306,6 +313,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
   pending.set(inline.id, { ...(pending.get(inline.id) ?? inline), ...inline })
   state.pendingTools = Array.from(pending.values())
+  promoteRunningToolStatus(state, inline.tool)
 
   if (inline.tool === "sessions_spawn") {
     const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
@@ -360,10 +368,7 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
 
   state.pendingTools = Array.from(pending.values())
   state.spawnedSubagents = Array.from(spawns.values())
-  if (!ACTIVE_STATUSES.has(state.status)) {
-    state.status = "tool_running"
-    state.statusLabel = "Running tool"
-  }
+  promoteRunningToolStatus(state)
 }
 
 

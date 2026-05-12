@@ -332,6 +332,37 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("promotes thinking status to tool_running when tool calls arrive after text", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc-live", name: "exec", input: { command: "echo hi" } }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "tool_running",
+      pendingTools: [{ id: "tc-live", status: "running" }],
+    })
+  })
+
   test("does not complete genuinely running tools before final status", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
