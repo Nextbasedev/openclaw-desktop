@@ -20,6 +20,10 @@ import { MessageFeedbackDialog } from "./MessageFeedbackDialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
+import {
+  clearInlineHighlights,
+  highlightInlineQuery,
+} from "./searchInlineHighlight"
 import { type ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import {
@@ -69,8 +73,22 @@ type Props = {
     projectId?: string | null
     topicId?: string | null
   }) => void
+  searchHighlightTarget?: {
+    sessionKey: string
+    messageId?: string
+    snippet: string
+    query?: string
+  } | null
   /** When true the view is mounted in a hidden div (background session). */
   isBackgroundSession?: boolean
+}
+
+function normalizeHighlightSnippet(snippet: string) {
+  return snippet
+    .replace(/\s*\.\.\.\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
 }
 
 function summarizeToolInput(tool: InlineToolCall) {
@@ -218,6 +236,7 @@ export function ChatView({
   onSubagentOpen,
   forkContext,
   onForkNavigate,
+  searchHighlightTarget,
   isBackgroundSession = false,
 }: Props) {
   const {
@@ -340,6 +359,7 @@ export function ChatView({
   const suppressResizeFollowUntilRef = useRef(0)
   const suppressToolInteractionFollowUntilRef = useRef(0)
   const initialScrollDoneRef = useRef(false)
+  const lastAppliedHighlightRef = useRef<string | null>(null)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -413,6 +433,55 @@ export function ChatView({
       }))
     }
   }, [messages, dbPins.pins, dbPins.loaded, messageActionState.pinnedIds])
+
+  useEffect(() => {
+    if (!searchHighlightTarget || searchHighlightTarget.sessionKey !== sessionKey) {
+      return
+    }
+    const highlightKey = `${searchHighlightTarget.sessionKey}:${searchHighlightTarget.messageId ?? searchHighlightTarget.snippet}`
+    if (lastAppliedHighlightRef.current === highlightKey) return
+
+    const exactMessage = searchHighlightTarget.messageId
+      ? messages.find((message) => message.messageId === searchHighlightTarget.messageId)
+      : null
+    const snippet = normalizeHighlightSnippet(searchHighlightTarget.snippet)
+    const fallbackMessage = exactMessage
+      ? null
+      : messages.find((message) =>
+          message.text.toLowerCase().includes(snippet),
+        )
+    const targetMessage = exactMessage ?? fallbackMessage
+    if (!targetMessage) return
+
+    lastAppliedHighlightRef.current = highlightKey
+    const timer = window.setTimeout(() => {
+      const messageElement = document.getElementById(
+        `message-${targetMessage.messageId}`,
+      )
+      clearInlineHighlights(messageElement)
+    }, 2600)
+    requestAnimationFrame(() => {
+      const messageElement = document.getElementById(
+        `message-${targetMessage.messageId}`,
+      )
+      messageElement?.scrollIntoView({ behavior: "smooth", block: "center" })
+      if (!messageElement) return
+      clearInlineHighlights(messageElement)
+      const inlineQuery =
+        searchHighlightTarget.query?.trim() ||
+        normalizeHighlightSnippet(searchHighlightTarget.snippet)
+      if (inlineQuery) {
+        highlightInlineQuery(messageElement, inlineQuery)
+      }
+    })
+    return () => {
+      window.clearTimeout(timer)
+      const messageElement = document.getElementById(
+        `message-${targetMessage.messageId}`,
+      )
+      clearInlineHighlights(messageElement)
+    }
+  }, [messages, searchHighlightTarget, sessionKey])
   const activeSubKey =
     externalSubagentKey ??
     internalSubagentKey ??
@@ -1248,7 +1317,11 @@ export function ChatView({
                   : liveSubagents
 
               return (
-                <div key={msg.messageId} id={`message-${msg.messageId}`}>
+                <div
+                  key={msg.messageId}
+                  id={`message-${msg.messageId}`}
+                  className={cn("scroll-mt-24 rounded-2xl transition-all duration-500")}
+                >
                   {msg.role === "assistant" &&
                     filteredToolCalls &&
                     filteredToolCalls.length > 0 && (

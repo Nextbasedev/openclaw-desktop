@@ -10,6 +10,7 @@ import {
 } from "../db/helpers.js"
 import { enqueue } from "../sync/outbox.js"
 import { kickSyncEngine } from "../sync/engine.js"
+import { removeIndexedSessionMessages } from "./search.service.js"
 
 function enqueueChatForSession(sessionKey: string): void {
   const db = getDb()
@@ -97,6 +98,7 @@ export function sessionsDelete(input: { sessionKey: string }) {
   const db = getDb()
   recordSyncTombstone(db, "session_mapping", input.sessionKey)
   db.prepare("DELETE FROM session_mappings WHERE session_key = ?").run(input.sessionKey)
+  removeIndexedSessionMessages(input.sessionKey)
   return { ok: true, sessionKey: input.sessionKey }
 }
 

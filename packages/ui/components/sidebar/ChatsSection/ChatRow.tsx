@@ -15,6 +15,7 @@ import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { formatCompactTime } from "@/utils/formatCompactTime"
 import { chatDisplayName } from "@/utils/chatDisplayName"
 import type { Chat } from "@/types/chat"
+import { SidebarLabelTooltip } from "../SidebarLabelTooltip"
 
 type Props = {
   chatId: string
@@ -50,43 +51,45 @@ export function ChatRow({
 
   const rowContent = (
     <>
-      <button
-        onClick={chat.pendingFork ? undefined : onClick}
-        disabled={chat.pendingFork}
-        className={cn(
-          "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 text-left transition-colors duration-150",
-          isActive
-            ? "bg-foreground/7 text-foreground"
-            : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
-        )}
-      >
-        <span
-          onClick={(e) => {
-            e.stopPropagation()
-            if (!chat.pendingFork) onPin()
-          }}
-          title={isPinned ? "Unpin" : "Pin"}
+      <SidebarLabelTooltip label={displayName} disabled={menuOpen}>
+        <button
+          onClick={chat.pendingFork ? undefined : onClick}
+          disabled={chat.pendingFork}
           className={cn(
-            "flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all duration-150",
-            chat.pendingFork && "cursor-default opacity-100 text-muted-foreground/50",
-            !chat.pendingFork && (isPinned
-              ? isActive
-                ? "text-foreground"
-                : "text-foreground/70"
-              : "text-muted-foreground/40 opacity-0 hover:text-foreground group-hover/row:opacity-100"),
+            "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-7 text-left transition-colors duration-150",
+            isActive
+              ? "bg-foreground/7 text-foreground"
+              : "text-foreground/80 hover:bg-foreground/4 hover:text-foreground",
           )}
         >
-          {chat.pendingFork ? <span className="size-3 animate-spin rounded-full border border-muted-foreground/20 border-t-muted-foreground/70" /> : (
-            <Icons.Pin
-              size={15}
-              strokeWidth={isPinned ? 2 : 1.5}
-            />
-          )}
-        </span>
-        <span className="flex-1 truncate text-[13px] font-light">
-          {displayName}
-        </span>
-      </button>
+          <span
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!chat.pendingFork) onPin()
+            }}
+            title={isPinned ? "Unpin" : "Pin"}
+            className={cn(
+              "flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all duration-150",
+              chat.pendingFork && "cursor-default opacity-100 text-muted-foreground/50",
+              !chat.pendingFork && (isPinned
+                ? isActive
+                  ? "text-foreground"
+                  : "text-foreground/70"
+                : "text-muted-foreground/40 opacity-0 hover:text-foreground group-hover/row:opacity-100"),
+            )}
+          >
+            {chat.pendingFork ? <span className="size-3 animate-spin rounded-full border border-muted-foreground/20 border-t-muted-foreground/70" /> : (
+              <Icons.Pin
+                size={15}
+                strokeWidth={isPinned ? 2 : 1.5}
+              />
+            )}
+          </span>
+          <span className="flex-1 truncate text-[13px] font-light">
+            {displayName}
+          </span>
+        </button>
+      </SidebarLabelTooltip>
 
       <div className="absolute right-1 flex h-5 w-5 items-center justify-center">
         <span
