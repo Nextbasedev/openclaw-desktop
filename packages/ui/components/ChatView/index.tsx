@@ -1000,28 +1000,6 @@ export function ChatView({
           id={`message-${msg.messageId}`}
           className="mx-auto max-w-3xl px-4 py-2.5"
         >
-          {msg.role === "assistant" &&
-            filteredToolCalls &&
-            filteredToolCalls.length > 0 && (
-              <div className="mb-2 max-w-[85%]">
-                <ToolCallSteps
-                  tools={filteredToolCalls}
-                  defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-                  onSelectTool={onSelectTool}
-                  onResolveApproval={resolveExecApproval}
-                />
-              </div>
-            )}
-          {showPendingAbove && filteredPending.length > 0 && (
-            <div className="mb-2 max-w-[85%]">
-              <ToolCallSteps
-                tools={filteredPending}
-                defaultOpen
-                onSelectTool={onSelectTool}
-                onResolveApproval={resolveExecApproval}
-              />
-            </div>
-          )}
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
               <SubagentCard
@@ -1060,6 +1038,28 @@ export function ChatView({
                 setActivePopoverId(open ? msg.messageId : null)
               }
             />
+          )}
+          {msg.role === "assistant" &&
+            filteredToolCalls &&
+            filteredToolCalls.length > 0 && (
+              <div className="mt-2 max-w-[85%]">
+                <ToolCallSteps
+                  tools={filteredToolCalls}
+                  defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+                  onSelectTool={onSelectTool}
+                  onResolveApproval={resolveExecApproval}
+                />
+              </div>
+            )}
+          {showPendingAbove && filteredPending.length > 0 && (
+            <div className="mt-2 max-w-[85%]">
+              <ToolCallSteps
+                tools={filteredPending}
+                defaultOpen
+                onSelectTool={onSelectTool}
+                onResolveApproval={resolveExecApproval}
+              />
+            </div>
           )}
           {msg.role === "user" && userSubagents.length > 0 && (
             <div className="mt-3">

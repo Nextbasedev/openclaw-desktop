@@ -394,6 +394,66 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("links spawned subagent as soon as child session activity appears", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "parent-1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "parent-1",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "spawn-early", name: "sessions_spawn", input: { task: "Audit" } }],
+          },
+        },
+      },
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.status",
+        sessionKey: "agent:main:desktop:subagent:child-1",
+        createdAtMs: Date.now(),
+        payload: {
+          status: "thinking",
+          statusLabel: "Thinking",
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-early", sessionKey: "agent:main:desktop:subagent:child-1", status: "working" },
+    ])
+  })
+
+  test("linked spawned subagent completes when child session finishes", () => {
+    seedGlobalChatSession({
+      sessionKey: "parent-1",
+      messages: [],
+      spawnedSubagents: [{ id: "spawn:1", label: "Worker", status: "working", toolCallId: "spawn-1", sessionKey: "agent:main:desktop:subagent:child-1" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "session.upsert",
+        sessionKey: "agent:main:desktop:subagent:child-1",
+        createdAtMs: Date.now(),
+        payload: { status: "done", statusLabel: null },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-1", sessionKey: "agent:main:desktop:subagent:child-1", status: "completed" },
+    ])
+  })
+
   test("links spawned subagent from sessions_spawn tool result", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
