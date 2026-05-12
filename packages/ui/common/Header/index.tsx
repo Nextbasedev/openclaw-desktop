@@ -136,10 +136,7 @@ export function Header({
     return () => ro.disconnect()
   }, [])
 
-  const hasVisibleTabs = editorGroups?.groups.some((g) => {
-    const hasRealTab = g.tabs.some((t) => t.kind !== "draft")
-    return hasRealTab || editorGroups.groups.length > 1
-  })
+  const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
 
   return (
@@ -203,11 +200,8 @@ export function Header({
             />
           )}
           {editorGroups.groups.map((group, groupIndex) => {
-            const hasRealTab = group.tabs.some((t) => t.kind !== "draft")
             const hasDraftTab = group.tabs.some((t) => t.kind === "draft")
-            const visibleTabs = group.tabs.filter(
-              (t) => t.kind !== "draft" || hasRealTab || editorGroups.groups.length > 1,
-            )
+            const visibleTabs = group.tabs
             if (visibleTabs.length === 0) return null
             const isFocusedGroup = group.id === editorGroups.focusedGroupId
             const isLastGroup = groupIndex === editorGroups.groups.length - 1
