@@ -107,7 +107,7 @@ function getExt(name: string): string {
 }
 
 const IMAGE_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "svg", "webp"])
-const VIDEO_EXTENSIONS = new Set(["m4v", "mov", "mp4", "ogg", "ogv", "webm"])
+const VIDEO_EXTENSIONS = new Set(["avi", "m4v", "mkv", "mov", "mp4", "ogg", "ogv", "webm"])
 
 function mediaKindForExt(ext: string): "image" | "video" | null {
   if (IMAGE_EXTENSIONS.has(ext)) return "image"
@@ -533,6 +533,9 @@ function FilePreviewPane({
       fetchRemoteWorkspaceBlob({ projectId, path: filePath })
         .then(({ blob, mimeType }) => {
           if (cancelled) return
+          if (blob.size === 0) {
+            throw new Error("Media file is empty")
+          }
           nextMediaUrl = URL.createObjectURL(blob)
           setMediaUrl(nextMediaUrl)
           setMediaMimeType(mimeType)
@@ -542,7 +545,12 @@ function FilePreviewPane({
         })
         .catch((err) => {
           if (cancelled) return
-          setError(err instanceof Error ? err.message : "Failed to load media preview")
+          const message = err instanceof Error ? err.message : "Failed to load media preview"
+          setError(
+            message.includes("/api/workspace/raw") || message.includes("/workspace/raw")
+              ? "Media preview needs the latest Desktop Middleware. Restart/update the middleware, then reopen this file."
+              : message
+          )
           setLoading(false)
         })
       return () => {

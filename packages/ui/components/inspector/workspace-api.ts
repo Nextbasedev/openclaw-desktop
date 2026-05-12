@@ -91,7 +91,14 @@ export async function fetchRemoteWorkspaceBlob(input: {
   )
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ error: response.statusText }))
-    throw new Error((payload as { error?: string }).error || `Workspace media request failed: ${response.status}`)
+    const error = (payload as { error?: unknown }).error
+    const message =
+      typeof error === "string"
+        ? error
+        : error && typeof error === "object" && "message" in error
+          ? String((error as { message?: unknown }).message)
+          : `Workspace media request failed: ${response.status}`
+    throw new Error(message)
   }
   return {
     blob: await response.blob(),

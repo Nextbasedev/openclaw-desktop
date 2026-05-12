@@ -41,6 +41,8 @@ function contentTypeForPath(file: string) {
     case ".svg": return "image/svg+xml"
     case ".webp": return "image/webp"
     case ".m4v": return "video/mp4"
+    case ".avi": return "video/x-msvideo"
+    case ".mkv": return "video/x-matroska"
     case ".mov": return "video/quicktime"
     case ".mp4": return "video/mp4"
     case ".ogg":
