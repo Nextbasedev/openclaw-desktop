@@ -155,7 +155,7 @@ function highlightString(text: string, highlightTexts: string[]) {
     parts.push(
       <mark
         key={`${nextIndex}-${matchedText}`}
-        className="rounded-[4px] bg-yellow-300/85 px-1 py-0.5 font-semibold text-black shadow-[0_0_0_1px_rgba(250,204,21,0.35)]"
+        className="rounded-[5px] border border-sky-300/35 bg-sky-400/20 px-1 py-0.5 font-semibold text-sky-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_0_18px_rgba(56,189,248,0.18)] backdrop-blur-md"
       >
         {matchedText}
       </mark>,

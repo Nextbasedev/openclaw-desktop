@@ -11,7 +11,7 @@ import { extractSubagentSessionKey, extractSubagentSessionKeys } from "./subagen
 import { mergeAssistantText } from "./chatMessageDedupe"
 
 const BLOCKQUOTE_RE = /^((?:>[^\n]*(?:\n|$))+)\n([\s\S]+)$/
-const REFERENCE_BLOCK_RE = /Reference\s+\d+:\s*\n([\s\S]*?)(?=\n\nReference\s+\d+:|$)/gi
+const REFERENCE_BLOCK_RE = /Reference\s+\d+:\s*(?:\n)?([\s\S]*?)(?=\n\nReference\s+\d+:|$)/gi
 
 export function extractReplyBlock(
   text: string,
