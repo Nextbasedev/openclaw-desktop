@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import { Readable } from "node:stream"
 import { NextRequest, NextResponse } from "next/server"
 
 function workspaceRoot() {
@@ -37,6 +38,10 @@ function resolveWorkspaceFile(relativePath: string) {
   return resolved
 }
 
+function toWebStream(stream: fs.ReadStream) {
+  return Readable.toWeb(stream) as ReadableStream
+}
+
 export async function GET(request: NextRequest) {
   const relativePath = request.nextUrl.searchParams.get("path") || ""
   if (!relativePath) {
@@ -50,13 +55,57 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Not a file" }, { status: 400 })
     }
 
+    const contentType = contentTypeForPath(filePath)
+    const range = request.headers.get("range")
+    const commonHeaders = {
+      "Content-Type": contentType,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store",
+    }
+
+    if (range) {
+      const match = range.match(/bytes=(\d*)-(\d*)/)
+      if (!match) {
+        return new Response(null, {
+          status: 416,
+          headers: {
+            ...commonHeaders,
+            "Content-Range": `bytes */${stat.size}`,
+          },
+        })
+      }
+
+      const requestedStart = match[1] ? Number(match[1]) : 0
+      const requestedEnd = match[2] ? Number(match[2]) : stat.size - 1
+      const start = Math.max(0, requestedStart)
+      const end = Math.min(stat.size - 1, requestedEnd)
+
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= stat.size) {
+        return new Response(null, {
+          status: 416,
+          headers: {
+            ...commonHeaders,
+            "Content-Range": `bytes */${stat.size}`,
+          },
+        })
+      }
+
+      const stream = fs.createReadStream(filePath, { start, end })
+      return new Response(toWebStream(stream), {
+        status: 206,
+        headers: {
+          ...commonHeaders,
+          "Content-Length": String(end - start + 1),
+          "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+        },
+      })
+    }
+
     const stream = fs.createReadStream(filePath)
-    return new Response(stream as unknown as ReadableStream, {
+    return new Response(toWebStream(stream), {
       headers: {
-        "Content-Type": contentTypeForPath(filePath),
+        ...commonHeaders,
         "Content-Length": String(stat.size),
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "no-store",
       },
     })
   } catch (error) {
