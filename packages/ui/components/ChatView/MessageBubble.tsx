@@ -378,8 +378,7 @@ export function MessageBubble({
 }) {
   const isUser = message.role === "user"
   const shouldAnimateSend = isUser && message.isOptimistic
-  const hideAssistantActions =
-    !isUser && (Boolean(isActivelyStreaming) || Boolean(message.animateText))
+  const hideAssistantActions = !isUser && Boolean(isActivelyStreaming)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const [selectionAction, setSelectionAction] = useState<{
@@ -667,11 +666,6 @@ export function MessageBubble({
           </div>
         ) : (
           <>
-            {isUser && (
-              <div className="mb-1.5">
-                <RichContentPreview message={message} />
-              </div>
-            )}
             <div
               ref={messageBodyRef}
               onMouseUp={updateSelectionAction}
@@ -734,6 +728,7 @@ export function MessageBubble({
               )}
               {!isUser && <RichContentPreview message={message} />}
             </div>
+            {isUser && <RichContentPreview message={message} />}
             {selectionAction &&
               selectionRects.length > 0 &&
               createPortal(

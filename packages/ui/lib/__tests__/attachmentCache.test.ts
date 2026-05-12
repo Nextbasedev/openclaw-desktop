@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest"
+import {
+  cacheAttachments,
+  mergeAttachmentsWithCache,
+  normalizeAttachmentCacheText,
+} from "../attachmentCache"
+
+describe("attachmentCache", () => {
+  it("normalizes attached image marker text", () => {
+    expect(normalizeAttachmentCacheText("hello\n\n[Attached image: image.png]")).toBe("hello")
+  })
+
+  it("restores cached image content by message text when history id changes", () => {
+    cacheAttachments(
+      "session-a",
+      "optimistic-id",
+      [{ name: "image.png", mimeType: "image/png", content: "abc123" }],
+      "hello",
+    )
+
+    const merged = mergeAttachmentsWithCache(
+      "session-a",
+      "history-id",
+      [{ name: "image.png", mimeType: "image/png" }],
+      "hello\n\n[Attached image: image.png]",
+    )
+
+    expect(merged[0]).toMatchObject({ name: "image.png", content: "abc123" })
+  })
+})
