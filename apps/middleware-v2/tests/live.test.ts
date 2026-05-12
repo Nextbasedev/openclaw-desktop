@@ -371,5 +371,60 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("canonical bootstrap preserves sessions_spawn child session metadata after refresh", async () => {
+    const app = await createApp(config("sessions-spawn-child-metadata"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "parent-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("parent-1");
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "parent-1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "spawn-1", name: "sessions_spawn", input: { task: "Audit child", label: "Auditor" } }],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "parent-1",
+        messageSeq: 3,
+        message: {
+          role: "tool",
+          toolCallId: "spawn-1",
+          text: JSON.stringify({ childSessionKey: "agent:main:subagent:child-1" }),
+          __openclaw: { id: "tool-result", seq: 3 },
+        },
+      },
+    });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=parent-1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      toolCalls: [expect.objectContaining({
+        toolCallId: "spawn-1",
+        name: "sessions_spawn",
+        status: "success",
+        argsMeta: expect.objectContaining({ task: "Audit child", label: "Auditor" }),
+        resultMeta: expect.objectContaining({ childSessionKey: "agent:main:subagent:child-1" }),
+      })],
+    });
+    await app.close();
+  });
+
 
 });

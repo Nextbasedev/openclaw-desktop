@@ -247,7 +247,7 @@ export class ChatLiveIngest {
       messageId: typeof payload.messageId === "string" ? payload.messageId : typeof data.messageId === "string" ? data.messageId : null,
       name,
       phase,
-      argsMeta: isObject(data.args) ? { keys: Object.keys(data.args).slice(0, 20) } : null,
+      argsMeta: isObject(data.args) ? data.args : null,
       resultMeta: phase === "result" ? this.safeResultMeta(data.result ?? data.partialResult) : phase === "error" ? this.safeResultMeta(data.error) : null,
     });
     if (run) {
@@ -390,11 +390,29 @@ export class ChatLiveIngest {
     this.log.info("status.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status: run.status, statusLabel: run.statusLabel, semanticType });
   }
 
-  private safeResultMeta(value: unknown) {
+  private safeResultMeta(value: unknown): unknown {
     if (value === null || value === undefined) return null;
-    if (typeof value === "string") return { type: "string", length: value.length };
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          if (isObject(parsed)) return this.safeResultMeta(parsed);
+        } catch {
+          // Fall through to compact string metadata.
+        }
+      }
+      return { type: "string", length: value.length };
+    }
     if (Array.isArray(value)) return { type: "array", length: value.length };
-    if (isObject(value)) return { type: "object", keys: Object.keys(value).slice(0, 20) };
+    if (isObject(value)) {
+      const childSessionKey = value.childSessionKey;
+      return {
+        type: "object",
+        keys: Object.keys(value).slice(0, 20),
+        ...(typeof childSessionKey === "string" ? { childSessionKey } : {}),
+      };
+    }
     return { type: typeof value };
   }
 
