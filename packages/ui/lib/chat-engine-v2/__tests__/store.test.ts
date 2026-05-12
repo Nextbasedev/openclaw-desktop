@@ -287,16 +287,13 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
   })
 
-  test("canonical run status patch finalizes assistant answer without frontend inference", () => {
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 1,
-        type: "chat.message.upsert",
-        sessionKey: "s1",
-        createdAtMs: 1_000,
-        payload: { semanticType: "chat.user.created", runStatus: "thinking", statusLabel: "Thinking", message: { role: "user", text: "hello", __openclaw: { id: "client-1" } } },
-      },
+  test("assistant message patches with done status do not clear an active turn", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "thinking",
+      statusLabel: "Thinking",
+      messages: [{ messageId: "client-1", role: "user", text: "hello" }],
     })
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -305,7 +302,20 @@ describe("global V2 chat engine store", () => {
         type: "chat.message.upsert",
         sessionKey: "s1",
         createdAtMs: 2_000,
-        payload: { semanticType: "chat.assistant.final", runStatus: "done", statusLabel: null, message: { role: "assistant", text: "answer", __openclaw: { id: "a1" } } },
+        payload: { semanticType: "chat.assistant.final", runStatus: "done", statusLabel: null, message: { role: "assistant", text: "answer chunk", __openclaw: { id: "a1" } } },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking", statusLabel: "Thinking" })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.status",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: { semanticType: "chat.run.done", runStatus: "done", statusLabel: null },
       },
     })
 

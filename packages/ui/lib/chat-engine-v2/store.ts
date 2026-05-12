@@ -512,6 +512,12 @@ function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
   return true
 }
 
+function isTerminalMessageStatusPatch(frame: PatchFrame, status: StreamStatus) {
+  if (status !== "done") return false
+  if (!isMessagePatchType(frame.patch.type) && !isMessagePatchType(patchSemanticType(frame))) return false
+  return Boolean(patchMessage(frame))
+}
+
 function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
   if (status !== "done") return false
   const type = frame.patch.type
@@ -588,6 +594,15 @@ function handlePatch(frame: PatchFrame) {
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
     if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
+      state.deferredDoneUntilAssistant = true
+    } else if (
+      ACTIVE_STATUSES.has(state.status) &&
+      isTerminalMessageStatusPatch(frame, patchStatus.status)
+    ) {
+      // Message projection patches can carry runStatus:"done" on an assistant
+      // chunk while more assistant/tool patches for the same turn are still in
+      // flight. Do not let those chunks clear the visible running state; wait
+      // for an explicit status/session terminal patch or stale-run reconcile.
       state.deferredDoneUntilAssistant = true
     } else {
       if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
