@@ -9,6 +9,11 @@ type CompatRecord = Record<string, any>;
 
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+const shortSessionId = (sessionKey: string) => (sessionKey.split(":").pop() || sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
+const gatewaySessionLabel = (label: unknown, sessionKey: string) => {
+  const base = String(label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+  return `${base} · ${shortSessionId(sessionKey)}`;
+};
 
 type CompatTerminal = {
   id: string;
@@ -352,7 +357,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     void context.gateway.request("sessions.create", {
       key: sessionKey,
       agentId: body.agentId || "main",
-      label: body.name || "New Chat",
+      label: gatewaySessionLabel(body.name, sessionKey),
     }).catch(() => { /* session may already exist or gateway may be offline */ });
     const chat = {
       id: id("chat"),
@@ -492,7 +497,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     void context.gateway.request("sessions.create", {
       key: sessionKey,
       agentId: body.agentId || "main",
-      label: body.label || "New Chat",
+      label: gatewaySessionLabel(body.label, sessionKey),
     }).catch(() => { /* session may already exist or gateway may be offline */ });
     const session = { id: id("session"), ...body, key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
     compatState.sessions.push(session);
@@ -792,8 +797,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const sessionKey = String(input.sessionKey ?? "");
         if (!sessionKey) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
         try {
-          const history = await context.gateway.request<{ messages?: unknown[] }>("sessions.history", { sessionKey }, Number(input.timeoutMs) || 10_000);
-          return { messages: history.messages ?? [] };
+          const rows = context.messages.listMessages(sessionKey, { limit: 1000 });
+          return { messages: rows.map((r) => r.data) };
         } catch { return { messages: [] }; }
       }
       case "middleware_chat_model_set": {
@@ -849,7 +854,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           await context.gateway.request("sessions.create", {
             key: sessionKey,
             agentId: input.agentId || "main",
-            label: input.label || "New Chat",
+            label: gatewaySessionLabel(input.label, sessionKey),
           });
         } catch { /* session may already exist */ }
         const session = {
@@ -872,7 +877,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           await context.gateway.request("sessions.create", {
             key: sessionKey,
             agentId: input.agentId || "main",
-            label: input.name || "New Chat",
+            label: gatewaySessionLabel(input.name, sessionKey),
           });
         } catch { /* session may already exist */ }
         const chat = {
