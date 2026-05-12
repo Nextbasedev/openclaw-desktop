@@ -58,6 +58,27 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("new chat returns a usable sessionKey", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Hello", agentId: "main" } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.chat.sessionKey).toMatch(/^agent:main:desktop:/);
+    expect(body.session.key).toBe(body.chat.sessionKey);
+    expect(body.session.sessionKey).toBe(body.chat.sessionKey);
+    await app.close();
+  });
+
+  test("new session returns both key and sessionKey aliases", async () => {
+    const app = await createApp(config);
+    const res = await app.inject({ method: "POST", url: "/api/sessions", payload: { label: "Hello", agentId: "main" } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.session.key).toMatch(/^agent:main:desktop:/);
+    expect(body.session.sessionKey).toBe(body.session.key);
+    await app.close();
+  });
+
   test("chat bootstrap validates sessionKey", async () => {
     const app = await createApp(config);
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap" });

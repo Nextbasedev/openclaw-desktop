@@ -69,6 +69,11 @@ function isRealChatSessionKey(sessionKey: string | null | undefined): sessionKey
   return Boolean(sessionKey && !CRON_SESSION_TARGETS.has(sessionKey) && !sessionKey.includes(":cron:"))
 }
 
+function sessionKeyFromResponse(response: unknown): string | null {
+  const data = response as { session?: { key?: string; sessionKey?: string }; chat?: { sessionKey?: string }; sessionKey?: string } | null
+  return data?.session?.key ?? data?.session?.sessionKey ?? data?.chat?.sessionKey ?? data?.sessionKey ?? null
+}
+
 function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
   return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
 }
@@ -1558,17 +1563,24 @@ function AppShell({
     try {
       const targetGroupId = editorGroups.focusedGroupId
       const fallbackName = fallbackChatNameFromText(text)
-      const result = await invoke<{ chat: { id: string; name: string } }>(
+      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
         "middleware_chats_create",
-        { input: { name: fallbackName, spaceId: activeSpaceId } },
+        { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
       )
-      const sessionResult = await invoke<{ session: { key: string } }>(
-        "middleware_sessions_create",
-        { input: { agentId: "main", label: fallbackName } },
-      )
-      await invoke("middleware_chats_attach_session", {
-        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
-      })
+      let sessionKey = sessionKeyFromResponse(result)
+      if (!sessionKey) {
+        const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
+          "middleware_sessions_create",
+          { input: { agentId: "main", label: fallbackName } },
+        )
+        sessionKey = sessionKeyFromResponse(sessionResult)
+        if (sessionKey) {
+          await invoke("middleware_chats_attach_session", {
+            input: { chatId: result.chat.id, sessionKey },
+          })
+        }
+      }
+      if (!sessionKey) throw new Error("New chat did not return a sessionKey")
 
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
@@ -1588,11 +1600,11 @@ function AppShell({
       setInitialMessages(optimisticMessages)
       setActiveTab("chat")
       setActiveTopic(null)
-      const createdChat = { id: result.chat.id, name: fallbackName, sessionKey: sessionResult.session.key }
-      const sessionData = { chat: createdChat, sessionKey: sessionResult.session.key, title: fallbackName }
+      const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
+      const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
       resolvedChatCacheRef.current.set(result.chat.id, sessionData)
       setActiveChat(createdChat)
-      setActiveSessionKey(sessionResult.session.key)
+      setActiveSessionKey(sessionKey)
       setActiveSessionTitle(fallbackName)
       dispatchGroups({
         type: "ADD_TAB",
@@ -1608,15 +1620,15 @@ function AppShell({
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
       frontendLog("composer", "quick-send.dispatch", {
         chatId: result.chat.id,
-        sessionKey: sessionResult.session.key,
+        sessionKey,
         optimisticId,
         attachmentCount: payload.attachments?.length ?? 0,
       })
       await sendChatV2({
-        sessionKey: sessionResult.session.key,
+        sessionKey,
         text,
         attachments: payload.attachments,
-        idempotencyKey: chatSendIdempotencyKey(sessionResult.session.key, optimisticId),
+        idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
       })
       try {
@@ -1629,7 +1641,7 @@ function AppShell({
           input: { chatId: result.chat.id, name: finalName },
         })
         const renamedChat = { ...createdChat, name: finalName }
-        resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey: sessionResult.session.key, title: finalName })
+        resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
         setActiveChat((prev) =>
           prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
         )
@@ -1642,7 +1654,7 @@ function AppShell({
         dispatchGroups({
           type: "SET_SESSION_DATA",
           groupId: targetGroupId,
-          sessionData: { chat: renamedChat, sessionKey: sessionResult.session.key, title: finalName },
+          sessionData: { chat: renamedChat, sessionKey, title: finalName },
         })
         setChatRefreshTrigger((n) => n + 1)
       } catch (err) {
@@ -1684,7 +1696,7 @@ function AppShell({
     setComposerError(null)
     setQuickSending(true)
     try {
-      const sessionResult = await invoke<{ session: { key: string } }>(
+      const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
         "middleware_sessions_create",
         {
           input: {
@@ -1695,6 +1707,8 @@ function AppShell({
           },
         },
       )
+      const sessionKey = sessionKeyFromResponse(sessionResult)
+      if (!sessionKey) throw new Error("New topic session did not return a sessionKey")
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
         messageId: optimisticId,
@@ -1711,20 +1725,20 @@ function AppShell({
       }]
       setPendingPrompt(null)
       setInitialMessages(optimisticMessages)
-      setActiveSessionKey(sessionResult.session.key)
+      setActiveSessionKey(sessionKey)
       setActiveSessionTitle(activeTopic.name)
 
       frontendLog("composer", "topic-quick-send.dispatch", {
         topicId: activeTopic.id,
-        sessionKey: sessionResult.session.key,
+        sessionKey,
         optimisticId,
         attachmentCount: payload.attachments?.length ?? 0,
       })
       await sendChatV2({
-        sessionKey: sessionResult.session.key,
+        sessionKey,
         text,
         attachments: payload.attachments,
-        idempotencyKey: chatSendIdempotencyKey(sessionResult.session.key, optimisticId),
+        idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
       })
     } catch (err) {

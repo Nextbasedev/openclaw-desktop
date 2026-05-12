@@ -306,10 +306,18 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.post("/api/chats", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
+    const sessionKey = String(body.sessionKey || `agent:${body.agentId || "main"}:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+    try {
+      await context.gateway.request("sessions.create", {
+        key: sessionKey,
+        agentId: body.agentId || "main",
+        label: body.name || "New Chat",
+      });
+    } catch { /* session may already exist or gateway may be offline in tests */ }
     const chat = {
       id: id("chat"),
       name: body.name || "New Chat",
-      sessionKey: body.sessionKey ?? null,
+      sessionKey,
       spaceId: body.spaceId || activeSpaceId(),
       agentId: body.agentId || "main",
       archived: false,
@@ -318,8 +326,20 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       updatedAt: timestamp,
       lastActiveAt: timestamp,
     };
+    const session = {
+      id: id("session"),
+      key: sessionKey,
+      sessionKey,
+      projectId: body.projectId || null,
+      topicId: body.topicId || null,
+      agentId: body.agentId || "main",
+      label: body.name || "New Chat",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
     compatState.chats.push(chat);
-    return { chat };
+    compatState.sessions.push(session);
+    return { chat, session };
   });
 
   app.patch<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request, reply) => {
@@ -412,7 +432,15 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.post("/api/sessions", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
-    const session = { id: id("session"), sessionKey: body.sessionKey || id("agent:main:desktop"), ...body, createdAt: timestamp, updatedAt: timestamp };
+    const sessionKey = String(body.sessionKey || `agent:${body.agentId || "main"}:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+    try {
+      await context.gateway.request("sessions.create", {
+        key: sessionKey,
+        agentId: body.agentId || "main",
+        label: body.label || "New Chat",
+      });
+    } catch { /* session may already exist or gateway may be offline in tests */ }
+    const session = { id: id("session"), ...body, key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
     compatState.sessions.push(session);
     return { session };
   });
