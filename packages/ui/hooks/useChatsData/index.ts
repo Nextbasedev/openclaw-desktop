@@ -153,12 +153,13 @@ export function useChatsData(
   }, [])
 
   useEffect(() => {
-    return on("chat:activity", () => {
+    return on<{ at?: string }>("chat:activity", (event) => {
       if (!activeChat) return
+      const lastActiveAt = event?.at || new Date().toISOString()
       setChats((prev) =>
         prev.map((c) =>
           c.id === activeChat.id
-            ? { ...c, updatedAt: new Date().toISOString() }
+            ? { ...c, lastActiveAt, updatedAt: lastActiveAt }
             : c,
         ),
       )
@@ -283,8 +284,8 @@ export function useChatsData(
       .filter((c) => !pinnedChats.has(c.id))
       .sort(
         (a, b) =>
-          new Date(b.updatedAt).getTime() -
-          new Date(a.updatedAt).getTime(),
+          new Date(b.lastActiveAt ?? b.updatedAt ?? b.createdAt).getTime() -
+          new Date(a.lastActiveAt ?? a.updatedAt ?? a.createdAt).getTime(),
       )
       .map((c) => c.id)
     return [...pinned, ...unpinned]
