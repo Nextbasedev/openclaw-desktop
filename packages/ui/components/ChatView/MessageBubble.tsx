@@ -340,6 +340,7 @@ export function MessageBubble({
   onFork,
   onResolveApproval,
   onAskSelectedText,
+  referencedTexts,
   isPinned,
   reaction,
   isGenerating,
@@ -367,6 +368,7 @@ export function MessageBubble({
     text: string,
     comment?: string
   ) => void
+  referencedTexts?: string[]
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -724,6 +726,7 @@ export function MessageBubble({
                   text={message.text}
                   embeds={message.embeds}
                   streaming={isActivelyStreaming || message.animateText}
+                  highlightTexts={referencedTexts}
                   onRevealComplete={() =>
                     onTextAnimationComplete?.(message.messageId)
                   }
