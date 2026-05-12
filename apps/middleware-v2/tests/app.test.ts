@@ -19,11 +19,17 @@ describe("middleware-v2 app", () => {
     expect(loadEnv({ HOME: "/tmp/openclaw-test" } as NodeJS.ProcessEnv).port).toBe(8787);
   });
 
-  test("health returns service metadata", async () => {
+  test("health returns service metadata and legacy OpenClaw connection alias", async () => {
     const app = await createApp(config);
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ ok: true, service: "openclaw-middleware-v2" });
+    expect(res.json()).toMatchObject({
+      ok: true,
+      service: "openclaw-middleware-v2",
+      gateway: { connected: expect.any(Boolean) },
+      openclaw: { gatewayUrl: "ws://127.0.0.1:18789", connected: expect.any(Boolean) },
+      pairing: { enabled: true },
+    });
     await app.close();
   });
 

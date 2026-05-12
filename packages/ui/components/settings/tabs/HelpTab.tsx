@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { invoke, openExternalUrl } from "@/lib/ipc"
-import { getMiddlewareConnection, testMiddlewareConnection } from "@/lib/middleware-client"
+import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
 import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert } from "react-icons/lu"
 
 type HelpLink = {
@@ -124,7 +124,7 @@ function MiddlewareUpdateCard() {
     while (Date.now() < deadline) {
       try {
         const health = await testMiddlewareConnection(connection)
-        if (health.ok && health.openclaw?.connected === true) return true
+        if (health.ok && isOpenClawConnected(health)) return true
       } catch {}
       await new Promise((resolve) => window.setTimeout(resolve, 2_000))
     }
