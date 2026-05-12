@@ -195,13 +195,6 @@ function normalizeHistoryPayload(payload: any) {
     ...payload,
     messages: messagesWithDurations.map((message: any) => {
       if (message?.role === "user") {
-        const imageAttachments = imageAttachmentsFromContent(message.content)
-        if (imageAttachments.length > 0) {
-          message = {
-            ...message,
-            attachments: [...(Array.isArray(message.attachments) ? message.attachments : []), ...imageAttachments],
-          }
-        }
         const rawText = typeof message.text === "string" ? message.text : textFromContent(message.content)
         if (rawText.includes("[Bootstrap truncation warning]")) {
           const text = stripBootstrapWarning(rawText)
@@ -224,20 +217,6 @@ function normalizeHistoryPayload(payload: any) {
     }),
   }
   return sanitizeHistoryPayloadForUi(normalized)
-}
-
-function imageAttachmentsFromContent(content: unknown) {
-  if (!Array.isArray(content)) return []
-  return content.flatMap((block: any, index: number) => {
-    if (!block || typeof block !== "object" || block.type !== "image" || typeof block.data !== "string") return []
-    const name = typeof block.name === "string" ? block.name : typeof block.fileName === "string" ? block.fileName : `image${index + 1}.png`
-    return [{
-      name,
-      mimeType: typeof block.mimeType === "string" ? block.mimeType : "image/png",
-      content: block.data,
-      size: typeof block.size === "number" ? block.size : undefined,
-    }]
-  })
 }
 
 export function isPairingRequiredError(error: unknown) {
