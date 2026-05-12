@@ -376,8 +376,7 @@ export function MessageBubble({
 }) {
   const isUser = message.role === "user"
   const shouldAnimateSend = isUser && message.isOptimistic
-  const hideAssistantActions =
-    !isUser && (Boolean(isActivelyStreaming) || Boolean(message.animateText))
+  const hideAssistantActions = !isUser && Boolean(isActivelyStreaming)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const [selectionAction, setSelectionAction] = useState<{
