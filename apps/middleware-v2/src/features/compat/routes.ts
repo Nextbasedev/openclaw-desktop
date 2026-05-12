@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn as spawnChild, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
@@ -9,6 +10,14 @@ type CompatRecord = Record<string, any>;
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+type CompatTerminal = {
+  id: string;
+  child: ChildProcessWithoutNullStreams;
+  cwd: string;
+  buffer: string[];
+  listeners: Set<(event: string, payload: CompatRecord) => void>;
+};
+
 const compatState = {
   spaces: [] as CompatRecord[],
   activeSpaceId: null as string | null,
@@ -16,6 +25,7 @@ const compatState = {
   projects: [] as CompatRecord[],
   topics: [] as CompatRecord[],
   sessions: [] as CompatRecord[],
+  terminals: new Map<string, CompatTerminal>(),
 };
 
 function ensureDefaultSpace() {
@@ -112,6 +122,40 @@ function dailyUsage(days: number) {
     return { date, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, total_tokens: 0, cost_usd: 0 };
   });
   return { range: { days }, daily, days: daily, source: "middleware-v2-compat" };
+}
+
+function terminalShell() {
+  return process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "bash";
+}
+
+function broadcastTerminal(term: CompatTerminal, event: string, payload: CompatRecord) {
+  const frame = { event, data: payload };
+  for (const listener of [...term.listeners]) listener(event, payload);
+  return frame;
+}
+
+function spawnTerminal(cwd: string) {
+  const idValue = id("term");
+  const child = spawnChild(terminalShell(), [], { cwd, env: process.env, shell: false });
+  const term: CompatTerminal = { id: idValue, child, cwd, buffer: [], listeners: new Set() };
+  const onData = (chunk: Buffer) => {
+    const data = chunk.toString();
+    term.buffer.push(data);
+    if (term.buffer.length > 200) term.buffer.shift();
+    broadcastTerminal(term, "data", { type: "terminal.data", terminalId: idValue, data });
+  };
+  child.stdout.on("data", onData);
+  child.stderr.on("data", onData);
+  child.on("exit", (code) => {
+    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: idValue, exitCode: code ?? 0 });
+    compatState.terminals.delete(idValue);
+  });
+  compatState.terminals.set(idValue, term);
+  return { terminalId: idValue, cwd, streamUrl: `/api/terminal/${idValue}/stream`, websocketUrl: `/api/terminal/${idValue}/ws` };
+}
+
+function getTerminal(terminalId: string) {
+  return compatState.terminals.get(terminalId) ?? null;
 }
 
 export async function registerCompatRoutes(app: FastifyInstance, context: AppContext) {
@@ -460,6 +504,70 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   // --- self-update stubs ---
   app.get("/api/middleware/update/status", async () => ({ available: false, current: "0.1.0" }));
   app.post("/api/middleware/update", async () => ({ ok: true, status: "up-to-date" }));
+
+  // --- terminal spawn ---
+  app.post("/api/terminal/spawn", async (request) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const cwd = String(body.cwd ?? body.workspaceRoot ?? process.env.WORKSPACE_ROOT ?? path.join(os.homedir(), ".openclaw", "workspace"));
+    return spawnTerminal(cwd);
+  });
+  app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/terminal/spawn", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    return spawnTerminal(root);
+  });
+  app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/write", async (request, reply) => {
+    const term = getTerminal(request.params.ptyId);
+    if (!term) return reply.code(404).send({ ok: false, error: { message: "Terminal not found" } });
+    const body = (request.body ?? {}) as CompatRecord;
+    term.child.stdin.write(String(body.data ?? ""));
+    return { ok: true };
+  });
+  app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/resize", async (request) => {
+    // child_process doesn't support resize natively; no-op for compat
+    return { ok: true };
+  });
+  app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/kill", async (request) => {
+    const term = getTerminal(request.params.ptyId);
+    if (term) { term.child.kill(); compatState.terminals.delete(request.params.ptyId); }
+    return { ok: true };
+  });
+
+  // --- terminal stream (SSE) ---
+  app.get<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/stream", async (request, reply) => {
+    const term = getTerminal(request.params.ptyId);
+    if (!term) return reply.code(404).send({ ok: false, error: { message: "Terminal not found" } });
+    reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    for (const data of term.buffer) {
+      reply.raw.write(`event: data\ndata: ${JSON.stringify({ type: "terminal.data", terminalId: term.id, data })}\n\n`);
+    }
+    const listener = (event: string, payload: CompatRecord) => {
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+    term.listeners.add(listener);
+    request.raw.on("close", () => term.listeners.delete(listener));
+  });
+
+  // --- terminal WebSocket ---
+  app.get<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/ws", { websocket: true }, async (socket, request) => {
+    const term = getTerminal(request.params.ptyId);
+    if (!term) { socket.close(); return; }
+    for (const data of term.buffer) {
+      socket.send(JSON.stringify({ event: "data", data: { type: "terminal.data", terminalId: term.id, data } }));
+    }
+    const listener = (event: string, payload: CompatRecord) => {
+      if (socket.readyState === 1) socket.send(JSON.stringify({ event, data: payload }));
+    };
+    term.listeners.add(listener);
+    socket.on("message", (raw: Buffer) => {
+      try {
+        const msg = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number };
+        if (msg.type === "write" && typeof msg.data === "string") term.child.stdin.write(msg.data);
+        if (msg.type === "kill") { term.child.kill(); compatState.terminals.delete(term.id); }
+      } catch {}
+    });
+    socket.on("close", () => term.listeners.delete(listener));
+  });
 
   // --- pairing ---
   app.get("/pairing/local", async () => {
