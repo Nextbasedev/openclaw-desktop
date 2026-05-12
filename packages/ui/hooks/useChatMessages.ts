@@ -42,7 +42,10 @@ import type {
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
 import { inferLiveToolStatus, liveToolEventResultText } from "@/lib/liveToolCalls"
-import { extractSubagentSessionKey } from "@/lib/subagentSession"
+import {
+  extractSubagentSessionKey,
+  extractSubagentSessionKeys,
+} from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
   cleanUserMessageText,
@@ -507,6 +510,26 @@ export function useChatMessages(
     setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
   }, [])
 
+  const markSubagentsFromCompletionText = useCallback((text: string) => {
+    const completed = /\bstatus:\s*completed successfully\b/i.test(text)
+    const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(text)
+    if (!completed && !failed) return
+
+    const sessionKeys = extractSubagentSessionKeys(text)
+    if (sessionKeys.length === 0) return
+
+    let changed = false
+    for (const spawn of spawnMapRef.current.values()) {
+      if (!spawn.sessionKey || !sessionKeys.includes(spawn.sessionKey)) continue
+      spawnMapRef.current.set(spawn.toolCallId, {
+        ...spawn,
+        status: failed ? "failed" : "completed",
+      })
+      changed = true
+    }
+    if (changed) setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+  }, [])
+
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
@@ -903,6 +926,8 @@ export function useChatMessages(
           break
         }
         case "chat.message": {
+          const rawText = ev.text || extractText(ev.content)
+          if (rawText) markSubagentsFromCompletionText(rawText)
           if (ev.role !== "assistant") break
           const id = ev.messageId || randomId()
           const contentBlocks = Array.isArray(ev.content)
@@ -956,7 +981,6 @@ export function useChatMessages(
             )
             scrollToBottom(false)
           }
-          const rawText = ev.text || extractText(ev.content)
           if (!rawText) break
           const text = rawText.trim()
           if (!text) break
@@ -1116,7 +1140,13 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, mergeToolsIntoCurrentAssistant, upsertSpawn, finalizePendingTurn]
+    [
+      scrollToBottom,
+      mergeToolsIntoCurrentAssistant,
+      upsertSpawn,
+      finalizePendingTurn,
+      markSubagentsFromCompletionText,
+    ]
   )
 
   useEffect(() => {
