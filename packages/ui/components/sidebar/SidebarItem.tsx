@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
 import { Reorder, useDragControls } from "framer-motion"
 import { Icons } from "@/components/icons"
+import { useLongPressDrag } from "@/hooks/useLongPressDrag"
 import { cn } from "@/lib/utils"
 
 export type SidebarNavItem = {
@@ -28,6 +29,7 @@ export function SidebarItem({
   draggable = false,
 }: SidebarItemProps) {
   const dragControls = useDragControls()
+  const longPressDrag = useLongPressDrag(dragControls, 180)
   const interactiveClassName = cn(
     "group flex w-full min-w-0 items-center rounded-md font-normal",
     "gap-2.5 text-left text-[13px]",
@@ -86,9 +88,9 @@ export function SidebarItem({
       dragListener={false}
       layout="position"
       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
-      style={{ position: "relative", boxShadow: "none", cursor: "grab", touchAction: "none" }}
-      whileDrag={{ boxShadow: "none", cursor: "grabbing" }}
-      onPointerDown={(event) => dragControls.start(event)}
+      style={{ position: "relative", boxShadow: "none", touchAction: "pan-y" }}
+      whileDrag={{ boxShadow: "none" }}
+      {...longPressDrag}
     >
       {btn}
     </Reorder.Item>
