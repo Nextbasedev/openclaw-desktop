@@ -168,10 +168,20 @@ function main() {
     run(pnpm, ["--filter", "ui", "build"])
   }
 
-  run(pnpm, ["--filter", "@openclaw/desktop-middleware", "build"])
+  // Legacy middleware is intentionally disabled; middleware-v2 now owns the old 8787 port.
+  // run(pnpm, ["--filter", "@openclaw/desktop-middleware", "build"])
+  // run(pnpm, [
+  //   "--filter",
+  //   "@openclaw/desktop-middleware",
+  //   "deploy",
+  //   "--legacy",
+  //   "--prod",
+  //   bundledServerDir,
+  // ])
+  run(pnpm, ["--filter", "@openclaw/desktop-middleware-v2", "build"])
   run(pnpm, [
     "--filter",
-    "@openclaw/desktop-middleware",
+    "@openclaw/desktop-middleware-v2",
     "deploy",
     "--legacy",
     "--prod",

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../src/app.js";
-import type { MiddlewareV2Config } from "../src/config/env.js";
+import { loadEnv, type MiddlewareV2Config } from "../src/config/env.js";
 
 const config: MiddlewareV2Config = {
   host: "127.0.0.1",
@@ -15,6 +15,10 @@ afterEach(() => {
 });
 
 describe("middleware-v2 app", () => {
+  test("defaults to the legacy middleware port", () => {
+    expect(loadEnv({ HOME: "/tmp/openclaw-test" } as NodeJS.ProcessEnv).port).toBe(8787);
+  });
+
   test("health returns service metadata", async () => {
     const app = await createApp(config);
     const res = await app.inject({ method: "GET", url: "/health" });

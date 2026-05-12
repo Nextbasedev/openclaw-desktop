@@ -30,7 +30,7 @@ export function loadEnv(rawEnv: NodeJS.ProcessEnv = process.env): MiddlewareV2Co
   const env = envSchema.parse(rawEnv);
   return {
     host: env.MIDDLEWARE_V2_HOST ?? env.HOST ?? "127.0.0.1",
-    port: env.MIDDLEWARE_V2_PORT ?? env.PORT ?? 8989,
+    port: env.MIDDLEWARE_V2_PORT ?? env.PORT ?? 8787,
     databasePath: env.MIDDLEWARE_V2_DB ?? defaultDatabasePath(),
     openclawGatewayUrl: env.OPENCLAW_GATEWAY_URL ?? "ws://127.0.0.1:18789",
     openclawGatewayToken: env.OPENCLAW_GATEWAY_TOKEN,
