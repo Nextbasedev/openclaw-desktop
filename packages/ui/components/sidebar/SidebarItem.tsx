@@ -98,9 +98,8 @@ export function SidebarItem({
       layout="position"
       dragElastic={0}
       dragMomentum={false}
-      transition={{ layout: { type: "tween", duration: 0.06, ease: "linear" } }}
-      style={{ position: "relative", boxShadow: "none", touchAction: "none" }}
-      whileDrag={{ zIndex: 50, boxShadow: "none" }}
+      className="relative touch-none will-change-transform"
+      whileDrag={{ zIndex: 50 }}
       onDragStart={() => {
         if (dragEndTimerRef.current) window.clearTimeout(dragEndTimerRef.current)
         draggingRef.current = true
