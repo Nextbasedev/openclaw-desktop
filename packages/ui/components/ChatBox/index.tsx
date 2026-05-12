@@ -676,9 +676,9 @@ export function ChatBox({
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="overflow-hidden"
             >
-              <div className="flex items-start gap-2 rounded-t-[22px] border-b border-amber-400/35 bg-amber-400/15 px-3 pt-2.5 pb-2 shadow-[inset_4px_0_0_rgba(251,191,36,0.9),0_0_0_1px_rgba(251,191,36,0.08)]">
+              <div className="flex items-start gap-2 rounded-t-[22px] border-b border-primary/15 bg-primary/[0.08] px-3 pt-2.5 pb-2 shadow-[inset_3px_0_0_hsl(var(--primary)/0.55)]">
                 <div className="min-w-0 flex-1">
-                  <span className="text-[11px] font-semibold text-amber-300">
+                  <span className="text-[11px] font-medium text-primary/80">
                     {replyTo.selections && replyTo.selections.length > 1
                       ? `${replyTo.selections.length} selected comments`
                       : replyTo.role === "user"
@@ -690,12 +690,12 @@ export function ChatBox({
                       {replyTo.selections.map((selection, index) => (
                         <div
                           key={`${selection.messageId}:${index}`}
-                          className="flex max-w-full items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-1"
+                          className="flex max-w-full items-center gap-1.5 rounded-md border border-primary/20 bg-background/35 px-1.5 py-1"
                         >
-                          <span className="shrink-0 text-[10px] font-semibold text-amber-300">
+                          <span className="shrink-0 text-[10px] font-medium text-primary/75">
                             Reference {index + 1}
                           </span>
-                          <span className="max-w-[180px] truncate text-[11px] font-medium text-amber-50/90">
+                          <span className="max-w-[180px] truncate text-[11px] text-foreground/70">
                             {selection.text}
                           </span>
                           <button
@@ -710,7 +710,7 @@ export function ChatBox({
                       ))}
                     </div>
                   ) : (
-                    <p className="mt-0.5 line-clamp-2 text-[13px] font-medium leading-snug text-amber-50/90">
+                    <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/75">
                       {replyTo.text}
                     </p>
                   )}
