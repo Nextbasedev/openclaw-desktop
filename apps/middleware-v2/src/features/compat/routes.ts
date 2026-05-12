@@ -124,6 +124,15 @@ function dailyUsage(days: number) {
   return { range: { days }, daily, days: daily, source: "middleware-v2-compat" };
 }
 
+async function connectGatewayForStatus(context: AppContext) {
+  try {
+    await context.gateway.connect();
+  } catch {
+    // status() below carries lastError; callers should still get a usable payload.
+  }
+  return context.gateway.status();
+}
+
 function terminalShell() {
   return process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "bash";
 }
@@ -166,7 +175,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   }));
 
   app.get("/api/bootstrap", async () => {
-    const gateway = context.gateway.status();
+    const gateway = await connectGatewayForStatus(context);
     const spaceId = activeSpaceId();
     return {
       ok: true,
@@ -477,7 +486,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Model switch failed" } }); }
       }
       case "middleware_connect_status": {
-        const gateway = context.gateway.status();
+        const gateway = await connectGatewayForStatus(context);
         return {
           gatewayConfigured: true,
           gatewayUrl: gateway.gatewayUrl ?? context.config.openclawGatewayUrl,
@@ -489,15 +498,16 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         };
       }
       case "middleware_connect_test": {
-        const gateway = context.gateway.status();
-        return { ready: gateway.connected, latencyMs: null };
+        const startedAt = Date.now();
+        const gateway = await connectGatewayForStatus(context);
+        return { ready: gateway.connected, latencyMs: Date.now() - startedAt, error: gateway.lastError ?? null };
       }
       case "middleware_connect_reset":
       case "middleware_connect_disconnect":
       case "middleware_connect_delete_all":
         return { ok: true };
       case "middleware_connect_bootstrap": {
-        const gateway = context.gateway.status();
+        const gateway = await connectGatewayForStatus(context);
         return { ok: true, gateway, openclaw: { connected: gateway.connected } };
       }
       case "middleware_exec_approval_resolve": {
