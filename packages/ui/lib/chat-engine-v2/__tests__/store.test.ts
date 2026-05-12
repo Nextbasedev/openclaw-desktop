@@ -13,7 +13,10 @@ vi.mock("../client", () => ({
   openPatchStreamV2: vi.fn(() => () => undefined),
 }))
 
-afterEach(() => clearGlobalChatEngineForTests())
+afterEach(() => {
+  vi.useRealTimers()
+  clearGlobalChatEngineForTests()
+})
 
 describe("global V2 chat engine store", () => {
   test("skips replay patches older than seeded bootstrap cursor", () => {
@@ -228,6 +231,45 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking" })
+  })
+
+  test("defers immediate bare done status until the assistant answer arrives", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "thinking",
+      statusLabel: "Thinking",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+    })
+
+    vi.setSystemTime(2_000)
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.status",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: { status: "done", statusLabel: null },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking", statusLabel: "Thinking" })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_100,
+        payload: { sessionKey: "s1", message: { role: "assistant", text: "answer", __openclaw: { id: "a1" } } },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
   })
 
   test("canonical run status patch finalizes assistant answer without frontend inference", () => {
