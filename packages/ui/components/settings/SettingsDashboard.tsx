@@ -45,7 +45,7 @@ type SettingsDashboardProps = {
   initialSection?: SettingSection
 }
 
-export function SettingsDashboard({ onBack, initialSection = "config" }: SettingsDashboardProps) {
+export function SettingsDashboard({ onBack, initialSection = "usage" }: SettingsDashboardProps) {
   const [activeSection, setActiveSection] = React.useState<SettingSection>(initialSection)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
