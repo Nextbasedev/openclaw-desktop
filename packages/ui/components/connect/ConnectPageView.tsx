@@ -446,20 +446,13 @@ function ConnectShowcasePanel() {
   return (
     <div className="hidden lg:flex lg:items-center lg:justify-center lg:pl-2">
       <div className="w-full max-w-[760px] overflow-hidden rounded-sm border border-white/10 bg-[#0d0d10] shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
-        <video
+        <img
+          src="/images/connect-showcase.png"
+          alt="OpenClaw connect page preview"
           className="aspect-[4/3] w-full object-cover"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          poster=""
-        >
-          <source
-            src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
-            type="video/mp4"
-          />
-        </video>
+          loading="eager"
+          decoding="async"
+        />
       </div>
     </div>
   )
