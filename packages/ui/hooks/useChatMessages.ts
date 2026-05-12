@@ -224,6 +224,11 @@ function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
   return changed ? next : messages
 }
 
+function hasPendingOptimisticUserTurn(messages: ChatMessage[] | undefined | null) {
+  const last = messages?.[messages.length - 1]
+  return last?.role === "user" && last.isOptimistic === true
+}
+
 function hasFailedAssistantMessage(messages: ChatMessage[]): boolean {
   return messages.some(
     (message) =>
@@ -532,10 +537,14 @@ export function useChatMessages(
       ? distanceFromBottom < 180
       : distanceFromBottom < 80
     if (Date.now() < programmaticScrollUntilRef.current) {
-      if (!isAtBottomRef.current) {
-        isAtBottomRef.current = true
-        setIsAtBottom(true)
-      }
+      // During smooth programmatic scrolling, keep the jump-to-latest control
+      // visible until the viewport is actually near the bottom. Otherwise the
+      // button can disappear while the browser is still animating toward the
+      // latest message.
+      if (!nextAtBottom) return
+      if (isAtBottomRef.current) return
+      isAtBottomRef.current = true
+      setIsAtBottom(true)
       return
     }
     if (isAtBottomRef.current === nextAtBottom) return
@@ -567,7 +576,6 @@ export function useChatMessages(
   }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
-    isAtBottomRef.current = true
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current)
     }
@@ -579,8 +587,10 @@ export function useChatMessages(
         top: el.scrollHeight,
         behavior: smooth ? "smooth" : "auto",
       })
-      isAtBottomRef.current = true
-      setIsAtBottom(true)
+      if (!smooth) {
+        isAtBottomRef.current = true
+        setIsAtBottom(true)
+      }
       scrollFrameRef.current = null
     }
     scrollFrameRef.current = requestAnimationFrame(() => {
@@ -1150,12 +1160,17 @@ export function useChatMessages(
     seenIds.current.clear()
 
     if (seededMessages) {
+      const pendingInitialSend = hasPendingOptimisticUserTurn(seededMessages)
       for (const message of seededMessages) {
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
       setMessages(seededMessages)
-      setStatus(inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey)))
+      setStatus(
+        pendingInitialSend
+          ? "thinking"
+          : inferRestoredChatStatus(seededMessages, getCachedChatSessionStatus(sessionKey))
+      )
       void queryClient.fetchQuery({
         queryKey: queryKeys.sessions(),
         queryFn: () => invoke<{
@@ -1168,7 +1183,13 @@ export function useChatMessages(
           const backendSession = (result.sessions || []).find(
             (item) => item.key === sessionKey || item.sessionKey === sessionKey,
           )
-          setStatus(statusFromBackendSession(backendSession?.status, seededMessages))
+          const nextStatus = statusFromBackendSession(
+            backendSession?.status,
+            seededMessages,
+          )
+          setStatus((prev) =>
+            pendingInitialSend && nextStatus === "idle" ? prev : nextStatus
+          )
         })
         .catch(() => undefined)
     } else {
