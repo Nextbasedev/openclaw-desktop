@@ -167,6 +167,48 @@ function modelsResponse(cfg: CompatRecord) {
   return { models, currentModel, defaultModel: currentModel };
 }
 
+
+function openclawWorkspaceRoot() {
+  const cfg = readOCPlatformConfig();
+  const configured = cfg.agents?.defaults?.workspace || cfg.workspaceRoot || cfg.workspace_root || process.env.WORKSPACE_ROOT;
+  return typeof configured === "string" && configured.trim() ? configured : path.join(os.homedir(), ".openclaw", "workspace");
+}
+
+function findGitRepos(root: string, maxDepth = 4, limit = 100) {
+  const repos: CompatRecord[] = [];
+  const seen = new Set<string>();
+  function walk(dir: string, depth: number) {
+    if (repos.length >= limit || depth > maxDepth) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    if (entries.some((entry) => entry.isDirectory() && entry.name === ".git")) {
+      const repoRoot = dir;
+      if (!seen.has(repoRoot)) {
+        seen.add(repoRoot);
+        let currentBranch: string | null = null;
+        try { currentBranch = git(repoRoot, ["branch", "--show-current"]).trim() || null; } catch { /* ignore */ }
+        repos.push({
+          id: `repo_${Buffer.from(repoRoot).toString("base64url").slice(0, 24)}`,
+          name: path.basename(repoRoot),
+          path: repoRoot,
+          repoRoot,
+          workspaceRoot: repoRoot,
+          currentBranch,
+          provider: "local",
+        });
+      }
+      return;
+    }
+    const ignored = new Set(["node_modules", ".next", "dist", "build", "out", "target", ".cache", ".turbo", ".venv", "venv", "__pycache__"]);
+    for (const entry of entries) {
+      if (!entry.isDirectory() || ignored.has(entry.name) || entry.name.startsWith(".")) continue;
+      walk(path.join(dir, entry.name), depth + 1);
+    }
+  }
+  walk(root, 0);
+  return repos;
+}
+
 function emptyUsage(days: number, providers: unknown[] = [], unavailable?: string) {
   return {
     range: { days },
@@ -450,8 +492,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   // --- repos ---
-  app.get("/api/repos/recent", async () => ({ repos: [] }));
-  app.post("/api/repos/scan", async () => ({ repos: [] }));
+  app.get("/api/repos/recent", async () => ({ repos: findGitRepos(openclawWorkspaceRoot(), 4, 50) }));
+  app.post("/api/repos/scan", async (request) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const root = String(body.path || body.root || body.workspaceRoot || openclawWorkspaceRoot());
+    return { repos: findGitRepos(root, 5, 200), root };
+  });
   app.post("/api/repos/select", async (request) => ({ ok: true, ...(request.body as CompatRecord) }));
 
   // --- git (project-scoped) ---
@@ -542,9 +588,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   // --- global workspace (no project scope) ---
   function globalWorkspaceRoot() {
-    // Use the first project's root, or fall back to cwd
-    const firstProject = compatState.projects.find((p) => notDeleted(p) && (p.workspaceRoot || p.repoRoot || p.path));
-    return firstProject?.workspaceRoot ?? firstProject?.repoRoot ?? firstProject?.path ?? process.cwd();
+    // Global workspace means connected OpenClaw workspace, not the Desktop app cwd.
+    return openclawWorkspaceRoot();
   }
 
   app.get("/api/workspace/capabilities", async () => ({
