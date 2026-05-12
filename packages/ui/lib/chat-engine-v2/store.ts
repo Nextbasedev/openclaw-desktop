@@ -765,6 +765,8 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
         ? { ...tool, status: "error", resultText: tool.resultText ?? "Timed out waiting for tool result." }
         : tool
     )
+    attachDetachedToolsToLatestAssistant(state, state.pendingTools)
+    state.pendingTools = []
     state.spawnedSubagents = state.spawnedSubagents.map((spawn) =>
       spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working"
         ? { ...spawn, status: "failed" }
