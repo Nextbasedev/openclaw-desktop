@@ -67,7 +67,7 @@ export async function fetchRemoteWorkspaceFile(input: {
   sessionKey: string
   projectId?: string | null
   path: string
-}): Promise<{ path: string; content: string; encoding: string }> {
+}): Promise<{ path: string; content: string; encoding: string; mimeType?: string }> {
   if (getMiddlewareConnection()) {
     return middlewareFetch(`${workspaceBasePath(input.projectId)}/file?path=${encodeURIComponent(input.path)}`)
   }

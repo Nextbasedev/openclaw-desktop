@@ -53,7 +53,6 @@ import {
   fetchRemoteWorkspaceTree,
   moveRemoteWorkspaceEntry,
   remoteWorkspaceDownloadUrl,
-  remoteWorkspaceMediaUrl,
   saveRemoteWorkspaceFile,
 } from "./workspace-api"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
@@ -113,6 +112,33 @@ function mediaKindForExt(ext: string): "image" | "video" | null {
   if (IMAGE_EXTENSIONS.has(ext)) return "image"
   if (VIDEO_EXTENSIONS.has(ext)) return "video"
   return null
+}
+
+function mediaDataUrl(input: { content: string; encoding: string; mimeType?: string }, fallbackMimeType: string) {
+  const mimeType = input.mimeType || fallbackMimeType
+  if (input.encoding === "base64") return `data:${mimeType};base64,${input.content}`
+  return `data:${mimeType};charset=utf-8,${encodeURIComponent(input.content)}`
+}
+
+function mediaMimeTypeForExt(ext: string, mediaKind: "image" | "video") {
+  const map: Record<string, string> = {
+    avif: "image/avif",
+    gif: "image/gif",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    png: "image/png",
+    svg: "image/svg+xml",
+    webp: "image/webp",
+    avi: "video/x-msvideo",
+    m4v: "video/mp4",
+    mkv: "video/x-matroska",
+    mov: "video/quicktime",
+    mp4: "video/mp4",
+    ogg: "video/ogg",
+    ogv: "video/ogg",
+    webm: "video/webm",
+  }
+  return map[ext] || (mediaKind === "image" ? "image/*" : "video/mp4")
 }
 
 function findNode(nodes: FileNode[], id: string): FileNode | null {
@@ -524,10 +550,23 @@ function FilePreviewPane({
     setMode(getExt(fileName) === "md" ? "preview" : "edit")
 
     if (mediaKind) {
-      setMediaUrl(remoteWorkspaceMediaUrl(filePath, projectId))
-      setContent("")
-      setOriginalContent("")
-      setLoading(false)
+      fetchRemoteWorkspaceFile({
+        sessionKey: sessionKey ?? "",
+        projectId,
+        path: filePath,
+      })
+        .then((file) => {
+          if (cancelled) return
+          setMediaUrl(mediaDataUrl(file, mediaMimeTypeForExt(getExt(fileName), mediaKind)))
+          setContent("")
+          setOriginalContent("")
+          setLoading(false)
+        })
+        .catch((err) => {
+          if (cancelled) return
+          setError(err instanceof Error ? err.message : "Failed to load media preview")
+          setLoading(false)
+        })
       return () => {
         cancelled = true
       }

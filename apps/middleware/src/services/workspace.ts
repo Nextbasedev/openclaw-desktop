@@ -24,12 +24,6 @@ function treeAt(root: string, rel = "") {
   return { entries }
 }
 
-function readAt(root: string, rel: string) {
-  const file = assertInside(root, rel)
-  const content = fs.readFileSync(file, "utf8")
-  return { path: rel, content, encoding: "utf-8", file: { path: rel, content, encoding: "utf-8" } }
-}
-
 function contentTypeForPath(file: string) {
   const ext = path.extname(file).toLowerCase()
   switch (ext) {
@@ -50,6 +44,26 @@ function contentTypeForPath(file: string) {
     case ".webm": return "video/webm"
     default: return "application/octet-stream"
   }
+}
+
+function shouldReadAsBase64(file: string) {
+  const contentType = contentTypeForPath(file)
+  if (contentType.startsWith("image/") || contentType.startsWith("video/") || contentType.startsWith("audio/")) return true
+  const ext = path.extname(file).toLowerCase()
+  return new Set([
+    ".7z", ".bin", ".dmg", ".doc", ".docx", ".dll", ".dylib", ".exe", ".gz",
+    ".pdf", ".ppt", ".pptx", ".rar", ".so", ".tar", ".wasm", ".xls", ".xlsx", ".zip",
+  ]).has(ext)
+}
+
+function readAt(root: string, rel: string) {
+  const file = assertInside(root, rel)
+  const mimeType = contentTypeForPath(file)
+  const encoding = shouldReadAsBase64(file) ? "base64" : "utf-8"
+  const content = encoding === "base64"
+    ? fs.readFileSync(file).toString("base64")
+    : fs.readFileSync(file, "utf8")
+  return { path: rel, content, encoding, mimeType, file: { path: rel, content, encoding, mimeType } }
 }
 
 function rawAt(root: string, rel: string) {
