@@ -119,7 +119,9 @@ const sendBody = z.object({
   agentId: z.string().optional(),
   label: z.string().optional(),
   execPolicy: z.unknown().optional(),
-});
+  replyTo: z.unknown().optional(),
+  autonomyMode: z.unknown().optional(),
+}).passthrough();
 
 const approvalResolveBody = z.object({
   approvalId: z.string().min(1).optional(),
