@@ -106,24 +106,12 @@ export async function fetchRemoteWorkspaceBlob(input: {
   }
 }
 
-export function remoteWorkspaceMediaUrl(path: string, projectId?: string | null): string {
-  const connection = getMiddlewareConnection()
-  if (!connection) return `/api/workspace/media?path=${encodeURIComponent(path)}`
-
-  const token = connection.token.trim()
-  const params = new URLSearchParams({ path })
-  if (token) params.set("token", token)
-  return `${connection.url.replace(/\/+$/, "")}${workspaceBasePath(projectId)}/raw?${params.toString()}`
+export function remoteWorkspaceMediaUrl(path: string, _projectId?: string | null): string {
+  return `/api/workspace/media?path=${encodeURIComponent(path)}`
 }
 
-export function remoteWorkspaceDownloadUrl(path: string, projectId?: string | null): string {
-  const connection = getMiddlewareConnection()
-  if (!connection) return `/api/workspace/media?path=${encodeURIComponent(path)}&download=1`
-
-  const token = connection.token.trim()
-  const params = new URLSearchParams({ path, download: "1" })
-  if (token) params.set("token", token)
-  return `${connection.url.replace(/\/+$/, "")}${workspaceBasePath(projectId)}/raw?${params.toString()}`
+export function remoteWorkspaceDownloadUrl(path: string, _projectId?: string | null): string {
+  return `/api/workspace/media?path=${encodeURIComponent(path)}&download=1`
 }
 
 export async function saveRemoteWorkspaceFile(input: {
