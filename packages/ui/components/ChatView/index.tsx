@@ -641,6 +641,25 @@ export function ChatView({
     () => pinnedMessages(messages, messageActionState),
     [messages, messageActionState]
   )
+  const referencedTextsByMessageId = useMemo(() => {
+    const byMessageId = new Map<string, string[]>()
+    const addSelection = (messageId: string, text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+      byMessageId.set(messageId, [...(byMessageId.get(messageId) ?? []), trimmed])
+    }
+
+    for (const message of messages) {
+      for (const selection of message.replyTo?.selections ?? []) {
+        addSelection(selection.messageId, selection.text)
+      }
+    }
+    for (const selection of replyTo?.selections ?? []) {
+      addSelection(selection.messageId, selection.text)
+    }
+
+    return byMessageId
+  }, [messages, replyTo])
 
   const replyToMessage = useCallback(
     (messageId: string) => {
@@ -1371,6 +1390,7 @@ export function ChatView({
                           ? askAboutSelectedText
                           : undefined
                       }
+                      referencedTexts={referencedTextsByMessageId.get(msg.messageId)}
                       isPinned={messageActionState.pinnedIds.includes(
                         msg.messageId
                       )}
