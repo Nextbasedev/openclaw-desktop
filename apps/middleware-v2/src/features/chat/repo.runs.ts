@@ -181,8 +181,14 @@ export class RunRepository {
     finishedAtMs?: number | null;
     updatedAtMs?: number;
   }): ProjectedToolCall {
+    const existing = this.getToolCall(tool.sessionKey, tool.toolCallId);
+    const incomingStatus = tool.status ?? (tool.phase === "error" ? "error" : tool.phase === "result" ? "success" : "running");
+    // Historical assistant messages can be replayed after a refresh. If a tool
+    // already reached a terminal state, a replayed toolCall block must not
+    // resurrect it as running. Explicit result/error events may still enrich it.
+    if (existing && existing.status !== "running" && incomingStatus === "running") return existing;
     const now = tool.updatedAtMs ?? Date.now();
-    const status = tool.status ?? (tool.phase === "error" ? "error" : tool.phase === "result" ? "success" : "running");
+    const status = incomingStatus;
     const finishedAtMs = tool.finishedAtMs ?? (status === "running" ? null : now);
     this.db.prepare(`
       INSERT INTO v2_tool_calls(tool_call_id, session_key, run_id, message_id, name, phase, status, args_meta_json, result_meta_json, started_at_ms, finished_at_ms, updated_at_ms)
@@ -212,6 +218,29 @@ export class RunRepository {
       updatedAtMs: now,
     });
     return this.getToolCall(tool.sessionKey, tool.toolCallId)!;
+  }
+
+  completeRunningTools(sessionKey: string, runId: string, params: { status?: Extract<ToolStatus, "success" | "error">; resultMeta?: unknown; updatedAtMs?: number } = {}): number {
+    const now = params.updatedAtMs ?? Date.now();
+    const status = params.status ?? "success";
+    const resultMetaJson = params.resultMeta === undefined || params.resultMeta === null ? null : toJson(params.resultMeta);
+    const result = this.db.prepare(`
+      UPDATE v2_tool_calls
+      SET status = @status,
+          phase = CASE WHEN @status = 'error' THEN 'error' ELSE 'result' END,
+          result_meta_json = COALESCE(@resultMetaJson, result_meta_json),
+          finished_at_ms = COALESCE(finished_at_ms, @finishedAtMs),
+          updated_at_ms = @updatedAtMs
+      WHERE session_key = @sessionKey AND run_id = @runId AND status = 'running'
+    `).run({
+      sessionKey,
+      runId,
+      status,
+      resultMetaJson,
+      finishedAtMs: now,
+      updatedAtMs: now,
+    });
+    return Number(result.changes ?? 0);
   }
 
   getToolCall(sessionKey: string, toolCallId: string): ProjectedToolCall | null {

@@ -201,4 +201,139 @@ describe("chat live ingest", () => {
     ]));
     await app.close();
   });
+
+  test("persists gateway session.tool events with nested data payloads", async () => {
+    const app = await createApp(config("nested-session-tool"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        data: {
+          phase: "start",
+          toolCallId: "tool-1",
+          name: "session_status",
+          args: { model: "default" },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      name: "session_status",
+      status: "running",
+      runId: "run-1",
+    });
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "tool_running", statusLabel: "session_status" });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.started",
+        payload: expect.objectContaining({
+          toolCallId: "tool-1",
+          runStatus: "tool_running",
+          statusLabel: "session_status",
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
+  test("derives tool activity from assistant tool-call blocks when session.tool is absent", async () => {
+    const app = await createApp(config("message-tool-blocks"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "tool-1", name: "read", input: { path: "README.md" } }],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      name: "read",
+      status: "running",
+      runId: "run-1",
+      messageId: "assistant-tools",
+    });
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "tool_running", statusLabel: "read" });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "tool_running",
+      activeRun: expect.objectContaining({ runId: "run-1" }),
+      toolCalls: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "running" })],
+    });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 3,
+        message: {
+          role: "assistant",
+          text: "Done — I read the file.",
+          __openclaw: { id: "assistant-final", seq: 3 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({ status: "success", phase: "result" });
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "done", statusLabel: null });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "tool-1", name: "read", input: { path: "README.md" } }],
+          __openclaw: { id: "assistant-tools-replayed", seq: 2 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({ status: "success", phase: "result" });
+    const finalBootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(finalBootstrap.json()).toMatchObject({
+      runStatus: "done",
+      activeRun: null,
+      toolCalls: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "success" })],
+    });
+    await app.close();
+  });
+
 });
