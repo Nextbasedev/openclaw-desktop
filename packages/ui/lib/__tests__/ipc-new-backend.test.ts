@@ -119,6 +119,44 @@ describe("new backend IPC routing", () => {
     )
   })
 
+  it("routes terminal, git, workspace, project create, and session create through new middleware APIs", async () => {
+    mockStorage({
+      "openclaw.middleware.url": "http://middleware.test/",
+      "openclaw.middleware.token": "tok",
+      "openclaw.activeProjectId": "project_1",
+    })
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, terminalId: "pty-1", cwd: "/repo" }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { invoke } = await import("../ipc")
+    await invoke("middleware_projects_create", { input: { name: "P", workspaceRoot: "/repo" } })
+    await invoke("middleware_sessions_create", { input: { projectId: "project_1", topicId: "topic_1", label: "New Chat" } })
+    await invoke("middleware_git_status", { input: { projectId: "project_1" } })
+    await invoke("middleware_git_diff_for_repo", { input: { repoPath: "/repo", path: "README.md" } })
+    await invoke("middleware_workspace_tree", { input: { projectId: "project_1", path: "src" } })
+    await invoke("middleware_workspace_read", { input: { projectId: "project_1", path: "src/index.ts" } })
+    await invoke("middleware_workspace_write", { input: { projectId: "project_1", path: "src/index.ts", content: "x" } })
+    await invoke("middleware_pty_spawn", { input: { command: "pnpm dev" } })
+    await invoke("middleware_pty_write", { input: { ptyId: "pty-1", data: "ls\\n" } })
+    await invoke("middleware_pty_resize", { input: { ptyId: "pty-1", cols: 120, rows: 40 } })
+    await invoke("middleware_pty_kill", { input: { ptyId: "pty-1" } })
+
+    const urls = (fetchMock.mock.calls as unknown as Array<[string, RequestInit?]>).map((call) => call[0])
+    expect(urls).toEqual([
+      "http://middleware.test/api/projects",
+      "http://middleware.test/api/sessions",
+      "http://middleware.test/api/projects/project_1/git/status",
+      "http://middleware.test/api/repos/git/diff?repoPath=%2Frepo&path=README.md",
+      "http://middleware.test/api/projects/project_1/workspace/tree?path=src",
+      "http://middleware.test/api/projects/project_1/workspace/file?path=src%2Findex.ts",
+      "http://middleware.test/api/projects/project_1/workspace/file",
+      "http://middleware.test/api/projects/project_1/terminal/spawn",
+      "http://middleware.test/api/terminal/pty-1/write",
+      "http://middleware.test/api/terminal/pty-1/resize",
+      "http://middleware.test/api/terminal/pty-1/kill",
+    ])
+  })
+
   it("preserves project/topic filters when listing sessions", async () => {
     mockStorage({
       "openclaw.middleware.url": "http://middleware.test/",

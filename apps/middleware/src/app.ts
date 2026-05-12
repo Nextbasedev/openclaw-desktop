@@ -230,12 +230,31 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.get("/api/projects/:projectId/git/branches", (req, res) => res.json(git.branches(req.params.projectId)))
   app.post("/api/projects/:projectId/git/checkout", (req, res) => res.json(git.checkout(req.params.projectId, String(req.body?.branch ?? req.body?.branchName ?? ""))))
 
+  const sendWorkspaceDownload = (res: express.Response, item: { file: string; name: string; size: number }) => {
+    res.setHeader("Content-Type", "application/octet-stream")
+    res.setHeader("Content-Length", String(item.size))
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(item.name)}"`)
+    res.sendFile(item.file)
+  }
+
+  app.get("/api/workspace/capabilities", (_req, res) => res.json(workspace.capabilities()))
   app.get("/api/workspace/tree", (req, res) => res.json(workspace.treeRoot(String(req.query.path ?? ""))))
+  app.get("/api/workspace/stat", (req, res) => res.json(workspace.statRoot(String(req.query.path ?? ""))))
   app.get("/api/workspace/file", (req, res) => res.json(workspace.readRoot(String(req.query.path ?? ""))))
   app.put("/api/workspace/file", (req, res) => res.json(workspace.writeRoot(String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
+  app.post("/api/workspace/mkdir", (req, res) => res.json(workspace.mkdirRoot(String(req.body?.path ?? ""))))
+  app.post("/api/workspace/move", (req, res) => res.json(workspace.moveRoot(String(req.body?.fromPath ?? req.body?.from ?? ""), String(req.body?.toPath ?? req.body?.to ?? ""))))
+  app.delete("/api/workspace/file", (req, res) => res.json(workspace.deleteRoot(String(req.body?.path ?? req.query.path ?? ""))))
+  app.get("/api/workspace/download", (req, res) => sendWorkspaceDownload(res, workspace.downloadRoot(String(req.query.path ?? ""))))
+  app.get("/api/projects/:projectId/workspace/capabilities", (_req, res) => res.json(workspace.capabilities()))
   app.get("/api/projects/:projectId/workspace/tree", (req, res) => res.json(workspace.tree(req.params.projectId, String(req.query.path ?? ""))))
+  app.get("/api/projects/:projectId/workspace/stat", (req, res) => res.json(workspace.stat(req.params.projectId, String(req.query.path ?? ""))))
   app.get("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.read(req.params.projectId, String(req.query.path ?? ""))))
   app.put("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.write(req.params.projectId, String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
+  app.post("/api/projects/:projectId/workspace/mkdir", (req, res) => res.json(workspace.mkdir(req.params.projectId, String(req.body?.path ?? ""))))
+  app.post("/api/projects/:projectId/workspace/move", (req, res) => res.json(workspace.move(req.params.projectId, String(req.body?.fromPath ?? req.body?.from ?? ""), String(req.body?.toPath ?? req.body?.to ?? ""))))
+  app.delete("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.delete(req.params.projectId, String(req.body?.path ?? req.query.path ?? ""))))
+  app.get("/api/projects/:projectId/workspace/download", (req, res) => sendWorkspaceDownload(res, workspace.download(req.params.projectId, String(req.query.path ?? ""))))
 
   app.post("/api/terminal/spawn", async (req, res, next) => { try { res.json(await terminal.spawnWorkspace(req.body)) } catch (error) { next(error) } })
   app.post("/api/projects/:projectId/terminal/spawn", async (req, res, next) => { try { res.json(await terminal.spawn(req.params.projectId, req.body)) } catch (error) { next(error) } })
