@@ -27,7 +27,6 @@ import {
 } from "@/lib/chatSessionStore"
 import {
   cacheAttachments,
-  getCachedAttachmentsForText,
   mergeAttachmentsWithCache,
 } from "@/lib/attachmentCache"
 import type { ChatComposerSubmit } from "@/lib/chatAttachments"
@@ -100,32 +99,6 @@ function createdAtFromRawMessage(raw: RawMessage): string | undefined {
   if (raw.createdAt) return raw.createdAt
   const ts = rawMessageTimestampMs(raw)
   return ts !== null ? new Date(ts).toISOString() : undefined
-}
-
-function stripAttachmentMarkers(text: string) {
-  return text
-    .replace(/^\s*\[Attached images?:[^\]]+\]\s*/gim, "")
-    .replace(/^\s*\[media attached:[\s\S]*?\]\s*/gim, "")
-    .trim()
-}
-
-function imageAttachmentsFromText(text: string) {
-  const match = text.match(/^\s*\[Attached images?:\s*([^\]]+)\]/im)
-  if (!match) return []
-  return match[1]
-    .split(",")
-    .map((name) => name.trim())
-    .filter(Boolean)
-    .map((name) => ({ name, mimeType: mimeTypeFromFilename(name) }))
-}
-
-function mimeTypeFromFilename(name: string) {
-  const lower = name.toLowerCase()
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg"
-  if (lower.endsWith(".gif")) return "image/gif"
-  if (lower.endsWith(".webp")) return "image/webp"
-  if (lower.endsWith(".svg")) return "image/svg+xml"
-  return "image/png"
 }
 
 function streamMessageLooksFinal(
@@ -1258,8 +1231,7 @@ export function useChatMessages(
               randomId()
             seenIds.current.add(id)
             const rawText = m.text || extractText(m.content)
-            const textWithAttachmentMarkers = rawText ? cleanUserMessageText(rawText) : ""
-            const text = stripAttachmentMarkers(textWithAttachmentMarkers)
+            const text = rawText ? cleanUserMessageText(rawText) : ""
             const isBootstrapEcho = rawText.includes(
               "[Bootstrap truncation warning]"
             )
@@ -1268,7 +1240,7 @@ export function useChatMessages(
               for (const later of raw.slice(rawIdx + 1)) {
                 if (later.role === "user") {
                   const laterRawText = later.text || extractText(later.content)
-                  if (stripAttachmentMarkers(cleanUserMessageText(laterRawText)).trim() === text.trim())
+                  if (cleanUserMessageText(laterRawText).trim() === text.trim())
                     return false
                 }
                 if (
@@ -1285,7 +1257,7 @@ export function useChatMessages(
               raw.slice(rawIdx + 1).some((later) => {
                 if (later.role !== "user") return false
                 const laterRawText = later.text || extractText(later.content)
-                return stripAttachmentMarkers(cleanUserMessageText(laterRawText)).trim() === text.trim()
+                return cleanUserMessageText(laterRawText).trim() === text.trim()
               })
             const isSubagentAnnounce = text
               ? /agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(text)
@@ -1299,14 +1271,10 @@ export function useChatMessages(
             ) {
               const reply = extractReplyBlock(text, histMsgs)
               const rawAttachments = m.attachments
-              const markerAttachments = imageAttachmentsFromText(textWithAttachmentMarkers)
-              const cachedAttachments = getCachedAttachmentsForText(sessionKey, textWithAttachmentMarkers)
               const resolvedAttachments =
                 rawAttachments && rawAttachments.length > 0
-                  ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments, textWithAttachmentMarkers)
-                  : markerAttachments.length > 0
-                    ? mergeAttachmentsWithCache(sessionKey, id, markerAttachments, textWithAttachmentMarkers)
-                    : cachedAttachments
+                  ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments)
+                  : rawAttachments
               if (resolvedAttachments && resolvedAttachments.length > 0) {
                 cacheAttachments(
                   sessionKey,
@@ -1318,8 +1286,7 @@ export function useChatMessages(
                       mimeType: a.mimeType,
                       content: a.content!,
                       size: a.size,
-                    })),
-                  textWithAttachmentMarkers
+                    }))
                 )
               }
               histMsgs.push({
@@ -1762,8 +1729,7 @@ export function useChatMessages(
             mimeType: a.mimeType,
             content: a.content,
             size: a.size,
-          })),
-          trimmed
+          }))
         )
       }
       setMessages((prev) => [
