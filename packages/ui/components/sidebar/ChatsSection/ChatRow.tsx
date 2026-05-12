@@ -46,7 +46,7 @@ export function ChatRow({
   const longPress = useLongPressDrag(controls)
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.lastActiveAt ?? chat.updatedAt ?? chat.createdAt)
+  const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.updatedAt)
   const displayName = chatDisplayName(chat)
 
   const rowContent = (

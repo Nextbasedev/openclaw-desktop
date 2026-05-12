@@ -1580,9 +1580,6 @@ export function useChatMessages(
 
         const allMessages = dedupeChatMessages(filtered)
         const lastHistoryMessage = allMessages.at(-1)
-        if (lastHistoryMessage?.createdAt) {
-          emit("chat:activity", { at: lastHistoryMessage.createdAt })
-        }
         const hasCompletedAssistant =
           lastHistoryMessage?.role === "assistant" &&
           lastHistoryMessage.text.trim().length > 0

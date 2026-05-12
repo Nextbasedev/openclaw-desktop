@@ -90,30 +90,11 @@ function friendlyAssistantError(message: any) {
 
 function historyTimestampMs(message: any) {
   if (typeof message?.timestamp === "number" && Number.isFinite(message.timestamp)) return message.timestamp
-  if (typeof message?.timestamp === "string") {
-    const parsed = Date.parse(message.timestamp)
-    if (Number.isFinite(parsed)) return parsed
-  }
   if (typeof message?.createdAt === "string") {
     const parsed = Date.parse(message.createdAt)
     if (Number.isFinite(parsed)) return parsed
   }
   return null
-}
-
-function lastHistoryTimestampIso(messages: any[]) {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const timestampMs = historyTimestampMs(messages[i])
-    if (timestampMs !== null) return new Date(timestampMs).toISOString()
-  }
-  return null
-}
-
-function touchChatLastActiveBySession(s: any, sessionKey: string, timestamp = now()) {
-  const chat = (s.chats ?? []).find((candidate: any) => candidate?.sessionKey === sessionKey)
-  if (!chat) return false
-  chat.lastActiveAt = timestamp
-  return true
 }
 
 function historyText(message: any) {
@@ -1509,10 +1490,7 @@ export function commandRoutes(store: Store) {
           const localEntry = readSessionStoreEntry(key)
           const sessionFile = String(localEntry?.entry?.sessionFile || "")
           if (sessionFile && fs.existsSync(sessionFile)) {
-            const messages = transcriptMessagesFromJsonl(sessionFile)
-            const lastActiveAt = lastHistoryTimestampIso(messages)
-            if (lastActiveAt && touchChatLastActiveBySession(s, key, lastActiveAt)) save(store, s)
-            return normalizeHistoryPayload({ messages })
+            return normalizeHistoryPayload({ messages: transcriptMessagesFromJsonl(sessionFile) })
           }
 
           const timeoutMs = Math.max(1_000, Math.min(Number(input.timeoutMs) || 30_000, 30_000))
@@ -1523,11 +1501,7 @@ export function commandRoutes(store: Store) {
               gw = await connectGateway(["operator.read", "operator.write"])
               const res = await gw.request("chat.history", { sessionKey: key, limit }, timeoutMs)
               if (!res.ok) throw new HttpError(502, res.error?.message || "chat.history failed", "GATEWAY_ERROR")
-              const payload = res.payload as any
-              const messages = Array.isArray(payload?.messages) ? payload.messages : []
-              const lastActiveAt = lastHistoryTimestampIso(messages)
-              if (lastActiveAt && touchChatLastActiveBySession(s, key, lastActiveAt)) save(store, s)
-              return normalizeHistoryPayload(payload)
+              return normalizeHistoryPayload(res.payload)
             } catch (error) {
               if (isPairingRequiredError(error)) return normalizeHistoryPayload({ messages: [] })
               throw error
@@ -1615,7 +1589,6 @@ export function commandRoutes(store: Store) {
               ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
             }, input.timeoutMs || 130_000)
             if (!res.ok) throw new HttpError(502, res.error?.message || "chat.send failed", "GATEWAY_ERROR")
-            if (touchChatLastActiveBySession(s, key)) save(store, s)
             const commandHistoryRestore = restoreSlashCommandHistoryIfGatewayReset({ sessionKey: key, message, before: beforeCommandSession })
               ?? recordSlashCommandInputIfGatewayOnlyAppendedOutput({ sessionKey: key, message })
             scheduleSlashCommandHistoryRepair({ sessionKey: key, message, before: beforeCommandSession })
