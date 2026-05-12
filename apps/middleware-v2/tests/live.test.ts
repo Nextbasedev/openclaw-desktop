@@ -336,4 +336,40 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("bootstrap derives completed tool calls from historical assistant tool blocks", async () => {
+    const app = await createApp(config("bootstrap-tool-history"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "done",
+          messages: [
+            { role: "user", text: "check it", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "web_fetch", input: { url: "https://example.com" } }], __openclaw: { id: "a-tools", seq: 2 } },
+            { role: "assistant", text: "Answer from fetched page", __openclaw: { id: "a-final", seq: 3 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "done",
+      activeRun: null,
+      toolCalls: [expect.objectContaining({
+        toolCallId: "tool-1",
+        name: "web_fetch",
+        status: "success",
+        messageId: "a-tools",
+      })],
+    });
+    await app.close();
+  });
+
+
 });
