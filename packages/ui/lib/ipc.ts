@@ -223,6 +223,8 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>("/api/migration/telegram/scan")
     case "middleware_migration_telegram_import":
       return middlewareFetch<T>("/api/migration/telegram/import", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_migration_v1_sqlite_import":
+      return middlewareFetch<T>("/api/migration/v1-sqlite/import", { method: "POST", body: JSON.stringify(input) })
     case "middleware_self_update":
       return middlewareFetch<T>("/api/middleware/update", { method: "POST", body: JSON.stringify(input) })
     case "middleware_self_update_status":
