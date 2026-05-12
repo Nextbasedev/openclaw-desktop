@@ -1009,6 +1009,28 @@ export function ChatView({
               />
             </div>
           )}
+          {showPendingAbove && filteredPending.length > 0 && (
+            <div className="mb-2 max-w-[85%]">
+              <ToolCallSteps
+                tools={filteredPending}
+                defaultOpen
+                onSelectTool={onSelectTool}
+                onResolveApproval={resolveExecApproval}
+              />
+            </div>
+          )}
+          {msg.role === "assistant" &&
+            filteredToolCalls &&
+            filteredToolCalls.length > 0 && (
+              <div className="mb-2 max-w-[85%]">
+                <ToolCallSteps
+                  tools={filteredToolCalls}
+                  defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+                  onSelectTool={onSelectTool}
+                  onResolveApproval={resolveExecApproval}
+                />
+              </div>
+            )}
           {(msg.role === "user" || msg.text) && (
             <MessageBubble
               message={msg}
@@ -1039,28 +1061,6 @@ export function ChatView({
                 setActivePopoverId(open ? msg.messageId : null)
               }
             />
-          )}
-          {msg.role === "assistant" &&
-            filteredToolCalls &&
-            filteredToolCalls.length > 0 && (
-              <div className="mt-2 max-w-[85%]">
-                <ToolCallSteps
-                  tools={filteredToolCalls}
-                  defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-                  onSelectTool={onSelectTool}
-                  onResolveApproval={resolveExecApproval}
-                />
-              </div>
-            )}
-          {showPendingAbove && filteredPending.length > 0 && (
-            <div className="mt-2 max-w-[85%]">
-              <ToolCallSteps
-                tools={filteredPending}
-                defaultOpen
-                onSelectTool={onSelectTool}
-                onResolveApproval={resolveExecApproval}
-              />
-            </div>
           )}
           {msg.role === "user" && userSubagents.length > 0 && (
             <div className="mt-3">
