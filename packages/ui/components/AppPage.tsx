@@ -512,6 +512,7 @@ function AppShell({
       setComposerError(null)
       if (route.tab === "settings") {
         setSettingsInitialSection("usage")
+        setSettingsResetKey((n) => n + 1)
       }
       setActiveTab(route.tab)
       clearConversationState()
@@ -692,6 +693,7 @@ function AppShell({
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("usage")
+  const [settingsResetKey, setSettingsResetKey] = useState(0)
 
   const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
@@ -703,6 +705,7 @@ function AppShell({
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
     setSettingsInitialSection(section)
+    setSettingsResetKey((n) => n + 1)
     setActiveTab("settings")
     clearConversationState()
     settingsPushedRef.current = true
@@ -1874,6 +1877,7 @@ function AppShell({
                   sessionError={sessionError}
                   onSettingsBack={handleSettingsBack}
                   settingsInitialSection={settingsInitialSection}
+                  settingsResetKey={settingsResetKey}
                   onFirstMessageSent={handleFirstMessageSent}
                   onQuickSend={handleQuickSend}
                   quickSending={quickSending}
@@ -1923,6 +1927,7 @@ function AppShell({
                           sessionError={null}
                           onSettingsBack={handleSettingsBack}
                           settingsInitialSection={settingsInitialSection}
+                          settingsResetKey={settingsResetKey}
                           onFirstMessageSent={handleFirstMessageSent}
                           onQuickSend={handleQuickSend}
                           quickSending={quickSending}
@@ -1958,6 +1963,7 @@ function AppShell({
                 sessionError={sessionError}
                 onSettingsBack={handleSettingsBack}
                 settingsInitialSection={settingsInitialSection}
+                settingsResetKey={settingsResetKey}
                 onFirstMessageSent={handleFirstMessageSent}
                 onQuickSend={handleQuickSend}
                 quickSending={quickSending}
@@ -2065,6 +2071,7 @@ function MainContent({
   sessionError,
   onSettingsBack,
   settingsInitialSection,
+  settingsResetKey,
   onFirstMessageSent,
   onQuickSend,
   quickSending,
@@ -2092,6 +2099,7 @@ function MainContent({
   sessionError: string | null
   onSettingsBack: () => void
   settingsInitialSection: SettingsSection
+  settingsResetKey: number
   onFirstMessageSent: (text: string) => void
   onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
@@ -2108,7 +2116,11 @@ function MainContent({
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
-        <SettingsDashboard onBack={onSettingsBack} initialSection={settingsInitialSection} />
+        <SettingsDashboard
+          onBack={onSettingsBack}
+          initialSection={settingsInitialSection}
+          resetKey={settingsResetKey}
+        />
       </div>
     )
   }
