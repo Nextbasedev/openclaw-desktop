@@ -665,11 +665,6 @@ export function MessageBubble({
           </div>
         ) : (
           <>
-            {isUser && (
-              <div className="mb-1.5">
-                <RichContentPreview message={message} />
-              </div>
-            )}
             <div
               ref={messageBodyRef}
               onMouseUp={updateSelectionAction}
@@ -731,6 +726,7 @@ export function MessageBubble({
               )}
               {!isUser && <RichContentPreview message={message} />}
             </div>
+            {isUser && <RichContentPreview message={message} />}
             {selectionAction &&
               selectionRects.length > 0 &&
               createPortal(
