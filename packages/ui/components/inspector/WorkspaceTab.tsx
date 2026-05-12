@@ -884,6 +884,9 @@ function FilePreviewPane({
                 <video
                   src={mediaUrl}
                   controls
+                  muted
+                  playsInline
+                  preload="metadata"
                   className="max-h-full max-w-full rounded-lg shadow-2xl"
                 />
               )
