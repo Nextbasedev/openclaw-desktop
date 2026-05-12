@@ -554,7 +554,7 @@ function FilePreviewPane({
 
   const handleDownload = useCallback(() => {
     const url = sessionKey
-      ? remoteWorkspaceDownloadUrl(sessionKey, filePath)
+      ? remoteWorkspaceDownloadUrl(sessionKey, filePath, projectId)
       : URL.createObjectURL(new Blob([content], { type: "text/plain" }))
     const a = document.createElement("a")
     a.href = url
@@ -567,7 +567,7 @@ function FilePreviewPane({
     }
     setDownloaded(true)
     window.setTimeout(() => setDownloaded(false), 2000)
-  }, [content, fileName, filePath, sessionKey])
+  }, [content, fileName, filePath, projectId, sessionKey])
 
   const handleRename = useCallback(async () => {
     if (!canMove) return
@@ -582,6 +582,7 @@ function FilePreviewPane({
       const nextPath = joinWorkspacePath(workspaceDirname(filePath), trimmed)
       await moveRemoteWorkspaceEntry({
         sessionKey: sessionKey ?? "",
+        projectId,
         fromPath: filePath,
         toPath: nextPath,
       })
@@ -590,7 +591,7 @@ function FilePreviewPane({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Rename failed")
     }
-  }, [canMove, fileName, filePath, onPathChange, renameValue, sessionKey])
+  }, [canMove, fileName, filePath, onPathChange, projectId, renameValue, sessionKey])
 
   const handleDelete = useCallback(async () => {
     if (!canDelete) return
@@ -598,13 +599,14 @@ function FilePreviewPane({
     try {
       await deleteRemoteWorkspaceEntry({
         sessionKey: sessionKey ?? "",
+        projectId,
         path: filePath,
       })
       onDelete?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed")
     }
-  }, [canDelete, filePath, onDelete, sessionKey])
+  }, [canDelete, filePath, onDelete, projectId, sessionKey])
 
   if (loading) {
     return (
@@ -1087,7 +1089,7 @@ export function WorkspaceTab({
     setExpandedIds(new Set())
     setWorkspaceRoot("")
     setTreeLoading(true)
-    void fetchRemoteWorkspaceCapabilities(effectiveSessionKey)
+    void fetchRemoteWorkspaceCapabilities(projectId)
       .then((result) => setCapabilities(result.capabilities))
       .catch(() => setCapabilities(null))
     void loadRoot("")
@@ -1278,6 +1280,7 @@ export function WorkspaceTab({
       if (newItemType === "folder") {
         await createRemoteWorkspaceDirectory({
           sessionKey: effectiveSessionKey,
+          projectId,
           path: targetPath,
         })
       } else {
@@ -1300,6 +1303,7 @@ export function WorkspaceTab({
     loadRoot,
     newItemName,
     newItemType,
+    projectId,
     selectedDirectoryPath,
     workspaceRoot,
   ])
