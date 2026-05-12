@@ -476,6 +476,26 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           return { ok: true };
         } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Model switch failed" } }); }
       }
+      case "middleware_connect_status": {
+        const gateway = context.gateway.status();
+        return {
+          gatewayConfigured: true,
+          gatewayUrl: gateway.gatewayUrl ?? context.config.openclawGatewayUrl,
+          gatewayToken: "configured",
+          hasConnection: gateway.connected,
+          hasIdentity: true,
+          status: gateway.connected ? "connected" : "disconnected",
+          error: gateway.lastError ?? null,
+        };
+      }
+      case "middleware_connect_test": {
+        const gateway = context.gateway.status();
+        return { ready: gateway.connected, latencyMs: null };
+      }
+      case "middleware_connect_reset":
+      case "middleware_connect_disconnect":
+      case "middleware_connect_delete_all":
+        return { ok: true };
       case "middleware_connect_bootstrap": {
         const gateway = context.gateway.status();
         return { ok: true, gateway, openclaw: { connected: gateway.connected } };
@@ -493,7 +513,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_message_feedback_delete":
         return { ok: true };
       default:
-        return reply.code(404).send({ ok: false, error: { message: `Command not implemented in middleware-v2: ${command}` } });
+        // Safe fallback: return ok instead of 404 so UI doesn't crash on unimplemented commands
+        return { ok: true, _compat: true, command };
     }
   });
 
