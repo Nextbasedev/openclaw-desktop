@@ -1072,7 +1072,13 @@ export function useChatMessages(
           const backendSession = (result.sessions || []).find(
             (item) => item.key === sessionKey || item.sessionKey === sessionKey,
           )
-          setStatus(statusFromBackendSession(backendSession?.status, seededMessages))
+          const restoredStatus = statusFromBackendSession(backendSession?.status, seededMessages)
+          setStatus(restoredStatus)
+          if (restoredStatus === "done" || restoredStatus === "idle" || restoredStatus === "error") {
+            pendingToolMapRef.current.clear()
+            setPendingTools([])
+            clearCachedChatActivity(sessionKey)
+          }
         })
         .catch(() => undefined)
     } else {
@@ -1498,6 +1504,27 @@ export function useChatMessages(
           return dedupeChatMessages([...stableHistory, ...kept])
         })
         setLoading(false)
+        void queryClient.fetchQuery({
+          queryKey: queryKeys.sessions(),
+          queryFn: () => invoke<{
+            sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+          }>("middleware_sessions_list", { input: {} }),
+          staleTime: queryStaleTime.sessions,
+        })
+          .then((result: { sessions?: Array<{ key?: string; sessionKey?: string; status?: string }> }) => {
+            if (cancelled) return
+            const backendSession = (result.sessions || []).find(
+              (item: { key?: string; sessionKey?: string; status?: string }) => item.key === sessionKey || item.sessionKey === sessionKey,
+            )
+            const restoredStatus = statusFromBackendSession(backendSession?.status, allMessages)
+            setStatus(restoredStatus)
+            if (restoredStatus === "done" || restoredStatus === "idle" || restoredStatus === "error") {
+              pendingToolMapRef.current.clear()
+              setPendingTools([])
+              clearCachedChatActivity(sessionKey)
+            }
+          })
+          .catch(() => undefined)
         forceScrollToBottom(true)
 
         unsubscribeStream = subscribeChatStream(
