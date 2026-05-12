@@ -1,14 +1,19 @@
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { loadEnv, type MiddlewareV2Config } from "../src/config/env.js";
 
-const config: MiddlewareV2Config = {
-  host: "127.0.0.1",
-  port: 8989,
-  databasePath: "/tmp/openclaw-middleware-v2-test.sqlite",
-  openclawGatewayUrl: "ws://127.0.0.1:18789",
-  nodeEnv: "test",
-};
+function testConfig(overrides: Partial<MiddlewareV2Config> = {}): MiddlewareV2Config {
+  return {
+    host: "127.0.0.1",
+    port: 8989,
+    databasePath: path.join(os.tmpdir(), `openclaw-middleware-v2-app-${Date.now()}-${Math.random()}.sqlite`),
+    openclawGatewayUrl: "ws://127.0.0.1:1",
+    nodeEnv: "test",
+    ...overrides,
+  };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -20,21 +25,21 @@ describe("middleware-v2 app", () => {
   });
 
   test("health returns service metadata and legacy OpenClaw connection alias", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       ok: true,
       service: "openclaw-middleware-v2",
       gateway: { connected: expect.any(Boolean) },
-      openclaw: { gatewayUrl: "ws://127.0.0.1:18789", connected: expect.any(Boolean) },
+      openclaw: { gatewayUrl: "ws://127.0.0.1:1", connected: expect.any(Boolean) },
       pairing: { enabled: true },
     });
     await app.close();
   });
 
   test("system info exposes configured v2 port", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "GET", url: "/api/system/info" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, port: 8989 });
@@ -42,7 +47,7 @@ describe("middleware-v2 app", () => {
   });
 
   test("legacy bootstrap compatibility route returns startup payload", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "GET", url: "/api/bootstrap" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
@@ -57,7 +62,7 @@ describe("middleware-v2 app", () => {
   });
 
   test("legacy version compatibility route identifies v2", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "GET", url: "/api/version" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, service: "openclaw-middleware-v2" });
@@ -65,7 +70,7 @@ describe("middleware-v2 app", () => {
   });
 
   test("new chat returns a usable sessionKey", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const uniqueName = `Hello ${Date.now()}`;
     const res = await app.inject({ method: "POST", url: "/api/chats", payload: { name: uniqueName, agentId: "main" } });
     expect(res.statusCode).toBe(200);
@@ -77,7 +82,7 @@ describe("middleware-v2 app", () => {
   });
 
   test("new session returns both key and sessionKey aliases", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "POST", url: "/api/sessions", payload: { label: "Hello", agentId: "main" } });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -87,15 +92,36 @@ describe("middleware-v2 app", () => {
   });
 
   test("attaching a session recreates missing chat shell", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "POST", url: "/api/chats/chat_missing/session", payload: { sessionKey: "agent:main:desktop:test" } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ chat: { id: "chat_missing", sessionKey: "agent:main:desktop:test" } });
     await app.close();
   });
 
+  test("compat chats and sessions survive middleware restart", async () => {
+    const databasePath = path.join(os.tmpdir(), `openclaw-v2-compat-restart-${Date.now()}-${Math.random()}.sqlite`);
+    const restartConfig = testConfig({ databasePath });
+    const first = await createApp(restartConfig);
+    const created = await first.inject({ method: "POST", url: "/api/chats", payload: { name: "Persistent Chat", agentId: "main" } });
+    expect(created.statusCode).toBe(200);
+    const createdBody = created.json();
+    await first.close();
+
+    const second = await createApp(restartConfig);
+    const chats = await second.inject({ method: "GET", url: "/api/chats" });
+    const sessions = await second.inject({ method: "GET", url: "/api/sessions" });
+    expect(chats.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: createdBody.chat.id, name: "Persistent Chat", sessionKey: createdBody.chat.sessionKey }),
+    ]));
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: createdBody.chat.sessionKey }),
+    ]));
+    await second.close();
+  });
+
   test("chat bootstrap validates sessionKey", async () => {
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap" });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ ok: false, error: { code: "INVALID_QUERY" } });
@@ -104,7 +130,7 @@ describe("middleware-v2 app", () => {
 
   test("logs request lifecycle without query strings", async () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const app = await createApp(config);
+    const app = await createApp(testConfig());
     const res = await app.inject({ method: "GET", url: "/api/system/info?token=secret&sessionKey=s1" });
     expect(res.statusCode).toBe(200);
     const output = spy.mock.calls.map((call) => String(call[0])).join("\n");

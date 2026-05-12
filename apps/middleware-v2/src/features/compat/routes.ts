@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
+import { fromJson, toJson } from "../../db/json.js";
 
 type CompatRecord = Record<string, any>;
 
@@ -31,7 +32,50 @@ const compatState = {
   topics: [] as CompatRecord[],
   sessions: [] as CompatRecord[],
   terminals: new Map<string, CompatTerminal>(),
+  loadedDbPath: null as string | null,
 };
+
+const compatCollections = ["spaces", "chats", "projects", "topics", "sessions"] as const;
+
+type CompatCollection = typeof compatCollections[number];
+
+function loadCompatState(context: AppContext) {
+  if (compatState.loadedDbPath === context.config.databasePath) return;
+  for (const collection of compatCollections) compatState[collection] = [];
+  compatState.activeSpaceId = null;
+  const rows = context.db.prepare("SELECT key, data_json FROM v2_compat_state").all() as Array<{ key: string; data_json: string }>;
+  const byKey = new Map(rows.map((row) => [row.key, fromJson(row.data_json)]));
+  for (const collection of compatCollections) {
+    const value = byKey.get(collection);
+    if (Array.isArray(value)) compatState[collection] = value as CompatRecord[];
+  }
+  const active = byKey.get("activeSpaceId");
+  if (typeof active === "string") compatState.activeSpaceId = active;
+  compatState.loadedDbPath = context.config.databasePath;
+}
+
+function saveCompatState(context: AppContext) {
+  const save = context.db.prepare(`
+    INSERT INTO v2_compat_state(key, data_json, updated_at_ms)
+    VALUES (@key, @dataJson, @updatedAtMs)
+    ON CONFLICT(key) DO UPDATE SET
+      data_json = excluded.data_json,
+      updated_at_ms = excluded.updated_at_ms
+  `);
+  const timestamp = Date.now();
+  const tx = context.db.transaction(() => {
+    for (const collection of compatCollections) {
+      save.run({ key: collection, dataJson: toJson(compatState[collection]), updatedAtMs: timestamp });
+    }
+    save.run({ key: "activeSpaceId", dataJson: toJson(compatState.activeSpaceId), updatedAtMs: timestamp });
+  });
+  tx();
+}
+
+function saveCompatCollection(context: AppContext, _collection?: CompatCollection) {
+  saveCompatState(context);
+}
+
 
 function ensureDefaultSpace() {
   if (compatState.spaces.length > 0) return compatState.spaces[0];
@@ -280,6 +324,12 @@ function getTerminal(terminalId: string) {
 }
 
 export async function registerCompatRoutes(app: FastifyInstance, context: AppContext) {
+  loadCompatState(context);
+  if (compatState.spaces.length === 0) {
+    ensureDefaultSpace();
+    saveCompatState(context);
+  }
+
   app.get("/api/version", async () => ({
     ok: true,
     version: "0.1.0",
@@ -320,12 +370,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     };
     compatState.spaces.push(space);
     compatState.activeSpaceId = space.id;
+    saveCompatState(context);
     return { space, activeSpaceId: space.id };
   });
 
   app.patch<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request, reply) => {
     const space = patchById(compatState.spaces, request.params.spaceId, request.body as CompatRecord);
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    saveCompatCollection(context, "spaces");
     return { space };
   });
 
@@ -333,12 +385,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const space = compatState.spaces.find((item) => item.id === request.params.spaceId && notDeleted(item));
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
     compatState.activeSpaceId = space.id;
+    saveCompatState(context);
     return { activeSpaceId: space.id, space };
   });
 
   app.delete<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request) => {
     patchById(compatState.spaces, request.params.spaceId, { deleted: true });
     if (compatState.activeSpaceId === request.params.spaceId) compatState.activeSpaceId = ensureDefaultSpace().id;
+    saveCompatState(context);
     return { ok: true };
   });
 
@@ -384,12 +438,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     };
     compatState.chats.push(chat);
     compatState.sessions.push(session);
+    saveCompatState(context);
     return { chat, session };
   });
 
   app.patch<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request, reply) => {
     const chat = patchById(compatState.chats, request.params.chatId, request.body as CompatRecord);
     if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+    saveCompatCollection(context, "chats");
     return { chat };
   });
 
@@ -397,6 +453,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const chat = patchById(compatState.chats, request.params.chatId, { name: body.name || "New Chat" });
     if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+    saveCompatCollection(context, "chats");
     return { chat };
   });
 
@@ -404,11 +461,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const chat = patchById(compatState.chats, request.params.chatId, { archived: body.archived ?? true });
     if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+    saveCompatCollection(context, "chats");
     return { chat };
   });
 
   app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
     patchById(compatState.chats, request.params.chatId, { deleted: true });
+    saveCompatCollection(context, "chats");
     return { ok: true };
   });
 
@@ -432,6 +491,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       };
       compatState.chats.push(chat);
     }
+    saveCompatCollection(context, "chats");
     return { chat };
   });
 
@@ -441,15 +501,18 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const timestamp = nowIso();
     const project = { id: id("project"), name: body.name || "Untitled Project", spaceId: body.spaceId || activeSpaceId(), ...body, createdAt: timestamp, updatedAt: timestamp };
     compatState.projects.push(project);
+    saveCompatCollection(context, "projects");
     return { project };
   });
   app.patch<{ Params: { projectId: string } }>("/api/projects/:projectId", async (request, reply) => {
     const project = patchById(compatState.projects, request.params.projectId, request.body as CompatRecord);
     if (!project) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    saveCompatCollection(context, "projects");
     return { project };
   });
   app.delete<{ Params: { projectId: string } }>("/api/projects/:projectId", async (request) => {
     patchById(compatState.projects, request.params.projectId, { deleted: true });
+    saveCompatCollection(context, "projects");
     return { ok: true };
   });
 
@@ -462,21 +525,25 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const timestamp = nowIso();
     const topic = { id: id("topic"), name: body.name || "New Topic", archived: false, deleted: false, ...body, createdAt: timestamp, updatedAt: timestamp };
     compatState.topics.push(topic);
+    saveCompatCollection(context, "topics");
     return { topic };
   });
   app.patch<{ Params: { topicId: string } }>("/api/topics/:topicId", async (request, reply) => {
     const topic = patchById(compatState.topics, request.params.topicId, request.body as CompatRecord);
     if (!topic) return reply.code(404).send({ ok: false, error: { message: "Topic not found" } });
+    saveCompatCollection(context, "topics");
     return { topic };
   });
   app.post<{ Params: { topicId: string } }>("/api/topics/:topicId/archive", async (request, reply) => {
     const body = (request.body ?? {}) as CompatRecord;
     const topic = patchById(compatState.topics, request.params.topicId, { archived: body.archived ?? true });
     if (!topic) return reply.code(404).send({ ok: false, error: { message: "Topic not found" } });
+    saveCompatCollection(context, "topics");
     return { topic };
   });
   app.delete<{ Params: { topicId: string } }>("/api/topics/:topicId", async (request) => {
     patchById(compatState.topics, request.params.topicId, { deleted: true });
+    saveCompatCollection(context, "topics");
     return { ok: true };
   });
 
@@ -501,6 +568,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     }).catch(() => { /* session may already exist or gateway may be offline */ });
     const session = { id: id("session"), ...body, key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
     compatState.sessions.push(session);
+    saveCompatCollection(context, "sessions");
     return { session };
   });
 
@@ -509,6 +577,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const project = patchById(compatState.projects, request.params.projectId, { archived: body.archived ?? true });
     if (!project) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    saveCompatCollection(context, "projects");
     return { project };
   });
 
@@ -868,6 +937,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           updatedAt: timestamp,
         };
         compatState.sessions.push(session);
+        saveCompatCollection(context, "sessions");
         return { session };
       }
       case "middleware_chats_create": {
@@ -892,8 +962,21 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           updatedAt: timestamp,
           lastActiveAt: timestamp,
         };
+        const session = {
+          id: id("session"),
+          key: sessionKey,
+          sessionKey,
+          projectId: input.projectId || null,
+          topicId: input.topicId || null,
+          agentId: input.agentId || "main",
+          label: input.name || "New Chat",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
         compatState.chats.push(chat);
-        return { chat, session: { sessionKey } };
+        compatState.sessions.push(session);
+        saveCompatState(context);
+        return { chat, session };
       }
       case "middleware_chat_stop": {
         const sk = String(input.sessionKey ?? "");
