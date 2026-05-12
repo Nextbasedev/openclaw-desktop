@@ -42,8 +42,7 @@ describe("middleware-v2 app", () => {
     expect(res.json()).toMatchObject({
       ok: true,
       service: "openclaw-middleware-v2",
-      spaces: [],
-      activeSpaceId: null,
+      activeSpaceId: "space_default",
       chats: [],
       projects: [],
       sessions: [],
