@@ -123,9 +123,9 @@ export function RichContentPreview({ message }: { message: ChatMessage }) {
               : "grid grid-cols-2 gap-2"
           }
         >
-          {images.map(({ attachment, url }) => (
+          {images.map(({ attachment, url }, index) => (
             <ImageThumbnail
-              key={attachment.name}
+              key={`${attachment.name}-${index}`}
               attachment={attachment}
               url={url}
               solo={solo}
@@ -134,13 +134,13 @@ export function RichContentPreview({ message }: { message: ChatMessage }) {
         </div>
       )}
 
-      {others.map((attachment) => {
+      {others.map((attachment, index) => {
         const url = attachmentUrl(attachment)
 
         if (attachment.mimeType === "application/pdf" && url) {
           return (
             <a
-              key={attachment.name}
+              key={`${attachment.name}-${index}`}
               href={url}
               target="_blank"
               rel="noreferrer"
@@ -155,7 +155,7 @@ export function RichContentPreview({ message }: { message: ChatMessage }) {
 
         return (
           <div
-            key={attachment.name}
+            key={`${attachment.name}-${index}`}
             className="flex items-center gap-2 rounded-xl border border-border/20 bg-card/40 px-3 py-2 text-[12px] text-foreground/70"
           >
             {attachment.mimeType.startsWith("image/") ? (

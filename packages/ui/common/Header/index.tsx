@@ -1,3 +1,4 @@
+// openclaw header design
 "use client"
 
 import { useEffect, useRef, useState, type DragEvent, type CSSProperties } from "react"
@@ -62,6 +63,7 @@ type HeaderProps = {
   onOpenSettings?: () => void
   onOpenNotifications?: () => void
   onOpenLogs?: () => void
+  showWorkspaceControls?: boolean
   onNavigateToChat?: (
     chat: ActiveChat,
   ) => void | boolean | Promise<void | boolean>
@@ -95,6 +97,7 @@ export function Header({
   onOpenSettings,
   onOpenNotifications,
   onOpenLogs,
+  showWorkspaceControls = true,
   onNavigateToChat,
 }: HeaderProps) {
   const platform = usePlatform()
@@ -310,7 +313,7 @@ export function Header({
       <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2 border-b border-border/50", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
-            {showSplitButton && (
+            {showWorkspaceControls && showSplitButton && (
               <button
                 type="button"
                 aria-label={
@@ -332,58 +335,62 @@ export function Header({
               </button>
             )}
 
-            <button
-              type="button"
-              data-testid="toggle-sidebar"
-              aria-label={
-                sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-              }
-              title={
-                sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-              }
-              onClick={onToggleSidebar}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                sidebarOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
-            >
-              <VscLayoutSidebarLeft className="size-4" />
-            </button>
+            {showWorkspaceControls && (
+              <>
+                <button
+                  type="button"
+                  data-testid="toggle-sidebar"
+                  aria-label={
+                    sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
+                  }
+                  title={
+                    sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
+                  }
+                  onClick={onToggleSidebar}
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-md",
+                    "cursor-pointer transition-colors",
+                    sidebarOpen
+                      ? "bg-transparent text-foreground"
+                      : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                  )}
+                >
+                  <VscLayoutSidebarLeft className="size-4" />
+                </button>
 
-            <button
-              type="button"
-              aria-label="Toggle inspector panel"
-              title="Toggle inspector panel"
-              onClick={onToggleInspector}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                inspectorOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
-            >
-              <VscLayoutSidebarRight className="size-4" />
-            </button>
+                <button
+                  type="button"
+                  aria-label="Toggle inspector panel"
+                  title="Toggle inspector panel"
+                  onClick={onToggleInspector}
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-md",
+                    "cursor-pointer transition-colors",
+                    inspectorOpen
+                      ? "bg-transparent text-foreground"
+                      : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                  )}
+                >
+                  <VscLayoutSidebarRight className="size-4" />
+                </button>
 
-            <button
-              type="button"
-              aria-label="Toggle terminal"
-              title="Toggle terminal"
-              onClick={onToggleTerminal}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                terminalOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
-            >
-              <VscTerminal className="size-4" />
-            </button>
+                <button
+                  type="button"
+                  aria-label="Toggle terminal"
+                  title="Toggle terminal"
+                  onClick={onToggleTerminal}
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-md",
+                    "cursor-pointer transition-colors",
+                    terminalOpen
+                      ? "bg-transparent text-foreground"
+                      : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                  )}
+                >
+                  <VscTerminal className="size-4" />
+                </button>
+              </>
+            )}
 
             <button
               type="button"
@@ -400,10 +407,12 @@ export function Header({
               Logs
             </button>
 
-            <NotificationPopover
-              onViewAll={onOpenNotifications}
-              onNavigateToChat={onNavigateToChat}
-            />
+            {showWorkspaceControls && (
+              <NotificationPopover
+                onViewAll={onOpenNotifications}
+                onNavigateToChat={onNavigateToChat}
+              />
+            )}
             <HeaderIconButton
               icon={Icons.Settings}
               label="Settings"
