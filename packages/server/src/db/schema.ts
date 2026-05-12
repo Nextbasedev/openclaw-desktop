@@ -196,6 +196,33 @@ export function initDb(db: Database.Database): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_message_attachments_lookup ON message_attachments(session_key, message_text_hash);
+
+    CREATE TABLE IF NOT EXISTS search_messages (
+      id TEXT PRIMARY KEY,
+      session_key TEXT NOT NULL,
+      message_id TEXT,
+      role TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_messages_session ON search_messages(session_key, created_at);
+    CREATE VIRTUAL TABLE IF NOT EXISTS search_messages_fts USING fts5(
+      body,
+      content='search_messages',
+      content_rowid='rowid',
+      tokenize='unicode61'
+    );
+    CREATE TRIGGER IF NOT EXISTS search_messages_ai AFTER INSERT ON search_messages BEGIN
+      INSERT INTO search_messages_fts(rowid, body) VALUES (new.rowid, new.body);
+    END;
+    CREATE TRIGGER IF NOT EXISTS search_messages_ad AFTER DELETE ON search_messages BEGIN
+      INSERT INTO search_messages_fts(search_messages_fts, rowid, body) VALUES('delete', old.rowid, old.body);
+    END;
+    CREATE TRIGGER IF NOT EXISTS search_messages_au AFTER UPDATE ON search_messages BEGIN
+      INSERT INTO search_messages_fts(search_messages_fts, rowid, body) VALUES('delete', old.rowid, old.body);
+      INSERT INTO search_messages_fts(rowid, body) VALUES (new.rowid, new.body);
+    END;
   `);
 
   const migrations: Array<{ table: string; column: string; sql: string }> = [
@@ -213,6 +240,11 @@ export function initDb(db: Database.Database): void {
       table: "projects",
       column: "sync_dirty",
       sql: "ALTER TABLE projects ADD COLUMN sync_dirty INTEGER NOT NULL DEFAULT 1",
+    },
+    {
+      table: "search_messages",
+      column: "message_id",
+      sql: "ALTER TABLE search_messages ADD COLUMN message_id TEXT",
     },
     {
       table: "topics",

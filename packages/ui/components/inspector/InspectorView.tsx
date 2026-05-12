@@ -98,7 +98,7 @@ export function InspectorView({
 
   return (
     <div className={cn("flex h-full min-w-0 flex-col", className)}>
-      <div className="flex h-9 shrink-0 items-center border-b border-border/50 px-1">
+      <div className="flex h-12 shrink-0 items-center border-b border-border/50 px-1">
         {INSPECTOR_TABS.map((tab) => {
           const isActive = activeTab === tab.id
           return (

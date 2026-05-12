@@ -10,6 +10,7 @@ import {
 import { enqueue } from "../sync/outbox.js"
 import { kickSyncEngine } from "../sync/engine.js"
 import { rememberAnchor } from "../sync/anchor.js"
+import { removeIndexedSessionMessages } from "./search.service.js"
 
 const CHAT_COLUMNS =
   "id, name, session_key, space_id, agent_id, archived, pinned, last_active_at, created_at, updated_at"
@@ -145,6 +146,7 @@ export function chatsDelete(input: { chatId: string }) {
 
   enqueue("chat", input.chatId, "delete")
   db.prepare("DELETE FROM chats WHERE id = ?").run(input.chatId)
+  if (existing.session_key) removeIndexedSessionMessages(existing.session_key)
   recordSyncTombstone(db, "chat", input.chatId)
   kickSyncEngine()
   return { ok: true, chatId: input.chatId }

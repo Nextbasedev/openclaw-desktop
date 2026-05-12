@@ -52,6 +52,16 @@ describe("stripGatewayPrefixes", () => {
       "hello world",
     ],
     [
+      "sender metadata preamble with utc timestamp",
+      'Sender (untrusted metadata):\n```json\n{\n  "label": "OpenClaw Desktop Middleware (gateway-client)",\n  "id": "gateway-client",\n  "name": "OpenClaw Desktop Middleware",\n  "username": "OpenClaw Desktop Middleware"\n}\n```\n\n[Fri 2026-05-08 10:31 UTC] Hello',
+      "Hello",
+    ],
+    [
+      "sender metadata preamble with gmt offset timestamp",
+      'Sender (untrusted metadata):\n```json\n{\n  "label": "openclaw-tui",\n  "id": "openclaw-tui"\n}\n```\n\n[Thu 2026-05-07 15:58 GMT+5:30] hwy',
+      "hwy",
+    ],
+    [
       "cron header with exact reply",
       "[cron:1ac04ab4-f813-4057-b8c3-b562e38d0c59 hey-jarvis-10s] Reply with exactly: Hey jarvis",
       "Hey jarvis",
@@ -156,6 +166,27 @@ describe("cleanUserMessageText", () => {
       "check this",
     )
   })
+
+  it("removes sender metadata wrappers saved in gateway history", () => {
+    assert.equal(
+      cleanUserMessageText(
+        'Sender (untrusted metadata):\n```json\n{\n  "label": "OpenClaw Desktop Middleware (gateway-client)",\n  "id": "gateway-client",\n  "name": "OpenClaw Desktop Middleware",\n  "username": "OpenClaw Desktop Middleware"\n}\n```\n\n[Fri 2026-05-08 10:31 UTC] Hello',
+      ),
+      "Hello",
+    )
+  })
+
+  it("keeps plain user text that only mentions sender metadata words", () => {
+    const text =
+      'Sender (untrusted metadata): please show this text literally without parsing'
+    assert.equal(cleanUserMessageText(text), text)
+  })
+
+  it("keeps malformed sender metadata blocks unchanged", () => {
+    const text =
+      'Sender (untrusted metadata):\n```json\nnot-json\n```\n\nHello'
+    assert.equal(cleanUserMessageText(text), text)
+  })
 })
 
 describe("isTransientSlashCommandHistory", () => {
@@ -230,6 +261,29 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[1]?.stopReason, "error")
   })
 
+  it("keeps gateway-injected agent failure replies visible", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      {
+        role: "assistant",
+        provider: "openclaw",
+        model: "gateway-injected",
+        content: [
+          {
+            type: "text",
+            text: "Agent failed before reply: Malformed agent session key.",
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(
+      parsed.messages[1]?.text,
+      "Agent failed before reply: Malformed agent session key.",
+    )
+  })
+
   it("does not create visible messages for gateway-only user entries", () => {
     const parsed = parseChatHistory([
       {
@@ -277,6 +331,118 @@ describe("parseChatHistory", () => {
       parsed.messages[0]?.text,
       "you have ngix setup>\nwhich is forwarding the traffics?",
     )
+  })
+
+  it("restores persisted tool durations from tool result tookMs", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "web_fetch",
+            arguments: { url: "https://example.com" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "web_fetch",
+        timestamp: 5000,
+        details: { tookMs: 1234 },
+        content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "1.2s")
+  })
+
+  it("keeps tool calls running until their result is present", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "exec",
+            arguments: { command: "sleep 1" },
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.status, "running")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.resultText, undefined)
+  })
+
+  it("matches tool results by toolCallId when restoring output", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "first",
+            arguments: {},
+          },
+          {
+            type: "toolCall",
+            id: "tc2",
+            name: "second",
+            arguments: {},
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc2",
+        toolName: "second",
+        timestamp: 2500,
+        content: [{ type: "text", text: "second output" }],
+      },
+    ])
+
+    const calls = parsed.messages[0]?.toolCalls ?? []
+    assert.equal(calls.find((call) => call.id === "tc1")?.status, "running")
+    assert.equal(calls.find((call) => call.id === "tc2")?.status, "success")
+    assert.equal(calls.find((call) => call.id === "tc2")?.resultText, "second output")
+  })
+
+  it("falls back to assistant and tool result timestamps for history tool durations", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "exec",
+            arguments: { command: "echo hi" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "exec",
+        timestamp: 3650,
+        content: [{ type: "text", text: "hi" }],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "2.6s")
   })
 
   it("restores reply previews from markdown quotes with blank quoted lines", () => {

@@ -11,8 +11,9 @@ const SHORTCUTS: Shortcut[] = [
   { command: "New Chat", keys: [["Ctrl", "N"], ["⌘", "N"]], scope: "Global" },
   { command: "Command Palette", keys: [["Ctrl", "K"], ["⌘", "K"]], scope: "Global" },
   { command: "Toggle Terminal", keys: [["Ctrl", "`"], ["⌘", "`"]], scope: "Global" },
-  { command: "Hold to record voice", keys: [["Win", "Space"], ["⌘", "Space"]], scope: "Chat" },
-  { command: "Toggle voice recording", keys: [["Ctrl"], ["Ctrl"]], scope: "Chat" },
+  // Voice-to-text shortcuts intentionally disabled (mic button removed from composer)
+  // { command: "Hold to record voice", keys: [["Win", "Space"], ["⌘", "Space"]], scope: "Chat" },
+  // { command: "Toggle voice recording", keys: [["Ctrl"], ["Ctrl"]], scope: "Chat" },
   { command: "Toggle Theme", keys: [["D"]], scope: "Global" },
   { command: "Quit Application", keys: [["Ctrl", "Q"], ["⌘", "Q"]], scope: "Global" },
   { command: "Copy Selection", keys: [["Ctrl", "C"], ["⌘", "C"]], scope: "Terminal" },

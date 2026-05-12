@@ -2039,6 +2039,10 @@ function AppShell({
         onOpenSettings={openSettings}
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
+        onNavigateProject={() => {}}
+        onNavigateTopic={() => {}}
+        onNavigateDirectChat={() => {}}
+        onNavigateSearchMessage={() => {}}
       />
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />

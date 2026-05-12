@@ -592,3 +592,53 @@ body {
     opacity: 0;
   }
 }
+@keyframes thinking-shimmer {
+  from {
+    background-position: 140% 50%;
+  }
+  to {
+    background-position: -40% 50%;
+  }
+}
+
+.thinking-shimmer {
+  color: transparent;
+  background-image: linear-gradient(
+    128deg,
+    color-mix(in oklab, var(--muted-foreground) 66%, transparent) 0%,
+    color-mix(in oklab, var(--muted-foreground) 74%, transparent) 42%,
+    color-mix(in oklab, var(--foreground) 88%, transparent) 47%,
+    #ffffff 50%,
+    color-mix(in oklab, var(--foreground) 88%, transparent) 53%,
+    color-mix(in oklab, var(--muted-foreground) 74%, transparent) 58%,
+    color-mix(in oklab, var(--muted-foreground) 66%, transparent) 100%
+  );
+  background-size: 340% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: thinking-shimmer 2.6s linear infinite;
+  will-change: background-position;
+}
+
+.thinking-ellipsis::after {
+  display: inline-block;
+  width: 1.25em;
+  text-align: left;
+  content: "";
+  animation: thinking-ellipsis 1.2s steps(4, end) infinite;
+}
+
+@keyframes thinking-ellipsis {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75%, 100% {
+    content: "...";
+  }
+}

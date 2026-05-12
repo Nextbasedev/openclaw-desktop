@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
+import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
 import type {
   ToolCall,
   AgentInfo,
@@ -13,6 +14,7 @@ import {
   buildTree,
   finalizeStaleRunningActivity,
 } from "@/components/inspector/activity-types"
+import { inferLiveToolStatus, liveToolEventResultText } from "@/lib/liveToolCalls"
 import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
@@ -30,6 +32,26 @@ function activityPhaseFromLifecycle(status: SubagentLifecycleStatus) {
   return "start"
 }
 
+function liveTurnForSession(sessionKey: string | null): { messageId: string; messagePreview?: string } {
+  if (!sessionKey) return { messageId: "live:unknown" }
+  const messages = getCachedChatSessionMessages(sessionKey) ?? []
+  const latestUser = [...messages].reverse().find((message) => message.role === "user" && message.text.trim())
+  if (!latestUser) return { messageId: `live:${sessionKey}` }
+  const text = latestUser.text.replace(/\s+/g, " ").trim()
+  return {
+    messageId: latestUser.messageId || `live:${sessionKey}`,
+    messagePreview: text.length > 72 ? `${text.slice(0, 72)}…` : text,
+  }
+}
+
+function liveTurnMessageId(existing: string | undefined, liveId: string) {
+  return !existing || existing.startsWith("live:") ? liveId : existing
+}
+
+function liveTurnPreview(existing: string | undefined, livePreview: string | undefined) {
+  return !existing || existing === "Live / ungrouped tools" ? livePreview : existing
+}
+
 function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   return messages.some((message) => {
     if (!Array.isArray(message.content)) return false
@@ -41,10 +63,27 @@ function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   })
 }
 
-function stringifyToolOutput(value: unknown): string | undefined {
-  if (typeof value === "string") return value
-  if (value == null) return undefined
-  try { return JSON.stringify(value, null, 2) } catch { return String(value) }
+function finalizeActivityCall(call: ToolCall): ToolCall {
+  if (call.status !== "running") return call
+  return {
+    ...call,
+    status: "success",
+    duration: call.duration ?? (call.startedAt ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s` : undefined),
+  }
+}
+
+function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): ToolCall {
+  if (!existing) return incoming
+  const merged = { ...existing, ...incoming }
+  if (existing.status !== "running" && incoming.status === "running") {
+    merged.status = existing.status
+  }
+  if (existing.duration && existing.status !== "running") merged.duration = existing.duration
+  if (existing.startedAt && !incoming.startedAt) merged.startedAt = existing.startedAt
+  if (existing.output && !incoming.output) merged.output = existing.output
+  if (incoming.output && incoming.output !== existing.output) merged.output = incoming.output
+  if (existing.status === "error" || incoming.status === "error") merged.status = "error"
+  return merged
 }
 
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
@@ -75,6 +114,22 @@ function isBackendRunningStatus(status: unknown) {
   return status === "running" || status === "queued" || status === "starting"
 }
 
+function isToolTerminalPhase(phase: string | null): boolean {
+  return (
+    phase === "result" ||
+    phase === "error" ||
+    phase === "done" ||
+    phase === "complete" ||
+    phase === "completed" ||
+    phase === "success" ||
+    phase === "failed"
+  )
+}
+
+function isToolErrorPhase(phase: string | null): boolean {
+  return phase === "error" || phase === "failed"
+}
+
 async function shouldFinalizeStaleActivity(sessionKey: string) {
   try {
     const result = await invoke<{
@@ -101,9 +156,6 @@ export function useAgentActivity(sessionKey: string | null) {
   )
   const spawnQueueRef = useRef<string[]>([])
   const subKeyToAgentRef = useRef<Map<string, string>>(new Map())
-  const activeSubPollsRef = useRef<
-    Map<string, ReturnType<typeof setTimeout>>
-  >(new Map())
   const cancelledRef = useRef(false)
 
   const syncState = useCallback(() => {
@@ -112,19 +164,12 @@ export function useAgentActivity(sessionKey: string | null) {
     setSubKeyToAgent(Array.from(subKeyToAgentRef.current.entries()))
   }, [])
 
-  const stopSubagentPoll = useCallback((subKey: string) => {
-    const timer = activeSubPollsRef.current.get(subKey)
-    if (timer) {
-      clearTimeout(timer)
-      activeSubPollsRef.current.delete(subKey)
-    }
-  }, [])
-
-  const stopAllSubagentPolls = useCallback(() => {
-    for (const [, timer] of activeSubPollsRef.current) {
-      clearTimeout(timer)
-    }
-    activeSubPollsRef.current.clear()
+  const resetVisibleState = useCallback((clearStreamStatus: boolean) => {
+    setToolCalls([])
+    setAgents(new Map())
+    setSubKeyToAgent([])
+    if (clearStreamStatus) setStreamStatus(null)
+    setHistoryLoaded(false)
   }, [])
 
   const fetchSubagentHistory = useCallback(
@@ -142,9 +187,10 @@ export function useAgentActivity(sessionKey: string | null) {
         let changed = false
         for (const call of subParsed.calls) {
           const existing = callMapRef.current.get(call.id)
-          if (!existing || existing.status !== call.status) {
-            call.subagentOf = agentId
-            callMapRef.current.set(call.id, call)
+          call.subagentOf = agentId
+          const merged = mergeActivityCall(existing, call)
+          if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+            callMapRef.current.set(call.id, merged)
             changed = true
           }
         }
@@ -181,32 +227,6 @@ export function useAgentActivity(sessionKey: string | null) {
     [syncState],
   )
 
-  const startSubagentPoll = useCallback(
-    (subKey: string, agentId: string) => {
-      if (activeSubPollsRef.current.has(subKey)) return
-      subKeyToAgentRef.current.set(subKey, agentId)
-
-      const poll = () => {
-        if (cancelledRef.current) return
-        fetchSubagentHistory(subKey, agentId).then(() => {
-          if (cancelledRef.current) return
-          const agentInfo = agentsRef.current.get(agentId)
-          const isDone =
-            agentInfo?.phase === "done" ||
-            agentInfo?.phase === "error"
-          if (isDone) {
-            activeSubPollsRef.current.delete(subKey)
-            return
-          }
-          const timer = setTimeout(poll, 1000)
-          activeSubPollsRef.current.set(subKey, timer)
-        })
-      }
-      poll()
-    },
-    [fetchSubagentHistory],
-  )
-
   const attachSubagentSession = useCallback((
     agentId: string,
     subKey: string,
@@ -220,9 +240,8 @@ export function useAgentActivity(sessionKey: string | null) {
         sessionKey: subKey,
       })
     }
-    startSubagentPoll(subKey, agentId)
     syncState()
-  }, [startSubagentPoll, syncState])
+  }, [syncState])
 
   const discoverSubagentKey = useCallback(
     (subKey: string) => {
@@ -244,6 +263,7 @@ export function useAgentActivity(sessionKey: string | null) {
       if (!toolCallId || !name) return
       const map = callMapRef.current
       const existing = map.get(toolCallId)
+      const liveTurn = liveTurnForSession(sessionKey)
       const fallback: ToolCall = {
         id: toolCallId,
         tool: name,
@@ -271,7 +291,10 @@ export function useAgentActivity(sessionKey: string | null) {
           if (!spawnQueueRef.current.includes(agentId)) {
             spawnQueueRef.current.push(agentId)
           }
-        } else if (phase === "spawn_linked" || phase === "result") {
+        } else if (
+          phase === "spawn_linked" ||
+          (isToolTerminalPhase(phase) && !isToolErrorPhase(phase))
+        ) {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
             ...(prev ?? { runId: agentId, label }),
@@ -279,7 +302,7 @@ export function useAgentActivity(sessionKey: string | null) {
           })
           const childSessionKey = extractSubagentSessionKey(data)
           if (childSessionKey) attachSubagentSession(agentId, childSessionKey)
-        } else if (phase === "error") {
+        } else if (isToolErrorPhase(phase)) {
           const prev = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
             ...(prev ?? { runId: agentId, label }),
@@ -295,7 +318,11 @@ export function useAgentActivity(sessionKey: string | null) {
           label: `sub-${subagentOf.slice(-6)}`,
         })
       }
-      if (subagentOf && name === "sessions_yield" && phase === "error") {
+      if (
+        subagentOf &&
+        name === "sessions_yield" &&
+        isToolErrorPhase(phase)
+      ) {
         const current = agentsRef.current.get(subagentOf)
         agentsRef.current.set(subagentOf, {
           ...(current ?? {
@@ -308,7 +335,8 @@ export function useAgentActivity(sessionKey: string | null) {
       if (
         subagentOf &&
         name === "sessions_yield" &&
-        phase === "result"
+        isToolTerminalPhase(phase) &&
+        !isToolErrorPhase(phase)
       ) {
         const current = agentsRef.current.get(subagentOf)
         agentsRef.current.set(subagentOf, {
@@ -321,38 +349,44 @@ export function useAgentActivity(sessionKey: string | null) {
       }
 
       if (phase === "calling" || phase === "start") {
-        map.set(toolCallId, {
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...fallback,
           input: data.args as Record<string, unknown> | undefined,
-          startedAt: Date.now(),
-        })
+          startedAt: existing?.startedAt ?? Date.now(),
+          messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId ?? runId),
+          messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
+        }))
       } else if (phase === "update") {
         const call = existing ?? fallback
-        map.set(toolCallId, {
+        const resultText = liveToolEventResultText(data)
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
-          status: "running",
-          output: stringifyToolOutput(data.partialResult ?? data.output ?? data.content ?? data.details) ?? call.output,
-        })
-      } else if (phase === "result" || phase === "error") {
+          status: inferLiveToolStatus(phase, resultText, data.isError),
+          output: resultText || call.output,
+          messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
+        }))
+      } else if (isToolTerminalPhase(phase)) {
         const call = existing ?? fallback
-        const duration = call.startedAt
-          ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-          : undefined
-        const result = data.result ?? data.output ?? data.content ?? data.details
-        const output =
-          phase === "error"
-            ? ((data.error as string) ?? "Unknown error")
-            : stringifyToolOutput(result)
-        map.set(toolCallId, {
+        const duration = call.duration && call.status !== "running"
+          ? call.duration
+          : call.startedAt
+            ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+            : undefined
+        const resultText = liveToolEventResultText(data)
+        const output = resultText || (isToolErrorPhase(phase) ? "Unknown error" : call.output)
+        map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
-          status: phase === "error" ? "error" : "success",
+          status: inferLiveToolStatus(phase, resultText, data.isError),
           duration,
           output,
-        })
+          messageId: liveTurnMessageId(call.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(call.messagePreview, liveTurn.messagePreview),
+        }))
       }
       syncState()
     },
-    [syncState],
+    [sessionKey, syncState],
   )
 
   const processMessage = useCallback(
@@ -379,15 +413,20 @@ export function useAgentActivity(sessionKey: string | null) {
                   : null
           const name = typeof record.name === "string" ? record.name : null
           if (!toolCallId || !name) continue
-          if (callMapRef.current.has(toolCallId)) continue
 
-          callMapRef.current.set(toolCallId, {
+          const existing = callMapRef.current.get(toolCallId)
+          const liveTurn = liveTurnForSession(sessionKey)
+          const status = record.isError === true || record.status === "error" ? "error" : existing?.status ?? "running"
+          callMapRef.current.set(toolCallId, mergeActivityCall(existing, {
             id: toolCallId,
             tool: name,
-            status: "running",
+            status,
+            duration: typeof record.duration === "string" ? record.duration : undefined,
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
-            startedAt: Date.now(),
-          })
+            startedAt: existing?.startedAt ?? Date.now(),
+            messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),
+            messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
+          }))
           changed = true
         }
       }
@@ -398,7 +437,7 @@ export function useAgentActivity(sessionKey: string | null) {
       }
       if (changed) syncState()
     },
-    [discoverSubagentKey, syncState],
+    [discoverSubagentKey, sessionKey, syncState],
   )
 
   const processAgentEvent = useCallback(
@@ -419,7 +458,7 @@ export function useAgentActivity(sessionKey: string | null) {
         void shouldFinalizeStaleActivity(sessionKey).then((shouldFinalize) => {
           if (!shouldFinalize || cancelledRef.current) return
           const reconciled = finalizeStaleRunningActivity(
-            Array.from(callMapRef.current.values()),
+            Array.from(callMapRef.current.values()).map(finalizeActivityCall),
             agentsRef.current,
           )
           callMapRef.current = new Map(
@@ -429,16 +468,9 @@ export function useAgentActivity(sessionKey: string | null) {
           syncState()
         })
       }
-      for (const [subKey, agentId] of subKeyToAgentRef.current) {
-        void fetchSubagentHistory(subKey, agentId).then((phase) => {
-          if (!phase || isActiveSubagent(phase)) {
-            startSubagentPoll(subKey, agentId)
-          }
-        })
-      }
       syncState()
     }, 3000)
-  }, [fetchSubagentHistory, startSubagentPoll, syncState, sessionKey])
+  }, [syncState, sessionKey])
 
   const handleStreamResume = useCallback(() => {
     if (doneTimerRef.current) {
@@ -448,7 +480,6 @@ export function useAgentActivity(sessionKey: string | null) {
   }, [])
 
   useEffect(() => {
-    stopAllSubagentPolls()
     cancelledRef.current = false
 
     if (!sessionKey) {
@@ -456,21 +487,14 @@ export function useAgentActivity(sessionKey: string | null) {
       agentsRef.current.clear()
       spawnQueueRef.current = []
       subKeyToAgentRef.current.clear()
-      setToolCalls([])
-      setAgents(new Map())
-      setSubKeyToAgent([])
-      setStreamStatus(null)
-      setHistoryLoaded(false)
+      queueMicrotask(() => resetVisibleState(true))
       return
     }
     callMapRef.current.clear()
     agentsRef.current.clear()
     spawnQueueRef.current = []
     subKeyToAgentRef.current.clear()
-    setToolCalls([])
-    setAgents(new Map())
-    setSubKeyToAgent([])
-    setHistoryLoaded(false)
+    queueMicrotask(() => resetVisibleState(false))
 
     const activeSessionKey = sessionKey
 
@@ -492,7 +516,7 @@ export function useAgentActivity(sessionKey: string | null) {
           ? finalizeStaleRunningActivity(parsed.calls, parsed.agents)
           : parsed
         for (const call of reconciled.calls) {
-          callMapRef.current.set(call.id, call)
+          callMapRef.current.set(call.id, mergeActivityCall(callMapRef.current.get(call.id), call))
         }
         for (const [id, info] of reconciled.agents) {
           agentsRef.current.set(id, info)
@@ -560,7 +584,6 @@ export function useAgentActivity(sessionKey: string | null) {
     return () => {
       cancelledRef.current = true
       unsubscribeStream()
-      stopAllSubagentPolls()
       if (doneTimerRef.current) {
         clearTimeout(doneTimerRef.current)
         doneTimerRef.current = null
@@ -573,10 +596,14 @@ export function useAgentActivity(sessionKey: string | null) {
     processMessage,
     syncState,
     fetchSubagentHistory,
-    stopAllSubagentPolls,
     handleStreamDone,
     handleStreamResume,
+    resetVisibleState,
   ])
+
+  // Do not poll full chat history while the activity panel is open. The live
+  // stream drives activity updates; history is only loaded on panel/session open
+  // and via targeted repair calls after terminal tool/subagent events.
 
   const tree = buildTree(toolCalls, streamStatus, agents)
   const isLive =

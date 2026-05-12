@@ -34,6 +34,11 @@ export type ChatComposerSubmit = {
     messageId: string
     role: "user" | "assistant"
     text: string
+    selections?: Array<{
+      messageId: string
+      text: string
+      comment?: string
+    }>
   }
   autonomyMode?: ChatAutonomyMode
   execPolicy?: ChatExecPolicy | null
