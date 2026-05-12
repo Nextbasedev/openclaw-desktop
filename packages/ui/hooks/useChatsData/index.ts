@@ -74,7 +74,7 @@ export function useChatsData(
       }
     } catch {}
     try {
-      const bootstrap = refreshTrigger === 0 ? await loadMiddlewareStartupBootstrap() : null
+      const bootstrap = await loadMiddlewareStartupBootstrap()
       if (bootstrap && (!spaceId || bootstrap.activeSpaceId === spaceId)) {
         const active = (bootstrap.chats || []).filter((c) => !c.archived)
         setChats(active)
@@ -95,7 +95,7 @@ export function useChatsData(
     } catch (e) {
       console.error("[ChatsSection] load chats failed", e)
     }
-  }, [refreshTrigger, spaceId])
+  }, [spaceId])
 
   useEffect(() => {
     loadChats()
@@ -155,7 +155,6 @@ export function useChatsData(
   useEffect(() => {
     return on<{ at?: string }>("chat:activity", (event) => {
       if (!activeChat) return
-      invalidateMiddlewareStartupBootstrap()
       const lastActiveAt = event?.at || new Date().toISOString()
       setChats((prev) =>
         prev.map((c) =>

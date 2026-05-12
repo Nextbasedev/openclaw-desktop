@@ -60,7 +60,7 @@ export type RawHistoryMessage = {
   content?: string | ContentBlock[]
   errorMessage?: string | null
   createdAt?: string
-  timestamp?: number | string
+  timestamp?: number
   toolCallId?: string
   toolName?: string
   details?: unknown
@@ -126,10 +126,6 @@ function inferToolStatus(raw: RawHistoryMessage, resultText: string): InlineTool
 function rawTimestampMs(raw: RawHistoryMessage): number | null {
   if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
     return raw.timestamp
-  }
-  if (typeof raw.timestamp === "string") {
-    const parsed = Date.parse(raw.timestamp)
-    if (Number.isFinite(parsed)) return parsed
   }
   if (raw.createdAt) {
     const parsed = Date.parse(raw.createdAt)

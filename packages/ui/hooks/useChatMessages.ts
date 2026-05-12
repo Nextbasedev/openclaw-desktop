@@ -59,7 +59,7 @@ type RawMessage = {
   text?: string
   content?: string | ContentBlock[]
   createdAt?: string
-  timestamp?: number | string
+  timestamp?: number
   toolCallId?: string
   toolName?: string
   details?: unknown
@@ -87,10 +87,6 @@ type BranchSummary = {
 function rawMessageTimestampMs(raw: RawMessage): number | null {
   if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
     return raw.timestamp
-  }
-  if (typeof raw.timestamp === "string") {
-    const parsed = Date.parse(raw.timestamp)
-    if (Number.isFinite(parsed)) return parsed
   }
   if (raw.createdAt) {
     const parsed = Date.parse(raw.createdAt)
@@ -965,7 +961,6 @@ export function useChatMessages(
           const text = rawText.trim()
           if (!text) break
           const timestamp = ev.createdAt || new Date().toISOString()
-          emit("chat:activity", { at: timestamp })
           const pendingEmbeds =
             embedsMapRef.current.size > 0
               ? Array.from(embedsMapRef.current.values())
