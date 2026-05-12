@@ -91,7 +91,7 @@ export function SubagentBar({
           aria-label="Background agents"
           aria-expanded={expanded}
           onClick={() => setExpanded((p) => !p)}
-          className="relative flex w-full items-center gap-2.5 px-3.5 py-2.5 cursor-pointer"
+          className="relative flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3.5 py-2.5 outline-none focus-visible:ring-1 focus-visible:ring-foreground/18"
         >
           <VscHubot
             className={cn(

@@ -192,17 +192,9 @@ export function useSubagentMessages(
       if (!cancelledRef.current) setLoading(false)
     })
 
-    if (isLive) {
-      const poll = () => {
-        if (cancelledRef.current) return
-        fetchMessages(sessionKey, 5_000).then(() => {
-          if (!cancelledRef.current && isLive) {
-            timerRef.current = window.setTimeout(poll, 1000)
-          }
-        })
-      }
-      timerRef.current = window.setTimeout(poll, 1000)
-    }
+    // Do not poll chat history while a subagent is live. Live updates should
+    // come from the stream path; history is only fetched when the view opens or
+    // the session key changes.
 
     return () => {
       cancelledRef.current = true
@@ -211,7 +203,7 @@ export function useSubagentMessages(
         timerRef.current = null
       }
     }
-  }, [sessionKey, isLive, fetchMessages])
+  }, [sessionKey, fetchMessages])
 
   return { messages, loading }
 }

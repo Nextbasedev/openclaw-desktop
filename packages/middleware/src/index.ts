@@ -51,6 +51,7 @@ export type ChatToolEvent = {
   partialResult: unknown | null
   result: unknown | null
   error: string | null
+  isError?: boolean | null
   subagentOf: string | null
 }
 
@@ -196,6 +197,7 @@ type SessionToolPayload = {
     partialResult?: unknown
     result?: unknown
     error?: string
+    isError?: boolean
   }
 }
 
@@ -1198,6 +1200,7 @@ export async function openChatEventStream(input: {
           partialResult: payload.data?.partialResult ?? null,
           result: payload.data?.result ?? null,
           error: payload.data?.error ?? null,
+          isError: payload.data?.isError ?? null,
           subagentOf: spawnId ? `spawn:${spawnId}` : null,
         })
         if (!isSubagent) {

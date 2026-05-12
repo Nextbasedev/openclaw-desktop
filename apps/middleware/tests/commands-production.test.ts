@@ -165,6 +165,21 @@ describe("production command behavior", () => {
   })
 })
 
+it("returns onboarding flow quickly when the gateway is unreachable", async () => {
+  const root = tempRoot()
+  const configPath = path.join(root, ".openclaw", "openclaw.json")
+  vi.stubEnv("OPENCLAW_CONFIG_PATH", configPath)
+  vi.stubEnv("OPENCLAW_GATEWAY_URL", "ws://192.0.2.1:18789")
+  const app = makeApp(root)
+
+  const started = Date.now()
+  const res = await auth(request(app).post("/api/commands/middleware_onboarding_flow")).send({ input: {} })
+
+  expect(res.status).toBe(200)
+  expect(Date.now() - started).toBeLessThan(1_500)
+  expect(res.body.state.core.status.gateway.running).toBe(false)
+})
+
 it("persists provider API key and voice settings through command endpoints", async () => {
   const root = tempRoot()
   const configPath = path.join(root, ".openclaw", "openclaw.json")

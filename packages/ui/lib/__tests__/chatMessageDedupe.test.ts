@@ -234,4 +234,58 @@ it("collapses repeated user-only history blocks after assistant dedupe", () => {
       .filter((message) => message.role === "user")
       .map((message) => message.text)
   ).toEqual(["first", "second"])
+
+
+  it("dedupes optimistic user message against history copy with attachment marker", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "history-user",
+        role: "user",
+        text: "some time when i am leave current session and back\n\n[Attached image: image.png]",
+        createdAt: "2026-05-11T18:32:00.000Z",
+      },
+      {
+        messageId: "optimistic-user",
+        role: "user",
+        text: "some time when i am leave current session and back",
+        createdAt: "2026-05-11T18:32:02.000Z",
+        isOptimistic: true,
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].messageId).toBe("history-user")
+  })
+
+  it("merges duplicate assistant partial text without repeating the first word", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "partial", role: "assistant", text: "NO_REPLY\n\nMerged" },
+      { messageId: "final", role: "assistant", text: "Merged `fix/new-bugs` into `main` and pushed." },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe("Merged `fix/new-bugs` into `main` and pushed.")
+  })
+
+  it("merges duplicate assistant tool sections by tool id", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "tools-a",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "read-1", tool: "read", status: "success" }],
+      },
+      {
+        messageId: "tools-b",
+        role: "assistant",
+        text: "Done",
+        toolCalls: [{ id: "read-1", tool: "read", status: "success", duration: "0.5s" }],
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe("Done")
+    expect(messages[0].toolCalls).toHaveLength(1)
+    expect(messages[0].toolCalls?.[0].duration).toBe("0.5s")
+  })
 })

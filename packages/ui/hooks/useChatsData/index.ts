@@ -7,6 +7,7 @@ import { localSyncGetChats, localSyncSetChats, localSyncSubscribeChats } from "@
 import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
+import { loadSidebarOrder, saveSidebarOrder } from "@/lib/sidebarOrderCache"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -31,6 +32,23 @@ export type ChatDialogActions = {
   handleDelete: () => Promise<void>
 }
 
+type ForkCreateEvent = {
+  status?: "pending" | "resolved" | "failed"
+  requestId: string
+  name?: string
+  chatId?: string
+  sessionKey?: string
+  context?: { type?: string }
+}
+
+function sameStringArray(a: string[], b: string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index])
+}
+
+function chatActivityTime(chat: Chat) {
+  return new Date(chat.updatedAt || chat.lastActiveAt || chat.createdAt || 0).getTime() || 0
+}
+
 export function useChatsData(
   activeChat: ActiveChat | null,
   onChatClear: () => void,
@@ -39,6 +57,7 @@ export function useChatsData(
 ) {
   const [chats, setChats] = useState<Chat[]>([])
   const [chatOrder, setChatOrder] = useState<string[]>([])
+  const [orderCacheReady, setOrderCacheReady] = useState(false)
   const [pinnedChats, setPinnedChats] = useState<Set<string>>(
     new Set(),
   )
@@ -105,6 +124,24 @@ export function useChatsData(
   }, [spaceId])
 
   useEffect(() => {
+    let cancelled = false
+    setOrderCacheReady(false)
+    loadSidebarOrder("chats", spaceId).then((order) => {
+      if (cancelled) return
+      if (order?.length) setChatOrder(order)
+      setOrderCacheReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [spaceId])
+
+  useEffect(() => {
+    if (!orderCacheReady || chatOrder.length === 0) return
+    void saveSidebarOrder("chats", spaceId, chatOrder)
+  }, [chatOrder, orderCacheReady, spaceId])
+
+  useEffect(() => {
     loadChats()
   }, [loadChats, refreshTrigger])
 
@@ -135,7 +172,7 @@ export function useChatsData(
   }, [loadChats])
 
   useEffect(() => {
-    return on<any>("fork:create", (event) => {
+    return on<ForkCreateEvent>("fork:create", (event) => {
       if (!event || event.context?.type === "topic") return
       if (event.status === "pending") {
         const now = new Date().toISOString()
@@ -155,10 +192,10 @@ export function useChatsData(
       }
       if (event.status === "resolved") {
         setChats((prev) => prev.map((chat) => chat.id === event.requestId
-          ? { ...chat, id: event.chatId, name: event.name, sessionKey: event.sessionKey, pendingFork: false, updatedAt: new Date().toISOString() }
+          ? { ...chat, id: event.chatId ?? chat.id, name: event.name ?? chat.name, sessionKey: event.sessionKey, pendingFork: false, updatedAt: new Date().toISOString() }
           : chat,
         ))
-        setChatOrder((prev) => prev.map((id) => id === event.requestId ? event.chatId : id))
+        setChatOrder((prev) => prev.map((id) => id === event.requestId ? event.chatId ?? id : id))
         return
       }
       if (event.status === "failed") {
@@ -183,13 +220,21 @@ export function useChatsData(
 
   useEffect(() => {
     setChatOrder((prev) => {
-      const existing = prev.filter((id) =>
-        chats.some((c) => c.id === id),
-      )
-      const newOnes = chats
-        .filter((c) => !prev.includes(c.id))
-        .map((c) => c.id)
-      return [...newOnes, ...existing]
+      const chatIds = new Set(chats.map((chat) => chat.id))
+      const persisted = prev.filter((id) => chatIds.has(id))
+      const byActivity = [...chats]
+        .sort((a, b) => chatActivityTime(b) - chatActivityTime(a))
+        .map((chat) => chat.id)
+
+      const hasNewOrRemovedChats = persisted.length !== chats.length
+      const next = hasNewOrRemovedChats
+        ? [
+            ...byActivity.filter((id) => !persisted.includes(id)),
+            ...persisted,
+          ]
+        : byActivity
+
+      return sameStringArray(prev, next) ? prev : next
     })
   }, [chats])
 
@@ -292,17 +337,19 @@ export function useChatsData(
   }, [deleteTarget, loadChats, activeChat, onChatClear])
 
   const sortedChatIds = useMemo(() => {
-    const pinned = chatOrder.filter((id) =>
-      pinnedChats.has(id),
-    )
-    const unpinned = chats
-      .filter((c) => !pinnedChats.has(c.id))
+    const chatIds = new Set(chats.map((chat) => chat.id))
+    const ordered = chatOrder.filter((id) => chatIds.has(id))
+    const missing = chats
+      .filter((chat) => !ordered.includes(chat.id))
       .sort(
         (a, b) =>
           new Date(b.updatedAt).getTime() -
           new Date(a.updatedAt).getTime(),
       )
-      .map((c) => c.id)
+      .map((chat) => chat.id)
+    const allOrdered = [...ordered, ...missing]
+    const pinned = allOrdered.filter((id) => pinnedChats.has(id))
+    const unpinned = allOrdered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
   }, [chatOrder, pinnedChats, chats])
 

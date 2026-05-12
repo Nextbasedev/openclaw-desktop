@@ -1,11 +1,15 @@
 "use client"
 
-import { useState, useCallback, useMemo } from "react"
+import React, { useState, useCallback, useMemo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkBreaks from "remark-breaks"
+import { useTheme } from "next-themes"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
-import oneDark from "react-syntax-highlighter/dist/esm/styles/prism/one-dark"
+import {
+  vs,
+  vscDarkPlus,
+} from "react-syntax-highlighter/dist/esm/styles/prism"
 import { cn } from "@/lib/utils"
 import { LuCopy, LuCheck } from "react-icons/lu"
 import { LanguageIcon } from "@/components/icons/LanguageIcon"
@@ -31,15 +35,22 @@ function CopyBtn({ text }: { text: string }) {
   )
 }
 
-const cleanStyle: Record<string, React.CSSProperties> = Object.fromEntries(
-  Object.entries(oneDark).map(([key, val]) => {
+function cleanSyntaxStyle(
+  style: Record<string, React.CSSProperties>,
+): Record<string, React.CSSProperties> {
+  return Object.fromEntries(Object.entries(style).map(([key, val]) => {
     if (typeof val === "object" && val !== null) {
-      const { background, backgroundColor, ...rest } = val as Record<string, unknown>
+      const rest = { ...(val as Record<string, unknown>) }
+      delete rest.background
+      delete rest.backgroundColor
       return [key, rest as React.CSSProperties]
     }
     return [key, val]
-  }),
-)
+  }))
+}
+
+const cleanDarkStyle = cleanSyntaxStyle(vscDarkPlus)
+const cleanLightStyle = cleanSyntaxStyle(vs)
 
 function langDisplayName(lang?: string): string {
   if (!lang) return "Code"
@@ -67,11 +78,16 @@ function langDisplayName(lang?: string): string {
 }
 
 function CodeBlock({ language, children }: { language?: string; children: string }) {
+  const { resolvedTheme } = useTheme()
   const code = children.replace(/\n$/, "")
   const displayLang = langDisplayName(language)
+  const isDark = resolvedTheme !== "light"
+  const syntaxStyle = isDark ? cleanDarkStyle : cleanLightStyle
+  const plainTextColor = isDark ? "#d4d4d4" : "#1f1f1f"
+
   return (
-    <div className="group/code relative my-2 max-w-full min-w-0 overflow-hidden rounded-xl border border-border/20 bg-[#1a1a1e]">
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/15 bg-[#252529] px-4 py-2">
+    <div className="group/code relative my-2 max-w-full min-w-0 overflow-hidden rounded-xl border border-[#d4d4d4] bg-[#ffffff] dark:border-[#3c3c3c]/70 dark:bg-[#1e1e1e]">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#d4d4d4] bg-[#f3f3f3] px-4 py-2 dark:border-[#3c3c3c]/70 dark:bg-[#252526]">
         <span className="flex items-center gap-2 text-[12px] font-medium text-foreground/60">
           <LanguageIcon lang={language} className="size-4" />
           {displayLang}
@@ -81,7 +97,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
       {language ? (
         <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
           <SyntaxHighlighter
-            style={cleanStyle}
+            style={syntaxStyle}
             language={language}
             PreTag="div"
             customStyle={{
@@ -90,6 +106,7 @@ function CodeBlock({ language, children }: { language?: string; children: string
               padding: "4px 0",
               fontSize: "13px",
               minWidth: 0,
+              color: plainTextColor,
             }}
             codeTagProps={{ style: { background: "transparent" } }}
           >
@@ -98,11 +115,75 @@ function CodeBlock({ language, children }: { language?: string; children: string
         </div>
       ) : (
         <div className="max-w-full overflow-x-auto rounded-b-xl px-4 py-4">
-          <pre className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6] text-foreground/80">{code}</pre>
+          <pre
+            className="min-w-0 whitespace-pre font-mono text-[13px] leading-[1.6]"
+            style={{ color: plainTextColor }}
+          >
+            {code}
+          </pre>
         </div>
       )}
     </div>
   )
+}
+
+function highlightString(text: string, highlightTexts: string[]) {
+  if (highlightTexts.length === 0) return text
+
+  const parts: React.ReactNode[] = []
+  const lowerText = text.toLowerCase()
+  let cursor = 0
+
+  while (cursor < text.length) {
+    let nextIndex = -1
+    let nextText = ""
+    for (const highlight of highlightTexts) {
+      const index = lowerText.indexOf(highlight.toLowerCase(), cursor)
+      if (index !== -1 && (nextIndex === -1 || index < nextIndex)) {
+        nextIndex = index
+        nextText = highlight
+      }
+    }
+
+    if (nextIndex === -1 || !nextText) {
+      parts.push(text.slice(cursor))
+      break
+    }
+
+    if (nextIndex > cursor) parts.push(text.slice(cursor, nextIndex))
+    const matchedText = text.slice(nextIndex, nextIndex + nextText.length)
+    parts.push(
+      <mark
+        key={`${nextIndex}-${matchedText}`}
+        className="rounded-sm bg-blue-400/15 px-1 py-0.5 font-semibold text-sky-50"
+      >
+        {matchedText}
+      </mark>,
+    )
+    cursor = nextIndex + nextText.length
+  }
+
+  return parts
+}
+
+function highlightChildren(children: React.ReactNode, highlightTexts: string[]) {
+  if (highlightTexts.length === 0) return children
+  return React.Children.map(children, (child) => {
+    if (typeof child === "string") return highlightString(child, highlightTexts)
+    return child
+  })
+}
+
+function normalizeHighlightTexts(highlightTexts?: string[]) {
+  return Array.from(
+    new Set(
+      (highlightTexts ?? [])
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0),
+    ),
+  )
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 20)
 }
 
 const mdComponents = {
@@ -116,7 +197,7 @@ const mdComponents = {
       if (match?.[1] === "mermaid") return <MermaidBlock code={text} />
       return <CodeBlock language={match?.[1]}>{text}</CodeBlock>
     }
-    return <code className="break-words rounded-md bg-foreground/[0.07] px-1.5 py-0.5 text-[0.85em] font-mono text-foreground/90 [overflow-wrap:anywhere]" {...rest}>{children}</code>
+    return <code className="break-words rounded-md border border-[#d4d4d4] bg-[#f3f3f3] px-1.5 py-0.5 text-[0.85em] font-mono text-[#a31515] [overflow-wrap:anywhere] dark:border-[#3c3c3c]/55 dark:bg-[#1e1e1e] dark:text-[#ce9178]" {...rest}>{children}</code>
   },
   table({ children }: { children?: React.ReactNode }) {
     return (<div className="my-3 max-w-full overflow-hidden rounded-xl border border-border/25 bg-foreground/2"><div className="max-w-full overflow-x-auto"><table className="w-full border-collapse text-[13px]">{children}</table></div></div>)
@@ -238,12 +319,14 @@ export function MarkdownContent({
   className,
   embeds,
   streaming,
+  highlightTexts,
   onRevealComplete,
 }: {
   text: string
   className?: string
   embeds?: EmbedContent[]
   streaming?: boolean
+  highlightTexts?: string[]
   onRevealComplete?: () => void
 }) {
   const { displayText, isRevealing } = useStreamingText(
@@ -255,6 +338,49 @@ export function MarkdownContent({
     () => splitTextAndEmbeds(displayText, embeds),
     [displayText, embeds],
   )
+  const normalizedHighlightTexts = useMemo(
+    () => normalizeHighlightTexts(highlightTexts),
+    [highlightTexts],
+  )
+  const highlightedComponents = useMemo(() => {
+    if (normalizedHighlightTexts.length === 0) return mdComponents
+    return {
+      ...mdComponents,
+      p({ children }: { children?: React.ReactNode }) {
+        return <p className="my-2.5 break-words leading-[1.75] text-foreground/85 [overflow-wrap:anywhere] first:mt-0 last:mb-0">{highlightChildren(children, normalizedHighlightTexts)}</p>
+      },
+      li({ children }: { children?: React.ReactNode }) {
+        return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p]:my-1 [&>ul]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</li>
+      },
+      blockquote({ children }: { children?: React.ReactNode }) {
+        return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</blockquote>
+      },
+      strong({ children }: { children?: React.ReactNode }) {
+        return <strong className="font-semibold text-foreground">{highlightChildren(children, normalizedHighlightTexts)}</strong>
+      },
+      em({ children }: { children?: React.ReactNode }) {
+        return <em className="italic text-foreground/75">{highlightChildren(children, normalizedHighlightTexts)}</em>
+      },
+      h1({ children }: { children?: React.ReactNode }) {
+        return <h1 className="mb-3 mt-6 border-b border-border/20 pb-2 text-[18px] font-bold text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h1>
+      },
+      h2({ children }: { children?: React.ReactNode }) {
+        return <h2 className="mb-2.5 mt-5 border-b border-border/15 pb-1.5 text-[16px] font-semibold text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h2>
+      },
+      h3({ children }: { children?: React.ReactNode }) {
+        return <h3 className="mb-2 mt-4 text-[15px] font-semibold text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h3>
+      },
+      h4({ children }: { children?: React.ReactNode }) {
+        return <h4 className="mb-1.5 mt-3 text-[14px] font-medium text-foreground first:mt-0">{highlightChildren(children, normalizedHighlightTexts)}</h4>
+      },
+      td({ children }: { children?: React.ReactNode }) {
+        return <td className="break-words px-3 py-2 text-foreground/70 [overflow-wrap:anywhere]">{highlightChildren(children, normalizedHighlightTexts)}</td>
+      },
+      th({ children }: { children?: React.ReactNode }) {
+        return <th className="px-3 py-2 text-left text-[12px] font-semibold text-foreground/80">{highlightChildren(children, normalizedHighlightTexts)}</th>
+      },
+    }
+  }, [normalizedHighlightTexts])
 
   return (
     <div className={cn("prose-chat max-w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere]", isRevealing && "streaming-text", className)}>
@@ -262,7 +388,7 @@ export function MarkdownContent({
         part.type === "embed" ? (
           <EmbedBlock key={`embed-${i}`} embed={part.embed} />
         ) : (
-          <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm, remarkBreaks]} components={mdComponents}>
+          <ReactMarkdown key={`md-${i}`} remarkPlugins={[remarkGfm, remarkBreaks]} components={highlightedComponents}>
             {part.value}
           </ReactMarkdown>
         ),

@@ -55,7 +55,7 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
     <div className="relative z-10 border-t border-white/[0.06] px-3 pb-3 pt-2.5 dark:border-white/[0.06]">
       <div
         className={cn(
-          "flex h-9 items-center justify-between gap-3 rounded-[14px] px-2.5",
+          "flex h-9 items-center justify-between gap-3 rounded-md px-2.5",
           "border border-white/[0.07] bg-white/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl",
         )}
         aria-label="Projects"

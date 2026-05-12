@@ -6,6 +6,7 @@ import { on, emit } from "@/lib/events"
 import { checkGatewayOrRedirect } from "@/lib/toast"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
+import { loadSidebarOrder, saveSidebarOrder } from "@/lib/sidebarOrderCache"
 import type { Project, FullTopic, ActiveTopic } from "@/types/project"
 
 export type { Project, FullTopic, ActiveTopic }
@@ -73,6 +74,30 @@ export type DialogActions = {
   handleDeleteTopic: () => Promise<void>
 }
 
+type ForkCreateEvent = {
+  status?: "pending" | "resolved" | "failed"
+  requestId: string
+  name?: string
+  topicId?: string
+  context?: {
+    type?: string
+    projectId?: string
+  }
+}
+
+function sameStringArray(a: string[], b: string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index])
+}
+
+function projectActivityTime(project: Project) {
+  const withActivity = project as Project & {
+    lastActivityAt?: string | null
+    updatedAt?: string | null
+    createdAt?: string | null
+  }
+  return new Date(withActivity.updatedAt || withActivity.lastActivityAt || withActivity.createdAt || 0).getTime() || 0
+}
+
 export function useProjectsData(
   onTopicSelect: (topic: ActiveTopic) => void,
   activeTopic: ActiveTopic | null,
@@ -88,6 +113,7 @@ export function useProjectsData(
   >({})
   const [loadingProject, setLoadingProject] = useState<string | null>(null)
   const [projectOrder, setProjectOrder] = useState<string[]>([])
+  const [projectOrderCacheReady, setProjectOrderCacheReady] = useState(false)
   const [topicOrder, setTopicOrder] = useState<Record<string, string[]>>({})
   const [pinnedProjects, setPinnedProjects] = useState<Set<string>>(new Set())
   const [pinnedTopics, setPinnedTopics] = useState<Set<string>>(new Set())
@@ -165,6 +191,24 @@ export function useProjectsData(
   }, [activeSpaceId])
 
   useEffect(() => {
+    let cancelled = false
+    setProjectOrderCacheReady(false)
+    loadSidebarOrder("projects", activeSpaceId).then((order) => {
+      if (cancelled) return
+      if (order?.length) setProjectOrder(order)
+      setProjectOrderCacheReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSpaceId])
+
+  useEffect(() => {
+    if (!projectOrderCacheReady || projectOrder.length === 0) return
+    void saveSidebarOrder("projects", activeSpaceId, projectOrder)
+  }, [projectOrder, projectOrderCacheReady, activeSpaceId])
+
+  useEffect(() => {
     loadProjects()
   }, [loadProjects])
 
@@ -172,11 +216,20 @@ export function useProjectsData(
 
   useEffect(() => {
     setProjectOrder((prev) => {
-      const existing = prev.filter((id) => projects.some((p) => p.id === id))
-      const newOnes = projects
-        .filter((p) => !prev.includes(p.id))
-        .map((p) => p.id)
-      return [...existing, ...newOnes]
+      const projectIds = new Set(projects.map((project) => project.id))
+      const persisted = prev.filter((id) => projectIds.has(id))
+      const byActivity = [...projects]
+        .sort((a, b) => projectActivityTime(b) - projectActivityTime(a))
+        .map((project) => project.id)
+      const hasNewOrRemovedProjects = persisted.length !== projects.length
+      const next = hasNewOrRemovedProjects
+        ? [
+            ...byActivity.filter((id) => !persisted.includes(id)),
+            ...persisted,
+          ]
+        : byActivity
+
+      return sameStringArray(prev, next) ? prev : next
     })
   }, [projects])
 
@@ -253,7 +306,7 @@ export function useProjectsData(
   }, [loadProjects])
 
   useEffect(() => {
-    return on<any>("fork:create", (event) => {
+    return on<ForkCreateEvent>("fork:create", (event) => {
       const context = event?.context
       if (!event || context?.type !== "topic" || !context.projectId) return
       const projectId = context.projectId
@@ -286,13 +339,13 @@ export function useProjectsData(
         setProjectTopics((prev) => ({
           ...prev,
           [projectId]: (prev[projectId] || []).map((topic) => topic.id === event.requestId
-            ? { ...topic, id: event.topicId, name: event.name, pendingFork: false, updatedAt: new Date().toISOString() }
+            ? { ...topic, id: event.topicId ?? topic.id, name: event.name ?? topic.name, pendingFork: false, updatedAt: new Date().toISOString() }
             : topic,
           ),
         }))
         setTopicOrder((prev) => ({
           ...prev,
-          [projectId]: (prev[projectId] || []).map((id) => id === event.requestId ? event.topicId : id),
+          [projectId]: (prev[projectId] || []).map((id) => id === event.requestId ? event.topicId ?? id : id),
         }))
         return
       }
@@ -320,6 +373,37 @@ export function useProjectsData(
     return () =>
       window.removeEventListener("archive-restored", onArchiveRestored)
   }, [loadProjects, loadProjectTopics, projectTopics])
+
+  useEffect(() => {
+    return on("chat:activity", () => {
+      if (!activeTopic) return
+      setProjectOrder((prev) => [
+        activeTopic.projectId,
+        ...prev.filter((id) => id !== activeTopic.projectId),
+      ])
+      setTopicOrder((prev) => ({
+        ...prev,
+        [activeTopic.projectId]: [
+          activeTopic.id,
+          ...(prev[activeTopic.projectId] || []).filter(
+            (id) => id !== activeTopic.id,
+          ),
+        ],
+      }))
+      setProjectTopics((prev) => {
+        const topics = prev[activeTopic.projectId]
+        if (!topics) return prev
+        return {
+          ...prev,
+          [activeTopic.projectId]: topics.map((topic) =>
+            topic.id === activeTopic.id
+              ? { ...topic, updatedAt: new Date().toISOString() }
+              : topic,
+          ),
+        }
+      })
+    })
+  }, [activeTopic])
 
   const handleProjectClick = useCallback(
     (project: Project) => {

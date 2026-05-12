@@ -206,6 +206,11 @@ export function ActivityTab({
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [filter, setFilter] = useState<"all" | "success" | "error">("all")
+  const [openToolId, setOpenToolId] = useState<string | null>(null)
+
+  function handleToolOpenChange(id: string, open: boolean) {
+    setOpenToolId(open ? id : null)
+  }
   const { historyLoaded, tree, isLive, agentToSessionKey } =
     useAgentActivity(sessionKey)
 
@@ -242,9 +247,34 @@ export function ActivityTab({
 
   const filteredCalls = useMemo(() => {
     if (!selectedNode) return []
-    if (filter === "all") return selectedNode.calls
-    return selectedNode.calls.filter((c) => c.status === filter)
+    const calls = filter === "all"
+      ? selectedNode.calls
+      : selectedNode.calls.filter((c) => c.status === filter)
+    return [...calls].reverse()
   }, [selectedNode, filter])
+
+  const groupedCalls = useMemo(() => {
+    const groups: Array<{ key: string; label: string; calls: typeof filteredCalls }> = []
+    for (const call of filteredCalls) {
+      const key = call.messageId ?? (call.messageIndex !== undefined ? `idx:${call.messageIndex}` : "unknown")
+      const label = call.messagePreview ?? "Live / ungrouped tools"
+      const existing =
+        groups.find((group) => group.key === key) ??
+        (call.messagePreview
+          ? groups.find((group) => group.label === label)
+          : undefined)
+      if (existing) {
+        existing.calls.push(call)
+        continue
+      }
+      groups.push({
+        key,
+        label,
+        calls: [call],
+      })
+    }
+    return groups
+  }, [filteredCalls])
 
   const runningCount =
     selectedNode?.calls.filter((c) => c.status === "running")
@@ -424,13 +454,26 @@ export function ActivityTab({
                 />
               </div>
             )}
-            {filteredCalls.map((call) => (
-              <ToolCallRow
-                key={call.id}
-                call={call}
-                focused={call.id === focusedToolCallId}
-                onFocusHandled={onClearFocusedToolCall}
-              />
+            {groupedCalls.map((group) => (
+              <div key={group.key} className="mb-3 first:mt-0">
+                <div className="sticky top-0 z-10 -mx-3 mb-1.5 flex items-center gap-2 bg-[#121212]/95 px-3 pb-3 pt-2 shadow-[0_10px_18px_rgba(18,18,18,0.75)] after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-4 after:h-4 after:bg-gradient-to-b after:from-[#121212]/80 after:to-transparent">
+                  <span className="max-w-[48%] truncate text-[10px] font-medium tracking-wide text-muted-foreground/65">
+                    {group.label}
+                  </span>
+                  <span className="h-px flex-1 bg-gradient-to-r from-border/50 via-border/25 to-transparent" />
+                  <span className="size-1.5 shrink-0 rounded-full bg-border/70 shadow-[0_0_10px_rgba(255,255,255,0.12)]" />
+                </div>
+                {group.calls.map((call) => (
+                  <ToolCallRow
+                    key={call.id}
+                    call={call}
+                    open={openToolId === call.id}
+                    onOpenChange={handleToolOpenChange}
+                    focused={call.id === focusedToolCallId}
+                    onFocusHandled={onClearFocusedToolCall}
+                  />
+                ))}
+              </div>
             ))}
             {filteredCalls.length === 0 && !selectedSubagentSessionKey && (
               <div className="flex min-h-28 items-center justify-center rounded-xl border border-border/30 bg-white/[0.02]">
