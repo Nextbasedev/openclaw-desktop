@@ -106,6 +106,10 @@ export async function fetchRemoteWorkspaceBlob(input: {
   }
 }
 
+export function remoteWorkspaceMediaUrl(path: string): string {
+  return `/api/workspace/media?path=${encodeURIComponent(path)}`
+}
+
 export async function saveRemoteWorkspaceFile(input: {
   sessionKey: string
   projectId?: string | null

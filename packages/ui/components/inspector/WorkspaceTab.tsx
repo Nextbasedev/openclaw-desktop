@@ -48,12 +48,12 @@ import {
   createRemoteWorkspaceDirectory,
   deleteRemoteWorkspaceEntry,
   fetchRemoteWorkspaceCapabilities,
-  fetchRemoteWorkspaceBlob,
   fetchRemoteWorkspaceFile,
   type RemoteWorkspaceCapabilities,
   fetchRemoteWorkspaceTree,
   moveRemoteWorkspaceEntry,
   remoteWorkspaceDownloadUrl,
+  remoteWorkspaceMediaUrl,
   saveRemoteWorkspaceFile,
 } from "./workspace-api"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
@@ -502,7 +502,6 @@ function FilePreviewPane({
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
-  const [mediaMimeType, setMediaMimeType] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isRenaming, setIsRenaming] = useState(false)
@@ -516,46 +515,21 @@ function FilePreviewPane({
 
   useEffect(() => {
     let cancelled = false
-    let nextMediaUrl: string | null = null
     setLoading(true)
     setError(null)
-    setMediaUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
-    setMediaMimeType(null)
+    setMediaUrl(null)
     setIsRenaming(false)
     setRenameValue(fileName)
     setSaved(false)
     setMode(getExt(fileName) === "md" ? "preview" : "edit")
 
     if (mediaKind) {
-      fetchRemoteWorkspaceBlob({ projectId, path: filePath })
-        .then(({ blob, mimeType }) => {
-          if (cancelled) return
-          if (blob.size === 0) {
-            throw new Error("Media file is empty")
-          }
-          nextMediaUrl = URL.createObjectURL(blob)
-          setMediaUrl(nextMediaUrl)
-          setMediaMimeType(mimeType)
-          setContent("")
-          setOriginalContent("")
-          setLoading(false)
-        })
-        .catch((err) => {
-          if (cancelled) return
-          const message = err instanceof Error ? err.message : "Failed to load media preview"
-          setError(
-            message.includes("/api/workspace/raw") || message.includes("/workspace/raw")
-              ? "Media preview needs the latest Desktop Middleware. Restart/update the middleware, then reopen this file."
-              : message
-          )
-          setLoading(false)
-        })
+      setMediaUrl(remoteWorkspaceMediaUrl(filePath))
+      setContent("")
+      setOriginalContent("")
+      setLoading(false)
       return () => {
         cancelled = true
-        if (nextMediaUrl) URL.revokeObjectURL(nextMediaUrl)
       }
     }
 
@@ -911,9 +885,7 @@ function FilePreviewPane({
                   src={mediaUrl}
                   controls
                   className="max-h-full max-w-full rounded-lg shadow-2xl"
-                >
-                  {mediaMimeType && <source src={mediaUrl} type={mediaMimeType} />}
-                </video>
+                />
               )
             ) : (
               <p className="text-[12px] text-muted-foreground">Media preview unavailable</p>
