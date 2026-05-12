@@ -30,6 +30,31 @@ function readAt(root: string, rel: string) {
   return { path: rel, content, encoding: "utf-8", file: { path: rel, content, encoding: "utf-8" } }
 }
 
+function contentTypeForPath(file: string) {
+  const ext = path.extname(file).toLowerCase()
+  switch (ext) {
+    case ".avif": return "image/avif"
+    case ".gif": return "image/gif"
+    case ".jpg":
+    case ".jpeg": return "image/jpeg"
+    case ".png": return "image/png"
+    case ".svg": return "image/svg+xml"
+    case ".webp": return "image/webp"
+    case ".m4v": return "video/mp4"
+    case ".mov": return "video/quicktime"
+    case ".mp4": return "video/mp4"
+    case ".ogg":
+    case ".ogv": return "video/ogg"
+    case ".webm": return "video/webm"
+    default: return "application/octet-stream"
+  }
+}
+
+function rawAt(root: string, rel: string) {
+  const file = assertInside(root, rel)
+  return { file, contentType: contentTypeForPath(file) }
+}
+
 function writeAt(root: string, rel: string, content: string) {
   const file = assertInside(root, rel)
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -41,9 +66,11 @@ export function workspaceRoutes(store: Store) {
   return {
     treeRoot: (rel = "") => treeAt(rootWorkspace(), rel),
     readRoot: (rel: string) => readAt(rootWorkspace(), rel),
+    rawRoot: (rel: string) => rawAt(rootWorkspace(), rel),
     writeRoot: (rel: string, content: string) => writeAt(rootWorkspace(), rel, content),
     tree: (projectId: string, rel = "") => treeAt(projectRoot(store, projectId), rel),
     read: (projectId: string, rel: string) => readAt(projectRoot(store, projectId), rel),
+    raw: (projectId: string, rel: string) => rawAt(projectRoot(store, projectId), rel),
     write: (projectId: string, rel: string, content: string) => writeAt(projectRoot(store, projectId), rel, content),
   }
 }

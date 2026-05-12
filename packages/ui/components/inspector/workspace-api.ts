@@ -74,6 +74,31 @@ export async function fetchRemoteWorkspaceFile(input: {
   throw new Error("Middleware connection is not configured")
 }
 
+export async function fetchRemoteWorkspaceBlob(input: {
+  projectId?: string | null
+  path: string
+}): Promise<{ blob: Blob; mimeType: string }> {
+  const connection = getMiddlewareConnection()
+  if (!connection) throw new Error("Middleware connection is not configured")
+  const token = connection.token.trim()
+  const response = await fetch(
+    `${connection.url.replace(/\/+$/, "")}${workspaceBasePath(input.projectId)}/raw?path=${encodeURIComponent(input.path)}`,
+    {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    },
+  )
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: response.statusText }))
+    throw new Error((payload as { error?: string }).error || `Workspace media request failed: ${response.status}`)
+  }
+  return {
+    blob: await response.blob(),
+    mimeType: response.headers.get("Content-Type") ?? "application/octet-stream",
+  }
+}
+
 export async function saveRemoteWorkspaceFile(input: {
   sessionKey: string
   projectId?: string | null

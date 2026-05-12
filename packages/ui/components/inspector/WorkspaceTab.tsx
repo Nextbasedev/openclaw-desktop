@@ -48,6 +48,7 @@ import {
   createRemoteWorkspaceDirectory,
   deleteRemoteWorkspaceEntry,
   fetchRemoteWorkspaceCapabilities,
+  fetchRemoteWorkspaceBlob,
   fetchRemoteWorkspaceFile,
   type RemoteWorkspaceCapabilities,
   fetchRemoteWorkspaceTree,
@@ -103,6 +104,15 @@ function mapRemoteEntriesToNodes(entries: FsEntry[]): FileNode[] {
 
 function getExt(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? ""
+}
+
+const IMAGE_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "svg", "webp"])
+const VIDEO_EXTENSIONS = new Set(["m4v", "mov", "mp4", "ogg", "ogv", "webm"])
+
+function mediaKindForExt(ext: string): "image" | "video" | null {
+  if (IMAGE_EXTENSIONS.has(ext)) return "image"
+  if (VIDEO_EXTENSIONS.has(ext)) return "video"
+  return null
 }
 
 function findNode(nodes: FileNode[], id: string): FileNode | null {
@@ -481,6 +491,8 @@ function FilePreviewPane({
 }) {
   const ext = getExt(fileName)
   const isMd = ext === "md"
+  const mediaKind = mediaKindForExt(ext)
+  const isMedia = mediaKind !== null
   const readOnlyPath = isReadOnlyWorkspacePath(filePath)
   const canWrite = Boolean(capabilities?.canWrite) && !readOnlyPath
   const canDownload = Boolean(capabilities?.canDownloadFile)
@@ -489,6 +501,8 @@ function FilePreviewPane({
 
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [mediaMimeType, setMediaMimeType] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isRenaming, setIsRenaming] = useState(false)
@@ -502,12 +516,40 @@ function FilePreviewPane({
 
   useEffect(() => {
     let cancelled = false
+    let nextMediaUrl: string | null = null
     setLoading(true)
     setError(null)
+    setMediaUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+    setMediaMimeType(null)
     setIsRenaming(false)
     setRenameValue(fileName)
     setSaved(false)
     setMode(getExt(fileName) === "md" ? "preview" : "edit")
+
+    if (mediaKind) {
+      fetchRemoteWorkspaceBlob({ projectId, path: filePath })
+        .then(({ blob, mimeType }) => {
+          if (cancelled) return
+          nextMediaUrl = URL.createObjectURL(blob)
+          setMediaUrl(nextMediaUrl)
+          setMediaMimeType(mimeType)
+          setContent("")
+          setOriginalContent("")
+          setLoading(false)
+        })
+        .catch((err) => {
+          if (cancelled) return
+          setError(err instanceof Error ? err.message : "Failed to load media preview")
+          setLoading(false)
+        })
+      return () => {
+        cancelled = true
+        if (nextMediaUrl) URL.revokeObjectURL(nextMediaUrl)
+      }
+    }
 
     const loadContent = fetchRemoteWorkspaceFile({
       sessionKey: sessionKey ?? "",
@@ -529,10 +571,10 @@ function FilePreviewPane({
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [filePath, fileName, sessionKey, projectId])
+  }, [filePath, fileName, sessionKey, projectId, mediaKind])
 
   const handleSave = useCallback(async () => {
-    if (!canWrite) return
+    if (!canWrite || isMedia) return
     setSaving(true)
     try {
       await saveRemoteWorkspaceFile({
@@ -549,7 +591,7 @@ function FilePreviewPane({
     } finally {
       setSaving(false)
     }
-  }, [canWrite, content, filePath, sessionKey, projectId])
+  }, [canWrite, content, filePath, isMedia, sessionKey, projectId])
   const [downloaded, setDownloaded] = useState(false)
 
   const handleDownload = useCallback(() => {
@@ -685,6 +727,12 @@ function FilePreviewPane({
           </>
         )}
 
+        {isMedia && (
+          <span className="rounded bg-white/6 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            {mediaKind}
+          </span>
+        )}
+
         {!compact && (
           <div className="flex shrink-0 items-center gap-0.5">
             <Tooltip>
@@ -758,7 +806,7 @@ function FilePreviewPane({
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={!canWrite || (!hasChanges && !saved) || saving}
+                  disabled={isMedia || !canWrite || (!hasChanges && !saved) || saving}
                   className={cn(
                     "flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
                     saved
@@ -818,7 +866,7 @@ function FilePreviewPane({
                 label={saving ? "Saving..." : saved ? "Saved" : "Save"}
                 icon={<HugeiconsIcon icon={saved ? Tick02Icon : FloppyDiskIcon} size={14} strokeWidth={1.5} />}
                 onClick={() => {
-                  if (!canWrite || saving) return
+                  if (isMedia || !canWrite || saving) return
                   void handleSave()
                 }}
               />
@@ -840,7 +888,30 @@ function FilePreviewPane({
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {isMd && mode === "preview" ? (
+        {isMedia ? (
+          <div className="flex h-full items-center justify-center overflow-auto bg-[#0f0f10] p-4">
+            {mediaUrl ? (
+              mediaKind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={mediaUrl}
+                  alt={fileName}
+                  className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+                />
+              ) : (
+                <video
+                  src={mediaUrl}
+                  controls
+                  className="max-h-full max-w-full rounded-lg shadow-2xl"
+                >
+                  {mediaMimeType && <source src={mediaUrl} type={mediaMimeType} />}
+                </video>
+              )
+            ) : (
+              <p className="text-[12px] text-muted-foreground">Media preview unavailable</p>
+            )}
+          </div>
+        ) : isMd && mode === "preview" ? (
           <div className={cn(
             "prose prose-invert h-full max-w-none overflow-auto bg-[#121212] p-4 text-[13px] leading-7 text-foreground/90",
             "[&>*+*]:mt-3",

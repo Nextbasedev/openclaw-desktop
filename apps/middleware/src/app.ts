@@ -233,9 +233,19 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
 
   app.get("/api/workspace/tree", (req, res) => res.json(workspace.treeRoot(String(req.query.path ?? ""))))
   app.get("/api/workspace/file", (req, res) => res.json(workspace.readRoot(String(req.query.path ?? ""))))
+  app.get("/api/workspace/raw", (req, res) => {
+    const raw = workspace.rawRoot(String(req.query.path ?? ""))
+    res.type(raw.contentType)
+    fs.createReadStream(raw.file).pipe(res)
+  })
   app.put("/api/workspace/file", (req, res) => res.json(workspace.writeRoot(String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
   app.get("/api/projects/:projectId/workspace/tree", (req, res) => res.json(workspace.tree(req.params.projectId, String(req.query.path ?? ""))))
   app.get("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.read(req.params.projectId, String(req.query.path ?? ""))))
+  app.get("/api/projects/:projectId/workspace/raw", (req, res) => {
+    const raw = workspace.raw(req.params.projectId, String(req.query.path ?? ""))
+    res.type(raw.contentType)
+    fs.createReadStream(raw.file).pipe(res)
+  })
   app.put("/api/projects/:projectId/workspace/file", (req, res) => res.json(workspace.write(req.params.projectId, String(req.body?.path ?? ""), String(req.body?.content ?? ""))))
 
   app.post("/api/terminal/spawn", async (req, res, next) => { try { res.json(await terminal.spawnWorkspace(req.body)) } catch (error) { next(error) } })
