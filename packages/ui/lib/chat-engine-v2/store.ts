@@ -567,9 +567,7 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
-  const autoFinalized = state.deferredDoneUntilAssistant && hasAssistantAnswerAfterLatestUser(state)
-    ? maybeFinalizeAnsweredRun(state, "legacy:assistant-answer-fallback")
-    : maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
+  const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
       sessionKey,

@@ -233,7 +233,7 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking" })
   })
 
-  test("defers immediate bare done status until the assistant answer arrives", () => {
+  test("defers immediate bare done status and waits for canonical completion", () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     seedGlobalChatSession({
@@ -266,6 +266,20 @@ describe("global V2 chat engine store", () => {
         sessionKey: "s1",
         createdAtMs: 2_100,
         payload: { sessionKey: "s1", message: { role: "assistant", text: "answer", __openclaw: { id: "a1" } } },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking", statusLabel: "Thinking" })
+
+    vi.setSystemTime(8_500)
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.status",
+        sessionKey: "s1",
+        createdAtMs: 8_500,
+        payload: { status: "done", statusLabel: null },
       },
     })
 
