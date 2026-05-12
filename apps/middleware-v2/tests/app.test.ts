@@ -60,7 +60,8 @@ describe("middleware-v2 app", () => {
 
   test("new chat returns a usable sessionKey", async () => {
     const app = await createApp(config);
-    const res = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Hello", agentId: "main" } });
+    const uniqueName = `Hello ${Date.now()}`;
+    const res = await app.inject({ method: "POST", url: "/api/chats", payload: { name: uniqueName, agentId: "main" } });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.chat.sessionKey).toMatch(/^agent:main:desktop:/);
