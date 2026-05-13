@@ -707,16 +707,18 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq });
 
     const latestRun = context.runs.latestRun(sessionKey);
+    const activeRun = context.runs.findLatestPendingRun(sessionKey);
     const bootstrapCompleted = isTerminalSendStatus(sessionData.status) || lastMessageIsAssistantText(messages);
-    const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, latestRun?.runId ?? null, bootstrapCompleted);
-    if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: latestRun?.runId ?? null, completed: bootstrapCompleted });
+    const inferenceRun = activeRun ?? latestRun;
+    const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun?.runId ?? null, bootstrapCompleted);
+    if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: inferenceRun?.runId ?? null, completed: bootstrapCompleted });
 
-    if (latestRun && ACTIVE_RUN_STATUSES.has(latestRun.status) && Date.now() - latestRun.updatedAtMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) {
-      const finalizedTools = context.runs.completeRunningTools(sessionKey, latestRun.runId, {
+    if (activeRun && Date.now() - activeRun.updatedAtMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) {
+      const finalizedTools = context.runs.completeRunningTools(sessionKey, activeRun.runId, {
         status: "success",
         resultMeta: { inferred: true, reason: "stale_bootstrap_after_assistant_final" },
       });
-      context.runs.updateRunStatus(latestRun.runId, "done", { statusLabel: null });
+      context.runs.updateRunStatus(activeRun.runId, "done", { statusLabel: null });
       sessionData.status = "done";
       sessionData.statusLabel = null;
       context.messages.upsertSession({
@@ -724,7 +726,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
         data: sessionData,
       });
-      log.warn("bootstrap.stale-run-finalized", { sessionKey, runId: latestRun.runId, previousStatus: latestRun.status, finalizedTools, staleMs: Date.now() - latestRun.updatedAtMs });
+      log.warn("bootstrap.stale-run-finalized", { sessionKey, runId: activeRun.runId, previousStatus: activeRun.status, finalizedTools, staleMs: Date.now() - activeRun.updatedAtMs });
     }
 
     const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000 }).map((message) => message.data);
