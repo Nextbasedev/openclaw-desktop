@@ -406,6 +406,52 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("canonical bootstrap does not reassign old tool calls to current active run", async () => {
+    const app = await createApp(config("bootstrap-does-not-reassign-old-tools"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", text: "old", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", text: "old answer", content: [{ type: "toolCall", id: "tool-old", name: "web_fetch", input: { url: "https://example.com" } }], __openclaw: { id: "a1", seq: 2 } },
+            { role: "user", text: "new", __openclaw: { id: "u2", seq: 3 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: now - 10_000, updatedAtMs: now - 9_000, finishedAtMs: now - 9_000 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "tool-old", name: "web_fetch", phase: "result", status: "success", startedAtMs: now - 9_500, updatedAtMs: now - 9_000, finishedAtMs: now - 9_000 });
+    context.runs.upsertRun({ runId: "run-2", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now, updatedAtMs: now });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "thinking",
+      activeRun: expect.objectContaining({ runId: "run-2" }),
+      toolCalls: [],
+    });
+    expect(context.runs.getToolCall("s1", "tool-old")).toMatchObject({ runId: "run-1", status: "success" });
+    await app.close();
+  });
+
+  test("run upsert does not downgrade terminal runs", async () => {
+    const app = await createApp(config("run-upsert-preserves-terminal"));
+    const context = contextOf(app);
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: now - 1000, updatedAtMs: now - 500, finishedAtMs: now - 500 });
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now - 1000, updatedAtMs: now });
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "done", statusLabel: null, finishedAtMs: now - 500 });
+    await app.close();
+  });
+
   test("canonical bootstrap only exposes tools for the active/latest turn", async () => {
     const app = await createApp(config("bootstrap-active-turn-tools-only"));
     const context = contextOf(app);

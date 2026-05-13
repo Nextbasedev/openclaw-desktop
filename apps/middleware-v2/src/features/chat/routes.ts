@@ -98,6 +98,8 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       const toolCallId = readToolCallId(block);
       const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
       if (!toolCallId || !name) continue;
+      const existingTool = context.runs.getToolCall(sessionKey, toolCallId);
+      if (existingTool?.runId && existingTool.runId !== runId) continue;
       const result = completed ? { status: "success" as const, resultMeta: { inferred: true, reason: "bootstrap_completed_history" } } : inferToolResultFromHistory(messages, messageIndex, toolCallId);
       context.runs.upsertToolCall({
         sessionKey,

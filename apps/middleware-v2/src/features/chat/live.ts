@@ -187,7 +187,7 @@ export class ChatLiveIngest {
   private associatedRunForMessage(sessionKey: string, message: OpenClawMessage, optimisticRunId?: string | null) {
     const explicitRunId = this.readRunId(message);
     if (explicitRunId) {
-      return this.context.runs.findRunByGatewayRunId(explicitRunId) ?? this.context.runs.getRun(explicitRunId) ?? this.context.runs.findLatestPendingRun(sessionKey);
+      return this.context.runs.findRunByGatewayRunId(explicitRunId) ?? this.context.runs.getRun(explicitRunId);
     }
     if (optimisticRunId) return this.context.runs.getRun(optimisticRunId) ?? this.context.runs.findLatestPendingRun(sessionKey);
     if (message.role === "assistant") return this.context.runs.findLatestPendingRun(sessionKey);

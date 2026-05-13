@@ -73,26 +73,6 @@ function quoteWindowsArg(arg) {
   return `"${arg.replace(/"/g, '\\"')}"`
 }
 
-function resolveTypeScriptCli() {
-  const pnpmDir = path.join(repoRoot, "node_modules", ".pnpm")
-  const typescriptDir = fs
-    .readdirSync(pnpmDir, { withFileTypes: true })
-    .find((entry) => entry.isDirectory() && entry.name.startsWith("typescript@"))
-
-  if (!typescriptDir) {
-    throw new Error("Unable to locate the local TypeScript package")
-  }
-
-  return path.join(
-    pnpmDir,
-    typescriptDir.name,
-    "node_modules",
-    "typescript",
-    "bin",
-    "tsc",
-  )
-}
-
 function updateBundledWorkspacePackage(name) {
   const packageDir = path.join(
     bundledTopLevelNodeModulesDir,
@@ -146,6 +126,19 @@ function materializeSymlinks(root) {
   }
 }
 
+function pruneBundledWorkspaceNodeModules() {
+  fs.rmSync(
+    path.join(
+      bundledTopLevelNodeModulesDir,
+      "@openclaw",
+      "desktop-middleware-v2",
+      "node_modules",
+    ),
+    { recursive: true, force: true },
+  )
+}
+
+
 function rebuildTopLevelNodeModules() {
   const keep = new Set([".pnpm", ".modules.yaml"])
 
@@ -170,6 +163,7 @@ function rebuildTopLevelNodeModules() {
   }
 
   materializeSymlinks(bundledTopLevelNodeModulesDir)
+  pruneBundledWorkspaceNodeModules()
 
   // Tauri's resource scanner follows pnpm virtual-store links and can fail on
   // package-internal symlinks on Windows (for example @fastify/error under
@@ -195,7 +189,6 @@ function updateServerPackageJson() {
 
 function main() {
   const pnpm = "pnpm"
-  const tscCli = resolveTypeScriptCli()
 
   fs.rmSync(bundledServerDir, { recursive: true, force: true })
 
