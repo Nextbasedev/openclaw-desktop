@@ -22,6 +22,17 @@ function isExpired(entry: PersistentCacheEntry | null | undefined) {
   return Boolean(entry?.expiresAt && entry.expiresAt <= now())
 }
 
+function resetDbConnection(db?: IDBDatabase | null) {
+  try { db?.close() } catch {}
+  dbPromise = null
+}
+
+function recreateDbAfterCorruption(db?: IDBDatabase | null) {
+  resetDbConnection(db)
+  if (typeof window === "undefined" || !hasIndexedDb()) return
+  try { indexedDB.deleteDatabase(DB_NAME) } catch {}
+}
+
 function openDb(): Promise<IDBDatabase | null> {
   if (typeof window === "undefined" || !hasIndexedDb()) return Promise.resolve(null)
   if (dbPromise) return dbPromise
@@ -31,9 +42,24 @@ function openDb(): Promise<IDBDatabase | null> {
       const db = req.result
       if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "key" })
     }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => resolve(null)
-    req.onblocked = () => resolve(null)
+    req.onsuccess = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        recreateDbAfterCorruption(db)
+        resolve(null)
+        return
+      }
+      db.onversionchange = () => resetDbConnection(db)
+      resolve(db)
+    }
+    req.onerror = () => {
+      resetDbConnection()
+      resolve(null)
+    }
+    req.onblocked = () => {
+      resetDbConnection()
+      resolve(null)
+    }
   })
   return dbPromise
 }
@@ -42,10 +68,15 @@ async function idbGet<T>(key: string): Promise<PersistentCacheEntry<T> | null> {
   const db = await openDb()
   if (!db) return null
   return new Promise((resolve) => {
-    const tx = db.transaction(STORE_NAME, "readonly")
-    const req = tx.objectStore(STORE_NAME).get(key)
-    req.onsuccess = () => resolve((req.result as PersistentCacheEntry<T> | undefined) ?? null)
-    req.onerror = () => resolve(null)
+    try {
+      const tx = db.transaction(STORE_NAME, "readonly")
+      const req = tx.objectStore(STORE_NAME).get(key)
+      req.onsuccess = () => resolve((req.result as PersistentCacheEntry<T> | undefined) ?? null)
+      req.onerror = () => resolve(null)
+    } catch {
+      recreateDbAfterCorruption(db)
+      resolve(null)
+    }
   })
 }
 
@@ -53,10 +84,15 @@ async function idbSet(entry: PersistentCacheEntry): Promise<void> {
   const db = await openDb()
   if (!db) return
   await new Promise<void>((resolve) => {
-    const tx = db.transaction(STORE_NAME, "readwrite")
-    tx.objectStore(STORE_NAME).put(entry)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => resolve()
+    try {
+      const tx = db.transaction(STORE_NAME, "readwrite")
+      tx.objectStore(STORE_NAME).put(entry)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    } catch {
+      recreateDbAfterCorruption(db)
+      resolve()
+    }
   })
 }
 
@@ -64,7 +100,14 @@ async function idbDeletePrefix(prefix: string): Promise<void> {
   const db = await openDb()
   if (!db) return
   await new Promise<void>((resolve) => {
-    const tx = db.transaction(STORE_NAME, "readwrite")
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(STORE_NAME, "readwrite")
+    } catch {
+      recreateDbAfterCorruption(db)
+      resolve()
+      return
+    }
     const store = tx.objectStore(STORE_NAME)
     const req = store.openCursor()
     req.onsuccess = () => {
