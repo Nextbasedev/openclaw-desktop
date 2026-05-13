@@ -12,7 +12,7 @@ function isTauriRuntime(): boolean {
 }
 
 function isLoopbackHost(hostname: string): boolean {
-  return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname)
+  return ["localhost", "tauri.localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname)
 }
 
 function isLoopbackServerUrl(url: string): boolean {

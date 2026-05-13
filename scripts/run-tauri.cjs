@@ -16,10 +16,29 @@ if (fs.existsSync(cargoBin) && !pathEntries.includes(cargoBin)) {
   pathEntries.unshift(cargoBin);
 }
 
+
+function cleanBundledMiddlewareForDev() {
+  if (process.argv[2] !== "dev") return;
+  const bundledDir = path.join(
+    __dirname,
+    "..",
+    "packages",
+    "desktop",
+    "src-tauri",
+    "bundled",
+    "middleware",
+  );
+  fs.rmSync(bundledDir, { recursive: true, force: true });
+  fs.mkdirSync(bundledDir, { recursive: true });
+  fs.writeFileSync(path.join(bundledDir, ".gitkeep"), "");
+}
+
 const env = {
   ...process.env,
   [pathKey || "PATH"]: pathEntries.join(path.delimiter),
 };
+
+cleanBundledMiddlewareForDev();
 
 const tauriEntrypoint = require.resolve("@tauri-apps/cli/tauri.js", {
   paths: [process.cwd()],

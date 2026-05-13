@@ -7,6 +7,7 @@ import { messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } fro
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
+import type { ProjectedRun } from "./repo.runs.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
@@ -16,6 +17,8 @@ const bootstrapQuery = z.object({
 
 
 const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
+const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
+const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 
 function lastMessageIsAssistantText(messages: unknown[]) {
@@ -70,6 +73,15 @@ function compactResultMeta(value: unknown) {
   return { type: typeof value };
 }
 
+function oldestRunningToolAgeMs(context: AppContext, sessionKey: string, runId: string) {
+  const startedAtMs = context.runs
+    .listRunningToolCalls(sessionKey, runId)
+    .map((tool) => tool.startedAtMs)
+    .filter((value) => Number.isFinite(value) && value >= MIN_REAL_TIMESTAMP_MS);
+  if (startedAtMs.length === 0) return null;
+  return Math.max(0, Date.now() - Math.min(...startedAtMs));
+}
+
 function inferToolResultFromHistory(messages: unknown[], messageIndex: number, toolCallId?: string | null) {
   for (let index = messageIndex + 1; index < messages.length; index += 1) {
     const message = messages[index];
@@ -86,7 +98,7 @@ function inferToolResultFromHistory(messages: unknown[], messageIndex: number, t
   return null;
 }
 
-function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], runId: string | null, completed: boolean) {
+function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messages: unknown[], run: ProjectedRun | null, completed: boolean) {
   let inferred = 0;
   messages.forEach((message, messageIndex) => {
     if (!message || typeof message !== "object" || Array.isArray(message)) return;
@@ -98,11 +110,18 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       const toolCallId = readToolCallId(block);
       const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
       if (!toolCallId || !name) continue;
+      const existingTool = context.runs.getToolCall(sessionKey, toolCallId);
+      if (existingTool?.runId && existingTool.runId !== run?.runId) continue;
+      // Do not adopt old detached tool rows into a newly active run during
+      // bootstrap. Old middleware versions persisted some inferred tools without
+      // a run_id; if those rows are replayed after a fresh user send, assigning
+      // them to the current run resurrects ancient tool cards as live activity.
+      if (existingTool && !existingTool.runId && run && existingTool.startedAtMs < run.startedAtMs - 1000) continue;
       const result = completed ? { status: "success" as const, resultMeta: { inferred: true, reason: "bootstrap_completed_history" } } : inferToolResultFromHistory(messages, messageIndex, toolCallId);
       context.runs.upsertToolCall({
         sessionKey,
         toolCallId,
-        runId,
+        runId: run?.runId ?? null,
         messageId,
         name,
         phase: result ? "result" : "calling",
@@ -707,24 +726,49 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq });
 
     const latestRun = context.runs.latestRun(sessionKey);
+    const activeRun = context.runs.findLatestPendingRun(sessionKey);
     const bootstrapCompleted = isTerminalSendStatus(sessionData.status) || lastMessageIsAssistantText(messages);
-    const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, latestRun?.runId ?? null, bootstrapCompleted);
-    if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: latestRun?.runId ?? null, completed: bootstrapCompleted });
+    const inferenceRun = activeRun ?? latestRun;
+    const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun ?? null, bootstrapCompleted);
+    if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: inferenceRun?.runId ?? null, completed: bootstrapCompleted });
 
-    if (latestRun && ACTIVE_RUN_STATUSES.has(latestRun.status) && Date.now() - latestRun.updatedAtMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) {
-      const finalizedTools = context.runs.completeRunningTools(sessionKey, latestRun.runId, {
+    if (activeRun) {
+      const finalizedPreRunTools = context.runs.completeRunningToolsStartedBefore(sessionKey, activeRun.runId, activeRun.startedAtMs - 1000, {
         status: "success",
-        resultMeta: { inferred: true, reason: "stale_bootstrap_after_assistant_final" },
+        resultMeta: { inferred: true, reason: "bootstrap_stale_prerun_tool" },
       });
-      context.runs.updateRunStatus(latestRun.runId, "done", { statusLabel: null });
-      sessionData.status = "done";
-      sessionData.statusLabel = null;
-      context.messages.upsertSession({
-        sessionKey,
-        sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
-        data: sessionData,
-      });
-      log.warn("bootstrap.stale-run-finalized", { sessionKey, runId: latestRun.runId, previousStatus: latestRun.status, finalizedTools, staleMs: Date.now() - latestRun.updatedAtMs });
+      if (finalizedPreRunTools > 0) {
+        log.warn("bootstrap.stale-prerun-tools-finalized", { sessionKey, runId: activeRun.runId, finalizedTools: finalizedPreRunTools, runStartedAtMs: activeRun.startedAtMs });
+        if (activeRun.status === "tool_running" && !context.runs.hasRunningTools(sessionKey, activeRun.runId)) {
+          context.runs.updateRunStatus(activeRun.runId, "streaming", { statusLabel: "Streaming" });
+        }
+      }
+    }
+
+    if (activeRun) {
+      const staleRunMs = Date.now() - activeRun.updatedAtMs;
+      const staleToolMs = oldestRunningToolAgeMs(context, sessionKey, activeRun.runId);
+      const shouldFinalizeStaleRun =
+        (staleRunMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) ||
+        (staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS);
+      if (shouldFinalizeStaleRun) {
+        const reason = staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS
+          ? "stale_bootstrap_tool_replay"
+          : "stale_bootstrap_after_assistant_final";
+        const finalizedTools = context.runs.completeRunningTools(sessionKey, activeRun.runId, {
+          status: "success",
+          resultMeta: { inferred: true, reason },
+        });
+        context.runs.updateRunStatus(activeRun.runId, "done", { statusLabel: null });
+        sessionData.status = "done";
+        sessionData.statusLabel = null;
+        context.messages.upsertSession({
+          sessionKey,
+          sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+          data: sessionData,
+        });
+        log.warn("bootstrap.stale-run-finalized", { sessionKey, runId: activeRun.runId, previousStatus: activeRun.status, finalizedTools, staleMs: staleRunMs, staleToolMs, reason });
+      }
     }
 
     const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000 }).map((message) => message.data);

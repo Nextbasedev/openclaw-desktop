@@ -6,7 +6,7 @@ import {
   getCachedChatSessionMessages,
   publishChatSessionMessages,
 } from "@/lib/chatSessionStore"
-import { invoke } from "@/lib/ipc"
+import { fetchChatBootstrapV2 } from "@/lib/chat-engine-v2/client"
 import { dedupeRequest } from "@/lib/requestDedupe"
 import { loadSearchDatasets, matchRank, sessionMaps } from "./searchData"
 import type { SearchDatasets, SearchMessageResult } from "./searchTypes"
@@ -145,11 +145,8 @@ async function hydrateSessionHistory(sessionKey: string) {
   await dedupeRequest(
     `search:history:${sessionKey}`,
     async () => {
-      const history = await invoke<{ messages: RawHistoryMessage[] }>(
-        "middleware_chat_history",
-        { input: { sessionKey } },
-      )
-      const parsed = parseChatHistory(history.messages ?? [])
+      const history = await fetchChatBootstrapV2(sessionKey)
+      const parsed = parseChatHistory((history.messages as RawHistoryMessage[]) ?? [])
       publishChatSessionMessages(sessionKey, parsed.messages, "global-search")
       return parsed.messages.length
     },
