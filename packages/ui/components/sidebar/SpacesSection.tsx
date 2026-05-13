@@ -60,40 +60,44 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
         )}
         aria-label="Projects"
       >
-        <div className="flex min-w-0 items-center gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {activeSpace && (
             <button
               type="button"
               onClick={() => void onSwitch(activeSpace.id)}
               title={activeSpace.name}
               aria-label={`Current project: ${activeSpace.name}`}
-              className="relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
             >
-              <span className="absolute inset-0 rounded-full bg-gradient-to-br from-cyan-300 via-sky-400 to-violet-500 shadow-[0_0_14px_rgba(56,189,248,0.55)]" />
-              <LuFolderKanban className="relative size-2.5 text-white/90" />
-              <span className="absolute -right-0.5 -top-0.5 flex size-2.5 items-center justify-center rounded-full bg-zinc-950/85 ring-1 ring-white/20">
-                <LuPlus className="size-1.5 text-white/80" />
+              <span className="relative flex size-4 shrink-0 items-center justify-center rounded-full">
+                <span className="absolute inset-0 rounded-full bg-gradient-to-br from-cyan-300 via-sky-400 to-violet-500 shadow-[0_0_14px_rgba(56,189,248,0.55)]" />
+                <LuFolderKanban className="relative size-2.5 text-white/90" />
+              </span>
+              <span className="min-w-0 truncate text-xs font-medium text-foreground/90">
+                {activeSpace.name}
               </span>
             </button>
           )}
 
-          {spaces.filter((space) => space.id !== activeSpace?.id).slice(0, 4).map((space, index) => (
-            <button
-              key={space.id}
-              type="button"
-              onClick={() => void onSwitch(space.id)}
-              title={space.name}
-              aria-label={`Switch to project ${space.name}`}
-              className="group flex size-3 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
-            >
-              <span
-                className={cn(
-                  "size-1.5 rounded-full bg-gradient-to-br opacity-45 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-150 group-hover:size-2.5 group-hover:opacity-90",
-                  DOT_GRADIENTS[(index + 1) % DOT_GRADIENTS.length],
-                )}
-              />
-            </button>
-          ))}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {spaces.filter((space) => space.id !== activeSpace?.id).slice(0, 3).map((space, index) => (
+              <button
+                key={space.id}
+                type="button"
+                onClick={() => void onSwitch(space.id)}
+                title={space.name}
+                aria-label={`Switch to project ${space.name}`}
+                className="group flex size-3 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+              >
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full bg-gradient-to-br opacity-45 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-150 group-hover:size-2.5 group-hover:opacity-90",
+                    DOT_GRADIENTS[(index + 1) % DOT_GRADIENTS.length],
+                  )}
+                />
+              </button>
+            ))}
+          </div>
         </div>
 
         <button
