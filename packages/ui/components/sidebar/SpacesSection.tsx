@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from "react"
 import { LuFolderKanban, LuPlus } from "react-icons/lu"
+import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import type { Space } from "@/types/space"
 
 type Props = {
@@ -24,12 +27,19 @@ const DOT_GRADIENTS = [
   "from-rose-300 via-pink-400 to-fuchsia-500",
 ]
 
+function gradientForIndex(index: number) {
+  return DOT_GRADIENTS[index % DOT_GRADIENTS.length]
+}
+
 export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Props) {
   const [createOpen, setCreateOpen] = useState(false)
+  const [overflowOpen, setOverflowOpen] = useState(false)
   const [name, setName] = useState("New Project")
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0] ?? null
+  const quickSpaces = spaces.slice(0, 2)
+  const overflowSpaces = spaces.slice(2)
 
   useEffect(() => {
     if (createOpen) window.setTimeout(() => inputRef.current?.focus(), 40)
@@ -80,7 +90,7 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
           )}
 
           <div className="flex shrink-0 items-center gap-1.5">
-            {spaces.filter((space) => space.id !== activeSpace?.id).slice(0, 3).map((space, index) => (
+            {quickSpaces.map((space, index) => (
               <button
                 key={space.id}
                 type="button"
@@ -91,8 +101,11 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
               >
                 <span
                   className={cn(
-                    "size-1.5 rounded-full bg-gradient-to-br opacity-45 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-150 group-hover:size-2.5 group-hover:opacity-90",
-                    DOT_GRADIENTS[(index + 1) % DOT_GRADIENTS.length],
+                    "rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-150",
+                    space.id === activeSpace?.id
+                      ? "size-2.5 opacity-100"
+                      : "size-1.5 opacity-45 group-hover:size-2.5 group-hover:opacity-90",
+                    gradientForIndex(index + 1),
                   )}
                 />
               </button>
@@ -100,15 +113,72 @@ export function SpacesSection({ spaces, activeSpaceId, onSwitch, onCreate }: Pro
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={openCreate}
-          title="New Project"
-          aria-label="New Project"
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
-        >
-          <LuPlus className="size-5 stroke-[1.7]" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {overflowSpaces.length > 0 && (
+            <Popover open={overflowOpen} onOpenChange={setOverflowOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  title="More projects"
+                  aria-label="More projects"
+                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                >
+                  <Icons.MoreVertical size={15} strokeWidth={1.7} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                side="top"
+                sideOffset={10}
+                collisionPadding={12}
+                className={cn(
+                  GLASS_POPOVER,
+                  "w-52 gap-0 overflow-hidden rounded-2xl p-1.5",
+                  "border border-[var(--glass-border)] bg-[var(--glass-bg)]",
+                  "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                  "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                )}
+              >
+                <div className="mb-1 px-2 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/55">
+                  More Projects
+                </div>
+                <div className="max-h-[50px] overflow-y-auto pr-1">
+                  {overflowSpaces.map((space, index) => (
+                    <button
+                      key={space.id}
+                      type="button"
+                      onClick={() => {
+                        setOverflowOpen(false)
+                        void onSwitch(space.id)
+                      }}
+                      className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                    >
+                      <span
+                        className={cn(
+                          "size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)]",
+                          gradientForIndex(index + 3),
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">
+                        {space.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
+          <button
+            type="button"
+            onClick={openCreate}
+            title="New Project"
+            aria-label="New Project"
+            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+          >
+            <LuPlus className="size-5 stroke-[1.7]" />
+          </button>
+        </div>
       </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
