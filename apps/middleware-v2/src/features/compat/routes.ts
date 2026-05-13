@@ -1,4 +1,5 @@
 import { execFileSync, spawn as spawnChild, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { IPty } from "node-pty";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,7 +21,7 @@ const gatewaySessionLabel = (label: unknown, sessionKey: string) => {
 
 type CompatTerminal = {
   id: string;
-  child: ChildProcessWithoutNullStreams;
+  proc: IPty;
   cwd: string;
   buffer: string[];
   listeners: Set<(event: string, payload: CompatRecord) => void>;
@@ -491,8 +492,40 @@ async function connectGatewayForStatus(context: AppContext) {
   return context.gateway.status();
 }
 
+type DataHandler = (data: string) => void;
+type ExitHandler = (event: { exitCode: number }) => void;
+
+class ChildProcessTerminal {
+  private dataHandlers = new Set<DataHandler>();
+  private exitHandlers = new Set<ExitHandler>();
+
+  constructor(private child: ChildProcessWithoutNullStreams) {
+    child.stdout.on("data", (chunk) => this.emitData(chunk.toString()));
+    child.stderr.on("data", (chunk) => this.emitData(chunk.toString()));
+    child.on("exit", (code) => this.emitExit(code ?? 0));
+  }
+
+  private emitData(data: string) { for (const handler of this.dataHandlers) handler(data); }
+  private emitExit(exitCode: number) { for (const handler of this.exitHandlers) handler({ exitCode }); }
+  write(data: string) { this.child.stdin.write(data); }
+  resize(_cols: number, _rows: number) {}
+  kill() { this.child.kill(); }
+  onData(handler: DataHandler) { this.dataHandlers.add(handler); return { dispose: () => this.dataHandlers.delete(handler) }; }
+  onExit(handler: ExitHandler) { this.exitHandlers.add(handler); return { dispose: () => this.exitHandlers.delete(handler) }; }
+}
+
 function terminalShell() {
   return process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "bash";
+}
+
+async function spawnPty(command: string, cwd: string, cols: number, rows: number): Promise<IPty> {
+  try {
+    const pty = await import("node-pty");
+    return pty.spawn(command, [], { cwd, cols, rows, env: process.env });
+  } catch {
+    const child = spawnChild(command, [], { cwd, env: process.env, shell: false });
+    return new ChildProcessTerminal(child) as unknown as IPty;
+  }
 }
 
 function broadcastTerminal(term: CompatTerminal, event: string, payload: CompatRecord) {
@@ -501,20 +534,17 @@ function broadcastTerminal(term: CompatTerminal, event: string, payload: CompatR
   return frame;
 }
 
-function spawnTerminal(cwd: string) {
+async function spawnTerminal(cwd: string, body: CompatRecord = {}) {
   const idValue = id("term");
-  const child = spawnChild(terminalShell(), [], { cwd, env: process.env, shell: false });
-  const term: CompatTerminal = { id: idValue, child, cwd, buffer: [], listeners: new Set() };
-  const onData = (chunk: Buffer) => {
-    const data = chunk.toString();
+  const proc = await spawnPty(terminalShell(), cwd, Number(body.cols ?? 80), Number(body.rows ?? 24));
+  const term: CompatTerminal = { id: idValue, proc, cwd, buffer: [], listeners: new Set() };
+  proc.onData((data) => {
     term.buffer.push(data);
     if (term.buffer.length > 200) term.buffer.shift();
     broadcastTerminal(term, "data", { type: "terminal.data", terminalId: idValue, data });
-  };
-  child.stdout.on("data", onData);
-  child.stderr.on("data", onData);
-  child.on("exit", (code) => {
-    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: idValue, exitCode: code ?? 0 });
+  });
+  proc.onExit((event) => {
+    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: idValue, exitCode: event.exitCode ?? 0 });
     compatState.terminals.delete(idValue);
   });
   compatState.terminals.set(idValue, term);
@@ -1214,27 +1244,30 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.post("/api/terminal/spawn", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const cwd = String(body.cwd ?? body.workspaceRoot ?? process.env.WORKSPACE_ROOT ?? path.join(os.homedir(), ".openclaw", "workspace"));
-    return spawnTerminal(cwd);
+    return spawnTerminal(cwd, body);
   });
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/terminal/spawn", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
-    return spawnTerminal(root);
+    return spawnTerminal(root, (request.body ?? {}) as CompatRecord);
   });
   app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/write", async (request, reply) => {
     const term = getTerminal(request.params.ptyId);
     if (!term) return reply.code(404).send({ ok: false, error: { message: "Terminal not found" } });
     const body = (request.body ?? {}) as CompatRecord;
-    term.child.stdin.write(String(body.data ?? ""));
+    term.proc.write(String(body.data ?? ""));
     return { ok: true };
   });
   app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/resize", async (request) => {
-    // child_process doesn't support resize natively; no-op for compat
+    const term = getTerminal(request.params.ptyId);
+    if (!term) return { ok: true };
+    const body = (request.body ?? {}) as CompatRecord;
+    term.proc.resize(Number(body.cols ?? 80), Number(body.rows ?? 24));
     return { ok: true };
   });
   app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/kill", async (request) => {
     const term = getTerminal(request.params.ptyId);
-    if (term) { term.child.kill(); compatState.terminals.delete(request.params.ptyId); }
+    if (term) { term.proc.kill(); compatState.terminals.delete(request.params.ptyId); }
     return { ok: true };
   });
 
@@ -1267,8 +1300,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     socket.on("message", (raw: Buffer) => {
       try {
         const msg = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number };
-        if (msg.type === "write" && typeof msg.data === "string") term.child.stdin.write(msg.data);
-        if (msg.type === "kill") { term.child.kill(); compatState.terminals.delete(term.id); }
+        if (msg.type === "write" && typeof msg.data === "string") term.proc.write(msg.data);
+        if (msg.type === "resize" && msg.cols && msg.rows) term.proc.resize(msg.cols, msg.rows);
+        if (msg.type === "kill") { term.proc.kill(); compatState.terminals.delete(term.id); }
       } catch {}
     });
     socket.on("close", () => term.listeners.delete(listener));
