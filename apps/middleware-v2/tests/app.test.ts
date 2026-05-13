@@ -83,6 +83,50 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("CORS preflight allows authorized chat DELETE from browser origins", async () => {
+    const app = await createApp(testConfig());
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/chats/chat_test",
+      headers: {
+        origin: "http://localhost:3000",
+        "access-control-request-method": "DELETE",
+        "access-control-request-headers": "authorization,content-type",
+      },
+    });
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+    expect(String(res.headers["access-control-allow-methods"])).toContain("DELETE");
+    expect(String(res.headers["access-control-allow-headers"]).toLowerCase()).toContain("authorization");
+    await app.close();
+  });
+
+  test("delete chat permanently removes it from active chat lists", async () => {
+    const app = await createApp(testConfig());
+    const created = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Delete Me", agentId: "main" } });
+    expect(created.statusCode).toBe(200);
+    const body = created.json();
+    const chatId = body.chat.id;
+    const sessionKey = body.chat.sessionKey;
+
+    const deleted = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({ ok: true });
+
+    const listed = await app.inject({ method: "GET", url: "/api/chats" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().chats.some((chat: { id: string }) => chat.id === chatId)).toBe(false);
+
+    const sessions = await app.inject({ method: "GET", url: "/api/sessions" });
+    expect(sessions.statusCode).toBe(200);
+    expect(sessions.json().sessions.some((session: { sessionKey?: string; key?: string }) => session.sessionKey === sessionKey || session.key === sessionKey)).toBe(false);
+
+    const deletedAgain = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
+    expect(deletedAgain.statusCode).toBe(200);
+    expect(deletedAgain.json()).toMatchObject({ ok: true });
+    await app.close();
+  });
+
   test("new session returns both key and sessionKey aliases", async () => {
     const app = await createApp(testConfig());
     const res = await app.inject({ method: "POST", url: "/api/sessions", payload: { label: "Hello", agentId: "main" } });

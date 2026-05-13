@@ -670,8 +670,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
-    patchById(compatState.chats, request.params.chatId, { deleted: true });
-    saveCompatCollection(context, "chats");
+    const chat = compatState.chats.find((item) => item.id === request.params.chatId) ?? null;
+    compatState.chats = compatState.chats.filter((item) => item.id !== request.params.chatId);
+    if (chat?.sessionKey) {
+      compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== chat.sessionKey && session.key !== chat.sessionKey);
+    }
+    saveCompatState(context);
     return { ok: true };
   });
 
