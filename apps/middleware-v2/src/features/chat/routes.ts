@@ -18,6 +18,7 @@ const bootstrapQuery = z.object({
 
 const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
+const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 
 function lastMessageIsAssistantText(messages: unknown[]) {
@@ -76,7 +77,7 @@ function oldestRunningToolAgeMs(context: AppContext, sessionKey: string, runId: 
   const startedAtMs = context.runs
     .listRunningToolCalls(sessionKey, runId)
     .map((tool) => tool.startedAtMs)
-    .filter((value) => Number.isFinite(value));
+    .filter((value) => Number.isFinite(value) && value >= MIN_REAL_TIMESTAMP_MS);
   if (startedAtMs.length === 0) return null;
   return Math.max(0, Date.now() - Math.min(...startedAtMs));
 }
