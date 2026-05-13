@@ -328,13 +328,23 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
   }
 }
 
+function subagentLabelFromToolInput(input: unknown) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "Sub-agent"
+  const record = input as Record<string, unknown>
+  const label = record.label ?? record.agentId
+  if (typeof label === "string" && label.trim()) return label.trim()
+  const task = typeof record.task === "string" ? record.task.trim() : ""
+  return task ? `${task.slice(0, 60)}${task.length > 60 ? "..." : ""}` : "Sub-agent"
+}
+
 function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null {
   if (tool.tool !== "sessions_spawn") return null
+  const childSessionKey = extractSubagentSessionKey(tool.resultText) ?? extractSubagentSessionKey(tool.input)
   return {
     id: `spawn:${tool.id}`,
-    label: "Sub-agent",
-    sessionKey: null,
-    status: tool.status === "error" ? "failed" : tool.status === "success" ? "completed" : "spawning",
+    label: subagentLabelFromToolInput(tool.input),
+    sessionKey: childSessionKey,
+    status: tool.status === "error" ? "failed" : tool.status === "success" ? "completed" : childSessionKey ? "working" : "spawning",
     toolCallId: tool.id,
   }
 }

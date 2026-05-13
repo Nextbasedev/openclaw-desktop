@@ -113,7 +113,10 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
   const latestRun = activeRun ?? context.runs.latestRun(params.sessionKey);
   const runStatus = latestRun?.status ?? canonicalRunStatusFromLegacy(params.sessionData.status);
   const statusLabel = runStatusLabel(runStatus, latestRun, params.sessionData.statusLabel);
-  const tools = context.runs.listToolCalls(params.sessionKey).map(toolCallProjection);
+  const tools = (latestRun
+    ? context.runs.listToolCalls(params.sessionKey, latestRun.runId)
+    : context.runs.listToolCalls(params.sessionKey)
+  ).map(toolCallProjection);
   const sessionStatus = typeof params.sessionData.status === "string"
     ? params.sessionData.status
     : legacySessionStatusFromRunStatus(runStatus);

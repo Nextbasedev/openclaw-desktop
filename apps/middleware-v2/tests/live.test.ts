@@ -371,6 +371,42 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("canonical bootstrap only exposes tools for the active/latest turn", async () => {
+    const app = await createApp(config("bootstrap-active-turn-tools-only"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", text: "first", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", text: "first done", __openclaw: { id: "a1", seq: 2 } },
+            { role: "user", text: "second", __openclaw: { id: "u2", seq: 3 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: 100, updatedAtMs: 200, finishedAtMs: 200 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "old-tool", name: "read", phase: "result", status: "success", startedAtMs: 120, updatedAtMs: 180, finishedAtMs: 180 });
+    context.runs.upsertRun({ runId: "run-2", sessionKey: "s1", status: "tool_running", statusLabel: "exec", startedAtMs: 300, updatedAtMs: 320 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-2", toolCallId: "current-tool", name: "exec", phase: "calling", status: "running", startedAtMs: 310, updatedAtMs: 320 });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "tool_running",
+      activeRun: expect.objectContaining({ runId: "run-2" }),
+      toolCalls: [expect.objectContaining({ toolCallId: "current-tool", runId: "run-2", status: "running" })],
+    });
+    expect(bootstrap.json().toolCalls).toHaveLength(1);
+    await app.close();
+  });
+
   test("canonical bootstrap preserves sessions_spawn child session metadata after refresh", async () => {
     const app = await createApp(config("sessions-spawn-child-metadata"));
     const context = contextOf(app);

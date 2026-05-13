@@ -374,9 +374,20 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   if (inline.tool === "sessions_spawn") {
     const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
     const existing = spawns.get(inline.id)
+    const childSessionKey = extractSubagentSessionKey(inline.resultText) ?? extractSubagentSessionKey(inline.input) ?? existing?.sessionKey ?? null
+    const input = inline.input && typeof inline.input === "object" && !Array.isArray(inline.input)
+      ? inline.input as Record<string, unknown>
+      : {}
+    const label = typeof input.label === "string" && input.label.trim()
+      ? input.label.trim()
+      : typeof input.task === "string" && input.task.trim()
+        ? input.task.trim().slice(0, 60)
+        : "Sub-agent"
     spawns.set(inline.id, {
-      ...(existing ?? { id: `spawn:${inline.id}`, label: "Sub-agent", task: undefined, sessionKey: null, toolCallId: inline.id }),
-      status: inline.status === "error" ? "failed" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
+      ...(existing ?? { id: `spawn:${inline.id}`, label, task: typeof input.task === "string" ? input.task : undefined, sessionKey: null, toolCallId: inline.id }),
+      label: existing?.label ?? label,
+      sessionKey: childSessionKey,
+      status: inline.status === "error" ? "failed" : inline.status === "success" ? "completed" : childSessionKey ? "working" : existing?.status ?? "spawning",
     })
     state.spawnedSubagents = Array.from(spawns.values())
   }
