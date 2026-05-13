@@ -3,7 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
+import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
+import { cleanUserMessageText } from "@/lib/chatHistoryParser"
+import type { ChatMessage, InlineToolCall } from "@/components/ChatView/types"
 import type {
   ToolCall,
   AgentInfo,
@@ -84,6 +87,35 @@ function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): 
   if (incoming.output && incoming.output !== existing.output) merged.output = incoming.output
   if (existing.status === "error" || incoming.status === "error") merged.status = "error"
   return merged
+}
+
+function activityInputFromInline(input: unknown): Record<string, unknown> | undefined {
+  if (input == null) return undefined
+  if (typeof input === "object" && !Array.isArray(input)) return input as Record<string, unknown>
+  return { value: input }
+}
+
+function activityCallFromInlineTool(
+  tool: InlineToolCall,
+  turn: { messageId: string; messagePreview?: string },
+): ToolCall {
+  return {
+    id: tool.id,
+    tool: tool.tool,
+    status: tool.status,
+    duration: tool.duration,
+    input: activityInputFromInline(tool.input),
+    output: tool.resultText,
+    startedAt: tool.startedAt,
+    messageId: turn.messageId,
+    messagePreview: turn.messagePreview,
+  }
+}
+
+function previewFromChatMessage(message: ChatMessage): string | undefined {
+  const text = cleanUserMessageText(message.text ?? "").replace(/\s+/g, " ").trim()
+  if (!text) return undefined
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text
 }
 
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
@@ -552,6 +584,57 @@ export function useAgentActivity(sessionKey: string | null) {
     }
 
     loadHistory()
+    const syncGlobalActivity = () => {
+      const state = getGlobalChatSession(sessionKey)
+      if (!state) return
+      setStreamStatus(state.status)
+      const liveTurn = liveTurnForSession(sessionKey)
+      let changed = false
+      for (const tool of state.pendingTools) {
+        const existing = callMapRef.current.get(tool.id)
+        const incoming = activityCallFromInlineTool(tool, {
+          messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
+        })
+        const merged = mergeActivityCall(existing, incoming)
+        if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+          callMapRef.current.set(tool.id, merged)
+          changed = true
+        }
+      }
+      let previousUser: ChatMessage | null = null
+      for (const message of state.messages) {
+        if (message.role === "user") {
+          previousUser = message
+          continue
+        }
+        if (message.role !== "assistant" || !message.toolCalls?.length) continue
+        const turn = previousUser
+          ? {
+              messageId: previousUser.messageId,
+              messagePreview: previewFromChatMessage(previousUser),
+            }
+          : liveTurn
+        for (const tool of message.toolCalls) {
+          const existing = callMapRef.current.get(tool.id)
+          const incoming = activityCallFromInlineTool(tool, {
+            messageId: liveTurnMessageId(existing?.messageId, turn.messageId),
+            messagePreview: liveTurnPreview(existing?.messagePreview, turn.messagePreview),
+          })
+          const merged = mergeActivityCall(existing, incoming)
+          if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+            callMapRef.current.set(tool.id, merged)
+            changed = true
+          }
+        }
+      }
+      if (changed) syncState()
+    }
+    syncGlobalActivity()
+    const unsubscribeGlobalSession = subscribeGlobalChatSession(sessionKey, () => {
+      if (cancelledRef.current) return
+      syncGlobalActivity()
+    })
     const unsubscribeStream = subscribeChatStream(sessionKey, ({ type, data }) => {
       if (cancelledRef.current) return
       if (type === "chat.tool") {
@@ -583,6 +666,7 @@ export function useAgentActivity(sessionKey: string | null) {
 
     return () => {
       cancelledRef.current = true
+      unsubscribeGlobalSession()
       unsubscribeStream()
       if (doneTimerRef.current) {
         clearTimeout(doneTimerRef.current)
