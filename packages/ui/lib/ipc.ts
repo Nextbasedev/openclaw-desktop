@@ -124,6 +124,10 @@ function isRouteNotFound(error: unknown): boolean {
   return message.toLowerCase().includes("route not found") || message.includes("404")
 }
 
+function isNetworkFetchError(error: unknown): boolean {
+  return error instanceof TypeError
+}
+
 async function invokeRemoteMiddleware<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -173,7 +177,14 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_chats_archive":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_delete":
-      return middlewareFetch<T>(`/api/chats/${input.chatId}`, { method: "DELETE" })
+      return withCommandFallback(async () => {
+        try {
+          return await middlewareFetch<T>(`/api/chats/${input.chatId}`, { method: "DELETE" })
+        } catch (error) {
+          if (isNetworkFetchError(error)) return commandEndpoint()
+          throw error
+        }
+      })
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_list":
