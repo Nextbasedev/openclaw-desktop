@@ -12,7 +12,7 @@ function trimTrailingSlash(value: string) {
 }
 
 function isLoopbackHost(hostname: string) {
-  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1"
+  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "tauri.localhost" || hostname === "::1"
 }
 
 function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
@@ -151,9 +151,11 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
         backlogReplay = replayPatchBacklog(startCursor, onFrame)
           .then(() => {
             frontendLog("stream", "patch-stream.backlog.end", { bufferedEvents: liveBuffer.length }, "debug")
+            backlogReplay = null
             for (const buffered of liveBuffer.splice(0)) onFrame(buffered)
           })
           .catch((error) => {
+            backlogReplay = null
             frontendLog("stream", "patch-stream.backlog.error", {
               error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
             }, "error")

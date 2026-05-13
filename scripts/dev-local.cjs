@@ -11,6 +11,9 @@ function sanitizeEnv(env) {
   )
 }
 
+const children = []
+let stopping = false
+
 function run(name, args) {
   const child = spawn(pnpmCommand, args, {
     stdio: 'inherit',
@@ -21,20 +24,21 @@ function run(name, args) {
 
   child.on('error', (error) => {
     console.error(`[${name}] failed to start pnpm: ${error.message}`)
-    process.exit(1)
+    stopChildren(1)
   })
 
   child.on('exit', (code, signal) => {
-    if (signal) {
-      if (!isWindows) process.kill(process.pid, signal)
-      process.exit(1)
-    }
-    if (code) process.exit(code)
+    if (stopping) return
+    if (signal) return stopChildren(1)
+    if (code) return stopChildren(code)
   })
+  children.push(child)
   return child
 }
 
-function stopChildren(children, code) {
+function stopChildren(code) {
+  if (stopping) return
+  stopping = true
   for (const child of children) {
     if (!child.killed) child.kill(isWindows ? undefined : 'SIGTERM')
   }
@@ -42,12 +46,10 @@ function stopChildren(children, code) {
 }
 
 console.log('Starting local OpenClaw Desktop stack: middleware-v2 + web UI')
-const children = [
-  // Legacy middleware is intentionally disabled; middleware-v2 now owns the old 8787 port.
-  // run('middleware', ['dev:middleware']),
-  run('middleware-v2', ['dev:middleware:v2']),
-  run('web', ['dev:ui']),
-]
+// Legacy middleware is intentionally disabled; middleware-v2 now owns the old 8787 port.
+// run('middleware', ['dev:middleware'])
+run('middleware-v2', ['dev:middleware:v2'])
+run('web', ['dev:ui'])
 
-process.on('SIGINT', () => stopChildren(children, 130))
-process.on('SIGTERM', () => stopChildren(children, 143))
+process.on('SIGINT', () => stopChildren(130))
+process.on('SIGTERM', () => stopChildren(143))
