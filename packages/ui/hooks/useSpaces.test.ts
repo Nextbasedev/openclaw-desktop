@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
-  loadMiddlewareStartupBootstrap: vi.fn(),
-  localSyncSubscribeBootstrap: vi.fn(),
   stateSets: [] as unknown[][],
   effects: [] as Array<() => unknown>,
 }))
@@ -26,15 +24,11 @@ vi.mock("react", () => ({
 }))
 
 vi.mock("@/lib/ipc", () => ({ invoke: mocks.invoke }))
-vi.mock("@/lib/localFirstSync", () => ({
-  localSyncSubscribeBootstrap: mocks.localSyncSubscribeBootstrap,
-}))
 vi.mock("@/lib/middleware-client", () => ({
   MIDDLEWARE_CONNECTION_CHANGED_EVENT: "middleware-connection-changed",
 }))
 vi.mock("@/lib/startupBootstrap", () => ({
   invalidateMiddlewareStartupBootstrap: vi.fn(),
-  loadMiddlewareStartupBootstrap: mocks.loadMiddlewareStartupBootstrap,
 }))
 
 const { useSpaces } = await import("./useSpaces")
@@ -44,19 +38,13 @@ describe("useSpaces", () => {
     vi.clearAllMocks()
     mocks.stateSets.length = 0
     mocks.effects.length = 0
-    mocks.localSyncSubscribeBootstrap.mockReturnValue(() => {})
     vi.stubGlobal("window", {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })
   })
 
-  it("uses cached bootstrap immediately but still refreshes spaces from middleware API", async () => {
-    mocks.loadMiddlewareStartupBootstrap.mockResolvedValue({
-      spaces: [{ id: "space_old", name: "Old" }],
-      activeSpaceId: "space_old",
-      chats: [],
-    })
+  it("loads spaces directly from the middleware API as source of truth", async () => {
     mocks.invoke.mockResolvedValue({
       spaces: [{ id: "space_new", name: "New" }],
       activeSpaceId: "space_new",
@@ -66,9 +54,7 @@ describe("useSpaces", () => {
     await data.loadSpaces()
 
     expect(mocks.invoke).toHaveBeenCalledWith("middleware_spaces_list", { input: {} })
-    expect(mocks.stateSets[0]).toContainEqual([{ id: "space_old", name: "Old" }])
     expect(mocks.stateSets[0]).toContainEqual([{ id: "space_new", name: "New" }])
-    expect(mocks.stateSets[1]).toContain("space_old")
     expect(mocks.stateSets[1]).toContain("space_new")
   })
 })
