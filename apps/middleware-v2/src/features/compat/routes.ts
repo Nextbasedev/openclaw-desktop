@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
 import { fromJson, toJson } from "../../db/json.js";
+import { HttpError } from "../../lib/errors.js";
 
 type CompatRecord = Record<string, any>;
 
@@ -16,6 +17,16 @@ const shortSessionId = (sessionKey: string) => (sessionKey.split(":").pop() || s
 const gatewaySessionLabel = (label: unknown, sessionKey: string) => {
   const base = String(label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
   return `${base} · ${shortSessionId(sessionKey)}`;
+};
+const normalizePairingCode = (value: unknown) => String(value ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+const publicUrl = (request: { protocol: string; headers: Record<string, unknown> }, fallbackPort: number) => {
+  const proto = typeof request.headers["x-forwarded-proto"] === "string" ? request.headers["x-forwarded-proto"] : request.protocol;
+  const host = typeof request.headers["x-forwarded-host"] === "string"
+    ? request.headers["x-forwarded-host"]
+    : typeof request.headers.host === "string"
+      ? request.headers.host
+      : `127.0.0.1:${fallbackPort}`;
+  return `${proto}://${host}`;
 };
 
 type CompatTerminal = {
@@ -1183,6 +1194,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         saveCompatState(context);
         return { chat, session };
       }
+      case "middleware_chats_delete": {
+        const chatId = String(input.chatId ?? "");
+        if (!chatId) return reply.code(400).send({ ok: false, error: { message: "chatId required" } });
+        const chat = patchById(compatState.chats, chatId, { deleted: true });
+        if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+        saveCompatCollection(context, "chats");
+        return { ok: true };
+      }
       case "middleware_chat_stop": {
         const sk = String(input.sessionKey ?? "");
         if (!sk) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
@@ -1275,8 +1294,17 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   // --- pairing ---
-  app.get("/pairing/local", async () => {
+  app.get("/pairing/local", async (request) => {
     const gateway = context.gateway.status();
-    return { ok: true, url: `http://127.0.0.1:${context.config.port}`, token: "", mode: "local", openclaw: { connected: gateway.connected } };
+    return { ok: true, url: publicUrl(request, context.config.port), token: context.config.middlewareToken, mode: "local", openclaw: { connected: gateway.connected } };
+  });
+
+  app.post<{ Body: { code?: string } }>("/pairing/claim", async (request) => {
+    const code = normalizePairingCode(request.body?.code);
+    const expected = normalizePairingCode(context.config.pairingCode);
+    if (!code || code !== expected) throw new HttpError(401, "Invalid pairing code", "UNAUTHORIZED");
+    const gateway = await connectGatewayForStatus(context);
+    if (!gateway.connected) throw new HttpError(503, "OpenClaw Gateway is not running on this server", "OPENCLAW_GATEWAY_UNAVAILABLE");
+    return { ok: true, url: publicUrl(request, context.config.port), token: context.config.middlewareToken, mode: "remote", openclaw: { connected: true } };
   });
 }
