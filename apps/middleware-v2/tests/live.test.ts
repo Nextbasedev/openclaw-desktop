@@ -252,6 +252,55 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("does not attach stale detached tool replay to the current active run", async () => {
+    const app = await createApp(config("stale-detached-tool-replay"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    const now = Date.now();
+    context.runs.upsertToolCall({
+      sessionKey: "s1",
+      toolCallId: "old-tool",
+      name: "web_fetch",
+      phase: "calling",
+      status: "running",
+      startedAtMs: now - 12 * 60 * 60 * 1000,
+      updatedAtMs: now - 12 * 60 * 60 * 1000,
+    });
+    context.runs.upsertRun({ runId: "run-current", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now, updatedAtMs: now });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: "s1",
+        data: {
+          phase: "start",
+          toolCallId: "old-tool",
+          name: "web_fetch",
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "old-tool")).toMatchObject({ runId: null, status: "running" });
+    expect(context.runs.getRun("run-current")).toMatchObject({ status: "thinking", statusLabel: "Thinking" });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.started",
+        payload: expect.objectContaining({ toolCallId: "old-tool" }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("derives tool activity from assistant tool-call blocks when session.tool is absent", async () => {
     const app = await createApp(config("message-tool-blocks"));
     const context = contextOf(app);
@@ -368,6 +417,123 @@ describe("chat live ingest", () => {
         messageId: "a-tools",
       })],
     });
+    await app.close();
+  });
+
+  test("canonical bootstrap finalizes stale active run even when a newer done run exists", async () => {
+    const app = await createApp(config("bootstrap-finalizes-stale-active-run"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", text: "old", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", text: "old answer", __openclaw: { id: "a1", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "stale-run", sessionKey: "s1", status: "tool_running", statusLabel: "web_fetch", startedAtMs: now - 12 * 60 * 60 * 1000, updatedAtMs: now - 12 * 60 * 60 * 1000 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "stale-run", toolCallId: "old-tool", name: "web_fetch", phase: "calling", status: "running", startedAtMs: now - 12 * 60 * 60 * 1000, updatedAtMs: now - 12 * 60 * 60 * 1000 });
+    context.runs.upsertRun({ runId: "newer-done-run", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: now - 1000, updatedAtMs: now - 500, finishedAtMs: now - 500 });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "done",
+      activeRun: null,
+      toolCalls: [expect.objectContaining({ toolCallId: "old-tool", runId: "stale-run", status: "success" })],
+    });
+    expect(context.runs.getRun("stale-run")).toMatchObject({ status: "done" });
+    await app.close();
+  });
+
+  test("canonical bootstrap clears stale prerun tools adopted by old projections", async () => {
+    const app = await createApp(config("bootstrap-clears-stale-prerun-tools"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", text: "old", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", content: [{ type: "toolCall", id: "tool-old", name: "web_fetch", input: { url: "https://example.com" } }], __openclaw: { id: "a1", seq: 2 } },
+            { role: "user", text: "new", __openclaw: { id: "u2", seq: 3 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-current", sessionKey: "s1", status: "tool_running", statusLabel: "web_fetch", startedAtMs: now, updatedAtMs: now });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-current", toolCallId: "tool-old", name: "web_fetch", phase: "calling", status: "running", startedAtMs: now - 12 * 60 * 60 * 1000, updatedAtMs: now - 12 * 60 * 60 * 1000 });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "streaming",
+      statusLabel: "Streaming",
+      activeRun: expect.objectContaining({ runId: "run-current", status: "streaming" }),
+      toolCalls: [expect.objectContaining({ toolCallId: "tool-old", runId: "run-current", status: "success" })],
+    });
+    expect(context.runs.getToolCall("s1", "tool-old")).toMatchObject({ status: "success" });
+    await app.close();
+  });
+
+  test("canonical bootstrap does not reassign old tool calls to current active run", async () => {
+    const app = await createApp(config("bootstrap-does-not-reassign-old-tools"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", text: "old", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", text: "old answer", content: [{ type: "toolCall", id: "tool-old", name: "web_fetch", input: { url: "https://example.com" } }], __openclaw: { id: "a1", seq: 2 } },
+            { role: "user", text: "new", __openclaw: { id: "u2", seq: 3 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: now - 10_000, updatedAtMs: now - 9_000, finishedAtMs: now - 9_000 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "tool-old", name: "web_fetch", phase: "result", status: "success", startedAtMs: now - 9_500, updatedAtMs: now - 9_000, finishedAtMs: now - 9_000 });
+    context.runs.upsertRun({ runId: "run-2", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now, updatedAtMs: now });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "thinking",
+      activeRun: expect.objectContaining({ runId: "run-2" }),
+      toolCalls: [],
+    });
+    expect(context.runs.getToolCall("s1", "tool-old")).toMatchObject({ runId: "run-1", status: "success" });
+    await app.close();
+  });
+
+  test("run upsert does not downgrade terminal runs", async () => {
+    const app = await createApp(config("run-upsert-preserves-terminal"));
+    const context = contextOf(app);
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: now - 1000, updatedAtMs: now - 500, finishedAtMs: now - 500 });
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now - 1000, updatedAtMs: now });
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "done", statusLabel: null, finishedAtMs: now - 500 });
     await app.close();
   });
 

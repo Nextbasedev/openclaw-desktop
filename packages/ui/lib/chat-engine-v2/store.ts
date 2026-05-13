@@ -410,9 +410,22 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   return true
 }
 
+function shouldDeriveToolActivityFromMessage(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  // Canonical middleware-v2 history projections label completed assistant
+  // messages as chat.assistant.final. Those messages can contain historical
+  // toolCall blocks from hours ago; treating them as live fallback activity
+  // resurrects old tools after refresh/backlog replay. Only use message-block
+  // fallback for raw/legacy live patches that do not carry canonical assistant
+  // final semantics. Canonical tool activity should arrive as chat.tool.*
+  // patches or payload.toolCall.
+  return semanticType !== "chat.assistant.final"
+}
+
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   if (applyCanonicalToolFromPatch(state, frame)) return
   if (applyToolResultFromPatch(state, frame)) return
+  if (!shouldDeriveToolActivityFromMessage(frame)) return
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return
   const blocks = toolCallBlocks(message)

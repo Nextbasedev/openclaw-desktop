@@ -5,6 +5,8 @@ export type RunStatus = "queued" | "thinking" | "streaming" | "tool_running" | "
 export type ToolPhase = "start" | "calling" | "result" | "error";
 export type ToolStatus = "running" | "success" | "error";
 
+const STALE_DETACHED_TOOL_MS = 5 * 60 * 1000;
+
 export type ProjectedRun = {
   runId: string;
   sessionKey: string;
@@ -93,10 +95,10 @@ export class RunRepository {
         client_message_id = COALESCE(excluded.client_message_id, v2_runs.client_message_id),
         idempotency_key = COALESCE(excluded.idempotency_key, v2_runs.idempotency_key),
         gateway_run_id = COALESCE(excluded.gateway_run_id, v2_runs.gateway_run_id),
-        status = excluded.status,
-        status_label = excluded.status_label,
-        finished_at_ms = excluded.finished_at_ms,
-        error_json = excluded.error_json,
+        status = CASE WHEN v2_runs.status IN ('done','error','aborted') THEN v2_runs.status ELSE excluded.status END,
+        status_label = CASE WHEN v2_runs.status IN ('done','error','aborted') THEN v2_runs.status_label ELSE excluded.status_label END,
+        finished_at_ms = COALESCE(v2_runs.finished_at_ms, excluded.finished_at_ms),
+        error_json = COALESCE(v2_runs.error_json, excluded.error_json),
         updated_at_ms = excluded.updated_at_ms
     `).run({
       runId: run.runId,
@@ -115,6 +117,8 @@ export class RunRepository {
   }
 
   updateRunStatus(runId: string, status: RunStatus, params: { statusLabel?: string | null; error?: unknown; finishedAtMs?: number | null; updatedAtMs?: number } = {}) {
+    const existing = this.getRun(runId);
+    if (existing && ["done", "error", "aborted"].includes(existing.status) && !["done", "error", "aborted"].includes(status)) return existing;
     const now = params.updatedAtMs ?? Date.now();
     const finishedAtMs = params.finishedAtMs ?? (["done", "error", "aborted"].includes(status) ? now : null);
     this.db.prepare(`
@@ -183,13 +187,25 @@ export class RunRepository {
   }): ProjectedToolCall {
     const existing = this.getToolCall(tool.sessionKey, tool.toolCallId);
     const incomingStatus = tool.status ?? (tool.phase === "error" ? "error" : tool.phase === "result" ? "success" : "running");
-    // Historical assistant messages can be replayed after a refresh. If a tool
+    const now = tool.updatedAtMs ?? Date.now();
+    // Historical assistant/tool events can be replayed after a refresh. If a tool
     // already reached a terminal state, a replayed toolCall block must not
     // resurrect it as running. Explicit result/error events may still enrich it.
     if (existing && existing.status !== "running" && incomingStatus === "running") return existing;
-    const now = tool.updatedAtMs ?? Date.now();
+    // A replayed detached tool start can arrive while a fresh run is active. Do
+    // not attach that old tool to the new run; this was the source of stale
+    // visible "web_fetch" tool calls after restart/backlog replay.
+    if (
+      existing &&
+      existing.status === "running" &&
+      !existing.runId &&
+      tool.runId &&
+      incomingStatus === "running" &&
+      now - existing.startedAtMs > STALE_DETACHED_TOOL_MS
+    ) return existing;
     const status = incomingStatus;
     const finishedAtMs = tool.finishedAtMs ?? (status === "running" ? null : now);
+    const runId = existing?.runId ?? tool.runId ?? null;
     this.db.prepare(`
       INSERT INTO v2_tool_calls(tool_call_id, session_key, run_id, message_id, name, phase, status, args_meta_json, result_meta_json, started_at_ms, finished_at_ms, updated_at_ms)
       VALUES (@toolCallId, @sessionKey, @runId, @messageId, @name, @phase, @status, @argsMetaJson, @resultMetaJson, @startedAtMs, @finishedAtMs, @updatedAtMs)
@@ -206,7 +222,7 @@ export class RunRepository {
     `).run({
       toolCallId: tool.toolCallId,
       sessionKey: tool.sessionKey,
-      runId: tool.runId ?? null,
+      runId,
       messageId: tool.messageId ?? null,
       name: tool.name ?? "unknown",
       phase: tool.phase,
@@ -244,6 +260,33 @@ export class RunRepository {
     `).run({
       sessionKey,
       runId,
+      status,
+      resultMetaJson,
+      finishedAtMs: now,
+      updatedAtMs: now,
+    });
+    return Number(result.changes ?? 0);
+  }
+
+  completeRunningToolsStartedBefore(sessionKey: string, runId: string, startedBeforeMs: number, params: { status?: Extract<ToolStatus, "success" | "error">; resultMeta?: unknown; updatedAtMs?: number } = {}): number {
+    const now = params.updatedAtMs ?? Date.now();
+    const status = params.status ?? "success";
+    const resultMetaJson = params.resultMeta === undefined || params.resultMeta === null ? null : toJson(params.resultMeta);
+    const result = this.db.prepare(`
+      UPDATE v2_tool_calls
+      SET status = @status,
+          phase = CASE WHEN @status = 'error' THEN 'error' ELSE 'result' END,
+          result_meta_json = COALESCE(@resultMetaJson, result_meta_json),
+          finished_at_ms = COALESCE(finished_at_ms, @finishedAtMs),
+          updated_at_ms = @updatedAtMs
+      WHERE session_key = @sessionKey
+        AND run_id = @runId
+        AND status = 'running'
+        AND started_at_ms < @startedBeforeMs
+    `).run({
+      sessionKey,
+      runId,
+      startedBeforeMs,
       status,
       resultMetaJson,
       finishedAtMs: now,

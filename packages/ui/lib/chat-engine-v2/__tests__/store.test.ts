@@ -389,6 +389,45 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("does not resurrect tool calls from canonical assistant final history patches", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "old request" }],
+      status: "streaming",
+      statusLabel: "Streaming",
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          semanticType: "chat.assistant.final",
+          sessionKey: "s1",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          activeRun: { runId: "current-run", status: "streaming" },
+          message: {
+            role: "assistant",
+            text: "Already answered earlier",
+            content: [
+              { type: "toolCall", id: "old-memory-search", name: "memory_search", input: { query: "old" } },
+              { type: "text", text: "Already answered earlier" },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "streaming",
+      pendingTools: [],
+    })
+  })
+
   test("does not complete genuinely running tools before final status", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
