@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
-import { fetchChatBootstrapV2 } from "@/lib/chat-engine-v2/client"
 import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
 import type {
   ToolCall,
@@ -132,8 +132,13 @@ function isToolErrorPhase(phase: string | null): boolean {
 
 async function shouldFinalizeStaleActivity(sessionKey: string) {
   try {
-    const bootstrap = await fetchChatBootstrapV2(sessionKey)
-    return !isBackendRunningStatus(bootstrap.runStatus)
+    const result = await invoke<{
+      sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+    }>("middleware_sessions_list", { input: {} })
+    const session = (result.sessions || []).find(
+      (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+    )
+    return session ? !isBackendRunningStatus(session.status) : false
   } catch {
     return false
   }
@@ -170,10 +175,14 @@ export function useAgentActivity(sessionKey: string | null) {
   const fetchSubagentHistory = useCallback(
     async (subKey: string, agentId: string) => {
       try {
-        const subHistory = await fetchChatBootstrapV2(subKey)
-        const subMessages = (subHistory.messages as RawHistoryMessage[]) ?? []
+        const subHistory = await invoke<{
+          messages: RawHistoryMessage[]
+        }>(
+          "middleware_chat_history",
+          { input: { sessionKey: subKey, timeoutMs: 5_000 } },
+        )
         const subParsed = parseHistoryToolCalls(
-          subMessages,
+          subHistory.messages ?? [],
         )
         let changed = false
         for (const call of subParsed.calls) {
@@ -186,7 +195,7 @@ export function useAgentActivity(sessionKey: string | null) {
           }
         }
         const phase = inferChildHistoryPhase(
-          subMessages,
+          subHistory.messages ?? [],
           subParsed.calls,
         )
         if (phase) {
@@ -487,15 +496,19 @@ export function useAgentActivity(sessionKey: string | null) {
     subKeyToAgentRef.current.clear()
     queueMicrotask(() => resetVisibleState(false))
 
-    const activeSessionKey = sessionKey as string
+    const activeSessionKey = sessionKey
 
     async function loadHistory() {
       try {
-        const history = await fetchChatBootstrapV2(activeSessionKey)
+        const history = await invoke<{
+          messages: RawHistoryMessage[]
+        }>(
+          "middleware_chat_history",
+          { input: { sessionKey, timeoutMs: 8_000 } },
+        )
         if (cancelledRef.current) return
-        const historyMessages = (history.messages as RawHistoryMessage[]) ?? []
         const parsed = parseHistoryToolCalls(
-          historyMessages,
+          history.messages ?? [],
         )
         const shouldFinalize = await shouldFinalizeStaleActivity(activeSessionKey)
         if (cancelledRef.current) return
