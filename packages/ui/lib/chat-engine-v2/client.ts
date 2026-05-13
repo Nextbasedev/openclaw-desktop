@@ -3,6 +3,7 @@ import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./typ
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
 const DEFAULT_V2_URL = "http://127.0.0.1:8787"
+const CONNECTED_MIDDLEWARE_URL_KEY = "openclaw.middleware.url"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
 
 function trimTrailingSlash(value: string) {
@@ -29,6 +30,9 @@ function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
 
 export function getMiddlewareV2Url(): string {
   if (typeof window !== "undefined") {
+    const connectedMiddlewareUrl = localStorage.getItem(CONNECTED_MIDDLEWARE_URL_KEY)?.trim()
+    if (connectedMiddlewareUrl) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connectedMiddlewareUrl))
+
     const stored = localStorage.getItem(V2_URL_KEY)?.trim()
     if (stored) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(stored))
   }
