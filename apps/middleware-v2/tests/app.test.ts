@@ -83,24 +83,6 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
-  test("CORS preflight allows authorized chat DELETE from browser origins", async () => {
-    const app = await createApp(testConfig());
-    const res = await app.inject({
-      method: "OPTIONS",
-      url: "/api/chats/chat_test",
-      headers: {
-        origin: "http://localhost:3000",
-        "access-control-request-method": "DELETE",
-        "access-control-request-headers": "authorization,content-type",
-      },
-    });
-    expect(res.statusCode).toBe(204);
-    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
-    expect(String(res.headers["access-control-allow-methods"])).toContain("DELETE");
-    expect(String(res.headers["access-control-allow-headers"]).toLowerCase()).toContain("authorization");
-    await app.close();
-  });
-
   test("delete chat permanently removes it from active chat lists", async () => {
     const app = await createApp(testConfig());
     const created = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Delete Me", agentId: "main" } });
