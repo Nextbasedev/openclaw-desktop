@@ -122,6 +122,25 @@ function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
   return false
 }
 
+export function mergeOptimisticMessagesWithCanonical(
+  canonicalMessages: ChatMessage[],
+  optimisticSource: ChatMessage[] | null | undefined
+) {
+  if (!optimisticSource?.length) return canonicalMessages
+  const keptOptimistic = optimisticSource.filter(
+    (message) =>
+      message.isOptimistic &&
+      !canonicalMessages.some(
+        (canonical) =>
+          canonical.messageId === message.messageId ||
+          (message.role === "user" && canonical.role === "user" && sameUserMessage(canonical, message))
+      )
+  )
+  return keptOptimistic.length
+    ? dedupeChatMessages([...canonicalMessages, ...keptOptimistic])
+    : canonicalMessages
+}
+
 function stableRawMessageId(raw: RawMessage): string {
   const openclawId = raw.__openclaw?.id
   if (typeof openclawId === "string" && openclawId.trim()) return openclawId
@@ -1240,17 +1259,25 @@ setMessages(warmMessages)
         const isCanonicalBootstrap = source === "middleware-v2-projection" || typeof projectionVersion === "number"
         if (isCanonicalBootstrap) {
           const canonicalMessages = dedupeChatMessages(parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages)
+          const optimisticBase = messagesRef.current.length > 0 ? messagesRef.current : seededMessages
+          const visibleCanonicalMessages = mergeOptimisticMessagesWithCanonical(canonicalMessages, optimisticBase)
+          const hasUnconfirmedOptimistic = visibleCanonicalMessages.some(
+            (message) => message.isOptimistic && !canonicalMessages.some((canonical) => canonical.messageId === message.messageId)
+          )
           const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
           const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
           pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
           spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
           const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
-          const canonicalLabel = normalizeStatusLabelForStatus(canonicalStatus, canonicalStatusLabel)
+          const visibleCanonicalStatus = hasUnconfirmedOptimistic && !hasAssistantAnswerAfterLatestUserMessage(visibleCanonicalMessages)
+            ? "thinking"
+            : canonicalStatus
+          const canonicalLabel = normalizeStatusLabelForStatus(visibleCanonicalStatus, hasUnconfirmedOptimistic ? "Thinking" : canonicalStatusLabel)
           seedGlobalChatSession({
             sessionKey,
-            messages: canonicalMessages,
+            messages: visibleCanonicalMessages,
             cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-            status: canonicalStatus,
+            status: visibleCanonicalStatus,
             statusLabel: canonicalLabel,
             pendingTools: inlineTools,
             spawnedSubagents: canonicalSpawns,
@@ -1272,8 +1299,10 @@ setMessages(warmMessages)
           setLoading(false)
           frontendLog("chat", "chat.bootstrap.applied", {
             sessionKey,
-            messageCount: canonicalMessages.length,
-            status: canonicalStatus,
+            messageCount: visibleCanonicalMessages.length,
+            canonicalMessageCount: canonicalMessages.length,
+            preservedOptimistic: hasUnconfirmedOptimistic,
+            status: visibleCanonicalStatus,
             statusLabel: canonicalLabel,
             cursor: bootstrapCursor,
             pendingToolCount: inlineTools.length,
