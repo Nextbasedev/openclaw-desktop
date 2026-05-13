@@ -83,6 +83,25 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("delete chat permanently removes it from active chat lists", async () => {
+    const app = await createApp(testConfig());
+    const created = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Delete Me", agentId: "main" } });
+    expect(created.statusCode).toBe(200);
+    const chatId = created.json().chat.id;
+
+    const deleted = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({ ok: true, chatId, deleted: true });
+
+    const listed = await app.inject({ method: "GET", url: "/api/chats" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().chats.some((chat: { id: string }) => chat.id === chatId)).toBe(false);
+
+    const deletedAgain = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
+    expect(deletedAgain.statusCode).toBe(404);
+    await app.close();
+  });
+
   test("new session returns both key and sessionKey aliases", async () => {
     const app = await createApp(testConfig());
     const res = await app.inject({ method: "POST", url: "/api/sessions", payload: { label: "Hello", agentId: "main" } });
