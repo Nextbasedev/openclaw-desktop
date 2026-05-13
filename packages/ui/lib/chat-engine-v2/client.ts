@@ -1,4 +1,5 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
+import { getMiddlewareConnection } from "../middleware-client"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
@@ -29,6 +30,8 @@ function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
 
 export function getMiddlewareV2Url(): string {
   if (typeof window !== "undefined") {
+    const activeConnection = getMiddlewareConnection()
+    if (activeConnection?.url) return trimTrailingSlash(activeConnection.url)
     const stored = localStorage.getItem(V2_URL_KEY)?.trim()
     if (stored) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(stored))
   }
