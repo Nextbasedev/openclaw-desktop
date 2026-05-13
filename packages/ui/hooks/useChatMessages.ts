@@ -342,7 +342,12 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
       ? tool.id
       : null
   if (!id) return null
-  const status = tool.status === "error" ? "error" : tool.status === "success" ? "success" : "running"
+  const phase = typeof tool.phase === "string" ? tool.phase : ""
+  const status = tool.status === "error" || phase === "error" || phase === "failed"
+    ? "error"
+    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
+      ? "success"
+      : "running"
   return {
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
