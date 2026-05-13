@@ -471,6 +471,39 @@ function gitBranches(repo: string) {
   return { local, remote, current, branches: local };
 }
 
+function gitDiff(repo: string, filePath: string) {
+  const repoRoot = tryGit(repo, ["rev-parse", "--show-toplevel"]);
+  const changed = gitChangedFiles(repo);
+  const state = changed.find((file) => file.path === filePath)?.state ?? "modified";
+  const patch = [
+    tryGit(repo, ["diff", "--cached", "--", filePath]),
+    tryGit(repo, ["diff", "--", filePath]),
+  ].filter(Boolean).join("\n") || null;
+  const stats = parseGitNumstat([
+    tryGit(repo, ["diff", "--numstat", "--", filePath]),
+    tryGit(repo, ["diff", "--cached", "--numstat", "--", filePath]),
+  ].filter(Boolean).join("\n")).get(filePath) ?? { additions: 0, deletions: 0 };
+  return {
+    mode: "local",
+    source: "local-fs",
+    repoRoot: repoRoot ?? repo,
+    path: filePath,
+    state,
+    oldContent: null,
+    newContent: null,
+    patch,
+    ...stats,
+    checkedAt: new Date().toISOString(),
+    ...(patch ? {} : { error: state === "untracked" ? "Untracked file has no git diff until it is staged" : "No diff available for this file" }),
+  };
+}
+
+function gitCommitDetails(repo: string, hash: string) {
+  if (!repo || !hash) return { diff: "" };
+  const diff = tryGit(repo, ["show", "--first-parent", "--find-renames", "--find-copies", "--patch", "--format=medium", hash]) ?? "";
+  return { diff };
+}
+
 function workspaceEntry(root: string, full: string, stat = fs.statSync(full)) {
   return { name: path.basename(full), path: path.relative(root, full).replace(/\\/g, "/"), type: stat.isDirectory() ? "directory" : "file", size: stat.size, modifiedAt: stat.mtime.toISOString() };
 }
@@ -956,7 +989,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
     const filePath = String((request.query as CompatRecord).path ?? "");
-    try { return { patch: git(root, ["diff", "--", filePath]) }; } catch { return { patch: "" }; }
+    try { return gitDiff(root, filePath); } catch (error) { return { patch: null, error: error instanceof Error ? error.message : "Diff unavailable" }; }
   });
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/branches", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
@@ -983,7 +1016,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const repoPath = String(query.repoPath ?? "");
     const filePath = String(query.path ?? "");
     if (!repoPath) return { patch: "" };
-    try { return { patch: git(repoPath, ["diff", "--", filePath]) }; } catch { return { patch: "" }; }
+    try { return gitDiff(repoPath, filePath); } catch (error) { return { patch: null, error: error instanceof Error ? error.message : "Diff unavailable" }; }
   });
   app.get("/api/repos/git/branches", async (request) => {
     const repoPath = String((request.query as CompatRecord).path ?? (request.query as CompatRecord).repoPath ?? "");
@@ -1268,6 +1301,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           await context.gateway.request("exec.approval.resolve", { approvalId, decision });
           return { ok: true };
         } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Approval resolution failed" } }); }
+      }
+      case "middleware_git_commit_details": {
+        const repoRoot = String(input.repoRoot ?? input.repoPath ?? "");
+        const root = input.projectId ? projectRoot(String(input.projectId)) : repoRoot;
+        const hash = String(input.hash ?? input.commit ?? "");
+        if (!root || !hash) return { diff: "" };
+        return gitCommitDetails(root, hash);
       }
       case "middleware_message_feedback":
       case "middleware_message_feedback_delete":
