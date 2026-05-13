@@ -159,14 +159,6 @@ export function useProjectsData(
 
   const loadProjects = useCallback(async () => {
     try {
-      const gwActive =
-        localStorage.getItem("jarvis.gatewayActive") === "true"
-      if (!gwActive) {
-        setProjects([])
-        return
-      }
-    } catch {}
-    try {
       const bootstrap = await loadMiddlewareStartupBootstrap()
       if (bootstrap?.projects && (!activeSpaceId || bootstrap.activeSpaceId === activeSpaceId)) {
         const active = bootstrap.projects.filter(
@@ -174,7 +166,6 @@ export function useProjectsData(
         )
         setProjects(active)
         setPinnedProjects(new Set(active.filter((p) => p.pinned).map((p) => p.id)))
-        return
       }
       const result = await invoke<{ projects: Project[] }>(
         "middleware_projects_list",
@@ -209,6 +200,8 @@ export function useProjectsData(
   }, [projectOrder, projectOrderCacheReady, activeSpaceId])
 
   useEffect(() => {
+    setProjects([])
+    setPinnedProjects(new Set())
     loadProjects()
   }, [loadProjects])
 
