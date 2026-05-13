@@ -109,6 +109,99 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("does not duplicate anonymous live tool blocks when the same assistant message is upserted", () => {
+    const patchMessage = {
+      id: "assistant-live-1",
+      role: "assistant",
+      content: [
+        { type: "toolCall", name: "exec", input: { command: "echo hi" } },
+      ],
+    }
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: { sessionKey: "s1", message: patchMessage },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: { sessionKey: "s1", message: patchMessage },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
+      { id: "tool:assistant-live-1:0:exec", tool: "exec", status: "running" },
+    ])
+    expect(getGlobalChatSession("s1")?.pendingTools).toHaveLength(1)
+  })
+
+  test("clears detached completed tool stack when a new live turn starts", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      status: "idle",
+      pendingTools: [
+        { id: "old-1", tool: "exec", status: "success", duration: "1.0s" },
+        { id: "old-2", tool: "session_status", status: "success", duration: "0.5s" },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          message: { role: "user", text: "next turn" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools).toEqual([])
+  })
+
+  test("preserves completed tool duration from canonical tool patches", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: {
+            toolCallId: "tc-duration",
+            name: "exec",
+            status: "success",
+            startedAtMs: 1_000,
+            finishedAtMs: 2_250,
+            resultMeta: "ok",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
+      { id: "tc-duration", tool: "exec", status: "success", duration: "1.3s" },
+    ])
+  })
+
   test("updates live tool result and approval metadata from V2 patches", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",

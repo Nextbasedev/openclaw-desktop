@@ -171,6 +171,17 @@ function compactLabel(input: unknown, fallback: string) {
   return typeof input === "string" && input.trim() ? input.trim() : fallback
 }
 
+function messageStableId(message: Record<string, unknown>, frame: PatchFrame) {
+  const explicit = message.id ?? message.messageId
+  if (typeof explicit === "string" && explicit.trim()) return explicit.trim()
+  const openclaw = message.__openclaw
+  if (openclaw && typeof openclaw === "object" && !Array.isArray(openclaw)) {
+    const id = (openclaw as Record<string, unknown>).id
+    if (typeof id === "string" && id.trim()) return id.trim()
+  }
+  return `cursor-${frame.patch.cursor}`
+}
+
 function textFromUnknown(value: unknown): string {
   if (typeof value === "string") return value
   if (Array.isArray(value)) return value.map((item) => {
@@ -240,6 +251,7 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
   next[pendingIndex] = {
     ...existing,
     status: inferToolStatus(resultText),
+    duration: existing.duration ?? formatToolDuration(existing.startedAt, frame.patch.createdAtMs),
     resultText: resultText || existing.resultText,
     approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
   }
@@ -321,6 +333,7 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
     return {
       ...tool,
       status: status === "error" ? "error" : "success",
+      duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
       resultText:
         tool.resultText ??
         (status === "error"
@@ -336,6 +349,12 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
   state.pendingTools = []
 }
 
+function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
+  if (typeof startedAtMs !== "number" || typeof finishedAtMs !== "number") return undefined
+  const seconds = Math.max(0, finishedAtMs - startedAtMs) / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
 function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | null {
   const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
     ? tool.toolCallId
@@ -348,6 +367,10 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
+    duration: formatToolDuration(
+      typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+      typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
+    ),
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? textFromUnknown(tool.resultMeta) : undefined,
@@ -434,9 +457,13 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   const pending = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
   const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
 
-  for (const block of blocks) {
-    const id = compactLabel(block.id, `tool-${frame.patch.cursor}-${pending.size + 1}`)
+  const messageId = messageStableId(message, frame)
+  for (const [blockIndex, block] of blocks.entries()) {
     const tool = compactLabel(block.name, "unknown")
+    const id = compactLabel(
+      block.id,
+      `tool:${messageId}:${blockIndex}:${tool}`
+    )
     const input = block.arguments ?? block.input
     const existing = pending.get(id)
     pending.set(id, {
@@ -570,6 +597,20 @@ function isTerminalMessageStatusPatch(frame: PatchFrame, status: StreamStatus) {
   if (status !== "done") return false
   if (!isMessagePatchType(frame.patch.type) && !isMessagePatchType(patchSemanticType(frame))) return false
   return Boolean(patchMessage(frame))
+}
+
+function isUserMessagePatch(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  if (semanticType === "chat.user.created" || semanticType === "chat.user.confirmed") return true
+  const message = patchMessage(frame)
+  return message?.role === "user"
+}
+
+function resetDetachedActivityForNewTurn(state: SessionState) {
+  state.pendingTools = state.pendingTools.filter((tool) => tool.status === "running")
+  state.spawnedSubagents = state.spawnedSubagents.filter((spawn) =>
+    spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working"
+  )
 }
 
 function isAssistantFinalTextMessage(frame: PatchFrame) {
@@ -707,9 +748,12 @@ function handlePatch(frame: PatchFrame) {
     } else {
       if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
       if (!ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = 0
+      const beginsNewTurn = ACTIVE_STATUSES.has(patchStatus.status) &&
+        (!ACTIVE_STATUSES.has(previousStatus) || isUserMessagePatch(frame))
       state.status = patchStatus.status
       state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
       state.deferredDoneUntilAssistant = false
+      if (beginsNewTurn) resetDetachedActivityForNewTurn(state)
     }
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
     if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
@@ -717,6 +761,9 @@ function handlePatch(frame: PatchFrame) {
     // Defensive fallback for pre-Phase-3 optimistic patches only; canonical
     // middleware-v2 patches should carry runStatus/statusLabel explicitly.
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
+  }
+  if (isUserMessagePatch(frame) && !state.pendingTools.some((tool) => tool.status === "running")) {
+    resetDetachedActivityForNewTurn(state)
   }
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
