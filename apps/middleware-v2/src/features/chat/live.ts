@@ -250,17 +250,23 @@ export class ChatLiveIngest {
       argsMeta: isObject(data.args) ? data.args : null,
       resultMeta: phase === "result" ? this.safeResultMeta(data.result ?? data.partialResult) : phase === "error" ? this.safeResultMeta(data.error) : null,
     });
-    if (run) {
-      if (tool.status === "running") this.context.runs.updateRunStatus(run.runId, "tool_running", { statusLabel: name });
-      else if (!this.context.runs.hasRunningTools(sessionKey, run.runId)) this.context.runs.updateRunStatus(run.runId, "thinking", { statusLabel: "Thinking" });
+    if (tool.status === "running" && !tool.runId) {
+      this.log.warn("tool.detached-running-ignored", { sessionKey, toolCallId, phase, name, fallbackRunId: run?.runId ?? null });
+      return;
     }
+    const associatedRun = tool.runId ? this.context.runs.getRun(tool.runId) : null;
+    if (associatedRun) {
+      if (tool.status === "running") this.context.runs.updateRunStatus(associatedRun.runId, "tool_running", { statusLabel: name });
+      else if (!this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) this.context.runs.updateRunStatus(associatedRun.runId, "thinking", { statusLabel: "Thinking" });
+    }
+    const patchRun = tool.runId ? this.context.runs.getRun(tool.runId) : null;
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : "chat.tool.started",
       payload: canonicalPatchPayload({
         sessionKey,
         semanticType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : "chat.tool.started",
-        run: tool.runId ? this.context.runs.getRun(tool.runId) : run,
+        run: patchRun,
         tool,
         payload: { sessionKey, toolCall: tool },
       }),
