@@ -289,14 +289,29 @@ function attachDetachedToolsToLatestAssistant(state: SessionState, tools = state
   const index = latestAssistantIndex(state)
   if (index < 0) return false
   const message = state.messages[index]
-  const movedIds = new Set(tools.map((tool) => tool.id))
-  state.messages = state.messages.map((item, itemIndex) => {
-    if (itemIndex === index) return { ...message, toolCalls: mergeToolCalls(message.toolCalls, tools) }
-    if (item.role !== "assistant" || !item.toolCalls?.some((tool) => movedIds.has(tool.id))) return item
-    const remaining = item.toolCalls.filter((tool) => !movedIds.has(tool.id))
-    return { ...item, toolCalls: remaining.length > 0 ? remaining : undefined }
-  })
+  state.messages = state.messages.map((item, itemIndex) =>
+    itemIndex === index ? { ...message, toolCalls: mergeToolCalls(message.toolCalls, tools) } : item
+  )
   return true
+}
+
+function finalizeToolsInPlace(state: SessionState, tools: InlineToolCall[]) {
+  if (tools.length === 0) return []
+  const byId = new Map(tools.map((tool) => [tool.id, tool]))
+  const matchedIds = new Set<string>()
+  state.messages = state.messages.map((message) => {
+    if (message.role !== "assistant" || !message.toolCalls?.length) return message
+    let changed = false
+    const toolCalls = message.toolCalls.map((tool) => {
+      const finalized = byId.get(tool.id)
+      if (!finalized) return tool
+      matchedIds.add(tool.id)
+      changed = true
+      return { ...tool, ...finalized }
+    })
+    return changed ? { ...message, toolCalls } : message
+  })
+  return tools.filter((tool) => !matchedIds.has(tool.id))
 }
 
 function finalizeActiveToolsForTerminalStatus(state: SessionState, status: StreamStatus) {
@@ -313,7 +328,8 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
           : tool.resultText),
     }
   })
-  attachDetachedToolsToLatestAssistant(state, finalizedTools)
+  const detachedTools = finalizeToolsInPlace(state, finalizedTools)
+  attachDetachedToolsToLatestAssistant(state, detachedTools)
   // Terminal sessions should not keep detached live tools around. Otherwise the
   // UI can render stale tool rows after/below the completed assistant answer,
   // and old completed tools can leak into the next render cycle.
