@@ -115,7 +115,11 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   const records = recordRoutes(store)
   const commands = commandRoutes(store)
 
-  app.use(cors({ origin: true, credentials: false }))
+  app.use(cors({
+    origin: true,
+    credentials: false,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  }))
   app.use(express.json({ limit: "150mb" }))
   app.use((req, res, next) => {
     if (req.path.includes("/git/") || req.path.startsWith("/api/repos/")) {
@@ -202,7 +206,24 @@ export function createApp(config: MiddlewareConfig, injectedStore?: Store) {
   app.patch("/api/chats/:chatId", (req, res) => res.json(records.chatsUpdate(req.params.chatId, req.body)))
   app.post("/api/chats/:chatId/rename", (req, res) => res.json(records.chatsRename(req.params.chatId, String(req.body?.name ?? "New Chat"))))
   app.post("/api/chats/:chatId/archive", (req, res) => res.json(records.chatsArchive(req.params.chatId, req.body?.archived ?? true)))
-  app.delete("/api/chats/:chatId", (req, res) => res.json(records.chatsDelete(req.params.chatId)))
+  app.delete("/api/chats/:chatId", async (req, res) => {
+    const result = records.chatsDelete(req.params.chatId)
+    if (result.sessionKey) {
+      void connectGateway(["operator.write", "operator.admin"])
+        .then(async (gateway) => {
+          try {
+            await Promise.allSettled([
+              gateway.request("sessions.abort", { sessionKey: result.sessionKey }, 2_000),
+              gateway.request("sessions.delete", { key: result.sessionKey, deleteTranscript: true }, 2_000),
+            ])
+          } finally {
+            gateway.close()
+          }
+        })
+        .catch(() => { /* gateway may be unavailable; middleware state is already deleted */ })
+    }
+    res.json(result)
+  })
   app.post("/api/chats/:chatId/session", (req, res) => res.json(records.chatsAttachSession(req.params.chatId, String(req.body?.sessionKey ?? ""))))
 
   app.get("/api/spaces", (_req, res) => res.json(records.spacesList()))
