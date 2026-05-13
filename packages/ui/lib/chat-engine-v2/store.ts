@@ -633,6 +633,42 @@ function loadingFactorSummary(state: SessionState, patchType: string) {
   }
 }
 
+function stalePatchMatchesPendingTool(state: SessionState, frame: PatchFrame) {
+  const payload = patchPayload(frame)
+  const tool = payload?.toolCall
+  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
+  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+    ? tool.toolCallId
+    : typeof tool.id === "string" && tool.id.trim()
+      ? tool.id
+      : null
+  return Boolean(id && state.pendingTools.some((pending) => pending.id === id))
+}
+
+function applyStaleMatchingToolPatch(state: SessionState, frame: PatchFrame) {
+  if (!stalePatchMatchesPendingTool(state, frame)) return false
+  const previousStatus = state.status
+  const patchStatus = statusFromPatch(frame)
+  applyActivityFromPatch(state, frame)
+  if (patchStatus && !ACTIVE_STATUSES.has(patchStatus.status)) {
+    state.status = patchStatus.status
+    state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
+    state.activityStartedAtMs = 0
+    state.deferredDoneUntilAssistant = false
+    finalizeActiveToolsForTerminalStatus(state, state.status)
+  } else {
+    reconcileVisibleActiveStatus(state)
+  }
+  frontendLog("stream", "global-chat-session.stale-tool-patch-applied", {
+    patchCursor: frame.patch.cursor,
+    stateCursor: state.cursor,
+    patchType: frame.patch.type,
+    previousStatus,
+    status: state.status,
+  }, "debug")
+  return true
+}
+
 function handlePatch(frame: PatchFrame) {
   const sessionKey = frame.patch.sessionKey
   if (!sessionKey) {
@@ -642,12 +678,14 @@ function handlePatch(frame: PatchFrame) {
   const state = getOrCreate(sessionKey)
   if (frame.patch.cursor <= state.cursor) {
     globalCursor = Math.max(globalCursor, state.cursor, frame.patch.cursor)
-    frontendLog("stream", "global-chat-session.patch-stale-skip", {
+    const appliedStaleTool = applyStaleMatchingToolPatch(state, frame)
+    frontendLog("stream", appliedStaleTool ? "global-chat-session.patch-stale-tool-applied" : "global-chat-session.patch-stale-skip", {
       sessionKey,
       patchCursor: frame.patch.cursor,
       stateCursor: state.cursor,
       patchType: frame.patch.type,
     }, "debug")
+    if (appliedStaleTool) notify(sessionKey, frame)
     return
   }
   globalCursor = Math.max(globalCursor, frame.patch.cursor)
