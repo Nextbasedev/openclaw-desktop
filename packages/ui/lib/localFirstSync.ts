@@ -82,7 +82,9 @@ export function localSyncSubscribeBootstrap(
   listener: Listener<LocalBootstrapState>
 ) {
   bootstrapListeners.add(listener)
-  return () => bootstrapListeners.delete(listener)
+  return () => {
+    bootstrapListeners.delete(listener)
+  }
 }
 
 export async function localSyncGetChats(spaceId: string) {
