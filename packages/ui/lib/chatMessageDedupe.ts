@@ -188,6 +188,21 @@ function collapseRepeatedRoleBlocks(
     : messages
 }
 
+export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const aIndex = a.message.gatewayIndex
+      const bIndex = b.message.gatewayIndex
+      const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
+      const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
+      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
+      if (aHasIndex !== bHasIndex) return aHasIndex ? -1 : 1
+      return a.index - b.index
+    })
+    .map((item) => item.message)
+}
+
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = []
   const seenIds = new Set<string>()
@@ -272,5 +287,5 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     result.push(message)
   }
 
-  return collapseRepeatedBlocks(collapseRepeatedRoleBlocks(result, "user"))
+  return sortChatMessagesByTimeline(collapseRepeatedBlocks(collapseRepeatedRoleBlocks(result, "user")))
 }

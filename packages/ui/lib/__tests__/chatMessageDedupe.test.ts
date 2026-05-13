@@ -289,3 +289,20 @@ it("collapses repeated user-only history blocks after assistant dedupe", () => {
     expect(messages[0].toolCalls?.[0].duration).toBe("0.5s")
   })
 })
+
+
+it("keeps refetched history in backend gateway sequence order", () => {
+  const messages = dedupeChatMessages([
+    { messageId: "live-user-2", role: "user", text: "second", gatewayIndex: 3 },
+    { messageId: "history-user-1", role: "user", text: "first", gatewayIndex: 1 },
+    { messageId: "history-assistant-1", role: "assistant", text: "first answer", gatewayIndex: 2 },
+    { messageId: "history-assistant-2", role: "assistant", text: "second answer", gatewayIndex: 4 },
+  ])
+
+  expect(messages.map((message) => message.messageId)).toEqual([
+    "history-user-1",
+    "history-assistant-1",
+    "live-user-2",
+    "history-assistant-2",
+  ])
+})
