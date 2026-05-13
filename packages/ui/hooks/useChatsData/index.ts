@@ -320,21 +320,37 @@ export function useChatsData(
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return
+    const chatId = deleteTarget.id
     setDeleting(true)
     try {
       invalidateMiddlewareStartupBootstrap()
+      setChats((prev) => {
+        const next = prev.filter((chat) => chat.id !== chatId)
+        if (spaceId) {
+          void persistentCacheSet(`project:${spaceId}:chats`, next, { ttlMs: 1000 * 60 * 60 * 24 })
+          void localSyncSetChats(spaceId, next)
+        }
+        return next
+      })
+      setChatOrder((prev) => prev.filter((id) => id !== chatId))
+      setPinnedChats((prev) => {
+        const next = new Set(prev)
+        next.delete(chatId)
+        return next
+      })
       await invoke("middleware_chats_delete", {
-        input: { chatId: deleteTarget.id },
+        input: { chatId },
       })
       setDeleteOpen(false)
-      if (activeChat?.id === deleteTarget.id) onChatClear()
+      if (activeChat?.id === chatId) onChatClear()
       await loadChats()
     } catch (e) {
       console.error("delete chat failed", e)
+      await loadChats()
     } finally {
       setDeleting(false)
     }
-  }, [deleteTarget, loadChats, activeChat, onChatClear])
+  }, [deleteTarget, loadChats, activeChat, onChatClear, spaceId])
 
   const sortedChatIds = useMemo(() => {
     const chatIds = new Set(chats.map((chat) => chat.id))
