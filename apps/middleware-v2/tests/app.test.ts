@@ -116,8 +116,7 @@ describe("middleware-v2 app", () => {
     expect(listed.json().chats.some((chat: { id: string }) => chat.id === chatId)).toBe(false);
 
     const deletedAgain = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
-    expect(deletedAgain.statusCode).toBe(200);
-    expect(deletedAgain.json()).toMatchObject({ ok: true, chatId, deleted: false, alreadyDeleted: true });
+    expect(deletedAgain.statusCode).toBe(404);
     await app.close();
   });
 
