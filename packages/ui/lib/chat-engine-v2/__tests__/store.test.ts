@@ -175,6 +175,33 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")?.pendingTools).toEqual([])
   })
 
+  test("treats canonical result phase as successful even without explicit status", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: {
+            toolCallId: "tc-phase-result",
+            name: "read",
+            phase: "result",
+            startedAtMs: 1_000,
+            finishedAtMs: 2_000,
+            resultMeta: "done",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
+      { id: "tc-phase-result", tool: "read", status: "success", duration: "1.0s", resultText: "done" },
+    ])
+  })
+
   test("preserves completed tool duration from canonical tool patches", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
