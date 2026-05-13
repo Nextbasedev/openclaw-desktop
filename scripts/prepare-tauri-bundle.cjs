@@ -189,6 +189,7 @@ function main() {
   ])
 
   updateServerPackageJson()
+  rebuildTopLevelNodeModules()
 
   fs.mkdirSync(bundledNodeDir, { recursive: true })
   fs.copyFileSync(process.execPath, bundledNodePath)
