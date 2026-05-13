@@ -52,14 +52,7 @@ export async function createApp(config: MiddlewareV2Config) {
   context.chatLive = new ChatLiveIngest(context);
   (app as typeof app & { v2Context?: AppContext }).v2Context = context;
 
-  await app.register(cors, {
-    origin: true,
-    credentials: false,
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Authorization", "Content-Type", "Accept", "Accept-Language", "Origin", "Referer", "User-Agent", "X-Requested-With"],
-    exposedHeaders: ["Content-Type"],
-    optionsSuccessStatus: 204,
-  });
+  await app.register(cors, { origin: true, credentials: false });
   await app.register(sensible);
   await app.register(websocket);
 
