@@ -1797,8 +1797,11 @@ frontendLog("chat", "chat.bootstrap.applied", {
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
-    const hasRunning = spawnedSubagents.some((s) => isActiveSubagent(s.status))
-    if (!hasRunning) return
+    subagentPollRef.current = null
+    // Canonical middleware-v2 patches own subagent lifecycle. The legacy
+    // history poller can race those patches and prematurely mark an active
+    // child as completed, so keep it disabled for the V2 chat engine.
+    return
 
     subagentPollRef.current = setInterval(async () => {
       for (const sub of spawnedSubagents) {
@@ -2015,7 +2018,7 @@ frontendLog("chat", "chat.bootstrap.applied", {
         frontendLog("composer", "chat.send.settled", { sessionKey, optimisticId })
       }
     },
-    [isGenerating, sessionKey, forceScrollToBottom]
+    [isGenerating, sessionKey, forceScrollToBottom, statusLabel]
   )
 
   const handleRegenerate = useCallback(
@@ -2182,15 +2185,32 @@ frontendLog("chat", "chat.bootstrap.applied", {
     setStatus("stopping")
     setStatusLabel(null)
     try {
-      await invoke("middleware_chat_stop", { input: { sessionKey } })
+      await abortChatV2({ sessionKey })
       pendingToolMapRef.current.clear()
       setPendingTools([])
+      updateGlobalChatSessionActivity({
+        sessionKey,
+        status: "idle",
+        statusLabel: null,
+        pendingTools: [],
+        spawnedSubagents: Array.from(spawnMapRef.current.values()),
+      })
+      seedGlobalChatSession({
+        sessionKey,
+        messages: messagesRef.current,
+        cursor: v2CursorRef.current,
+        status: "idle",
+        statusLabel: null,
+        pendingTools: [],
+        spawnedSubagents: Array.from(spawnMapRef.current.values()),
+        queryClient,
+      })
       setStatus("idle")
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
     }
-  }, [sessionKey])
+  }, [queryClient, sessionKey])
 
   const handleEdit = useCallback(
     async (userMessageId: string, newText: string) => {

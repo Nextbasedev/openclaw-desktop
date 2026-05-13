@@ -93,10 +93,10 @@ export class RunRepository {
         client_message_id = COALESCE(excluded.client_message_id, v2_runs.client_message_id),
         idempotency_key = COALESCE(excluded.idempotency_key, v2_runs.idempotency_key),
         gateway_run_id = COALESCE(excluded.gateway_run_id, v2_runs.gateway_run_id),
-        status = excluded.status,
-        status_label = excluded.status_label,
-        finished_at_ms = excluded.finished_at_ms,
-        error_json = excluded.error_json,
+        status = CASE WHEN v2_runs.status IN ('done','error','aborted') THEN v2_runs.status ELSE excluded.status END,
+        status_label = CASE WHEN v2_runs.status IN ('done','error','aborted') THEN v2_runs.status_label ELSE excluded.status_label END,
+        finished_at_ms = COALESCE(v2_runs.finished_at_ms, excluded.finished_at_ms),
+        error_json = COALESCE(v2_runs.error_json, excluded.error_json),
         updated_at_ms = excluded.updated_at_ms
     `).run({
       runId: run.runId,
