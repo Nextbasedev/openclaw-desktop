@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { invoke } from "@/lib/ipc"
-import { localSyncSubscribeBootstrap } from "@/lib/localFirstSync"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
-import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
+import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import type { Space } from "@/types/space"
 
 type SpacesResponse = {
@@ -36,14 +35,7 @@ export function useSpaces() {
   const loadSpaces = useCallback(async () => {
     setLoading(true)
     try {
-      const bootstrap = await loadMiddlewareStartupBootstrap()
-      if (bootstrap) {
-        setSpaces(bootstrap.spaces || [])
-        setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
-      }
-      const result = await invoke<SpacesResponse>("middleware_spaces_list", { input: {} })
-      setSpaces(result.spaces || [])
-      setActiveSpaceId(result.activeSpaceId || result.spaces?.[0]?.id || null)
+      await loadSpacesFresh()
     } finally {
       setLoading(false)
     }
@@ -52,13 +44,6 @@ export function useSpaces() {
   useEffect(() => {
     void loadSpaces()
   }, [loadSpaces])
-
-  useEffect(() => {
-    return localSyncSubscribeBootstrap((bootstrap) => {
-      setSpaces(bootstrap.spaces || [])
-      setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
-    })
-  }, [])
 
   useEffect(() => {
     window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, loadSpaces)
@@ -98,11 +83,10 @@ export function useSpaces() {
 
   const deleteSpace = useCallback(async (spaceId: string) => {
     invalidateMiddlewareStartupBootstrap()
-    const result = await invoke<{ activeSpaceId: string }>("middleware_spaces_delete", { input: { spaceId } })
+    await invoke<{ ok: true; activeSpaceId?: string }>("middleware_spaces_delete", { input: { spaceId } })
     invalidateMiddlewareStartupBootstrap()
     setSpaces((prev) => prev.filter((space) => space.id !== spaceId))
-    setActiveSpaceId(result.activeSpaceId)
-    void loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after delete failed", error))
+    const result = await loadSpacesFresh()
     return result.activeSpaceId
   }, [loadSpacesFresh])
 
