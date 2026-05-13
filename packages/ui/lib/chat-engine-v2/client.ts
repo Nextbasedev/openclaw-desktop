@@ -11,7 +11,7 @@ function trimTrailingSlash(value: string) {
 }
 
 function isLoopbackHost(hostname: string) {
-  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1"
+  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "tauri.localhost" || hostname === "::1"
 }
 
 function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {

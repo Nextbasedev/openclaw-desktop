@@ -50,7 +50,7 @@ function isLikelyPairingCode(value: string): boolean {
 function isLoopbackMiddlewareUrl(value: string): boolean {
   try {
     const host = new URL(value).hostname
-    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0.0.0.0"
+    return host === "127.0.0.1" || host === "localhost" || host === "tauri.localhost" || host === "::1" || host === "0.0.0.0"
   } catch {
     return false
   }
