@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { invoke } from "@/lib/ipc"
+import { localSyncSubscribeBootstrap } from "@/lib/localFirstSync"
+import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import type { Space } from "@/types/space"
 
@@ -22,7 +24,6 @@ export function useSpaces() {
       if (bootstrap) {
         setSpaces(bootstrap.spaces || [])
         setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
-        return
       }
       const result = await invoke<SpacesResponse>("middleware_spaces_list", { input: {} })
       setSpaces(result.spaces || [])
@@ -34,6 +35,18 @@ export function useSpaces() {
 
   useEffect(() => {
     void loadSpaces()
+  }, [loadSpaces])
+
+  useEffect(() => {
+    return localSyncSubscribeBootstrap((bootstrap) => {
+      setSpaces(bootstrap.spaces || [])
+      setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
+    })
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, loadSpaces)
+    return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, loadSpaces)
   }, [loadSpaces])
 
   const createSpace = useCallback(async (name?: string) => {
