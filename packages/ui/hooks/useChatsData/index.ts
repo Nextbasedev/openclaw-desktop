@@ -91,7 +91,6 @@ export function useChatsData(
         if (active.length > 0) {
           setChats(active)
           setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
-          return
         }
       }
       const result = await invoke<{ chats: Chat[] }>(
