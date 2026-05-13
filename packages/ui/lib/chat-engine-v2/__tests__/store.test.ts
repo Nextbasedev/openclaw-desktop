@@ -583,6 +583,51 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("assistant final websocket patch ends the run and moves live tools onto the answer", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "fix it" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "exec", status: "running" }] },
+      ],
+      cursor: 1,
+      status: "tool_running",
+      statusLabel: "exec",
+      pendingTools: [{ id: "tool-1", tool: "exec", status: "running" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          projectionVersion: 3,
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          status: "done",
+          statusLabel: null,
+          messageId: "a-final",
+          message: { role: "assistant", text: "Fixed." },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({ status: "done", statusLabel: null, pendingTools: [] })
+    expect(state?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-final",
+        role: "assistant",
+        text: "Fixed.",
+        toolCalls: [expect.objectContaining({ id: "tool-1", tool: "exec", status: "success" })],
+      }),
+    ]))
+    expect(state?.messages.find((message) => message.messageId === "a-tools")?.toolCalls).toBeUndefined()
+  })
+
   test("late tool patches after done do not leave detached completed tools", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

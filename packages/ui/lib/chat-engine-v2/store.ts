@@ -543,6 +543,13 @@ function isTerminalMessageStatusPatch(frame: PatchFrame, status: StreamStatus) {
   return Boolean(patchMessage(frame))
 }
 
+function isAssistantFinalTextMessage(frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message || message.role !== "assistant") return false
+  if (toolCallBlocks(message).length > 0) return false
+  return textFromUnknown(message.text ?? message.content).trim().length > 0
+}
+
 function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
   if (status !== "done") return false
   const type = frame.patch.type
@@ -622,12 +629,13 @@ function handlePatch(frame: PatchFrame) {
       state.deferredDoneUntilAssistant = true
     } else if (
       ACTIVE_STATUSES.has(state.status) &&
-      isTerminalMessageStatusPatch(frame, patchStatus.status)
+      isTerminalMessageStatusPatch(frame, patchStatus.status) &&
+      (!isAssistantFinalTextMessage(frame) || !hasActiveToolOrSubagent(state))
     ) {
-      // Message projection patches can carry runStatus:"done" on an assistant
-      // chunk while more assistant/tool patches for the same turn are still in
-      // flight. Do not let those chunks clear the visible running state; wait
-      // for an explicit status/session terminal patch or stale-run reconcile.
+      // Tool-only / partial message projection patches can carry runStatus:"done"
+      // before the final assistant text arrives. Defer those, but accept the
+      // final assistant text patch itself: middleware-v2 does not always emit a
+      // second status-only "done" frame after that websocket message.
       state.deferredDoneUntilAssistant = true
     } else {
       if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
@@ -635,7 +643,6 @@ function handlePatch(frame: PatchFrame) {
       state.status = patchStatus.status
       state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
       state.deferredDoneUntilAssistant = false
-      finalizeActiveToolsForTerminalStatus(state, patchStatus.status)
     }
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
     if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
