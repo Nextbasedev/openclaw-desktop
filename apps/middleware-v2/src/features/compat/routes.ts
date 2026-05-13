@@ -316,15 +316,17 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
   return records[index];
 }
 
-function deleteCompatChat(context: AppContext, chatId: string) {
+async function deleteCompatChat(context: AppContext, chatId: string) {
   const chat = compatState.chats.find((record) => record.id === chatId);
   const sessionKey = typeof chat?.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
 
   compatState.chats = compatState.chats.filter((record) => record.id !== chatId);
   if (sessionKey) {
     compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== sessionKey && session.key !== sessionKey);
-    void context.gateway.request("sessions.abort", { sessionKey }, 2_000).catch(() => { /* session may not be running */ });
-    void context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000).catch(() => { /* gateway may be offline */ });
+    await Promise.allSettled([
+      context.gateway.request("sessions.abort", { sessionKey }, 2_000),
+      context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000),
+    ]);
     context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sessionKey);

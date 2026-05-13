@@ -135,13 +135,16 @@ describe("middleware-v2 app", () => {
       headers: {
         origin: "http://localhost:3000",
         "access-control-request-method": "DELETE",
-        "access-control-request-headers": "authorization,content-type",
+        "access-control-request-headers": "authorization,content-type,x-requested-with",
       },
     });
     expect(res.statusCode).toBe(204);
     expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
     expect(String(res.headers["access-control-allow-methods"])).toContain("DELETE");
-    expect(String(res.headers["access-control-allow-headers"]).toLowerCase()).toContain("authorization");
+    const allowedHeaders = String(res.headers["access-control-allow-headers"]).toLowerCase();
+    expect(allowedHeaders).toContain("authorization");
+    expect(allowedHeaders).toContain("content-type");
+    expect(allowedHeaders).toContain("x-requested-with");
     await app.close();
   });
 

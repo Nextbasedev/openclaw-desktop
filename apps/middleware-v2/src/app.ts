@@ -62,7 +62,6 @@ export async function createApp(config: MiddlewareV2Config) {
     origin: true,
     credentials: false,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Authorization", "Content-Type", "Cache-Control"],
   });
   await app.register(sensible);
   await app.register(websocket);
