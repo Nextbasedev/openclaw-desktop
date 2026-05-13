@@ -154,7 +154,13 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     ? parsed.map((item) => ({ ...item, gatewayIndex: messageSeq }))
     : parsed
   const normalized = canonicalMessageId
-    ? withSeq.map((item) => item.role === "user" ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null } : item)
+    ? withSeq.map((item) =>
+      item.role === "user"
+        ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null }
+        : withSeq.length === 1
+          ? { ...item, messageId: canonicalMessageId }
+          : item
+    )
     : withSeq
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
