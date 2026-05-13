@@ -166,7 +166,6 @@ export function useProjectsData(
         )
         setProjects(active)
         setPinnedProjects(new Set(active.filter((p) => p.pinned).map((p) => p.id)))
-        return
       }
       const result = await invoke<{ projects: Project[] }>(
         "middleware_projects_list",
