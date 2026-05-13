@@ -1256,12 +1256,18 @@ setMessages(warmMessages)
             spawnedSubagents: canonicalSpawns,
             queryClient,
           })
-          setMessages(canonicalMessages)
-          setLocalPendingTools(inlineTools)
-          setLocalSpawnedSubagents(canonicalSpawns)
-          setStatus(canonicalStatus)
-          setStatusLabel(canonicalLabel)
-          if (isActiveRunStatus(canonicalStatus)) markOptimisticChatActivity(sessionKey, canonicalLabel)
+          const seededState = getGlobalChatSession(sessionKey)
+          const visibleMessages = seededState?.messages ?? canonicalMessages
+          const visibleTools = seededState?.pendingTools ?? inlineTools
+          const visibleSpawns = seededState?.spawnedSubagents ?? canonicalSpawns
+          const visibleStatus = seededState?.status ?? canonicalStatus
+          const visibleLabel = normalizeStatusLabelForStatus(visibleStatus, seededState?.statusLabel ?? canonicalLabel)
+          setMessages(visibleMessages)
+          setLocalPendingTools(visibleTools)
+          setLocalSpawnedSubagents(visibleSpawns)
+          setStatus(visibleStatus)
+          setStatusLabel(visibleLabel)
+          if (isActiveRunStatus(visibleStatus)) markOptimisticChatActivity(sessionKey, visibleLabel)
           else clearCachedChatActivity(sessionKey)
           setLoading(false)
           frontendLog("chat", "chat.bootstrap.applied", {
