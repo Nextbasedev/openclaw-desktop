@@ -316,6 +316,9 @@ export function useChatsData(
     setDeleting(true)
     try {
       invalidateMiddlewareStartupBootstrap()
+      await invoke("middleware_chats_delete", {
+        input: { chatId },
+      })
       setChats((prev) => {
         const next = prev.filter((chat) => chat.id !== chatId)
         if (spaceId) {
@@ -329,9 +332,6 @@ export function useChatsData(
         const next = new Set(prev)
         next.delete(chatId)
         return next
-      })
-      await invoke("middleware_chats_delete", {
-        input: { chatId },
       })
       setDeleteOpen(false)
       if (activeChat?.id === chatId) onChatClear()
