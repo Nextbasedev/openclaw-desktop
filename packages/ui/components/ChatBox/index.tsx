@@ -288,7 +288,6 @@ export function ChatBox({
 
   const voiceShortcutRef = React.useRef({
     pushToTalkActive: false,
-    ctrlTapCandidate: false,
   })
 
   React.useEffect(() => {
@@ -302,19 +301,6 @@ export function ChatBox({
     function onKeyDown(event: KeyboardEvent) {
       if (event.repeat) return
       const shortcut = voiceShortcutRef.current
-
-      if (
-        event.key === "Control" &&
-        !event.metaKey &&
-        !event.altKey &&
-        !event.shiftKey
-      ) {
-        shortcut.ctrlTapCandidate = true
-        return
-      }
-      if (shortcut.ctrlTapCandidate && event.key !== "Control") {
-        shortcut.ctrlTapCandidate = false
-      }
 
       if (isPushToTalkEvent(event)) {
         event.preventDefault()
@@ -333,12 +319,6 @@ export function ChatBox({
         event.preventDefault()
         shortcut.pushToTalkActive = false
         handleVoiceStop()
-        return
-      }
-
-      if (event.key === "Control" && shortcut.ctrlTapCandidate) {
-        shortcut.ctrlTapCandidate = false
-        handleVoiceToggle()
       }
     }
 
@@ -348,7 +328,7 @@ export function ChatBox({
       window.removeEventListener("keydown", onKeyDown)
       window.removeEventListener("keyup", onKeyUp)
     }
-  }, [handleVoiceStart, handleVoiceStop, handleVoiceToggle])
+  }, [handleVoiceStart, handleVoiceStop])
 
   React.useEffect(() => {
     if (initialPrompt != null) {
