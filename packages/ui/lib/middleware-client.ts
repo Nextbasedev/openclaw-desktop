@@ -33,7 +33,7 @@ const LOCAL_MIDDLEWARE_URLS = [
 ]
 
 function isLoopbackHost(hostname: string) {
-  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "0.0.0.0"
+  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "tauri.localhost" || hostname === "::1" || hostname === "0.0.0.0"
 }
 
 function getBrowserHostname() {

@@ -968,14 +968,15 @@ export function ChatView({
     return Array.from(merged.values())
   }
 
-  const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
-  for (const sub of spawnedSubagents) {
-    spawnsByToolCallId.set(sub.toolCallId, sub)
-  }
+  const spawnsByToolCallId = useMemo(() => {
+    const map = new Map<string, SpawnedSubagent>()
+    for (const sub of spawnedSubagents) map.set(sub.toolCallId, sub)
+    return map
+  }, [spawnedSubagents])
 
-  function getSubagentsForMessage(
+  const getSubagentsForMessage = useCallback((
     toolCalls?: import("./types").InlineToolCall[]
-  ): SpawnedSubagent[] {
+  ): SpawnedSubagent[] => {
     if (!toolCalls) return []
     const matched: SpawnedSubagent[] = []
     for (const tc of toolCalls) {
@@ -985,7 +986,7 @@ export function ChatView({
       }
     }
     return matched
-  }
+  }, [spawnsByToolCallId])
 
   const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
   const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
