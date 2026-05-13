@@ -18,7 +18,7 @@ function run(name, args) {
   const child = spawn(pnpmCommand, args, {
     stdio: 'inherit',
     env: sanitizeEnv(process.env),
-    shell: false,
+    shell: isWindows,
     windowsHide: false,
   })
 
