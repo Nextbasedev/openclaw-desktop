@@ -117,10 +117,11 @@ export async function middlewareFetch<T>(path: string, init: RequestInit = {}, c
     hasToken: Boolean(token),
   }, "debug")
   try {
+    const hasBody = init.body !== undefined && init.body !== null
     const response = await fetch(`${url}${path}`, {
       ...init,
       headers: {
-        "Content-Type": "application/json",
+        ...(hasBody ? { "Content-Type": "application/json" } : {}),
         ...(token ? { "Authorization": `Bearer ${token}` } : {}),
         ...(init.headers ?? {}),
       },
