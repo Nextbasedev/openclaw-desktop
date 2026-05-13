@@ -178,6 +178,13 @@ function rebuildTopLevelNodeModules() {
   })
 }
 
+function assertBundledServerEntrypoint() {
+  const entrypoint = path.join(bundledServerDir, "dist", "index.js")
+  if (!fs.existsSync(entrypoint)) {
+    throw new Error(`Bundled middleware entrypoint missing after deploy: ${entrypoint}`)
+  }
+}
+
 function updateServerPackageJson() {
   const packageJsonPath = path.join(bundledServerDir, "package.json")
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"))
@@ -216,6 +223,7 @@ function main() {
     bundledServerDir,
   ])
 
+  assertBundledServerEntrypoint()
   updateServerPackageJson()
   rebuildTopLevelNodeModules()
 

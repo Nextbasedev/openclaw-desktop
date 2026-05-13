@@ -329,6 +329,12 @@ function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | unde
   return "idle"
 }
 
+function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
+  if (typeof startedAtMs !== "number" || typeof finishedAtMs !== "number") return undefined
+  const seconds = Math.max(0, finishedAtMs - startedAtMs) / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
 function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
   const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
     ? tool.toolCallId
@@ -341,6 +347,10 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
+    duration: formatToolDuration(
+      typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+      typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
+    ),
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? toolResultText(tool.resultMeta) : undefined,
@@ -1318,6 +1328,10 @@ setMessages(warmMessages)
             (state) => {
               if (cancelled) return
               v2CursorRef.current = state.cursor
+              const visibleMessages = mergeOptimisticMessagesWithCanonical(
+                state.messages,
+                messagesRef.current,
+              )
               pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
               spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
               setLocalPendingTools(state.pendingTools)
@@ -1326,7 +1340,7 @@ setMessages(warmMessages)
               setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
               if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
               else clearCachedChatActivity(sessionKey)
-              setMessages(state.messages)
+              setMessages(visibleMessages)
             }
           )
           unsubscribeStream = null
