@@ -40,19 +40,6 @@ import type {
   SpawnedSubagent,
 } from "./types"
 
-const CHAT_SCROLL_SEEK_CONFIGURATION = {
-  enter: (velocity: number) => Math.abs(velocity) > 1400,
-  exit: (velocity: number) => Math.abs(velocity) < 120,
-}
-
-function ChatScrollSeekPlaceholder({ height }: { height: number }) {
-  return (
-    <div className="mx-auto max-w-3xl px-4 py-2.5" style={{ height }}>
-      <div className="h-full max-h-28 min-h-14 animate-pulse rounded-2xl bg-foreground/[0.035]" />
-    </div>
-  )
-}
-
 type Props = {
   sessionKey: string
   sessionTitle?: string
@@ -1368,9 +1355,7 @@ export function ChatView({
         overscan={{ main: 900, reverse: 900 }}
         increaseViewportBy={{ top: 1800, bottom: 2200 }}
         minOverscanItemCount={10}
-        scrollSeekConfiguration={CHAT_SCROLL_SEEK_CONFIGURATION}
         components={{
-          ScrollSeekPlaceholder: ChatScrollSeekPlaceholder,
           Header: () => (
             <div className="mx-auto max-w-3xl px-4 pt-8">
               {messageWindow.hiddenBefore > 0 && (
