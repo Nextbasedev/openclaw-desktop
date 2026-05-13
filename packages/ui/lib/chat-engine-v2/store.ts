@@ -727,8 +727,13 @@ export function seedGlobalChatSession(params: {
   state.messages = dedupeChatMessages(params.messages)
   state.cursor = Math.max(state.cursor, params.cursor ?? 0)
   if (params.status) {
+    const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
-    state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status) ? (state.activityStartedAtMs || Date.now()) : 0
+    const now = Date.now()
+    state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status)
+      ? (wasActive && state.activityStartedAtMs ? state.activityStartedAtMs : now)
+      : 0
+    if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
@@ -760,8 +765,13 @@ export function updateGlobalChatSessionActivity(params: {
   if (params.pendingTools) state.pendingTools = params.pendingTools
   if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
   if (params.status) {
+    const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
-    state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status) ? (state.activityStartedAtMs || Date.now()) : 0
+    const now = Date.now()
+    state.activityStartedAtMs = ACTIVE_STATUSES.has(params.status)
+      ? (wasActive && state.activityStartedAtMs ? state.activityStartedAtMs : now)
+      : 0
+    if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
   }
   if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
   if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
@@ -784,6 +794,9 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
     const previousStatus = state.status
     state.status = "idle"
     state.statusLabel = null
+    state.activityStartedAtMs = 0
+    state.lastPatchAtMs = nowMs
+    state.deferredDoneUntilAssistant = false
     state.pendingTools = state.pendingTools.map((tool) =>
       tool.status === "running"
         ? { ...tool, status: "error", resultText: tool.resultText ?? "Timed out waiting for tool result." }

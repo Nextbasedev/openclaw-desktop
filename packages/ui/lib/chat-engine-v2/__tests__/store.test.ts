@@ -697,6 +697,33 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
+  test("starts a fresh active timer after stale reset before a new send", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u-old", role: "user", text: "old" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    vi.setSystemTime(400_000)
+    sweepStaleGlobalChatSessions(400_000, 300_000)
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "idle", activityStartedAtMs: 0 })
+
+    vi.setSystemTime(410_000)
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u-new", role: "user", text: "new question" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking", activityStartedAtMs: 410_000 })
+    sweepStaleGlobalChatSessions(420_000, 300_000)
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "thinking" })
+  })
+
   test("clears stale Thinking labels when a session becomes done", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
