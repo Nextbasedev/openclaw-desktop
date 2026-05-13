@@ -669,9 +669,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return { chat };
   });
 
-  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request, reply) => {
-    const index = compatState.chats.findIndex((chat) => chat.id === request.params.chatId && notDeleted(chat));
-    if (index < 0) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
+    const index = compatState.chats.findIndex((chat) => chat.id === request.params.chatId);
+    if (index < 0) return { ok: true, chatId: request.params.chatId, deleted: false, alreadyDeleted: true };
 
     const [chat] = compatState.chats.splice(index, 1);
     if (chat?.sessionKey) {

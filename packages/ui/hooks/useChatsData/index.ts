@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
-import { localSyncSetChats, localSyncSubscribeChats } from "@/lib/localFirstSync"
+import { localSyncSetChats } from "@/lib/localFirstSync"
 import { persistentCacheSet } from "@/lib/persistentCache"
 import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
@@ -131,15 +131,6 @@ export function useChatsData(
   }, [loadChats, refreshTrigger])
 
   useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
-
-  useEffect(() => {
-    if (!spaceId) return
-    return localSyncSubscribeChats(spaceId, (state) => {
-      const active = (state.chats || []).filter((c) => !c.archived)
-      setChats(active)
-      setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
-    })
-  }, [spaceId])
 
   useEffect(() => {
     function clearMiddlewareScopedChats() {
@@ -312,6 +303,20 @@ export function useChatsData(
         input: { chatId: deleteTarget.id },
       })
       setDeleteOpen(false)
+      setChats((prev) => {
+        const next = prev.filter((chat) => chat.id !== deleteTarget.id)
+        if (spaceId) {
+          void persistentCacheSet(`project:${spaceId}:chats`, next, { ttlMs: 1000 * 60 * 60 * 24 })
+          void localSyncSetChats(spaceId, next)
+        }
+        return next
+      })
+      setPinnedChats((prev) => {
+        const next = new Set(prev)
+        next.delete(deleteTarget.id)
+        return next
+      })
+      setChatOrder((prev) => prev.filter((id) => id !== deleteTarget.id))
       if (activeChat?.id === deleteTarget.id) onChatClear()
       await loadChats()
     } catch (e) {
@@ -319,7 +324,7 @@ export function useChatsData(
     } finally {
       setDeleting(false)
     }
-  }, [deleteTarget, loadChats, activeChat, onChatClear])
+  }, [deleteTarget, loadChats, activeChat, onChatClear, spaceId])
 
   const sortedChatIds = useMemo(() => {
     const chatIds = new Set(chats.map((chat) => chat.id))
