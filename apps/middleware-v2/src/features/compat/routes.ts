@@ -335,19 +335,140 @@ function safeJoin(root: string, rel = "") {
 }
 
 function git(repo: string, args: string[]) {
-  return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000, maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 
-function gitStatus(repo: string) {
-  const raw = git(repo, ["status", "--short"]);
-  const files = raw.split(/\r?\n/).filter(Boolean).map((line) => ({ path: line.slice(3), status: line.slice(0, 2).trim() || "modified" }));
-  return { dirty: files.length > 0, files };
+function tryGit(repo: string, args: string[]) {
+  try { return git(repo, args); } catch { return null; }
+}
+
+function fileState(status: string) {
+  if (status.includes("A")) return "added";
+  if (status.includes("D")) return "deleted";
+  if (status.includes("R")) return "renamed";
+  if (status.includes("C")) return "copied";
+  if (status.includes("?")) return "untracked";
+  if (status.includes("M")) return "modified";
+  return "unknown";
+}
+
+function parseGitPorcelain(text: string) {
+  return text.split(/\r?\n/).filter(Boolean).map((line) => {
+    const match = line.match(/^(.{1,2})\s+(.+)$/);
+    const status = match?.[1]?.trim() || "modified";
+    const rawPath = match?.[2]?.trim() || line.trim();
+    const filePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop()!.trim() : rawPath;
+    return { path: filePath, state: fileState(status), status };
+  });
+}
+
+function parseGitNumstat(text: string) {
+  const stats = new Map<string, { additions: number; deletions: number }>();
+  for (const line of text.split(/\r?\n/).filter(Boolean)) {
+    const [additionsRaw, deletionsRaw, filePath] = line.split("\t");
+    if (!filePath) continue;
+    stats.set(filePath, {
+      additions: additionsRaw === "-" ? 0 : Number(additionsRaw || 0),
+      deletions: deletionsRaw === "-" ? 0 : Number(deletionsRaw || 0),
+    });
+  }
+  return stats;
+}
+
+function gitChangedFiles(repo: string) {
+  const files = parseGitPorcelain(tryGit(repo, ["status", "--porcelain", "-u"]) ?? "");
+  const stats = parseGitNumstat([
+    tryGit(repo, ["diff", "--numstat"]),
+    tryGit(repo, ["diff", "--cached", "--numstat"]),
+  ].filter(Boolean).join("\n"));
+  return files.map((file) => ({ ...file, ...(stats.get(file.path) ?? { additions: 0, deletions: 0 }) }));
+}
+
+function gitCommitStats(repo: string, hash: string) {
+  const raw = tryGit(repo, ["show", "--first-parent", "--numstat", "--format=", hash]) ?? "";
+  return raw.split(/\r?\n/).filter(Boolean).reduce((acc, line) => {
+    const [additionsRaw, deletionsRaw] = line.split("\t");
+    acc.additions += additionsRaw === "-" ? 0 : Number(additionsRaw || 0);
+    acc.deletions += deletionsRaw === "-" ? 0 : Number(deletionsRaw || 0);
+    return acc;
+  }, { additions: 0, deletions: 0 });
+}
+
+function gitRecentCommits(repo: string, ref = "HEAD") {
+  const raw = tryGit(repo, ["log", "-10", "--pretty=format:%H%x1f%s%x1f%cr", ref]);
+  if (!raw) return [];
+  return raw.split(/\r?\n/).filter(Boolean).map((line) => {
+    const [hash = "", message = "", date = ""] = line.split("\x1f");
+    return { hash, shortHash: hash.slice(0, 7), message, date, ...gitCommitStats(repo, hash) };
+  });
+}
+
+function gitAheadBehind(repo: string) {
+  const raw = tryGit(repo, ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
+  const [ahead = "0", behind = "0"] = (raw ?? "0 0").split(/\s+/);
+  return { ahead: Number(ahead || 0), behind: Number(behind || 0) };
+}
+
+function gitStatus(repo: string, projectId: string | null = null) {
+  const repoRoot = tryGit(repo, ["rev-parse", "--show-toplevel"]);
+  if (!repoRoot) {
+    return {
+      projectId,
+      repoRoot: repo,
+      hasGit: false,
+      mode: "local",
+      source: "local-fs",
+      branch: null,
+      currentBranch: null,
+      upstream: null,
+      remoteUrl: null,
+      ahead: 0,
+      behind: 0,
+      clean: true,
+      dirty: false,
+      changedFiles: [],
+      files: [],
+      recentCommits: [],
+      summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 },
+      error: "Not a git repository",
+    };
+  }
+  const branch = tryGit(repo, ["branch", "--show-current"]) || tryGit(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const upstream = tryGit(repo, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  const remoteName = upstream?.split("/")[0] || "origin";
+  const remoteUrl = tryGit(repo, ["remote", "get-url", remoteName]);
+  if (remoteUrl) tryGit(repo, ["fetch", "--prune", remoteName]);
+  const files = gitChangedFiles(repo);
+  const summary = files.reduce((acc, file) => {
+    acc.totalAdditions += file.additions ?? 0;
+    acc.totalDeletions += file.deletions ?? 0;
+    return acc;
+  }, { totalFiles: files.length, totalAdditions: 0, totalDeletions: 0 });
+  return {
+    projectId,
+    repoRoot,
+    hasGit: true,
+    mode: "local",
+    source: "local-fs",
+    branch,
+    currentBranch: branch,
+    upstream,
+    remoteUrl,
+    ...gitAheadBehind(repo),
+    clean: files.length === 0,
+    dirty: files.length > 0,
+    changedFiles: files,
+    files,
+    recentCommits: gitRecentCommits(repo, upstream || "HEAD"),
+    summary,
+  };
 }
 
 function gitBranches(repo: string) {
-  const current = git(repo, ["branch", "--show-current"]).trim();
-  const branches = git(repo, ["branch", "--format=%(refname:short)"]).split(/\r?\n/).filter(Boolean).map((name) => ({ name, current: name === current }));
-  return { branches, current };
+  const local = (tryGit(repo, ["branch", "--format", "%(refname:short)"]) ?? "").split(/\r?\n/).filter(Boolean);
+  const remote = (tryGit(repo, ["branch", "-r", "--format", "%(refname:short)"]) ?? "").split(/\r?\n/).filter(Boolean);
+  const current = tryGit(repo, ["branch", "--show-current"]);
+  return { local, remote, current, branches: local };
 }
 
 function workspaceEntry(root: string, full: string, stat = fs.statSync(full)) {
@@ -829,7 +950,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/status", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found or has no workspace root" } });
-    try { return gitStatus(root); } catch { return { dirty: false, files: [] }; }
+    try { return gitStatus(root, request.params.projectId); } catch { return { hasGit: false, dirty: false, files: [], changedFiles: [], recentCommits: [], summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 } }; }
   });
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/diff", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
@@ -855,7 +976,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get("/api/repos/git/status", async (request) => {
     const repoPath = String((request.query as CompatRecord).path ?? (request.query as CompatRecord).repoPath ?? "");
     if (!repoPath) return { dirty: false, files: [] };
-    try { return gitStatus(repoPath); } catch { return { dirty: false, files: [] }; }
+    try { return gitStatus(repoPath, null); } catch { return { hasGit: false, dirty: false, files: [], changedFiles: [], recentCommits: [], summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 } }; }
   });
   app.get("/api/repos/git/diff", async (request) => {
     const query = request.query as CompatRecord;
