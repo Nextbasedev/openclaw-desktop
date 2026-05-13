@@ -173,10 +173,7 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_chats_archive":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_delete":
-      // Browser DELETE requests with Authorization can fail on some remote middleware/CORS paths.
-      // Use the existing POST archive route for UI deletion semantics: normal chat lists exclude archived chats,
-      // so the item disappears immediately and remains hidden after reload without relying on DELETE preflight.
-      return middlewareFetch<T>(`/api/chats/${input.chatId}/archive`, { method: "POST", body: JSON.stringify({ ...input, archived: true }) })
+      return middlewareFetch<T>(`/api/chats/${input.chatId}`, { method: "DELETE" })
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_list":
