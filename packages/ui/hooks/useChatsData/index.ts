@@ -77,15 +77,6 @@ export function useChatsData(
 
   const loadChats = useCallback(async () => {
     try {
-      const active =
-        localStorage.getItem("jarvis.gatewayActive") === "true"
-      if (!active) {
-        setChats([])
-        setPinnedChats(new Set())
-        return
-      }
-    } catch {}
-    try {
       const chatCacheKey = spaceId ? `project:${spaceId}:chats` : null
       const localChats = spaceId ? await localSyncGetChats(spaceId) : null
       const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey) : null)
@@ -142,6 +133,8 @@ export function useChatsData(
   }, [chatOrder, orderCacheReady, spaceId])
 
   useEffect(() => {
+    setChats([])
+    setPinnedChats(new Set())
     loadChats()
   }, [loadChats, refreshTrigger])
 
