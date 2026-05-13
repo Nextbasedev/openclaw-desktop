@@ -943,6 +943,31 @@ export function ChatView({
         t.tool !== "sessions_yield"
     )
 
+  const mergeToolCallsForDisplay = (
+    base?: import("./types").InlineToolCall[],
+    live?: import("./types").InlineToolCall[]
+  ) => {
+    const merged = new Map<string, import("./types").InlineToolCall>()
+    for (const tool of base ?? []) {
+      merged.set(tool.id || `${tool.tool}:${merged.size}`, tool)
+    }
+    for (const tool of live ?? []) {
+      const key = tool.id || `${tool.tool}:${merged.size}`
+      const existing = merged.get(key)
+      if (!existing) {
+        merged.set(key, tool)
+        continue
+      }
+      const mergedTool = { ...existing, ...tool }
+      if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
+      if (existing.duration && existing.status !== "running") {
+        mergedTool.duration = existing.duration
+      }
+      merged.set(key, mergedTool)
+    }
+    return Array.from(merged.values())
+  }
+
   const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
   for (const sub of spawnedSubagents) {
     spawnsByToolCallId.set(sub.toolCallId, sub)
@@ -1024,11 +1049,14 @@ export function ChatView({
       const suppressAssistantActions =
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
-      const showPendingAbove = isActivelyStreaming && pendingTools.length > 0
-      const filteredToolCalls = msg.toolCalls
-        ? toolCallsWithoutSpawn(msg.toolCalls)
-        : undefined
       const filteredPending = toolCallsWithoutSpawn(pendingTools)
+      const filteredToolCalls =
+        msg.role === "assistant"
+          ? mergeToolCallsForDisplay(
+              toolCallsWithoutSpawn(msg.toolCalls ?? []),
+              isActivelyStreaming ? filteredPending : []
+            )
+          : toolCallsWithoutSpawn(msg.toolCalls ?? [])
       const anchoredUserSubagents =
         msg.role === "user"
           ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
@@ -1054,16 +1082,6 @@ export function ChatView({
               <SubagentCard
                 subagents={orphanAssistantSubagents}
                 onOpen={openSubagent}
-              />
-            </div>
-          )}
-          {showPendingAbove && filteredPending.length > 0 && (
-            <div className="mb-2 max-w-[85%]">
-              <ToolCallSteps
-                tools={filteredPending}
-                defaultOpen
-                onSelectTool={onSelectTool}
-                onResolveApproval={resolveExecApproval}
               />
             </div>
           )}
