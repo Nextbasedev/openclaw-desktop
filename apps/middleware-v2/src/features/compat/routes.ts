@@ -1,4 +1,5 @@
 import { execFileSync, spawn as spawnChild, type ChildProcessWithoutNullStreams } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -199,6 +200,104 @@ function ensureDefaultSpace() {
 
 function activeSpaceId() {
   return compatState.activeSpaceId ?? ensureDefaultSpace().id;
+}
+
+function stableCompatId(prefix: string, value: string) {
+  return `${prefix}_${crypto.createHash("sha1").update(value).digest("hex").slice(0, 16)}`;
+}
+
+function stringField(record: CompatRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function timestampField(record: CompatRecord, keys: string[]) {
+  return stringField(record, keys) ?? nowIso();
+}
+
+function labelFromGatewaySession(record: CompatRecord, sessionKey: string) {
+  const label = stringField(record, ["label", "title", "name", "derivedTitle"])
+    ?? stringField(record.lastMessage && typeof record.lastMessage === "object" ? record.lastMessage as CompatRecord : {}, ["text", "content"])
+    ?? "New Chat";
+  const suffix = ` · ${shortSessionId(sessionKey)}`;
+  return label.endsWith(suffix) ? label.slice(0, -suffix.length) || "New Chat" : label;
+}
+
+function gatewaySessionRows(payload: unknown): CompatRecord[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const rows = (payload as CompatRecord).sessions;
+  return Array.isArray(rows) ? rows.filter((row): row is CompatRecord => Boolean(row) && typeof row === "object" && !Array.isArray(row)) : [];
+}
+
+async function syncGatewaySessions(context: AppContext) {
+  try {
+    const payload = await context.gateway.request("sessions.list", { limit: 500, includeDerivedTitles: true, includeLastMessage: true }, 10_000);
+    const rows = gatewaySessionRows(payload);
+    if (rows.length === 0) return;
+    const defaultSpace = ensureDefaultSpace();
+    let changed = false;
+    for (const row of rows) {
+      const sessionKey = stringField(row, ["key", "sessionKey"]);
+      if (!sessionKey) continue;
+      const name = labelFromGatewaySession(row, sessionKey);
+      const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
+      const createdAt = timestampField(row, ["createdAt", "created_at"]);
+      const updatedAt = timestampField(row, ["updatedAt", "updated_at", "lastActiveAt", "lastMessageAt"]);
+
+      const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
+      if (chatIndex < 0) {
+        compatState.chats.push({
+          id: stableCompatId("chat", sessionKey),
+          name,
+          sessionKey,
+          spaceId: defaultSpace.id,
+          agentId,
+          archived: false,
+          pinned: false,
+          createdAt,
+          updatedAt,
+          lastActiveAt: updatedAt,
+        });
+        changed = true;
+      } else {
+        const existing = compatState.chats[chatIndex];
+        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId, updatedAt: existing.updatedAt || updatedAt, lastActiveAt: existing.lastActiveAt || updatedAt };
+        if (JSON.stringify(next) !== JSON.stringify(existing)) {
+          compatState.chats[chatIndex] = next;
+          changed = true;
+        }
+      }
+
+      const sessionIndex = compatState.sessions.findIndex((session) => session.sessionKey === sessionKey || session.key === sessionKey);
+      if (sessionIndex < 0) {
+        compatState.sessions.push({
+          id: stableCompatId("session", sessionKey),
+          key: sessionKey,
+          sessionKey,
+          projectId: row.projectId ?? null,
+          topicId: row.topicId ?? null,
+          agentId,
+          label: name,
+          createdAt,
+          updatedAt,
+        });
+        changed = true;
+      } else {
+        const existing = compatState.sessions[sessionIndex];
+        const next = { ...existing, key: existing.key || sessionKey, sessionKey, agentId: existing.agentId || agentId, label: existing.label || name, updatedAt: existing.updatedAt || updatedAt };
+        if (JSON.stringify(next) !== JSON.stringify(existing)) {
+          compatState.sessions[sessionIndex] = next;
+          changed = true;
+        }
+      }
+    }
+    if (changed) saveCompatState(context);
+  } catch {
+    // Gateway session sync is best-effort; local compat data must still render offline.
+  }
 }
 
 function notDeleted(record: CompatRecord) {
@@ -441,6 +540,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.get("/api/bootstrap", async () => {
     const gateway = await connectGatewayForStatus(context);
+    await syncGatewaySessions(context);
     const spaceId = activeSpaceId();
     return {
       ok: true,
@@ -500,6 +600,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.get("/api/chats", async (request) => {
+    await syncGatewaySessions(context);
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     return {
@@ -651,6 +752,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.get("/api/sessions", async (request) => {
+    await syncGatewaySessions(context);
     const query = request.query as CompatRecord;
     return {
       sessions: compatState.sessions.filter((session) =>
