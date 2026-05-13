@@ -131,6 +131,7 @@ describe("new backend IPC routing", () => {
     const { invoke } = await import("../ipc")
     await invoke("middleware_projects_create", { input: { name: "P", workspaceRoot: "/repo" } })
     await invoke("middleware_sessions_create", { input: { projectId: "project_1", topicId: "topic_1", label: "New Chat" } })
+    await invoke("middleware_chats_delete", { input: { chatId: "chat_1" } })
     await invoke("middleware_git_status", { input: { projectId: "project_1" } })
     await invoke("middleware_git_diff_for_repo", { input: { repoPath: "/repo", path: "README.md" } })
     await invoke("middleware_workspace_tree", { input: { projectId: "project_1", path: "src" } })
@@ -145,6 +146,7 @@ describe("new backend IPC routing", () => {
     expect(urls).toEqual([
       "http://middleware.test/api/projects",
       "http://middleware.test/api/sessions",
+      "http://middleware.test/api/chats/chat_1",
       "http://middleware.test/api/projects/project_1/git/status",
       "http://middleware.test/api/repos/git/diff?repoPath=%2Frepo&path=README.md",
       "http://middleware.test/api/projects/project_1/workspace/tree?path=src",

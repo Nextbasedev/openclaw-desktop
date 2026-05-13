@@ -316,6 +316,31 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
   return records[index];
 }
 
+async function deleteCompatChat(context: AppContext, chatId: string) {
+  const chat = compatState.chats.find((record) => record.id === chatId && notDeleted(record));
+  if (!chat) return null;
+  const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+  patchById(compatState.chats, chatId, { deleted: true });
+  if (sessionKey) {
+    for (const session of compatState.sessions) {
+      if (session.sessionKey === sessionKey || session.key === sessionKey) {
+        session.deleted = true;
+        session.updatedAt = nowIso();
+      }
+    }
+    try { await context.gateway.request("sessions.abort", { sessionKey }); } catch { /* session may not be running */ }
+    try { await context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }); } catch { /* gateway may be offline */ }
+    context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_sessions WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_gateway_offsets WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_projection_events WHERE session_key = ?").run(sessionKey);
+  }
+  saveCompatState(context);
+  return { ok: true, chatId, sessionKey };
+}
+
 function projectById(projectId: string) {
   return compatState.projects.find((project) => project.id === projectId && notDeleted(project)) ?? null;
 }
@@ -669,10 +694,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return { chat };
   });
 
-  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
-    patchById(compatState.chats, request.params.chatId, { deleted: true });
-    saveCompatCollection(context, "chats");
-    return { ok: true };
+  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request, reply) => {
+    const result = await deleteCompatChat(context, request.params.chatId);
+    if (!result) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+    return result;
   });
 
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request) => {
@@ -1144,6 +1169,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         compatState.sessions.push(session);
         saveCompatCollection(context, "sessions");
         return { session };
+      }
+      case "middleware_chats_delete": {
+        const chatId = String(input.chatId ?? "");
+        if (!chatId) return reply.code(400).send({ ok: false, error: { message: "chatId required" } });
+        const result = await deleteCompatChat(context, chatId);
+        if (!result) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
+        return result;
       }
       case "middleware_chats_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
