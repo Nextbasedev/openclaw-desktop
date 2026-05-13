@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { invoke } from "@/lib/ipc"
-import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
+import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import type { Space } from "@/types/space"
 
 type SpacesResponse = {
@@ -34,12 +34,6 @@ export function useSpaces() {
   const loadSpaces = useCallback(async () => {
     setLoading(true)
     try {
-      const bootstrap = await loadMiddlewareStartupBootstrap()
-      if (bootstrap) {
-        setSpaces(bootstrap.spaces || [])
-        setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
-        return
-      }
       await loadSpacesFresh()
     } finally {
       setLoading(false)
