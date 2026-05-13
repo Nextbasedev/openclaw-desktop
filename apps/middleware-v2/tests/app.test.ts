@@ -95,7 +95,7 @@ describe("middleware-v2 app", () => {
     context.db.prepare("INSERT INTO v2_sessions(session_key, session_id, data_json, updated_at_ms) VALUES (?, ?, ?, ?)").run(sessionKey, "session_id", "{}", Date.now());
     context.db.prepare("INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?)").run(sessionKey, 1, "msg_1", "user", "{}", Date.now());
 
-    const deleteRes = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
+    const deleteRes = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}`, headers: { "content-type": "application/json" } });
     expect(deleteRes.statusCode).toBe(200);
     expect(deleteRes.json()).toMatchObject({ ok: true, chatId, sessionKey });
 
@@ -105,7 +105,7 @@ describe("middleware-v2 app", () => {
     expect(sessions.json().sessions.some((session: { sessionKey?: string; key?: string }) => session.sessionKey === sessionKey || session.key === sessionKey)).toBe(false);
     expect(context.db.prepare("SELECT count(*) AS count FROM v2_sessions WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 0 });
     expect(context.db.prepare("SELECT count(*) AS count FROM v2_messages WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 0 });
-    expect(context.gateway.request).toHaveBeenCalledWith("sessions.delete", { key: sessionKey, deleteTranscript: true });
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000);
     await app.close();
   });
 
@@ -119,8 +119,29 @@ describe("middleware-v2 app", () => {
     const deleteRes = await app.inject({ method: "POST", url: "/api/commands/middleware_chats_delete", payload: { input: { chatId } } });
     expect(deleteRes.statusCode).toBe(200);
     expect(deleteRes.json()).toMatchObject({ ok: true, chatId });
+    const missingDeleteRes = await app.inject({ method: "DELETE", url: "/api/chats/chat_missing" });
+    expect(missingDeleteRes.statusCode).toBe(200);
+    expect(missingDeleteRes.json()).toMatchObject({ ok: true, chatId: "chat_missing", sessionKey: null });
     const chats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
     expect(chats.json().chats.some((chat: { id: string }) => chat.id === chatId)).toBe(false);
+    await app.close();
+  });
+
+  test("cors preflight allows browser delete chat requests", async () => {
+    const app = await createApp(testConfig());
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/chats/chat_1",
+      headers: {
+        origin: "http://localhost:3000",
+        "access-control-request-method": "DELETE",
+        "access-control-request-headers": "authorization,content-type",
+      },
+    });
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+    expect(String(res.headers["access-control-allow-methods"])).toContain("DELETE");
+    expect(String(res.headers["access-control-allow-headers"]).toLowerCase()).toContain("authorization");
     await app.close();
   });
 

@@ -217,20 +217,15 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
   return records[index];
 }
 
-async function deleteCompatChat(context: AppContext, chatId: string) {
-  const chat = compatState.chats.find((record) => record.id === chatId && notDeleted(record));
-  if (!chat) return null;
-  const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
-  patchById(compatState.chats, chatId, { deleted: true });
+function deleteCompatChat(context: AppContext, chatId: string) {
+  const chat = compatState.chats.find((record) => record.id === chatId);
+  const sessionKey = typeof chat?.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+
+  compatState.chats = compatState.chats.filter((record) => record.id !== chatId);
   if (sessionKey) {
-    for (const session of compatState.sessions) {
-      if (session.sessionKey === sessionKey || session.key === sessionKey) {
-        session.deleted = true;
-        session.updatedAt = nowIso();
-      }
-    }
-    try { await context.gateway.request("sessions.abort", { sessionKey }); } catch { /* session may not be running */ }
-    try { await context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }); } catch { /* gateway may be offline */ }
+    compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== sessionKey && session.key !== sessionKey);
+    void context.gateway.request("sessions.abort", { sessionKey }, 2_000).catch(() => { /* session may not be running */ });
+    void context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000).catch(() => { /* gateway may be offline */ });
     context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sessionKey);
@@ -593,10 +588,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return { chat };
   });
 
-  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request, reply) => {
-    const result = await deleteCompatChat(context, request.params.chatId);
-    if (!result) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
-    return result;
+  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
+    return deleteCompatChat(context, request.params.chatId);
   });
 
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request) => {
@@ -1071,9 +1064,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_chats_delete": {
         const chatId = String(input.chatId ?? "");
         if (!chatId) return reply.code(400).send({ ok: false, error: { message: "chatId required" } });
-        const result = await deleteCompatChat(context, chatId);
-        if (!result) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
-        return result;
+        return deleteCompatChat(context, chatId);
       }
       case "middleware_chats_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
