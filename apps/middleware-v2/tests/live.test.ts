@@ -371,6 +371,41 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("canonical bootstrap finalizes stale active run even when a newer done run exists", async () => {
+    const app = await createApp(config("bootstrap-finalizes-stale-active-run"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", text: "old", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", text: "old answer", __openclaw: { id: "a1", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "stale-run", sessionKey: "s1", status: "tool_running", statusLabel: "web_fetch", startedAtMs: now - 12 * 60 * 60 * 1000, updatedAtMs: now - 12 * 60 * 60 * 1000 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "stale-run", toolCallId: "old-tool", name: "web_fetch", phase: "calling", status: "running", startedAtMs: now - 12 * 60 * 60 * 1000, updatedAtMs: now - 12 * 60 * 60 * 1000 });
+    context.runs.upsertRun({ runId: "newer-done-run", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: now - 1000, updatedAtMs: now - 500, finishedAtMs: now - 500 });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "done",
+      activeRun: null,
+      toolCalls: [expect.objectContaining({ toolCallId: "old-tool", runId: "stale-run", status: "success" })],
+    });
+    expect(context.runs.getRun("stale-run")).toMatchObject({ status: "done" });
+    await app.close();
+  });
+
   test("canonical bootstrap only exposes tools for the active/latest turn", async () => {
     const app = await createApp(config("bootstrap-active-turn-tools-only"));
     const context = contextOf(app);
