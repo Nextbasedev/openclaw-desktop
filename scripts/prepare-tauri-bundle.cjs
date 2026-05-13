@@ -125,6 +125,27 @@ function removeBundledWorkspaceLinks(names) {
   }
 }
 
+
+function materializeSymlinks(root) {
+  if (!fs.existsSync(root)) return
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const targetPath = path.join(root, entry.name)
+    if (entry.name === ".pnpm") continue
+    const stat = fs.lstatSync(targetPath)
+    if (stat.isSymbolicLink()) {
+      const realPath = fs.realpathSync(targetPath)
+      fs.rmSync(targetPath, { recursive: true, force: true })
+      fs.cpSync(realPath, targetPath, {
+        recursive: true,
+        dereference: true,
+        force: true,
+      })
+      continue
+    }
+    if (stat.isDirectory()) materializeSymlinks(targetPath)
+  }
+}
+
 function rebuildTopLevelNodeModules() {
   const keep = new Set([".pnpm", ".modules.yaml"])
 
@@ -147,6 +168,20 @@ function rebuildTopLevelNodeModules() {
       force: true,
     })
   }
+
+  materializeSymlinks(bundledTopLevelNodeModulesDir)
+
+  // Tauri's resource scanner follows pnpm virtual-store links and can fail on
+  // package-internal symlinks on Windows (for example @fastify/error under
+  // avvio). The runtime bundle only needs a flat node_modules tree, so remove
+  // the virtual store after dereferencing it into top-level packages.
+  fs.rmSync(path.join(bundledTopLevelNodeModulesDir, ".pnpm"), {
+    recursive: true,
+    force: true,
+  })
+  fs.rmSync(path.join(bundledTopLevelNodeModulesDir, ".modules.yaml"), {
+    force: true,
+  })
 }
 
 function updateServerPackageJson() {
