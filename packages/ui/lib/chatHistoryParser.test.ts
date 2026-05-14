@@ -261,6 +261,25 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[1]?.stopReason, "error")
   })
 
+  it("humanizes raw deactivated workspace provider errors", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: '402 {"code":"deactivated_workspace"}',
+        provider: "openai-codex",
+        model: "gpt-5.5",
+      },
+    ])
+
+    assert.equal(
+      parsed.messages[1]?.text,
+      "Error: Workspace is deactivated. Reactivate the workspace and try again.",
+    )
+  })
+
   it("keeps gateway-injected agent failure replies visible", () => {
     const parsed = parseChatHistory([
       { role: "user", content: [{ type: "text", text: "hello" }] },
@@ -418,6 +437,62 @@ describe("parseChatHistory", () => {
     assert.equal(calls.find((call) => call.id === "tc2")?.resultText, "second output")
   })
 
+  it("restores canonical snake_case tool call blocks from session history", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a-tools",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "tool_call",
+            tool_call_id: "tc1",
+            tool_name: "memory_search",
+            args: { query: "latest work" },
+            status: "success",
+            resultMeta: { text: "found memory" },
+            startedAtMs: 1000,
+            finishedAtMs: 2400,
+          },
+        ],
+      },
+      {
+        id: "a-final",
+        role: "assistant",
+        timestamp: 2500,
+        content: [{ type: "text", text: "Done" }],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    assert.equal(parsed.messages[0]?.text, "Done")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.id, "tc1")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.tool, "memory_search")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.status, "success")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "1.4s")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.resultText, "found memory")
+  })
+
+  it("uses the tool field as a fallback tool-call display name", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a-tools",
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            tool_call_id: "tc-tool-field",
+            tool: "exec",
+            args: { command: "git status" },
+            status: "success",
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.tool, "exec")
+  })
+
   it("falls back to assistant and tool result timestamps for history tool durations", () => {
     const parsed = parseChatHistory([
       {
@@ -443,6 +518,53 @@ describe("parseChatHistory", () => {
     ])
 
     assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "2.6s")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.startedAt, 1000)
+  })
+
+  it("renders real tool calls from middleware history and drops fake huge durations", () => {
+    const parsed = parseChatHistory([
+      {
+        role: "user",
+        content: [{ type: "text", text: "Activity panel live success test" }],
+        timestamp: 1778669835130,
+        __openclaw: { id: "u1", seq: 1 },
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "session_status",
+            arguments: {},
+            duration: "66662s",
+          },
+        ],
+        timestamp: 1778669835190,
+        __openclaw: { id: "a1", seq: 2 },
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "session_status",
+        content: [{ type: "text", text: "ok" }],
+        timestamp: 1778669838056,
+        __openclaw: { id: "t1", seq: 3 },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "live activity success visible" }],
+        timestamp: 1778669838057,
+        __openclaw: { id: "a2", seq: 4 },
+      },
+    ])
+
+    const tool = parsed.messages.find((message) => message.role === "assistant")?.toolCalls?.[0]
+    assert.equal(tool?.tool, "session_status")
+    assert.equal(tool?.status, "success")
+    assert.equal(tool?.duration, "2.9s")
+    assert.equal(tool?.startedAt, 1778669835190)
+    assert.equal(tool?.completedAt, 1778669838056)
   })
 
   it("restores reply previews from markdown quotes with blank quoted lines", () => {

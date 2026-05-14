@@ -1,9 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
-import { fetchChatBootstrapV2 } from "@/lib/chat-engine-v2/client"
+import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
+import { cleanUserMessageText } from "@/lib/chatHistoryParser"
+import type { ChatMessage, InlineToolCall } from "@/components/ChatView/types"
 import type {
   ToolCall,
   AgentInfo,
@@ -63,12 +66,32 @@ function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   })
 }
 
+function formatSafeToolDuration(startedAt?: number) {
+  if (typeof startedAt !== "number" || !Number.isFinite(startedAt)) return undefined
+  const elapsedMs = Date.now() - startedAt
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0 || elapsedMs > 30 * 60 * 1000) return undefined
+  const seconds = elapsedMs / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function parseToolDuration(value: unknown) {
+  if (typeof value !== "string") return undefined
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|second|seconds)$/i)
+  if (!match) return undefined
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return undefined
+  const ms = match[2].toLowerCase() === "ms" ? amount : amount * 1000
+  if (ms < 0 || ms > 30 * 60 * 1000) return undefined
+  const seconds = ms / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
 function finalizeActivityCall(call: ToolCall): ToolCall {
   if (call.status !== "running") return call
   return {
     ...call,
     status: "success",
-    duration: call.duration ?? (call.startedAt ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s` : undefined),
+    duration: call.duration ?? formatSafeToolDuration(call.startedAt),
   }
 }
 
@@ -84,6 +107,35 @@ function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): 
   if (incoming.output && incoming.output !== existing.output) merged.output = incoming.output
   if (existing.status === "error" || incoming.status === "error") merged.status = "error"
   return merged
+}
+
+function activityInputFromInline(input: unknown): Record<string, unknown> | undefined {
+  if (input == null) return undefined
+  if (typeof input === "object" && !Array.isArray(input)) return input as Record<string, unknown>
+  return { value: input }
+}
+
+function activityCallFromInlineTool(
+  tool: InlineToolCall,
+  turn: { messageId: string; messagePreview?: string },
+): ToolCall {
+  return {
+    id: tool.id,
+    tool: tool.tool,
+    status: tool.status,
+    duration: tool.duration,
+    input: activityInputFromInline(tool.input),
+    output: tool.resultText,
+    startedAt: tool.startedAt,
+    messageId: turn.messageId,
+    messagePreview: turn.messagePreview,
+  }
+}
+
+function previewFromChatMessage(message: ChatMessage): string | undefined {
+  const text = cleanUserMessageText(message.text ?? "").replace(/\s+/g, " ").trim()
+  if (!text) return undefined
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text
 }
 
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
@@ -132,8 +184,13 @@ function isToolErrorPhase(phase: string | null): boolean {
 
 async function shouldFinalizeStaleActivity(sessionKey: string) {
   try {
-    const bootstrap = await fetchChatBootstrapV2(sessionKey)
-    return !isBackendRunningStatus(bootstrap.runStatus)
+    const result = await invoke<{
+      sessions: Array<{ key?: string; sessionKey?: string; status?: string }>
+    }>("middleware_sessions_list", { input: {} })
+    const session = (result.sessions || []).find(
+      (item) => item.key === sessionKey || item.sessionKey === sessionKey,
+    )
+    return session ? !isBackendRunningStatus(session.status) : false
   } catch {
     return false
   }
@@ -170,10 +227,14 @@ export function useAgentActivity(sessionKey: string | null) {
   const fetchSubagentHistory = useCallback(
     async (subKey: string, agentId: string) => {
       try {
-        const subHistory = await fetchChatBootstrapV2(subKey)
-        const subMessages = (subHistory.messages as RawHistoryMessage[]) ?? []
+        const subHistory = await invoke<{
+          messages: RawHistoryMessage[]
+        }>(
+          "middleware_chat_history",
+          { input: { sessionKey: subKey, timeoutMs: 5_000 } },
+        )
         const subParsed = parseHistoryToolCalls(
-          subMessages,
+          subHistory.messages ?? [],
         )
         let changed = false
         for (const call of subParsed.calls) {
@@ -186,7 +247,7 @@ export function useAgentActivity(sessionKey: string | null) {
           }
         }
         const phase = inferChildHistoryPhase(
-          subMessages,
+          subHistory.messages ?? [],
           subParsed.calls,
         )
         if (phase) {
@@ -361,9 +422,7 @@ export function useAgentActivity(sessionKey: string | null) {
         const call = existing ?? fallback
         const duration = call.duration && call.status !== "running"
           ? call.duration
-          : call.startedAt
-            ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-            : undefined
+          : formatSafeToolDuration(call.startedAt)
         const resultText = liveToolEventResultText(data)
         const output = resultText || (isToolErrorPhase(phase) ? "Unknown error" : call.output)
         map.set(toolCallId, mergeActivityCall(existing, {
@@ -412,7 +471,7 @@ export function useAgentActivity(sessionKey: string | null) {
             id: toolCallId,
             tool: name,
             status,
-            duration: typeof record.duration === "string" ? record.duration : undefined,
+            duration: parseToolDuration(record.duration),
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
             startedAt: existing?.startedAt ?? Date.now(),
             messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),
@@ -487,15 +546,19 @@ export function useAgentActivity(sessionKey: string | null) {
     subKeyToAgentRef.current.clear()
     queueMicrotask(() => resetVisibleState(false))
 
-    const activeSessionKey = sessionKey as string
+    const activeSessionKey = sessionKey
 
     async function loadHistory() {
       try {
-        const history = await fetchChatBootstrapV2(activeSessionKey)
+        const history = await invoke<{
+          messages: RawHistoryMessage[]
+        }>(
+          "middleware_chat_history",
+          { input: { sessionKey, timeoutMs: 8_000 } },
+        )
         if (cancelledRef.current) return
-        const historyMessages = (history.messages as RawHistoryMessage[]) ?? []
         const parsed = parseHistoryToolCalls(
-          historyMessages,
+          history.messages ?? [],
         )
         const shouldFinalize = await shouldFinalizeStaleActivity(activeSessionKey)
         if (cancelledRef.current) return
@@ -539,6 +602,57 @@ export function useAgentActivity(sessionKey: string | null) {
     }
 
     loadHistory()
+    const syncGlobalActivity = () => {
+      const state = getGlobalChatSession(sessionKey)
+      if (!state) return
+      setStreamStatus(state.status)
+      const liveTurn = liveTurnForSession(sessionKey)
+      let changed = false
+      for (const tool of state.pendingTools) {
+        const existing = callMapRef.current.get(tool.id)
+        const incoming = activityCallFromInlineTool(tool, {
+          messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),
+          messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
+        })
+        const merged = mergeActivityCall(existing, incoming)
+        if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+          callMapRef.current.set(tool.id, merged)
+          changed = true
+        }
+      }
+      let previousUser: ChatMessage | null = null
+      for (const message of state.messages) {
+        if (message.role === "user") {
+          previousUser = message
+          continue
+        }
+        if (message.role !== "assistant" || !message.toolCalls?.length) continue
+        const turn = previousUser
+          ? {
+              messageId: previousUser.messageId,
+              messagePreview: previewFromChatMessage(previousUser),
+            }
+          : liveTurn
+        for (const tool of message.toolCalls) {
+          const existing = callMapRef.current.get(tool.id)
+          const incoming = activityCallFromInlineTool(tool, {
+            messageId: liveTurnMessageId(existing?.messageId, turn.messageId),
+            messagePreview: liveTurnPreview(existing?.messagePreview, turn.messagePreview),
+          })
+          const merged = mergeActivityCall(existing, incoming)
+          if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+            callMapRef.current.set(tool.id, merged)
+            changed = true
+          }
+        }
+      }
+      if (changed) syncState()
+    }
+    syncGlobalActivity()
+    const unsubscribeGlobalSession = subscribeGlobalChatSession(sessionKey, () => {
+      if (cancelledRef.current) return
+      syncGlobalActivity()
+    })
     const unsubscribeStream = subscribeChatStream(sessionKey, ({ type, data }) => {
       if (cancelledRef.current) return
       if (type === "chat.tool") {
@@ -570,6 +684,7 @@ export function useAgentActivity(sessionKey: string | null) {
 
     return () => {
       cancelledRef.current = true
+      unsubscribeGlobalSession()
       unsubscribeStream()
       if (doneTimerRef.current) {
         clearTimeout(doneTimerRef.current)

@@ -77,15 +77,6 @@ export function useChatsData(
 
   const loadChats = useCallback(async () => {
     try {
-      const active =
-        localStorage.getItem("jarvis.gatewayActive") === "true"
-      if (!active) {
-        setChats([])
-        setPinnedChats(new Set())
-        return
-      }
-    } catch {}
-    try {
       const chatCacheKey = spaceId ? `project:${spaceId}:chats` : null
       const localChats = spaceId ? await localSyncGetChats(spaceId) : null
       const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey) : null)
@@ -100,7 +91,6 @@ export function useChatsData(
         if (active.length > 0) {
           setChats(active)
           setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
-          return
         }
       }
       const result = await invoke<{ chats: Chat[] }>(
@@ -142,6 +132,8 @@ export function useChatsData(
   }, [chatOrder, orderCacheReady, spaceId])
 
   useEffect(() => {
+    setChats([])
+    setPinnedChats(new Set())
     loadChats()
   }, [loadChats, refreshTrigger])
 
