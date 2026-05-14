@@ -664,10 +664,8 @@ function isUserMessagePatch(frame: PatchFrame) {
 }
 
 function resetDetachedActivityForNewTurn(state: SessionState) {
-  state.pendingTools = state.pendingTools.filter((tool) => tool.status === "running")
-  state.spawnedSubagents = state.spawnedSubagents.filter((spawn) =>
-    spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working"
-  )
+  state.pendingTools = []
+  state.spawnedSubagents = []
 }
 
 function isAssistantFinalTextMessage(frame: PatchFrame) {
@@ -846,8 +844,14 @@ function handlePatch(frame: PatchFrame) {
     // middleware-v2 patches should carry runStatus/statusLabel explicitly.
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
-  if (isUserMessagePatch(frame) && !state.pendingTools.some((tool) => tool.status === "running")) {
+  if (isUserMessagePatch(frame)) {
     resetDetachedActivityForNewTurn(state)
+    if (ACTIVE_STATUSES.has(previousStatus) && state.status === previousStatus) {
+      state.status = "thinking"
+      state.statusLabel = "Thinking"
+      state.activityStartedAtMs = Date.now()
+      state.deferredDoneUntilAssistant = false
+    }
   }
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
