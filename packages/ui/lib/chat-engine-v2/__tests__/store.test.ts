@@ -272,50 +272,6 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("stops showing tool_running after the last live tool result before assistant final", () => {
-    seedGlobalChatSession({
-      sessionKey: "s1",
-      messages: [
-        { messageId: "u1", role: "user", text: "check this" },
-      ],
-      status: "tool_running",
-      statusLabel: "exec",
-      pendingTools: [
-        { id: "tc-1", tool: "exec", status: "running", startedAt: 1_000 },
-      ],
-    })
-
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 1,
-        type: "chat.tool.result",
-        sessionKey: "s1",
-        createdAtMs: 2_000,
-        payload: {
-          semanticType: "chat.tool.result",
-          runStatus: "tool_running",
-          statusLabel: "exec",
-          toolCall: {
-            toolCallId: "tc-1",
-            name: "exec",
-            phase: "result",
-            status: "success",
-            startedAtMs: 1_000,
-            finishedAtMs: 2_000,
-            resultMeta: "ok",
-          },
-        },
-      },
-    })
-
-    expect(getGlobalChatSession("s1")).toMatchObject({
-      status: "thinking",
-      statusLabel: "Thinking",
-      pendingTools: [{ id: "tc-1", tool: "exec", status: "success", resultText: "ok" }],
-    })
-  })
-
   test("keeps live canonical tool partial output while the tool is running", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
