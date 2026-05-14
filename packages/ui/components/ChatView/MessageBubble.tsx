@@ -40,6 +40,7 @@ import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
+import { isAssistantErrorMessage } from "./utils"
 import { getSlashCommandName } from "@/lib/controlSlashCommands"
 import { formatAttachmentSize } from "@/lib/chatAttachments"
 import {
@@ -529,6 +530,7 @@ export function MessageBubble({
   onPopoverOpenChange?: (open: boolean) => void
 }) {
   const isUser = message.role === "user"
+  const isAssistantError = isAssistantErrorMessage(message)
   const shouldAnimateSend = isUser && message.isOptimistic
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
@@ -829,6 +831,8 @@ export function MessageBubble({
                   ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
                   : isUser
                     ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                    : isAssistantError
+                      ? "w-full rounded-xl border border-red-400/20 bg-red-400/5 px-3 py-2 text-red-300"
                     : "w-full text-foreground"
               )}
             >
@@ -871,6 +875,10 @@ export function MessageBubble({
                   approval={approvalPrompt}
                   onResolve={onResolveApproval}
                 />
+              ) : isAssistantError ? (
+                <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
+                  {message.text}
+                </p>
               ) : (
                 <MarkdownContent
                   text={message.text}
