@@ -79,6 +79,78 @@ function StateBadge({ state }: { state: FileState }) {
   )
 }
 
+function GitPanelSkeleton() {
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="size-4 animate-pulse rounded bg-secondary/50" />
+          <div className="h-4 w-24 animate-pulse rounded bg-secondary/60" />
+          <div className="ml-auto h-4 w-12 animate-pulse rounded bg-secondary/40" />
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <div className="h-4 w-16 animate-pulse rounded-full bg-secondary/40" />
+          <div className="h-3 w-28 animate-pulse rounded bg-secondary/30" />
+        </div>
+        <div className="mt-4 flex items-center gap-4">
+          <div className="h-7 w-24 animate-pulse rounded bg-secondary/50" />
+          <div className="h-4 w-10 animate-pulse rounded bg-secondary/35" />
+          <div className="h-4 w-10 animate-pulse rounded bg-secondary/30" />
+        </div>
+      </div>
+      <div className="h-px bg-border/30" />
+      <div className="mx-3 mt-2 overflow-hidden rounded-xl border border-border/40 bg-card/40 shadow-sm">
+        <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+          <div className="h-3 w-16 animate-pulse rounded bg-secondary/50" />
+          <div className="h-4 w-7 animate-pulse rounded-full bg-secondary/35" />
+        </div>
+        <div className="space-y-2 px-3 py-3">
+          {["w-28", "w-36", "w-24", "w-32", "w-20"].map((width, index) => (
+            <div key={index} className="flex items-center gap-2.5">
+              <div className="size-[18px] animate-pulse rounded bg-secondary/50" />
+              <div className={cn("h-3 animate-pulse rounded bg-secondary/40", width)} />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 px-4">
+        <div className="mb-3 h-3 w-24 animate-pulse rounded bg-secondary/40" />
+        <div className="space-y-3">
+          <div className="h-4 w-4/5 animate-pulse rounded bg-secondary/35" />
+          <div className="h-4 w-2/3 animate-pulse rounded bg-secondary/30" />
+          <div className="h-4 w-3/4 animate-pulse rounded bg-secondary/25" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GitFileListSkeleton() {
+  return (
+    <div className="space-y-2 p-2">
+      {["w-24", "w-20", "w-28", "w-16"].map((width, index) => (
+        <div key={index} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+          <div className="size-3.5 animate-pulse rounded bg-secondary/50" />
+          <div className={cn("h-3 animate-pulse rounded bg-secondary/40", width)} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function GitDiffSkeleton() {
+  return (
+    <div className="space-y-2 p-4 font-mono">
+      <div className="h-5 w-64 animate-pulse rounded bg-white/10" />
+      <div className="h-4 w-[520px] animate-pulse rounded bg-emerald-500/20" />
+      <div className="h-4 w-[460px] animate-pulse rounded bg-white/10" />
+      <div className="h-4 w-[500px] animate-pulse rounded bg-red-500/20" />
+      <div className="h-4 w-[420px] animate-pulse rounded bg-white/10" />
+      <div className="h-4 w-[540px] animate-pulse rounded bg-emerald-500/15" />
+    </div>
+  )
+}
+
 type GitTabProps = {
   projectId: string | null
   selection?: GitTabSelection | null
@@ -252,11 +324,7 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
   }
 
   if (loading && !context) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="size-5 animate-spin rounded-full border-2 border-border/30 border-t-foreground/50" />
-      </div>
-    )
+    return <GitPanelSkeleton />
   }
 
   if (context && !context.hasGit) {
@@ -569,9 +637,7 @@ function CommitDetailView({
           </div>
           <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
             {loading ? (
-              <div className="p-4 text-center">
-                 <div className="size-4 animate-spin rounded-full border-2 border-border/20 border-t-primary mx-auto" />
-              </div>
+              <GitFileListSkeleton />
             ) : diffs?.length === 0 ? (
               <div className="p-4 text-center text-[11px] text-muted-foreground italic">
                 No files changed
@@ -755,9 +821,7 @@ function ChangedFileDiffView({
 
       <div className="flex-1 overflow-auto bg-black text-[#e6edf3] dark:bg-black">
         {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="size-5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
-          </div>
+          <GitDiffSkeleton />
         ) : !parsedDiff ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground/60">
             <VscFile size={40} className="opacity-30" />
