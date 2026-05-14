@@ -45,6 +45,52 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("does not resurrect completed history replay into Thinking", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "hello" },
+        { messageId: "a1", role: "assistant", text: "answer already arrived" },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 11,
+        payload: {
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          activeRun: { status: "thinking" },
+          message: { id: "a1", role: "assistant", text: "answer already arrived" },
+        },
+      },
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 12,
+        type: "chat.status",
+        sessionKey: "s1",
+        createdAtMs: 12,
+        payload: { runStatus: "thinking", statusLabel: "Thinking", activeRun: { status: "thinking" } },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      cursor: 12,
+      status: "done",
+      statusLabel: null,
+      messages: expect.arrayContaining([expect.objectContaining({ messageId: "a1", text: "answer already arrived" })]),
+    })
+  })
+
   test("retains session messages while no ChatView subscriber is mounted", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
