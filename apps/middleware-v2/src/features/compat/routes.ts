@@ -532,6 +532,130 @@ function readOCPlatformConfig(): CompatRecord {
   try { return JSON.parse(fs.readFileSync(path.join(os.homedir(), ".openclaw", "openclaw.json"), "utf8")); } catch { return {}; }
 }
 
+const voiceDefaultModels: Record<string, string> = {
+  openai: "gpt-4o-transcribe",
+  groq: "whisper-large-v3-turbo",
+  deepgram: "nova-3",
+  google: "gemini-3-flash-preview",
+  mistral: "voxtral-mini-latest",
+};
+
+const voiceProviderEnvVars: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  groq: "GROQ_API_KEY",
+  deepgram: "DEEPGRAM_API_KEY",
+  google: "GEMINI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+};
+
+const voiceOptions = [
+  { provider: "auto", model: "", label: "Auto - best available" },
+  { provider: "openai", model: "gpt-4o-transcribe", label: "OpenAI - gpt-4o-transcribe" },
+  { provider: "openai", model: "gpt-4o-mini-transcribe", label: "OpenAI - gpt-4o-mini-transcribe" },
+  { provider: "openai", model: "whisper-1", label: "OpenAI - whisper-1" },
+  { provider: "groq", model: "whisper-large-v3-turbo", label: "Groq - whisper-large-v3-turbo" },
+  { provider: "groq", model: "whisper-large-v3", label: "Groq - whisper-large-v3" },
+  { provider: "deepgram", model: "nova-3", label: "Deepgram - nova-3" },
+  { provider: "deepgram", model: "nova-2", label: "Deepgram - nova-2" },
+  { provider: "google", model: "gemini-3-flash-preview", label: "Google - gemini-3-flash-preview" },
+  { provider: "google", model: "gemini-2.5-flash", label: "Google - gemini-2.5-flash" },
+  { provider: "mistral", model: "voxtral-mini-latest", label: "Mistral - voxtral-mini-latest" },
+  { provider: "mistral", model: "voxtral-small-latest", label: "Mistral - voxtral-small-latest" },
+];
+
+function openclawConfigPath() {
+  return path.join(os.homedir(), ".openclaw", "openclaw.json");
+}
+
+function writeOCPlatformConfig(cfg: CompatRecord) {
+  const file = openclawConfigPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2), "utf8");
+}
+
+function normalizeVoiceProvider(value: unknown) {
+  const provider = String(value || "auto").trim().toLowerCase();
+  return provider in voiceDefaultModels ? provider : "auto";
+}
+
+function voiceSettingsFromConfig(cfg: CompatRecord) {
+  const audio = cfg.tools?.media?.audio && typeof cfg.tools.media.audio === "object" ? cfg.tools.media.audio : {};
+  const firstModel = Array.isArray(audio.models) ? audio.models[0] : null;
+  const provider = normalizeVoiceProvider(firstModel?.provider);
+  return {
+    enabled: audio.enabled !== false,
+    provider,
+    model: provider === "auto" ? "" : String(firstModel?.model || voiceDefaultModels[provider]),
+    language: String(audio.language || "").trim(),
+    echoTranscript: Boolean(audio.echoTranscript),
+  };
+}
+
+function voiceSettingsPayload() {
+  return { settings: voiceSettingsFromConfig(readOCPlatformConfig()), options: voiceOptions };
+}
+
+function writeVoiceSettings(input: CompatRecord) {
+  const cfg = readOCPlatformConfig();
+  cfg.tools ??= {};
+  cfg.tools.media ??= {};
+  cfg.tools.media.audio ??= {};
+  const provider = normalizeVoiceProvider(input.provider);
+  const model = String(input.model || (provider === "auto" ? "" : voiceDefaultModels[provider])).trim();
+  const language = String(input.language || "").trim();
+  cfg.tools.media.audio.enabled = input.enabled !== false;
+  cfg.tools.media.audio.echoTranscript = Boolean(input.echoTranscript);
+  if (language) cfg.tools.media.audio.language = language;
+  else delete cfg.tools.media.audio.language;
+  if (provider === "auto") delete cfg.tools.media.audio.models;
+  else cfg.tools.media.audio.models = [{ type: "provider", provider, model: model || voiceDefaultModels[provider] }];
+  writeOCPlatformConfig(cfg);
+  return voiceSettingsPayload();
+}
+
+function providerDetails(providerId: string) {
+  const envVar = voiceProviderEnvVars[providerId] ?? `${providerId.toUpperCase()}_API_KEY`;
+  const name = providerId.charAt(0).toUpperCase() + providerId.slice(1);
+  return {
+    provider: {
+      id: providerId,
+      displayName: name,
+      authMethods: ["api-key"],
+      submit: {
+        payloadShape: {
+          values: {
+            fields: {
+              credentials: [{
+                key: "api-key",
+                label: `${name} API key`,
+                help: `Saved as ${envVar}`,
+                authMethod: "api-key",
+                inputKind: "secret",
+                required: true,
+                sensitive: true,
+                envVar,
+              }],
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function saveProviderCredentials(input: CompatRecord) {
+  const providerId = String(input.providerId || "").trim();
+  const envVar = voiceProviderEnvVars[providerId];
+  const key = String(input.values?.["api-key"] || input.values?.apiKey || input.values?.key || "").trim();
+  if (!providerId || !envVar || !key) return { ok: false, error: { message: "providerId and API key are required" } };
+  const cfg = readOCPlatformConfig();
+  cfg.env ??= {};
+  cfg.env.vars ??= {};
+  cfg.env.vars[envVar] = key;
+  writeOCPlatformConfig(cfg);
+  return { ok: true, providerId, envVar };
+}
+
 function modelRefsFromConfig(cfg: CompatRecord): string[] {
   const defaults = cfg.agents?.defaults ?? {};
   const modelMapRefs: string[] = defaults.models && !Array.isArray(defaults.models) && typeof defaults.models === "object"
@@ -1263,6 +1387,20 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       }
       case "middleware_models_auth_status":
         return { providers: [], configured: true };
+      case "middleware_voice_settings_get":
+        return voiceSettingsPayload();
+      case "middleware_voice_settings_set":
+        return writeVoiceSettings(input);
+      case "middleware_onboarding_provider_details": {
+        const providerId = String(input.providerId || "").trim();
+        if (!providerId) return reply.code(400).send({ ok: false, error: { message: "providerId is required" } });
+        return providerDetails(providerId);
+      }
+      case "middleware_onboarding_provider_submit": {
+        const saved = saveProviderCredentials(input);
+        if (!saved.ok) return reply.code(400).send(saved);
+        return saved;
+      }
       case "middleware_commands_list":
         return { commands: [] };
       case "middleware_autonaming_quick": {

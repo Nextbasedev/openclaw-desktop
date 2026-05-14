@@ -109,6 +109,43 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("voice settings commands read/write config and provider access", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-settings-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const app = await createApp(testConfig());
+
+    const initial = await app.inject({ method: "POST", url: "/api/commands/middleware_voice_settings_get", payload: { input: {} } });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json()).toMatchObject({ settings: { provider: "auto", model: "", enabled: true } });
+
+    const saved = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_voice_settings_set",
+      payload: { input: { provider: "openai", model: "whisper-1", language: "en", echoTranscript: true } },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ settings: { provider: "openai", model: "whisper-1", language: "en", echoTranscript: true } });
+
+    const details = await app.inject({ method: "POST", url: "/api/commands/middleware_onboarding_provider_details", payload: { input: { providerId: "openai" } } });
+    expect(details.statusCode).toBe(200);
+    expect(details.json()).toMatchObject({ provider: { id: "openai", authMethods: ["api-key"] } });
+
+    const access = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_onboarding_provider_submit",
+      payload: { input: { providerId: "openai", values: { "api-key": "sk-test" } } },
+    });
+    expect(access.statusCode).toBe(200);
+    expect(access.json()).toMatchObject({ ok: true, envVar: "OPENAI_API_KEY" });
+
+    const config = JSON.parse(fs.readFileSync(path.join(home, ".openclaw", "openclaw.json"), "utf8"));
+    expect(config).toMatchObject({
+      tools: { media: { audio: { language: "en", echoTranscript: true, models: [{ provider: "openai", model: "whisper-1" }] } } },
+      env: { vars: { OPENAI_API_KEY: "sk-test" } },
+    });
+    await app.close();
+  });
+
   test("middleware_chats_delete command fallback deletes chats instead of returning fake success", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
