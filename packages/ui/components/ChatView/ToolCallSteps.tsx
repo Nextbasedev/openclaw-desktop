@@ -38,7 +38,7 @@ function validStartedAt(value: number | undefined) {
   return value
 }
 
-function useRunningElapsed(call: InlineToolCall) {
+function useToolDuration(call: InlineToolCall) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (call.status !== "running" || !validStartedAt(call.startedAt) || call.duration) return
@@ -47,6 +47,8 @@ function useRunningElapsed(call: InlineToolCall) {
   }, [call.duration, call.startedAt, call.status])
   if (call.duration) return call.duration
   const startedAt = validStartedAt(call.startedAt)
+  const completedAt = validStartedAt(call.completedAt)
+  if (call.status !== "running" && startedAt && completedAt) return formatElapsed(completedAt - startedAt)
   if (call.status === "running" && startedAt) return formatElapsed(now - startedAt)
   return undefined
 }
@@ -70,7 +72,7 @@ function ToolRow({
   ) => Promise<void> | void
 }) {
   const { inputText, outputText, hasDetails } = getToolDetailState(call)
-  const elapsed = useRunningElapsed(call)
+  const elapsed = useToolDuration(call)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -252,6 +254,7 @@ export function ToolCallSteps({
   const total = tools.length
   const rest = total - 1
   const collapsedTop = tools[tools.length - 1]
+  const collapsedDuration = collapsedTop ? useToolDuration(collapsedTop) : undefined
 
   if (!collapsedTop) return null
 
@@ -372,9 +375,9 @@ export function ToolCallSteps({
                   approval needed
                 </span>
               )}
-              {collapsedTop.duration && (
+              {collapsedDuration && (
                 <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                  {collapsedTop.duration}
+                  {collapsedDuration}
                 </span>
               )}
               <VscChevronRight className="size-3 shrink-0 text-foreground/20" />
