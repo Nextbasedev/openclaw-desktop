@@ -146,6 +146,36 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("memory commands read, write, list, store, and recall workspace files", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-memory-settings-"));
+    const workspace = path.join(home, ".openclaw", "workspace");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(workspace, "SOUL.md"), "# Soul\n\nHelpful.", "utf8");
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const app = await createApp(testConfig());
+
+    const readRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_read", payload: { input: { path: "SOUL.md" } } });
+    expect(readRes.statusCode).toBe(200);
+    expect(readRes.json()).toMatchObject({ content: "# Soul\n\nHelpful." });
+
+    const writeRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_write", payload: { input: { path: "USER.md", content: "Krish" } } });
+    expect(writeRes.statusCode).toBe(200);
+    expect(fs.readFileSync(path.join(workspace, "USER.md"), "utf8")).toBe("Krish");
+
+    const listRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_list", payload: { input: {} } });
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json().documents.map((doc: { path: string }) => doc.path)).toEqual(expect.arrayContaining(["SOUL.md", "USER.md"]));
+
+    const storeRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_store", payload: { input: { content: "Remember this", category: "fact" } } });
+    expect(storeRes.statusCode).toBe(200);
+    expect(storeRes.json().path).toMatch(/^memory\/\d{4}-\d{2}-\d{2}\.md$/);
+
+    const recallRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_recall", payload: { input: {} } });
+    expect(recallRes.statusCode).toBe(200);
+    expect(recallRes.json().entries.length).toBeGreaterThan(0);
+    await app.close();
+  });
+
   test("middleware_chats_delete command fallback deletes chats instead of returning fake success", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
