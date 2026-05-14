@@ -302,6 +302,34 @@ function errorMeta(error: unknown) {
   return { kind: "Error", message: redactText(String(error)) }
 }
 
+function eventSourceStateLabel(readyState: number): "connecting" | "open" | "closed" {
+  return readyState === 0
+    ? "connecting"
+    : readyState === 1
+      ? "open"
+      : "closed"
+}
+
+function eventSourceErrorLevel(
+  readyState: number,
+  closeRequested: boolean,
+  hasOpened: boolean,
+): LogLevel {
+  if (closeRequested) return "debug"
+  if (readyState === 2) return hasOpened ? "warn" : "error"
+  return hasOpened ? "info" : "warn"
+}
+
+function eventSourceEventName(
+  readyState: number,
+  closeRequested: boolean,
+  hasOpened: boolean,
+): "sse.error" | "sse.disconnected" | "sse.retrying" | "sse.closed" {
+  if (closeRequested) return "sse.closed"
+  if (readyState === 2) return hasOpened ? "sse.disconnected" : "sse.error"
+  return "sse.retrying"
+}
+
 function requestMeta(input: RequestInfo | URL, init?: RequestInit) {
   let url: string
   let method: string
@@ -384,27 +412,44 @@ function instrumentEventSource() {
   const OriginalES = window.EventSource
 
   class WrappedEventSource extends OriginalES {
+    private __closeRequested = false
+    private __hasOpened = false
+
     constructor(url: string | URL, init?: EventSourceInit) {
       super(url, init)
       const safeUrl = sanitizeUrlForLog(url.toString())
       if (shouldSkipNetworkUrl(url.toString())) return
       frontendLog("stream", "sse.open", { url: safeUrl, withCredentials: init?.withCredentials ?? false })
       this.addEventListener("open", () => {
+        this.__hasOpened = true
         frontendLog("stream", "sse.ready", { url: safeUrl }, "debug")
       })
       this.addEventListener("error", () => {
-        const state =
-          this.readyState === 0
-            ? "connecting"
-            : this.readyState === 1
-              ? "open"
-              : "closed"
-        frontendLog("stream", "sse.error", { url: safeUrl, readyState: state }, "error")
+        const state = eventSourceStateLabel(this.readyState)
+        frontendLog(
+          "stream",
+          eventSourceEventName(
+            this.readyState,
+            this.__closeRequested,
+            this.__hasOpened,
+          ),
+          { url: safeUrl, readyState: state },
+          eventSourceErrorLevel(
+            this.readyState,
+            this.__closeRequested,
+            this.__hasOpened,
+          ),
+        )
       })
       this.addEventListener("error_event", (e) => {
         const data = (e as MessageEvent).data
         frontendLog("stream", "sse.error_event", { url: safeUrl, data: sanitizeForLog(data) }, "error")
       })
+    }
+
+    override close(): void {
+      this.__closeRequested = true
+      return super.close()
     }
   }
 
@@ -552,6 +597,9 @@ export const __clientLogsForTests = {
   summarizeBody,
   errorMeta,
   pushFrontend,
+  eventSourceStateLabel,
+  eventSourceErrorLevel,
+  eventSourceEventName,
 }
 
 if (typeof window !== "undefined") {

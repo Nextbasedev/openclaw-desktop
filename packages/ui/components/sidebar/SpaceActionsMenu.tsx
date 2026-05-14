@@ -6,6 +6,7 @@ import type { Space } from "@/types/space"
 
 type Props = {
   space: Space
+  onNewChat: (space: Space) => void
   onRename: (space: Space) => void
   onArchive: (space: Space) => void
   onDelete: (space: Space) => void
@@ -13,12 +14,19 @@ type Props = {
 
 export function SpaceActionsMenu({
   space,
+  onNewChat,
   onRename,
   onArchive,
   onDelete,
 }: Props) {
   return (
     <>
+      <MenuAction
+        label="New Chat"
+        icon={<Icons.BubbleChat size={14} strokeWidth={1.5} />}
+        onClick={() => onNewChat(space)}
+      />
+      <div className="my-0.5 h-px bg-border/20" />
       <MenuAction
         label="Rename"
         icon={<Icons.Edit size={14} strokeWidth={1.5} />}

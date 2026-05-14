@@ -11,6 +11,7 @@ type Props = {
   space: Space | null
   x: number
   y: number
+  onNewChat: (space: Space) => void
   onRename: (space: Space) => void
   onArchive: (space: Space) => void
   onDelete: (space: Space) => void
@@ -21,6 +22,7 @@ export function SpaceContextMenuPortal({
   space,
   x,
   y,
+  onNewChat,
   onRename,
   onArchive,
   onDelete,
@@ -44,6 +46,7 @@ export function SpaceContextMenuPortal({
     >
       <SpaceActionsMenu
         space={space}
+        onNewChat={onNewChat}
         onRename={onRename}
         onArchive={onArchive}
         onDelete={onDelete}

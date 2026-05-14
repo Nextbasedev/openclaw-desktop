@@ -17,6 +17,7 @@ type Props = {
   spaces: Space[]
   activeSpaceId: string | null
   onSwitch: (spaceId: string) => void | Promise<void>
+  onNewChat: (spaceId: string) => void | Promise<void>
   onCreate: (name?: string) => void | Promise<void>
   onUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
   onArchive: (spaceId: string) => void | Promise<void>
@@ -65,6 +66,7 @@ export function SpacesSection({
   spaces,
   activeSpaceId,
   onSwitch,
+  onNewChat,
   onCreate,
   onUpdate,
   onArchive,
@@ -167,6 +169,11 @@ export function SpacesSection({
     setRenameOpen(true)
   }
 
+  async function beginNewChat(space: Space) {
+    closeMenus()
+    await onNewChat(space.id)
+  }
+
   async function beginArchive(space: Space) {
     closeMenus()
     await onArchive(space.id)
@@ -260,6 +267,7 @@ export function SpacesSection({
                   onSwitch={handleSwitch}
                   onContextMenu={openContextMenu}
                   onActionMenuChange={setActionMenuSpaceId}
+                  onNewChat={beginNewChat}
                   onRename={beginRename}
                   onArchive={beginArchive}
                   onDelete={beginDelete}
@@ -317,6 +325,7 @@ export function SpacesSection({
           space={contextMenu.space}
           x={contextMenu.x}
           y={contextMenu.y}
+          onNewChat={beginNewChat}
           onRename={beginRename}
           onArchive={beginArchive}
           onDelete={beginDelete}

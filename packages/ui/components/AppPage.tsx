@@ -1123,6 +1123,13 @@ function AppShell({
     emit("sidebar:refresh")
   }, [activeSpaceId, clearConversationState, switchSpace])
 
+  const handleSpaceNewChat = useCallback(async (spaceId: string) => {
+    if (spaceId !== activeSpaceId) {
+      await handleSpaceSwitch(spaceId)
+    }
+    handleNewChat()
+  }, [activeSpaceId, handleNewChat, handleSpaceSwitch])
+
   const handleSpaceCreate = useCallback(async (name?: string) => {
     const space = await createSpace(name)
     await handleSpaceSwitch(space.id)
@@ -1872,6 +1879,7 @@ function AppShell({
           spaces={spaces}
           activeSpaceId={activeSpaceId}
           onSpaceSwitch={handleSpaceSwitch}
+          onSpaceNewChat={handleSpaceNewChat}
           onSpaceCreate={handleSpaceCreate}
           onSpaceUpdate={updateSpace}
           onSpaceArchive={handleSpaceArchive}
@@ -2113,7 +2121,11 @@ function MainContent({
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
-        <SettingsDashboard onBack={onSettingsBack} initialSection={settingsInitialSection} />
+        <SettingsDashboard
+          key={`settings:${settingsInitialSection}`}
+          onBack={onSettingsBack}
+          initialSection={settingsInitialSection}
+        />
       </div>
     )
   }
