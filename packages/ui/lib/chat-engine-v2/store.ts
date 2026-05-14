@@ -625,6 +625,30 @@ function isAssistantFinalTextMessage(frame: PatchFrame) {
   return textFromUnknown(message.text ?? message.content).trim().length > 0
 }
 
+function isAssistantErrorMessagePatch(frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message || message.role !== "assistant") return false
+  if (message.stopReason === "error") return true
+  const text = textFromUnknown(message.text ?? message.content).trim()
+  return (
+    /^Error:\s+/i.test(text) ||
+    /^Agent failed before reply:/i.test(text) ||
+    /^OpenClaw error:/i.test(text) ||
+    /^WebSocket error:/i.test(text)
+  )
+}
+
+function markLatestAssistantErrorForReveal(state: SessionState) {
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const message = state.messages[i]
+    if (message?.role !== "assistant") continue
+    const next = [...state.messages]
+    next[i] = { ...message, animateText: true }
+    state.messages = next
+    return
+  }
+}
+
 function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
   if (status !== "done") return false
   const type = frame.patch.type
@@ -775,6 +799,13 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
+  if (isAssistantErrorMessagePatch(frame)) {
+    state.status = "error"
+    state.statusLabel = null
+    state.activityStartedAtMs = 0
+    state.deferredDoneUntilAssistant = false
+    markLatestAssistantErrorForReveal(state)
+  }
   reconcileVisibleActiveStatus(state)
   if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
   const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")

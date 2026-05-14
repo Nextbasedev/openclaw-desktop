@@ -355,6 +355,46 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
   })
 
+  test("assistant error text immediately ends the active turn", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+      pendingTools: [{ id: "tool-1", tool: "exec", status: "running" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          message: {
+            role: "assistant",
+            text: 'Error: 402 {"code":"deactivated_workspace"}',
+            stopReason: "error",
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({
+      status: "error",
+      statusLabel: null,
+      pendingTools: [],
+    })
+    expect(state?.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: 'Error: 402 {"code":"deactivated_workspace"}',
+      stopReason: "error",
+      animateText: true,
+    })
+  })
+
   test("defers immediate bare done status and waits for canonical completion", () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
