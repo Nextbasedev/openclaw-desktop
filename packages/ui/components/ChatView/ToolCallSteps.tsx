@@ -26,7 +26,7 @@ function decisionLabel(decision: ApprovalDecision) {
 }
 
 function formatElapsed(ms: number) {
-  if (!Number.isFinite(ms) || ms < 0 || ms > 24 * 60 * 60 * 1000) return undefined
+  if (!Number.isFinite(ms) || ms < 0 || ms > 30 * 60 * 1000) return undefined
   const seconds = Math.max(0, ms) / 1000
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
 }

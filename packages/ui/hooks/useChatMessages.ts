@@ -351,7 +351,7 @@ function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: numbe
   const finished = comparableTimeMs(finishedAtMs)
   if (typeof started !== "number" || typeof finished !== "number") return undefined
   const elapsedMs = finished - started
-  if (elapsedMs < 0 || elapsedMs > 24 * 60 * 60 * 1000) return undefined
+  if (elapsedMs < 0 || elapsedMs > 30 * 60 * 1000) return undefined
   const seconds = elapsedMs / 1000
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
 }
