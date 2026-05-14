@@ -7,6 +7,7 @@ import { localSyncGetChats, localSyncSetChats, localSyncSubscribeChats } from "@
 import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
+import { loadSidebarOrder, saveSidebarOrder } from "@/lib/sidebarOrderCache"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -47,11 +48,7 @@ function sameStringArray(a: string[], b: string[]) {
 }
 
 function chatActivityTime(chat: Chat) {
-  return Math.max(
-    new Date(chat.updatedAt || 0).getTime() || 0,
-    new Date(chat.lastActiveAt || 0).getTime() || 0,
-    new Date(chat.createdAt || 0).getTime() || 0,
-  )
+  return new Date(chat.updatedAt || chat.lastActiveAt || chat.createdAt || 0).getTime() || 0
 }
 
 export function useChatsData(
@@ -62,6 +59,7 @@ export function useChatsData(
 ) {
   const [chats, setChats] = useState<Chat[]>([])
   const [chatOrder, setChatOrder] = useState<string[]>([])
+  const [orderCacheReady, setOrderCacheReady] = useState(false)
   const [pinnedChats, setPinnedChats] = useState<Set<string>>(
     new Set(),
   )
@@ -123,6 +121,24 @@ export function useChatsData(
       console.error("[ChatsSection] load chats failed", e)
     }
   }, [spaceId])
+
+  useEffect(() => {
+    let cancelled = false
+    setOrderCacheReady(false)
+    loadSidebarOrder("chats", spaceId).then((order) => {
+      if (cancelled) return
+      if (order?.length) setChatOrder(order)
+      setOrderCacheReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [spaceId])
+
+  useEffect(() => {
+    if (!orderCacheReady || chatOrder.length === 0) return
+    void saveSidebarOrder("chats", spaceId, chatOrder)
+  }, [chatOrder, orderCacheReady, spaceId])
 
   useEffect(() => {
     setChats([])
@@ -366,13 +382,21 @@ export function useChatsData(
   }, [deleteTarget, loadChats, activeChat, onChatClear, spaceId])
 
   const sortedChatIds = useMemo(() => {
-    const ordered = [...chats]
-      .sort((a, b) => chatActivityTime(b) - chatActivityTime(a))
+    const chatIds = new Set(chats.map((chat) => chat.id))
+    const ordered = chatOrder.filter((id) => chatIds.has(id))
+    const missing = chats
+      .filter((chat) => !ordered.includes(chat.id))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() -
+          new Date(a.updatedAt).getTime(),
+      )
       .map((chat) => chat.id)
-    const pinned = ordered.filter((id) => pinnedChats.has(id))
-    const unpinned = ordered.filter((id) => !pinnedChats.has(id))
+    const allOrdered = [...ordered, ...missing]
+    const pinned = allOrdered.filter((id) => pinnedChats.has(id))
+    const unpinned = allOrdered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
-  }, [pinnedChats, chats])
+  }, [chatOrder, pinnedChats, chats])
 
   const dialogState: ChatDialogState = {
     renameOpen,

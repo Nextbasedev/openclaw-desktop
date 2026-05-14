@@ -28,9 +28,6 @@ export type AppContext = {
   chatLive: ChatLiveIngest;
   sendQueue: SessionSendQueue;
   patchBus: PatchBus;
-  compat?: {
-    touchChatActivity: (input: { sessionKey: string; at?: string; lastMessageText?: string | null }) => void;
-  };
   startedAtMs: number;
 };
 
