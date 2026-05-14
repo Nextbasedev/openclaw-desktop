@@ -17,7 +17,7 @@ type BootstrapPayload = {
 const BOOTSTRAP_KEY = "middleware:startup-bootstrap"
 const BOOTSTRAP_CACHE_KEY = "startup:bootstrap"
 const BOOTSTRAP_TTL_MS = 2_000
-const BOOTSTRAP_PERSIST_TTL_MS = 1000 * 60 * 60 * 24
+const BOOTSTRAP_PERSIST_TTL_MS = 1000 * 60
 
 async function fetchMiddlewareStartupBootstrap(): Promise<BootstrapPayload | null> {
   if (!getMiddlewareConnection()) return null
@@ -26,10 +26,20 @@ async function fetchMiddlewareStartupBootstrap(): Promise<BootstrapPayload | nul
     async () => {
       const payload = await middlewareFetch<BootstrapPayload>("/api/bootstrap")
       await persistentCacheSet(BOOTSTRAP_CACHE_KEY, payload, { ttlMs: BOOTSTRAP_PERSIST_TTL_MS })
-      await localSyncSetBootstrap({ spaces: payload.spaces || [], activeSpaceId: payload.activeSpaceId ?? null, sessions: payload.sessions })
+      await localSyncSetBootstrap({
+        spaces: payload.spaces || [],
+        activeSpaceId: payload.activeSpaceId ?? null,
+        sessions: payload.sessions,
+        ttlMs: BOOTSTRAP_PERSIST_TTL_MS,
+      })
       if (payload.activeSpaceId) {
         await persistentCacheSet(`project:${payload.activeSpaceId}:chats`, payload.chats || [], { ttlMs: BOOTSTRAP_PERSIST_TTL_MS })
-        await localSyncSetChats(payload.activeSpaceId, payload.chats || [])
+        await localSyncSetChats(
+          payload.activeSpaceId,
+          payload.chats || [],
+          undefined,
+          BOOTSTRAP_PERSIST_TTL_MS,
+        )
       }
       return payload
     },
