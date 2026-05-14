@@ -7,6 +7,17 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
+import {
+  getActiveSkills,
+  getSkillEnabledMap,
+  installSkill,
+  skillsDetail,
+  skillsDiscover,
+  skillsInstalledLocal,
+  skillsVersions,
+  toggleSkill,
+  uninstallSkill,
+} from "../skills/service.js";
 import { fromJson, toJson } from "../../db/json.js";
 
 type CompatRecord = Record<string, any>;
@@ -1267,6 +1278,25 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return { providers: [], configured: true };
       case "middleware_commands_list":
         return { commands: [] };
+      case "middleware_skills_discover":
+        return skillsDiscover(input as Parameters<typeof skillsDiscover>[0]);
+      case "middleware_skills_installed_local":
+      case "middleware_skills_installed":
+        return skillsInstalledLocal(input as Parameters<typeof skillsInstalledLocal>[0]);
+      case "middleware_skills_detail":
+        return skillsDetail(input as Parameters<typeof skillsDetail>[0]);
+      case "middleware_skills_versions":
+        return skillsVersions(input as Parameters<typeof skillsVersions>[0]);
+      case "middleware_skills_install":
+        return installSkill(context, input as Parameters<typeof installSkill>[1]);
+      case "middleware_skills_uninstall":
+        return uninstallSkill(input as Parameters<typeof uninstallSkill>[0]);
+      case "middleware_skills_toggle":
+        return toggleSkill(input as Parameters<typeof toggleSkill>[0]);
+      case "middleware_skills_enabled_map":
+        return getSkillEnabledMap();
+      case "middleware_skills_active":
+        return getActiveSkills();
       case "middleware_autonaming_quick": {
         const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
         return { name, title: name };

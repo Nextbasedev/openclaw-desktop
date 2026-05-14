@@ -16,6 +16,7 @@ import { registerGatewayRoutes } from "./features/gateway/routes.js";
 import { registerDiagnosticsRoutes } from "./features/diagnostics/routes.js";
 import { registerChatRoutes } from "./features/chat/routes.js";
 import { registerCompatRoutes } from "./features/compat/routes.js";
+import { registerSkillRoutes } from "./features/skills/routes.js";
 import { createLogger, errorMeta, safePathFromUrl } from "./lib/logger.js";
 
 export type AppContext = {
@@ -100,6 +101,7 @@ export async function createApp(config: MiddlewareV2Config) {
   registerErrorHandler(app);
   await registerSystemRoutes(app, context);
   await registerCompatRoutes(app, context);
+  await registerSkillRoutes(app, context);
   await registerGatewayRoutes(app, context);
   await registerDiagnosticsRoutes(app, context);
   await registerChatRoutes(app, context);
