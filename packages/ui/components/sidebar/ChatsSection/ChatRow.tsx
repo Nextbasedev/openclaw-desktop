@@ -42,6 +42,13 @@ const CONTEXT_MENU_WIDTH = 184
 const CONTEXT_MENU_HEIGHT = 144
 const VIEWPORT_MARGIN = 12
 
+function chatDisplayTimestamp(chat: Chat) {
+  return [chat.lastMessageAt, chat.lastActiveAt, chat.updatedAt, chat.createdAt]
+    .map((value) => (value ? Date.parse(value) : 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => b - a)[0]
+}
+
 export function ChatRow({
   chatId,
   chat,
@@ -64,7 +71,8 @@ export function ChatRow({
   })
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
-  const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.updatedAt)
+  const displayTimestamp = chatDisplayTimestamp(chat)
+  const timeStr = chat.pendingFork || !displayTimestamp ? "" : formatCompactTime(new Date(displayTimestamp).toISOString())
   const displayName = chatDisplayName(chat)
   const anyMenuOpen = dotMenuOpen || contextMenu.open
 
