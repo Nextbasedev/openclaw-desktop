@@ -19,7 +19,6 @@ import {
   uninstallSkill,
 } from "../skills/service.js";
 import { fromJson, toJson } from "../../db/json.js";
-import { normalizeMessageText, textFromMessage } from "../chat/message-normalizer.js";
 
 type CompatRecord = Record<string, any>;
 
@@ -320,57 +319,6 @@ function notDeleted(record: CompatRecord) {
 function listBySpace(records: CompatRecord[], spaceId?: unknown) {
   const filterSpaceId = typeof spaceId === "string" && spaceId.trim() ? spaceId : null;
   return records.filter((record) => notDeleted(record) && (!filterSpaceId || record.spaceId === filterSpaceId));
-}
-
-function latestProjectedMessageText(context: AppContext, sessionKey: string): string | null {
-  try {
-    const messages = context.messages.listMessages(sessionKey, { limit: 1000 });
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const text = normalizeMessageText(textFromMessage(messages[index].data));
-      if (text) return text;
-    }
-  } catch {
-    // Projection lookup is best-effort; compat chat listing must stay available.
-  }
-  return null;
-}
-
-function enrichChatFromProjection(context: AppContext, chat: CompatRecord): CompatRecord {
-  const sessionKey = stringField(chat, ["sessionKey", "key"]);
-  if (!sessionKey) return chat;
-  const session = context.messages.getSession(sessionKey);
-  const sessionData = session?.data && typeof session.data === "object" && !Array.isArray(session.data)
-    ? session.data as CompatRecord
-    : {};
-  const lastMessageText = stringField(sessionData, ["lastMessageText"])
-    ?? latestProjectedMessageText(context, sessionKey)
-    ?? stringField(chat, ["lastMessageText"]);
-  const activityIso = stringField(sessionData, ["lastMessageAt", "updatedAt", "lastActiveAt"])
-    ?? (session?.updatedAtMs ? new Date(session.updatedAtMs).toISOString() : null)
-    ?? stringField(chat, ["updatedAt", "lastActiveAt"])
-    ?? nowIso();
-  return {
-    ...chat,
-    lastMessageText,
-    updatedAt: activityIso,
-    lastActiveAt: activityIso,
-  };
-}
-
-function sortChatsByActivity(chats: CompatRecord[]) {
-  return [...chats].sort((a, b) => {
-    const pinnedDelta = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
-    if (pinnedDelta) return pinnedDelta;
-    return (Date.parse(String(b.updatedAt || b.lastActiveAt || b.createdAt || 0)) || 0) -
-      (Date.parse(String(a.updatedAt || a.lastActiveAt || a.createdAt || 0)) || 0);
-  });
-}
-
-function listChatsForResponse(context: AppContext, spaceId?: unknown, archived?: boolean) {
-  const chats = listBySpace(compatState.chats, spaceId)
-    .filter((chat) => archived === undefined || Boolean(chat.archived) === archived)
-    .map((chat) => enrichChatFromProjection(context, chat));
-  return sortChatsByActivity(chats);
 }
 
 function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord) {
@@ -816,7 +764,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       service: "openclaw-middleware-v2",
       spaces: compatState.spaces.filter(notDeleted),
       activeSpaceId: spaceId,
-      chats: listChatsForResponse(context, spaceId, false),
+      chats: listBySpace(compatState.chats, spaceId).filter((chat) => !chat.archived),
       projects: listBySpace(compatState.projects, spaceId),
       sessions: compatState.sessions.filter(notDeleted),
       gateway,
@@ -873,7 +821,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     return {
-      chats: listChatsForResponse(context, query.spaceId, archived),
+      chats: listBySpace(compatState.chats, query.spaceId).filter((chat) => Boolean(chat.archived) === archived),
     };
   });
 
