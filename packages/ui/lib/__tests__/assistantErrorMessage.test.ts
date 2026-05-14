@@ -3,6 +3,7 @@ import {
   formatAssistantErrorText,
   isAssistantErrorMessage,
 } from "../../components/ChatView/utils"
+import { isChatErrorLine } from "../chatErrorText"
 import type { ChatMessage } from "../../components/ChatView/types"
 
 function assistant(
@@ -63,5 +64,12 @@ describe("formatAssistantErrorText", () => {
     expect(formatAssistantErrorText("Error: gateway disconnected")).toBe(
       "Error: gateway disconnected"
     )
+  })
+})
+
+describe("isChatErrorLine", () => {
+  it("detects a single error paragraph inside mixed output", () => {
+    expect(isChatErrorLine("Error: terminated")).toBe(true)
+    expect(isChatErrorLine("Pushed successfully.")).toBe(false)
   })
 })
