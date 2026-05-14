@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
-import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
@@ -415,10 +415,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               sessionId: existingSession?.sessionId ?? null,
               status: "running",
               statusLabel: "Thinking",
-              lastMessageAt: nowIso,
-              lastActiveAt: nowIso,
-              updatedAt: nowIso,
-              lastMessageText: normalizeMessageText(prepared.message),
             },
           });
           log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: "running", statusLabel: "Thinking" });
