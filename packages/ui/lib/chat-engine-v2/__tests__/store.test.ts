@@ -820,6 +820,63 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("canonical running tool patches get a live startedAt for response tool timers", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_778_700_000_000)
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "check" }],
+      cursor: 1,
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.calling",
+        sessionKey: "s1",
+        createdAtMs: 1_778_700_000_000,
+        payload: {
+          runStatus: "tool_running",
+          statusLabel: "exec",
+          toolCall: { toolCallId: "tool-1", name: "exec", status: "running" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools[0]).toMatchObject({
+      id: "tool-1",
+      tool: "exec",
+      status: "running",
+      startedAt: 1_778_700_000_000,
+    })
+
+    vi.setSystemTime(1_778_700_001_200)
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 1_778_700_001_200,
+        payload: {
+          runStatus: "tool_running",
+          statusLabel: "exec",
+          toolCall: { toolCallId: "tool-1", name: "exec", status: "success", resultMeta: { text: "ok" } },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools[0]).toMatchObject({
+      status: "success",
+      duration: "1.2s",
+      completedAt: 1_778_700_001_200,
+      resultText: "ok",
+    })
+  })
+
   test("assistant final websocket patch ends the run and finalizes tools in their original message", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
