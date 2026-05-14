@@ -1022,6 +1022,45 @@ export function ChatView({
   }
 
 
+  const completedTurnAssistantToolState = useMemo(() => {
+    const toolsByAssistantId = new Map<string, import("./types").InlineToolCall[]>()
+    const suppressToolAssistantIds = new Set<string>()
+    let turnAssistantIds: string[] = []
+    let turnTextAssistantIds: string[] = []
+    let turnTools: import("./types").InlineToolCall[] = []
+
+    const flushTurn = () => {
+      if (turnAssistantIds.length === 0 || turnTools.length === 0) {
+        turnAssistantIds = []
+        turnTextAssistantIds = []
+        turnTools = []
+        return
+      }
+      const targetId = turnTextAssistantIds.at(-1) ?? turnAssistantIds.at(-1)
+      if (targetId) toolsByAssistantId.set(targetId, turnTools)
+      for (const id of turnAssistantIds) {
+        if (id !== targetId) suppressToolAssistantIds.add(id)
+      }
+      turnAssistantIds = []
+      turnTextAssistantIds = []
+      turnTools = []
+    }
+
+    for (const message of renderedMessages) {
+      if (message.role === "user") {
+        flushTurn()
+        continue
+      }
+      if (message.role !== "assistant") continue
+      turnAssistantIds.push(message.messageId)
+      if (message.text.trim()) turnTextAssistantIds.push(message.messageId)
+      turnTools = mergeToolCallsForDisplay(turnTools, toolCallsWithoutSpawn(message.toolCalls ?? []))
+    }
+    flushTurn()
+
+    return { toolsByAssistantId, suppressToolAssistantIds }
+  }, [renderedMessages])
+
   const activeTurnAssistantToolState = useMemo(() => {
     if (!isGenerating || latestRenderedUserIndex < 0) {
       return { latestAssistantId: null as string | null, tools: [] as import("./types").InlineToolCall[] }
@@ -1132,10 +1171,12 @@ export function ChatView({
             ? msg.messageId === activeTurnAssistantToolState.latestAssistantId
               ? activeTurnAssistantToolState.tools
               : []
-            : mergeToolCallsForDisplay(
-                toolCallsWithoutSpawn(msg.toolCalls ?? []),
-                isActivelyStreaming ? filteredPending : []
-              )
+            : completedTurnAssistantToolState.suppressToolAssistantIds.has(msg.messageId)
+              ? []
+              : mergeToolCallsForDisplay(
+                  completedTurnAssistantToolState.toolsByAssistantId.get(msg.messageId) ?? toolCallsWithoutSpawn(msg.toolCalls ?? []),
+                  isActivelyStreaming ? filteredPending : []
+                )
           : toolCallsWithoutSpawn(msg.toolCalls ?? [])
       const anchoredUserSubagents =
         msg.role === "user"
@@ -1239,6 +1280,7 @@ export function ChatView({
       activePopoverId,
       activeTurnAssistantToolState,
       askAboutSelectedText,
+      completedTurnAssistantToolState,
       deleteMessage,
       exportOneMessage,
       forkFromMessage,
@@ -1256,12 +1298,13 @@ export function ChatView({
       orphanSubagentsByAssistantId,
       pendingTools,
       reactToMessage,
-      renderedMessages.length,
+      renderedMessages,
       replyToMessage,
       showInlineStatus,
       resolveExecApproval,
       retrySend,
       setActivePopoverId,
+      statusText,
       subagentsByTriggerUserId,
       switchBranch,
       togglePin,
