@@ -1639,7 +1639,7 @@ setMessages(warmMessages)
         // Send ACK is not lifecycle truth. Wait for canonical runStatus patches
         // or bootstrap recovery before clearing/completing the visible run.
         frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
-        emit("chat:activity")
+        emit("chat:activity", { sessionKey })
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

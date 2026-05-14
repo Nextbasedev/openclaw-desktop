@@ -7,6 +7,7 @@ export type Chat = {
   archived: boolean
   pinned: boolean
   lastActiveAt?: string
+  lastMessageAt?: string
   createdAt: string
   updatedAt: string
   pendingFork?: boolean
