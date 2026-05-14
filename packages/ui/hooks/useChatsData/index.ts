@@ -137,7 +137,12 @@ export function useChatsData(
     loadChats()
   }, [loadChats, refreshTrigger])
 
-  useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
+  useEffect(() => {
+    const unsubscribe = on("sidebar:refresh", loadChats)
+    return () => {
+      unsubscribe()
+    }
+  }, [loadChats])
 
   useEffect(() => {
     const refreshRunningSessions = () => {
@@ -151,7 +156,10 @@ export function useChatsData(
       )
     }
     refreshRunningSessions()
-    return subscribeChatActivity(refreshRunningSessions)
+    const unsubscribe = subscribeChatActivity(refreshRunningSessions)
+    return () => {
+      unsubscribe()
+    }
   }, [chats])
 
   useEffect(() => {
