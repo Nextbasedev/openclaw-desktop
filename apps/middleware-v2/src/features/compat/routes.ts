@@ -257,7 +257,7 @@ async function syncGatewaySessions(context: AppContext) {
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const createdAt = timestampField(row, ["createdAt", "created_at"]);
-      const updatedAt = timestampField(row, ["updatedAt", "updated_at", "lastActiveAt", "lastMessageAt"]);
+      const updatedAt = timestampField(row, ["lastMessageAt", "lastActiveAt", "updatedAt", "updated_at"]);
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
@@ -276,7 +276,13 @@ async function syncGatewaySessions(context: AppContext) {
         changed = true;
       } else {
         const existing = compatState.chats[chatIndex];
-        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId, updatedAt: existing.updatedAt || updatedAt, lastActiveAt: existing.lastActiveAt || updatedAt };
+        const next = {
+          ...existing,
+          name: existing.name || name,
+          agentId: existing.agentId || agentId,
+          updatedAt: activityTime({ updatedAt }) >= activityTime(existing) ? updatedAt : existing.updatedAt,
+          lastActiveAt: activityTime({ updatedAt }) >= activityTime(existing) ? updatedAt : existing.lastActiveAt,
+        };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.chats[chatIndex] = next;
           changed = true;
@@ -319,6 +325,33 @@ function notDeleted(record: CompatRecord) {
 function listBySpace(records: CompatRecord[], spaceId?: unknown) {
   const filterSpaceId = typeof spaceId === "string" && spaceId.trim() ? spaceId : null;
   return records.filter((record) => notDeleted(record) && (!filterSpaceId || record.spaceId === filterSpaceId));
+}
+
+function activityTime(record: CompatRecord): number {
+  return Date.parse(String(record.updatedAt || record.lastActiveAt || record.createdAt || "")) || 0;
+}
+
+function enrichChatActivityFromSession(context: AppContext, chat: CompatRecord): CompatRecord {
+  const sessionKey = stringField(chat, ["sessionKey", "key"]);
+  if (!sessionKey) return chat;
+  const session = context.messages.getSession(sessionKey);
+  const sessionData = session?.data && typeof session.data === "object" && !Array.isArray(session.data)
+    ? session.data as CompatRecord
+    : {};
+  const sessionUpdatedAt = stringField(sessionData, ["lastMessageAt", "updatedAt", "lastActiveAt"])
+    ?? (session?.updatedAtMs ? new Date(session.updatedAtMs).toISOString() : null);
+  if (!sessionUpdatedAt) return chat;
+  const currentMs = activityTime(chat);
+  const sessionMs = Date.parse(sessionUpdatedAt) || 0;
+  if (sessionMs < currentMs) return chat;
+  return { ...chat, updatedAt: sessionUpdatedAt, lastActiveAt: sessionUpdatedAt };
+}
+
+function sortedChatsForResponse(context: AppContext, spaceId?: unknown, archived?: boolean): CompatRecord[] {
+  return listBySpace(compatState.chats, spaceId)
+    .filter((chat) => archived === undefined || Boolean(chat.archived) === archived)
+    .map((chat) => enrichChatActivityFromSession(context, chat))
+    .sort((a, b) => activityTime(b) - activityTime(a));
 }
 
 function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord) {
@@ -764,7 +797,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       service: "openclaw-middleware-v2",
       spaces: compatState.spaces.filter(notDeleted),
       activeSpaceId: spaceId,
-      chats: listBySpace(compatState.chats, spaceId).filter((chat) => !chat.archived),
+      chats: sortedChatsForResponse(context, spaceId, false),
       projects: listBySpace(compatState.projects, spaceId),
       sessions: compatState.sessions.filter(notDeleted),
       gateway,
@@ -821,7 +854,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     return {
-      chats: listBySpace(compatState.chats, query.spaceId).filter((chat) => Boolean(chat.archived) === archived),
+      chats: sortedChatsForResponse(context, query.spaceId, archived),
     };
   });
 
