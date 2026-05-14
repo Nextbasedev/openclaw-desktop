@@ -272,53 +272,6 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("finalizes an attached assistant tool row as soon as its result arrives", () => {
-    seedGlobalChatSession({
-      sessionKey: "s1",
-      messages: [
-        { messageId: "u1", role: "user", text: "run tool" },
-        {
-          messageId: "a-tools",
-          role: "assistant",
-          text: "",
-          toolCalls: [{ id: "tc-1", tool: "exec", status: "running", startedAt: 1_000 }],
-        },
-      ],
-      status: "tool_running",
-      statusLabel: "exec",
-      pendingTools: [{ id: "tc-1", tool: "exec", status: "running", startedAt: 1_000 }],
-    })
-
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 1,
-        type: "chat.tool.result",
-        sessionKey: "s1",
-        createdAtMs: 1_500,
-        payload: {
-          semanticType: "chat.tool.result",
-          runStatus: "tool_running",
-          statusLabel: "exec",
-          toolCall: {
-            toolCallId: "tc-1",
-            name: "exec",
-            phase: "result",
-            status: "success",
-            startedAtMs: 1_000,
-            finishedAtMs: 1_500,
-            resultMeta: "done",
-          },
-        },
-      },
-    })
-
-    expect(getGlobalChatSession("s1")?.messages).toMatchObject([
-      { messageId: "u1" },
-      { messageId: "a-tools", toolCalls: [{ id: "tc-1", status: "success", resultText: "done" }] },
-    ])
-  })
-
   test("updates each tool card result immediately while other tools continue running", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

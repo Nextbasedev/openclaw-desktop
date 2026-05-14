@@ -259,7 +259,6 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
     approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
   }
   state.pendingTools = next
-  finalizeToolsInPlace(state, [next[pendingIndex]])
 
   if (existing.tool === "sessions_spawn") {
     const childKey = extractSubagentSessionKey(message) ?? extractSubagentSessionKey(resultText)
@@ -455,7 +454,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   if (!inline) return false
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
   const existingTool = pending.get(inline.id)
-  const mergedInline = {
+  pending.set(inline.id, {
     ...(existingTool ?? inline),
     ...inline,
     duration: inline.duration ?? existingTool?.duration,
@@ -463,10 +462,8 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
     completedAt: inline.completedAt ?? existingTool?.completedAt,
     resultText: inline.resultText ?? existingTool?.resultText,
     approval: inline.approval ?? existingTool?.approval,
-  }
-  pending.set(inline.id, mergedInline)
+  })
   state.pendingTools = Array.from(pending.values())
-  if (mergedInline.status !== "running") finalizeToolsInPlace(state, [mergedInline])
   promoteRunningToolStatus(state, inline.tool)
 
   if (inline.tool === "sessions_spawn") {
