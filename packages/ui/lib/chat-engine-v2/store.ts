@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
 import { dedupeChatMessages } from "../chatMessageDedupe"
+import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey, isSubagentSessionKey } from "../subagentSession"
@@ -95,6 +96,7 @@ function inlineToolToProjection(sessionKey: string, tool: InlineToolCall): ToolC
     argsMeta: tool.input,
     resultMeta: tool.resultText,
     startedAtMs: tool.startedAt,
+    finishedAtMs: tool.completedAt,
   }
 }
 
@@ -252,6 +254,7 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
     ...existing,
     status: inferToolStatus(resultText),
     duration: existing.duration ?? formatToolDuration(existing.startedAt, frame.patch.createdAtMs),
+    completedAt: existing.completedAt ?? frame.patch.createdAtMs,
     resultText: resultText || existing.resultText,
     approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
   }
@@ -280,7 +283,17 @@ function mergeToolCalls(existing: InlineToolCall[] | undefined, incoming: Inline
   const merged = new Map((existing ?? []).map((tool) => [tool.id, tool]))
   for (const tool of incoming) {
     const current = merged.get(tool.id)
-    merged.set(tool.id, { ...(current ?? tool), ...tool })
+    if (!current) {
+      merged.set(tool.id, tool)
+      continue
+    }
+    merged.set(tool.id, {
+      ...current,
+      ...tool,
+      duration: tool.duration ?? current.duration,
+      startedAt: tool.startedAt ?? current.startedAt,
+      completedAt: tool.completedAt ?? current.completedAt,
+    })
   }
   return Array.from(merged.values())
 }
@@ -334,6 +347,7 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
       ...tool,
       status: status === "error" ? "error" : "success",
       duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
+      completedAt: tool.completedAt ?? Date.now(),
       resultText:
         tool.resultText ??
         (status === "error"
@@ -349,9 +363,26 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
   state.pendingTools = []
 }
 
+function realEpochMs(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  const ms = value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
+  const now = Date.now()
+  if (ms < 1_700_000_000_000 || ms > now + 5 * 60 * 1000) return undefined
+  return Math.round(ms)
+}
+
+function comparableTimeMs(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  return value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
+}
+
 function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
-  if (typeof startedAtMs !== "number" || typeof finishedAtMs !== "number") return undefined
-  const seconds = Math.max(0, finishedAtMs - startedAtMs) / 1000
+  const started = comparableTimeMs(startedAtMs)
+  const finished = comparableTimeMs(finishedAtMs)
+  if (typeof started !== "number" || typeof finished !== "number") return undefined
+  const elapsedMs = finished - started
+  if (elapsedMs < 0 || elapsedMs > 30 * 60 * 1000) return undefined
+  const seconds = elapsedMs / 1000
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
 }
 
@@ -376,9 +407,13 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
       typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
       typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
     ),
-    startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+    startedAt: realEpochMs(tool.startedAtMs),
+    completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
-    resultText: tool.resultMeta ? textFromUnknown(tool.resultMeta) : undefined,
+    resultText: tool.resultMeta === undefined || tool.resultMeta === null ? undefined : textFromUnknown(tool.resultMeta),
+    approval: tool.resultMeta === undefined || tool.resultMeta === null
+      ? undefined
+      : parseExecApproval(textFromUnknown(tool.resultMeta)),
   }
 }
 
@@ -411,7 +446,16 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
   if (!inline) return false
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
-  pending.set(inline.id, { ...(pending.get(inline.id) ?? inline), ...inline })
+  const existingTool = pending.get(inline.id)
+  pending.set(inline.id, {
+    ...(existingTool ?? inline),
+    ...inline,
+    duration: inline.duration ?? existingTool?.duration,
+    startedAt: inline.startedAt ?? existingTool?.startedAt,
+    completedAt: inline.completedAt ?? existingTool?.completedAt,
+    resultText: inline.resultText ?? existingTool?.resultText,
+    approval: inline.approval ?? existingTool?.approval,
+  })
   state.pendingTools = Array.from(pending.values())
   promoteRunningToolStatus(state, inline.tool)
 
@@ -604,6 +648,14 @@ function isTerminalMessageStatusPatch(frame: PatchFrame, status: StreamStatus) {
   return Boolean(patchMessage(frame))
 }
 
+function hasTerminalToolPatch(frame: PatchFrame) {
+  const tool = patchPayload(frame)?.toolCall
+  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
+  const record = tool as ToolCallProjectionV2
+  const phase = typeof record.phase === "string" ? record.phase : ""
+  return record.status === "success" || record.status === "error" || phase === "result" || phase === "error" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success" || phase === "failed"
+}
+
 function isUserMessagePatch(frame: PatchFrame) {
   const semanticType = patchSemanticType(frame)
   if (semanticType === "chat.user.created" || semanticType === "chat.user.confirmed") return true
@@ -619,12 +671,39 @@ function resetDetachedActivityForNewTurn(state: SessionState) {
 }
 
 function isAssistantFinalTextMessage(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  if (frame.patch.type !== "chat.assistant.final" && semanticType !== "chat.assistant.final") return false
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return false
   if (toolCallBlocks(message).length > 0) return false
   return textFromUnknown(message.text ?? message.content).trim().length > 0
 }
 
+function shouldFinalizeOnAssistantFinalText(state: SessionState, frame: PatchFrame) {
+  if (!ACTIVE_STATUSES.has(state.status)) return false
+  if (!isAssistantFinalTextMessage(frame)) return false
+  if (hasActiveToolOrSubagent(state)) return false
+  return true
+}
+
+function isAssistantErrorMessagePatch(frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message || message.role !== "assistant") return false
+  const text = textFromUnknown(message.text ?? message.content).trim()
+  if (isStandaloneChatErrorText(text)) return true
+  return message.stopReason === "error" && !text
+}
+
+function markLatestAssistantErrorForReveal(state: SessionState) {
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const message = state.messages[i]
+    if (message?.role !== "assistant") continue
+    const next = [...state.messages]
+    next[i] = { ...message, animateText: true }
+    state.messages = next
+    return
+  }
+}
 function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
   if (status !== "done") return false
   const type = frame.patch.type
@@ -639,7 +718,6 @@ function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, statu
   if (!state.activityStartedAtMs) return false
   if (Date.now() - state.activityStartedAtMs > PREMATURE_DONE_GRACE_MS) return false
   if (latestUserMessageIndex(state) < 0) return false
-  if (hasActiveToolOrSubagent(state)) return false
   if (hasAssistantAnswerAfterLatestUser(state)) return false
   return true
 }
@@ -743,7 +821,8 @@ function handlePatch(frame: PatchFrame) {
     } else if (
       ACTIVE_STATUSES.has(state.status) &&
       isTerminalMessageStatusPatch(frame, patchStatus.status) &&
-      (!isAssistantFinalTextMessage(frame) || !hasActiveToolOrSubagent(state))
+      (!isAssistantFinalTextMessage(frame) || !hasActiveToolOrSubagent(state)) &&
+      !hasTerminalToolPatch(frame)
     ) {
       // Tool-only / partial message projection patches can carry runStatus:"done"
       // before the final assistant text arrives. Defer those, but accept the
@@ -775,9 +854,23 @@ function handlePatch(frame: PatchFrame) {
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyActivityFromPatch(state, frame)
+  if (isAssistantErrorMessagePatch(frame)) {
+    state.status = "error"
+    state.statusLabel = null
+    state.activityStartedAtMs = 0
+    state.deferredDoneUntilAssistant = false
+    markLatestAssistantErrorForReveal(state)
+  }
   reconcileVisibleActiveStatus(state)
+  const finalizedOnAssistantFinal = shouldFinalizeOnAssistantFinalText(state, frame)
+  if (finalizedOnAssistantFinal) {
+    state.status = "done"
+    state.statusLabel = null
+    state.activityStartedAtMs = 0
+    state.deferredDoneUntilAssistant = false
+  }
   if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
-  const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
+  const autoFinalized = finalizedOnAssistantFinal || maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
       sessionKey,

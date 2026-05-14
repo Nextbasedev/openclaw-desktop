@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../components/ChatView/types"
+import { isStandaloneChatErrorText } from "./chatErrorText"
 import { cleanUserMessageText } from "./chatHistoryParser"
 
 const ATTACHMENT_PLACEHOLDER_RE =
@@ -82,6 +83,22 @@ function hasDifferentGatewayIndex(a: ChatMessage, b: ChatMessage) {
   )
 }
 
+function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
+  return (
+    typeof a.gatewayIndex === "number" &&
+    Number.isFinite(a.gatewayIndex) &&
+    typeof b.gatewayIndex === "number" &&
+    Number.isFinite(b.gatewayIndex) &&
+    a.gatewayIndex === b.gatewayIndex
+  )
+}
+
+function isAssistantErrorLike(message: ChatMessage) {
+  if (message.role !== "assistant") return false
+  if (isStandaloneChatErrorText(message.text)) return true
+  return message.stopReason === "error" && !message.text.trim()
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   if (
@@ -121,6 +138,9 @@ function isAssistantPrefixUpdate(shorter: string, longer: string) {
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
   if (hasDifferentGatewayIndex(a, b)) return false
+  if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
+    return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
+  }
   const aText = stripNoReplyLines(a.text)
   const bText = stripNoReplyLines(b.text)
   if (a.messageId === b.messageId) return true
@@ -203,10 +223,30 @@ function collapseRepeatedRoleBlocks(
     : messages
 }
 
+function messageTimeMs(message: ChatMessage) {
+  if (!message.createdAt) return undefined
+  const parsed = Date.parse(message.createdAt)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function roleOrder(message: ChatMessage) {
+  return message.role === "user" ? 0 : 1
+}
+
 export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage[] {
   return messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
+      const aTime = messageTimeMs(a.message)
+      const bTime = messageTimeMs(b.message)
+      const aHasTime = typeof aTime === "number"
+      const bHasTime = typeof bTime === "number"
+      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
+      if (aHasTime !== bHasTime) return aHasTime ? -1 : 1
+      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
+
       const aIndex = a.message.gatewayIndex
       const bIndex = b.message.gatewayIndex
       const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)

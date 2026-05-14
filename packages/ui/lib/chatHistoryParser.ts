@@ -116,6 +116,8 @@ export type RawHistoryMessage = {
   model?: string
   provider?: string
   usage?: ChatMessage["usage"]
+  toolCalls?: unknown[]
+  tools?: unknown[]
   stopReason?: string | null
   isOptimistic?: boolean
   __clientOptimistic?: boolean
@@ -147,26 +149,130 @@ function messageId(raw: RawHistoryMessage) {
   return randomId()
 }
 
-function toolBlocks(raw: RawHistoryMessage) {
-  if (!Array.isArray(raw.content)) return []
-  return raw.content.filter(
-    (block) => block.type === "toolCall" || block.type === "tool_use"
-  )
+type RawToolBlock = ContentBlock & {
+  toolCallId?: string
+  tool_call_id?: string
+  toolName?: string
+  tool_name?: string
+  tool?: string
+  args?: unknown
+  parameters?: unknown
+  argsMeta?: unknown
+  result?: unknown
+  resultMeta?: unknown
+  phase?: string
+  startedAtMs?: number
+  finishedAtMs?: number | null
+}
+
+function isToolBlock(block: ContentBlock) {
+  const type = block.type.toLowerCase()
+  return type === "toolcall" || type === "tool_call" || type === "tooluse" || type === "tool_use"
+}
+
+function toolBlocks(raw: RawHistoryMessage): RawToolBlock[] {
+  const contentBlocks = Array.isArray(raw.content)
+    ? raw.content.filter(isToolBlock)
+    : []
+  const projectedBlocks = [
+    ...(Array.isArray(raw.toolCalls) ? raw.toolCalls : []),
+    ...(Array.isArray(raw.tools) ? raw.tools : []),
+  ].filter((block): block is RawToolBlock => Boolean(block && typeof block === "object" && !Array.isArray(block)))
+  return [...contentBlocks, ...projectedBlocks] as RawToolBlock[]
+}
+
+function toolBlockId(block: RawToolBlock) {
+  return block.id ?? block.toolCallId ?? block.tool_call_id
+}
+
+function toolBlockName(block: RawToolBlock) {
+  return block.name ?? block.toolName ?? block.tool_name ?? block.tool
+}
+
+function toolBlockInput(block: RawToolBlock) {
+  return block.arguments ?? block.input ?? block.args ?? block.parameters ?? block.argsMeta
+}
+
+function toolBlockResultText(block: RawToolBlock) {
+  const result = block.resultMeta ?? block.result
+  if (result == null) return undefined
+  if (typeof result === "string") return result
+  if (typeof result === "object" && !Array.isArray(result)) {
+    const record = result as { text?: unknown; content?: unknown; result?: unknown }
+    const value = record.text ?? record.content ?? record.result
+    if (typeof value === "string") return value
+  }
+  try {
+    return JSON.stringify(result, null, 2)
+  } catch {
+    return String(result)
+  }
+}
+
+function inferToolBlockStatus(block: RawToolBlock): InlineToolCall["status"] {
+  const status = block.status ?? block.phase
+  if (block.isError || status === "error" || status === "failed") return "error"
+  if (
+    status === "success" ||
+    status === "result" ||
+    status === "done" ||
+    status === "complete" ||
+    status === "completed" ||
+    block.finishedAtMs != null ||
+    block.resultMeta != null ||
+    block.result != null
+  ) return "success"
+  return "running"
 }
 
 function toolResultText(raw: RawHistoryMessage): string {
   return raw.text || extractText(raw.content)
 }
 
+export function formatChatErrorMessage(error: unknown): string {
+  const raw = typeof error === "string" ? error.trim() : String(error ?? "").trim()
+  if (!raw) return "Something went wrong. Try again."
+
+  const withoutPrefix = raw.replace(/^Error:\s*/i, "").trim()
+  const httpJson = withoutPrefix.match(/^(\d{3})\s+(\{[\s\S]*\})$/)
+  if (httpJson) {
+    try {
+      const parsed = JSON.parse(httpJson[2]) as { code?: unknown; message?: unknown; error?: unknown }
+      if (parsed.code === "deactivated_workspace") {
+        return "Workspace is deactivated. Reactivate the workspace and try again."
+      }
+      if (typeof parsed.message === "string" && parsed.message.trim()) return parsed.message.trim()
+      if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim()
+      if (typeof parsed.code === "string" && parsed.code.trim()) return parsed.code.trim().replace(/_/g, " ")
+    } catch {}
+  }
+
+  try {
+    const parsed = JSON.parse(withoutPrefix) as { code?: unknown; message?: unknown; error?: unknown }
+    if (parsed.code === "deactivated_workspace") {
+      return "Workspace is deactivated. Reactivate the workspace and try again."
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) return parsed.message.trim()
+    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim()
+  } catch {}
+
+  return withoutPrefix
+}
+
+function normalizeAssistantText(text: string): string {
+  if (!/^\s*Error:\s*\d{3}\s+\{/.test(text)) return text
+  return `Error: ${formatChatErrorMessage(text)}`
+}
+
 function visibleMessageText(raw: RawHistoryMessage): string {
   const text = raw.text || extractText(raw.content)
-  if (text.trim()) return text
+  if (text.trim()) return normalizeAssistantText(text)
   if (
     raw.role === "assistant" &&
     raw.stopReason === "error" &&
     raw.errorMessage
   ) {
-    return `Error: ${raw.errorMessage}`
+    return `Error: ${formatChatErrorMessage(raw.errorMessage)}`
   }
   return ""
 }
@@ -190,13 +296,22 @@ function inferToolStatus(raw: RawHistoryMessage, resultText: string): InlineTool
 
 function rawTimestampMs(raw: RawHistoryMessage): number | null {
   if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
-    return raw.timestamp
+    return raw.timestamp > 100_000_000 && raw.timestamp < 10_000_000_000
+      ? Math.round(raw.timestamp * 1000)
+      : Math.round(raw.timestamp)
   }
   if (raw.createdAt) {
     const parsed = Date.parse(raw.createdAt)
     if (Number.isFinite(parsed)) return parsed
   }
   return null
+}
+
+function realTimestampMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  return value > 100_000_000 && value < 10_000_000_000
+    ? Math.round(value * 1000)
+    : Math.round(value)
 }
 
 function createdAtIso(raw: RawHistoryMessage): string | undefined {
@@ -206,9 +321,10 @@ function createdAtIso(raw: RawHistoryMessage): string | undefined {
 }
 
 function formatDuration(ms: number): string | undefined {
-  if (!Number.isFinite(ms) || ms < 0) return undefined
+  if (!Number.isFinite(ms) || ms < 0 || ms > 30 * 60 * 1000) return undefined
   if (ms < 100) return "0.1s"
-  return `${(ms / 1000).toFixed(1)}s`
+  const seconds = ms / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
 }
 
 function objectValue(value: unknown, key: string): unknown {
@@ -235,6 +351,16 @@ function toolResultDurationMs(
   return null
 }
 
+function blockDurationMs(block: ContentBlock): number | null {
+  if (typeof block.durationMs === "number" && Number.isFinite(block.durationMs)) return block.durationMs
+  if (typeof block.duration !== "string") return null
+  const match = block.duration.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|second|seconds)$/i)
+  if (!match) return null
+  const value = Number(match[1])
+  if (!Number.isFinite(value)) return null
+  return match[2].toLowerCase() === "ms" ? value : value * 1000
+}
+
 export function stripBootstrap(t: string): string {
   return t.replace(/\n\n\[Bootstrap truncation warning\][\s\S]*$/, "").trim()
 }
@@ -259,8 +385,6 @@ const ASYNC_RESULT_RE =
 const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
 const MEDIA_REPLY_INSTRUCTION_RE =
   /^To send an image back,[\s\S]*?Keep caption in the text body\.\s*/
-const SENDER_METADATA_RE =
-  /^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/
 const BRACKETED_DAY_TIME_RE =
   /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/
 
@@ -323,7 +447,6 @@ export function stripGatewayPrefixes(text: string): string {
     if (!senderMetadata.stripped) break
   }
   result = stripMediaAttachmentPreamble(result)
-  result = result.replace(SENDER_METADATA_RE, "")
   result = result.replace(CRON_HEADER_RE, "")
   result = result.replace(CURRENT_TIME_RE, "")
   result = result.replace(MESSAGE_TOOL_RE, "")
@@ -462,25 +585,31 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
 
     if (role === "assistant") {
       for (const block of toolBlocks(item)) {
+        const durationMs = blockDurationMs(block)
+        const startedAt = rawTimestampMs(item) ?? realTimestampMs(block.startedAtMs) ?? undefined
+        const finishedAt = realTimestampMs(block.finishedAtMs)
+        const resultText = toolBlockResultText(block)
+        const fallbackDurationMs =
+          typeof startedAt === "number" && typeof finishedAt === "number"
+            ? finishedAt - startedAt
+            : null
         const call: InlineToolCall & { startedAtMs?: number | null } = {
-          id: block.id ?? randomId(),
-          tool: block.name ?? "unknown",
-          status:
-            block.isError || block.status === "error"
-              ? "error"
-              : block.status === "success"
-                ? "success"
-                : "running",
-          input: block.arguments ?? block.input,
-          duration: block.duration,
-          startedAtMs: rawTimestampMs(item),
+          id: toolBlockId(block) ?? randomId(),
+          tool: toolBlockName(block) ?? "unknown",
+          status: inferToolBlockStatus(block),
+          input: toolBlockInput(block),
+          duration: formatDuration(durationMs ?? fallbackDurationMs ?? -1),
+          startedAt,
+          completedAt: finishedAt,
+          startedAtMs: startedAt,
+          resultText,
         }
         pendingToolCalls.push(call)
         resultQueue.push(call)
         pendingToolById.set(call.id, call)
 
-        if (block.name === "sessions_spawn") {
-          const args = (block.input ?? {}) as Record<string, unknown>
+        if (toolBlockName(block) === "sessions_spawn") {
+          const args = (toolBlockInput(block) ?? {}) as Record<string, unknown>
           const task = typeof args.task === "string" ? args.task : ""
           const label =
             (typeof args.label === "string" && args.label) ||
@@ -539,15 +668,15 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       const resultText = toolResultText(item)
       matched.status = inferToolStatus(item, resultText)
       matched.resultText = resultText || matched.resultText
+      const finishedAt = rawTimestampMs(item)
+      matched.completedAt = finishedAt ?? matched.completedAt
       const preciseDurationMs = toolResultDurationMs(item, resultText)
-      const fallbackDurationMs = (() => {
-        const finishedAt = rawTimestampMs(item)
-        return finishedAt !== null &&
-          matched.startedAtMs !== null &&
-          matched.startedAtMs !== undefined
+      const fallbackDurationMs =
+        finishedAt !== null &&
+        matched.startedAtMs !== null &&
+        matched.startedAtMs !== undefined
           ? finishedAt - matched.startedAtMs
           : null
-      })()
       matched.duration =
         formatDuration(preciseDurationMs ?? fallbackDurationMs ?? -1) ??
         matched.duration

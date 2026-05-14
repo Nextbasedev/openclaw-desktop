@@ -11,7 +11,7 @@ import { UsageTab } from "./tabs/UsageTab"
 import { VoiceTab } from "./tabs/VoiceTab"
 import { cn } from "@/lib/utils"
 
-type SettingSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
+export type SettingSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -42,11 +42,11 @@ const FOOTER_ITEMS: Array<{ id: SettingSection; label: string; icon: React.Eleme
 
 type SettingsDashboardProps = {
   onBack?: () => void
-  initialSection?: SettingSection
+  activeSection: SettingSection
+  onSectionChange: (section: SettingSection) => void
 }
 
-export function SettingsDashboard({ onBack, initialSection = "usage" }: SettingsDashboardProps) {
-  const [activeSection, setActiveSection] = React.useState<SettingSection>(initialSection)
+export function SettingsDashboard({ onBack, activeSection, onSectionChange }: SettingsDashboardProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
   const resolvedSection = topNavItems.some((item) => item.id === activeSection)
@@ -54,13 +54,11 @@ export function SettingsDashboard({ onBack, initialSection = "usage" }: Settings
     : "usage"
 
   React.useEffect(() => {
-    setActiveSection(initialSection)
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [initialSection])
+  }, [activeSection])
 
   function handleSidebarClick(id: SettingSection) {
-    setActiveSection(id)
-    if (scrollRef.current) scrollRef.current.scrollTop = 0
+    onSectionChange(id)
   }
 
   return (

@@ -40,6 +40,8 @@ import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
+import { formatAssistantErrorText, isAssistantErrorMessage } from "./utils"
+import { useStreamingText } from "./useStreamingText"
 import { getSlashCommandName } from "@/lib/controlSlashCommands"
 import { formatAttachmentSize } from "@/lib/chatAttachments"
 import {
@@ -529,6 +531,18 @@ export function MessageBubble({
   onPopoverOpenChange?: (open: boolean) => void
 }) {
   const isUser = message.role === "user"
+  const isAssistantError = isAssistantErrorMessage(message)
+  const assistantErrorText = isAssistantError
+    ? formatAssistantErrorText(message.text)
+    : message.text
+  const {
+    displayText: displayedAssistantErrorText,
+    isRevealing: isRevealingAssistantError,
+  } = useStreamingText(
+    assistantErrorText,
+    isAssistantError && (isActivelyStreaming || message.animateText),
+    () => onTextAnimationComplete?.(message.messageId)
+  )
   const shouldAnimateSend = isUser && message.isOptimistic
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
@@ -829,6 +843,8 @@ export function MessageBubble({
                   ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
                   : isUser
                     ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                    : isAssistantError
+                      ? "w-full text-red-300"
                     : "w-full text-foreground"
               )}
             >
@@ -871,6 +887,17 @@ export function MessageBubble({
                   approval={approvalPrompt}
                   onResolve={onResolveApproval}
                 />
+              ) : isAssistantError ? (
+                <div
+                  className={cn(
+                    "max-w-full min-w-0 overflow-hidden",
+                    isRevealingAssistantError && "streaming-text"
+                  )}
+                >
+                  <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
+                    {displayedAssistantErrorText}
+                  </p>
+                </div>
               ) : (
                 <MarkdownContent
                   text={message.text}

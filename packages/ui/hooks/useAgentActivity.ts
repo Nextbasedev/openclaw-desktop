@@ -66,12 +66,32 @@ function hasYieldTool(messages: RawHistoryMessage[]): boolean {
   })
 }
 
+function formatSafeToolDuration(startedAt?: number) {
+  if (typeof startedAt !== "number" || !Number.isFinite(startedAt)) return undefined
+  const elapsedMs = Date.now() - startedAt
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0 || elapsedMs > 30 * 60 * 1000) return undefined
+  const seconds = elapsedMs / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function parseToolDuration(value: unknown) {
+  if (typeof value !== "string") return undefined
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|second|seconds)$/i)
+  if (!match) return undefined
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return undefined
+  const ms = match[2].toLowerCase() === "ms" ? amount : amount * 1000
+  if (ms < 0 || ms > 30 * 60 * 1000) return undefined
+  const seconds = ms / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
 function finalizeActivityCall(call: ToolCall): ToolCall {
   if (call.status !== "running") return call
   return {
     ...call,
     status: "success",
-    duration: call.duration ?? (call.startedAt ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s` : undefined),
+    duration: call.duration ?? formatSafeToolDuration(call.startedAt),
   }
 }
 
@@ -402,9 +422,7 @@ export function useAgentActivity(sessionKey: string | null) {
         const call = existing ?? fallback
         const duration = call.duration && call.status !== "running"
           ? call.duration
-          : call.startedAt
-            ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-            : undefined
+          : formatSafeToolDuration(call.startedAt)
         const resultText = liveToolEventResultText(data)
         const output = resultText || (isToolErrorPhase(phase) ? "Unknown error" : call.output)
         map.set(toolCallId, mergeActivityCall(existing, {
@@ -453,7 +471,7 @@ export function useAgentActivity(sessionKey: string | null) {
             id: toolCallId,
             tool: name,
             status,
-            duration: typeof record.duration === "string" ? record.duration : undefined,
+            duration: parseToolDuration(record.duration),
             input: (record.arguments ?? record.args ?? record.input) as Record<string, unknown> | undefined,
             startedAt: existing?.startedAt ?? Date.now(),
             messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),

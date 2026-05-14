@@ -76,6 +76,53 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("notifies subscribers for each websocket assistant delta so UI can render progress", () => {
+    const seenTexts: string[] = []
+    const unsubscribe = subscribeGlobalChatSession("s1", (state) => {
+      const latestAssistant = [...state.messages].reverse().find((message) => message.role === "assistant")
+      if (latestAssistant?.text) seenTexts.push(latestAssistant.text)
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1,
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          messageId: "live:r1:assistant",
+          message: { role: "assistant", text: "Hel", __openclaw: { id: "live:r1:assistant" } },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2,
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          messageId: "live:r1:assistant",
+          message: { role: "assistant", text: "Hello live", __openclaw: { id: "live:r1:assistant" } },
+        },
+      },
+    })
+
+    unsubscribe()
+    expect(seenTexts).toEqual(["Hel", "Hello live"])
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      messages: [expect.objectContaining({ text: "Hello live", animateText: true })],
+    })
+  })
+
   test("captures live tool and subagent activity from V2 assistant patches", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -272,6 +319,52 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("keeps live canonical tool partial output while the tool is running", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          semanticType: "chat.tool.started",
+          toolCall: {
+            toolCallId: "tc-live",
+            name: "exec",
+            phase: "start",
+            status: "running",
+            startedAtMs: 1_000,
+            resultMeta: { stdout: "live output" },
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: 1_200,
+        payload: {
+          semanticType: "chat.tool.started",
+          toolCall: {
+            toolCallId: "tc-live",
+            name: "exec",
+            phase: "start",
+            status: "running",
+            startedAtMs: 1_000,
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
+      { id: "tc-live", tool: "exec", status: "running", resultText: JSON.stringify({ stdout: "live output" }, null, 2) },
+    ])
+  })
+
   test("final done status completes any active tool rows that missed explicit results", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -355,6 +448,83 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
   })
 
+  test("assistant error text immediately ends the active turn", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+      pendingTools: [{ id: "tool-1", tool: "exec", status: "running" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          message: {
+            role: "assistant",
+            text: 'Error: 402 {"code":"deactivated_workspace"}',
+            stopReason: "error",
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({
+      status: "error",
+      statusLabel: null,
+      pendingTools: [],
+    })
+    expect(state?.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Error: Workspace is deactivated. Reactivate the workspace and try again.",
+      stopReason: "error",
+      animateText: true,
+    })
+  })
+
+  test("mixed success text with an error line does not become terminal error", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "push it" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          status: "done",
+          message: {
+            role: "assistant",
+            text: "Error: terminated\n\nPushed successfully.\n\n- Tests passed: `23/23`",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "done",
+      statusLabel: null,
+    })
+    expect(getGlobalChatSession("s1")?.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Error: terminated\n\nPushed successfully.\n\n- Tests passed: `23/23`",
+    })
+  })
+
   test("defers immediate bare done status and waits for canonical completion", () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
@@ -408,7 +578,7 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
   })
 
-  test("assistant message patches with done status do not clear an active turn", () => {
+  test("final assistant message patches with done status clear the active turn", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       cursor: 0,
@@ -427,7 +597,7 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
 
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -1011,6 +1181,40 @@ describe("global V2 chat engine store", () => {
       { messageId: "u2", text: "second" },
       { messageId: "a2", text: "Done with the second request" },
     ])
+  })
+
+  test("clears streaming loader when final assistant text arrives without a separate done status", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "streaming",
+      statusLabel: "Responding",
+      messages: [{ messageId: "u1", role: "user", text: "how are you" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 11,
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "a1",
+          message: { role: "assistant", text: "Doing well — steady and ready." },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "done",
+      statusLabel: null,
+      messages: [
+        { messageId: "u1", text: "how are you" },
+        { messageId: "a1", text: "Doing well — steady and ready." },
+      ],
+    })
   })
 
   test("warms React Query bootstrap cache from global store", () => {

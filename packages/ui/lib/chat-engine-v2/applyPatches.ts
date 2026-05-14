@@ -55,6 +55,16 @@ function patchMessageSeq(frame: PatchFrame): number | undefined {
   return undefined
 }
 
+function shouldAnimateAssistantTextPatch(frame: PatchFrame, message: ChatMessage): boolean {
+  if (message.role !== "assistant") return false
+  if (!message.text.trim()) return false
+  const semanticType = patchSemanticType(frame)
+  if (semanticType.startsWith("chat.assistant.")) return true
+  if (frame.patch.type.startsWith("chat.assistant.")) return true
+  const status = statusFromPatch(frame)?.status
+  return Boolean(status && ACTIVE_STATUSES.has(status))
+}
+
 function patchRemoveId(frame: PatchFrame): string | null {
   if (frame.patch.type !== "chat.message.remove") return null
   const id = patchPayload(frame)?.messageId
@@ -162,6 +172,11 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
           : item
     )
     : withSeq
+  const animated = normalized.map((item) =>
+    shouldAnimateAssistantTextPatch(frame, item)
+      ? { ...item, animateText: true }
+      : item
+  )
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
   }
@@ -175,6 +190,6 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     : state.messages
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages([...baseMessages, ...normalized]),
+    messages: dedupeChatMessages([...baseMessages, ...animated]),
   }
 }

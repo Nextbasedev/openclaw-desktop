@@ -15,7 +15,7 @@ function contentFactorSummary(message: Record<string, unknown>) {
   const blocks = Array.isArray(content) ? content : [];
   const toolCallCount = blocks.filter((block) => {
     const item = isObject(block) ? block : {};
-    return item.type === "toolCall" || item.type === "tool_use";
+    return item.type === "toolCall" || item.type === "tool_use" || item.type === "tool_call" || item.type === "toolUse";
   }).length;
   return {
     role: typeof message.role === "string" ? message.role : "unknown",
@@ -30,7 +30,7 @@ function toolCallBlocks(content: unknown) {
   if (!Array.isArray(content)) return [];
   return content.filter((block): block is Record<string, unknown> => {
     if (!isObject(block)) return false;
-    return block.type === "toolCall" || block.type === "tool_use";
+    return block.type === "toolCall" || block.type === "tool_use" || block.type === "tool_call" || block.type === "toolUse";
   });
 }
 
@@ -39,10 +39,45 @@ function readToolCallId(value: Record<string, unknown>) {
   return typeof id === "string" && id.trim() ? id.trim() : null;
 }
 
+function readToolName(value: Record<string, unknown>) {
+  const name = value.name ?? value.toolName ?? value.tool_name ?? value.tool;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+function readToolArgs(value: Record<string, unknown>) {
+  return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
+}
+
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
+function textFromLiveValue(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const text = value.map(textFromLiveValue).filter((item): item is string => Boolean(item)).join("");
+    return text || null;
+  }
+  if (!isObject(value)) return null;
+  return firstString(
+    value.text,
+    value.delta,
+    value.content,
+    value.message,
+    value.output,
+    value.response,
+    value.value,
+  ) ?? textFromLiveValue(value.data) ?? textFromLiveValue(value.chunk);
+}
+
 export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
   private optimisticUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs: number }>>();
+  private liveAssistantText = new Map<string, string>();
   private readonly log = createLogger("chat-live");
 
   constructor(private readonly context: AppContext) {}
@@ -153,6 +188,9 @@ export class ChatLiveIngest {
         updatedAtMs: projectedMessage.updatedAtMs,
       });
     }
+    if (projectedMessage.role === "assistant" && associatedRun) {
+      this.liveAssistantText.delete(associatedRun.runId);
+    }
     const runForPatch = associatedRun ? this.context.runs.getRun(associatedRun.runId) : null;
     this.log.info("message.persist", {
       sessionKey,
@@ -250,6 +288,7 @@ export class ChatLiveIngest {
     const rawPhase = typeof data.phase === "string" ? data.phase.toLowerCase() : typeof data.status === "string" ? data.status.toLowerCase() : "start";
     const phase = rawPhase === "error" || rawPhase === "failed" ? "error" : rawPhase === "result" || rawPhase === "done" || rawPhase === "success" ? "result" : rawPhase === "calling" ? "calling" : "start";
     const name = typeof data.name === "string" ? data.name : typeof data.toolName === "string" ? data.toolName : "unknown";
+    const liveResultMeta = this.safeResultMeta(data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details);
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
       toolCallId,
@@ -258,7 +297,7 @@ export class ChatLiveIngest {
       name,
       phase,
       argsMeta: isObject(data.args) ? data.args : null,
-      resultMeta: phase === "result" ? this.safeResultMeta(data.result ?? data.partialResult) : phase === "error" ? this.safeResultMeta(data.error) : null,
+      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : liveResultMeta,
     });
     if (tool.status === "running" && !tool.runId) {
       this.log.warn("tool.detached-running-ignored", { sessionKey, toolCallId, phase, name, fallbackRunId: run?.runId ?? null });
@@ -322,7 +361,7 @@ export class ChatLiveIngest {
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof message.id === "string" ? message.id : null;
     for (const block of toolCallBlocks(message.content)) {
       const toolCallId = readToolCallId(block);
-      const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
+      const name = readToolName(block);
       if (!toolCallId || !name) continue;
       this.handleSessionTool({
         sessionKey,
@@ -331,7 +370,7 @@ export class ChatLiveIngest {
         toolCallId,
         name,
         phase: "calling",
-        args: block.arguments ?? block.input ?? null,
+        args: readToolArgs(block),
       });
     }
 
@@ -344,7 +383,7 @@ export class ChatLiveIngest {
       runId: run?.gatewayRunId ?? run?.runId,
       messageId,
       toolCallId,
-      name: typeof message.name === "string" ? message.name : typeof message.toolName === "string" ? message.toolName : "unknown",
+      name: readToolName(message as unknown as Record<string, unknown>) ?? "unknown",
       phase: "result",
       result: message.content ?? message.text ?? null,
     });
@@ -352,12 +391,13 @@ export class ChatLiveIngest {
 
   private handleChatEvent(payload: unknown) {
     if (!isObject(payload)) return;
-    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
+    const data = isObject(payload.data) ? payload.data : isObject(payload.payload) ? payload.payload : payload;
+    const sessionKey = firstString(payload.sessionKey, payload.key, data.sessionKey, data.key);
     if (!sessionKey) return;
-    const gatewayRunId = typeof payload.runId === "string" ? payload.runId : null;
+    const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
     const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
     if (!run) return;
-    const status = typeof payload.status === "string" ? payload.status.toLowerCase() : typeof payload.phase === "string" ? payload.phase.toLowerCase() : null;
+    const status = firstString(payload.status, data.status, payload.phase, data.phase)?.toLowerCase() ?? null;
     if (status === "final" || status === "done" || status === "completed") {
       // Wait for the canonical assistant session.message before broadcasting done.
       // Gateway can emit chat/final before the final persisted assistant message,
@@ -366,14 +406,60 @@ export class ChatLiveIngest {
       return;
     }
     if (status === "error" || status === "failed") {
+      this.liveAssistantText.delete(run.runId);
       const updated = this.context.runs.updateRunStatus(run.runId, "error", { statusLabel: typeof payload.error === "string" ? payload.error : "Run failed", error: payload.error ?? payload });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.error");
       return;
     }
-    if (status === "streaming" || typeof payload.delta === "string" || typeof payload.text === "string") {
+    if (status === "streaming" || this.extractLiveAssistantText(data)) {
       const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
+      this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
     }
+  }
+
+  private extractLiveAssistantText(payload: Record<string, unknown>) {
+    return textFromLiveValue(payload.delta) ??
+      textFromLiveValue(payload.text) ??
+      textFromLiveValue(payload.content) ??
+      textFromLiveValue(payload.message) ??
+      textFromLiveValue(payload.output) ??
+      textFromLiveValue(payload.response) ??
+      textFromLiveValue(payload.chunk);
+  }
+
+  private broadcastLiveAssistantText(sessionKey: string, run: ProjectedRun, payload: Record<string, unknown>) {
+    const hasText = typeof payload.text === "string";
+    const incoming = hasText ? payload.text as string : this.extractLiveAssistantText(payload);
+    if (typeof incoming !== "string") return;
+    const previous = this.liveAssistantText.get(run.runId) ?? "";
+    const next = hasText ? incoming : `${previous}${incoming}`;
+    if (!next || next === previous) return;
+    this.liveAssistantText.set(run.runId, next);
+    const messageId = `live:${run.runId}:assistant`;
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.message.upsert",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: "chat.assistant.delta",
+        run,
+        messageId,
+        payload: {
+          sessionKey,
+          runId: run.runId,
+          messageId,
+          message: {
+            id: messageId,
+            role: "assistant",
+            text: next,
+            __openclaw: { id: messageId, runId: run.runId },
+          },
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    this.log.info("assistant.delta.broadcast", { sessionKey, runId: run.runId, cursor: patch.cursor, length: next.length });
   }
 
   private broadcastRunStatus(sessionKey: string, run: ProjectedRun, semanticType: string) {
@@ -406,28 +492,31 @@ export class ChatLiveIngest {
     this.log.info("status.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status: run.status, statusLabel: run.statusLabel, semanticType });
   }
 
-  private safeResultMeta(value: unknown): unknown {
+  private safeResultMeta(value: unknown, depth = 0): unknown {
     if (value === null || value === undefined) return null;
     if (typeof value === "string") {
       const trimmed = value.trim();
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         try {
           const parsed = JSON.parse(trimmed) as unknown;
-          if (isObject(parsed)) return this.safeResultMeta(parsed);
+          if (isObject(parsed) || Array.isArray(parsed)) return this.safeResultMeta(parsed, depth + 1);
         } catch {
           // Fall through to compact string metadata.
         }
       }
-      return { type: "string", length: value.length };
+      return value.length > 20_000 ? `${value.slice(0, 20_000)}\n…[truncated ${value.length - 20_000} chars]` : value;
     }
-    if (Array.isArray(value)) return { type: "array", length: value.length };
+    if (Array.isArray(value)) {
+      if (depth >= 4) return { type: "array", length: value.length };
+      return value.slice(0, 50).map((item) => this.safeResultMeta(item, depth + 1));
+    }
     if (isObject(value)) {
-      const childSessionKey = value.childSessionKey;
-      return {
-        type: "object",
-        keys: Object.keys(value).slice(0, 20),
-        ...(typeof childSessionKey === "string" ? { childSessionKey } : {}),
-      };
+      if (depth >= 4) return { type: "object", keys: Object.keys(value).slice(0, 20) };
+      const result: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(value).slice(0, 50)) {
+        result[key] = this.safeResultMeta(child, depth + 1);
+      }
+      return result;
     }
     return { type: typeof value };
   }

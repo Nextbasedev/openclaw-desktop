@@ -252,6 +252,53 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("preserves live session.tool partial output for response tool rendering", async () => {
+    const app = await createApp(config("session-tool-partial-output"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        data: {
+          phase: "update",
+          toolCallId: "tool-live",
+          name: "exec",
+          partialResult: { stdout: "live output", stderr: "" },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-live")).toMatchObject({
+      toolCallId: "tool-live",
+      name: "exec",
+      status: "running",
+      resultMeta: { stdout: "live output", stderr: "" },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.started",
+        payload: expect.objectContaining({
+          toolCall: expect.objectContaining({ resultMeta: { stdout: "live output", stderr: "" } }),
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("does not attach stale detached tool replay to the current active run", async () => {
     const app = await createApp(config("stale-detached-tool-replay"));
     const context = contextOf(app);
