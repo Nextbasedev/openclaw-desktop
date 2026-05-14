@@ -631,6 +631,57 @@ export function ChatView({
     }
     return -1
   }, [renderedMessages])
+  const liveTool = isGenerating
+    ? pendingTools.find(
+        (tool) =>
+          tool.status === "running" &&
+          tool.tool !== "sessions_spawn" &&
+          tool.tool !== "subagents" &&
+          tool.tool !== "sessions_yield"
+      )
+    : undefined
+  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
+  const liveToolText = liveTool
+    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
+    : null
+
+  const statusText =
+    liveToolText ??
+    (status === "thinking"
+      ? "Thinking - waiting for the next event..."
+      : status === "queued"
+        ? statusLabel
+          ? `Queued - ${statusLabel}...`
+          : "Queued..."
+        : status === "running"
+          ? statusLabel
+            ? `Running - ${statusLabel}...`
+            : "Running..."
+          : status === "collect"
+            ? statusLabel
+              ? `Collecting - ${statusLabel}...`
+              : "Collecting..."
+            : status === "tool_running"
+              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
+              : status === "streaming"
+                ? "Responding..."
+                : status === "stopping"
+                  ? "Stopping..."
+                  : status === "restarting"
+                    ? "Restarting..."
+                    : isGenerating
+                      ? statusLabel
+                        ? `${statusLabel}...`
+                        : "Thinking - waiting for the next event..."
+                      : null)
+
+  const showInlineStatus = Boolean(
+    statusText &&
+      isGenerating &&
+      latestRenderedUserIndex === renderedMessages.length - 1 &&
+      renderedMessages[latestRenderedUserIndex]?.role === "user"
+  )
+
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -1053,6 +1104,8 @@ export function ChatView({
       const isLast = index === renderedMessages.length - 1
       const showPending =
         isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
+      const showStatus =
+        showInlineStatus && isLast && msg.role === "user" && pendingTools.length === 0
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
       let hasLaterAssistantInSameTurn = false
@@ -1169,6 +1222,14 @@ export function ChatView({
               />
             </div>
           )}
+          {showStatus && statusText && (
+            <div className="mt-4 flex items-center gap-2 pl-1">
+              <TypingDots />
+              <span className="text-[12px] text-muted-foreground">
+                {statusText}
+              </span>
+            </div>
+          )}
         </div>
       )
     },
@@ -1195,6 +1256,7 @@ export function ChatView({
       reactToMessage,
       renderedMessages.length,
       replyToMessage,
+      showInlineStatus,
       resolveExecApproval,
       retrySend,
       setActivePopoverId,
@@ -1216,50 +1278,6 @@ export function ChatView({
       />
     )
   }
-
-  const liveTool = isGenerating
-    ? pendingTools.find(
-        (tool) =>
-          tool.status === "running" &&
-          tool.tool !== "sessions_spawn" &&
-          tool.tool !== "subagents" &&
-          tool.tool !== "sessions_yield"
-      )
-    : undefined
-  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
-  const liveToolText = liveTool
-    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
-    : null
-
-  const statusText =
-    liveToolText ??
-    (status === "thinking"
-      ? "Thinking - waiting for the next event..."
-      : status === "queued"
-        ? statusLabel
-          ? `Queued - ${statusLabel}...`
-          : "Queued..."
-        : status === "running"
-          ? statusLabel
-            ? `Running - ${statusLabel}...`
-            : "Running..."
-          : status === "collect"
-            ? statusLabel
-              ? `Collecting - ${statusLabel}...`
-              : "Collecting..."
-            : status === "tool_running"
-              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
-              : status === "streaming"
-                ? "Responding..."
-                : status === "stopping"
-                  ? "Stopping..."
-                  : status === "restarting"
-                    ? "Restarting..."
-                    : isGenerating
-                      ? statusLabel
-                        ? `${statusLabel}...`
-                        : "Thinking - waiting for the next event..."
-                      : null)
 
   if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
@@ -1411,7 +1429,7 @@ export function ChatView({
                 )}
               </AnimatePresence>
 
-              {statusText && (
+              {statusText && !showInlineStatus && (
                 <div className="mt-4 flex items-center gap-2 pl-1">
                   <TypingDots />
                   <span className="text-[12px] text-muted-foreground">
