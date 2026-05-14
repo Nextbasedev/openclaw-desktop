@@ -40,17 +40,30 @@ function validStartedAt(value: number | undefined) {
 
 function useToolDuration(call: InlineToolCall) {
   const [now, setNow] = useState(() => Date.now())
+  const [localStartedAt] = useState(() => Date.now())
+  const startedAt = validStartedAt(call.startedAt)
+
   useEffect(() => {
-    if (call.status !== "running" || !validStartedAt(call.startedAt) || call.duration) return
+    if (call.status !== "running" || call.duration) return
     const id = window.setInterval(() => setNow(Date.now()), 500)
     return () => window.clearInterval(id)
-  }, [call.duration, call.startedAt, call.status])
+  }, [call.duration, call.status])
+
   if (call.duration) return call.duration
-  const startedAt = validStartedAt(call.startedAt)
   const completedAt = validStartedAt(call.completedAt)
   if (call.status !== "running" && startedAt && completedAt) return formatElapsed(completedAt - startedAt)
-  if (call.status === "running" && startedAt) return formatElapsed(now - startedAt)
+  if (call.status === "running") return formatElapsed(now - (startedAt ?? localStartedAt))
   return undefined
+}
+
+function ToolDuration({ call }: { call: InlineToolCall }) {
+  const elapsed = useToolDuration(call)
+  if (!elapsed) return null
+  return (
+    <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+      {elapsed}
+    </span>
+  )
 }
 
 function ToolRow({
@@ -254,7 +267,6 @@ export function ToolCallSteps({
   const total = tools.length
   const rest = total - 1
   const collapsedTop = tools[tools.length - 1]
-  const collapsedDuration = collapsedTop ? useToolDuration(collapsedTop) : undefined
 
   if (!collapsedTop) return null
 
@@ -375,11 +387,7 @@ export function ToolCallSteps({
                   approval needed
                 </span>
               )}
-              {collapsedDuration && (
-                <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                  {collapsedDuration}
-                </span>
-              )}
+              <ToolDuration call={collapsedTop} />
               <VscChevronRight className="size-3 shrink-0 text-foreground/20" />
             </div>
 
