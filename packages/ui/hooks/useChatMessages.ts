@@ -35,6 +35,7 @@ import type {
   EditPreviewState,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
+import { inferLiveToolStatus, liveToolEventResultText } from "@/lib/liveToolCalls"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
@@ -354,6 +355,43 @@ function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: numbe
   if (elapsedMs < 0 || elapsedMs > 30 * 60 * 1000) return undefined
   const seconds = elapsedMs / 1000
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function isToolTerminalPhase(phase: string | null): boolean {
+  return (
+    phase === "result" ||
+    phase === "error" ||
+    phase === "done" ||
+    phase === "complete" ||
+    phase === "completed" ||
+    phase === "success" ||
+    phase === "failed"
+  )
+}
+
+function isToolErrorPhase(phase: string | null): boolean {
+  return phase === "error" || phase === "failed"
+}
+
+function finalizeToolCall(call: InlineToolCall): InlineToolCall {
+  if (call.status !== "running") return call
+  const completedAt = Date.now()
+  return {
+    ...call,
+    status: "success",
+    duration: call.duration ?? formatToolDuration(call.startedAt, completedAt),
+    completedAt: call.completedAt ?? completedAt,
+  }
+}
+
+function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
+  let changed = false
+  const next = messages.map((message) => {
+    if (!message.toolCalls?.some((tool) => tool.status === "running")) return message
+    changed = true
+    return { ...message, toolCalls: message.toolCalls.map(finalizeToolCall) }
+  })
+  return changed ? next : messages
 }
 
 function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
@@ -696,28 +734,75 @@ export function useChatMessages(
     }
   }, [])
 
-  const flushToolsToLastAssistant = useCallback(() => {
-    const tools = Array.from(pendingToolMapRef.current.values())
-    if (tools.length === 0) return
-    setMessages((prev) => {
-      for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i].role === "assistant") {
-          const updated = [...prev]
-          updated[i] = { ...prev[i], toolCalls: tools }
-          return updated
+  const mergeToolCalls = useCallback(
+    (existing: InlineToolCall[] | undefined, incoming: InlineToolCall[]) => {
+      const merged = new Map<string, InlineToolCall>()
+      for (const tool of existing ?? []) merged.set(tool.id, tool)
+      for (const tool of incoming) {
+        const current = merged.get(tool.id)
+        if (!current) {
+          merged.set(tool.id, tool)
+          continue
         }
+        const mergedTool = { ...current, ...tool }
+        if (current.status !== "running" && tool.status === "running") {
+          mergedTool.status = current.status
+        }
+        if (current.duration && !tool.duration) mergedTool.duration = current.duration
+        if (current.duration && current.status !== "running") {
+          mergedTool.duration = current.duration
+        }
+        if (current.resultText && !tool.resultText) {
+          mergedTool.resultText = current.resultText
+        }
+        if (current.approval && !tool.approval) {
+          mergedTool.approval = current.approval
+        }
+        merged.set(tool.id, mergedTool)
       }
-      return [
-        ...prev,
-        {
+      return Array.from(merged.values())
+    },
+    []
+  )
+
+  const mergeToolsIntoCurrentAssistant = useCallback(
+    (tools: InlineToolCall[]) => {
+      if (tools.length === 0) return
+      setMessages((prev) => {
+        const latestUserIndex = (() => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].role === "user") return i
+          }
+          return -1
+        })()
+
+        for (let i = prev.length - 1; i > latestUserIndex; i--) {
+          if (prev[i].role === "assistant") {
+            const updated = [...prev]
+            updated[i] = {
+              ...prev[i],
+              toolCalls: mergeToolCalls(prev[i].toolCalls, tools),
+            }
+            return updated
+          }
+        }
+
+        const insertAt = latestUserIndex >= 0 ? latestUserIndex + 1 : prev.length
+        const placeholder = {
           messageId: randomId(),
           role: "assistant" as const,
           text: "",
           toolCalls: tools,
-        },
-      ]
-    })
-  }, [])
+        }
+        return [...prev.slice(0, insertAt), placeholder, ...prev.slice(insertAt)]
+      })
+    },
+    [mergeToolCalls]
+  )
+
+  const flushToolsToLastAssistant = useCallback(() => {
+    mergeToolsIntoCurrentAssistant(Array.from(pendingToolMapRef.current.values()))
+  }, [mergeToolsIntoCurrentAssistant])
 
   const handleStreamEvent = useCallback(
     (payload: StreamEventPayload) => {
@@ -762,6 +847,20 @@ export function useChatMessages(
                 .catch(() => undefined)
             }, 500)
             setErrorMessage(ev.message || ev.error || ev.label ? formatChatErrorMessage(ev.message || ev.error || ev.label) : null)
+            const erroredTools = Array.from(pendingToolMapRef.current.values()).map((tool) =>
+              tool.status === "running"
+                ? {
+                    ...tool,
+                    status: "error" as const,
+                    duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
+                    completedAt: tool.completedAt ?? Date.now(),
+                    resultText: tool.resultText ?? "Run ended before this tool reported a result.",
+                  }
+                : tool
+            )
+            if (erroredTools.length > 0) mergeToolsIntoCurrentAssistant(erroredTools)
+            pendingToolMapRef.current.clear()
+            setPendingTools([])
           }
           if (incoming === "done") {
             setTimeout(() => {
@@ -779,16 +878,17 @@ export function useChatMessages(
             setPendingTools([])
             doneAfterYieldRef.current = 0
             setMessages((prev) => {
-              const last = prev[prev.length - 1]
+              const finalized = finalizeToolCallsOnDone(prev)
+              const last = finalized[finalized.length - 1]
               if (last?.role === "assistant" && !last.createdAt) {
-                const updated = [...prev]
+                const updated = [...finalized]
                 updated[prev.length - 1] = {
                   ...last,
                   createdAt: new Date().toISOString(),
                 }
                 return updated
               }
-              return prev
+              return finalized
             })
           }
           scrollToBottom(false)
@@ -807,7 +907,7 @@ export function useChatMessages(
           if (subagentOf) {
             if (
               name === "sessions_yield" &&
-              (phase === "result" || phase === "error")
+              isToolTerminalPhase(phase)
             ) {
               const spawnTcId = subagentOf.replace("spawn:", "")
               const spawn = spawnMapRef.current.get(spawnTcId)
@@ -910,27 +1010,34 @@ export function useChatMessages(
                 toolCallId,
               })
             }
-          } else if (phase === "result" || phase === "error") {
+          } else if (phase === "update" || isToolTerminalPhase(phase)) {
             const call = existing ?? {
               id: toolCallId,
               tool: name,
               status: "running" as const,
             }
-            const completedAt = Date.now()
-            const duration = formatToolDuration(call.startedAt, completedAt)
-            const resultText = toolResultText(
-              (ev as Record<string, unknown>).result
-            )
-            pendingToolMapRef.current.set(toolCallId, {
+            const completedAt = isToolTerminalPhase(phase) ? Date.now() : undefined
+            const duration =
+              call.duration && call.status !== "running"
+                ? call.duration
+                : completedAt
+                  ? formatToolDuration(call.startedAt, completedAt)
+                  : call.duration
+            const eventData = ev as Record<string, unknown>
+            const resultText = liveToolEventResultText(eventData)
+            const finalStatus = inferLiveToolStatus(phase, resultText, eventData.isError)
+            const updatedCall: InlineToolCall = {
               ...call,
-              status: phase === "error" ? "error" : "success",
+              status: finalStatus,
               duration,
-              completedAt,
+              completedAt: completedAt ?? call.completedAt,
               resultText: resultText || call.resultText,
               approval: resultText
                 ? (parseExecApproval(resultText) ?? call.approval)
                 : call.approval,
-            })
+            }
+            pendingToolMapRef.current.set(toolCallId, updatedCall)
+            mergeToolsIntoCurrentAssistant([updatedCall])
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
               if (prev) {
@@ -942,7 +1049,7 @@ export function useChatMessages(
                   ...prev,
                   sessionKey: childKey ?? prev.sessionKey,
                   status:
-                    phase === "error"
+                    isToolErrorPhase(phase)
                       ? "failed"
                       : (childKey ?? prev.sessionKey)
                         ? "working"
@@ -1146,7 +1253,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, upsertSpawn]
+    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoCurrentAssistant, upsertSpawn]
   )
 
   useEffect(() => {
