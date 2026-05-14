@@ -12,6 +12,7 @@ type SkillScope = "user" | "workspace";
 
 type DiscoveredSkill = {
   slug: string;
+  id?: string;
   name: string;
   description: string | null;
   source: SkillSource;
@@ -19,6 +20,7 @@ type DiscoveredSkill = {
   installed: boolean;
   enabled: boolean;
   location?: string;
+  path?: string;
   owner?: string;
   updatedAt?: number;
   createdAt?: number;
@@ -190,13 +192,17 @@ function scanLocalSkillsIn(root: string): DiscoveredSkill[] {
       if (!detail) continue;
       results.push({
         slug: detail.slug,
+        id: detail.slug,
         name: detail.name,
         description: detail.description,
         source: detail.source === "clawhub" || detail.source === "catalog" || detail.source === "builtin" ? detail.source : "local",
         version: detail.version,
+        path: detail.location,
         location: detail.location,
         installed: true,
         enabled: isSkillEnabled(detail.slug),
+        updatedAt: fs.statSync(path.join(detail.location, "SKILL.md")).mtimeMs,
+        createdAt: fs.statSync(path.join(detail.location, "SKILL.md")).ctimeMs,
       });
     }
   } catch {
@@ -348,7 +354,7 @@ export async function skillsInstalledLocal(input?: { query?: string; sort?: stri
     return skill.slug.toLowerCase().includes(query) || skill.name.toLowerCase().includes(query) || (skill.description ?? "").toLowerCase().includes(query);
   });
   sortResults(results, sort);
-  return { query: input?.query ?? null, sort, results, warnings: [] as string[], sources: results.length ? ["local"] : [], nextCursor: null };
+  return { query: input?.query ?? null, sort, results, skills: results, warnings: [] as string[], sources: results.length ? ["local"] : [], nextCursor: null };
 }
 
 export async function skillsDiscover(input?: { query?: string; limit?: number; sort?: string; includeLocal?: boolean; includeClawHub?: boolean }) {
@@ -412,7 +418,8 @@ export async function skillsDiscover(input?: { query?: string; limit?: number; s
   }
 
   sortResults(results, sort);
-  return { query: input?.query ?? null, sort, results: results.slice(0, limit), warnings, sources, nextCursor: null };
+  const sliced = results.slice(0, limit);
+  return { query: input?.query ?? null, sort, results: sliced, skills: sliced, warnings, sources, nextCursor: null };
 }
 
 export async function skillsDetail(input: { slug?: string }) {
