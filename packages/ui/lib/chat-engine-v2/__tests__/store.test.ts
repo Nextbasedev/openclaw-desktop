@@ -76,6 +76,53 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("notifies subscribers for each websocket assistant delta so UI can render progress", () => {
+    const seenTexts: string[] = []
+    const unsubscribe = subscribeGlobalChatSession("s1", (state) => {
+      const latestAssistant = [...state.messages].reverse().find((message) => message.role === "assistant")
+      if (latestAssistant?.text) seenTexts.push(latestAssistant.text)
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1,
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          messageId: "live:r1:assistant",
+          message: { role: "assistant", text: "Hel", __openclaw: { id: "live:r1:assistant" } },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2,
+        payload: {
+          semanticType: "chat.assistant.delta",
+          runStatus: "streaming",
+          statusLabel: "Streaming",
+          messageId: "live:r1:assistant",
+          message: { role: "assistant", text: "Hello live", __openclaw: { id: "live:r1:assistant" } },
+        },
+      },
+    })
+
+    unsubscribe()
+    expect(seenTexts).toEqual(["Hel", "Hello live"])
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      messages: [expect.objectContaining({ text: "Hello live", animateText: true })],
+    })
+  })
+
   test("captures live tool and subagent activity from V2 assistant patches", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
