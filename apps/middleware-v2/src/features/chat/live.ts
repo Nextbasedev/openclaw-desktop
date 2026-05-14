@@ -52,6 +52,7 @@ export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
   private optimisticUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs: number }>>();
+  private liveAssistantText = new Map<string, string>();
   private readonly log = createLogger("chat-live");
 
   constructor(private readonly context: AppContext) {}
@@ -151,6 +152,9 @@ export class ChatLiveIngest {
           statusLabel: null,
         },
       });
+    }
+    if (projectedMessage.role === "assistant" && associatedRun) {
+      this.liveAssistantText.delete(associatedRun.runId);
     }
     const runForPatch = associatedRun ? this.context.runs.getRun(associatedRun.runId) : null;
     this.log.info("message.persist", {
@@ -366,6 +370,7 @@ export class ChatLiveIngest {
       return;
     }
     if (status === "error" || status === "failed") {
+      this.liveAssistantText.delete(run.runId);
       const updated = this.context.runs.updateRunStatus(run.runId, "error", { statusLabel: typeof payload.error === "string" ? payload.error : "Run failed", error: payload.error ?? payload });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.error");
       return;
@@ -373,7 +378,43 @@ export class ChatLiveIngest {
     if (status === "streaming" || typeof payload.delta === "string" || typeof payload.text === "string") {
       const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
+      this.broadcastLiveAssistantText(sessionKey, updated ?? run, payload);
     }
+  }
+
+  private broadcastLiveAssistantText(sessionKey: string, run: ProjectedRun, payload: Record<string, unknown>) {
+    const hasText = typeof payload.text === "string";
+    const delta = typeof payload.delta === "string" ? payload.delta : typeof payload.content === "string" ? payload.content : null;
+    const incoming = hasText ? payload.text as string : delta;
+    if (typeof incoming !== "string") return;
+    const previous = this.liveAssistantText.get(run.runId) ?? "";
+    const next = hasText ? incoming : `${previous}${incoming}`;
+    if (!next || next === previous) return;
+    this.liveAssistantText.set(run.runId, next);
+    const messageId = `live:${run.runId}:assistant`;
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.message.upsert",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: "chat.assistant.delta",
+        run,
+        messageId,
+        payload: {
+          sessionKey,
+          runId: run.runId,
+          messageId,
+          message: {
+            id: messageId,
+            role: "assistant",
+            text: next,
+            __openclaw: { id: messageId, runId: run.runId },
+          },
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    this.log.info("assistant.delta.broadcast", { sessionKey, runId: run.runId, cursor: patch.cursor, length: next.length });
   }
 
   private broadcastRunStatus(sessionKey: string, run: ProjectedRun, semanticType: string) {

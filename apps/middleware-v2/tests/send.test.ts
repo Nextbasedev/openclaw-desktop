@@ -232,7 +232,7 @@ describe("chat send routes", () => {
     await app.close();
   });
 
-  test("live chat delta broadcasts streaming status for current run", async () => {
+  test("live chat delta broadcasts streaming status and assistant text for current run", async () => {
     const app = await createApp(config("live-chat-delta-status"));
     const context = contextOf(app);
     const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -264,6 +264,15 @@ describe("chat send routes", () => {
           status: "streaming",
           statusLabel: "Streaming",
           activeRun: expect.objectContaining({ runId: "run:stable-key", status: "streaming" }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          semanticType: "chat.assistant.delta",
+          runStatus: "streaming",
+          messageId: "live:run:stable-key:assistant",
+          message: expect.objectContaining({ role: "assistant", text: "partial" }),
         }),
       }),
     ]));
