@@ -15,7 +15,7 @@ function contentFactorSummary(message: Record<string, unknown>) {
   const blocks = Array.isArray(content) ? content : [];
   const toolCallCount = blocks.filter((block) => {
     const item = isObject(block) ? block : {};
-    return item.type === "toolCall" || item.type === "tool_use";
+    return item.type === "toolCall" || item.type === "tool_use" || item.type === "tool_call" || item.type === "toolUse";
   }).length;
   return {
     role: typeof message.role === "string" ? message.role : "unknown",
@@ -30,13 +30,22 @@ function toolCallBlocks(content: unknown) {
   if (!Array.isArray(content)) return [];
   return content.filter((block): block is Record<string, unknown> => {
     if (!isObject(block)) return false;
-    return block.type === "toolCall" || block.type === "tool_use";
+    return block.type === "toolCall" || block.type === "tool_use" || block.type === "tool_call" || block.type === "toolUse";
   });
 }
 
 function readToolCallId(value: Record<string, unknown>) {
   const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function readToolName(value: Record<string, unknown>) {
+  const name = value.name ?? value.toolName ?? value.tool_name ?? value.tool;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+function readToolArgs(value: Record<string, unknown>) {
+  return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
 }
 
 export class ChatLiveIngest {
@@ -312,7 +321,7 @@ export class ChatLiveIngest {
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof message.id === "string" ? message.id : null;
     for (const block of toolCallBlocks(message.content)) {
       const toolCallId = readToolCallId(block);
-      const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
+      const name = readToolName(block);
       if (!toolCallId || !name) continue;
       this.handleSessionTool({
         sessionKey,
@@ -321,7 +330,7 @@ export class ChatLiveIngest {
         toolCallId,
         name,
         phase: "calling",
-        args: block.arguments ?? block.input ?? null,
+        args: readToolArgs(block),
       });
     }
 
@@ -334,7 +343,7 @@ export class ChatLiveIngest {
       runId: run?.gatewayRunId ?? run?.runId,
       messageId,
       toolCallId,
-      name: typeof message.name === "string" ? message.name : typeof message.toolName === "string" ? message.toolName : "unknown",
+      name: readToolName(message as unknown as Record<string, unknown>) ?? "unknown",
       phase: "result",
       result: message.content ?? message.text ?? null,
     });
