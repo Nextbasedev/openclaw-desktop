@@ -243,7 +243,7 @@ function createdAtIso(raw: RawHistoryMessage): string | undefined {
 }
 
 function formatDuration(ms: number): string | undefined {
-  if (!Number.isFinite(ms) || ms < 0 || ms > 24 * 60 * 60 * 1000) return undefined
+  if (!Number.isFinite(ms) || ms < 0 || ms > 30 * 60 * 1000) return undefined
   if (ms < 100) return "0.1s"
   const seconds = ms / 1000
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`

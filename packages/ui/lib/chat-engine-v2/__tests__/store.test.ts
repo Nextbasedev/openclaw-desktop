@@ -389,7 +389,7 @@ describe("global V2 chat engine store", () => {
     })
     expect(state?.messages.at(-1)).toMatchObject({
       role: "assistant",
-      text: 'Error: 402 {"code":"deactivated_workspace"}',
+      text: "Error: Workspace is deactivated. Reactivate the workspace and try again.",
       stopReason: "error",
       animateText: true,
     })
