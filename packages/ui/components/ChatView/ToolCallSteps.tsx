@@ -309,7 +309,7 @@ export function ToolCallSteps({
   return (
     <div
       className="transition-all duration-300 ease-out"
-      style={{ marginBottom: open ? 12 : 36 }}
+      style={{ marginBottom: open ? 4 : 28 }}
     >
       <button
         type="button"
