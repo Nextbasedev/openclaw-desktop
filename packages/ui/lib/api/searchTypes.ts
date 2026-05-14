@@ -5,6 +5,12 @@ export type SearchProjectResult = {
   sessionCount: number
 }
 
+export type SearchSpaceResult = {
+  id: string
+  name: string
+  updatedAt?: string
+}
+
 export type SearchTopicResult = {
   id: string
   name: string
@@ -39,6 +45,7 @@ export type SearchMessageResult = {
 }
 
 export type GlobalSearchResponse = {
+  spaces: SearchSpaceResult[]
   projects: SearchProjectResult[]
   topics: SearchTopicResult[]
   chats: SearchChatResult[]
@@ -60,6 +67,13 @@ export type ProjectRecord = {
   archived: boolean
 }
 
+export type SpaceRecord = {
+  id: string
+  name: string
+  archived: boolean
+  updatedAt?: string
+}
+
 export type TopicRecord = {
   id: string
   name: string
@@ -77,6 +91,7 @@ export type ChatRecord = {
 }
 
 export type SearchDatasets = {
+  spaces: SpaceRecord[]
   projects: ProjectRecord[]
   topics: TopicRecord[]
   chats: ChatRecord[]

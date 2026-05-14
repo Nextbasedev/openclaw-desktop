@@ -43,6 +43,7 @@ import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 import { InspectorView, type InspectorTabId } from "@/components/inspector/InspectorView"
 import { cn } from "@/lib/utils"
+import type { SearchSpaceResult } from "@/lib/api/search"
 import {
   editorGroupsReducer,
   createInitialState,
@@ -2049,6 +2050,9 @@ function AppShell({
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onNavigateChat={handleSessionNavigate}
+        onNavigateSpace={(space: SearchSpaceResult) => {
+          void handleSpaceSwitch(space.id)
+        }}
         onNewChat={() => { setPendingPrompt(null); handleNewChat() }}
         onSendPrompt={handlePromptDraft}
         onOpenSettings={openSettings}
