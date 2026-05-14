@@ -246,6 +246,11 @@ function timestampField(record: CompatRecord, keys: string[]) {
   return stringField(record, keys) ?? nowIso();
 }
 
+function optionalTimestampField(record: CompatRecord, keys: string[]) {
+  const value = stringField(record, keys);
+  return value && timeMs(value) > 0 ? value : null;
+}
+
 function timeMs(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string" || !value.trim()) return 0;
@@ -357,7 +362,7 @@ async function syncGatewaySessions(context: AppContext) {
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const createdAt = timestampField(row, ["createdAt", "created_at"]);
-      const updatedAt = timestampField(row, ["lastMessageAt", "lastActiveAt", "updatedAt", "updated_at"]);
+      const updatedAt = optionalTimestampField(row, ["lastMessageAt", "lastActiveAt", "updatedAt", "updated_at"]);
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
@@ -367,8 +372,17 @@ async function syncGatewaySessions(context: AppContext) {
         // in the compat chat collection.
       } else {
         const existing = compatState.chats[chatIndex];
-        const nextUpdatedAt = newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, updatedAt);
-        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId, updatedAt: nextUpdatedAt, lastActiveAt: nextUpdatedAt, lastMessageAt: nextUpdatedAt };
+        const nextUpdatedAt = updatedAt
+          ? newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, updatedAt)
+          : newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existing.createdAt);
+        const next = {
+          ...existing,
+          name: existing.name || name,
+          agentId: existing.agentId || agentId,
+          updatedAt: nextUpdatedAt,
+          lastActiveAt: nextUpdatedAt,
+          ...(updatedAt ? { lastMessageAt: nextUpdatedAt } : {}),
+        };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.chats[chatIndex] = next;
           changed = true;
@@ -386,13 +400,24 @@ async function syncGatewaySessions(context: AppContext) {
           agentId,
           label: name,
           createdAt,
-          updatedAt,
+          updatedAt: updatedAt ?? createdAt,
         });
         changed = true;
       } else {
         const existing = compatState.sessions[sessionIndex];
-        const nextUpdatedAt = newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, updatedAt);
-        const next = { ...existing, key: existing.key || sessionKey, sessionKey, agentId: existing.agentId || agentId, label: existing.label || name, updatedAt: nextUpdatedAt, lastActiveAt: nextUpdatedAt, lastMessageAt: nextUpdatedAt };
+        const nextUpdatedAt = updatedAt
+          ? newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, updatedAt)
+          : newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existing.createdAt);
+        const next = {
+          ...existing,
+          key: existing.key || sessionKey,
+          sessionKey,
+          agentId: existing.agentId || agentId,
+          label: existing.label || name,
+          updatedAt: nextUpdatedAt,
+          lastActiveAt: nextUpdatedAt,
+          ...(updatedAt ? { lastMessageAt: nextUpdatedAt } : {}),
+        };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.sessions[sessionIndex] = next;
           changed = true;
