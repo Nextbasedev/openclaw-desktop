@@ -1,7 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { LuArchive, LuRotateCcw } from "react-icons/lu"
+import {
+  LuArchive,
+  LuChevronDown,
+  LuChevronRight,
+  LuRotateCcw,
+} from "react-icons/lu"
 import {
   fetchProjects,
   archiveProject,
@@ -22,6 +27,9 @@ export function ArchiveTab() {
   const [archivedProjects, setArchivedProjects] = useState<Project[]>([])
   const [archivedTopics, setArchivedTopics] = useState<ArchivedTopic[]>([])
   const [archivedChats, setArchivedChats] = useState<Chat[]>([])
+  const [expandedSpaces, setExpandedSpaces] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,6 +96,15 @@ export function ArchiveTab() {
     emit("sidebar:refresh")
   }
 
+  function toggleSpaceExpanded(spaceId: string) {
+    setExpandedSpaces((prev) => {
+      const next = new Set(prev)
+      if (next.has(spaceId)) next.delete(spaceId)
+      else next.add(spaceId)
+      return next
+    })
+  }
+
   async function handleRestoreSpace(spaceId: string) {
     try {
       await archiveSpace(spaceId, false)
@@ -95,7 +112,9 @@ export function ArchiveTab() {
         prev.filter((item) => item.id !== spaceId),
       )
       setArchivedChats((prev) =>
-        prev.filter((item) => item.spaceId !== spaceId),
+        prev.filter(
+          (item) => item.spaceId !== spaceId || item.archivedBySpace === false,
+        ),
       )
       notifyArchiveRestored()
     } catch (err) {
@@ -148,11 +167,15 @@ export function ArchiveTab() {
     })
   }
 
+  const archivedSpaceIds = new Set(archivedSpaces.map((space) => space.id))
+  const individualArchivedChats = archivedChats.filter(
+    (chat) => !chat.spaceId || !archivedSpaceIds.has(chat.spaceId),
+  )
   const isEmpty =
     archivedSpaces.length === 0 &&
     archivedProjects.length === 0 &&
     archivedTopics.length === 0 &&
-    archivedChats.length === 0
+    individualArchivedChats.length === 0
   const archivedSpaceSummaries: ArchivedSpaceSummary[] = (() => {
     const counts = new Map<string, number>()
     for (const chat of archivedChats) {
@@ -214,43 +237,97 @@ export function ArchiveTab() {
             Spaces
           </p>
           <div className="overflow-hidden rounded-md border border-border/50 bg-card">
-            {archivedSpaceSummaries.map((item, idx) => (
-              <div
-                key={item.id}
-                className={`flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/10 ${idx > 0 ? "border-t border-border/20" : ""}`}
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
-                  <LuArchive size={14} />
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-[13px] font-medium text-foreground">
-                    {item.name}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {item.archivedChatCount} archived chat{item.archivedChatCount === 1 ? "" : "s"} &middot; {formatDate(item.updatedAt)}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRestoreSpace(item.id)}
-                  className="flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            {archivedSpaceSummaries.map((item, idx) => {
+              const spaceChats = archivedChats.filter(
+                (chat) => chat.spaceId === item.id,
+              )
+              const expanded = expandedSpaces.has(item.id)
+              return (
+                <div
+                  key={item.id}
+                  className={idx > 0 ? "border-t border-border/20" : ""}
                 >
-                  <LuRotateCcw size={13} />
-                  Restore
-                </button>
-              </div>
-            ))}
+                  <div
+                    className="flex cursor-pointer items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/10"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleSpaceExpanded(item.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        toggleSpaceExpanded(item.id)
+                      }
+                    }}
+                  >
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">
+                      {expanded ? <LuChevronDown size={14} /> : <LuChevronRight size={14} />}
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate text-[13px] font-medium text-foreground">
+                        {item.name}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {item.archivedChatCount} chat
+                        {item.archivedChatCount === 1 ? "" : "s"} &middot;{" "}
+                        {formatDate(item.updatedAt)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleRestoreSpace(item.id)
+                      }}
+                      className="flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                    >
+                      <LuRotateCcw size={13} />
+                      Restore
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div className="border-t border-border/20 bg-background/20">
+                      {spaceChats.length > 0 ? (
+                        spaceChats.map((chat, chatIdx) => (
+                          <div
+                            key={chat.id}
+                            className={`flex items-center gap-4 py-3 pl-16 pr-5 transition-colors hover:bg-muted/10 ${
+                              chatIdx > 0 ? "border-t border-border/10" : ""
+                            }`}
+                          >
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted/30 text-muted-foreground">
+                              <LuArchive size={13} />
+                            </span>
+                            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                              <span className="truncate text-[13px] font-medium text-foreground">
+                                {chat.name}
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">
+                                {formatDate(chat.updatedAt)}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-16 py-3 text-[12px] text-muted-foreground">
+                          No chats in this archived space.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
 
-      {!loading && !error && archivedChats.length > 0 && (
+      {!loading && !error && individualArchivedChats.length > 0 && (
         <div>
           <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
             Chats
           </p>
           <div className="overflow-hidden rounded-md border border-border/50 bg-card">
-            {archivedChats.map((item, idx) => (
+            {individualArchivedChats.map((item, idx) => (
               <div
                 key={item.id}
                 className={`flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/10 ${idx > 0 ? "border-t border-border/20" : ""}`}
