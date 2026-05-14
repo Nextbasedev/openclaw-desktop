@@ -208,19 +208,30 @@ export function useChatsData(
 
   useEffect(() => {
     return on<{ chatId?: string; sessionKey?: string; text?: string }>("chat:activity", (event) => {
-      if (!activeChat) return
+      const targetChatId = event?.chatId ?? activeChat?.id
+      const targetSessionKey = event?.sessionKey ?? activeChat?.sessionKey
+      if (!targetChatId && !targetSessionKey) return
+      const now = new Date().toISOString()
+      let matchedChatId: string | null = null
       setChats((prev) =>
         prev.map((c) => {
-          const matchesActive = c.id === activeChat.id || (event?.sessionKey && c.sessionKey === event.sessionKey)
-          if (!matchesActive) return c
+          const matches =
+            (targetChatId && c.id === targetChatId) ||
+            (targetSessionKey && c.sessionKey === targetSessionKey)
+          if (!matches) return c
+          matchedChatId = c.id
           return {
             ...c,
-            updatedAt: new Date().toISOString(),
-            lastActiveAt: new Date().toISOString(),
+            updatedAt: now,
+            lastActiveAt: now,
             lastMessageText: event?.text?.trim() || c.lastMessageText,
           }
         }),
       )
+      const idToPromote = matchedChatId ?? targetChatId
+      if (idToPromote) {
+        setChatOrder((prev) => [idToPromote, ...prev.filter((id) => id !== idToPromote)])
+      }
     })
   }, [activeChat])
 
