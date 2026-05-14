@@ -273,6 +273,7 @@ function AppShell({
   const fullScreenInspectorOpen = activeTab === "inspector"
 
   const prevTabRef = useRef("chat")
+  const lastSettingsTabRef = useRef(activeTab)
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const {
     spaces,
@@ -522,6 +523,13 @@ function AppShell({
   }, [clearConversationState])
 
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
+
+  useEffect(() => {
+    if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
+      setSettingsSection("usage")
+    }
+    lastSettingsTabRef.current = activeTab
+  }, [activeTab])
 
   const activateRoute = useCallback(async (route: ParsedRoute) => {
     routeRequestRef.current += 1
