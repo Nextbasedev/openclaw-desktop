@@ -272,6 +272,52 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("keeps live canonical tool partial output while the tool is running", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          semanticType: "chat.tool.started",
+          toolCall: {
+            toolCallId: "tc-live",
+            name: "exec",
+            phase: "start",
+            status: "running",
+            startedAtMs: 1_000,
+            resultMeta: { stdout: "live output" },
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: 1_200,
+        payload: {
+          semanticType: "chat.tool.started",
+          toolCall: {
+            toolCallId: "tc-live",
+            name: "exec",
+            phase: "start",
+            status: "running",
+            startedAtMs: 1_000,
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
+      { id: "tc-live", tool: "exec", status: "running", resultText: JSON.stringify({ stdout: "live output" }, null, 2) },
+    ])
+  })
+
   test("final done status completes any active tool rows that missed explicit results", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",

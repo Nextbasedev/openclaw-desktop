@@ -249,6 +249,7 @@ export class ChatLiveIngest {
     const rawPhase = typeof data.phase === "string" ? data.phase.toLowerCase() : typeof data.status === "string" ? data.status.toLowerCase() : "start";
     const phase = rawPhase === "error" || rawPhase === "failed" ? "error" : rawPhase === "result" || rawPhase === "done" || rawPhase === "success" ? "result" : rawPhase === "calling" ? "calling" : "start";
     const name = typeof data.name === "string" ? data.name : typeof data.toolName === "string" ? data.toolName : "unknown";
+    const liveResultMeta = this.safeResultMeta(data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details);
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
       toolCallId,
@@ -257,7 +258,7 @@ export class ChatLiveIngest {
       name,
       phase,
       argsMeta: isObject(data.args) ? data.args : null,
-      resultMeta: phase === "result" ? this.safeResultMeta(data.result ?? data.partialResult) : phase === "error" ? this.safeResultMeta(data.error) : null,
+      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : liveResultMeta,
     });
     if (tool.status === "running" && !tool.runId) {
       this.log.warn("tool.detached-running-ignored", { sessionKey, toolCallId, phase, name, fallbackRunId: run?.runId ?? null });
@@ -405,28 +406,31 @@ export class ChatLiveIngest {
     this.log.info("status.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status: run.status, statusLabel: run.statusLabel, semanticType });
   }
 
-  private safeResultMeta(value: unknown): unknown {
+  private safeResultMeta(value: unknown, depth = 0): unknown {
     if (value === null || value === undefined) return null;
     if (typeof value === "string") {
       const trimmed = value.trim();
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         try {
           const parsed = JSON.parse(trimmed) as unknown;
-          if (isObject(parsed)) return this.safeResultMeta(parsed);
+          if (isObject(parsed) || Array.isArray(parsed)) return this.safeResultMeta(parsed, depth + 1);
         } catch {
           // Fall through to compact string metadata.
         }
       }
-      return { type: "string", length: value.length };
+      return value.length > 20_000 ? `${value.slice(0, 20_000)}\n…[truncated ${value.length - 20_000} chars]` : value;
     }
-    if (Array.isArray(value)) return { type: "array", length: value.length };
+    if (Array.isArray(value)) {
+      if (depth >= 4) return { type: "array", length: value.length };
+      return value.slice(0, 50).map((item) => this.safeResultMeta(item, depth + 1));
+    }
     if (isObject(value)) {
-      const childSessionKey = value.childSessionKey;
-      return {
-        type: "object",
-        keys: Object.keys(value).slice(0, 20),
-        ...(typeof childSessionKey === "string" ? { childSessionKey } : {}),
-      };
+      if (depth >= 4) return { type: "object", keys: Object.keys(value).slice(0, 20) };
+      const result: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(value).slice(0, 50)) {
+        result[key] = this.safeResultMeta(child, depth + 1);
+      }
+      return result;
     }
     return { type: typeof value };
   }

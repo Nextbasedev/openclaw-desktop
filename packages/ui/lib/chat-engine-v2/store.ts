@@ -410,7 +410,10 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
     startedAt: realEpochMs(tool.startedAtMs),
     completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
-    resultText: tool.resultMeta ? textFromUnknown(tool.resultMeta) : undefined,
+    resultText: tool.resultMeta === undefined || tool.resultMeta === null ? undefined : textFromUnknown(tool.resultMeta),
+    approval: tool.resultMeta === undefined || tool.resultMeta === null
+      ? undefined
+      : parseExecApproval(textFromUnknown(tool.resultMeta)),
   }
 }
 
@@ -443,7 +446,16 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
   if (!inline) return false
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
-  pending.set(inline.id, { ...(pending.get(inline.id) ?? inline), ...inline })
+  const existingTool = pending.get(inline.id)
+  pending.set(inline.id, {
+    ...(existingTool ?? inline),
+    ...inline,
+    duration: inline.duration ?? existingTool?.duration,
+    startedAt: inline.startedAt ?? existingTool?.startedAt,
+    completedAt: inline.completedAt ?? existingTool?.completedAt,
+    resultText: inline.resultText ?? existingTool?.resultText,
+    approval: inline.approval ?? existingTool?.approval,
+  })
   state.pendingTools = Array.from(pending.values())
   promoteRunningToolStatus(state, inline.tool)
 
