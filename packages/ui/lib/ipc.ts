@@ -202,12 +202,14 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_repos_select":
       return middlewareFetch<T>("/api/repos/select", { method: "POST", body: JSON.stringify(input) })
     case "middleware_skills_discover":
-      return withCommandFallback(() => middlewareFetch<T>(`/api/skills/discover${queryString({ query: input.query ? String(input.query) : undefined, limit: input.limit ? String(input.limit) : undefined, sort: input.sort ? String(input.sort) : undefined, includeLocal: input.includeLocal === undefined ? undefined : String(Boolean(input.includeLocal)), includeClawHub: input.includeClawHub === undefined ? undefined : String(Boolean(input.includeClawHub)) })}`))
     case "middleware_skills_installed_local":
     case "middleware_skills_installed":
-      return withCommandFallback(() => middlewareFetch<T>(`/api/skills/installed${queryString({ query: input.query ? String(input.query) : undefined, sort: input.sort ? String(input.sort) : undefined })}`))
     case "middleware_skills_install":
-      return withCommandFallback(() => middlewareFetch<T>("/api/skills/install", { method: "POST", body: JSON.stringify(input) }))
+    case "middleware_skills_detail":
+    case "middleware_skills_versions":
+    case "middleware_skills_uninstall":
+    case "middleware_skills_toggle":
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
     case "middleware_git_status":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/git/status`, { headers: { "Cache-Control": "no-cache" } })
     case "middleware_git_status_for_repo":
