@@ -282,6 +282,35 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("live chat delta accepts nested gateway payloads and accumulates text patches", async () => {
+    const app = await createApp(config("live-chat-nested-delta"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as typeof patches[number]); });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { accepted: true, runId: "gateway-run-1", status: "started" };
+      if (method === "chat.history") return { sessionKey: "s1", messages: [] };
+      return { ok: true };
+    });
+
+    const send = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+    });
+    expect(send.statusCode).toBe(200);
+
+    const listeners = (context.gateway as unknown as { listeners: Set<(event: { type: "event"; event: string; payload?: unknown }) => void> }).listeners;
+    for (const listener of listeners) {
+      listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", message: { delta: "Hel" } } } });
+      listener({ type: "event", event: "chat.delta", payload: { data: { key: "s1", runId: "gateway-run-1", chunk: { text: "lo" } } } });
+    }
+
+    const textPatches = patches.filter((patch) => patch.type === "chat.message.upsert" && patch.payload?.semanticType === "chat.assistant.delta");
+    expect(textPatches.map((patch) => (patch.payload?.message as { text?: string } | undefined)?.text)).toEqual(["Hel", "Hello"]);
+    await app.close();
+  });
+
   test("send keeps projected running status when Gateway only accepts an async run", async () => {
     const app = await createApp(config("send-status-started"));
     const context = contextOf(app);

@@ -48,6 +48,31 @@ function readToolArgs(value: Record<string, unknown>) {
   return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
 }
 
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
+function textFromLiveValue(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const text = value.map(textFromLiveValue).filter((item): item is string => Boolean(item)).join("");
+    return text || null;
+  }
+  if (!isObject(value)) return null;
+  return firstString(
+    value.text,
+    value.delta,
+    value.content,
+    value.message,
+    value.output,
+    value.response,
+    value.value,
+  ) ?? textFromLiveValue(value.data) ?? textFromLiveValue(value.chunk);
+}
+
 export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
@@ -356,12 +381,13 @@ export class ChatLiveIngest {
 
   private handleChatEvent(payload: unknown) {
     if (!isObject(payload)) return;
-    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
+    const data = isObject(payload.data) ? payload.data : isObject(payload.payload) ? payload.payload : payload;
+    const sessionKey = firstString(payload.sessionKey, payload.key, data.sessionKey, data.key);
     if (!sessionKey) return;
-    const gatewayRunId = typeof payload.runId === "string" ? payload.runId : null;
+    const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
     const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
     if (!run) return;
-    const status = typeof payload.status === "string" ? payload.status.toLowerCase() : typeof payload.phase === "string" ? payload.phase.toLowerCase() : null;
+    const status = firstString(payload.status, data.status, payload.phase, data.phase)?.toLowerCase() ?? null;
     if (status === "final" || status === "done" || status === "completed") {
       // Wait for the canonical assistant session.message before broadcasting done.
       // Gateway can emit chat/final before the final persisted assistant message,
@@ -375,17 +401,26 @@ export class ChatLiveIngest {
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.error");
       return;
     }
-    if (status === "streaming" || typeof payload.delta === "string" || typeof payload.text === "string") {
+    if (status === "streaming" || this.extractLiveAssistantText(data)) {
       const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
-      this.broadcastLiveAssistantText(sessionKey, updated ?? run, payload);
+      this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
     }
+  }
+
+  private extractLiveAssistantText(payload: Record<string, unknown>) {
+    return textFromLiveValue(payload.delta) ??
+      textFromLiveValue(payload.text) ??
+      textFromLiveValue(payload.content) ??
+      textFromLiveValue(payload.message) ??
+      textFromLiveValue(payload.output) ??
+      textFromLiveValue(payload.response) ??
+      textFromLiveValue(payload.chunk);
   }
 
   private broadcastLiveAssistantText(sessionKey: string, run: ProjectedRun, payload: Record<string, unknown>) {
     const hasText = typeof payload.text === "string";
-    const delta = typeof payload.delta === "string" ? payload.delta : typeof payload.content === "string" ? payload.content : null;
-    const incoming = hasText ? payload.text as string : delta;
+    const incoming = hasText ? payload.text as string : this.extractLiveAssistantText(payload);
     if (typeof incoming !== "string") return;
     const previous = this.liveAssistantText.get(run.runId) ?? "";
     const next = hasText ? incoming : `${previous}${incoming}`;
