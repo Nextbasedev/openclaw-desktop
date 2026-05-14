@@ -41,6 +41,7 @@ import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
 import { formatAssistantErrorText, isAssistantErrorMessage } from "./utils"
+import { useStreamingText } from "./useStreamingText"
 import { getSlashCommandName } from "@/lib/controlSlashCommands"
 import { formatAttachmentSize } from "@/lib/chatAttachments"
 import {
@@ -534,6 +535,14 @@ export function MessageBubble({
   const assistantErrorText = isAssistantError
     ? formatAssistantErrorText(message.text)
     : message.text
+  const {
+    displayText: displayedAssistantErrorText,
+    isRevealing: isRevealingAssistantError,
+  } = useStreamingText(
+    assistantErrorText,
+    isAssistantError && (isActivelyStreaming || message.animateText),
+    () => onTextAnimationComplete?.(message.messageId)
+  )
   const shouldAnimateSend = isUser && message.isOptimistic
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
@@ -879,9 +888,16 @@ export function MessageBubble({
                   onResolve={onResolveApproval}
                 />
               ) : isAssistantError ? (
-                <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
-                  {assistantErrorText}
-                </p>
+                <div
+                  className={cn(
+                    "max-w-full min-w-0 overflow-hidden",
+                    isRevealingAssistantError && "streaming-text"
+                  )}
+                >
+                  <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
+                    {displayedAssistantErrorText}
+                  </p>
+                </div>
               ) : (
                 <MarkdownContent
                   text={message.text}
