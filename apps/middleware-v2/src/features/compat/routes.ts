@@ -1874,8 +1874,26 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   // --- pairing ---
+  app.post("/pairing/claim", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const code = String(body.code ?? "").trim().toUpperCase();
+    const expectedCode = String(context.config.pairingCode ?? process.env.MIDDLEWARE_PAIRING_CODE ?? "").trim().toUpperCase();
+    if (!expectedCode || code !== expectedCode) {
+      return reply.code(403).send({ ok: false, error: { code: "INVALID_PAIRING_CODE", message: "Invalid pairing code" } });
+    }
+    const host = request.headers.host ?? `127.0.0.1:${context.config.port}`;
+    const url = `http://${host}`;
+    return {
+      ok: true,
+      url,
+      token: context.config.middlewareToken ?? process.env.MIDDLEWARE_TOKEN ?? "",
+      mode: "remote",
+      openclaw: { connected: context.gateway.status().connected },
+    };
+  });
+
   app.get("/pairing/local", async () => {
     const gateway = context.gateway.status();
-    return { ok: true, url: `http://127.0.0.1:${context.config.port}`, token: "", mode: "local", openclaw: { connected: gateway.connected } };
+    return { ok: true, url: `http://127.0.0.1:${context.config.port}`, token: context.config.middlewareToken ?? "", mode: "local", openclaw: { connected: gateway.connected } };
   });
 }
