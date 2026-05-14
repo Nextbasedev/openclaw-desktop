@@ -29,6 +29,7 @@ type Props = {
   onArchive: () => void
   onDelete: () => void
   disableReorder?: boolean
+  animationIndex?: number
 }
 
 type ContextMenuState = {
@@ -47,6 +48,9 @@ const MENU_SPRING = {
   damping: 30,
   mass: 0.95,
 }
+const ROW_ENTRANCE_EASE = [0.16, 1, 0.3, 1] as const
+const ROW_ENTRANCE_STEP_SECONDS = 0.026
+const ROW_ENTRANCE_MAX_DELAY_SECONDS = 0.18
 
 export function ChatRow({
   chatId,
@@ -59,6 +63,7 @@ export function ChatRow({
   onArchive,
   onDelete,
   disableReorder,
+  animationIndex = 0,
 }: Props) {
   const controls = useDragControls()
   const longPress = useLongPressDrag(controls)
@@ -73,6 +78,19 @@ export function ChatRow({
   const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.updatedAt)
   const displayName = chatDisplayName(chat)
   const anyMenuOpen = dotMenuOpen || contextMenu.open
+  const entranceDelay = Math.min(
+    animationIndex * ROW_ENTRANCE_STEP_SECONDS,
+    ROW_ENTRANCE_MAX_DELAY_SECONDS,
+  )
+  const rowEntranceMotion = {
+    initial: { opacity: 0, x: -18, filter: "blur(2px)" },
+    animate: { opacity: 1, x: 0, filter: "blur(0px)" },
+    transition: {
+      opacity: { duration: 0.16, delay: entranceDelay },
+      x: { duration: 0.22, ease: ROW_ENTRANCE_EASE, delay: entranceDelay },
+      filter: { duration: 0.18, delay: entranceDelay },
+    },
+  }
 
   useEffect(() => {
     function handleAnotherMenuOpened(event: Event) {
@@ -307,21 +325,25 @@ export function ChatRow({
   )
 
   const content = disableReorder ? (
-    <div
+    <motion.div
+      {...rowEntranceMotion}
       className="group/row relative flex min-w-0 items-center rounded-md"
       style={{ position: "relative" }}
       onContextMenu={handleContextMenu}
     >
       {rowContent}
-    </div>
+    </motion.div>
   ) : (
     <Reorder.Item
       value={chatId}
       dragListener={false}
       dragControls={controls}
       as="div"
+      initial={rowEntranceMotion.initial}
+      animate={rowEntranceMotion.animate}
       layout="position"
       transition={{
+        ...rowEntranceMotion.transition,
         layout: {
           type: "tween",
           duration: 0.15,
