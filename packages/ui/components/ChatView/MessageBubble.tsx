@@ -832,7 +832,7 @@ export function MessageBubble({
                   : isUser
                     ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
                     : isAssistantError
-                      ? "w-full rounded-xl border border-red-400/20 bg-red-400/5 px-3 py-2 text-red-300"
+                      ? "w-full text-red-300"
                     : "w-full text-foreground"
               )}
             >
