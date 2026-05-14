@@ -207,14 +207,19 @@ export function useChatsData(
   }, [])
 
   useEffect(() => {
-    return on("chat:activity", () => {
+    return on<{ chatId?: string; sessionKey?: string; text?: string }>("chat:activity", (event) => {
       if (!activeChat) return
       setChats((prev) =>
-        prev.map((c) =>
-          c.id === activeChat.id
-            ? { ...c, updatedAt: new Date().toISOString() }
-            : c,
-        ),
+        prev.map((c) => {
+          const matchesActive = c.id === activeChat.id || (event?.sessionKey && c.sessionKey === event.sessionKey)
+          if (!matchesActive) return c
+          return {
+            ...c,
+            updatedAt: new Date().toISOString(),
+            lastActiveAt: new Date().toISOString(),
+            lastMessageText: event?.text?.trim() || c.lastMessageText,
+          }
+        }),
       )
     })
   }, [activeChat])

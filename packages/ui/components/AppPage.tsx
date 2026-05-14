@@ -1617,6 +1617,7 @@ function AppShell({
         sessionData,
       })
       setChatRefreshTrigger((n) => n + 1)
+      emit("chat:activity", { chatId: result.chat.id, sessionKey, text })
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
       frontendLog("composer", "quick-send.dispatch", {
         chatId: result.chat.id,
