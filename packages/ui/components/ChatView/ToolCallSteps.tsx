@@ -40,7 +40,7 @@ function validStartedAt(value: number | undefined) {
 
 function useToolDuration(call: InlineToolCall) {
   const [now, setNow] = useState(() => Date.now())
-  const [localStartedAt] = useState(() => Date.now())
+  const [localStartedAt] = useState(() => call.status === "running" ? Date.now() : undefined)
   const startedAt = validStartedAt(call.startedAt)
 
   useEffect(() => {
@@ -51,9 +51,14 @@ function useToolDuration(call: InlineToolCall) {
 
   if (call.duration) return call.duration
   const completedAt = validStartedAt(call.completedAt)
-  if (call.status !== "running" && startedAt && completedAt) return formatElapsed(completedAt - startedAt)
-  if (call.status === "running") return formatElapsed(now - (startedAt ?? localStartedAt))
-  return undefined
+  if (call.status !== "running") {
+    const effectiveStartedAt = startedAt ?? localStartedAt
+    const effectiveCompletedAt = completedAt ?? (localStartedAt ? now : undefined)
+    return effectiveStartedAt && effectiveCompletedAt
+      ? formatElapsed(effectiveCompletedAt - effectiveStartedAt)
+      : undefined
+  }
+  return formatElapsed(now - (startedAt ?? localStartedAt ?? now))
 }
 
 function ToolDuration({ call }: { call: InlineToolCall }) {
