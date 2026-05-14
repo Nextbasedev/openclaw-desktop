@@ -318,7 +318,7 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("final done status completes any active tool rows that missed explicit results", () => {
+  test("bare done status does not fake-complete active tool rows that missed explicit results", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
       patch: {
@@ -367,9 +367,12 @@ describe("global V2 chat engine store", () => {
     })
 
     const state = getGlobalChatSession("s1")
-    expect(state).toMatchObject({ status: "done", pendingTools: [] })
+    expect(state).toMatchObject({ status: "tool_running", statusLabel: "exec" })
+    expect(state?.pendingTools).toEqual([
+      expect.objectContaining({ id: "tc-stale", tool: "exec", status: "running" }),
+    ])
     expect(state?.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "assistant", text: "", toolCalls: [expect.objectContaining({ id: "tc-stale", tool: "exec", status: "success" })] }),
+      expect.objectContaining({ role: "assistant", text: "", toolCalls: [expect.objectContaining({ id: "tc-stale", tool: "exec", status: "running" })] }),
       expect.objectContaining({ role: "assistant", text: "Done — I checked the files.", toolCalls: undefined }),
     ]))
   })
@@ -866,7 +869,7 @@ describe("global V2 chat engine store", () => {
     })
   })
 
-  test("assistant final websocket patch ends the run and finalizes tools in their original message", () => {
+  test("assistant final websocket patch does not fake-complete active tools without tool result", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       messages: [
@@ -899,13 +902,16 @@ describe("global V2 chat engine store", () => {
     })
 
     const state = getGlobalChatSession("s1")
-    expect(state).toMatchObject({ status: "done", statusLabel: null, pendingTools: [] })
+    expect(state).toMatchObject({ status: "tool_running", statusLabel: "exec" })
+    expect(state?.pendingTools).toEqual([
+      expect.objectContaining({ id: "tool-1", tool: "exec", status: "running" }),
+    ])
     expect(state?.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         messageId: "a-tools",
         role: "assistant",
         text: "",
-        toolCalls: [expect.objectContaining({ id: "tool-1", tool: "exec", status: "success" })],
+        toolCalls: [expect.objectContaining({ id: "tool-1", tool: "exec", status: "running" })],
       }),
       expect.objectContaining({
         messageId: "a-final",
@@ -946,10 +952,10 @@ describe("global V2 chat engine store", () => {
 
     const state = getGlobalChatSession("s1")
     expect(state).toMatchObject({ status: "done", pendingTools: [] })
-    expect(state?.messages).toEqual(expect.arrayContaining([
+    expect(state?.messages).toEqual([
+      expect.objectContaining({ messageId: "u1", role: "user", text: "hello" }),
       expect.objectContaining({ messageId: "a1", role: "assistant", text: "final answer" }),
-      expect.objectContaining({ role: "assistant", text: "", toolCalls: [expect.objectContaining({ id: "late-tool", tool: "read", status: "success" })] }),
-    ]))
+    ])
   })
 
   test("sweeps stale active tools and subagents", () => {

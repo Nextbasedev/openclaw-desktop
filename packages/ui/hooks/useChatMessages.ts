@@ -374,14 +374,7 @@ function isToolErrorPhase(phase: string | null): boolean {
 }
 
 function finalizeToolCall(call: InlineToolCall): InlineToolCall {
-  if (call.status !== "running") return call
-  const completedAt = Date.now()
-  return {
-    ...call,
-    status: "success",
-    duration: call.duration ?? formatToolDuration(call.startedAt, completedAt),
-    completedAt: call.completedAt ?? completedAt,
-  }
+  return call
 }
 
 function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
