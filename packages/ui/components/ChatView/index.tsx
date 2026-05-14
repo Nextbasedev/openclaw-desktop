@@ -1009,12 +1009,19 @@ export function ChatView({
         merged.set(key, tool)
         continue
       }
-      const mergedTool = { ...existing, ...tool }
+      const existingIsFinal = existing.status === "success" || existing.status === "error"
+      const incomingIsRunning = tool.status === "running"
+      const mergedTool = existingIsFinal && incomingIsRunning
+        ? { ...tool, ...existing }
+        : { ...existing, ...tool }
       if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
       if (existing.startedAt && !tool.startedAt) mergedTool.startedAt = existing.startedAt
       if (existing.completedAt && !tool.completedAt) mergedTool.completedAt = existing.completedAt
-      if (existing.duration && existing.status !== "running") {
+      if (existingIsFinal && incomingIsRunning) {
+        mergedTool.status = existing.status
+        mergedTool.resultText = existing.resultText
         mergedTool.duration = existing.duration
+        mergedTool.completedAt = existing.completedAt
       }
       merged.set(key, mergedTool)
     }
