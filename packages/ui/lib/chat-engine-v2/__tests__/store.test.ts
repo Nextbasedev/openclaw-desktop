@@ -1143,6 +1143,44 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("clears stale running tools when a new user turn starts", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 100,
+      messages: [
+        { messageId: "old-user", role: "user", text: "old task" },
+        { messageId: "old-tools", role: "assistant", text: "", toolCalls: [{ id: "old-tool", tool: "read", status: "running" }] },
+      ],
+      status: "tool_running",
+      statusLabel: "read",
+      pendingTools: [{ id: "old-tool", tool: "read", status: "running", startedAt: Date.now() - 30 * 60 * 1000 }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 101,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 101,
+        payload: {
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          messageSeq: 3,
+          messageId: "new-user",
+          message: { role: "user", text: "new task" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "thinking",
+      statusLabel: "Thinking",
+      pendingTools: [],
+      spawnedSubagents: [],
+    })
+  })
+
   test("warms React Query bootstrap cache from global store", () => {
     const client = createOpenClawQueryClient()
     seedGlobalChatSession({
