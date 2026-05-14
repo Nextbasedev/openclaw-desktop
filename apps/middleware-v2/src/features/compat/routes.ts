@@ -49,6 +49,9 @@ const compatState = {
   loadedDbPath: null as string | null,
 };
 
+const DEFAULT_SPACE_ID = "space_default";
+const DEFAULT_SPACE_NAME = "My Workspace";
+
 const compatCollections = ["spaces", "chats", "projects", "topics", "sessions"] as const;
 
 type CompatCollection = typeof compatCollections[number];
@@ -81,7 +84,15 @@ function loadCompatState(context: AppContext) {
   }
   const active = byKey.get("activeSpaceId");
   if (typeof active === "string") compatState.activeSpaceId = active;
+  let changed = false;
+  compatState.spaces = compatState.spaces.map((space) => {
+    if (space.id !== DEFAULT_SPACE_ID) return space;
+    if (typeof space.name === "string" && space.name.trim() && space.name !== "Default") return space;
+    changed = true;
+    return { ...space, name: DEFAULT_SPACE_NAME, updatedAt: nowIso() };
+  });
   compatState.loadedDbPath = context.config.databasePath;
+  if (changed) saveCompatState(context);
 }
 
 function saveCompatState(context: AppContext) {
@@ -197,8 +208,8 @@ function ensureDefaultSpace() {
   if (compatState.spaces.length > 0) return compatState.spaces[0];
   const timestamp = nowIso();
   const space = {
-    id: "space_default",
-    name: "Default",
+    id: DEFAULT_SPACE_ID,
+    name: DEFAULT_SPACE_NAME,
     archived: false,
     deleted: false,
     sortOrder: 0,
@@ -211,7 +222,11 @@ function ensureDefaultSpace() {
 }
 
 function activeSpaceId() {
-  return compatState.activeSpaceId ?? ensureDefaultSpace().id;
+  const current = compatState.spaces.find((space) => space.id === compatState.activeSpaceId && visibleSpace(space));
+  if (current) return current.id;
+  const fallback = compatState.spaces.find(visibleSpace) ?? ensureDefaultSpace();
+  compatState.activeSpaceId = String(fallback.id);
+  return compatState.activeSpaceId;
 }
 
 function stableCompatId(prefix: string, value: string) {
@@ -316,6 +331,10 @@ function notDeleted(record: CompatRecord) {
   return !record.deleted;
 }
 
+function visibleSpace(record: CompatRecord) {
+  return notDeleted(record) && !record.archived;
+}
+
 function listBySpace(records: CompatRecord[], spaceId?: unknown) {
   const filterSpaceId = typeof spaceId === "string" && spaceId.trim() ? spaceId : null;
   return records.filter((record) => notDeleted(record) && (!filterSpaceId || record.spaceId === filterSpaceId));
@@ -326,6 +345,22 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
   if (index < 0) return null;
   records[index] = { ...records[index], ...patch, updatedAt: nowIso() };
   return records[index];
+}
+
+function archiveChatsForSpace(spaceId: string) {
+  const timestamp = nowIso();
+  compatState.chats = compatState.chats.map((chat) => {
+    if (chat.spaceId !== spaceId || chat.archived) return chat;
+    return { ...chat, archived: true, updatedAt: timestamp };
+  });
+}
+
+function restoreChatsForSpace(spaceId: string) {
+  const timestamp = nowIso();
+  compatState.chats = compatState.chats.map((chat) => {
+    if (chat.spaceId !== spaceId || !chat.archived) return chat;
+    return { ...chat, archived: false, updatedAt: timestamp };
+  });
 }
 
 async function deleteCompatChat(context: AppContext, chatId: string) {
@@ -762,7 +797,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return {
       ok: true,
       service: "openclaw-middleware-v2",
-      spaces: compatState.spaces.filter(notDeleted),
+      spaces: compatState.spaces.filter(visibleSpace),
       activeSpaceId: spaceId,
       chats: listBySpace(compatState.chats, spaceId).filter((chat) => !chat.archived),
       projects: listBySpace(compatState.projects, spaceId),
@@ -771,10 +806,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     };
   });
 
-  app.get("/api/spaces", async () => ({
-    spaces: compatState.spaces.filter(notDeleted),
-    activeSpaceId: activeSpaceId(),
-  }));
+  app.get("/api/spaces", async (request) => {
+    const query = request.query as CompatRecord;
+    const archived = query.archived === "true" || query.archived === true;
+    return {
+      spaces: compatState.spaces.filter((space) => archived ? Boolean(space.archived) && notDeleted(space) : visibleSpace(space)),
+      activeSpaceId: activeSpaceId(),
+    };
+  });
 
   app.post("/api/spaces", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
@@ -797,13 +836,31 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.patch<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request, reply) => {
     const space = patchById(compatState.spaces, request.params.spaceId, request.body as CompatRecord);
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    if (space.archived && compatState.activeSpaceId === space.id) {
+      compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+    }
     saveCompatCollection(context, "spaces");
     return { space };
   });
 
-  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/switch", async (request, reply) => {
-    const space = compatState.spaces.find((item) => item.id === request.params.spaceId && notDeleted(item));
+  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/archive", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const archived = body.archived ?? true;
+    const space = patchById(compatState.spaces, request.params.spaceId, { archived });
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    if (archived) archiveChatsForSpace(request.params.spaceId);
+    else restoreChatsForSpace(request.params.spaceId);
+    if (archived && compatState.activeSpaceId === space.id) {
+      compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+    }
+    saveCompatState(context);
+    return { ok: true, activeSpaceId: activeSpaceId(), space, archived };
+  });
+
+  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/switch", async (request, reply) => {
+    const space = compatState.spaces.find((item) => item.id === request.params.spaceId && visibleSpace(item));
+    if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    space.updatedAt = nowIso();
     compatState.activeSpaceId = space.id;
     saveCompatState(context);
     return { activeSpaceId: space.id, space };
@@ -811,7 +868,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.delete<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request) => {
     patchById(compatState.spaces, request.params.spaceId, { deleted: true });
-    if (compatState.activeSpaceId === request.params.spaceId) compatState.activeSpaceId = ensureDefaultSpace().id;
+    if (compatState.activeSpaceId === request.params.spaceId) {
+      compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+    }
     saveCompatState(context);
     return { ok: true };
   });
@@ -876,6 +935,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
     saveCompatCollection(context, "chats");
     return { chat };
+  });
+
+  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/rename", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const space = patchById(compatState.spaces, request.params.spaceId, { name: body.name || "New Space" });
+    if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    saveCompatCollection(context, "spaces");
+    return { space, activeSpaceId: activeSpaceId() };
   });
 
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/archive", async (request, reply) => {
@@ -1362,6 +1429,83 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_message_feedback":
       case "middleware_message_feedback_delete":
         return { ok: true };
+      case "middleware_spaces_list":
+        return {
+          spaces: compatState.spaces.filter((space) => {
+            const archived = input.archived === true || input.archived === "true";
+            return archived ? Boolean(space.archived) && notDeleted(space) : visibleSpace(space);
+          }),
+          activeSpaceId: activeSpaceId(),
+        };
+      case "middleware_spaces_create": {
+        const timestamp = nowIso();
+        const space = {
+          id: id("space"),
+          name: input.name || "New Space",
+          archived: false,
+          deleted: false,
+          sortOrder: compatState.spaces.length,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        compatState.spaces.push(space);
+        compatState.activeSpaceId = space.id;
+        saveCompatState(context);
+        return { space, activeSpaceId: space.id };
+      }
+      case "middleware_spaces_update": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const space = patchById(compatState.spaces, spaceId, input);
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        if (space.archived && compatState.activeSpaceId === space.id) {
+          compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+        }
+        saveCompatState(context);
+        return { space, activeSpaceId: activeSpaceId() };
+      }
+      case "middleware_spaces_rename": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const space = patchById(compatState.spaces, spaceId, { name: input.name || "New Space" });
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        saveCompatCollection(context, "spaces");
+        return { space, activeSpaceId: activeSpaceId() };
+      }
+      case "middleware_spaces_archive": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const archived = input.archived ?? true;
+        const space = patchById(compatState.spaces, spaceId, { archived });
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        if (archived) archiveChatsForSpace(spaceId);
+        else restoreChatsForSpace(spaceId);
+        if (archived && compatState.activeSpaceId === space.id) {
+          compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+        }
+        saveCompatState(context);
+        return { ok: true, activeSpaceId: activeSpaceId(), space, archived };
+      }
+      case "middleware_spaces_switch": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const space = compatState.spaces.find((item) => item.id === spaceId && visibleSpace(item));
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        space.updatedAt = nowIso();
+        compatState.activeSpaceId = space.id;
+        saveCompatState(context);
+        return { activeSpaceId: space.id, space };
+      }
+      case "middleware_spaces_delete": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        patchById(compatState.spaces, spaceId, { deleted: true });
+        if (compatState.activeSpaceId === spaceId) {
+          compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+        }
+        saveCompatState(context);
+        return { ok: true, activeSpaceId: activeSpaceId() };
+      }
       case "middleware_sessions_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         const timestamp = nowIso();

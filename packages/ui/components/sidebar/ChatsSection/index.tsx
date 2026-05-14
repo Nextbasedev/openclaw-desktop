@@ -14,6 +14,7 @@ export type { ActiveChat }
 type Props = {
   collapsed: boolean
   collapsible?: boolean
+  sectionLabel?: string
   activeChat: ActiveChat | null
   onChatSelect: (chat: ActiveChat) => void
   onChatClear: () => void
@@ -28,6 +29,7 @@ const MORE_CHATS_ANIMATION_MS = 200
 
 export function ChatsSection({
   collapsible = true,
+  sectionLabel = "Chats",
   activeChat,
   onChatSelect,
   onChatClear,
@@ -101,11 +103,11 @@ export function ChatsSection({
               >
                 <Icons.ChevronDown size={12} />
               </motion.span>
-              Chats
+              {sectionLabel}
             </button>
           ) : (
             <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground">
-              Chats
+              {sectionLabel}
             </span>
           )}
           <button
