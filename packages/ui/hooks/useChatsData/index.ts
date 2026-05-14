@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
-import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
+import { localSyncGetChats, localSyncSetChats, localSyncSubscribeChats } from "@/lib/localFirstSync"
+import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
+import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import type { Chat, ActiveChat } from "@/types/chat"
 
@@ -37,6 +39,8 @@ type ForkCreateEvent = {
   sessionKey?: string
   context?: { type?: string }
 }
+
+const SIDEBAR_CHAT_CACHE_TTL_MS = 1000 * 60
 
 type ChatActivityEvent = {
   chatId?: string
@@ -79,6 +83,22 @@ export function useChatsData(
 
   const loadChats = useCallback(async () => {
     try {
+      const chatCacheKey = spaceId ? `project:${spaceId}:chats` : null
+      const localChats = spaceId ? await localSyncGetChats(spaceId) : null
+      const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey) : null)
+      if (cachedChats) {
+        const active = cachedChats.filter((c) => !c.archived)
+        setChats(active)
+        setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+      }
+      const bootstrap = await loadMiddlewareStartupBootstrap()
+      if (bootstrap && (!spaceId || bootstrap.activeSpaceId === spaceId)) {
+        const active = (bootstrap.chats || []).filter((c) => !c.archived)
+        if (active.length > 0) {
+          setChats(active)
+          setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+        }
+      }
       const result = await invoke<{ chats: Chat[] }>(
         "middleware_chats_list",
         { input: { spaceId: spaceId ?? undefined } },
@@ -86,6 +106,17 @@ export function useChatsData(
       const active = (result.chats || []).filter(
         (c) => !c.archived,
       )
+      if (spaceId) {
+        void persistentCacheSet(`project:${spaceId}:chats`, active, {
+          ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+        })
+        void localSyncSetChats(
+          spaceId,
+          active,
+          undefined,
+          SIDEBAR_CHAT_CACHE_TTL_MS,
+        )
+      }
       setChats(active)
       setPinnedChats(
         new Set(active.filter((c) => c.pinned).map((c) => c.id)),
@@ -102,6 +133,15 @@ export function useChatsData(
   }, [loadChats, refreshTrigger])
 
   useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
+
+  useEffect(() => {
+    if (!spaceId) return
+    return localSyncSubscribeChats(spaceId, (state) => {
+      const active = (state.chats || []).filter((c) => !c.archived)
+      setChats(active)
+      setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+    })
+  }, [spaceId])
 
   useEffect(() => {
     function clearMiddlewareScopedChats() {
@@ -256,7 +296,21 @@ export function useChatsData(
     setDeleting(true)
     try {
       invalidateMiddlewareStartupBootstrap()
-      setChats((prev) => prev.filter((chat) => chat.id !== chatId))
+      setChats((prev) => {
+        const next = prev.filter((chat) => chat.id !== chatId)
+        if (spaceId) {
+          void persistentCacheSet(`project:${spaceId}:chats`, next, {
+            ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+          })
+          void localSyncSetChats(
+            spaceId,
+            next,
+            undefined,
+            SIDEBAR_CHAT_CACHE_TTL_MS,
+          )
+        }
+        return next
+      })
       setChatOrder((prev) => prev.filter((id) => id !== chatId))
       setPinnedChats((prev) => {
         const next = new Set(prev)
@@ -266,7 +320,21 @@ export function useChatsData(
       await invoke("middleware_chats_delete", {
         input: { chatId },
       })
-      setChats((prev) => prev.filter((chat) => chat.id !== chatId))
+      setChats((prev) => {
+        const next = prev.filter((chat) => chat.id !== chatId)
+        if (spaceId) {
+          void persistentCacheSet(`project:${spaceId}:chats`, next, {
+            ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+          })
+          void localSyncSetChats(
+            spaceId,
+            next,
+            undefined,
+            SIDEBAR_CHAT_CACHE_TTL_MS,
+          )
+        }
+        return next
+      })
       setChatOrder((prev) => prev.filter((id) => id !== chatId))
       setPinnedChats((prev) => {
         const next = new Set(prev)
@@ -282,7 +350,7 @@ export function useChatsData(
     } finally {
       setDeleting(false)
     }
-  }, [deleteTarget, loadChats, activeChat, onChatClear])
+  }, [deleteTarget, loadChats, activeChat, onChatClear, spaceId])
 
   const sortedChatIds = useMemo(() => {
     const ordered = [...chats]
