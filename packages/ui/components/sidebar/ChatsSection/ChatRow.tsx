@@ -41,6 +41,12 @@ const CHAT_MENU_OPEN_EVENT = "openclaw:sidebar-chat-menu-open"
 const CONTEXT_MENU_WIDTH = 184
 const CONTEXT_MENU_HEIGHT = 144
 const VIEWPORT_MARGIN = 12
+const MENU_SPRING = {
+  type: "spring" as const,
+  stiffness: 320,
+  damping: 30,
+  mass: 0.95,
+}
 
 export function ChatRow({
   chatId,
@@ -163,6 +169,14 @@ export function ChatRow({
     onDelete()
   }
 
+  function handleDotMenuOpenChange(open: boolean) {
+    setDotMenuOpen(open)
+    if (open) {
+      closeContextMenu()
+      announceMenuOpen()
+    }
+  }
+
   const rowContent = (
     <>
       <SidebarLabelTooltip label={displayName} disabled={anyMenuOpen}>
@@ -216,11 +230,10 @@ export function ChatRow({
         >
           {timeStr}
         </span>
-        {!chat.pendingFork && <Popover open={dotMenuOpen} onOpenChange={setDotMenuOpen}>
+        {!chat.pendingFork && <Popover open={dotMenuOpen} onOpenChange={handleDotMenuOpenChange}>
           <PopoverTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
-              onMouseDown={() => announceMenuOpen()}
               onPointerDown={(e) => e.stopPropagation()}
               title="Chat options"
               className={cn(
@@ -236,41 +249,58 @@ export function ChatRow({
               />
             </button>
           </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            side="right"
-            sideOffset={4}
-            className={cn(
-              "w-44 gap-0 rounded-2xl p-1.5",
-              "border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
-              "backdrop-blur-[40px] backdrop-saturate-[180%]",
-              GLASS_POPOVER,
+          <AnimatePresence>
+            {dotMenuOpen && (
+              <PopoverContent
+                forceMount
+                align="start"
+                side="right"
+                sideOffset={4}
+                className={cn(
+                  "w-44 gap-0 rounded-2xl p-1.5",
+                  "border-[var(--glass-border)] bg-[var(--glass-bg)] shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+                  "backdrop-blur-[40px] backdrop-saturate-[180%]",
+                  GLASS_POPOVER,
+                )}
+              >
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.92, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                  transition={{
+                    opacity: { duration: 0.2 },
+                    scale: MENU_SPRING,
+                    y: MENU_SPRING,
+                  }}
+                  style={{ transformOrigin: "top left" }}
+                >
+                  <MenuAction
+                    label="Rename"
+                    icon={
+                      <Icons.Edit size={14} strokeWidth={1.5} />
+                    }
+                    onClick={handleRenameAction}
+                  />
+                  <div className="my-0.5 h-px bg-border/20" />
+                  <MenuAction
+                    label="Archive"
+                    icon={
+                      <Icons.Archive size={14} strokeWidth={1.5} />
+                    }
+                    onClick={handleArchiveAction}
+                  />
+                  <MenuAction
+                    label="Delete"
+                    icon={
+                      <Icons.Trash size={14} strokeWidth={1.5} />
+                    }
+                    onClick={handleDeleteAction}
+                    danger
+                  />
+                </motion.div>
+              </PopoverContent>
             )}
-          >
-            <MenuAction
-              label="Rename"
-              icon={
-                <Icons.Edit size={14} strokeWidth={1.5} />
-              }
-              onClick={handleRenameAction}
-            />
-            <div className="my-0.5 h-px bg-border/20" />
-            <MenuAction
-              label="Archive"
-              icon={
-                <Icons.Archive size={14} strokeWidth={1.5} />
-              }
-              onClick={handleArchiveAction}
-            />
-            <MenuAction
-              label="Delete"
-              icon={
-                <Icons.Trash size={14} strokeWidth={1.5} />
-              }
-              onClick={handleDeleteAction}
-              danger
-            />
-          </PopoverContent>
+          </AnimatePresence>
         </Popover>}
       </div>
     </>

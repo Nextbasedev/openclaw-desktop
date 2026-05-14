@@ -50,6 +50,7 @@ type SidebarProps = {
   spaces: Space[]
   activeSpaceId: string | null
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
+  onSpaceNewChat: (spaceId: string) => void | Promise<void>
   onSpaceCreate: (name?: string) => void | Promise<void>
   onSpaceUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
   onSpaceArchive: (spaceId: string) => void | Promise<void>
@@ -74,6 +75,7 @@ export function Sidebar({
   spaces,
   activeSpaceId,
   onSpaceSwitch,
+  onSpaceNewChat,
   onSpaceCreate,
   onSpaceUpdate,
   onSpaceArchive,
@@ -314,6 +316,7 @@ export function Sidebar({
             spaces={spaces}
             activeSpaceId={activeSpaceId}
             onSwitch={onSpaceSwitch}
+            onNewChat={onSpaceNewChat}
             onCreate={onSpaceCreate}
             onUpdate={onSpaceUpdate}
             onArchive={onSpaceArchive}

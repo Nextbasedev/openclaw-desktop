@@ -49,6 +49,9 @@ export function SettingsDashboard({ onBack, initialSection = "usage" }: Settings
   const [activeSection, setActiveSection] = React.useState<SettingSection>(initialSection)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
+  const resolvedSection = topNavItems.some((item) => item.id === activeSection)
+    ? activeSection
+    : "usage"
 
   React.useEffect(() => {
     setActiveSection(initialSection)
@@ -86,20 +89,23 @@ export function SettingsDashboard({ onBack, initialSection = "usage" }: Settings
         </div>
       </nav>
 
-      <div ref={scrollRef} className="my-2 mx-2 w-full max-w-2xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
-        {activeSection === "usage" && <UsageTab />}
+      <div
+        ref={scrollRef}
+        className="my-2 mx-2 min-h-0 flex-1 w-full max-w-2xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6"
+      >
+        {resolvedSection === "usage" && <UsageTab />}
 
-        {activeSection === "config" && <ConfigTab />}
+        {resolvedSection === "config" && <ConfigTab />}
 
-        {activeSection === "archive" && <ArchiveTab />}
+        {resolvedSection === "archive" && <ArchiveTab />}
 
-        {activeSection === "appearance" && <AppearanceTab />}
+        {resolvedSection === "appearance" && <AppearanceTab />}
 
-        {activeSection === "voice" && <VoiceTab />}
+        {resolvedSection === "voice" && <VoiceTab />}
 
-        {activeSection === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+        {resolvedSection === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
 
-        {activeSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { setActiveSection("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+        {resolvedSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { setActiveSection("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
       </div>
     </div>
   )
