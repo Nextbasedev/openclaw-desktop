@@ -15,8 +15,7 @@ export function fallbackChatNameFromText(text: string): string {
   return clean.length <= 30 ? clean : `${clean.slice(0, 27)}...`
 }
 
-export function chatDisplayName(chat: Pick<Chat, "name" | "updatedAt" | "lastMessageText">): string {
-  if (chat.lastMessageText?.trim()) return fallbackChatNameFromText(chat.lastMessageText)
+export function chatDisplayName(chat: Pick<Chat, "name" | "updatedAt">): string {
   if (!isWeakChatName(chat.name)) return chat.name
   if (chat.updatedAt) {
     try {
