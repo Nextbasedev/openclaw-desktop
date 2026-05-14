@@ -26,19 +26,28 @@ function decisionLabel(decision: ApprovalDecision) {
 }
 
 function formatElapsed(ms: number) {
+  if (!Number.isFinite(ms) || ms < 0 || ms > 24 * 60 * 60 * 1000) return undefined
   const seconds = Math.max(0, ms) / 1000
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function validStartedAt(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  const now = Date.now()
+  if (value < 1_700_000_000_000 || value > now + 5 * 60 * 1000) return undefined
+  return value
 }
 
 function useRunningElapsed(call: InlineToolCall) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (call.status !== "running" || !call.startedAt || call.duration) return
+    if (call.status !== "running" || !validStartedAt(call.startedAt) || call.duration) return
     const id = window.setInterval(() => setNow(Date.now()), 500)
     return () => window.clearInterval(id)
   }, [call.duration, call.startedAt, call.status])
   if (call.duration) return call.duration
-  if (call.status === "running" && call.startedAt) return formatElapsed(now - call.startedAt)
+  const startedAt = validStartedAt(call.startedAt)
+  if (call.status === "running" && startedAt) return formatElapsed(now - startedAt)
   return undefined
 }
 

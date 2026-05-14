@@ -349,9 +349,26 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
   state.pendingTools = []
 }
 
+function realEpochMs(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  const ms = value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
+  const now = Date.now()
+  if (ms < 1_700_000_000_000 || ms > now + 5 * 60 * 1000) return undefined
+  return Math.round(ms)
+}
+
+function comparableTimeMs(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  return value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
+}
+
 function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
-  if (typeof startedAtMs !== "number" || typeof finishedAtMs !== "number") return undefined
-  const seconds = Math.max(0, finishedAtMs - startedAtMs) / 1000
+  const started = comparableTimeMs(startedAtMs)
+  const finished = comparableTimeMs(finishedAtMs)
+  if (typeof started !== "number" || typeof finished !== "number") return undefined
+  const elapsedMs = finished - started
+  if (elapsedMs < 0 || elapsedMs > 24 * 60 * 60 * 1000) return undefined
+  const seconds = elapsedMs / 1000
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
 }
 
@@ -376,7 +393,7 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
       typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
       typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
     ),
-    startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+    startedAt: realEpochMs(tool.startedAtMs),
     input: tool.argsMeta,
     resultText: tool.resultMeta ? textFromUnknown(tool.resultMeta) : undefined,
   }
