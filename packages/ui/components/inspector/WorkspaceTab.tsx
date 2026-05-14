@@ -217,17 +217,17 @@ export function getWorkspaceFileIconKind(name: string): WorkspaceFileIconKind {
 
 function FileIcon({ name }: { name: string }) {
   const kind = getWorkspaceFileIconKind(name)
-  if (kind === "markdown") return <VscMarkdown className="size-4 shrink-0 text-blue-400/85" />
-  if (kind === "json") return <VscJson className="size-4 shrink-0 text-amber-400/85" />
-  if (kind === "code") return <VscCode className="size-4 shrink-0 text-sky-400/85" />
-  if (kind === "shell") return <VscFileCode className="size-4 shrink-0 text-emerald-400/85" />
-  if (kind === "image") return <VscFileMedia className="size-4 shrink-0 text-fuchsia-400/85" />
-  if (kind === "archive") return <VscFileZip className="size-4 shrink-0 text-orange-400/85" />
-  if (kind === "pdf") return <VscFilePdf className="size-4 shrink-0 text-red-400/85" />
-  if (kind === "binary") return <VscFileBinary className="size-4 shrink-0 text-purple-400/85" />
-  if (kind === "config") return <VscJson className="size-4 shrink-0 text-yellow-300/85" />
-  if (kind === "text") return <VscFile className="size-4 shrink-0 text-cyan-300/85" />
-  return <VscFile className="size-4 shrink-0 text-muted-foreground/75" />
+  if (kind === "markdown") return <VscMarkdown className="size-4 shrink-0 text-[#519aba]" />
+  if (kind === "json") return <VscJson className="size-4 shrink-0 text-[#cbcb41]" />
+  if (kind === "code") return <VscCode className="size-4 shrink-0 text-[#519aba]" />
+  if (kind === "shell") return <VscFileCode className="size-4 shrink-0 text-[#8dc149]" />
+  if (kind === "image") return <VscFileMedia className="size-4 shrink-0 text-[#a074c4]" />
+  if (kind === "archive") return <VscFileZip className="size-4 shrink-0 text-[#f55385]" />
+  if (kind === "pdf") return <VscFilePdf className="size-4 shrink-0 text-[#cc3e44]" />
+  if (kind === "binary") return <VscFileBinary className="size-4 shrink-0 text-[#a074c4]" />
+  if (kind === "config") return <VscJson className="size-4 shrink-0 text-[#cbcb41]" />
+  if (kind === "text") return <VscFile className="size-4 shrink-0 text-[#519aba]" />
+  return <VscFile className="size-4 shrink-0 text-[#6d8086]" />
 }
 
 /* ── Tree node ── */
