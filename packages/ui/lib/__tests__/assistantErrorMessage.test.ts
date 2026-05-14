@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { isAssistantErrorMessage } from "../../components/ChatView/utils"
+import {
+  formatAssistantErrorText,
+  isAssistantErrorMessage,
+} from "../../components/ChatView/utils"
 import type { ChatMessage } from "../../components/ChatView/types"
 
 function assistant(
@@ -35,6 +38,20 @@ describe("isAssistantErrorMessage", () => {
   it("does not mark normal assistant replies as errors", () => {
     expect(isAssistantErrorMessage(assistant("Here is how to fix an error."))).toBe(
       false
+    )
+  })
+})
+
+describe("formatAssistantErrorText", () => {
+  it("unwraps quoted JSON error payloads", () => {
+    expect(
+      formatAssistantErrorText('Error: 402 "{\\"code\\":\\"deactivated_workspace\\"}"')
+    ).toBe('Error: 402 {"code":"deactivated_workspace"}')
+  })
+
+  it("keeps plain error text unchanged", () => {
+    expect(formatAssistantErrorText("Error: gateway disconnected")).toBe(
+      "Error: gateway disconnected"
     )
   })
 })
