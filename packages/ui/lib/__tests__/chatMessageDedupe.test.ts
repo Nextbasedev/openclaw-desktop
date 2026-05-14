@@ -48,6 +48,34 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
+  it("keeps repeated assistant errors for separate user turns", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "u1", role: "user", text: "hello", gatewayIndex: 1 },
+      {
+        messageId: "a1",
+        role: "assistant",
+        text: 'Error: 402 {"code":"deactivated_workspace"}',
+        stopReason: "error",
+        gatewayIndex: 2,
+      },
+      { messageId: "u2", role: "user", text: "heyy", gatewayIndex: 3 },
+      {
+        messageId: "a2",
+        role: "assistant",
+        text: 'Error: 402 {"code":"deactivated_workspace"}',
+        stopReason: "error",
+        gatewayIndex: 4,
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual([
+      "u1",
+      "a1",
+      "u2",
+      "a2",
+    ])
+  })
+
   it("does not collapse numbered assistant messages with prefix-like text", () => {
     const messages = dedupeChatMessages([
       { messageId: "a8", role: "assistant", text: "Stress Chat 13 assistant 8" },

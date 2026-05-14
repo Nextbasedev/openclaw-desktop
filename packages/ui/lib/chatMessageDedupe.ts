@@ -82,6 +82,28 @@ function hasDifferentGatewayIndex(a: ChatMessage, b: ChatMessage) {
   )
 }
 
+function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
+  return (
+    typeof a.gatewayIndex === "number" &&
+    Number.isFinite(a.gatewayIndex) &&
+    typeof b.gatewayIndex === "number" &&
+    Number.isFinite(b.gatewayIndex) &&
+    a.gatewayIndex === b.gatewayIndex
+  )
+}
+
+function isAssistantErrorLike(message: ChatMessage) {
+  if (message.role !== "assistant") return false
+  if (message.stopReason === "error") return true
+  const text = message.text.trim()
+  return (
+    /^Error:\s+/i.test(text) ||
+    /^Agent failed before reply:/i.test(text) ||
+    /^OpenClaw error:/i.test(text) ||
+    /^WebSocket error:/i.test(text)
+  )
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   if (
@@ -121,6 +143,9 @@ function isAssistantPrefixUpdate(shorter: string, longer: string) {
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
   if (hasDifferentGatewayIndex(a, b)) return false
+  if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
+    return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
+  }
   const aText = stripNoReplyLines(a.text)
   const bText = stripNoReplyLines(b.text)
   if (a.messageId === b.messageId) return true
