@@ -46,6 +46,7 @@ export function ChatsSection({
     chats,
     setChatOrder,
     pinnedChats,
+    runningSessionKeys,
     sortedChatIds,
     togglePinChat,
     handleArchiveChat,
@@ -160,6 +161,7 @@ export function ChatsSection({
                         chat={chat}
                         isActive={activeChat?.id === chatId}
                         isPinned={pinnedChats.has(chatId)}
+                        isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
                         onClick={() =>
                           onChatSelect({
                             id: chat.id,
@@ -202,6 +204,7 @@ export function ChatsSection({
                             chat={chat}
                             isActive={activeChat?.id === chatId}
                             isPinned={pinnedChats.has(chatId)}
+                            isRunning={Boolean(chat.sessionKey && runningSessionKeys.has(chat.sessionKey))}
                             disableReorder
                             onClick={() =>
                               onChatSelect({

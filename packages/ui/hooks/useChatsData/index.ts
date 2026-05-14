@@ -8,6 +8,7 @@ import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import { deleteWarmChatCache } from "@/lib/warmChatCache"
+import { clearCachedChatActivity, getAllCachedChatActivity, subscribeChatActivity } from "@/lib/chatActivityStore"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -66,6 +67,9 @@ export function useChatsData(
   const [chats, setChats] = useState<Chat[]>([])
   const [chatOrder, setChatOrder] = useState<string[]>([])
   const [pinnedChats, setPinnedChats] = useState<Set<string>>(
+    new Set(),
+  )
+  const [runningSessionKeys, setRunningSessionKeys] = useState<Set<string>>(
     new Set(),
   )
 
@@ -134,6 +138,21 @@ export function useChatsData(
   }, [loadChats, refreshTrigger])
 
   useEffect(() => on("sidebar:refresh", loadChats), [loadChats])
+
+  useEffect(() => {
+    const refreshRunningSessions = () => {
+      const live = getAllCachedChatActivity()
+      setRunningSessionKeys(
+        new Set(
+          chats
+            .map((chat) => chat.sessionKey)
+            .filter((sessionKey): sessionKey is string => Boolean(sessionKey && live.has(sessionKey))),
+        ),
+      )
+    }
+    refreshRunningSessions()
+    return subscribeChatActivity(refreshRunningSessions)
+  }, [chats])
 
   useEffect(() => {
     if (!spaceId) return
@@ -322,7 +341,10 @@ export function useChatsData(
       await invoke("middleware_chats_delete", {
         input: { chatId },
       })
-      if (sessionKey) void deleteWarmChatCache(sessionKey)
+      if (sessionKey) {
+        clearCachedChatActivity(sessionKey)
+        void deleteWarmChatCache(sessionKey)
+      }
       setChats((prev) => {
         const next = prev.filter((chat) => chat.id !== chatId)
         if (spaceId) {
@@ -389,6 +411,7 @@ export function useChatsData(
     chatOrder,
     setChatOrder,
     pinnedChats,
+    runningSessionKeys,
     sortedChatIds,
     togglePinChat,
     handleArchiveChat,

@@ -23,6 +23,7 @@ type Props = {
   chat: Chat
   isActive: boolean
   isPinned: boolean
+  isRunning?: boolean
   onClick: () => void
   onPin: () => void
   onRename: () => void
@@ -47,12 +48,12 @@ const MENU_SPRING = {
   damping: 30,
   mass: 0.95,
 }
-
 export function ChatRow({
   chatId,
   chat,
   isActive,
   isPinned,
+  isRunning = false,
   onClick,
   onPin,
   onRename,
@@ -72,6 +73,7 @@ export function ChatRow({
 
   const timeStr = chat.pendingFork ? "" : formatCompactTime(chat.updatedAt)
   const displayName = chatDisplayName(chat)
+  const showRunningIndicator = isRunning && !chat.pendingFork
   const anyMenuOpen = dotMenuOpen || contextMenu.open
 
   useEffect(() => {
@@ -223,13 +225,26 @@ export function ChatRow({
         <span
           className={cn(
             "pointer-events-none absolute select-none text-[10px] tabular-nums text-muted-foreground/50 transition-opacity duration-100",
-            isActive || anyMenuOpen
+            isActive || anyMenuOpen || showRunningIndicator
               ? "opacity-0"
               : "group-hover/row:opacity-0",
           )}
         >
           {timeStr}
         </span>
+        {showRunningIndicator && (
+          <span
+            title="Chat is running"
+            className={cn(
+              "pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full transition-opacity duration-100",
+              anyMenuOpen ? "opacity-0" : "opacity-100 group-hover/row:opacity-0",
+            )}
+          >
+            <span className="absolute size-3 rounded-full bg-emerald-500/20 dark:bg-emerald-400/20" />
+            <span className="absolute size-3 animate-ping rounded-full bg-emerald-500/25 dark:bg-emerald-400/25" />
+            <span className="relative size-1.5 rounded-full bg-emerald-600 shadow-[0_0_10px_rgba(5,150,105,0.55)] dark:bg-emerald-400 dark:shadow-[0_0_10px_rgba(52,211,153,0.55)]" />
+          </span>
+        )}
         {!chat.pendingFork && <Popover open={dotMenuOpen} onOpenChange={handleDotMenuOpenChange}>
           <PopoverTrigger asChild>
             <button
@@ -238,9 +253,13 @@ export function ChatRow({
               title="Chat options"
               className={cn(
                 "absolute flex h-5 w-5 cursor-pointer items-center justify-center rounded transition-all duration-100",
-                isActive || anyMenuOpen
+                anyMenuOpen
                   ? "text-muted-foreground/60 opacity-100 hover:text-foreground"
-                  : "text-muted-foreground/50 opacity-0 hover:text-foreground group-hover/row:opacity-100",
+                  : showRunningIndicator
+                    ? "text-muted-foreground/60 opacity-0 hover:text-foreground group-hover/row:opacity-100"
+                    : isActive
+                      ? "text-muted-foreground/60 opacity-100 hover:text-foreground"
+                      : "text-muted-foreground/50 opacity-0 hover:text-foreground group-hover/row:opacity-100",
               )}
             >
               <Icons.MoreVertical
