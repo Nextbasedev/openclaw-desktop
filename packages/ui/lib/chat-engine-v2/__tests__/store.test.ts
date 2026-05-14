@@ -448,7 +448,7 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
   })
 
-  test("assistant message patches with done status do not clear an active turn", () => {
+  test("final assistant message patches with done status clear the active turn", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       cursor: 0,
@@ -467,7 +467,7 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "done", statusLabel: null })
 
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -1024,6 +1024,40 @@ describe("global V2 chat engine store", () => {
       { messageId: "u2", text: "second" },
       { messageId: "a2", text: "Done with the second request" },
     ])
+  })
+
+  test("clears streaming loader when final assistant text arrives without a separate done status", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "streaming",
+      statusLabel: "Responding",
+      messages: [{ messageId: "u1", role: "user", text: "how are you" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 11,
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "a1",
+          message: { role: "assistant", text: "Doing well — steady and ready." },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "done",
+      statusLabel: null,
+      messages: [
+        { messageId: "u1", text: "how are you" },
+        { messageId: "a1", text: "Doing well — steady and ready." },
+      ],
+    })
   })
 
   test("warms React Query bootstrap cache from global store", () => {
