@@ -48,6 +48,23 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
+  it("keeps newly sent timestamped messages below restored untimed history", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "u-old", role: "user", text: "previous question" },
+      { messageId: "a-old", role: "assistant", text: "previous answer" },
+      {
+        messageId: "u-new",
+        role: "user",
+        text: "new question",
+        createdAt: "2026-05-14T17:50:22.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual(["u-old", "a-old", "u-new"])
+  })
+
   it("keeps repeated assistant errors for separate user turns", () => {
     const messages = dedupeChatMessages([
       { messageId: "u1", role: "user", text: "hello", gatewayIndex: 1 },
