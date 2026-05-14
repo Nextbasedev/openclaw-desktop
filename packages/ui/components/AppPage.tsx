@@ -280,6 +280,7 @@ function AppShell({
     activeSpace,
     createSpace,
     updateSpace,
+    archiveSpace,
     switchSpace,
     deleteSpace,
   } = useSpaces()
@@ -1132,6 +1133,11 @@ function AppShell({
     await handleSpaceSwitch(nextSpaceId)
   }, [deleteSpace, handleSpaceSwitch])
 
+  const handleSpaceArchive = useCallback(async (spaceId: string) => {
+    const nextSpaceId = await archiveSpace(spaceId)
+    await handleSpaceSwitch(nextSpaceId)
+  }, [archiveSpace, handleSpaceSwitch])
+
   const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
 
   useEffect(() => {
@@ -1868,6 +1874,7 @@ function AppShell({
           onSpaceSwitch={handleSpaceSwitch}
           onSpaceCreate={handleSpaceCreate}
           onSpaceUpdate={updateSpace}
+          onSpaceArchive={handleSpaceArchive}
           onSpaceDelete={handleSpaceDelete}
         />
 

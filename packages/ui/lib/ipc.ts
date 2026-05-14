@@ -124,6 +124,11 @@ function isRouteNotFound(error: unknown): boolean {
   return message.toLowerCase().includes("route not found") || message.includes("404")
 }
 
+function isRetryableMiddlewareRequestError(error: unknown): boolean {
+  if (isRouteNotFound(error)) return true
+  return error instanceof TypeError
+}
+
 async function invokeRemoteMiddleware<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -136,7 +141,7 @@ async function invokeRemoteMiddleware<T>(
     try {
       return await request()
     } catch (error) {
-      if (isRouteNotFound(error)) return commandEndpoint()
+      if (isRetryableMiddlewareRequestError(error)) return commandEndpoint()
       throw error
     }
   }
@@ -177,11 +182,15 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_list":
-      return withCommandFallback(() => middlewareFetch<T>("/api/spaces"))
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces${queryString({ archived: input.archived ? "true" : undefined })}`))
     case "middleware_spaces_create":
       return withCommandFallback(() => middlewareFetch<T>("/api/spaces", { method: "POST", body: JSON.stringify(input) }))
+    case "middleware_spaces_rename":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}/rename`, { method: "POST", body: JSON.stringify(input) }))
     case "middleware_spaces_update":
-      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "PATCH", body: JSON.stringify(input) }))
+      return commandEndpoint()
+    case "middleware_spaces_archive":
+      return commandEndpoint()
     case "middleware_spaces_switch":
       return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}/switch`, { method: "POST", body: JSON.stringify(input) }))
     case "middleware_spaces_delete":
@@ -202,8 +211,20 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_repos_select":
       return middlewareFetch<T>("/api/repos/select", { method: "POST", body: JSON.stringify(input) })
     case "middleware_skills_discover":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/skills/discover${queryString({
+        query: input.query ? String(input.query) : undefined,
+        limit: input.limit !== undefined ? String(input.limit) : undefined,
+        sort: input.sort ? String(input.sort) : undefined,
+        includeLocal: input.includeLocal !== undefined ? String(Boolean(input.includeLocal)) : undefined,
+        includeClawHub: input.includeClawHub !== undefined ? String(Boolean(input.includeClawHub)) : undefined,
+      })}`))
     case "middleware_skills_installed_local":
     case "middleware_skills_installed":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/skills/installed${queryString({
+        query: input.query ? String(input.query) : undefined,
+        limit: input.limit !== undefined ? String(input.limit) : undefined,
+        sort: input.sort ? String(input.sort) : undefined,
+      })}`))
     case "middleware_skills_install":
     case "middleware_skills_detail":
     case "middleware_skills_versions":

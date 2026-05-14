@@ -343,7 +343,7 @@ export function ChatRow({
                 }}
                 className={cn(
                   "z-[120] w-44 rounded-2xl p-1.5",
-                  "border border-[var(--glass-border)] bg-[var(--glass-bg)]",
+                  "border border-black/70 bg-[var(--glass-bg)]",
                   "backdrop-blur-[40px] backdrop-saturate-[180%]",
                   "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
                 )}
