@@ -348,6 +348,62 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("broadcasts tool result immediately from tool_result message blocks", async () => {
+    const app = await createApp(config("message-tool-result-blocks"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tool-1", name: "memory_search", input: { query: "x" } }],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 3,
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "tool-1", content: "search results" }],
+          __openclaw: { id: "tool-result", seq: 3 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      name: "memory_search",
+      status: "success",
+      phase: "result",
+      resultMeta: "search results",
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches;
+    const resultIndex = patches.findIndex((patch: { type: string; payload?: { toolCallId?: string } }) => patch.type === "chat.tool.result" && patch.payload?.toolCallId === "tool-1");
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    await app.close();
+  });
+
   test("derives tool activity from assistant tool-call blocks when session.tool is absent", async () => {
     const app = await createApp(config("message-tool-blocks"));
     const context = contextOf(app);
