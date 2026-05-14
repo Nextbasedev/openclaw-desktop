@@ -19,6 +19,7 @@ import {
   uninstallSkill,
 } from "../skills/service.js";
 import { fromJson, toJson } from "../../db/json.js";
+import { HttpError } from "../../lib/errors.js";
 
 type CompatRecord = Record<string, any>;
 
@@ -719,6 +720,56 @@ function openclawWorkspaceRoot() {
   const cfg = readOCPlatformConfig();
   const configured = cfg.agents?.defaults?.workspace || cfg.workspaceRoot || cfg.workspace_root || process.env.WORKSPACE_ROOT;
   return typeof configured === "string" && configured.trim() ? configured : path.join(os.homedir(), ".openclaw", "workspace");
+}
+
+function memoryDir() {
+  const dir = path.join(openclawWorkspaceRoot(), "memory");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function safeWorkspaceFilePath(inputPath: unknown, fallback = "memory/notes.md") {
+  const root = path.resolve(openclawWorkspaceRoot());
+  const requested = typeof inputPath === "string" && inputPath.trim() ? inputPath.trim() : fallback;
+  const full = path.resolve(root, requested);
+  if (full !== root && !full.startsWith(root + path.sep)) {
+    throw new HttpError(403, "Memory path escapes workspace", "PATH_FORBIDDEN");
+  }
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  return full;
+}
+
+function listMemoryDocuments() {
+  return fs.readdirSync(memoryDir()).flatMap((name) => {
+    const full = path.join(memoryDir(), name);
+    const stat = fs.statSync(full);
+    if (!stat.isFile() || !name.endsWith(".md")) return [];
+    return { name, path: `memory/${name}`, size: stat.size, updatedAt: stat.mtimeMs };
+  });
+}
+
+function searchMemoryDocuments(query: unknown) {
+  const q = String(query ?? "").trim().toLowerCase();
+  const entries: CompatRecord[] = [];
+  for (const doc of listMemoryDocuments()) {
+    const full = safeWorkspaceFilePath(doc.path);
+    const content = fs.readFileSync(full, "utf8");
+    content.split("\n").forEach((line, index) => {
+      const text = line.trim();
+      if (!text) return;
+      if (q && !text.toLowerCase().includes(q)) return;
+      entries.push({
+        path: doc.path,
+        line: index + 1,
+        content: text,
+        text,
+        category: /^#+\s/.test(text) ? "decision" : "fact",
+        totalScore: q ? Math.min(1, Math.max(0.35, q.length / Math.max(text.length, q.length))) : 0.65,
+        tags: [String(doc.name).replace(/\.md$/, "")],
+      });
+    });
+  }
+  return entries.slice(0, 50);
 }
 
 function findGitRepos(root: string, maxDepth = 4, limit = 100) {
@@ -1630,6 +1681,34 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const hash = String(input.hash ?? input.commit ?? "");
         if (!root || !hash) return { diff: "" };
         return gitCommitDetails(root, hash);
+      }
+      case "middleware_memory_list": {
+        const documents = listMemoryDocuments();
+        return { documents, files: documents };
+      }
+      case "middleware_memory_read": {
+        const filePath = safeWorkspaceFilePath(input.path, "memory/notes.md");
+        if (!fs.existsSync(filePath)) return { content: "" };
+        if (!fs.statSync(filePath).isFile()) {
+          return reply.code(400).send({ ok: false, error: { code: "BAD_REQUEST", message: "Memory path is a directory" } });
+        }
+        return { content: fs.readFileSync(filePath, "utf8") };
+      }
+      case "middleware_memory_write": {
+        const filePath = safeWorkspaceFilePath(input.path, "memory/notes.md");
+        fs.writeFileSync(filePath, String(input.content ?? ""), "utf8");
+        return { ok: true, path: input.path };
+      }
+      case "middleware_memory_store": {
+        const today = new Date().toISOString().slice(0, 10);
+        const relativePath = `memory/${today}.md`;
+        const filePath = safeWorkspaceFilePath(relativePath);
+        fs.appendFileSync(filePath, `\n- ${String(input.content ?? input.text ?? "")}\n`, "utf8");
+        return { ok: true, path: relativePath };
+      }
+      case "middleware_memory_recall": {
+        const entries = searchMemoryDocuments(input.query ?? input.text ?? "");
+        return { entries, results: entries };
       }
       case "middleware_message_feedback":
       case "middleware_message_feedback_delete":
