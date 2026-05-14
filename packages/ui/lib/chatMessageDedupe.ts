@@ -228,10 +228,30 @@ function collapseRepeatedRoleBlocks(
     : messages
 }
 
+function messageTimeMs(message: ChatMessage) {
+  if (!message.createdAt) return undefined
+  const parsed = Date.parse(message.createdAt)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function roleOrder(message: ChatMessage) {
+  return message.role === "user" ? 0 : 1
+}
+
 export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage[] {
   return messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
+      const aTime = messageTimeMs(a.message)
+      const bTime = messageTimeMs(b.message)
+      const aHasTime = typeof aTime === "number"
+      const bHasTime = typeof bTime === "number"
+      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
+      if (aHasTime !== bHasTime) return aHasTime ? -1 : 1
+      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
+
       const aIndex = a.message.gatewayIndex
       const bIndex = b.message.gatewayIndex
       const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
