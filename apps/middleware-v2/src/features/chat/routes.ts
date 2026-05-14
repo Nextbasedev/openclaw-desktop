@@ -79,7 +79,7 @@ function historyTimestampMs(message: Record<string, unknown>): number | null {
     // Gateway history has used both epoch seconds and epoch milliseconds.
     // Store only real epoch-ms values in the projection DB; otherwise the UI
     // computes Date.now() - startedAt and renders huge fake durations.
-    return raw < 10_000_000_000 ? Math.round(raw * 1000) : Math.round(raw);
+    return raw > 100_000_000 && raw < 10_000_000_000 ? Math.round(raw * 1000) : Math.round(raw);
   }
   const createdAt = message.createdAt;
   if (typeof createdAt === "string" && createdAt.trim()) {

@@ -261,6 +261,25 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[1]?.stopReason, "error")
   })
 
+  it("humanizes raw deactivated workspace provider errors", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: '402 {"code":"deactivated_workspace"}',
+        provider: "openai-codex",
+        model: "gpt-5.5",
+      },
+    ])
+
+    assert.equal(
+      parsed.messages[1]?.text,
+      "Error: Workspace is deactivated. Reactivate the workspace and try again.",
+    )
+  })
+
   it("keeps gateway-injected agent failure replies visible", () => {
     const parsed = parseChatHistory([
       { role: "user", content: [{ type: "text", text: "hello" }] },

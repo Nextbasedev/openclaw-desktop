@@ -39,6 +39,7 @@ import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
   cleanUserMessageText,
+  formatChatErrorMessage,
   isTransientSlashCommandHistory,
   parseChatHistory,
 } from "@/lib/chatHistoryParser"
@@ -167,7 +168,10 @@ function rawToChatMessage(
         : raw.role === "assistant"
           ? "assistant"
           : fallbackRole,
-    text: raw.text || extractText(raw.content),
+    text:
+      raw.role === "assistant" && raw.stopReason === "error"
+        ? `Error: ${formatChatErrorMessage(raw.text || extractText(raw.content))}`
+        : raw.text || extractText(raw.content),
     createdAt: raw.createdAt,
     model: raw.model,
     usage: raw.usage ?? null,
@@ -756,7 +760,7 @@ export function useChatMessages(
                 })
                 .catch(() => undefined)
             }, 500)
-            setErrorMessage(ev.message || ev.error || ev.label || null)
+            setErrorMessage(ev.message || ev.error || ev.label ? formatChatErrorMessage(ev.message || ev.error || ev.label) : null)
           }
           if (incoming === "done") {
             setTimeout(() => {
@@ -1132,7 +1136,7 @@ export function useChatMessages(
         case "chat.error":
         case "stream.error": {
           const errText = ev.message || ev.error || null
-          setErrorMessage(errText)
+          setErrorMessage(errText ? formatChatErrorMessage(errText) : null)
           setStatus("error")
           break
         }
@@ -1580,7 +1584,8 @@ setMessages(warmMessages)
         emit("chat:activity")
         return true
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
+        const rawMessage = error instanceof Error ? error.message : String(error)
+        const message = formatChatErrorMessage(rawMessage)
         frontendLog("composer", "chat.send.fail", {
           sessionKey,
           optimisticId,
@@ -1760,7 +1765,7 @@ setMessages(warmMessages)
         source.addEventListener("chat.error", handlePreview)
         source.addEventListener("message", handlePreview)
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : String(error))
+        setErrorMessage(formatChatErrorMessage(error instanceof Error ? error.message : String(error)))
         setStatus("error")
       } finally {
         sendingGuardRef.current = false
@@ -1796,7 +1801,7 @@ setMessages(warmMessages)
       })
       setStatus("idle")
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error))
+      setErrorMessage(formatChatErrorMessage(error instanceof Error ? error.message : String(error)))
       setStatus("error")
     }
   }, [queryClient, sessionKey])
@@ -1904,7 +1909,7 @@ setMessages(warmMessages)
         source.addEventListener("chat.error", handlePreview)
         source.addEventListener("message", handlePreview)
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : String(error))
+        setErrorMessage(formatChatErrorMessage(error instanceof Error ? error.message : String(error)))
         setStatus("error")
       } finally {
         setIsSending(false)
