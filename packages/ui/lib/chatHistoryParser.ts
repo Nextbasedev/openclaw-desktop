@@ -508,6 +508,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     if (role === "assistant") {
       for (const block of toolBlocks(item)) {
         const durationMs = blockDurationMs(block)
+        const startedAt = rawTimestampMs(item) ?? undefined
         const call: InlineToolCall & { startedAtMs?: number | null } = {
           id: block.id ?? randomId(),
           tool: block.name ?? "unknown",
@@ -518,8 +519,9 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
                 ? "success"
                 : "running",
           input: block.arguments ?? block.input,
-          duration: formatDuration(durationMs ?? -1) ?? block.duration,
-          startedAtMs: rawTimestampMs(item),
+          duration: formatDuration(durationMs ?? -1),
+          startedAt,
+          startedAtMs: startedAt,
         }
         pendingToolCalls.push(call)
         resultQueue.push(call)

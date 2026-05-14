@@ -462,6 +462,52 @@ describe("parseChatHistory", () => {
     ])
 
     assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "2.6s")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.startedAt, 1000)
+  })
+
+  it("renders real tool calls from middleware history and drops fake huge durations", () => {
+    const parsed = parseChatHistory([
+      {
+        role: "user",
+        content: [{ type: "text", text: "Activity panel live success test" }],
+        timestamp: 1778669835130,
+        __openclaw: { id: "u1", seq: 1 },
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "tc1",
+            name: "session_status",
+            arguments: {},
+            duration: "66662s",
+          },
+        ],
+        timestamp: 1778669835190,
+        __openclaw: { id: "a1", seq: 2 },
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tc1",
+        toolName: "session_status",
+        content: [{ type: "text", text: "ok" }],
+        timestamp: 1778669838056,
+        __openclaw: { id: "t1", seq: 3 },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "live activity success visible" }],
+        timestamp: 1778669838057,
+        __openclaw: { id: "a2", seq: 4 },
+      },
+    ])
+
+    const tool = parsed.messages.find((message) => message.role === "assistant")?.toolCalls?.[0]
+    assert.equal(tool?.tool, "session_status")
+    assert.equal(tool?.status, "success")
+    assert.equal(tool?.duration, "2.9s")
+    assert.equal(tool?.startedAt, 1778669835190)
   })
 
   it("restores reply previews from markdown quotes with blank quoted lines", () => {
