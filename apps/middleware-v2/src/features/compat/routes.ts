@@ -721,26 +721,157 @@ function findGitRepos(root: string, maxDepth = 4, limit = 100) {
   return repos;
 }
 
-function emptyUsage(days: number, providers: unknown[] = [], unavailable?: string) {
+function usageNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeUsage(raw: CompatRecord) {
+  const input = usageNumber(raw.input ?? raw.input_tokens ?? raw.prompt_tokens);
+  const output = usageNumber(raw.output ?? raw.output_tokens ?? raw.completion_tokens);
+  const cacheRead = usageNumber(raw.cacheRead ?? raw.cache_read_tokens);
+  const cacheWrite = usageNumber(raw.cacheWrite ?? raw.cache_write_tokens);
+  const total = usageNumber(raw.total ?? raw.total_tokens) || input + output + cacheRead + cacheWrite;
+  return { input, output, cacheRead, cacheWrite, total };
+}
+
+function usageTimestampMs(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value < 10_000_000_000 ? value * 1000 : value;
+  if (typeof value !== "string" || !value.trim()) return Date.now();
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function frontendUsageSummary(summary: CompatRecord) {
+  return {
+    totalCost: usageNumber(summary.totalCost),
+    totalInputTokens: usageNumber(summary.input ?? summary.totalInputTokens),
+    totalOutputTokens: usageNumber(summary.output ?? summary.totalOutputTokens),
+    cacheReadTokens: usageNumber(summary.cacheRead ?? summary.cacheReadTokens),
+    cacheWriteTokens: usageNumber(summary.cacheWrite ?? summary.cacheWriteTokens),
+    totalTokens: usageNumber(summary.totalTokens),
+    input: usageNumber(summary.input),
+    output: usageNumber(summary.output),
+    cacheRead: usageNumber(summary.cacheRead),
+    cacheWrite: usageNumber(summary.cacheWrite),
+  };
+}
+
+function frontendDaily(days: CompatRecord[]) {
+  return days.map((day) => ({
+    date: day.day ?? day.date,
+    day: day.day ?? day.date,
+    input_tokens: usageNumber(day.input ?? day.input_tokens),
+    output_tokens: usageNumber(day.output ?? day.output_tokens),
+    cache_read_tokens: usageNumber(day.cacheRead ?? day.cache_read_tokens),
+    cache_write_tokens: usageNumber(day.cacheWrite ?? day.cache_write_tokens),
+    total_tokens: usageNumber(day.totalTokens ?? day.total_tokens),
+    cost_usd: usageNumber(day.totalCost ?? day.cost_usd),
+  }));
+}
+
+function userHomeDir() {
+  return process.env.HOME || os.homedir();
+}
+
+function usageFromSessions(requestedDays = 30) {
+  const usage: CompatRecord[] = [];
+  const days = new Map<string, CompatRecord>();
+  const cutoff = Date.now() - Math.max(1, requestedDays) * 24 * 60 * 60 * 1000;
+  const agentsRoot = path.join(userHomeDir(), ".openclaw", "agents");
+  if (fs.existsSync(agentsRoot)) {
+    for (const agent of fs.readdirSync(agentsRoot)) {
+      const sessionsDir = path.join(agentsRoot, agent, "sessions");
+      if (!fs.existsSync(sessionsDir)) continue;
+      for (const file of fs.readdirSync(sessionsDir)) {
+        if (!file.endsWith(".jsonl") || file.endsWith(".trajectory.jsonl")) continue;
+        const full = path.join(sessionsDir, file);
+        const lines = fs.readFileSync(full, "utf8").split("\n");
+        for (const line of lines) {
+          if (!line.includes('"usage"')) continue;
+          try {
+            const entry = JSON.parse(line) as CompatRecord;
+            const message = entry.message && typeof entry.message === "object" ? entry.message as CompatRecord : {};
+            const data = entry.data && typeof entry.data === "object" ? entry.data as CompatRecord : {};
+            const raw = (message.usage ?? data.usage ?? entry.usage) as CompatRecord | undefined;
+            if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+            const normalized = normalizeUsage(raw);
+            const timestamp = entry.timestamp ?? entry.ts ?? message.timestamp ?? data.timestamp;
+            const timestampMs = usageTimestampMs(timestamp);
+            if (timestampMs < cutoff) continue;
+            const cost = usageNumber((raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : undefined) ?? raw.totalCost);
+            const item = {
+              ...normalized,
+              cost,
+              provider: message.provider ?? entry.provider,
+              model: message.model ?? entry.modelId,
+              timestamp: typeof timestamp === "string" || typeof timestamp === "number" ? timestamp : new Date(timestampMs).toISOString(),
+              sessionFile: full,
+            };
+            usage.push(item);
+            const dayKey = new Date(timestampMs).toISOString().slice(0, 10);
+            const daily = days.get(dayKey) ?? { day: dayKey, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 };
+            daily.input += item.input;
+            daily.output += item.output;
+            daily.cacheRead += item.cacheRead;
+            daily.cacheWrite += item.cacheWrite;
+            daily.totalTokens += item.total;
+            daily.totalCost += item.cost;
+            days.set(dayKey, daily);
+          } catch {
+            // Skip malformed transcript lines.
+          }
+        }
+      }
+    }
+  }
+  const summary = usage.reduce((acc, item) => {
+    acc.input += usageNumber(item.input);
+    acc.output += usageNumber(item.output);
+    acc.cacheRead += usageNumber(item.cacheRead);
+    acc.cacheWrite += usageNumber(item.cacheWrite);
+    acc.totalTokens += usageNumber(item.total);
+    acc.totalCost += usageNumber(item.cost);
+    return acc;
+  }, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 });
+  return {
+    summary,
+    usage,
+    days: [...days.values()].sort((a, b) => String(a.day).localeCompare(String(b.day))),
+    source: "openclaw-session-transcripts",
+    unavailable: usage.length === 0,
+  };
+}
+
+async function usageProviders(context: AppContext) {
+  try {
+    const status = await context.gateway.request<CompatRecord>("usage.status", {}, 30_000);
+    const payload = status.payload && typeof status.payload === "object" ? status.payload as CompatRecord : status;
+    return Array.isArray(payload.providers) ? payload.providers : [];
+  } catch {
+    return [];
+  }
+}
+
+async function usageResponse(context: AppContext, days: number) {
+  const usage = usageFromSessions(days);
+  const providers = await usageProviders(context);
   return {
     range: { days },
-    summary: { totalCost: 0, totalInputTokens: 0, totalOutputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 },
+    summary: frontendUsageSummary(usage.summary),
     providers,
-    usage: [],
-    source: "middleware-v2-compat",
-    unavailable,
+    usage: usage.usage.slice(-500),
+    source: usage.source,
+    unavailable: usage.unavailable,
   };
 }
 
 function dailyUsage(days: number) {
-  const today = new Date();
-  const daily = Array.from({ length: Math.max(1, days) }, (_, index) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (days - index - 1));
-    const date = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    return { date, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, total_tokens: 0, cost_usd: 0 };
-  });
-  return { range: { days }, daily, days: daily, source: "middleware-v2-compat" };
+  const usage = usageFromSessions(days);
+  const daily = frontendDaily(usage.days);
+  return { range: { days }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable };
 }
 
 async function connectGatewayForStatus(context: AppContext) {
@@ -1333,7 +1464,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
     switch (command) {
       case "middleware_usage":
-        return emptyUsage(Number(input.days) || 30);
+        return usageResponse(context, Number(input.days) || 30);
       case "middleware_usage_daily":
         return dailyUsage(Number(input.days) || 30);
       case "middleware_models_list":
