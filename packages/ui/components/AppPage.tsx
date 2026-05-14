@@ -2282,9 +2282,7 @@ function MainContent({
     return (
       <div className="flex h-full w-full">
         <SettingsDashboard
-          key={`settings:${settingsInitialSection}`}
-        
-          initialSection={settingsInitialSection}
+          key={`settings:${settingsSection}`}
           onBack={onSettingsBack}
           activeSection={settingsSection}
           onSectionChange={onSettingsSectionChange}
