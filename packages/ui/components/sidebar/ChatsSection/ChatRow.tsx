@@ -236,13 +236,11 @@ export function ChatRow({
           <span
             title="Chat is running"
             className={cn(
-              "pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full transition-opacity duration-100",
+              "pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded transition-opacity duration-100",
               anyMenuOpen ? "opacity-0" : "opacity-100 group-hover/row:opacity-0",
             )}
           >
-            <span className="absolute size-3 rounded-full bg-emerald-500/20 dark:bg-emerald-400/20" />
-            <span className="absolute size-3 animate-ping rounded-full bg-emerald-500/25 dark:bg-emerald-400/25" />
-            <span className="relative size-1.5 rounded-full bg-emerald-600 shadow-[0_0_10px_rgba(5,150,105,0.55)] dark:bg-emerald-400 dark:shadow-[0_0_10px_rgba(52,211,153,0.55)]" />
+            <span className="size-3 animate-spin rounded-full border border-muted-foreground/25 border-t-foreground/75 dark:border-muted-foreground/30 dark:border-t-foreground/80" />
           </span>
         )}
         {!chat.pendingFork && <Popover open={dotMenuOpen} onOpenChange={handleDotMenuOpenChange}>
