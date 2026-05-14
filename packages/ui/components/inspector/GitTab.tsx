@@ -12,6 +12,61 @@ import {
   STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type GitDiffResponse,
 } from "./git-helpers"
 
+const GIT_TAB_SELECTION_STORAGE_KEY = "openclaw.gitTab.selectedProject.v1"
+
+export type PickedRepo = { name: string; path: string }
+export type GitTabSelection = {
+  projectId: string | null
+  repo: PickedRepo | null
+}
+
+let gitTabSelectionCache: GitTabSelection | null = null
+
+export function parsePersistedGitTabSelection(raw: string | null): GitTabSelection | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<GitTabSelection>
+    const projectId = typeof parsed.projectId === "string" && parsed.projectId ? parsed.projectId : null
+    const repo = parsed.repo
+    const validRepo = repo && typeof repo.name === "string" && typeof repo.path === "string"
+      ? { name: repo.name, path: repo.path }
+      : null
+    return projectId || validRepo ? { projectId, repo: validRepo } : null
+  } catch {
+    return null
+  }
+}
+
+function readPersistedGitTabSelection(): GitTabSelection | null {
+  if (gitTabSelectionCache) return gitTabSelectionCache
+  if (typeof window === "undefined") return null
+  const sessionSelection = parsePersistedGitTabSelection(window.sessionStorage.getItem(GIT_TAB_SELECTION_STORAGE_KEY))
+  if (sessionSelection) {
+    gitTabSelectionCache = sessionSelection
+    return sessionSelection
+  }
+  const localSelection = parsePersistedGitTabSelection(window.localStorage.getItem(GIT_TAB_SELECTION_STORAGE_KEY))
+  gitTabSelectionCache = localSelection
+  return localSelection
+}
+
+function persistGitTabSelection(selection: GitTabSelection) {
+  gitTabSelectionCache = selection
+  if (typeof window === "undefined") return
+  try {
+    window.sessionStorage.setItem(GIT_TAB_SELECTION_STORAGE_KEY, JSON.stringify(selection))
+    window.localStorage.setItem(GIT_TAB_SELECTION_STORAGE_KEY, JSON.stringify(selection))
+  } catch { /* ignore */ }
+}
+
+export function getEffectiveGitTarget(projectId: string | null, selection: GitTabSelection | null) {
+  const effectiveProjectId = projectId ?? selection?.projectId ?? null
+  return {
+    projectId: effectiveProjectId,
+    repoPath: effectiveProjectId ? null : selection?.repo?.path ?? null,
+  }
+}
+
 function StateBadge({ state }: { state: FileState }) {
   const config = STATE_CONFIG[state]
   return (
@@ -24,9 +79,22 @@ function StateBadge({ state }: { state: FileState }) {
   )
 }
 
-export function GitTab({ projectId }: { projectId: string | null }) {
-  const [pickedProjectId, setPickedProjectId] = useState<string | null>(null)
-  const [pickedRepo, setPickedRepo] = useState<{ name: string; path: string } | null>(null)
+type GitTabProps = {
+  projectId: string | null
+  selection?: GitTabSelection | null
+  onSelectionChange?: (selection: GitTabSelection) => void
+}
+
+export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps) {
+  const persistedSelectionRef = useRef<GitTabSelection | null>(null)
+  if (persistedSelectionRef.current === null) {
+    persistedSelectionRef.current = readPersistedGitTabSelection()
+  }
+
+  const [internalSelection, setInternalSelection] = useState<GitTabSelection>(() => {
+    if (projectId) return { projectId, repo: null }
+    return persistedSelectionRef.current ?? { projectId: null, repo: null }
+  })
   const [context, setContext] = useState<GitContextResponse | null>(null)
   const [branches, setBranches] = useState<BranchesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -35,10 +103,16 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [selectedCommit, setSelectedCommit] = useState<{ hash: string; message: string } | null>(null)
   const [selectedChangedFile, setSelectedChangedFile] = useState<GitFile | null>(null)
-  const effectiveProjectId = projectId ?? pickedProjectId ?? null
-  const effectiveRepoPath = !effectiveProjectId ? pickedRepo?.path ?? null : null
+  const activeSelection = selection ?? internalSelection
+  const { projectId: effectiveProjectId, repoPath: effectiveRepoPath } = getEffectiveGitTarget(projectId, activeSelection)
   const skipNextAutoLoadRef = useRef<string | null>(null)
   const loadSeqRef = useRef(0)
+
+  const updateSelection = useCallback((nextSelection: GitTabSelection) => {
+    setInternalSelection(nextSelection)
+    onSelectionChange?.(nextSelection)
+    persistGitTabSelection(nextSelection)
+  }, [onSelectionChange])
 
   const loadGitTarget = useCallback(async (targetProjectId: string | null, targetRepoPath: string | null = null) => {
     if (!targetProjectId && !targetRepoPath) return
@@ -74,6 +148,11 @@ export function GitTab({ projectId }: { projectId: string | null }) {
   const load = useCallback(async () => {
     await loadGitTarget(effectiveProjectId, effectiveRepoPath)
   }, [effectiveProjectId, effectiveRepoPath, loadGitTarget])
+
+  useEffect(() => {
+    if (!projectId) return
+    updateSelection({ projectId, repo: null })
+  }, [projectId, updateSelection])
 
   useEffect(() => {
     if (!effectiveProjectId && !effectiveRepoPath) {
@@ -113,13 +192,18 @@ export function GitTab({ projectId }: { projectId: string | null }) {
 
   const handleRepoSelect = useCallback(async (repo: { name: string; path: string }) => {
     setRepoPickerOpen(false)
+    setContext(null)
+    setBranches(null)
+
+    const nextSelection = effectiveProjectId
+      ? { projectId: effectiveProjectId, repo: null }
+      : { projectId: null, repo }
+    updateSelection(nextSelection)
+
     try {
       await invoke("middleware_repos_select", {
         input: { path: repo.path, name: repo.name },
       })
-
-      setContext(null)
-      setBranches(null)
 
       if (effectiveProjectId) {
         await invoke("middleware_projects_update", {
@@ -135,13 +219,11 @@ export function GitTab({ projectId }: { projectId: string | null }) {
 
       setLoading(true)
       skipNextAutoLoadRef.current = repo.path
-      setPickedProjectId(null)
-      setPickedRepo(repo)
       await loadGitTarget(null, repo.path)
     } catch { /* ignore */ }
-  }, [effectiveProjectId, loadGitTarget])
+  }, [effectiveProjectId, loadGitTarget, updateSelection])
 
-  if (!effectiveProjectId && !pickedRepo) {
+  if (!effectiveProjectId && !activeSelection.repo) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-4">
         <VscSourceControl className="size-8 text-muted-foreground/20" />
