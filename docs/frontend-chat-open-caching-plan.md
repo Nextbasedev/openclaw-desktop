@@ -1,353 +1,434 @@
 # Frontend Chat Reload Caching Plan
 
-## Short answer
+## Final production direction
 
-Yes, a frontend-only caching layer for faster chat open can be production-ready if we follow these rules:
+We should implement a **frontend-first stale-while-revalidate warm chat cache** for fast chat open and fast app reload, while keeping **Middleware V2 / backend projection as the canonical source of truth**.
 
-- backend remains the source of truth
-- frontend cache is only for fast paint and smoother reopen
-- full long chat transcripts are not persisted on the frontend
-- recent message windows are cached briefly and then reconciled with canonical bootstrap
-- long chats stay windowed and virtualized
+The goal is Telegram-like perceived smoothness:
 
-This is the correct direction for making chat open feel fast and smooth, especially when there are many chats.
-
-## About Telegram, Codex, and ChatGPT
-
-The safe statement is:
-
-- this general pattern is common and production-grade
-- messaging/chat products often use layered cache + stale-while-revalidate + windowed rendering
-- I cannot confirm the exact internal frontend implementation of Telegram, Codex, or ChatGPT from this repository alone
-
-So:
-
-- same kind of pattern: likely yes
-- exact same implementation: cannot confirm
-
-## Goal
-
-When a user clicks a chat from the left sidebar:
-
-- the center panel opens immediately
-- recent messages appear fast
+- app shell opens immediately
+- sidebar appears quickly
+- recently opened chats paint instantly after reload
 - long chats do not freeze the UI
-- repeated clicks do not trigger unnecessary reloads
-- backend bootstrap still provides the final correct state
+- tool-call/running-agent state is recovered from backend, not trusted from stale frontend cache
+- backend bootstrap and patch stream always reconcile the UI
 
-## Non-goals
+This can be implemented first without Middleware V2 contract changes.
 
-- frontend becoming the source of truth for transcript history
-- storing full long chat history in browser persistence
-- aggressive polling for every chat
-- replacing backend bootstrap with frontend guesses
+---
 
-## What we already have today
+## Core principle
 
-The current frontend already has a good base.
+Frontend cache is for **fast paint only**.
 
-### Existing fast-open building blocks
+Middleware V2 remains the source of truth for:
 
-- In-memory global chat session cache
-  - `packages/ui/lib/chat-engine-v2/store.ts`
-- React Query bootstrap cache per `sessionKey`
-  - `packages/ui/hooks/useChatMessages.ts`
-- warm bootstrap rendering
-  - `warmBootstrapMessages(...)`
-- short chat bootstrap request dedupe
-- long-chat message windowing
-- virtualized chat rendering with `react-virtuoso`
+- canonical messages
+- run status
+- active tool calls
+- cursor / projection position
+- final completion/error/abort state
+- long-running task recovery
 
-### Important current rule
+So the frontend may show cached data immediately, but it must always call:
 
-Full chat arrays are intentionally not persisted long-term on the frontend.
+```txt
+GET /api/chat/bootstrap?sessionKey=...
+```
 
-That is correct and should stay true.
+and apply the backend result when it returns.
 
-## Current frontend storage
+---
 
-### Current storage locations
+## What we learned from Telegram Desktop style architecture
 
-- in-memory global session store
-- React Query in-memory cache
-- persistent cache wrapper
-  - `packages/ui/lib/persistentCache.ts`
-- local-first sync wrapper
-  - `packages/ui/lib/localFirstSync.ts`
+Telegram Desktop uses a local data model that can render quickly while requesting missing/canonical history in slices. The useful pattern for us is not “persist everything”; it is:
 
-### Current persistent cache backend
+- keep local chat/session model for immediate UI
+- represent history as windows/slices, not one huge always-rendered array
+- open around the latest/unread region first
+- request missing older history only when needed
+- preserve scroll state
+- preload a small area around visible content
+- reconcile with server/backend updates
 
-Current persistent cache uses:
+For OpenClaw Desktop, the equivalent is:
 
-- memory map
-- `localStorage`
-- IndexedDB
-
-## Production-ready storage rule
-
-### What is safe
-
-Production-ready frontend persistence should be:
-
-- small
-- short-lived
-- bounded
-- recent-window only
-- IndexedDB-friendly
-
-### What is not safe
-
-It is not production-ready to store:
-
-- full long chats in `localStorage`
-- many full transcripts for many chats
-- large attachment payloads in browser persistence
-
-Reason:
-
-- `localStorage` is small
-- it is synchronous
-- large reads/writes can hurt performance
-- many chats can fill it quickly
-
-So for this app, production-ready persistence means:
-
-- `localStorage` may exist as fallback or tiny metadata storage
-- persisted warm chat cache should be treated as bounded IndexedDB-first storage
-- full transcript persistence should not be used
-
-## Production-ready frontend-only strategy
-
-Use 4 layers.
-
-### Layer 1: route and shell state
-
-Open the chat shell immediately using:
-
-- `chatId`
-- `sessionKey`
-- title/session metadata already known in the app
-
-This avoids blank transitions.
-
-### Layer 2: in-memory hot cache
-
-If the chat was already opened in the current app session, render first from:
-
-- global in-memory chat session state
+- hot in-memory session store
 - React Query bootstrap cache
+- persisted warm recent-message window
+- Middleware V2 bootstrap reconciliation
+- V2 patch stream continuation
+- virtualized/windowed rendering
 
-This is the fastest path and should always win first.
+---
 
-### Layer 3: persisted warm cache
+## Required user experience
 
-Persist only a small recent-message window per chat.
+### When user clicks a chat
 
-Store only:
+1. Center chat shell opens immediately.
+2. If hot memory cache exists, render it instantly.
+3. Else if React Query cache exists, render it instantly.
+4. Else if persisted warm cache exists, render it instantly.
+5. Start Middleware V2 bootstrap in the background.
+6. Apply canonical backend snapshot when it returns.
+7. Continue live updates from `/api/stream/ws` or `/api/patches`.
 
-- last `30` to `100` messages
-- `sessionKey`
-- `cursor`
-- `runStatus`
-- `statusLabel`
-- `cachedAt`
+### When user reloads the whole application
 
-Do not persist the full transcript.
+Recently opened chats should still feel fast:
 
-This layer exists only to make cold reopen feel fast after app restart.
+- sidebar/startup metadata can load from short local cache
+- selected/recent chat can paint from persisted warm cache
+- backend bootstrap refreshes in background
+- stale status is corrected after backend response
 
-### Layer 4: canonical backend bootstrap
+### When app was closed during a tool call
 
-Always reconcile with:
+If a cached chat says a run/tool was active:
 
-- `GET /api/chat/bootstrap?sessionKey=...`
+1. Show cached messages instantly.
+2. Do **not** trust cached `tool_running` as final truth.
+3. Show an internal/status label like `Reconnecting…` or `Checking latest run state…`.
+4. Call backend bootstrap immediately.
+5. Backend result wins:
+   - completed → show final messages/tool result
+   - failed → show error state
+   - aborted/disconnected → show canonical stopped state
+   - still running → resume live status from patch stream
 
-This remains the source of truth.
+Frontend local cache must not be responsible for long-running task recovery.
 
-## Open flow
+---
 
-When a user clicks a chat in the sidebar:
+## Fresh vs stale cache policy
 
-1. Open the shell immediately.
-2. Try hot in-memory cache.
-3. If missing, try persisted warm cache.
-4. Render the recent message window if available.
-5. Start canonical bootstrap in the background.
-6. Reconcile cached window with bootstrap.
-7. Continue live updates from the existing V2 patch stream.
+Do not use a simple short TTL that makes the app blank after expiry.
 
-This gives a fast open without sacrificing correctness.
+Use two windows:
 
-## Long chat strategy
+```ts
+const WARM_CHAT_FRESH_MS = 2 * 60 * 1000       // 2 minutes
+const WARM_CHAT_DISPLAYABLE_MS = 24 * 60 * 60 * 1000 // 24 hours
+```
 
-For long chats:
+Meaning:
 
-- render only the latest message window first
-- do not hydrate hundreds or thousands of messages on first open
-- keep older messages on demand
-- preserve scroll stability
+- cache younger than `freshMs` is fresh and can be shown normally
+- cache older than `freshMs` but younger than `displayableMs` can still be shown for fast paint, but is considered stale
+- stale cache must trigger immediate backend bootstrap
+- cache older than `displayableMs` should not be used
 
-Recommended defaults:
+This keeps reload fast even after 1–2 hours while preserving correctness.
 
-- initial recent window: `60` messages
-- older history: load in chunks
+---
 
-## Virtualization
+## What to persist locally
 
-Virtualization should remain part of the production-ready solution.
+Create a dedicated frontend warm cache for recent chat-open data.
 
-Why:
+Suggested module:
 
-- cache makes open fast
-- windowing reduces data cost
-- virtualization reduces render cost
+```txt
+packages/ui/lib/warmChatCache.ts
+```
 
-Together they give:
+Persist per `sessionKey`:
 
-- instant-feeling open
-- smoother scrolling
-- better performance for long chats
-
-The current app already uses virtualization in the center chat view, and that should continue.
-
-## Cache policy
-
-### What to store
+```ts
+type WarmChatCacheEntry = {
+  sessionKey: string
+  messages: ChatMessage[] // recent window only
+  cursor?: number
+  runStatus?: string | null
+  statusLabel?: string | null
+  activeRunSummary?: {
+    runId?: string
+    status?: string
+    startedAt?: string | number | null
+  } | null
+  pendingToolSummary?: Array<{
+    id: string
+    name?: string
+    status?: string
+  }>
+  messageCount?: number
+  cachedAt: number
+  lastAccessedAt: number
+}
+```
 
 Store only:
 
 - recent message window
-- session metadata
 - cursor
 - status summary
+- lightweight active run summary
+- lightweight pending tool summary
+- timestamps for freshness and LRU
 
-### What not to store
-
-Do not store:
+Do **not** store:
 
 - full long transcripts
 - large attachments
-- full tool history for every chat
+- full tool output history for every chat
+- terminal/process logs
+- backend runtime truth
+- secrets or large raw payloads
 
-### Recommended TTLs
+---
 
-- hot in-memory cache: current app session
-- React Query bootstrap cache: existing short stale window
-- persisted warm chat cache: `1` to `5` minutes
+## Cache bounds
 
-Recommended starting point:
+Production-safe defaults:
 
-- persisted warm chat cache TTL: `2 minutes`
+```ts
+const WARM_CHAT_MAX_CHATS = 30
+const WARM_CHAT_MAX_MESSAGES = 80
+const WARM_CHAT_MAX_APPROX_BYTES_PER_CHAT = 500 * 1024
+const WARM_CHAT_WRITE_DEBOUNCE_MS = 1000
+```
 
-## Scaling for lots of chats
+Rules:
 
-This plan can work for lots of chats only if persistence is bounded.
+- Only recently opened chats are cached.
+- If user has 100 chats, do not cache all 100.
+- Keep at most 30 warm chat entries initially.
+- Keep only the latest 80 messages per cached chat.
+- Evict least-recently-used chats first.
+- Trim messages further if approximate payload size is too large.
 
-Production-safe scaling rules:
+For 6–7 active chats, this is comfortably safe.
 
-- persist only recently opened chats
-- keep only a small recent-message window
-- add eviction for older chat caches
-- cap total persisted warm chat entries
+For 100 total chats, only the most recent 30 are warm cached.
 
-Recommended starting policy:
+---
 
-- keep warm cache for only the most recent `20` to `50` chats
-- keep only `60` recent messages per cached chat
-- evict least recently used chat caches first
+## Open order in `useChatMessages`
 
-This keeps the app smooth without filling browser storage.
+Update the initial render path in:
 
-## What we should implement next in frontend only
+```txt
+packages/ui/hooks/useChatMessages.ts
+```
 
-### 1. Add a dedicated warm chat cache module
+Preferred order:
 
-Create a dedicated frontend cache helper for recent chat-open data.
+1. `initialMessages` if provided
+2. global V2 chat session store
+3. React Query bootstrap cache
+4. persisted warm chat cache
+5. empty shell + backend bootstrap
 
-Suggested responsibility:
+Important behavior:
 
-- read/write recent message window by `sessionKey`
-- keep TTL
-- enforce entry count / eviction rules
+- warm cache should reduce loading blank states
+- stale warm cache should still render quickly but show reconnect/checking state if needed
+- backend bootstrap always runs
+- canonical messages replace/reconcile cached messages
 
-### 2. Read warm cache before bootstrap
+---
 
-In `useChatMessages`, use this open order:
+## Persist timing
 
-1. global in-memory session
-2. React Query bootstrap cache
-3. persisted warm chat cache
-4. canonical backend bootstrap
+Persist warm cache after:
 
-### 3. Persist only a small recent window
+1. successful backend bootstrap
+2. meaningful live V2 session updates
+3. status/tool state changes worth preserving
 
-After successful bootstrap or useful live updates:
+Do not persist on every tiny patch synchronously.
 
-- write only a recent message slice
-- write cursor/status metadata
-- never write the full transcript
+Use debounce/throttle:
 
-### 4. Debounce writes
+- debounce writes around `1000ms`
+- clear pending timers on unmount
+- avoid blocking render path
 
-Do not write persistent warm cache on every tiny event.
+---
 
-Use debounced or throttled writes so the cache remains efficient.
+## Reconciliation rules
 
-### 5. Keep long chats windowed
+Backend wins always.
 
-Do not change the long-chat rule:
+When bootstrap returns:
+
+- parse canonical messages
+- dedupe with optimistic messages where needed
+- apply canonical cursor
+- apply canonical run/tool status
+- seed/update global chat session
+- update React Query bootstrap cache
+- update warm chat cache with bounded recent window
+
+If warm cache disagrees with backend:
+
+- backend snapshot replaces stale cached fields
+- cached-only running state is not treated as final
+
+---
+
+## Long chat strategy
+
+Do not hydrate/render huge chats on first open.
+
+Keep:
 
 - latest window first
-- older chunks later
+- older history loaded on demand
+- scroll stability
+- virtualization via current center chat view
 
-### 6. Keep virtualization in place
+Frontend warm cache improves fast paint, but long-term huge-chat performance may still require Middleware V2 windowed history endpoints.
 
-Virtualized rendering should continue to be part of the center chat open path.
+---
 
-### 7. Add bounded eviction
+## Middleware V2 changes
 
-When too many warm chat caches accumulate:
+### Phase 1: not required
 
-- delete least recently used entries
-- keep only recent chats
+This warm cache implementation can be frontend-only because Middleware V2 already provides:
 
-### 8. Keep backend bootstrap canonical
+- `/api/chat/bootstrap?sessionKey=...`
+- canonical messages
+- cursor
+- run status
+- status label
+- active run
+- tool calls
+- WebSocket patch stream via `/api/stream/ws`
+- patch replay via `/api/patches`
 
-Whenever cached data and backend snapshot disagree:
+So phase 1 should not change middleware contracts.
 
-- backend snapshot wins
+### Phase 2: optional future improvements
 
-## What should remain true
+If very large chats still feel slow because bootstrap returns too much history, then add Middleware V2 support for windowed history:
 
-- no backend contract changes are required for this caching layer
-- existing functionality should remain unchanged
-- cache is a helper, not a decision-maker
-- canonical bootstrap still wins
-- no full transcript persistence on frontend
+```txt
+GET /api/chat/bootstrap?sessionKey=X&limit=80
+GET /api/chat/messages?sessionKey=X&beforeSeq=123&limit=80
+```
 
-## Why this plan is production-ready
+Optional future behavior:
 
-This is production-ready because it:
+- return latest SQLite projection window immediately
+- refresh gateway history in background
+- expose older-message pagination
+- make active run recovery explicit
 
-- gives fast open behavior
-- avoids heavy or unsafe browser persistence
-- scales better with many chats
-- keeps backend truth intact
-- reduces repeated reloads
-- works for both short and long chats
-- fits the app’s existing architecture
+But this is not required for the first frontend warm-cache implementation.
+
+---
+
+## Implementation plan
+
+### Step 1 — Add warm chat cache module
+
+Create:
+
+```txt
+packages/ui/lib/warmChatCache.ts
+```
+
+Responsibilities:
+
+- `getWarmChatCache(sessionKey)`
+- `setWarmChatCache(sessionKey, entry)`
+- `touchWarmChatCache(sessionKey)`
+- `deleteWarmChatCache(sessionKey)`
+- `pruneWarmChatCache()`
+- stale/fresh classification
+- LRU index management
+- message count and approximate-size trimming
+
+Use existing:
+
+```txt
+packages/ui/lib/persistentCache.ts
+```
+
+Do not create a new storage backend unless necessary.
+
+### Step 2 — Read warm cache before bootstrap
+
+In `useChatMessages.ts`:
+
+- check global session and React Query first
+- if absent, asynchronously load warm cache
+- render cached recent window if available
+- mark stale active runs as reconnecting/checking
+- keep backend bootstrap running regardless
+
+### Step 3 — Persist after canonical bootstrap
+
+After `fetchChatBootstrapV2` / `loadChatBootstrap` resolves and canonical messages are parsed:
+
+- write last 80 messages
+- write cursor
+- write canonical status/statusLabel
+- write activeRun/tool summaries
+- update LRU index
+
+### Step 4 — Persist useful live updates
+
+When global chat session emits live updates:
+
+- debounce warm cache writes
+- write recent message slice only
+- include lightweight tool/run status
+
+### Step 5 — Keep architecture boundaries
+
+Do not:
+
+- make frontend source of truth
+- bypass `/api/chat/bootstrap`
+- store full transcripts
+- change Middleware V2 contracts in phase 1
+- alter message normalization semantics unnecessarily
+- break existing global V2 chat engine
+
+### Step 6 — Verification
+
+Minimum checks before PR:
+
+- TypeScript/typecheck for UI package if available
+- focused lint/build command if available
+- manual code inspection for no full transcript persistence
+- verify only bounded recent windows are persisted
+- verify backend bootstrap still runs on every mount/open
+- verify stale cached active run shows reconnect/checking until canonical bootstrap resolves
+
+---
+
+## Success criteria
+
+The change is successful when:
+
+- opening a recently used chat feels instant
+- reloading the app and reopening recent chats feels fast
+- 6–7 recently used chats remain smooth after reload
+- 100 total chats does not mean caching all 100 chats
+- long chats do not freeze the UI
+- stale 1–2 hour cache can paint quickly but backend corrects it
+- tool-call state after app close/reopen is recovered from Middleware V2, not trusted from frontend cache
+- no Middleware V2 API change is required for phase 1
+
+---
 
 ## Final recommendation
 
-For this app, the production-ready version is:
+Implement phase 1 as:
 
 - hot memory cache first
 - React Query cache second
-- small persisted recent-message window third
-- canonical backend bootstrap always
-- long-chat windowing preserved
-- virtualization preserved
-- bounded eviction for lots of chats
+- persisted warm recent-message window third
+- stale-while-revalidate behavior
+- backend bootstrap always canonical
+- bounded LRU cache
+- debounced writes
+- virtualization/windowing preserved
 
-That is the frontend-only plan we should implement next for fast chat reload.
-
+This gives us the best balance of speed, correctness, and architecture safety.
