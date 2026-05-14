@@ -508,6 +508,7 @@ describe("parseChatHistory", () => {
     assert.equal(tool?.status, "success")
     assert.equal(tool?.duration, "2.9s")
     assert.equal(tool?.startedAt, 1778669835190)
+    assert.equal(tool?.completedAt, 1778669838056)
   })
 
   it("restores reply previews from markdown quotes with blank quoted lines", () => {

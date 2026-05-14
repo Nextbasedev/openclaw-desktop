@@ -29,6 +29,7 @@ export type InlineToolCall = {
   status: "running" | "success" | "error"
   duration?: string
   startedAt?: number
+  completedAt?: number
   input?: unknown
   resultText?: string
   approval?: {

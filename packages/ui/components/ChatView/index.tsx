@@ -1011,6 +1011,8 @@ export function ChatView({
       }
       const mergedTool = { ...existing, ...tool }
       if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
+      if (existing.startedAt && !tool.startedAt) mergedTool.startedAt = existing.startedAt
+      if (existing.completedAt && !tool.completedAt) mergedTool.completedAt = existing.completedAt
       if (existing.duration && existing.status !== "running") {
         mergedTool.duration = existing.duration
       }

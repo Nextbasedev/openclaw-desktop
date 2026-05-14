@@ -95,6 +95,7 @@ function inlineToolToProjection(sessionKey: string, tool: InlineToolCall): ToolC
     argsMeta: tool.input,
     resultMeta: tool.resultText,
     startedAtMs: tool.startedAt,
+    finishedAtMs: tool.completedAt,
   }
 }
 
@@ -252,6 +253,7 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
     ...existing,
     status: inferToolStatus(resultText),
     duration: existing.duration ?? formatToolDuration(existing.startedAt, frame.patch.createdAtMs),
+    completedAt: existing.completedAt ?? frame.patch.createdAtMs,
     resultText: resultText || existing.resultText,
     approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
   }
@@ -280,7 +282,17 @@ function mergeToolCalls(existing: InlineToolCall[] | undefined, incoming: Inline
   const merged = new Map((existing ?? []).map((tool) => [tool.id, tool]))
   for (const tool of incoming) {
     const current = merged.get(tool.id)
-    merged.set(tool.id, { ...(current ?? tool), ...tool })
+    if (!current) {
+      merged.set(tool.id, tool)
+      continue
+    }
+    merged.set(tool.id, {
+      ...current,
+      ...tool,
+      duration: tool.duration ?? current.duration,
+      startedAt: tool.startedAt ?? current.startedAt,
+      completedAt: tool.completedAt ?? current.completedAt,
+    })
   }
   return Array.from(merged.values())
 }

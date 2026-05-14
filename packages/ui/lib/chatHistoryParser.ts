@@ -587,15 +587,15 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       const resultText = toolResultText(item)
       matched.status = inferToolStatus(item, resultText)
       matched.resultText = resultText || matched.resultText
+      const finishedAt = rawTimestampMs(item)
+      matched.completedAt = finishedAt ?? matched.completedAt
       const preciseDurationMs = toolResultDurationMs(item, resultText)
-      const fallbackDurationMs = (() => {
-        const finishedAt = rawTimestampMs(item)
-        return finishedAt !== null &&
-          matched.startedAtMs !== null &&
-          matched.startedAtMs !== undefined
+      const fallbackDurationMs =
+        finishedAt !== null &&
+        matched.startedAtMs !== null &&
+        matched.startedAtMs !== undefined
           ? finishedAt - matched.startedAtMs
           : null
-      })()
       matched.duration =
         formatDuration(preciseDurationMs ?? fallbackDurationMs ?? -1) ??
         matched.duration

@@ -378,6 +378,7 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
       typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
     ),
     startedAt: realEpochMs(tool.startedAtMs),
+    completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
     resultText: tool.resultMeta ? toolResultText(tool.resultMeta) : undefined,
   }
@@ -915,9 +916,8 @@ export function useChatMessages(
               tool: name,
               status: "running" as const,
             }
-            const duration = call.startedAt
-              ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
-              : undefined
+            const completedAt = Date.now()
+            const duration = formatToolDuration(call.startedAt, completedAt)
             const resultText = toolResultText(
               (ev as Record<string, unknown>).result
             )
@@ -925,6 +925,7 @@ export function useChatMessages(
               ...call,
               status: phase === "error" ? "error" : "success",
               duration,
+              completedAt,
               resultText: resultText || call.resultText,
               approval: resultText
                 ? (parseExecApproval(resultText) ?? call.approval)
