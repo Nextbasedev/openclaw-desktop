@@ -1216,7 +1216,7 @@ export function ChatView({
           {msg.role === "assistant" &&
             filteredToolCalls &&
             filteredToolCalls.length > 0 && (
-              <div className="mb-2 max-w-[85%]">
+              <div className="mb-1 max-w-[85%]">
                 <ToolCallSteps
                   tools={filteredToolCalls}
                   defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
@@ -1263,7 +1263,7 @@ export function ChatView({
             </div>
           )}
           {showPending && filteredPending.length > 0 && (
-            <div className="mt-4 max-w-[85%]">
+            <div className="mt-2 max-w-[85%]">
               <ToolCallSteps
                 tools={filteredPending}
                 defaultOpen
@@ -1273,7 +1273,7 @@ export function ChatView({
             </div>
           )}
           {showStatus && statusText && (
-            <div className="mt-4 flex items-center pl-1">
+            <div className="mt-2 flex items-center pl-1">
               <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
                 {statusText.replace(/\.{3}$/, "")}
                 <span className="thinking-ellipsis" aria-hidden="true" />
@@ -1482,7 +1482,7 @@ export function ChatView({
               </AnimatePresence>
 
               {statusText && !showInlineStatus && (
-                <div className="mt-4 flex items-center pl-1">
+                <div className="mt-2 flex items-center pl-1">
                   <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
                     {statusText.replace(/\.{3}$/, "")}
                     <span className="thinking-ellipsis" aria-hidden="true" />
