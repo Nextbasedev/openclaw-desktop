@@ -987,9 +987,6 @@ export function ChatView({
     return matched
   }
 
-  const liveFooterTools = toolCallsWithoutSpawn(pendingTools)
-  const liveFooterSubagents = getSubagentsForMessage(pendingTools)
-
   const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
   const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
   let nearestUserId: string | null = null
@@ -1386,24 +1383,6 @@ export function ChatView({
                   />
                 )}
               </AnimatePresence>
-
-              {isGenerating && liveFooterTools.length > 0 && (
-                <div className="mt-4 max-w-[85%]">
-                  <ToolCallSteps
-                    tools={liveFooterTools}
-                    defaultOpen
-                    onSelectTool={onSelectTool}
-                    onResolveApproval={resolveExecApproval}
-                    autoOpenLatestResult
-                  />
-                </div>
-              )}
-
-              {isGenerating && liveFooterSubagents.length > 0 && (
-                <div className="mt-3">
-                  <SubagentCard subagents={liveFooterSubagents} onOpen={openSubagent} />
-                </div>
-              )}
 
               {statusText && (
                 <div className="mt-4 flex items-center gap-2 pl-1">
