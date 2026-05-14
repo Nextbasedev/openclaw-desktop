@@ -130,6 +130,24 @@ export class ChatLiveIngest {
         resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
       });
     }
+    const cleanMessageText = normalizeMessageText(textFromMessage(message));
+    if (cleanMessageText) {
+      const existing = this.context.messages.getSession(sessionKey);
+      const timestamp = new Date().toISOString();
+      this.context.messages.upsertSession({
+        sessionKey,
+        sessionId: existing?.sessionId ?? null,
+        data: {
+          ...this.objectData(existing?.data),
+          sessionKey,
+          lastMessageAt: timestamp,
+          lastActiveAt: timestamp,
+          updatedAt: timestamp,
+          lastMessageRole: projectedMessage.role,
+          lastMessageText: cleanMessageText,
+        },
+      });
+    }
     if (projectedMessage.role === "assistant" && associatedRun && !this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) {
       this.context.runs.updateRunStatus(associatedRun.runId, "done", { statusLabel: null });
       this.context.messages.upsertSession({
