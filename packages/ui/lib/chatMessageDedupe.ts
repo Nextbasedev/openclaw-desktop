@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../components/ChatView/types"
+import { isStandaloneChatErrorText } from "./chatErrorText"
 import { cleanUserMessageText } from "./chatHistoryParser"
 
 const ATTACHMENT_PLACEHOLDER_RE =
@@ -70,20 +71,49 @@ function hasOverlappingToolCalls(a: ChatMessage, b: ChatMessage) {
   return (b.toolCalls ?? []).some((tool) => aIds.has(tool.id))
 }
 
+function hasDifferentGatewayIndex(a: ChatMessage, b: ChatMessage) {
+  const aIndex = a.gatewayIndex
+  const bIndex = b.gatewayIndex
+  return (
+    typeof aIndex === "number" &&
+    Number.isFinite(aIndex) &&
+    typeof bIndex === "number" &&
+    Number.isFinite(bIndex) &&
+    aIndex !== bIndex
+  )
+}
+
+function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
+  return (
+    typeof a.gatewayIndex === "number" &&
+    Number.isFinite(a.gatewayIndex) &&
+    typeof b.gatewayIndex === "number" &&
+    Number.isFinite(b.gatewayIndex) &&
+    a.gatewayIndex === b.gatewayIndex
+  )
+}
+
+function isAssistantErrorLike(message: ChatMessage) {
+  if (message.role !== "assistant") return false
+  if (isStandaloneChatErrorText(message.text)) return true
+  return message.stopReason === "error" && !message.text.trim()
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
-  const aText = normalizeUserTextForDedupe(a.text)
-  const bText = normalizeUserTextForDedupe(b.text)
-  if (!aText || aText !== bText) return false
-  if (!hasSameAttachments(a, b) && !a.isOptimistic && !b.isOptimistic) return false
   if (
     typeof a.gatewayIndex === "number" &&
     typeof b.gatewayIndex === "number" &&
+    Number.isFinite(a.gatewayIndex) &&
+    Number.isFinite(b.gatewayIndex) &&
     a.gatewayIndex === b.gatewayIndex
   ) {
     return true
   }
-  if (a.isOptimistic || b.isOptimistic) return true
+  const aText = normalizeUserTextForDedupe(a.text)
+  const bText = normalizeUserTextForDedupe(b.text)
+  if (!aText || aText !== bText) return false
+  if (!hasSameAttachments(a, b) && !a.isOptimistic && !b.isOptimistic) return false
   if (a.createdAt && b.createdAt) {
     if (a.createdAt === b.createdAt) return true
     const aTime = Date.parse(a.createdAt)
@@ -93,6 +123,7 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
     }
     return false
   }
+  if (a.isOptimistic || b.isOptimistic) return true
   return false
 }
 
@@ -106,6 +137,10 @@ function isAssistantPrefixUpdate(shorter: string, longer: string) {
 
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
+  if (hasDifferentGatewayIndex(a, b)) return false
+  if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
+    return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
+  }
   const aText = stripNoReplyLines(a.text)
   const bText = stripNoReplyLines(b.text)
   if (a.messageId === b.messageId) return true
@@ -186,6 +221,41 @@ function collapseRepeatedRoleBlocks(
   return duplicateIndexes.size > 0
     ? messages.filter((_, index) => !duplicateIndexes.has(index))
     : messages
+}
+
+function messageTimeMs(message: ChatMessage) {
+  if (!message.createdAt) return undefined
+  const parsed = Date.parse(message.createdAt)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function roleOrder(message: ChatMessage) {
+  return message.role === "user" ? 0 : 1
+}
+
+export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const aTime = messageTimeMs(a.message)
+      const bTime = messageTimeMs(b.message)
+      const aHasTime = typeof aTime === "number"
+      const bHasTime = typeof bTime === "number"
+      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
+      if (aHasTime !== bHasTime) return aHasTime ? -1 : 1
+      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
+
+      const aIndex = a.message.gatewayIndex
+      const bIndex = b.message.gatewayIndex
+      const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
+      const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
+      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
+      if (aHasIndex !== bHasIndex) return aHasIndex ? -1 : 1
+      return a.index - b.index
+    })
+    .map((item) => item.message)
 }
 
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -272,5 +342,5 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
     result.push(message)
   }
 
-  return collapseRepeatedBlocks(collapseRepeatedRoleBlocks(result, "user"))
+  return sortChatMessagesByTimeline(collapseRepeatedBlocks(collapseRepeatedRoleBlocks(result, "user")))
 }

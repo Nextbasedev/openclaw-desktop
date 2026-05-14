@@ -12,6 +12,15 @@ describe("middleware-v2 client", () => {
     expect(getMiddlewareV2Url()).toBe("http://127.0.0.1:8787")
   })
 
+  it("uses the connected middleware URL for v2 API calls", async () => {
+    vi.stubGlobal("window", { location: { hostname: "127.0.0.1" }, console, addEventListener: vi.fn() })
+    vi.stubGlobal("localStorage", {
+      getItem: vi.fn((key: string) => key === "openclaw.middleware.url" ? "http://192.0.2.10:8787/" : null),
+    })
+    const { getMiddlewareV2Url } = await import("../client")
+    expect(getMiddlewareV2Url()).toBe("http://192.0.2.10:8787")
+  })
+
   it("rewrites loopback v2 URL to the browser host on port 8787", async () => {
     vi.stubGlobal("window", { location: { hostname: "192.0.2.10" }, console, addEventListener: vi.fn() })
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => null) })

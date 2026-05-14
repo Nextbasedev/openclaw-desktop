@@ -1,8 +1,15 @@
 import { describe, expect, test } from "vitest"
-import { shouldPreserveActiveReconcile } from "../../hooks/useChatMessages"
+import { mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile } from "../../hooks/useChatMessages"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
+const optimisticUser = (text = "question"): ChatMessage => ({
+  messageId: `optimistic-${text}`,
+  role: "user",
+  text,
+  isOptimistic: true,
+  sendStatus: "sending",
+})
 const assistant = (text = "answer"): ChatMessage => ({ messageId: `a-${text}`, role: "assistant", text })
 
 describe("chat reconcile active-state guards", () => {
@@ -31,5 +38,20 @@ describe("chat reconcile active-state guards", () => {
       candidateMessages: [user(), assistant()],
       runningToolCount: 0,
     })).toBe(false)
+  })
+
+  test("keeps a newly sent optimistic user message when canonical bootstrap is still empty", () => {
+    expect(mergeOptimisticMessagesWithCanonical([], [optimisticUser("long task")])).toMatchObject([
+      { role: "user", text: "long task", isOptimistic: true },
+    ])
+  })
+
+  test("drops optimistic user message once canonical has the same user text", () => {
+    expect(mergeOptimisticMessagesWithCanonical(
+      [{ ...user("long task"), messageId: "canonical-user" }],
+      [optimisticUser("long task")]
+    )).toMatchObject([
+      { messageId: "canonical-user", role: "user", text: "long task" },
+    ])
   })
 })
