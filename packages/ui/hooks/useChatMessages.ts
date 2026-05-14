@@ -7,6 +7,10 @@ import { invoke, streamUrl } from "@/lib/ipc"
 import { useQueryClient } from "@tanstack/react-query"
 import { flushSync } from "react-dom"
 import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
+import {
+  inferRestoredChatStatus,
+  statusFromBackendSession,
+} from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
 import { tryAcquireActiveRunReconcileLock } from "@/lib/activeRunReconcileLock"
 import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
@@ -35,12 +39,12 @@ import type {
   EditPreviewState,
 } from "@/components/ChatView/types"
 import { extractText } from "@/components/ChatView/utils"
-import { inferLiveToolStatus, liveToolEventResultText } from "@/lib/liveToolCalls"
 import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
   cleanUserMessageText,
-  formatChatErrorMessage,
+  deduplicateRawMessages,
+  extractReplyBlock,
   isTransientSlashCommandHistory,
   parseChatHistory,
 } from "@/lib/chatHistoryParser"
@@ -143,6 +147,17 @@ export function mergeOptimisticMessagesWithCanonical(
     : canonicalMessages
 }
 
+export function shouldPreserveActiveReconcile(params: {
+  currentStatus: StreamStatus | null | undefined
+  nextStatus: StreamStatus | null | undefined
+  candidateMessages: ChatMessage[]
+  runningToolCount: number
+}) {
+  if (!isActiveRunStatus(params.currentStatus)) return false
+  if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
+  return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
+}
+
 function stableRawMessageId(raw: RawMessage): string {
   const openclawId = raw.__openclaw?.id
   if (typeof openclawId === "string" && openclawId.trim()) return openclawId
@@ -169,10 +184,7 @@ function rawToChatMessage(
         : raw.role === "assistant"
           ? "assistant"
           : fallbackRole,
-    text:
-      raw.role === "assistant" && raw.stopReason === "error"
-        ? `Error: ${formatChatErrorMessage(raw.text || extractText(raw.content))}`
-        : raw.text || extractText(raw.content),
+    text: raw.text || extractText(raw.content),
     createdAt: raw.createdAt,
     model: raw.model,
     usage: raw.usage ?? null,
@@ -293,8 +305,13 @@ async function reconcileChatHistory(
   sessionKey: string,
   status?: StreamStatus | null
 ): Promise<ChatMessage[]> {
-  const bootstrap = await fetchStableChatBootstrap(sessionKey)
-  const parsed = parseChatHistory((bootstrap.messages as RawMessage[]) || [])
+  const history = await invoke<{ messages: unknown[] }>(
+    "middleware_chat_history",
+    {
+      input: { sessionKey },
+    }
+  )
+  const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
   void status
   return parsed.messages
 }
@@ -307,17 +324,6 @@ function isActiveRunStatus(status: StreamStatus | null | undefined) {
 
 function normalizeStatusLabelForStatus(status: StreamStatus | null | undefined, label: string | null | undefined) {
   return isActiveRunStatus(status) ? (label ?? null) : null
-}
-
-export function shouldPreserveActiveReconcile(params: {
-  currentStatus: StreamStatus | null | undefined
-  nextStatus: StreamStatus | null | undefined
-  candidateMessages: ChatMessage[]
-  runningToolCount: number
-}) {
-  if (!isActiveRunStatus(params.currentStatus)) return false
-  if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
-  return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
 }
 
 function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | undefined): StreamStatus {
@@ -334,59 +340,6 @@ function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | unde
   return "idle"
 }
 
-function realEpochMs(value: unknown) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
-  const ms = value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
-  const now = Date.now()
-  if (ms < 1_700_000_000_000 || ms > now + 5 * 60 * 1000) return undefined
-  return Math.round(ms)
-}
-
-function comparableTimeMs(value: unknown) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
-  return value > 100_000_000 && value < 10_000_000_000 ? value * 1000 : value
-}
-
-function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
-  const started = comparableTimeMs(startedAtMs)
-  const finished = comparableTimeMs(finishedAtMs)
-  if (typeof started !== "number" || typeof finished !== "number") return undefined
-  const elapsedMs = finished - started
-  if (elapsedMs < 0 || elapsedMs > 30 * 60 * 1000) return undefined
-  const seconds = elapsedMs / 1000
-  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
-}
-
-function isToolTerminalPhase(phase: string | null): boolean {
-  return (
-    phase === "result" ||
-    phase === "error" ||
-    phase === "done" ||
-    phase === "complete" ||
-    phase === "completed" ||
-    phase === "success" ||
-    phase === "failed"
-  )
-}
-
-function isToolErrorPhase(phase: string | null): boolean {
-  return phase === "error" || phase === "failed"
-}
-
-function finalizeToolCall(call: InlineToolCall): InlineToolCall {
-  return call
-}
-
-function finalizeToolCallsOnDone(messages: ChatMessage[]): ChatMessage[] {
-  let changed = false
-  const next = messages.map((message) => {
-    if (!message.toolCalls?.some((tool) => tool.status === "running")) return message
-    changed = true
-    return { ...message, toolCalls: message.toolCalls.map(finalizeToolCall) }
-  })
-  return changed ? next : messages
-}
-
 function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
   const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
     ? tool.toolCallId
@@ -394,22 +347,12 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
       ? tool.id
       : null
   if (!id) return null
-  const phase = typeof tool.phase === "string" ? tool.phase : ""
-  const status = tool.status === "error" || phase === "error" || phase === "failed"
-    ? "error"
-    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
-      ? "success"
-      : "running"
+  const status = tool.status === "error" ? "error" : tool.status === "success" ? "success" : "running"
   return {
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
-    duration: formatToolDuration(
-      typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
-      typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
-    ),
-    startedAt: realEpochMs(tool.startedAtMs),
-    completedAt: realEpochMs(tool.finishedAtMs),
+    startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? toolResultText(tool.resultMeta) : undefined,
   }
@@ -661,33 +604,37 @@ export function useChatMessages(
     if (!tryAcquireActiveRunReconcileLock(sessionKey)) return
     activeReconcileInFlightRef.current = true
     try {
-      const freshBootstrap = await fetchStableChatBootstrap(sessionKey).catch(() => null)
-      const freshMessages = freshBootstrap
-        ? parseChatHistory((freshBootstrap.messages as RawMessage[]) || []).messages
-        : null
+      const [freshMessages, sessionsResult] = await Promise.all([
+        reconcileChatHistory(sessionKey, statusRef.current).catch(() => null),
+        invoke<{
+          sessions: Array<{
+            key?: string
+            sessionKey?: string
+            status?: string
+          }>
+        }>("middleware_sessions_list", { input: {} }).catch(() => null),
+      ])
+      const backendSession = sessionsResult?.sessions?.find(
+        (item) => item.key === sessionKey || item.sessionKey === sessionKey
+      )
       const currentStatus = statusRef.current
       const currentMessages = messagesRef.current
       const candidateMessages = freshMessages?.length ? freshMessages : currentMessages
-      const nextStatus = streamStatusFromCanonicalRun(freshBootstrap?.runStatus)
-      const runningToolCount = (freshBootstrap?.tools ?? [])
-        .map(inlineToolFromProjection)
-        .filter((tool): tool is InlineToolCall => Boolean(tool))
-        .filter((tool) => tool.status === "running").length ||
-        Array.from(pendingToolMapRef.current.values()).filter((tool) => tool.status === "running").length
-      const preserveActiveReconcile = shouldPreserveActiveReconcile({ currentStatus, nextStatus, candidateMessages, runningToolCount })
+      const activeWithoutFreshAnswer =
+        isActiveRunStatus(currentStatus) &&
+        !hasAssistantAnswerAfterLatestUserMessage(candidateMessages)
 
-      if (preserveActiveReconcile) {
-        // Reconcile is a recovery path, not lifecycle truth. V2 bootstrap can
-        // lag behind canonical live patches; replacing
-        // active state with idle/done here makes the chat appear to stop midway
-        // and then resume when the next V2 patch arrives.
+      if (activeWithoutFreshAnswer) {
+        // Reconcile is a recovery path, not lifecycle truth. Gateway history can
+        // lag behind live patches for a few seconds after send; replacing the
+        // local optimistic timeline with that partial history makes the latest
+        // Thinking row and previous answer disappear until the final patch lands.
         frontendLog("status", "chat.reconcile-preserve-active", {
           sessionKey,
           status: currentStatus,
-          nextStatus,
           freshMessageCount: freshMessages?.length ?? 0,
           currentMessageCount: currentMessages.length,
-          runningToolCount,
+          backendStatus: backendSession?.status ?? null,
         })
       } else {
         if (freshMessages?.length) {
@@ -702,7 +649,11 @@ export function useChatMessages(
             return dedupeChatMessages([...freshMessages, ...keptOptimistic])
           })
         }
-        if (freshBootstrap?.runStatus || !isActiveRunStatus(nextStatus)) {
+        const nextStatus = statusFromBackendSession(
+          backendSession?.status,
+          candidateMessages
+        )
+        if (backendSession?.status || !isActiveRunStatus(nextStatus)) {
           setStatus(nextStatus)
           if (nextStatus === "done" || nextStatus === "idle") {
             setStatusLabel(null)
@@ -727,75 +678,28 @@ export function useChatMessages(
     }
   }, [])
 
-  const mergeToolCalls = useCallback(
-    (existing: InlineToolCall[] | undefined, incoming: InlineToolCall[]) => {
-      const merged = new Map<string, InlineToolCall>()
-      for (const tool of existing ?? []) merged.set(tool.id, tool)
-      for (const tool of incoming) {
-        const current = merged.get(tool.id)
-        if (!current) {
-          merged.set(tool.id, tool)
-          continue
+  const flushToolsToLastAssistant = useCallback(() => {
+    const tools = Array.from(pendingToolMapRef.current.values())
+    if (tools.length === 0) return
+    setMessages((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].role === "assistant") {
+          const updated = [...prev]
+          updated[i] = { ...prev[i], toolCalls: tools }
+          return updated
         }
-        const mergedTool = { ...current, ...tool }
-        if (current.status !== "running" && tool.status === "running") {
-          mergedTool.status = current.status
-        }
-        if (current.duration && !tool.duration) mergedTool.duration = current.duration
-        if (current.duration && current.status !== "running") {
-          mergedTool.duration = current.duration
-        }
-        if (current.resultText && !tool.resultText) {
-          mergedTool.resultText = current.resultText
-        }
-        if (current.approval && !tool.approval) {
-          mergedTool.approval = current.approval
-        }
-        merged.set(tool.id, mergedTool)
       }
-      return Array.from(merged.values())
-    },
-    []
-  )
-
-  const mergeToolsIntoCurrentAssistant = useCallback(
-    (tools: InlineToolCall[]) => {
-      if (tools.length === 0) return
-      setMessages((prev) => {
-        const latestUserIndex = (() => {
-          for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].role === "user") return i
-          }
-          return -1
-        })()
-
-        for (let i = prev.length - 1; i > latestUserIndex; i--) {
-          if (prev[i].role === "assistant") {
-            const updated = [...prev]
-            updated[i] = {
-              ...prev[i],
-              toolCalls: mergeToolCalls(prev[i].toolCalls, tools),
-            }
-            return updated
-          }
-        }
-
-        const insertAt = latestUserIndex >= 0 ? latestUserIndex + 1 : prev.length
-        const placeholder = {
+      return [
+        ...prev,
+        {
           messageId: randomId(),
           role: "assistant" as const,
           text: "",
           toolCalls: tools,
-        }
-        return [...prev.slice(0, insertAt), placeholder, ...prev.slice(insertAt)]
-      })
-    },
-    [mergeToolCalls]
-  )
-
-  const flushToolsToLastAssistant = useCallback(() => {
-    mergeToolsIntoCurrentAssistant(Array.from(pendingToolMapRef.current.values()))
-  }, [mergeToolsIntoCurrentAssistant])
+        },
+      ]
+    })
+  }, [])
 
   const handleStreamEvent = useCallback(
     (payload: StreamEventPayload) => {
@@ -839,21 +743,7 @@ export function useChatMessages(
                 })
                 .catch(() => undefined)
             }, 500)
-            setErrorMessage(ev.message || ev.error || ev.label ? formatChatErrorMessage(ev.message || ev.error || ev.label) : null)
-            const erroredTools = Array.from(pendingToolMapRef.current.values()).map((tool) =>
-              tool.status === "running"
-                ? {
-                    ...tool,
-                    status: "error" as const,
-                    duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
-                    completedAt: tool.completedAt ?? Date.now(),
-                    resultText: tool.resultText ?? "Run ended before this tool reported a result.",
-                  }
-                : tool
-            )
-            if (erroredTools.length > 0) mergeToolsIntoCurrentAssistant(erroredTools)
-            pendingToolMapRef.current.clear()
-            setPendingTools([])
+            setErrorMessage(ev.message || ev.error || ev.label || null)
           }
           if (incoming === "done") {
             setTimeout(() => {
@@ -871,17 +761,16 @@ export function useChatMessages(
             setPendingTools([])
             doneAfterYieldRef.current = 0
             setMessages((prev) => {
-              const finalized = finalizeToolCallsOnDone(prev)
-              const last = finalized[finalized.length - 1]
+              const last = prev[prev.length - 1]
               if (last?.role === "assistant" && !last.createdAt) {
-                const updated = [...finalized]
+                const updated = [...prev]
                 updated[prev.length - 1] = {
                   ...last,
                   createdAt: new Date().toISOString(),
                 }
                 return updated
               }
-              return finalized
+              return prev
             })
           }
           scrollToBottom(false)
@@ -900,7 +789,7 @@ export function useChatMessages(
           if (subagentOf) {
             if (
               name === "sessions_yield" &&
-              isToolTerminalPhase(phase)
+              (phase === "result" || phase === "error")
             ) {
               const spawnTcId = subagentOf.replace("spawn:", "")
               const spawn = spawnMapRef.current.get(spawnTcId)
@@ -1003,34 +892,27 @@ export function useChatMessages(
                 toolCallId,
               })
             }
-          } else if (phase === "update" || isToolTerminalPhase(phase)) {
+          } else if (phase === "result" || phase === "error") {
             const call = existing ?? {
               id: toolCallId,
               tool: name,
               status: "running" as const,
             }
-            const completedAt = isToolTerminalPhase(phase) ? Date.now() : undefined
-            const duration =
-              call.duration && call.status !== "running"
-                ? call.duration
-                : completedAt
-                  ? formatToolDuration(call.startedAt, completedAt)
-                  : call.duration
-            const eventData = ev as Record<string, unknown>
-            const resultText = liveToolEventResultText(eventData)
-            const finalStatus = inferLiveToolStatus(phase, resultText, eventData.isError)
-            const updatedCall: InlineToolCall = {
+            const duration = call.startedAt
+              ? `${((Date.now() - call.startedAt) / 1000).toFixed(1)}s`
+              : undefined
+            const resultText = toolResultText(
+              (ev as Record<string, unknown>).result
+            )
+            pendingToolMapRef.current.set(toolCallId, {
               ...call,
-              status: finalStatus,
+              status: phase === "error" ? "error" : "success",
               duration,
-              completedAt: completedAt ?? call.completedAt,
               resultText: resultText || call.resultText,
               approval: resultText
                 ? (parseExecApproval(resultText) ?? call.approval)
                 : call.approval,
-            }
-            pendingToolMapRef.current.set(toolCallId, updatedCall)
-            mergeToolsIntoCurrentAssistant([updatedCall])
+            })
             if (name === "sessions_spawn") {
               const prev = spawnMapRef.current.get(toolCallId)
               if (prev) {
@@ -1042,7 +924,7 @@ export function useChatMessages(
                   ...prev,
                   sessionKey: childKey ?? prev.sessionKey,
                   status:
-                    isToolErrorPhase(phase)
+                    phase === "error"
                       ? "failed"
                       : (childKey ?? prev.sessionKey)
                         ? "working"
@@ -1237,7 +1119,7 @@ export function useChatMessages(
         case "chat.error":
         case "stream.error": {
           const errText = ev.message || ev.error || null
-          setErrorMessage(errText ? formatChatErrorMessage(errText) : null)
+          setErrorMessage(errText)
           setStatus("error")
           break
         }
@@ -1246,7 +1128,7 @@ export function useChatMessages(
         }
       }
     },
-    [scrollToBottom, flushToolsToLastAssistant, mergeToolsIntoCurrentAssistant, upsertSpawn]
+    [scrollToBottom, flushToolsToLastAssistant, upsertSpawn]
   )
 
   useEffect(() => {
@@ -1286,7 +1168,9 @@ setMessages(warmMessages)
         ? cachedGlobal.status
         : cachedBootstrap?.runStatus
           ? streamStatusFromCanonicalRun(cachedBootstrap.runStatus)
-          : "idle"
+          : (cachedBootstrap?.history.sessionStatus
+            ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages)
+            : inferRestoredChatStatus(warmMessages, statusRef.current))
       setStatus(warmStatus)
       setStatusLabel(useCachedGlobal
         ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
@@ -1396,50 +1280,34 @@ setMessages(warmMessages)
         const isCanonicalBootstrap = source === "middleware-v2-projection" || typeof projectionVersion === "number"
         if (isCanonicalBootstrap) {
           const canonicalMessages = dedupeChatMessages(parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages)
-          const optimisticBase = messagesRef.current.length > 0 ? messagesRef.current : seededMessages
-          const visibleCanonicalMessages = mergeOptimisticMessagesWithCanonical(canonicalMessages, optimisticBase)
-          const hasUnconfirmedOptimistic = visibleCanonicalMessages.some(
-            (message) => message.isOptimistic && !canonicalMessages.some((canonical) => canonical.messageId === message.messageId)
-          )
           const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
           const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
           pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
           spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
           const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
-          const visibleCanonicalStatus = hasUnconfirmedOptimistic && !hasAssistantAnswerAfterLatestUserMessage(visibleCanonicalMessages)
-            ? "thinking"
-            : canonicalStatus
-          const canonicalLabel = normalizeStatusLabelForStatus(visibleCanonicalStatus, hasUnconfirmedOptimistic ? "Thinking" : canonicalStatusLabel)
+          const canonicalLabel = normalizeStatusLabelForStatus(canonicalStatus, canonicalStatusLabel)
           seedGlobalChatSession({
             sessionKey,
-            messages: visibleCanonicalMessages,
+            messages: canonicalMessages,
             cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-            status: visibleCanonicalStatus,
+            status: canonicalStatus,
             statusLabel: canonicalLabel,
             pendingTools: inlineTools,
             spawnedSubagents: canonicalSpawns,
             queryClient,
           })
-          const seededState = getGlobalChatSession(sessionKey)
-          const visibleMessages = seededState?.messages ?? canonicalMessages
-          const visibleTools = seededState?.pendingTools ?? inlineTools
-          const visibleSpawns = seededState?.spawnedSubagents ?? canonicalSpawns
-          const visibleStatus = seededState?.status ?? canonicalStatus
-          const visibleLabel = normalizeStatusLabelForStatus(visibleStatus, seededState?.statusLabel ?? canonicalLabel)
-          setMessages(visibleMessages)
-          setLocalPendingTools(visibleTools)
-          setLocalSpawnedSubagents(visibleSpawns)
-          setStatus(visibleStatus)
-          setStatusLabel(visibleLabel)
-          if (isActiveRunStatus(visibleStatus)) markOptimisticChatActivity(sessionKey, visibleLabel)
+          setMessages(canonicalMessages)
+          setLocalPendingTools(inlineTools)
+          setLocalSpawnedSubagents(canonicalSpawns)
+          setStatus(canonicalStatus)
+          setStatusLabel(canonicalLabel)
+          if (isActiveRunStatus(canonicalStatus)) markOptimisticChatActivity(sessionKey, canonicalLabel)
           else clearCachedChatActivity(sessionKey)
           setLoading(false)
           frontendLog("chat", "chat.bootstrap.applied", {
             sessionKey,
-            messageCount: visibleCanonicalMessages.length,
-            canonicalMessageCount: canonicalMessages.length,
-            preservedOptimistic: hasUnconfirmedOptimistic,
-            status: visibleCanonicalStatus,
+            messageCount: canonicalMessages.length,
+            status: canonicalStatus,
             statusLabel: canonicalLabel,
             cursor: bootstrapCursor,
             pendingToolCount: inlineTools.length,
@@ -1455,10 +1323,6 @@ setMessages(warmMessages)
             (state) => {
               if (cancelled) return
               v2CursorRef.current = state.cursor
-              const visibleMessages = mergeOptimisticMessagesWithCanonical(
-                state.messages,
-                messagesRef.current,
-              )
               pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
               spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
               setLocalPendingTools(state.pendingTools)
@@ -1467,15 +1331,436 @@ setMessages(warmMessages)
               setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
               if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
               else clearCachedChatActivity(sessionKey)
-              setMessages(visibleMessages)
+              setMessages(state.messages)
             }
           )
           unsubscribeStream = null
           return
         }
 
-        frontendLog("chat", "chat.bootstrap.noncanonical-rejected", { sessionKey, source, projectionVersion }, "error")
-        throw new Error("Middleware V2 canonical chat projection is required")
+        // Defensive legacy fallback: only used if middleware-v2 does not expose
+        // the canonical projection contract. This path may infer from raw
+        // history, but it is not authoritative for normal Phase-4 operation.
+        frontendLog("chat", "chat.bootstrap.legacy-fallback", { sessionKey, source, projectionVersion }, "warn")
+        const rawAll = (bootstrapMessages as RawMessage[]) || []
+        const normalizedHistory = parseChatHistory(rawAll)
+        const raw = deduplicateRawMessages(rawAll) as RawMessage[]
+        const histMsgs: ChatMessage[] = []
+        let pendingToolCalls: InlineToolCall[] = []
+        let resultQueue: InlineToolCall[] = []
+        const historyEmbeds = new Map<
+          string,
+          { ref: string; content: string; title?: string }
+        >()
+        const historySpawns: Array<{
+          toolCallId: string
+          label: string
+          task?: string
+          sessionKey: string | null
+          terminal: boolean
+          error: boolean
+        }> = []
+        let autoAnnouncesToSkip = 0
+
+        for (let rawIdx = 0; rawIdx < raw.length; rawIdx++) {
+          const m = raw[rawIdx]
+          if (m.role === "user") {
+            const id = stableRawMessageId(m)
+            seenIds.current.add(id)
+            const rawText = m.text || extractText(m.content)
+            const text = rawText ? cleanUserMessageText(rawText) : ""
+            const isBootstrapEcho = rawText.includes(
+              "[Bootstrap truncation warning]"
+            )
+            const hasAssistantBeforeLaterSameUser = (() => {
+              if (!isBootstrapEcho) return false
+              for (const later of raw.slice(rawIdx + 1)) {
+                if (later.role === "user") {
+                  const laterRawText = later.text || extractText(later.content)
+                  if (cleanUserMessageText(laterRawText).trim() === text.trim())
+                    return false
+                }
+                if (
+                  later.role === "assistant" &&
+                  ((later.text || extractText(later.content)).trim() ||
+                    (later as { errorMessage?: string }).errorMessage)
+                )
+                  return true
+              }
+              return false
+            })()
+            const hasLaterSameUserText =
+              isBootstrapEcho &&
+              raw.slice(rawIdx + 1).some((later) => {
+                if (later.role !== "user") return false
+                const laterRawText = later.text || extractText(later.content)
+                return cleanUserMessageText(laterRawText).trim() === text.trim()
+              })
+            const isSubagentAnnounce = text
+              ? /agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(text)
+              : false
+
+            if (isSubagentAnnounce) {
+              if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
+            } else if (
+              text &&
+              (!hasLaterSameUserText || hasAssistantBeforeLaterSameUser)
+            ) {
+              const reply = extractReplyBlock(text, histMsgs)
+              const rawAttachments = m.attachments
+              const resolvedAttachments =
+                rawAttachments && rawAttachments.length > 0
+                  ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments)
+                  : rawAttachments
+              if (resolvedAttachments && resolvedAttachments.length > 0) {
+                cacheAttachments(
+                  sessionKey,
+                  id,
+                  resolvedAttachments
+                    .filter((a) => a.content)
+                    .map((a) => ({
+                      name: a.name,
+                      mimeType: a.mimeType,
+                      content: a.content!,
+                      size: a.size,
+                    }))
+                )
+              }
+              histMsgs.push({
+                messageId: id,
+                role: "user",
+                text: reply ? reply.displayText : text,
+                createdAt: m.createdAt,
+                model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
+                isOptimistic: Boolean(m.isOptimistic || m.__clientOptimistic),
+                replyTo: reply?.replyTo,
+                gatewayIndex: rawIdx,
+                attachments: resolvedAttachments,
+              })
+            }
+            pendingToolCalls = []
+            resultQueue = []
+          } else if (m.role === "assistant") {
+            const id = stableRawMessageId(m)
+            seenIds.current.add(id)
+
+            const blocks = Array.isArray(m.content)
+              ? (m.content as Array<{
+                  type?: string
+                  id?: string
+                  name?: string
+                  arguments?: unknown
+                  input?: unknown
+                }>)
+              : []
+            const tcBlocks = blocks.filter(
+              (b) => b.type === "toolCall" || b.type === "tool_use"
+            )
+            for (const b of tcBlocks) {
+              const call: InlineToolCall = {
+                id: b.id ?? randomId(),
+                tool: b.name ?? "unknown",
+                status: "success",
+                input: b.arguments ?? b.input,
+              }
+              pendingToolCalls.push(call)
+              resultQueue.push(call)
+              if (b.name === "write") {
+                const args = (b.arguments ?? b.input ?? {}) as Record<
+                  string,
+                  unknown
+                >
+                const ref = args.ref as string | undefined
+                const content = args.content as string | undefined
+                const title = args.title as string | undefined
+                if (ref && content) {
+                  historyEmbeds.set(ref, { ref, content, title })
+                }
+              }
+              if (b.name === "sessions_spawn") {
+                const args = (b.arguments ?? b.input ?? {}) as Record<
+                  string,
+                  unknown
+                >
+                const histTask = (args.task as string) ?? ""
+                const label =
+                  (args.label as string) ??
+                  (args.agentId as string) ??
+                  (histTask.length > 0
+                    ? histTask.slice(0, 60) +
+                      (histTask.length > 60 ? "..." : "")
+                    : `Sub-agent ${historySpawns.length + 1}`)
+                historySpawns.push({
+                  toolCallId: call.id,
+                  label,
+                  task: histTask,
+                  sessionKey: null,
+                  terminal: false,
+                  error: false,
+                })
+              }
+            }
+
+            const text = (m.text || extractText(m.content))?.trim()
+            const currentEmbeds =
+              historyEmbeds.size > 0
+                ? Array.from(historyEmbeds.values())
+                : undefined
+            const lastEntry = histMsgs[histMsgs.length - 1]
+            if (lastEntry?.role === "assistant") {
+              lastEntry.gatewayIndex = rawIdx
+              if (text) {
+                lastEntry.text = lastEntry.text
+                  ? lastEntry.text + "\n\n" + text
+                  : text
+                lastEntry.messageId = id
+                lastEntry.createdAt = m.createdAt || lastEntry.createdAt
+                lastEntry.model = m.model ?? lastEntry.model
+                lastEntry.usage = m.usage ?? lastEntry.usage
+                lastEntry.stopReason = m.stopReason ?? lastEntry.stopReason
+                if (currentEmbeds)
+                  lastEntry.embeds = [
+                    ...(lastEntry.embeds ?? []),
+                    ...currentEmbeds,
+                  ]
+                if (pendingToolCalls.length > 0) {
+                  lastEntry.toolCalls = [
+                    ...(lastEntry.toolCalls || []),
+                    ...pendingToolCalls,
+                  ]
+                }
+              } else if (pendingToolCalls.length > 0) {
+                lastEntry.toolCalls = [
+                  ...(lastEntry.toolCalls || []),
+                  ...pendingToolCalls,
+                ]
+              }
+            } else if (text) {
+              const currentEmbeds =
+                historyEmbeds.size > 0
+                  ? Array.from(historyEmbeds.values())
+                  : undefined
+              histMsgs.push({
+                messageId: id,
+                role: "assistant",
+                text,
+                createdAt: m.createdAt,
+                model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
+                toolCalls:
+                  pendingToolCalls.length > 0
+                    ? [...pendingToolCalls]
+                    : undefined,
+                embeds: currentEmbeds,
+                gatewayIndex: rawIdx,
+              })
+            } else if (pendingToolCalls.length > 0) {
+              histMsgs.push({
+                messageId: id,
+                role: "assistant",
+                text: "",
+                createdAt: m.createdAt,
+                model: m.model,
+                usage: m.usage,
+                stopReason: m.stopReason,
+                toolCalls: [...pendingToolCalls],
+                gatewayIndex: rawIdx,
+              })
+            }
+            pendingToolCalls = []
+          } else if (
+            m.role === "tool" ||
+            m.role === "tool_result" ||
+            m.role === "toolResult"
+          ) {
+            const resultText = m.text || extractText(m.content)
+            let matchedCall: InlineToolCall | null = null
+            if (resultQueue.length > 0) {
+              matchedCall = resultQueue.shift()!
+              if (resultText) {
+                matchedCall.resultText = resultText
+                matchedCall.approval =
+                  parseExecApproval(resultText) ?? matchedCall.approval
+                try {
+                  const parsed = JSON.parse(resultText)
+                  matchedCall.status =
+                    parsed.status === "error" ? "error" : "success"
+                } catch {
+                  matchedCall.status = "success"
+                }
+              }
+            }
+            if (matchedCall?.tool === "sessions_spawn" && resultText) {
+              const spawn = historySpawns.find(
+                (s) => s.toolCallId === matchedCall!.id
+              )
+              if (spawn) {
+                if (matchedCall.status === "error") spawn.error = true
+                const childKey = extractSubagentSessionKey(resultText)
+                if (childKey && !spawn.sessionKey) {
+                  spawn.sessionKey = childKey
+                  autoAnnouncesToSkip++
+                }
+              }
+            } else if (matchedCall?.tool === "sessions_yield") {
+              const spawn = [...historySpawns]
+                .reverse()
+                .find((s) => !s.terminal && !s.error)
+              if (spawn) {
+                if (matchedCall.status === "error") {
+                  spawn.error = true
+                } else {
+                  spawn.terminal = true
+                }
+              }
+            }
+          }
+        }
+
+        for (const hs of historySpawns) {
+          const spawn: SpawnedSubagent = {
+            id: `spawn:${hs.toolCallId}`,
+            label: hs.label,
+            task: hs.task,
+            sessionKey: hs.sessionKey,
+            status: hs.error
+              ? "failed"
+              : hs.terminal
+                ? "completed"
+                : hs.sessionKey
+                  ? "working"
+                  : "linking",
+            toolCallId: hs.toolCallId,
+          }
+          spawnMapRef.current.set(hs.toolCallId, spawn)
+        }
+        if (historySpawns.length > 0) {
+          setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+        }
+        if (
+          historySpawns.length === 0 &&
+          normalizedHistory.subagents.length > 0
+        ) {
+          for (const spawn of normalizedHistory.subagents) {
+            spawnMapRef.current.set(spawn.toolCallId, spawn)
+          }
+          setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+        }
+
+        const edits = (branchData.branches ?? [])
+          .filter((b) => b.branchReason === "edit")
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+        let filtered =
+          histMsgs.length > 0 ? histMsgs : normalizedHistory.messages
+        for (const edit of edits) {
+          const sourceIdx = filtered.findIndex(
+            (m) => m.messageId === edit.sourceMessageId
+          )
+          if (sourceIdx === -1) continue
+
+          let editIdx = -1
+          for (let i = sourceIdx + 1; i < filtered.length; i++) {
+            const m = filtered[i]
+            if (
+              m.role === "user" &&
+              m.createdAt &&
+              m.createdAt >= edit.createdAt
+            ) {
+              editIdx = i
+              break
+            }
+          }
+          if (editIdx === -1) continue
+
+          filtered = [
+            ...filtered.slice(0, sourceIdx),
+            ...filtered.slice(editIdx),
+          ]
+        }
+
+        const allMessages = dedupeChatMessages(filtered)
+        const bootstrapStatus = history.sessionStatus ? statusFromBackendSession(history.sessionStatus, allMessages) : inferRestoredChatStatus(allMessages, statusRef.current)
+        seedGlobalChatSession({
+          sessionKey,
+          messages: allMessages,
+          cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
+          status: bootstrapStatus,
+          pendingTools: Array.from(pendingToolMapRef.current.values()),
+          spawnedSubagents: Array.from(spawnMapRef.current.values()),
+          queryClient,
+        })
+
+        setMessages((prev) => {
+          const histIds = new Set(allMessages.map((hm) => hm.messageId))
+          const kept = prev.filter(
+            (pm) =>
+              pm.isOptimistic &&
+              !histIds.has(pm.messageId) &&
+              !allMessages.some((hm) => sameUserMessage(hm, pm))
+          )
+          return dedupeChatMessages([...allMessages, ...kept])
+        })
+        const restoredStatus = bootstrapStatus
+        if (history.sessionStatus || !isActiveRunStatus(restoredStatus) || isActiveRunStatus(statusRef.current)) {
+          setStatus(restoredStatus)
+          if (restoredStatus === "done" || restoredStatus === "idle" || restoredStatus === "error") {
+            setStatusLabel(null)
+            pendingToolMapRef.current.clear()
+            setPendingTools([])
+            clearCachedChatActivity(sessionKey)
+          }
+        }
+        setLoading(false)
+frontendLog("chat", "chat.bootstrap.applied", {
+          sessionKey,
+          messageCount: allMessages.length,
+          status: restoredStatus,
+          pendingToolCount: pendingToolMapRef.current.size,
+          spawnedSubagentCount: spawnMapRef.current.size,
+          durationMs: Date.now() - bootstrapStartedAtMs,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+        })
+        forceScrollToBottom(false)
+
+        unsubscribeV2Stream = subscribeGlobalChatSession(
+          sessionKey,
+          (state) => {
+            if (cancelled) return
+            v2CursorRef.current = state.cursor
+            pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
+            spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+            setLocalPendingTools(state.pendingTools)
+            setLocalSpawnedSubagents(state.spawnedSubagents)
+            setStatus(state.status)
+            setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
+            frontendLog("status", "chat.render-factors", {
+              sessionKey,
+              status: state.status,
+              statusLabel: normalizeStatusLabelForStatus(state.status, state.statusLabel),
+              cursor: state.cursor,
+              messageCount: state.messages.length,
+              pendingToolCount: state.pendingTools.length,
+              runningToolCount: state.pendingTools.filter((tool) => tool.status === "running").length,
+              spawnedSubagentCount: state.spawnedSubagents.length,
+              activeSubagentCount: state.spawnedSubagents.filter((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working").length,
+            }, "debug")
+            if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
+            else clearCachedChatActivity(sessionKey)
+            setMessages(state.messages)
+          }
+        )
+
+        // V2 is the single source of truth for chat messages.
+        // Do not also subscribe to the legacy chat stream here: running both
+        // streams races two independent sources into the same React message
+        // array and can produce duplicate user bubbles or assistant-only turns
+        // in secondary windows. Tool/status events need first-class V2 patches
+        // instead of legacy message mutation.
+        unsubscribeStream = null
       } catch (e) {
         bootstrapSettled = true
         frontendLog("chat", "chat.bootstrap.fail", {
@@ -1542,10 +1827,56 @@ setMessages(warmMessages)
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
-    subagentPollRef.current = null
-    // Canonical middleware-v2 patches own subagent lifecycle. No legacy
-    // history polling is allowed in the V2 chat engine.
-  }, [spawnedSubagents])
+    const hasRunning = spawnedSubagents.some((s) => isActiveSubagent(s.status))
+    if (!hasRunning) return
+
+    subagentPollRef.current = setInterval(async () => {
+      for (const sub of spawnedSubagents) {
+        if (!isActiveSubagent(sub.status) || !sub.sessionKey) continue
+        try {
+          const hist = await invoke<{ messages: unknown[] }>(
+            "middleware_chat_history",
+            { input: { sessionKey: sub.sessionKey } }
+          )
+          const msgs = (hist.messages ?? []) as RawMessage[]
+          let isDone = false
+          for (const m of msgs) {
+            if (m.role !== "assistant") continue
+            const blocks = Array.isArray(m.content)
+              ? (m.content as Array<{ type?: string; name?: string }>)
+              : []
+            if (
+              blocks.some(
+                (b) =>
+                  (b.type === "toolCall" || b.type === "tool_use") &&
+                  b.name === "sessions_yield"
+              )
+            ) {
+              isDone = true
+              break
+            }
+          }
+          if (!isDone) {
+            const lastMsg = msgs[msgs.length - 1]
+            if (lastMsg?.role === "assistant") {
+              const text = lastMsg.text || extractText(lastMsg.content)
+              if (text) isDone = true
+            }
+          }
+          if (isDone) {
+            upsertSpawn({ ...sub, status: "completed" })
+          }
+        } catch {}
+      }
+    }, 2000)
+
+    return () => {
+      if (subagentPollRef.current) {
+        clearInterval(subagentPollRef.current)
+        subagentPollRef.current = null
+      }
+    }
+  }, [spawnedSubagents, upsertSpawn])
 
   const handleSend = useCallback(
     async (payload: ChatComposerSubmit, retryMessageId?: string) => {
@@ -1685,8 +2016,7 @@ setMessages(warmMessages)
         emit("chat:activity")
         return true
       } catch (error) {
-        const rawMessage = error instanceof Error ? error.message : String(error)
-        const message = formatChatErrorMessage(rawMessage)
+        const message = error instanceof Error ? error.message : String(error)
         frontendLog("composer", "chat.send.fail", {
           sessionKey,
           optimisticId,
@@ -1715,7 +2045,7 @@ setMessages(warmMessages)
         frontendLog("composer", "chat.send.settled", { sessionKey, optimisticId })
       }
     },
-    [isGenerating, sessionKey, forceScrollToBottom, statusLabel]
+    [isGenerating, sessionKey, forceScrollToBottom]
   )
 
   const handleRegenerate = useCallback(
@@ -1784,9 +2114,11 @@ setMessages(warmMessages)
           status: "streaming",
         })
 
-        fetchChatBootstrapV2(preview.branchSessionKey)
+        invoke<{ messages: RawMessage[] }>("middleware_chat_history", {
+          input: { sessionKey: preview.branchSessionKey },
+        })
           .then((history) => {
-            const assistant = [...((history.messages as RawMessage[]) ?? [])]
+            const assistant = [...(history.messages ?? [])]
               .reverse()
               .find((m) => m.role === "assistant")
             if (!assistant) return
@@ -1866,7 +2198,7 @@ setMessages(warmMessages)
         source.addEventListener("chat.error", handlePreview)
         source.addEventListener("message", handlePreview)
       } catch (error) {
-        setErrorMessage(formatChatErrorMessage(error instanceof Error ? error.message : String(error)))
+        setErrorMessage(error instanceof Error ? error.message : String(error))
         setStatus("error")
       } finally {
         sendingGuardRef.current = false
@@ -1880,32 +2212,15 @@ setMessages(warmMessages)
     setStatus("stopping")
     setStatusLabel(null)
     try {
-      await abortChatV2({ sessionKey })
+      await invoke("middleware_chat_stop", { input: { sessionKey } })
       pendingToolMapRef.current.clear()
       setPendingTools([])
-      updateGlobalChatSessionActivity({
-        sessionKey,
-        status: "idle",
-        statusLabel: null,
-        pendingTools: [],
-        spawnedSubagents: Array.from(spawnMapRef.current.values()),
-      })
-      seedGlobalChatSession({
-        sessionKey,
-        messages: messagesRef.current,
-        cursor: v2CursorRef.current,
-        status: "idle",
-        statusLabel: null,
-        pendingTools: [],
-        spawnedSubagents: Array.from(spawnMapRef.current.values()),
-        queryClient,
-      })
       setStatus("idle")
     } catch (error) {
-      setErrorMessage(formatChatErrorMessage(error instanceof Error ? error.message : String(error)))
+      setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
     }
-  }, [queryClient, sessionKey])
+  }, [sessionKey])
 
   const handleEdit = useCallback(
     async (userMessageId: string, newText: string) => {
@@ -2010,7 +2325,7 @@ setMessages(warmMessages)
         source.addEventListener("chat.error", handlePreview)
         source.addEventListener("message", handlePreview)
       } catch (error) {
-        setErrorMessage(formatChatErrorMessage(error instanceof Error ? error.message : String(error)))
+        setErrorMessage(error instanceof Error ? error.message : String(error))
         setStatus("error")
       } finally {
         setIsSending(false)

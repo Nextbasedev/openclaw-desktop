@@ -631,57 +631,6 @@ export function ChatView({
     }
     return -1
   }, [renderedMessages])
-  const liveTool = isGenerating
-    ? pendingTools.find(
-        (tool) =>
-          tool.status === "running" &&
-          tool.tool !== "sessions_spawn" &&
-          tool.tool !== "subagents" &&
-          tool.tool !== "sessions_yield"
-      )
-    : undefined
-  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
-  const liveToolText = liveTool
-    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
-    : null
-
-  const statusText =
-    liveToolText ??
-    (status === "thinking"
-      ? "Thinking - waiting for the next event..."
-      : status === "queued"
-        ? statusLabel
-          ? `Queued - ${statusLabel}...`
-          : "Queued..."
-        : status === "running"
-          ? statusLabel
-            ? `Running - ${statusLabel}...`
-            : "Running..."
-          : status === "collect"
-            ? statusLabel
-              ? `Collecting - ${statusLabel}...`
-              : "Collecting..."
-            : status === "tool_running"
-              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
-              : status === "streaming"
-                ? "Responding..."
-                : status === "stopping"
-                  ? "Stopping..."
-                  : status === "restarting"
-                    ? "Restarting..."
-                    : isGenerating
-                      ? statusLabel
-                        ? `${statusLabel}...`
-                        : "Thinking - waiting for the next event..."
-                      : null)
-
-  const showInlineStatus = Boolean(
-    statusText &&
-      isGenerating &&
-      latestRenderedUserIndex === renderedMessages.length - 1 &&
-      renderedMessages[latestRenderedUserIndex]?.role === "user"
-  )
-
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -1009,93 +958,24 @@ export function ChatView({
         merged.set(key, tool)
         continue
       }
-      const existingIsFinal = existing.status === "success" || existing.status === "error"
-      const incomingIsRunning = tool.status === "running"
-      const mergedTool = existingIsFinal && incomingIsRunning
-        ? { ...tool, ...existing }
-        : { ...existing, ...tool }
+      const mergedTool = { ...existing, ...tool }
       if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
-      if (existing.startedAt && !tool.startedAt) mergedTool.startedAt = existing.startedAt
-      if (existing.completedAt && !tool.completedAt) mergedTool.completedAt = existing.completedAt
-      if (existingIsFinal && incomingIsRunning) {
-        mergedTool.status = existing.status
-        mergedTool.resultText = existing.resultText
+      if (existing.duration && existing.status !== "running") {
         mergedTool.duration = existing.duration
-        mergedTool.completedAt = existing.completedAt
       }
       merged.set(key, mergedTool)
     }
     return Array.from(merged.values())
   }
 
+  const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
+  for (const sub of spawnedSubagents) {
+    spawnsByToolCallId.set(sub.toolCallId, sub)
+  }
 
-  const completedTurnAssistantToolState = useMemo(() => {
-    const toolsByAssistantId = new Map<string, import("./types").InlineToolCall[]>()
-    const suppressToolAssistantIds = new Set<string>()
-    let turnAssistantIds: string[] = []
-    let turnTextAssistantIds: string[] = []
-    let turnTools: import("./types").InlineToolCall[] = []
-
-    const flushTurn = () => {
-      if (turnAssistantIds.length === 0 || turnTools.length === 0) {
-        turnAssistantIds = []
-        turnTextAssistantIds = []
-        turnTools = []
-        return
-      }
-      const targetId = turnTextAssistantIds.at(-1) ?? turnAssistantIds.at(-1)
-      if (targetId) toolsByAssistantId.set(targetId, turnTools)
-      for (const id of turnAssistantIds) {
-        if (id !== targetId) suppressToolAssistantIds.add(id)
-      }
-      turnAssistantIds = []
-      turnTextAssistantIds = []
-      turnTools = []
-    }
-
-    for (const message of renderedMessages) {
-      if (message.role === "user") {
-        flushTurn()
-        continue
-      }
-      if (message.role !== "assistant") continue
-      turnAssistantIds.push(message.messageId)
-      if (message.text.trim()) turnTextAssistantIds.push(message.messageId)
-      turnTools = mergeToolCallsForDisplay(turnTools, toolCallsWithoutSpawn(message.toolCalls ?? []))
-    }
-    flushTurn()
-
-    return { toolsByAssistantId, suppressToolAssistantIds }
-  }, [renderedMessages])
-
-  const activeTurnAssistantToolState = useMemo(() => {
-    if (!isGenerating || latestRenderedUserIndex < 0) {
-      return { latestAssistantId: null as string | null, tools: [] as import("./types").InlineToolCall[] }
-    }
-    const assistants = renderedMessages
-      .slice(latestRenderedUserIndex + 1)
-      .filter((message) => message.role === "assistant")
-    const latestAssistant = assistants[assistants.length - 1]
-    if (!latestAssistant) {
-      return { latestAssistantId: null as string | null, tools: [] as import("./types").InlineToolCall[] }
-    }
-    let tools: import("./types").InlineToolCall[] = []
-    for (const message of assistants) {
-      tools = mergeToolCallsForDisplay(tools, toolCallsWithoutSpawn(message.toolCalls ?? []))
-    }
-    tools = mergeToolCallsForDisplay(tools, toolCallsWithoutSpawn(pendingTools))
-    return { latestAssistantId: latestAssistant.messageId, tools }
-  }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
-
-  const spawnsByToolCallId = useMemo(() => {
-    const map = new Map<string, SpawnedSubagent>()
-    for (const sub of spawnedSubagents) map.set(sub.toolCallId, sub)
-    return map
-  }, [spawnedSubagents])
-
-  const getSubagentsForMessage = useCallback((
+  function getSubagentsForMessage(
     toolCalls?: import("./types").InlineToolCall[]
-  ): SpawnedSubagent[] => {
+  ): SpawnedSubagent[] {
     if (!toolCalls) return []
     const matched: SpawnedSubagent[] = []
     for (const tc of toolCalls) {
@@ -1105,7 +985,7 @@ export function ChatView({
       }
     }
     return matched
-  }, [spawnsByToolCallId])
+  }
 
   const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
   const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
@@ -1152,8 +1032,6 @@ export function ChatView({
       const isLast = index === renderedMessages.length - 1
       const showPending =
         isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
-      const showStatus =
-        showInlineStatus && isLast && msg.role === "user" && pendingTools.length === 0
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
       let hasLaterAssistantInSameTurn = false
@@ -1174,16 +1052,10 @@ export function ChatView({
       const filteredPending = toolCallsWithoutSpawn(pendingTools)
       const filteredToolCalls =
         msg.role === "assistant"
-          ? isGenerating && isActiveTurnAssistant
-            ? msg.messageId === activeTurnAssistantToolState.latestAssistantId
-              ? activeTurnAssistantToolState.tools
-              : []
-            : completedTurnAssistantToolState.suppressToolAssistantIds.has(msg.messageId)
-              ? []
-              : mergeToolCallsForDisplay(
-                  completedTurnAssistantToolState.toolsByAssistantId.get(msg.messageId) ?? toolCallsWithoutSpawn(msg.toolCalls ?? []),
-                  isActivelyStreaming ? filteredPending : []
-                )
+          ? mergeToolCallsForDisplay(
+              toolCallsWithoutSpawn(msg.toolCalls ?? []),
+              isActivelyStreaming ? filteredPending : []
+            )
           : toolCallsWithoutSpawn(msg.toolCalls ?? [])
       const anchoredUserSubagents =
         msg.role === "user"
@@ -1216,7 +1088,7 @@ export function ChatView({
           {msg.role === "assistant" &&
             filteredToolCalls &&
             filteredToolCalls.length > 0 && (
-              <div className="mb-1 max-w-[85%]">
+              <div className="mb-2 max-w-[85%]">
                 <ToolCallSteps
                   tools={filteredToolCalls}
                   defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
@@ -1263,7 +1135,7 @@ export function ChatView({
             </div>
           )}
           {showPending && filteredPending.length > 0 && (
-            <div className="mt-2 max-w-[85%]">
+            <div className="mt-4 max-w-[85%]">
               <ToolCallSteps
                 tools={filteredPending}
                 defaultOpen
@@ -1272,22 +1144,12 @@ export function ChatView({
               />
             </div>
           )}
-          {showStatus && statusText && (
-            <div className="mt-2 flex items-center pl-1">
-              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                {statusText.replace(/\.{3}$/, "")}
-                <span className="thinking-ellipsis" aria-hidden="true" />
-              </span>
-            </div>
-          )}
         </div>
       )
     },
     [
       activePopoverId,
-      activeTurnAssistantToolState,
       askAboutSelectedText,
-      completedTurnAssistantToolState,
       deleteMessage,
       exportOneMessage,
       forkFromMessage,
@@ -1305,13 +1167,11 @@ export function ChatView({
       orphanSubagentsByAssistantId,
       pendingTools,
       reactToMessage,
-      renderedMessages,
+      renderedMessages.length,
       replyToMessage,
-      showInlineStatus,
       resolveExecApproval,
       retrySend,
       setActivePopoverId,
-      statusText,
       subagentsByTriggerUserId,
       switchBranch,
       togglePin,
@@ -1330,6 +1190,50 @@ export function ChatView({
       />
     )
   }
+
+  const liveTool = isGenerating
+    ? pendingTools.find(
+        (tool) =>
+          tool.status === "running" &&
+          tool.tool !== "sessions_spawn" &&
+          tool.tool !== "subagents" &&
+          tool.tool !== "sessions_yield"
+      )
+    : undefined
+  const liveToolInput = liveTool ? summarizeToolInput(liveTool) : ""
+  const liveToolText = liveTool
+    ? `Running ${liveTool.tool}${liveToolInput ? `: ${liveToolInput}` : ""}...`
+    : null
+
+  const statusText =
+    liveToolText ??
+    (status === "thinking"
+      ? "Thinking - waiting for the next event..."
+      : status === "queued"
+        ? statusLabel
+          ? `Queued - ${statusLabel}...`
+          : "Queued..."
+        : status === "running"
+          ? statusLabel
+            ? `Running - ${statusLabel}...`
+            : "Running..."
+          : status === "collect"
+            ? statusLabel
+              ? `Collecting - ${statusLabel}...`
+              : "Collecting..."
+            : status === "tool_running"
+              ? `Running${statusLabel ? ` - ${statusLabel}` : " tool"}...`
+              : status === "streaming"
+                ? "Responding..."
+                : status === "stopping"
+                  ? "Stopping..."
+                  : status === "restarting"
+                    ? "Restarting..."
+                    : isGenerating
+                      ? statusLabel
+                        ? `${statusLabel}...`
+                        : "Thinking - waiting for the next event..."
+                      : null)
 
   if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
@@ -1445,10 +1349,7 @@ export function ChatView({
           return isAtBottom ? "smooth" : false
         }}
         computeItemKey={(_, msg) => msg.messageId}
-        defaultItemHeight={112}
-        overscan={{ main: 900, reverse: 900 }}
-        increaseViewportBy={{ top: 1800, bottom: 2200 }}
-        minOverscanItemCount={10}
+        increaseViewportBy={{ top: 900, bottom: 1200 }}
         components={{
           Header: () => (
             <div className="mx-auto max-w-3xl px-4 pt-8">
@@ -1481,11 +1382,11 @@ export function ChatView({
                 )}
               </AnimatePresence>
 
-              {statusText && !showInlineStatus && (
-                <div className="mt-2 flex items-center pl-1">
-                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                    {statusText.replace(/\.{3}$/, "")}
-                    <span className="thinking-ellipsis" aria-hidden="true" />
+              {statusText && (
+                <div className="mt-4 flex items-center gap-2 pl-1">
+                  <TypingDots />
+                  <span className="text-[12px] text-muted-foreground">
+                    {statusText}
                   </span>
                 </div>
               )}

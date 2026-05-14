@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
 import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
@@ -25,49 +25,6 @@ function decisionLabel(decision: ApprovalDecision) {
   return "Decline"
 }
 
-function formatElapsed(ms: number) {
-  if (!Number.isFinite(ms) || ms < 0 || ms > 30 * 60 * 1000) return undefined
-  const seconds = Math.max(0, ms) / 1000
-  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
-}
-
-function validStartedAt(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
-  const now = Date.now()
-  if (value < 1_700_000_000_000 || value > now + 5 * 60 * 1000) return undefined
-  return value
-}
-
-function useToolDuration(call: InlineToolCall) {
-  const [now, setNow] = useState(() => Date.now())
-  const startedAt = validStartedAt(call.startedAt)
-
-  useEffect(() => {
-    if (call.status !== "running" || !startedAt || call.duration) return
-    const id = window.setInterval(() => setNow(Date.now()), 500)
-    return () => window.clearInterval(id)
-  }, [call.duration, call.status, startedAt])
-
-  if (call.duration) return call.duration
-  const completedAt = validStartedAt(call.completedAt)
-  if (call.status !== "running") {
-    return startedAt && completedAt
-      ? formatElapsed(completedAt - startedAt)
-      : undefined
-  }
-  return startedAt ? formatElapsed(now - startedAt) : undefined
-}
-
-function ToolDuration({ call }: { call: InlineToolCall }) {
-  const elapsed = useToolDuration(call)
-  if (!elapsed) return null
-  return (
-    <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-      {elapsed}
-    </span>
-  )
-}
-
 function ToolRow({
   call,
   open,
@@ -87,7 +44,6 @@ function ToolRow({
   ) => Promise<void> | void
 }) {
   const { inputText, outputText, hasDetails } = getToolDetailState(call)
-  const elapsed = useToolDuration(call)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -137,9 +93,9 @@ function ToolRow({
             approval needed
           </span>
         )}
-        {elapsed && (
+        {call.duration && (
           <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-            {elapsed}
+            {call.duration}
           </span>
         )}
         <span
@@ -306,7 +262,7 @@ export function ToolCallSteps({
   return (
     <div
       className="transition-all duration-300 ease-out"
-      style={{ marginBottom: open ? 4 : 28 }}
+      style={{ marginBottom: open ? 12 : 36 }}
     >
       <button
         type="button"
@@ -389,7 +345,11 @@ export function ToolCallSteps({
                   approval needed
                 </span>
               )}
-              <ToolDuration call={collapsedTop} />
+              {collapsedTop.duration && (
+                <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                  {collapsedTop.duration}
+                </span>
+              )}
               <VscChevronRight className="size-3 shrink-0 text-foreground/20" />
             </div>
 
