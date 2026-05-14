@@ -7,6 +7,11 @@ import {
   VscFolder,
   VscFolderOpened,
   VscFile,
+  VscFileBinary,
+  VscFileCode,
+  VscFileMedia,
+  VscFilePdf,
+  VscFileZip,
   VscJson,
   VscMarkdown,
   VscCode,
@@ -64,7 +69,7 @@ import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
 interface FsEntry {
   name: string
   path: string
-  type?: "file" | "directory"
+  type?: "file" | "directory" | "dir"
   isFile?: boolean
   isDir?: boolean
   size: number
@@ -82,13 +87,13 @@ interface FileNode {
 function mapRemoteEntriesToNodes(entries: FsEntry[]): FileNode[] {
   return entries
     .sort((a, b) => {
-      const aDir = a.type === "directory" || a.type === ("dir" as any) || a.isDir === true
-      const bDir = b.type === "directory" || b.type === ("dir" as any) || b.isDir === true
+      const aDir = a.type === "directory" || a.type === "dir" || a.isDir === true
+      const bDir = b.type === "directory" || b.type === "dir" || b.isDir === true
       if (aDir !== bDir) return aDir ? -1 : 1
       return a.name.localeCompare(b.name)
     })
     .map((entry) => {
-      const isDir = entry.type === "directory" || entry.type === ("dir" as any) || entry.isDir === true
+      const isDir = entry.type === "directory" || entry.type === "dir" || entry.isDir === true
       return {
         id: entry.path,
         name: entry.name,
@@ -179,13 +184,50 @@ function IconBtn({
 
 /* ── File icon by extension ── */
 
-function FileIcon({ name }: { name: string }) {
+type WorkspaceFileIconKind =
+  | "markdown"
+  | "json"
+  | "code"
+  | "image"
+  | "archive"
+  | "pdf"
+  | "binary"
+  | "shell"
+  | "text"
+  | "config"
+  | "generic"
+
+export function getWorkspaceFileIconKind(name: string): WorkspaceFileIconKind {
+  const lower = name.toLowerCase()
   const ext = getExt(name)
-  if (ext === "md") return <VscMarkdown className="size-4 shrink-0 text-blue-400/80" />
-  if (ext === "json") return <VscJson className="size-4 shrink-0 text-amber-400/80" />
-  if (["ts", "tsx", "js", "jsx"].includes(ext))
-    return <VscCode className="size-4 shrink-0 text-sky-400/80" />
-  return <VscFile className="size-4 shrink-0 text-muted-foreground/60" />
+
+  if (["readme", "license", "dockerfile", "makefile", "procfile"].includes(lower)) return "text"
+  if (["env", "gitignore", "gitattributes", "editorconfig", "npmrc", "prettierrc", "eslintrc"].includes(ext)) return "config"
+  if (["md", "mdx"].includes(ext)) return "markdown"
+  if (["json", "jsonc", "lock"].includes(ext) || lower.endsWith("lock.json")) return "json"
+  if (["js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "html", "css", "scss", "sass", "less", "vue", "svelte", "rs", "go", "py", "rb", "php", "java", "kt", "swift", "c", "cpp", "h", "hpp"].includes(ext)) return "code"
+  if (["sh", "bash", "zsh", "fish", "ps1", "bat", "cmd"].includes(ext)) return "shell"
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif", "heic"].includes(ext)) return "image"
+  if (["zip", "gz", "tgz", "rar", "7z", "tar", "bz2", "xz"].includes(ext)) return "archive"
+  if (ext === "pdf") return "pdf"
+  if (["bin", "exe", "dll", "dmg", "app", "so", "dylib", "wasm"].includes(ext)) return "binary"
+  if (["txt", "log", "csv", "tsv", "xml", "yml", "yaml", "toml", "ini", "conf"].includes(ext)) return "text"
+  return "generic"
+}
+
+function FileIcon({ name }: { name: string }) {
+  const kind = getWorkspaceFileIconKind(name)
+  if (kind === "markdown") return <VscMarkdown className="size-4 shrink-0 text-blue-400/85" />
+  if (kind === "json") return <VscJson className="size-4 shrink-0 text-amber-400/85" />
+  if (kind === "code") return <VscCode className="size-4 shrink-0 text-sky-400/85" />
+  if (kind === "shell") return <VscFileCode className="size-4 shrink-0 text-emerald-400/85" />
+  if (kind === "image") return <VscFileMedia className="size-4 shrink-0 text-fuchsia-400/85" />
+  if (kind === "archive") return <VscFileZip className="size-4 shrink-0 text-orange-400/85" />
+  if (kind === "pdf") return <VscFilePdf className="size-4 shrink-0 text-red-400/85" />
+  if (kind === "binary") return <VscFileBinary className="size-4 shrink-0 text-purple-400/85" />
+  if (kind === "config") return <VscJson className="size-4 shrink-0 text-yellow-300/85" />
+  if (kind === "text") return <VscFile className="size-4 shrink-0 text-cyan-300/85" />
+  return <VscFile className="size-4 shrink-0 text-muted-foreground/75" />
 }
 
 /* ── Tree node ── */
