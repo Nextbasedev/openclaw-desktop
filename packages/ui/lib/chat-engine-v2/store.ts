@@ -334,6 +334,7 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
       ...tool,
       status: status === "error" ? "error" : "success",
       duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
+      completedAt: tool.completedAt ?? Date.now(),
       resultText:
         tool.resultText ??
         (status === "error"
@@ -394,6 +395,7 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
       typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
     ),
     startedAt: realEpochMs(tool.startedAtMs),
+    completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
     resultText: tool.resultMeta ? textFromUnknown(tool.resultMeta) : undefined,
   }
@@ -636,10 +638,19 @@ function resetDetachedActivityForNewTurn(state: SessionState) {
 }
 
 function isAssistantFinalTextMessage(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  if (frame.patch.type !== "chat.assistant.final" && semanticType !== "chat.assistant.final") return false
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return false
   if (toolCallBlocks(message).length > 0) return false
   return textFromUnknown(message.text ?? message.content).trim().length > 0
+}
+
+function shouldFinalizeOnAssistantFinalText(state: SessionState, frame: PatchFrame) {
+  if (!ACTIVE_STATUSES.has(state.status)) return false
+  if (!isAssistantFinalTextMessage(frame)) return false
+  if (hasActiveToolOrSubagent(state)) return false
+  return true
 }
 
 function isAssistantErrorMessagePatch(frame: PatchFrame) {
@@ -824,8 +835,15 @@ function handlePatch(frame: PatchFrame) {
     markLatestAssistantErrorForReveal(state)
   }
   reconcileVisibleActiveStatus(state)
+  const finalizedOnAssistantFinal = shouldFinalizeOnAssistantFinalText(state, frame)
+  if (finalizedOnAssistantFinal) {
+    state.status = "done"
+    state.statusLabel = null
+    state.activityStartedAtMs = 0
+    state.deferredDoneUntilAssistant = false
+  }
   if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
-  const autoFinalized = maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
+  const autoFinalized = finalizedOnAssistantFinal || maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
       sessionKey,
