@@ -264,8 +264,14 @@ function chatActivityMs(chat: CompatRecord) {
 
 function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
   return listBySpace(compatState.chats, spaceId)
+    .filter((chat) => !isGatewayOnlySyncedChat(chat))
     .filter((chat) => typeof archived === "boolean" ? Boolean(chat.archived) === archived : !chat.archived)
     .sort((a, b) => chatActivityMs(b) - chatActivityMs(a));
+}
+
+function isGatewayOnlySyncedChat(chat: CompatRecord) {
+  const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+  return Boolean(sessionKey && chat.id === stableCompatId("chat", sessionKey));
 }
 
 function touchCompatChatActivity(context: AppContext, input: { sessionKey: string; at?: string; lastMessageText?: string | null }) {
@@ -273,21 +279,26 @@ function touchCompatChatActivity(context: AppContext, input: { sessionKey: strin
   const sessionKey = input.sessionKey.trim();
   if (!sessionKey) return;
   const timestamp = input.at && timeMs(input.at) > 0 ? new Date(timeMs(input.at)).toISOString() : nowIso();
-  const defaultSpace = ensureDefaultSpace();
 
   let chat = compatState.chats.find((record) => record.sessionKey === sessionKey);
   if (!chat) {
-    chat = {
-      id: stableCompatId("chat", sessionKey),
-      name: "New Chat",
-      sessionKey,
-      spaceId: defaultSpace.id,
-      agentId: "main",
-      archived: false,
-      pinned: false,
-      createdAt: timestamp,
-    };
-    compatState.chats.push(chat);
+    let session = compatState.sessions.find((record) => record.sessionKey === sessionKey || record.key === sessionKey);
+    if (!session) {
+      session = {
+        id: stableCompatId("session", sessionKey),
+        key: sessionKey,
+        sessionKey,
+        agentId: "main",
+        label: "New Chat",
+        createdAt: timestamp,
+      };
+      compatState.sessions.push(session);
+    }
+    session.updatedAt = newestTimestamp(timestamp, session.updatedAt, session.lastActiveAt, session.lastMessageAt);
+    session.lastActiveAt = session.updatedAt;
+    session.lastMessageAt = session.updatedAt;
+    saveCompatState(context);
+    return;
   }
 
   const nextTimestamp = newestTimestamp(timestamp, chat.updatedAt, chat.lastActiveAt, chat.lastMessageAt);
@@ -336,8 +347,10 @@ async function syncGatewaySessions(context: AppContext) {
     const payload = await context.gateway.request("sessions.list", { limit: 500, includeDerivedTitles: true, includeLastMessage: true }, 10_000);
     const rows = gatewaySessionRows(payload);
     if (rows.length === 0) return;
-    const defaultSpace = ensureDefaultSpace();
+    const beforeCleanup = compatState.chats.length;
+    compatState.chats = compatState.chats.filter((chat) => !isGatewayOnlySyncedChat(chat));
     let changed = false;
+    if (compatState.chats.length !== beforeCleanup) changed = true;
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
@@ -348,19 +361,10 @@ async function syncGatewaySessions(context: AppContext) {
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
-        compatState.chats.push({
-          id: stableCompatId("chat", sessionKey),
-          name,
-          sessionKey,
-          spaceId: defaultSpace.id,
-          agentId,
-          archived: false,
-          pinned: false,
-          createdAt,
-          updatedAt,
-          lastActiveAt: updatedAt,
-        });
-        changed = true;
+        // Gateway contains every OpenClaw session, including Telegram, cron,
+        // and detached task sessions. Do not mirror unknown Gateway sessions
+        // into the Desktop chat sidebar; only update chats that already exist
+        // in the compat chat collection.
       } else {
         const existing = compatState.chats[chatIndex];
         const nextUpdatedAt = newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, updatedAt);
