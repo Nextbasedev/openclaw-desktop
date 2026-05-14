@@ -364,6 +364,7 @@ export function MarkdownContent({
     text,
     streaming,
     onRevealComplete,
+    { mode: "immediate" },
   )
   const parts = useMemo(
     () => splitTextAndEmbeds(displayText, embeds),
