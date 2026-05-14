@@ -608,6 +608,27 @@ function hasActiveToolOrSubagent(state: SessionState) {
   )
 }
 
+function patchCarriesToolActivity(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  if (semanticType.startsWith("chat.tool.")) return true
+  return Boolean(patchPayload(frame)?.toolCall)
+}
+
+function patchCarriesAssistantLiveActivity(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  return semanticType === "chat.assistant.started" || semanticType === "chat.assistant.delta"
+}
+
+function shouldIgnoreTerminalToActiveStatus(state: SessionState, frame: PatchFrame, previousStatus: StreamStatus, nextStatus: StreamStatus) {
+  if (!isTerminalOrIdleStatus(previousStatus)) return false
+  if (!ACTIVE_STATUSES.has(nextStatus)) return false
+  if (isUserMessagePatch(frame)) return false
+  if (patchCarriesToolActivity(frame)) return false
+  if (patchCarriesAssistantLiveActivity(frame)) return false
+  if (hasActiveToolOrSubagent(state)) return false
+  return hasAssistantAnswerAfterLatestUser(state)
+}
+
 function latestUserMessageIndex(state: SessionState) {
   for (let i = state.messages.length - 1; i >= 0; i--) {
     if (state.messages[i]?.role === "user") return i
@@ -816,7 +837,12 @@ function handlePatch(frame: PatchFrame) {
   const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
-    if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
+    if (shouldIgnoreTerminalToActiveStatus(state, frame, previousStatus, patchStatus.status)) {
+      // History/bootstrap replay can arrive after a session is already final and
+      // still carry an old activeRun/runStatus:"thinking" projection. Do not
+      // resurrect completed chats into a permanent spinner unless the patch is
+      // a real new user turn, live assistant delta, or tool/subagent activity.
+    } else if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
       state.deferredDoneUntilAssistant = true
     } else if (
       ACTIVE_STATUSES.has(state.status) &&
