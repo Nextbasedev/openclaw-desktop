@@ -269,6 +269,47 @@ function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
     .sort((a, b) => chatActivityMs(b) - chatActivityMs(a));
 }
 
+function latestProjectedMessageActivity(context: AppContext, sessionKey: string) {
+  const row = context.db.prepare(`
+    SELECT data_json, updated_at_ms
+    FROM v2_messages
+    WHERE session_key = ?
+    ORDER BY updated_at_ms DESC, openclaw_seq DESC
+    LIMIT 1
+  `).get(sessionKey) as { data_json: string; updated_at_ms: number } | undefined;
+  if (!row || !Number.isFinite(Number(row.updated_at_ms))) return null;
+  const data = fromJson(row.data_json) as CompatRecord;
+  const text = stringField(data, ["text", "content"]);
+  return {
+    timestamp: new Date(Number(row.updated_at_ms)).toISOString(),
+    text,
+  };
+}
+
+function applyProjectedChatActivity(context: AppContext) {
+  let changed = false;
+  for (const chat of compatState.chats) {
+    if (isGatewayOnlySyncedChat(chat)) continue;
+    const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+    if (!sessionKey) continue;
+    const projected = latestProjectedMessageActivity(context, sessionKey);
+    const timestamp = projected?.timestamp ?? stringField(chat, ["createdAt", "created_at"]);
+    if (!timestamp) continue;
+    const next = {
+      ...chat,
+      updatedAt: timestamp,
+      lastActiveAt: timestamp,
+      ...(projected ? { lastMessageAt: timestamp } : { lastMessageAt: undefined }),
+      ...(projected?.text ? { lastMessageText: projected.text } : {}),
+    };
+    if (JSON.stringify(next) !== JSON.stringify(chat)) {
+      Object.assign(chat, next);
+      changed = true;
+    }
+  }
+  if (changed) saveCompatState(context);
+}
+
 function isGatewayOnlySyncedChat(chat: CompatRecord) {
   const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
   return Boolean(sessionKey && chat.id === stableCompatId("chat", sessionKey));
@@ -357,7 +398,6 @@ async function syncGatewaySessions(context: AppContext) {
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const createdAt = timestampField(row, ["createdAt", "created_at"]);
-      const updatedAt = timestampField(row, ["lastMessageAt", "lastActiveAt", "updatedAt", "updated_at"]);
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
@@ -367,8 +407,7 @@ async function syncGatewaySessions(context: AppContext) {
         // in the compat chat collection.
       } else {
         const existing = compatState.chats[chatIndex];
-        const nextUpdatedAt = newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, updatedAt);
-        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId, updatedAt: nextUpdatedAt, lastActiveAt: nextUpdatedAt, lastMessageAt: nextUpdatedAt };
+        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.chats[chatIndex] = next;
           changed = true;
@@ -386,13 +425,12 @@ async function syncGatewaySessions(context: AppContext) {
           agentId,
           label: name,
           createdAt,
-          updatedAt,
+          updatedAt: createdAt,
         });
         changed = true;
       } else {
         const existing = compatState.sessions[sessionIndex];
-        const nextUpdatedAt = newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, updatedAt);
-        const next = { ...existing, key: existing.key || sessionKey, sessionKey, agentId: existing.agentId || agentId, label: existing.label || name, updatedAt: nextUpdatedAt, lastActiveAt: nextUpdatedAt, lastMessageAt: nextUpdatedAt };
+        const next = { ...existing, key: existing.key || sessionKey, sessionKey, agentId: existing.agentId || agentId, label: existing.label || name };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.sessions[sessionIndex] = next;
           changed = true;
@@ -1056,6 +1094,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get("/api/bootstrap", async () => {
     const gateway = await connectGatewayForStatus(context);
     await syncGatewaySessions(context);
+    applyProjectedChatActivity(context);
     const spaceId = activeSpaceId();
     return {
       ok: true,
@@ -1140,6 +1179,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.get("/api/chats", async (request) => {
     await syncGatewaySessions(context);
+    applyProjectedChatActivity(context);
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     return {
