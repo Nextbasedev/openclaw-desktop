@@ -443,16 +443,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
   if (!inline) return false
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
-  const existing = pending.get(inline.id)
-  const startedAt = inline.startedAt ?? existing?.startedAt ?? (inline.status === "running" ? frame.patch.createdAtMs || Date.now() : undefined)
-  const completedAt = inline.completedAt ?? existing?.completedAt ?? (inline.status === "success" || inline.status === "error" ? frame.patch.createdAtMs || Date.now() : undefined)
-  pending.set(inline.id, {
-    ...(existing ?? inline),
-    ...inline,
-    startedAt,
-    completedAt,
-    duration: inline.duration ?? existing?.duration ?? formatToolDuration(startedAt, completedAt),
-  })
+  pending.set(inline.id, { ...(pending.get(inline.id) ?? inline), ...inline })
   state.pendingTools = Array.from(pending.values())
   promoteRunningToolStatus(state, inline.tool)
 
