@@ -66,6 +66,8 @@ const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
   "terminal",
 ])
 const CRON_SESSION_TARGETS = new Set(["isolated", "main", "current"])
+const WORKSPACE_LAYOUT_SAVE_DEBOUNCE_MS = 300
+const WORKSPACE_LAYOUT_RESTORE_RETRY_MS = 350
 
 function isRealChatSessionKey(sessionKey: string | null | undefined): sessionKey is string {
   return Boolean(sessionKey && !CRON_SESSION_TARGETS.has(sessionKey) && !sessionKey.includes(":cron:"))
@@ -97,6 +99,10 @@ function createDraftTab(groupId: EditorGroupId): EditorTab {
 
 function isDraftTabId(tabId: string): boolean {
   return tabId === "draft" || tabId.startsWith("draft:")
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 type CronConversationTarget = {
@@ -361,6 +367,7 @@ function AppShell({
   const initialConnectRedirectAppliedRef = useRef(false)
   const layoutRestoreAttemptedRef = useRef(false)
   const layoutRestoreAppliedRef = useRef(false)
+  const saveWorkspaceLayoutNowRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     if (activeSessionKey) {
@@ -409,6 +416,7 @@ function AppShell({
           title: activeTopic.name,
           subtitle: activeTopic.projectName,
           kind: "topic",
+          topic: activeTopic,
         },
       })
       return
@@ -424,6 +432,7 @@ function AppShell({
           title,
           subtitle: "Chat",
           kind: "chat",
+          chat: activeChat,
         },
       })
       return
@@ -998,12 +1007,42 @@ function AppShell({
       if (snapshot.activeChat?.id) chatIds.add(snapshot.activeChat.id)
 
       const chatsById = new Map<string, ActiveChat>()
+      const savedChatsById = new Map<string, ActiveChat>()
+      for (const group of snapshot.editorGroups.groups) {
+        for (const tab of group.tabs) {
+          if (tab.kind === "chat") {
+            const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+            if (!chatId) continue
+            const savedChat: ActiveChat = tab.chat ?? {
+              id: chatId,
+              name: tab.title || snapshot.activeSessionTitle || "Chat",
+              sessionKey: group.sessionData?.chat?.id === chatId
+                ? group.sessionData.sessionKey
+                : undefined,
+            }
+            savedChatsById.set(chatId, savedChat)
+          }
+        }
+        const sessionChat = group.sessionData?.chat
+        if (sessionChat?.id) savedChatsById.set(sessionChat.id, sessionChat)
+      }
+      if (snapshot.activeChat?.id) savedChatsById.set(snapshot.activeChat.id, snapshot.activeChat)
+
+      let validationIncomplete = false
       if (chatIds.size > 0) {
-        const result = await invoke<{ chats: Array<ActiveChat & { archived?: boolean }> }>(
+        let result = await invoke<{ chats: Array<ActiveChat & { archived?: boolean }> }>(
           "middleware_chats_list",
           { input: { spaceId: validSpace ? snapshot.activeSpaceId ?? undefined : undefined } },
-        ).catch(() => ({ chats: [] }))
-        for (const chat of result.chats || []) {
+        ).catch(() => null)
+        if (!cancelled && (!result || (result.chats || []).length === 0)) {
+          await wait(WORKSPACE_LAYOUT_RESTORE_RETRY_MS)
+          result = await invoke<{ chats: Array<ActiveChat & { archived?: boolean }> }>(
+            "middleware_chats_list",
+            { input: { spaceId: validSpace ? snapshot.activeSpaceId ?? undefined : undefined } },
+          ).catch(() => null)
+        }
+        validationIncomplete = !result || (result.chats || []).length === 0
+        for (const chat of result?.chats || []) {
           if (!chat.archived) chatsById.set(chat.id, chat)
         }
       }
@@ -1013,9 +1052,9 @@ function AppShell({
           if (tab.kind === "draft") return [tab]
           if (tab.kind === "chat") {
             const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
-            const chat = chatsById.get(chatId)
+            const chat = chatsById.get(chatId) ?? (validationIncomplete ? savedChatsById.get(chatId) : undefined)
             if (!chat) return []
-            return [{ ...tab, id: `chat:${chat.id}`, title: chat.name, chat }]
+            return [{ ...tab, id: `chat:${chat.id}`, title: isUndecidedChatTitle(chat.name) ? tab.title : chat.name, chat }]
           }
           return [tab]
         })
@@ -1272,39 +1311,90 @@ function AppShell({
     }
   }, [activeChat, activeTopic])
 
-  useEffect(() => {
+  const buildWorkspaceLayoutSnapshot = useCallback(() => {
     const hasRestorableContent =
       Boolean(activeChat || activeTopic) ||
       editorGroups.groups.some((group) => group.tabs.some((tab) => tab.kind !== "draft"))
-    if (!layoutRestoreAttemptedRef.current || (!layoutRestoreAppliedRef.current && !hasRestorableContent)) return
+    if (!layoutRestoreAttemptedRef.current || (!layoutRestoreAppliedRef.current && !hasRestorableContent)) return null
 
-    const timer = window.setTimeout(() => {
-      const enrichedGroups = {
-        ...editorGroups,
-        groups: editorGroups.groups.map((group) => ({
-          ...group,
-          tabs: group.tabs.map((tab) => {
-            const cached = tabDataRef.current.get(tab.id)
-            if (tab.kind === "chat" && !tab.chat && cached?.chat) return { ...tab, chat: cached.chat }
-            if (tab.kind === "topic" && !tab.topic && cached?.topic) return { ...tab, topic: cached.topic }
+    const enrichedGroups = {
+      ...editorGroups,
+      groups: editorGroups.groups.map((group) => ({
+        ...group,
+        tabs: group.tabs.map((tab) => {
+          const cached = tabDataRef.current.get(tab.id)
+          if (tab.kind === "chat") {
+            if (tab.chat) return tab
+            if (cached?.chat) return { ...tab, chat: cached.chat }
+            const chatId = tab.id.replace(/^chat:/, "")
+            const sessionChat = group.sessionData?.chat?.id === chatId ? group.sessionData.chat : null
+            if (sessionChat) return { ...tab, chat: sessionChat }
+            if (activeChat?.id === chatId) return { ...tab, chat: activeChat }
             return tab
-          }),
-        })),
-      }
-      void saveWorkspaceLayoutSnapshot({
-        activeSpaceId,
-        activeTab,
-        route: getRoutePath(),
-        activeChat,
-        activeTopic,
-        activeSessionKey,
-        activeSessionTitle,
-        editorGroups: enrichedGroups,
-        splitRatio,
-      }).catch(() => {})
-    }, 300)
-    return () => window.clearTimeout(timer)
+          }
+          if (tab.kind === "topic") {
+            if (tab.topic) return tab
+            if (cached?.topic) return { ...tab, topic: cached.topic }
+            return tab
+          }
+          return tab
+        }),
+        sessionData: group.sessionData ?? (() => {
+          const activeTab = group.tabs.find((tab) => tab.id === group.activeTabId)
+          if (activeTab?.kind !== "chat") return null
+          const chatId = activeTab.chat?.id ?? activeTab.id.replace(/^chat:/, "")
+          const chat = activeTab.chat ?? tabDataRef.current.get(activeTab.id)?.chat ?? (activeChat?.id === chatId ? activeChat : null)
+          const sessionKey = chat?.sessionKey ?? (activeChat?.id === chatId ? activeSessionKey : null)
+          return chat && sessionKey ? { chat, sessionKey, title: activeSessionTitle ?? chat.name } : null
+        })(),
+      })),
+    }
+
+    return {
+      activeSpaceId,
+      activeTab,
+      route: getRoutePath(),
+      activeChat,
+      activeTopic,
+      activeSessionKey,
+      activeSessionTitle,
+      editorGroups: enrichedGroups,
+      splitRatio,
+    }
   }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, activeTab, activeTopic, editorGroups, splitRatio])
+
+  const saveWorkspaceLayoutNow = useCallback(() => {
+    const snapshot = buildWorkspaceLayoutSnapshot()
+    if (!snapshot) return
+    void saveWorkspaceLayoutSnapshot(snapshot).catch(() => {})
+  }, [buildWorkspaceLayoutSnapshot])
+
+  useEffect(() => {
+    saveWorkspaceLayoutNowRef.current = saveWorkspaceLayoutNow
+  }, [saveWorkspaceLayoutNow])
+
+  useEffect(() => {
+    saveWorkspaceLayoutNow()
+    const timer = window.setTimeout(() => {
+      saveWorkspaceLayoutNow()
+    }, WORKSPACE_LAYOUT_SAVE_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [saveWorkspaceLayoutNow])
+
+  useEffect(() => {
+    const flush = () => saveWorkspaceLayoutNowRef.current()
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flush()
+    }
+    window.addEventListener("beforeunload", flush)
+    window.addEventListener("pagehide", flush)
+    document.addEventListener("visibilitychange", flushWhenHidden)
+    return () => {
+      window.removeEventListener("beforeunload", flush)
+      window.removeEventListener("pagehide", flush)
+      document.removeEventListener("visibilitychange", flushWhenHidden)
+    }
+  }, [])
 
   const switchToGroupSession = useCallback((groupId: "group-1" | "group-2") => {
     if (activeSessionKey && activeChat) {
