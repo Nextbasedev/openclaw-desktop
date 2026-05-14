@@ -41,10 +41,6 @@ function isTerminalOrIdleStatus(status: StreamStatus) {
   return !ACTIVE_STATUSES.has(status)
 }
 
-function isDoneOrErrorStatus(status: StreamStatus) {
-  return status === "done" || status === "error"
-}
-
 function normalizeStatusLabel(status: StreamStatus, label: string | null | undefined) {
   return isTerminalOrIdleStatus(status) ? null : (label ?? null)
 }
@@ -347,10 +343,9 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
   if (status !== "done" && status !== "error") return
   const finalizedTools: InlineToolCall[] = state.pendingTools.map((tool): InlineToolCall => {
     if (tool.status !== "running") return tool
-    if (status === "done") return tool
     return {
       ...tool,
-      status: "error",
+      status: status === "error" ? "error" : "success",
       duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
       completedAt: tool.completedAt ?? Date.now(),
       resultText:
@@ -366,14 +361,6 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
   // UI can render stale tool rows after/below the completed assistant answer,
   // and old completed tools can leak into the next render cycle.
   state.pendingTools = []
-}
-
-function dropTerminalRunningToolPlaceholders(state: SessionState) {
-  if (!isDoneOrErrorStatus(state.status)) return
-  state.messages = state.messages.filter((message) => {
-    if (message.role !== "assistant" || message.text.trim()) return true
-    return !message.toolCalls?.some((tool) => tool.status === "running")
-  })
 }
 
 function realEpochMs(value: unknown) {
@@ -458,7 +445,6 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
   const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
   if (!inline) return false
-  if (isDoneOrErrorStatus(state.status) && inline.status === "running") return true
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
   const existingTool = pending.get(inline.id)
   pending.set(inline.id, {
@@ -511,7 +497,6 @@ function shouldDeriveToolActivityFromMessage(frame: PatchFrame) {
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   if (applyCanonicalToolFromPatch(state, frame)) return
   if (applyToolResultFromPatch(state, frame)) return
-  if (isDoneOrErrorStatus(state.status)) return
   if (!shouldDeriveToolActivityFromMessage(frame)) return
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return
@@ -719,7 +704,6 @@ function markLatestAssistantErrorForReveal(state: SessionState) {
     return
   }
 }
-
 function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
   if (status !== "done") return false
   const type = frame.patch.type
@@ -731,7 +715,6 @@ function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
 function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, status: StreamStatus) {
   if (!isBareDoneStatusPatch(frame, status)) return false
   if (!ACTIVE_STATUSES.has(state.status)) return false
-  if (hasActiveToolOrSubagent(state)) return true
   if (!state.activityStartedAtMs) return false
   if (Date.now() - state.activityStartedAtMs > PREMATURE_DONE_GRACE_MS) return false
   if (latestUserMessageIndex(state) < 0) return false
@@ -838,7 +821,7 @@ function handlePatch(frame: PatchFrame) {
     } else if (
       ACTIVE_STATUSES.has(state.status) &&
       isTerminalMessageStatusPatch(frame, patchStatus.status) &&
-      (hasActiveToolOrSubagent(state) || !isAssistantFinalTextMessage(frame)) &&
+      (!isAssistantFinalTextMessage(frame) || !hasActiveToolOrSubagent(state)) &&
       !hasTerminalToolPatch(frame)
     ) {
       // Tool-only / partial message projection patches can carry runStatus:"done"
@@ -887,7 +870,6 @@ function handlePatch(frame: PatchFrame) {
     state.deferredDoneUntilAssistant = false
   }
   if (isTerminalOrIdleStatus(state.status)) finalizeActiveToolsForTerminalStatus(state, state.status)
-  dropTerminalRunningToolPlaceholders(state)
   const autoFinalized = finalizedOnAssistantFinal || maybeFinalizeAnsweredRun(state, "canonical-run-status-required")
   if (previousStatus !== state.status) {
     frontendLog("status", "global-chat-session.status-change", {
