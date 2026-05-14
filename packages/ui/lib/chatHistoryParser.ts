@@ -158,15 +158,50 @@ function toolResultText(raw: RawHistoryMessage): string {
   return raw.text || extractText(raw.content)
 }
 
+export function formatChatErrorMessage(error: unknown): string {
+  const raw = typeof error === "string" ? error.trim() : String(error ?? "").trim()
+  if (!raw) return "Something went wrong. Try again."
+
+  const withoutPrefix = raw.replace(/^Error:\s*/i, "").trim()
+  const httpJson = withoutPrefix.match(/^(\d{3})\s+(\{[\s\S]*\})$/)
+  if (httpJson) {
+    try {
+      const parsed = JSON.parse(httpJson[2]) as { code?: unknown; message?: unknown; error?: unknown }
+      if (parsed.code === "deactivated_workspace") {
+        return "Workspace is deactivated. Reactivate the workspace and try again."
+      }
+      if (typeof parsed.message === "string" && parsed.message.trim()) return parsed.message.trim()
+      if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim()
+      if (typeof parsed.code === "string" && parsed.code.trim()) return parsed.code.trim().replace(/_/g, " ")
+    } catch {}
+  }
+
+  try {
+    const parsed = JSON.parse(withoutPrefix) as { code?: unknown; message?: unknown; error?: unknown }
+    if (parsed.code === "deactivated_workspace") {
+      return "Workspace is deactivated. Reactivate the workspace and try again."
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) return parsed.message.trim()
+    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim()
+  } catch {}
+
+  return withoutPrefix
+}
+
+function normalizeAssistantText(text: string): string {
+  if (!/^\s*Error:\s*\d{3}\s+\{/.test(text)) return text
+  return `Error: ${formatChatErrorMessage(text)}`
+}
+
 function visibleMessageText(raw: RawHistoryMessage): string {
   const text = raw.text || extractText(raw.content)
-  if (text.trim()) return text
+  if (text.trim()) return normalizeAssistantText(text)
   if (
     raw.role === "assistant" &&
     raw.stopReason === "error" &&
     raw.errorMessage
   ) {
-    return `Error: ${raw.errorMessage}`
+    return `Error: ${formatChatErrorMessage(raw.errorMessage)}`
   }
   return ""
 }
@@ -190,7 +225,7 @@ function inferToolStatus(raw: RawHistoryMessage, resultText: string): InlineTool
 
 function rawTimestampMs(raw: RawHistoryMessage): number | null {
   if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
-    return raw.timestamp < 10_000_000_000
+    return raw.timestamp > 100_000_000 && raw.timestamp < 10_000_000_000
       ? Math.round(raw.timestamp * 1000)
       : Math.round(raw.timestamp)
   }
@@ -272,8 +307,6 @@ const ASYNC_RESULT_RE =
 const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
 const MEDIA_REPLY_INSTRUCTION_RE =
   /^To send an image back,[\s\S]*?Keep caption in the text body\.\s*/
-const SENDER_METADATA_RE =
-  /^Sender \(untrusted metadata\):\s*```(?:json)?\s*[\s\S]*?```\s*/
 const BRACKETED_DAY_TIME_RE =
   /^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(?:UTC|GMT[+-]\d{1,2}:?\d{2})\]\s*/
 
@@ -336,7 +369,6 @@ export function stripGatewayPrefixes(text: string): string {
     if (!senderMetadata.stripped) break
   }
   result = stripMediaAttachmentPreamble(result)
-  result = result.replace(SENDER_METADATA_RE, "")
   result = result.replace(CRON_HEADER_RE, "")
   result = result.replace(CURRENT_TIME_RE, "")
   result = result.replace(MESSAGE_TOOL_RE, "")
