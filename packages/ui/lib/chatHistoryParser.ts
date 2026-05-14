@@ -190,7 +190,9 @@ function inferToolStatus(raw: RawHistoryMessage, resultText: string): InlineTool
 
 function rawTimestampMs(raw: RawHistoryMessage): number | null {
   if (typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp)) {
-    return raw.timestamp
+    return raw.timestamp < 10_000_000_000
+      ? Math.round(raw.timestamp * 1000)
+      : Math.round(raw.timestamp)
   }
   if (raw.createdAt) {
     const parsed = Date.parse(raw.createdAt)
@@ -206,9 +208,10 @@ function createdAtIso(raw: RawHistoryMessage): string | undefined {
 }
 
 function formatDuration(ms: number): string | undefined {
-  if (!Number.isFinite(ms) || ms < 0) return undefined
+  if (!Number.isFinite(ms) || ms < 0 || ms > 24 * 60 * 60 * 1000) return undefined
   if (ms < 100) return "0.1s"
-  return `${(ms / 1000).toFixed(1)}s`
+  const seconds = ms / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
 }
 
 function objectValue(value: unknown, key: string): unknown {
@@ -233,6 +236,16 @@ function toolResultDurationMs(
     // Result text is not guaranteed to be JSON.
   }
   return null
+}
+
+function blockDurationMs(block: ContentBlock): number | null {
+  if (typeof block.durationMs === "number" && Number.isFinite(block.durationMs)) return block.durationMs
+  if (typeof block.duration !== "string") return null
+  const match = block.duration.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|second|seconds)$/i)
+  if (!match) return null
+  const value = Number(match[1])
+  if (!Number.isFinite(value)) return null
+  return match[2].toLowerCase() === "ms" ? value : value * 1000
 }
 
 export function stripBootstrap(t: string): string {
@@ -462,6 +475,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
 
     if (role === "assistant") {
       for (const block of toolBlocks(item)) {
+        const durationMs = blockDurationMs(block)
         const call: InlineToolCall & { startedAtMs?: number | null } = {
           id: block.id ?? randomId(),
           tool: block.name ?? "unknown",
@@ -472,7 +486,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
                 ? "success"
                 : "running",
           input: block.arguments ?? block.input,
-          duration: block.duration,
+          duration: formatDuration(durationMs ?? -1) ?? block.duration,
           startedAtMs: rawTimestampMs(item),
         }
         pendingToolCalls.push(call)
