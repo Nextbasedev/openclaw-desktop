@@ -656,6 +656,79 @@ function saveProviderCredentials(input: CompatRecord) {
   return { ok: true, providerId, envVar };
 }
 
+function workspaceRoot() {
+  return process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace");
+}
+
+function resolveWorkspaceFile(rawPath: unknown) {
+  const root = path.resolve(workspaceRoot());
+  const requested = String(rawPath || "").trim();
+  if (!requested) throw new Error("path is required");
+  const target = path.resolve(root, requested.replace(/^[/\\]+/, ""));
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new Error("path must stay inside workspace");
+  return { root, target, relativePath: path.relative(root, target).replace(/\\/g, "/") };
+}
+
+function readMemoryFile(input: CompatRecord) {
+  const { target } = resolveWorkspaceFile(input.path);
+  return { content: fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "" };
+}
+
+function writeMemoryFile(input: CompatRecord) {
+  const { target, relativePath } = resolveWorkspaceFile(input.path);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, String(input.content ?? ""), "utf8");
+  return { ok: true, path: relativePath };
+}
+
+function listMemoryDocuments() {
+  const root = workspaceRoot();
+  const candidates = ["MEMORY.md", "SOUL.md", "USER.md", "IDENTITY.md", "TOOLS.md", "AGENTS.md", "HEARTBEAT.md"];
+  const docs: CompatRecord[] = [];
+  for (const name of candidates) {
+    const file = path.join(root, name);
+    if (!fs.existsSync(file)) continue;
+    const stat = fs.statSync(file);
+    docs.push({ name, path: name, type: "file", size: stat.size, updatedAt: stat.mtime.toISOString(), modifiedAt: stat.mtime.toISOString() });
+  }
+  const memoryDir = path.join(root, "memory");
+  if (fs.existsSync(memoryDir)) {
+    for (const name of fs.readdirSync(memoryDir).filter((entry) => entry.endsWith(".md")).sort().reverse()) {
+      const file = path.join(memoryDir, name);
+      const stat = fs.statSync(file);
+      docs.push({ name, path: `memory/${name}`, type: "file", size: stat.size, updatedAt: stat.mtime.toISOString(), modifiedAt: stat.mtime.toISOString() });
+    }
+  }
+  return { documents: docs };
+}
+
+function storeMemoryEntry(input: CompatRecord) {
+  const content = String(input.content || "").trim();
+  if (!content) return { ok: false, error: { message: "content is required" } };
+  const date = new Date().toISOString().slice(0, 10);
+  const { target, relativePath } = resolveWorkspaceFile(`memory/${date}.md`);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const category = String(input.category || "note").trim();
+  fs.appendFileSync(target, `\n\n## ${new Date().toISOString()} — ${category}\n\n${content}\n`, "utf8");
+  return { ok: true, path: relativePath };
+}
+
+function recallMemoryEntries() {
+  const docs = listMemoryDocuments().documents;
+  const entries: CompatRecord[] = [];
+  for (const doc of docs) {
+    const file = path.join(workspaceRoot(), String(doc.path));
+    const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    for (const [index, chunk] of text.split(/\n{2,}/).entries()) {
+      const content = chunk.trim();
+      if (!content) continue;
+      entries.push({ content: content.slice(0, 1200), path: doc.path, line: index + 1, totalScore: 0.5, category: "document", date: String(doc.name).replace(/\.md$/, "") });
+      if (entries.length >= 100) return { entries };
+    }
+  }
+  return { entries };
+}
+
 function modelRefsFromConfig(cfg: CompatRecord): string[] {
   const defaults = cfg.agents?.defaults ?? {};
   const modelMapRefs: string[] = defaults.models && !Array.isArray(defaults.models) && typeof defaults.models === "object"
@@ -1401,6 +1474,19 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         if (!saved.ok) return reply.code(400).send(saved);
         return saved;
       }
+      case "middleware_memory_list":
+        return listMemoryDocuments();
+      case "middleware_memory_read":
+        return readMemoryFile(input);
+      case "middleware_memory_write":
+        return writeMemoryFile(input);
+      case "middleware_memory_store": {
+        const stored = storeMemoryEntry(input);
+        if (!stored.ok) return reply.code(400).send(stored);
+        return stored;
+      }
+      case "middleware_memory_recall":
+        return recallMemoryEntries();
       case "middleware_commands_list":
         return { commands: [] };
       case "middleware_autonaming_quick": {
