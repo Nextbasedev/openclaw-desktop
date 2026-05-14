@@ -428,8 +428,9 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
 function archiveChatsForSpace(spaceId: string) {
   const timestamp = nowIso();
   compatState.chats = compatState.chats.map((chat) => {
-    if (chat.spaceId !== spaceId || chat.archived) return chat;
-    return { ...chat, archived: true, updatedAt: timestamp };
+    if (chat.spaceId !== spaceId) return chat;
+    if (chat.archived) return { ...chat, archivedBySpace: chat.archivedBySpace ?? false };
+    return { ...chat, archived: true, archivedBySpace: true, updatedAt: timestamp };
   });
 }
 
@@ -437,7 +438,9 @@ function restoreChatsForSpace(spaceId: string) {
   const timestamp = nowIso();
   compatState.chats = compatState.chats.map((chat) => {
     if (chat.spaceId !== spaceId || !chat.archived) return chat;
-    return { ...chat, archived: false, updatedAt: timestamp };
+    if (chat.archivedBySpace === false) return chat;
+    const { archivedBySpace: _archivedBySpace, ...rest } = chat;
+    return { ...rest, archived: false, updatedAt: timestamp };
   });
 }
 
@@ -1207,7 +1210,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/archive", async (request, reply) => {
     const body = (request.body ?? {}) as CompatRecord;
-    const chat = patchById(compatState.chats, request.params.chatId, { archived: body.archived ?? true });
+    const archived = body.archived ?? true;
+    const chat = patchById(
+      compatState.chats,
+      request.params.chatId,
+      archived ? { archived: true, archivedBySpace: false } : { archived: false, archivedBySpace: undefined },
+    );
     if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
     saveCompatCollection(context, "chats");
     return { chat };

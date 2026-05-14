@@ -5,6 +5,7 @@ export type Chat = {
   spaceId?: string
   agentId: string
   archived: boolean
+  archivedBySpace?: boolean
   pinned: boolean
   lastActiveAt?: string
   lastMessageAt?: string
