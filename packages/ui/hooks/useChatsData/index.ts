@@ -207,29 +207,15 @@ export function useChatsData(
   }, [])
 
   useEffect(() => {
-    return on<{ chatId?: string; sessionKey?: string; text?: string }>("chat:activity", (event) => {
-      const targetChatId = event?.chatId ?? activeChat?.id
-      const targetSessionKey = event?.sessionKey ?? activeChat?.sessionKey
-      if (!targetChatId && !targetSessionKey) return
-      const now = new Date().toISOString()
-      let promotedChatId: string | null = null
+    return on("chat:activity", () => {
+      if (!activeChat) return
       setChats((prev) =>
-        prev.map((c) => {
-          const matches =
-            (targetChatId && c.id === targetChatId) ||
-            (targetSessionKey && c.sessionKey === targetSessionKey)
-          if (!matches) return c
-          promotedChatId = c.id
-          return {
-            ...c,
-            updatedAt: now,
-            lastActiveAt: now,
-            lastMessageText: event?.text?.trim() || c.lastMessageText,
-          }
-        }),
+        prev.map((c) =>
+          c.id === activeChat.id
+            ? { ...c, updatedAt: new Date().toISOString() }
+            : c,
+        ),
       )
-      const id = promotedChatId ?? targetChatId
-      if (id) setChatOrder((prev) => [id, ...prev.filter((item) => item !== id)])
     })
   }, [activeChat])
 
@@ -396,13 +382,21 @@ export function useChatsData(
   }, [deleteTarget, loadChats, activeChat, onChatClear, spaceId])
 
   const sortedChatIds = useMemo(() => {
-    const byActivity = [...chats]
-      .sort((a, b) => chatActivityTime(b) - chatActivityTime(a))
+    const chatIds = new Set(chats.map((chat) => chat.id))
+    const ordered = chatOrder.filter((id) => chatIds.has(id))
+    const missing = chats
+      .filter((chat) => !ordered.includes(chat.id))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() -
+          new Date(a.updatedAt).getTime(),
+      )
       .map((chat) => chat.id)
-    const pinned = byActivity.filter((id) => pinnedChats.has(id))
-    const unpinned = byActivity.filter((id) => !pinnedChats.has(id))
+    const allOrdered = [...ordered, ...missing]
+    const pinned = allOrdered.filter((id) => pinnedChats.has(id))
+    const unpinned = allOrdered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
-  }, [pinnedChats, chats])
+  }, [chatOrder, pinnedChats, chats])
 
   const dialogState: ChatDialogState = {
     renameOpen,
