@@ -253,6 +253,18 @@ function timeMs(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function messageTimestampMs(message: CompatRecord) {
+  const value = message.timestamp ?? message.createdAt ?? message.created_at ?? message.updatedAt ?? message.updated_at;
+  if (typeof value === "number" && Number.isFinite(value)) return value > 0 && value < 1_000_000_000_000 ? value * 1_000 : value;
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric > 0 && numeric < 1_000_000_000_000 ? numeric * 1_000 : numeric;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
 function newestTimestamp(...values: unknown[]) {
   const newest = values.reduce<number>((max, value) => Math.max(max, timeMs(value)), 0);
   return newest > 0 ? new Date(newest).toISOString() : nowIso();
@@ -280,8 +292,9 @@ function latestProjectedMessageActivity(context: AppContext, sessionKey: string)
   if (!row || !Number.isFinite(Number(row.updated_at_ms))) return null;
   const data = fromJson(row.data_json) as CompatRecord;
   const text = stringField(data, ["text", "content"]);
+  const timestampMs = messageTimestampMs(data) || Number(row.updated_at_ms);
   return {
-    timestamp: new Date(Number(row.updated_at_ms)).toISOString(),
+    timestamp: new Date(timestampMs).toISOString(),
     text,
   };
 }
@@ -293,7 +306,8 @@ function applyProjectedChatActivity(context: AppContext) {
     const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
     if (!sessionKey) continue;
     const projected = latestProjectedMessageActivity(context, sessionKey);
-    const timestamp = projected?.timestamp ?? stringField(chat, ["createdAt", "created_at"]);
+    if (!projected) continue;
+    const timestamp = projected.timestamp;
     if (!timestamp) continue;
     const next = {
       ...chat,
