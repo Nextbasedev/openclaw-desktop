@@ -10,7 +10,7 @@ export type PersistentCacheEntry<T = unknown> = {
   expiresAt?: number | null
 }
 
-type SetOptions = { ttlMs?: number }
+type SetOptions = { ttlMs?: number; persistLocal?: boolean }
 
 const memory = new Map<string, PersistentCacheEntry>()
 let dbPromise: Promise<IDBDatabase | null> | null = null
@@ -162,7 +162,7 @@ export async function persistentCacheSet<T>(key: string, value: T, options: SetO
     expiresAt: options.ttlMs ? now() + options.ttlMs : null,
   }
   memory.set(key, entry)
-  localSet(entry)
+  if (options.persistLocal !== false) localSet(entry)
   await idbSet(entry)
 }
 
