@@ -317,6 +317,26 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
   return records[index];
 }
 
+function deleteCompatChat(context: AppContext, chatId: string) {
+  const chat = compatState.chats.find((record) => record.id === chatId);
+  const sessionKey = typeof chat?.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+
+  compatState.chats = compatState.chats.filter((record) => record.id !== chatId);
+  if (sessionKey) {
+    compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== sessionKey && session.key !== sessionKey);
+    void context.gateway.request("sessions.abort", { sessionKey }, 2_000).catch(() => { /* session may not be running */ });
+    void context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000).catch(() => { /* gateway may be offline */ });
+    context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_sessions WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_gateway_offsets WHERE session_key = ?").run(sessionKey);
+    context.db.prepare("DELETE FROM v2_projection_events WHERE session_key = ?").run(sessionKey);
+  }
+  saveCompatState(context);
+  return { ok: true, chatId, sessionKey };
+}
+
 function projectById(projectId: string) {
   return compatState.projects.find((project) => project.id === projectId && notDeleted(project)) ?? null;
 }
@@ -854,9 +874,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
-    patchById(compatState.chats, request.params.chatId, { deleted: true });
-    saveCompatCollection(context, "chats");
-    return { ok: true };
+    return deleteCompatChat(context, request.params.chatId);
   });
 
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request) => {
@@ -1335,6 +1353,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         compatState.sessions.push(session);
         saveCompatCollection(context, "sessions");
         return { session };
+      }
+      case "middleware_chats_delete": {
+        const chatId = String(input.chatId ?? "");
+        if (!chatId) return reply.code(400).send({ ok: false, error: { message: "chatId required" } });
+        return deleteCompatChat(context, chatId);
       }
       case "middleware_chats_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);

@@ -32,6 +32,12 @@ export type AppContext = {
 
 export async function createApp(config: MiddlewareV2Config) {
   const app = Fastify({ logger: false });
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
+    const raw = typeof body === "string" ? body.trim() : "";
+    if (!raw) { done(null, {}); return; }
+    try { done(null, JSON.parse(raw) as unknown); } catch (error) { done(error as Error); }
+  });
   const log = createLogger("http");
   const db = openDatabase(config);
   const gateway = new GatewayClient(config);
@@ -52,7 +58,12 @@ export async function createApp(config: MiddlewareV2Config) {
   context.chatLive = new ChatLiveIngest(context);
   (app as typeof app & { v2Context?: AppContext }).v2Context = context;
 
-  await app.register(cors, { origin: true, credentials: false });
+  await app.register(cors, {
+    origin: true,
+    credentials: false,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Authorization", "Content-Type", "Cache-Control"],
+  });
   await app.register(sensible);
   await app.register(websocket);
 

@@ -1277,66 +1277,51 @@ setMessages(warmMessages)
         }
         if (cancelled) return
 
-        const isCanonicalBootstrap = source === "middleware-v2-projection" || typeof projectionVersion === "number"
-        if (isCanonicalBootstrap) {
-          const canonicalMessages = dedupeChatMessages(parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages)
-          const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
-          const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
-          pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
-          spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
-          const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
-          const canonicalLabel = normalizeStatusLabelForStatus(canonicalStatus, canonicalStatusLabel)
-          seedGlobalChatSession({
-            sessionKey,
-            messages: canonicalMessages,
-            cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-            status: canonicalStatus,
-            statusLabel: canonicalLabel,
-            pendingTools: inlineTools,
-            spawnedSubagents: canonicalSpawns,
-            queryClient,
-          })
-          setMessages(canonicalMessages)
-          setLocalPendingTools(inlineTools)
-          setLocalSpawnedSubagents(canonicalSpawns)
-          setStatus(canonicalStatus)
-          setStatusLabel(canonicalLabel)
-          if (isActiveRunStatus(canonicalStatus)) markOptimisticChatActivity(sessionKey, canonicalLabel)
-          else clearCachedChatActivity(sessionKey)
-          setLoading(false)
-          frontendLog("chat", "chat.bootstrap.applied", {
-            sessionKey,
-            messageCount: canonicalMessages.length,
-            status: canonicalStatus,
-            statusLabel: canonicalLabel,
-            cursor: bootstrapCursor,
-            pendingToolCount: inlineTools.length,
-            spawnedSubagentCount: canonicalSpawns.length,
-            canonical: true,
-            durationMs: Date.now() - bootstrapStartedAtMs,
-            elapsedSinceMountMs: Date.now() - mountStartedAtMs,
-          })
-          forceScrollToBottom(false)
-
-          unsubscribeV2Stream = subscribeGlobalChatSession(
-            sessionKey,
-            (state) => {
-              if (cancelled) return
-              v2CursorRef.current = state.cursor
-              pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
-              spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
-              setLocalPendingTools(state.pendingTools)
-              setLocalSpawnedSubagents(state.spawnedSubagents)
-              setStatus(state.status)
-              setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
-              if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
-              else clearCachedChatActivity(sessionKey)
-              setMessages(state.messages)
-            }
-          )
-          unsubscribeStream = null
-          return
-        }
+        // The /api/chat/bootstrap endpoint is the V2 history source. Do not
+        // require projection metadata here: brand-new empty chats and older
+        // bundled middleware can briefly return no source/projectionVersion
+        // before the first run exists, but this is still V2 bootstrap data, not
+        // legacy middleware_chat_history.
+        const canonicalMessages = dedupeChatMessages(parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages)
+        const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
+        const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
+        pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
+        spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
+        const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
+        const canonicalLabel = normalizeStatusLabelForStatus(canonicalStatus, canonicalStatusLabel)
+        seedGlobalChatSession({
+          sessionKey,
+          messages: canonicalMessages,
+          cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
+          status: canonicalStatus,
+          statusLabel: canonicalLabel,
+          pendingTools: inlineTools,
+          spawnedSubagents: canonicalSpawns,
+          queryClient,
+        })
+        setMessages(canonicalMessages)
+        setLocalPendingTools(inlineTools)
+        setLocalSpawnedSubagents(canonicalSpawns)
+        setStatus(canonicalStatus)
+        setStatusLabel(canonicalLabel)
+        if (isActiveRunStatus(canonicalStatus)) markOptimisticChatActivity(sessionKey, canonicalLabel)
+        else clearCachedChatActivity(sessionKey)
+        setLoading(false)
+        frontendLog("chat", "chat.bootstrap.applied", {
+          sessionKey,
+          messageCount: canonicalMessages.length,
+          status: canonicalStatus,
+          statusLabel: canonicalLabel,
+          cursor: bootstrapCursor,
+          pendingToolCount: inlineTools.length,
+          spawnedSubagentCount: canonicalSpawns.length,
+          canonical: true,
+          source,
+          projectionVersion,
+          durationMs: Date.now() - bootstrapStartedAtMs,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+        })
+        forceScrollToBottom(false)
 
         // Defensive legacy fallback: only used if middleware-v2 does not expose
         // the canonical projection contract. This path may infer from raw
