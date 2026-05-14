@@ -473,6 +473,26 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[0]?.toolCalls?.[0]?.resultText, "found memory")
   })
 
+  it("uses the tool field as a fallback tool-call display name", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a-tools",
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            tool_call_id: "tc-tool-field",
+            tool: "exec",
+            args: { command: "git status" },
+            status: "success",
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.tool, "exec")
+  })
+
   it("falls back to assistant and tool result timestamps for history tool durations", () => {
     const parsed = parseChatHistory([
       {

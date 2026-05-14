@@ -10,6 +10,7 @@ export type ContentBlock = {
   name?: string
   toolName?: string
   tool_name?: string
+  tool?: string
   input?: unknown
   arguments?: unknown
   args?: unknown

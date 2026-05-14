@@ -38,13 +38,22 @@ function toolCallBlocks(content: unknown) {
   if (!Array.isArray(content)) return [];
   return content.filter((block): block is Record<string, unknown> => {
     if (!block || typeof block !== "object" || Array.isArray(block)) return false;
-    return block.type === "toolCall" || block.type === "tool_use";
+    return block.type === "toolCall" || block.type === "tool_use" || block.type === "tool_call" || block.type === "toolUse";
   });
 }
 
 function readToolCallId(value: Record<string, unknown>) {
   const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function readToolName(value: Record<string, unknown>) {
+  const name = value.name ?? value.toolName ?? value.tool_name ?? value.tool;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+function readToolArgs(value: Record<string, unknown>) {
+  return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
 }
 
 function compactResultMeta(value: unknown) {
@@ -134,7 +143,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
     for (const block of toolCallBlocks(data.content)) {
       const toolCallId = readToolCallId(block);
-      const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
+      const name = readToolName(block);
       if (!toolCallId || !name) continue;
       const existingTool = context.runs.getToolCall(sessionKey, toolCallId);
       if (existingTool?.runId && existingTool.runId !== run?.runId) continue;
@@ -154,7 +163,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
         name,
         phase: result ? "result" : "calling",
         status: result?.status,
-        argsMeta: block.arguments ?? block.input ?? null,
+        argsMeta: readToolArgs(block),
         resultMeta: result?.resultMeta,
         startedAtMs: historyTimestampMs(data) ?? undefined,
         finishedAtMs: result?.finishedAtMs ?? undefined,

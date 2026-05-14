@@ -154,6 +154,7 @@ type RawToolBlock = ContentBlock & {
   tool_call_id?: string
   toolName?: string
   tool_name?: string
+  tool?: string
   args?: unknown
   parameters?: unknown
   argsMeta?: unknown
@@ -185,7 +186,7 @@ function toolBlockId(block: RawToolBlock) {
 }
 
 function toolBlockName(block: RawToolBlock) {
-  return block.name ?? block.toolName ?? block.tool_name
+  return block.name ?? block.toolName ?? block.tool_name ?? block.tool
 }
 
 function toolBlockInput(block: RawToolBlock) {
