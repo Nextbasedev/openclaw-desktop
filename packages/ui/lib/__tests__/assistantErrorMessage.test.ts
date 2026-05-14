@@ -40,6 +40,16 @@ describe("isAssistantErrorMessage", () => {
       false
     )
   })
+
+  it("does not mark mixed success output as an error", () => {
+    expect(
+      isAssistantErrorMessage(
+        assistant(
+          "Error: terminated\n\nPushed successfully.\n\n- Tests passed: `23/23`"
+        )
+      )
+    ).toBe(false)
+  })
 })
 
 describe("formatAssistantErrorText", () => {

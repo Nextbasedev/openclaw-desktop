@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
 import { dedupeChatMessages } from "../chatMessageDedupe"
+import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey, isSubagentSessionKey } from "../subagentSession"
@@ -668,14 +669,9 @@ function shouldFinalizeOnAssistantFinalText(state: SessionState, frame: PatchFra
 function isAssistantErrorMessagePatch(frame: PatchFrame) {
   const message = patchMessage(frame)
   if (!message || message.role !== "assistant") return false
-  if (message.stopReason === "error") return true
   const text = textFromUnknown(message.text ?? message.content).trim()
-  return (
-    /^Error:\s+/i.test(text) ||
-    /^Agent failed before reply:/i.test(text) ||
-    /^OpenClaw error:/i.test(text) ||
-    /^WebSocket error:/i.test(text)
-  )
+  if (isStandaloneChatErrorText(text)) return true
+  return message.stopReason === "error" && !text
 }
 
 function markLatestAssistantErrorForReveal(state: SessionState) {

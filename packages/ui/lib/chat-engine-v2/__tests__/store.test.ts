@@ -395,6 +395,43 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("mixed success text with an error line does not become terminal error", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "push it" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          status: "done",
+          message: {
+            role: "assistant",
+            text: "Error: terminated\n\nPushed successfully.\n\n- Tests passed: `23/23`",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "done",
+      statusLabel: null,
+    })
+    expect(getGlobalChatSession("s1")?.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Error: terminated\n\nPushed successfully.\n\n- Tests passed: `23/23`",
+    })
+  })
+
   test("defers immediate bare done status and waits for canonical completion", () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
