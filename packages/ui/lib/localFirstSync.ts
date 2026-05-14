@@ -70,10 +70,20 @@ export async function localSyncGetBootstrap() {
 }
 
 export async function localSyncSetBootstrap(
-  input: Omit<LocalBootstrapState, "updatedAt"> & { updatedAt?: number }
+  input: Omit<LocalBootstrapState, "updatedAt"> & {
+    updatedAt?: number
+    ttlMs?: number
+  }
 ) {
-  const state = { ...input, updatedAt: input.updatedAt ?? now() }
-  await persistentCacheSet(BOOTSTRAP_KEY, state, { ttlMs: CACHE_TTL_MS })
+  const state: LocalBootstrapState = {
+    spaces: input.spaces,
+    activeSpaceId: input.activeSpaceId,
+    sessions: input.sessions,
+    updatedAt: input.updatedAt ?? now(),
+  }
+  await persistentCacheSet(BOOTSTRAP_KEY, state, {
+    ttlMs: input.ttlMs ?? CACHE_TTL_MS,
+  })
   emitSet(bootstrapListeners, state)
   post({ type: "bootstrap", state })
 }
@@ -94,10 +104,11 @@ export async function localSyncGetChats(spaceId: string) {
 export async function localSyncSetChats(
   spaceId: string,
   chats: Chat[],
-  updatedAt = now()
+  updatedAt = now(),
+  ttlMs = CACHE_TTL_MS
 ) {
   const state: LocalChatListState = { spaceId, chats, updatedAt }
-  await persistentCacheSet(chatKey(spaceId), state, { ttlMs: CACHE_TTL_MS })
+  await persistentCacheSet(chatKey(spaceId), state, { ttlMs })
   emitSet(chatListeners.get(spaceId), state)
   post({ type: "chats", state })
 }

@@ -41,6 +41,8 @@ type ForkCreateEvent = {
   context?: { type?: string }
 }
 
+const SIDEBAR_CHAT_CACHE_TTL_MS = 1000 * 60
+
 function sameStringArray(a: string[], b: string[]) {
   return a.length === b.length && a.every((value, index) => value === b[index])
 }
@@ -101,8 +103,15 @@ export function useChatsData(
         (c) => !c.archived,
       )
       if (spaceId) {
-        void persistentCacheSet(`project:${spaceId}:chats`, active, { ttlMs: 1000 * 60 * 60 * 24 })
-        void localSyncSetChats(spaceId, active)
+        void persistentCacheSet(`project:${spaceId}:chats`, active, {
+          ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+        })
+        void localSyncSetChats(
+          spaceId,
+          active,
+          undefined,
+          SIDEBAR_CHAT_CACHE_TTL_MS,
+        )
       }
       setChats(active)
       setPinnedChats(
@@ -319,8 +328,15 @@ export function useChatsData(
       setChats((prev) => {
         const next = prev.filter((chat) => chat.id !== chatId)
         if (spaceId) {
-          void persistentCacheSet(`project:${spaceId}:chats`, next, { ttlMs: 1000 * 60 * 60 * 24 })
-          void localSyncSetChats(spaceId, next)
+          void persistentCacheSet(`project:${spaceId}:chats`, next, {
+            ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+          })
+          void localSyncSetChats(
+            spaceId,
+            next,
+            undefined,
+            SIDEBAR_CHAT_CACHE_TTL_MS,
+          )
         }
         return next
       })
@@ -336,8 +352,15 @@ export function useChatsData(
       setChats((prev) => {
         const next = prev.filter((chat) => chat.id !== chatId)
         if (spaceId) {
-          void persistentCacheSet(`project:${spaceId}:chats`, next, { ttlMs: 1000 * 60 * 60 * 24 })
-          void localSyncSetChats(spaceId, next)
+          void persistentCacheSet(`project:${spaceId}:chats`, next, {
+            ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+          })
+          void localSyncSetChats(
+            spaceId,
+            next,
+            undefined,
+            SIDEBAR_CHAT_CACHE_TTL_MS,
+          )
         }
         return next
       })
