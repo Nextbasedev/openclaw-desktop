@@ -27,6 +27,7 @@ import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
+import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
@@ -357,6 +358,8 @@ function AppShell({
 
   const initialRouteAppliedRef = useRef(false)
   const initialConnectRedirectAppliedRef = useRef(false)
+  const layoutRestoreAttemptedRef = useRef(false)
+  const layoutRestoreAppliedRef = useRef(false)
 
   useEffect(() => {
     if (activeSessionKey) {
@@ -958,6 +961,105 @@ function AppShell({
     }
   }, [])
 
+  useEffect(() => {
+    if (layoutRestoreAttemptedRef.current || spaces.length === 0) return
+    layoutRestoreAttemptedRef.current = true
+    let cancelled = false
+    async function restoreLastWorkspaceLayout() {
+      const snapshot = await loadWorkspaceLayoutSnapshot().catch(() => null)
+      if (!snapshot || cancelled) return
+      const validSpace = snapshot.activeSpaceId
+        ? spaces.some((space) => space.id === snapshot.activeSpaceId)
+        : true
+      if (snapshot.activeSpaceId && validSpace && snapshot.activeSpaceId !== activeSpaceId) {
+        await switchSpace(snapshot.activeSpaceId).catch(() => {})
+      }
+
+      const chatIds = new Set<string>()
+      for (const group of snapshot.editorGroups.groups) {
+        for (const tab of group.tabs) {
+          if (tab.kind === "chat") {
+            const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+            if (chatId) chatIds.add(chatId)
+          }
+        }
+      }
+      if (snapshot.activeChat?.id) chatIds.add(snapshot.activeChat.id)
+
+      const chatsById = new Map<string, ActiveChat>()
+      if (chatIds.size > 0) {
+        const result = await invoke<{ chats: Array<ActiveChat & { archived?: boolean }> }>(
+          "middleware_chats_list",
+          { input: { spaceId: validSpace ? snapshot.activeSpaceId ?? undefined : undefined } },
+        ).catch(() => ({ chats: [] }))
+        for (const chat of result.chats || []) {
+          if (!chat.archived) chatsById.set(chat.id, chat)
+        }
+      }
+
+      const restoredGroups = snapshot.editorGroups.groups.map((group) => {
+        const tabs = group.tabs.flatMap((tab): EditorTab[] => {
+          if (tab.kind === "draft") return [tab]
+          if (tab.kind === "chat") {
+            const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+            const chat = chatsById.get(chatId)
+            if (!chat) return []
+            return [{ ...tab, id: `chat:${chat.id}`, title: chat.name, chat }]
+          }
+          return [tab]
+        })
+        const activeTabId = tabs.some((tab) => tab.id === group.activeTabId)
+          ? group.activeTabId
+          : tabs[tabs.length - 1]?.id ?? null
+        const activeTab = tabs.find((tab) => tab.id === activeTabId)
+        const chat = activeTab?.kind === "chat" ? activeTab.chat : null
+        const sessionKey = chat?.sessionKey ?? group.sessionData?.sessionKey ?? null
+        return {
+          ...group,
+          tabs,
+          activeTabId,
+          sessionData: chat && sessionKey ? { chat, sessionKey, title: chat.name } : null,
+        }
+      }).filter((group) => group.tabs.length > 0)
+
+      if (cancelled || restoredGroups.length === 0) return
+      layoutRestoreAppliedRef.current = true
+      setConnectAutoOpenEnabled(false)
+      setSplitRatio(Math.max(0.3, Math.min(0.7, snapshot.splitRatio || 0.5)))
+      dispatchGroups({
+        type: "RESTORE",
+        state: {
+          groups: restoredGroups.slice(0, 2),
+          focusedGroupId: restoredGroups.some((group) => group.id === snapshot.editorGroups.focusedGroupId)
+            ? snapshot.editorGroups.focusedGroupId
+            : restoredGroups[0]!.id,
+        },
+      })
+
+      const focused = restoredGroups.find((group) => group.id === snapshot.editorGroups.focusedGroupId) ?? restoredGroups[0]
+      const activeTab = focused?.tabs.find((tab) => tab.id === focused.activeTabId) ?? focused?.tabs[0]
+      setActiveTab(snapshot.activeTab || "chat")
+      if (activeTab?.kind === "chat" && activeTab.chat) {
+        const sessionKey = activeTab.chat.sessionKey ?? focused?.sessionData?.sessionKey ?? null
+        setActiveTopic(null)
+        setActiveChat(activeTab.chat)
+        setActiveSessionKey(sessionKey)
+        setActiveSessionTitle(activeTab.chat.name)
+        setInitialMessages(undefined)
+        window.history.replaceState(null, "", routeUrl(`/${activeTab.chat.id}`))
+      } else if (activeTab?.kind === "topic" && activeTab.topic) {
+        handleTopicSelect(activeTab.topic)
+      } else {
+        clearConversationState()
+        window.history.replaceState(null, "", routeUrl("/"))
+      }
+    }
+    void restoreLastWorkspaceLayout()
+    return () => {
+      cancelled = true
+    }
+  }, [activeSpaceId, clearConversationState, handleTopicSelect, spaces, switchSpace])
+
   const handleCronJobNavigate = useCallback(async (cronJob: ActiveChat) => {
     try {
       const cronJobId = cronJob.cronJobId ?? cronJob.id
@@ -1158,6 +1260,40 @@ function AppShell({
       tabDataRef.current.set(tabId, { chat: activeChat })
     }
   }, [activeChat, activeTopic])
+
+  useEffect(() => {
+    const hasRestorableContent =
+      Boolean(activeChat || activeTopic) ||
+      editorGroups.groups.some((group) => group.tabs.some((tab) => tab.kind !== "draft"))
+    if (!layoutRestoreAttemptedRef.current || (!layoutRestoreAppliedRef.current && !hasRestorableContent)) return
+
+    const timer = window.setTimeout(() => {
+      const enrichedGroups = {
+        ...editorGroups,
+        groups: editorGroups.groups.map((group) => ({
+          ...group,
+          tabs: group.tabs.map((tab) => {
+            const cached = tabDataRef.current.get(tab.id)
+            if (tab.kind === "chat" && !tab.chat && cached?.chat) return { ...tab, chat: cached.chat }
+            if (tab.kind === "topic" && !tab.topic && cached?.topic) return { ...tab, topic: cached.topic }
+            return tab
+          }),
+        })),
+      }
+      void saveWorkspaceLayoutSnapshot({
+        activeSpaceId,
+        activeTab,
+        route: getRoutePath(),
+        activeChat,
+        activeTopic,
+        activeSessionKey,
+        activeSessionTitle,
+        editorGroups: enrichedGroups,
+        splitRatio,
+      }).catch(() => {})
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, activeTab, activeTopic, editorGroups, splitRatio])
 
   const switchToGroupSession = useCallback((groupId: "group-1" | "group-2") => {
     if (activeSessionKey && activeChat) {
