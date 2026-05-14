@@ -234,8 +234,21 @@ function labelFromGatewaySession(record: CompatRecord, sessionKey: string) {
   const label = stringField(record, ["label", "title", "name", "derivedTitle"])
     ?? stringField(record.lastMessage && typeof record.lastMessage === "object" ? record.lastMessage as CompatRecord : {}, ["text", "content"])
     ?? "New Chat";
+  return stripGatewaySessionSuffix(label, sessionKey);
+}
+
+function stripGatewaySessionSuffix(label: string, sessionKey: string) {
   const suffix = ` · ${shortSessionId(sessionKey)}`;
   return label.endsWith(suffix) ? label.slice(0, -suffix.length) || "New Chat" : label;
+}
+
+function latestGatewaySessionText(record: CompatRecord): string | null {
+  const lastMessage = record.lastMessage && typeof record.lastMessage === "object" ? record.lastMessage as CompatRecord : null;
+  return lastMessage ? stringField(lastMessage, ["text", "content", "message"]) : null;
+}
+
+function latestGatewayActivity(record: CompatRecord): string {
+  return timestampField(record, ["lastMessageAt", "lastActiveAt", "updatedAt", "updated_at"]);
 }
 
 function gatewaySessionRows(payload: unknown): CompatRecord[] {
@@ -257,7 +270,8 @@ async function syncGatewaySessions(context: AppContext) {
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const createdAt = timestampField(row, ["createdAt", "created_at"]);
-      const updatedAt = timestampField(row, ["updatedAt", "updated_at", "lastActiveAt", "lastMessageAt"]);
+      const updatedAt = latestGatewayActivity(row);
+      const lastMessageText = latestGatewaySessionText(row);
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
@@ -272,11 +286,21 @@ async function syncGatewaySessions(context: AppContext) {
           createdAt,
           updatedAt,
           lastActiveAt: updatedAt,
+          lastMessageText,
         });
         changed = true;
       } else {
         const existing = compatState.chats[chatIndex];
-        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId, updatedAt: existing.updatedAt || updatedAt, lastActiveAt: existing.lastActiveAt || updatedAt };
+        const existingName = stringField(existing, ["name"]);
+        const nextName = !existingName || existingName === "New Chat" ? name : stripGatewaySessionSuffix(existingName, sessionKey);
+        const next = {
+          ...existing,
+          name: nextName,
+          agentId: existing.agentId || agentId,
+          updatedAt,
+          lastActiveAt: updatedAt,
+          lastMessageText: lastMessageText ?? existing.lastMessageText ?? null,
+        };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.chats[chatIndex] = next;
           changed = true;
