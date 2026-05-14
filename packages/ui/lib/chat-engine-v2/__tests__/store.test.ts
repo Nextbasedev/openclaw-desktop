@@ -272,6 +272,51 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("updates each tool card result immediately while other tools continue running", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "run tools" }],
+      status: "tool_running",
+      statusLabel: "read",
+      pendingTools: [
+        { id: "tc-1", tool: "read", status: "running", startedAt: 1_000 },
+        { id: "tc-2", tool: "exec", status: "running", startedAt: 1_100 },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 1_500,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "tool_running",
+          statusLabel: "exec",
+          toolCall: {
+            toolCallId: "tc-1",
+            name: "read",
+            phase: "result",
+            status: "success",
+            startedAtMs: 1_000,
+            finishedAtMs: 1_500,
+            resultMeta: "file contents",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "tool_running",
+      pendingTools: [
+        { id: "tc-1", tool: "read", status: "success", resultText: "file contents" },
+        { id: "tc-2", tool: "exec", status: "running" },
+      ],
+    })
+  })
+
   test("stops showing tool_running after the last live tool result before assistant final", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

@@ -1094,6 +1094,7 @@ export function ChatView({
                   defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
                   onSelectTool={onSelectTool}
                   onResolveApproval={resolveExecApproval}
+                  autoOpenLatestResult={isGenerating}
                 />
               </div>
             )}
@@ -1141,6 +1142,7 @@ export function ChatView({
                 defaultOpen
                 onSelectTool={onSelectTool}
                 onResolveApproval={resolveExecApproval}
+                autoOpenLatestResult={isGenerating}
               />
             </div>
           )}
