@@ -1606,7 +1606,7 @@ setMessages(warmMessages)
           setStatusLabel(null)
           await abortChatV2({ sessionKey })
         }
-        await sendChatV2({
+        void sendChatV2({
           sessionKey,
           text: gatewayText,
           attachments: payload.attachments,
@@ -1618,28 +1618,52 @@ setMessages(warmMessages)
           autonomyMode: payload.autonomyMode,
           execPolicy: payload.execPolicy,
         })
-        const ackMessages = dedupeChatMessages(
-          messagesRef.current.map((m) =>
-            m.messageId === optimisticId
-              ? { ...m, sendStatus: undefined, sendError: null }
-              : m
-          )
-        )
-        setMessages(ackMessages)
-        seedGlobalChatSession({
-          sessionKey,
-          messages: ackMessages,
-          cursor: v2CursorRef.current,
-          status: runsAlongsideGeneration ? statusRef.current : "thinking",
-          statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
-          pendingTools: Array.from(pendingToolMapRef.current.values()),
-          spawnedSubagents: Array.from(spawnMapRef.current.values()),
-          queryClient,
-        })
-        // Send ACK is not lifecycle truth. Wait for canonical runStatus patches
-        // or bootstrap recovery before clearing/completing the visible run.
-        frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
-        emit("chat:activity")
+          .then(() => {
+            const ackMessages = dedupeChatMessages(
+              messagesRef.current.map((m) =>
+                m.messageId === optimisticId
+                  ? { ...m, sendStatus: undefined, sendError: null }
+                  : m
+              )
+            )
+            setMessages(ackMessages)
+            seedGlobalChatSession({
+              sessionKey,
+              messages: ackMessages,
+              cursor: v2CursorRef.current,
+              status: runsAlongsideGeneration ? statusRef.current : "thinking",
+              statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
+              pendingTools: Array.from(pendingToolMapRef.current.values()),
+              spawnedSubagents: Array.from(spawnMapRef.current.values()),
+              queryClient,
+            })
+            frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
+          })
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error)
+            frontendLog("composer", "chat.send.fail", {
+              sessionKey,
+              optimisticId,
+              error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+            }, "error")
+            setErrorMessage(message)
+            setStatus("error")
+            restartInFlightRef.current = false
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.messageId === optimisticId
+                  ? {
+                      ...m,
+                      isOptimistic: true,
+                      sendStatus: "failed",
+                      sendError: message,
+                      retryPayload: payload,
+                    }
+                  : m
+              )
+            )
+          })
+        emit("chat:activity", { sessionKey, text: trimmed })
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

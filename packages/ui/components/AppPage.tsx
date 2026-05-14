@@ -1617,6 +1617,7 @@ function AppShell({
         sessionData,
       })
       setChatRefreshTrigger((n) => n + 1)
+      emit("chat:activity", { chatId: result.chat.id, sessionKey, text })
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
       frontendLog("composer", "quick-send.dispatch", {
         chatId: result.chat.id,
@@ -1624,12 +1625,15 @@ function AppShell({
         optimisticId,
         attachmentCount: payload.attachments?.length ?? 0,
       })
-      await sendChatV2({
+      void sendChatV2({
         sessionKey,
         text,
         attachments: payload.attachments,
         idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
+      }).catch((error) => {
+        frontendLog("composer", "quick-send.background-fail", { error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) } }, "error")
+        setComposerError("Message failed to send. Try again.")
       })
       try {
         const { name } = await invoke<{ name: string }>(
