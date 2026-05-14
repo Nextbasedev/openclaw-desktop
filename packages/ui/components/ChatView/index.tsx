@@ -27,6 +27,7 @@ import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
 import { frontendLog } from "@/lib/clientLogs"
 import { windowChatMessages } from "@/lib/messageWindow"
+import { toolCallsForResponseStack } from "@/lib/chatToolDisplay"
 import { toast } from "react-toastify"
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import { motion, AnimatePresence } from "framer-motion"
@@ -943,31 +944,6 @@ export function ChatView({
         t.tool !== "sessions_yield"
     )
 
-  const mergeToolCallsForDisplay = (
-    base?: import("./types").InlineToolCall[],
-    live?: import("./types").InlineToolCall[]
-  ) => {
-    const merged = new Map<string, import("./types").InlineToolCall>()
-    for (const tool of base ?? []) {
-      merged.set(tool.id || `${tool.tool}:${merged.size}`, tool)
-    }
-    for (const tool of live ?? []) {
-      const key = tool.id || `${tool.tool}:${merged.size}`
-      const existing = merged.get(key)
-      if (!existing) {
-        merged.set(key, tool)
-        continue
-      }
-      const mergedTool = { ...existing, ...tool }
-      if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
-      if (existing.duration && existing.status !== "running") {
-        mergedTool.duration = existing.duration
-      }
-      merged.set(key, mergedTool)
-    }
-    return Array.from(merged.values())
-  }
-
   const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
   for (const sub of spawnedSubagents) {
     spawnsByToolCallId.set(sub.toolCallId, sub)
@@ -1050,13 +1026,14 @@ export function ChatView({
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
       const filteredPending = toolCallsWithoutSpawn(pendingTools)
-      const filteredToolCalls =
-        msg.role === "assistant"
-          ? mergeToolCallsForDisplay(
-              toolCallsWithoutSpawn(msg.toolCalls ?? []),
-              isActivelyStreaming ? filteredPending : []
-            )
-          : toolCallsWithoutSpawn(msg.toolCalls ?? [])
+      const filteredToolCalls = toolCallsWithoutSpawn(
+        toolCallsForResponseStack({
+          messages: renderedMessages,
+          index,
+          liveTools: filteredPending,
+          isGenerating,
+        })
+      )
       const anchoredUserSubagents =
         msg.role === "user"
           ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
@@ -1167,7 +1144,7 @@ export function ChatView({
       orphanSubagentsByAssistantId,
       pendingTools,
       reactToMessage,
-      renderedMessages.length,
+      renderedMessages,
       replyToMessage,
       resolveExecApproval,
       retrySend,
