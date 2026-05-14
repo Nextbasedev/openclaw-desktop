@@ -437,6 +437,42 @@ describe("parseChatHistory", () => {
     assert.equal(calls.find((call) => call.id === "tc2")?.resultText, "second output")
   })
 
+  it("restores canonical snake_case tool call blocks from session history", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a-tools",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "tool_call",
+            tool_call_id: "tc1",
+            tool_name: "memory_search",
+            args: { query: "latest work" },
+            status: "success",
+            resultMeta: { text: "found memory" },
+            startedAtMs: 1000,
+            finishedAtMs: 2400,
+          },
+        ],
+      },
+      {
+        id: "a-final",
+        role: "assistant",
+        timestamp: 2500,
+        content: [{ type: "text", text: "Done" }],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    assert.equal(parsed.messages[0]?.text, "Done")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.id, "tc1")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.tool, "memory_search")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.status, "success")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.duration, "1.4s")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.resultText, "found memory")
+  })
+
   it("falls back to assistant and tool result timestamps for history tool durations", () => {
     const parsed = parseChatHistory([
       {

@@ -116,6 +116,8 @@ export type RawHistoryMessage = {
   model?: string
   provider?: string
   usage?: ChatMessage["usage"]
+  toolCalls?: unknown[]
+  tools?: unknown[]
   stopReason?: string | null
   isOptimistic?: boolean
   __clientOptimistic?: boolean
@@ -147,11 +149,79 @@ function messageId(raw: RawHistoryMessage) {
   return randomId()
 }
 
-function toolBlocks(raw: RawHistoryMessage) {
-  if (!Array.isArray(raw.content)) return []
-  return raw.content.filter(
-    (block) => block.type === "toolCall" || block.type === "tool_use"
-  )
+type RawToolBlock = ContentBlock & {
+  toolCallId?: string
+  tool_call_id?: string
+  toolName?: string
+  tool_name?: string
+  args?: unknown
+  parameters?: unknown
+  argsMeta?: unknown
+  result?: unknown
+  resultMeta?: unknown
+  phase?: string
+  startedAtMs?: number
+  finishedAtMs?: number | null
+}
+
+function isToolBlock(block: ContentBlock) {
+  const type = block.type.toLowerCase()
+  return type === "toolcall" || type === "tool_call" || type === "tooluse" || type === "tool_use"
+}
+
+function toolBlocks(raw: RawHistoryMessage): RawToolBlock[] {
+  const contentBlocks = Array.isArray(raw.content)
+    ? raw.content.filter(isToolBlock)
+    : []
+  const projectedBlocks = [
+    ...(Array.isArray(raw.toolCalls) ? raw.toolCalls : []),
+    ...(Array.isArray(raw.tools) ? raw.tools : []),
+  ].filter((block): block is RawToolBlock => Boolean(block && typeof block === "object" && !Array.isArray(block)))
+  return [...contentBlocks, ...projectedBlocks] as RawToolBlock[]
+}
+
+function toolBlockId(block: RawToolBlock) {
+  return block.id ?? block.toolCallId ?? block.tool_call_id
+}
+
+function toolBlockName(block: RawToolBlock) {
+  return block.name ?? block.toolName ?? block.tool_name
+}
+
+function toolBlockInput(block: RawToolBlock) {
+  return block.arguments ?? block.input ?? block.args ?? block.parameters ?? block.argsMeta
+}
+
+function toolBlockResultText(block: RawToolBlock) {
+  const result = block.resultMeta ?? block.result
+  if (result == null) return undefined
+  if (typeof result === "string") return result
+  if (typeof result === "object" && !Array.isArray(result)) {
+    const record = result as { text?: unknown; content?: unknown; result?: unknown }
+    const value = record.text ?? record.content ?? record.result
+    if (typeof value === "string") return value
+  }
+  try {
+    return JSON.stringify(result, null, 2)
+  } catch {
+    return String(result)
+  }
+}
+
+function inferToolBlockStatus(block: RawToolBlock): InlineToolCall["status"] {
+  const status = block.status ?? block.phase
+  if (block.isError || status === "error" || status === "failed") return "error"
+  if (
+    status === "success" ||
+    status === "result" ||
+    status === "done" ||
+    status === "complete" ||
+    status === "completed" ||
+    block.finishedAtMs != null ||
+    block.resultMeta != null ||
+    block.result != null
+  ) return "success"
+  return "running"
 }
 
 function toolResultText(raw: RawHistoryMessage): string {
@@ -234,6 +304,13 @@ function rawTimestampMs(raw: RawHistoryMessage): number | null {
     if (Number.isFinite(parsed)) return parsed
   }
   return null
+}
+
+function realTimestampMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  return value > 100_000_000 && value < 10_000_000_000
+    ? Math.round(value * 1000)
+    : Math.round(value)
 }
 
 function createdAtIso(raw: RawHistoryMessage): string | undefined {
@@ -508,27 +585,30 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     if (role === "assistant") {
       for (const block of toolBlocks(item)) {
         const durationMs = blockDurationMs(block)
-        const startedAt = rawTimestampMs(item) ?? undefined
+        const startedAt = rawTimestampMs(item) ?? realTimestampMs(block.startedAtMs) ?? undefined
+        const finishedAt = realTimestampMs(block.finishedAtMs)
+        const resultText = toolBlockResultText(block)
+        const fallbackDurationMs =
+          typeof startedAt === "number" && typeof finishedAt === "number"
+            ? finishedAt - startedAt
+            : null
         const call: InlineToolCall & { startedAtMs?: number | null } = {
-          id: block.id ?? randomId(),
-          tool: block.name ?? "unknown",
-          status:
-            block.isError || block.status === "error"
-              ? "error"
-              : block.status === "success"
-                ? "success"
-                : "running",
-          input: block.arguments ?? block.input,
-          duration: formatDuration(durationMs ?? -1),
+          id: toolBlockId(block) ?? randomId(),
+          tool: toolBlockName(block) ?? "unknown",
+          status: inferToolBlockStatus(block),
+          input: toolBlockInput(block),
+          duration: formatDuration(durationMs ?? fallbackDurationMs ?? -1),
           startedAt,
+          completedAt: finishedAt,
           startedAtMs: startedAt,
+          resultText,
         }
         pendingToolCalls.push(call)
         resultQueue.push(call)
         pendingToolById.set(call.id, call)
 
-        if (block.name === "sessions_spawn") {
-          const args = (block.input ?? {}) as Record<string, unknown>
+        if (toolBlockName(block) === "sessions_spawn") {
+          const args = (toolBlockInput(block) ?? {}) as Record<string, unknown>
           const task = typeof args.task === "string" ? args.task : ""
           const label =
             (typeof args.label === "string" && args.label) ||
