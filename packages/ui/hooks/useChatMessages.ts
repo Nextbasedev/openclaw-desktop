@@ -7,6 +7,10 @@ import { invoke, streamUrl } from "@/lib/ipc"
 import { useQueryClient } from "@tanstack/react-query"
 import { flushSync } from "react-dom"
 import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
+import {
+  inferRestoredChatStatus,
+  statusFromBackendSession,
+} from "@/lib/chatStatus"
 import { queryKeys, queryStaleTime } from "@/lib/query"
 import { tryAcquireActiveRunReconcileLock } from "@/lib/activeRunReconcileLock"
 import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
@@ -39,6 +43,8 @@ import { extractSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
   cleanUserMessageText,
+  deduplicateRawMessages,
+  extractReplyBlock,
   isTransientSlashCommandHistory,
   parseChatHistory,
 } from "@/lib/chatHistoryParser"
@@ -145,6 +151,17 @@ export function mergeOptimisticMessagesWithCanonical(
   return keptOptimistic.length
     ? dedupeChatMessages([...canonicalMessages, ...keptOptimistic])
     : canonicalMessages
+}
+
+export function shouldPreserveActiveReconcile(params: {
+  currentStatus: StreamStatus | null | undefined
+  nextStatus: StreamStatus | null | undefined
+  candidateMessages: ChatMessage[]
+  runningToolCount: number
+}) {
+  if (!isActiveRunStatus(params.currentStatus)) return false
+  if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
+  return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
 }
 
 function stableRawMessageId(raw: RawMessage): string {
@@ -294,8 +311,13 @@ async function reconcileChatHistory(
   sessionKey: string,
   status?: StreamStatus | null
 ): Promise<ChatMessage[]> {
-  const bootstrap = await fetchStableChatBootstrap(sessionKey)
-  const parsed = parseChatHistory((bootstrap.messages as RawMessage[]) || [])
+  const history = await invoke<{ messages: unknown[] }>(
+    "middleware_chat_history",
+    {
+      input: { sessionKey },
+    }
+  )
+  const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
   void status
   return parsed.messages
 }
@@ -308,17 +330,6 @@ function isActiveRunStatus(status: StreamStatus | null | undefined) {
 
 function normalizeStatusLabelForStatus(status: StreamStatus | null | undefined, label: string | null | undefined) {
   return isActiveRunStatus(status) ? (label ?? null) : null
-}
-
-export function shouldPreserveActiveReconcile(params: {
-  currentStatus: StreamStatus | null | undefined
-  nextStatus: StreamStatus | null | undefined
-  candidateMessages: ChatMessage[]
-  runningToolCount: number
-}) {
-  if (!isActiveRunStatus(params.currentStatus)) return false
-  if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
-  return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
 }
 
 function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | undefined): StreamStatus {
@@ -335,12 +346,6 @@ function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | unde
   return "idle"
 }
 
-function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
-  if (typeof startedAtMs !== "number" || typeof finishedAtMs !== "number") return undefined
-  const seconds = Math.max(0, finishedAtMs - startedAtMs) / 1000
-  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
-}
-
 function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
   const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
     ? tool.toolCallId
@@ -348,20 +353,11 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
       ? tool.id
       : null
   if (!id) return null
-  const phase = typeof tool.phase === "string" ? tool.phase : ""
-  const status = tool.status === "error" || phase === "error" || phase === "failed"
-    ? "error"
-    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
-      ? "success"
-      : "running"
+  const status = tool.status === "error" ? "error" : tool.status === "success" ? "success" : "running"
   return {
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
-    duration: formatToolDuration(
-      typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
-      typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
-    ),
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? toolResultText(tool.resultMeta) : undefined,
@@ -636,33 +632,37 @@ export function useChatMessages(
     if (!tryAcquireActiveRunReconcileLock(sessionKey)) return
     activeReconcileInFlightRef.current = true
     try {
-      const freshBootstrap = await fetchStableChatBootstrap(sessionKey).catch(() => null)
-      const freshMessages = freshBootstrap
-        ? parseChatHistory((freshBootstrap.messages as RawMessage[]) || []).messages
-        : null
+      const [freshMessages, sessionsResult] = await Promise.all([
+        reconcileChatHistory(sessionKey, statusRef.current).catch(() => null),
+        invoke<{
+          sessions: Array<{
+            key?: string
+            sessionKey?: string
+            status?: string
+          }>
+        }>("middleware_sessions_list", { input: {} }).catch(() => null),
+      ])
+      const backendSession = sessionsResult?.sessions?.find(
+        (item) => item.key === sessionKey || item.sessionKey === sessionKey
+      )
       const currentStatus = statusRef.current
       const currentMessages = messagesRef.current
       const candidateMessages = freshMessages?.length ? freshMessages : currentMessages
-      const nextStatus = streamStatusFromCanonicalRun(freshBootstrap?.runStatus)
-      const runningToolCount = (freshBootstrap?.tools ?? [])
-        .map(inlineToolFromProjection)
-        .filter((tool): tool is InlineToolCall => Boolean(tool))
-        .filter((tool) => tool.status === "running").length ||
-        Array.from(pendingToolMapRef.current.values()).filter((tool) => tool.status === "running").length
-      const preserveActiveReconcile = shouldPreserveActiveReconcile({ currentStatus, nextStatus, candidateMessages, runningToolCount })
+      const activeWithoutFreshAnswer =
+        isActiveRunStatus(currentStatus) &&
+        !hasAssistantAnswerAfterLatestUserMessage(candidateMessages)
 
-      if (preserveActiveReconcile) {
-        // Reconcile is a recovery path, not lifecycle truth. V2 bootstrap can
-        // lag behind canonical live patches; replacing
-        // active state with idle/done here makes the chat appear to stop midway
-        // and then resume when the next V2 patch arrives.
+      if (activeWithoutFreshAnswer) {
+        // Reconcile is a recovery path, not lifecycle truth. Gateway history can
+        // lag behind live patches for a few seconds after send; replacing the
+        // local optimistic timeline with that partial history makes the latest
+        // Thinking row and previous answer disappear until the final patch lands.
         frontendLog("status", "chat.reconcile-preserve-active", {
           sessionKey,
           status: currentStatus,
-          nextStatus,
           freshMessageCount: freshMessages?.length ?? 0,
           currentMessageCount: currentMessages.length,
-          runningToolCount,
+          backendStatus: backendSession?.status ?? null,
         })
       } else {
         if (freshMessages?.length) {
@@ -677,7 +677,11 @@ export function useChatMessages(
             return dedupeChatMessages([...freshMessages, ...keptOptimistic])
           })
         }
-        if (freshBootstrap?.runStatus || !isActiveRunStatus(nextStatus)) {
+        const nextStatus = statusFromBackendSession(
+          backendSession?.status,
+          candidateMessages
+        )
+        if (backendSession?.status || !isActiveRunStatus(nextStatus)) {
           setStatus(nextStatus)
           if (nextStatus === "done" || nextStatus === "idle") {
             setStatusLabel(null)
@@ -1192,7 +1196,9 @@ setMessages(warmMessages)
         ? cachedGlobal.status
         : cachedBootstrap?.runStatus
           ? streamStatusFromCanonicalRun(cachedBootstrap.runStatus)
-          : "idle"
+          : (cachedBootstrap?.history.sessionStatus
+            ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages)
+            : inferRestoredChatStatus(warmMessages, statusRef.current))
       setStatus(warmStatus)
       setStatusLabel(useCachedGlobal
         ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
@@ -1499,10 +1505,56 @@ setMessages(warmMessages)
 
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
-    subagentPollRef.current = null
-    // Canonical middleware-v2 patches own subagent lifecycle. No legacy
-    // history polling is allowed in the V2 chat engine.
-  }, [spawnedSubagents])
+    const hasRunning = spawnedSubagents.some((s) => isActiveSubagent(s.status))
+    if (!hasRunning) return
+
+    subagentPollRef.current = setInterval(async () => {
+      for (const sub of spawnedSubagents) {
+        if (!isActiveSubagent(sub.status) || !sub.sessionKey) continue
+        try {
+          const hist = await invoke<{ messages: unknown[] }>(
+            "middleware_chat_history",
+            { input: { sessionKey: sub.sessionKey } }
+          )
+          const msgs = (hist.messages ?? []) as RawMessage[]
+          let isDone = false
+          for (const m of msgs) {
+            if (m.role !== "assistant") continue
+            const blocks = Array.isArray(m.content)
+              ? (m.content as Array<{ type?: string; name?: string }>)
+              : []
+            if (
+              blocks.some(
+                (b) =>
+                  (b.type === "toolCall" || b.type === "tool_use") &&
+                  b.name === "sessions_yield"
+              )
+            ) {
+              isDone = true
+              break
+            }
+          }
+          if (!isDone) {
+            const lastMsg = msgs[msgs.length - 1]
+            if (lastMsg?.role === "assistant") {
+              const text = lastMsg.text || extractText(lastMsg.content)
+              if (text) isDone = true
+            }
+          }
+          if (isDone) {
+            upsertSpawn({ ...sub, status: "completed" })
+          }
+        } catch {}
+      }
+    }, 2000)
+
+    return () => {
+      if (subagentPollRef.current) {
+        clearInterval(subagentPollRef.current)
+        subagentPollRef.current = null
+      }
+    }
+  }, [spawnedSubagents, upsertSpawn])
 
   const handleSend = useCallback(
     async (payload: ChatComposerSubmit, retryMessageId?: string) => {
@@ -1671,7 +1723,7 @@ setMessages(warmMessages)
         frontendLog("composer", "chat.send.settled", { sessionKey, optimisticId })
       }
     },
-    [isGenerating, sessionKey, forceScrollToBottom, statusLabel]
+    [isGenerating, sessionKey, forceScrollToBottom]
   )
 
   const handleRegenerate = useCallback(
@@ -1740,9 +1792,11 @@ setMessages(warmMessages)
           status: "streaming",
         })
 
-        fetchChatBootstrapV2(preview.branchSessionKey)
+        invoke<{ messages: RawMessage[] }>("middleware_chat_history", {
+          input: { sessionKey: preview.branchSessionKey },
+        })
           .then((history) => {
-            const assistant = [...((history.messages as RawMessage[]) ?? [])]
+            const assistant = [...(history.messages ?? [])]
               .reverse()
               .find((m) => m.role === "assistant")
             if (!assistant) return
@@ -1836,32 +1890,15 @@ setMessages(warmMessages)
     setStatus("stopping")
     setStatusLabel(null)
     try {
-      await abortChatV2({ sessionKey })
+      await invoke("middleware_chat_stop", { input: { sessionKey } })
       pendingToolMapRef.current.clear()
       setPendingTools([])
-      updateGlobalChatSessionActivity({
-        sessionKey,
-        status: "idle",
-        statusLabel: null,
-        pendingTools: [],
-        spawnedSubagents: Array.from(spawnMapRef.current.values()),
-      })
-      seedGlobalChatSession({
-        sessionKey,
-        messages: messagesRef.current,
-        cursor: v2CursorRef.current,
-        status: "idle",
-        statusLabel: null,
-        pendingTools: [],
-        spawnedSubagents: Array.from(spawnMapRef.current.values()),
-        queryClient,
-      })
       setStatus("idle")
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
     }
-  }, [queryClient, sessionKey])
+  }, [sessionKey])
 
   const handleEdit = useCallback(
     async (userMessageId: string, newText: string) => {

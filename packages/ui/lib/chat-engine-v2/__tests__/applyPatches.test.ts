@@ -87,6 +87,51 @@ describe("applyChatPatch", () => {
     expect(next.messages[0]).toMatchObject({ messageId: "oc_2", role: "assistant", text: "hello" })
   })
 
+  test("marks live assistant websocket text updates for smooth reveal", () => {
+    const state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          messageId: "assistant-1",
+          message: { role: "assistant", text: "Hel", __openclaw: { id: "assistant-1", seq: 2 } },
+        },
+        createdAtMs: 1,
+      },
+    })
+    expect(state.messages[0]).toMatchObject({
+      messageId: "assistant-1",
+      role: "assistant",
+      text: "Hel",
+      animateText: true,
+    })
+
+    const next = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.delta",
+          messageId: "assistant-1",
+          message: { role: "assistant", text: "Hello smooth stream", __openclaw: { id: "assistant-1", seq: 2 } },
+        },
+        createdAtMs: 2,
+      },
+    })
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0]).toMatchObject({
+      messageId: "assistant-1",
+      role: "assistant",
+      text: "Hello smooth stream",
+      animateText: true,
+    })
+  })
+
   test("marks V2 send patches as optimistic so later gateway user echoes dedupe", () => {
     const optimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",

@@ -38,13 +38,22 @@ function toolCallBlocks(content: unknown) {
   if (!Array.isArray(content)) return [];
   return content.filter((block): block is Record<string, unknown> => {
     if (!block || typeof block !== "object" || Array.isArray(block)) return false;
-    return block.type === "toolCall" || block.type === "tool_use";
+    return block.type === "toolCall" || block.type === "tool_use" || block.type === "tool_call" || block.type === "toolUse";
   });
 }
 
 function readToolCallId(value: Record<string, unknown>) {
   const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function readToolName(value: Record<string, unknown>) {
+  const name = value.name ?? value.toolName ?? value.tool_name ?? value.tool;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+function readToolArgs(value: Record<string, unknown>) {
+  return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
 }
 
 function compactResultMeta(value: unknown) {
@@ -73,6 +82,22 @@ function compactResultMeta(value: unknown) {
   return { type: typeof value };
 }
 
+function historyTimestampMs(message: Record<string, unknown>): number | null {
+  const raw = message.timestamp;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    // Gateway history has used both epoch seconds and epoch milliseconds.
+    // Store only real epoch-ms values in the projection DB; otherwise the UI
+    // computes Date.now() - startedAt and renders huge fake durations.
+    return raw > 100_000_000 && raw < 10_000_000_000 ? Math.round(raw * 1000) : Math.round(raw);
+  }
+  const createdAt = message.createdAt;
+  if (typeof createdAt === "string" && createdAt.trim()) {
+    const parsed = Date.parse(createdAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function oldestRunningToolAgeMs(context: AppContext, sessionKey: string, runId: string) {
   const startedAtMs = context.runs
     .listRunningToolCalls(sessionKey, runId)
@@ -90,10 +115,20 @@ function inferToolResultFromHistory(messages: unknown[], messageIndex: number, t
     if (data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") {
       const resultToolCallId = readToolCallId(data);
       if (!toolCallId || !resultToolCallId || resultToolCallId === toolCallId) {
-        return { status: "success" as const, resultMeta: compactResultMeta(data.result ?? data.text ?? data.content) ?? { inferred: true, reason: "history_tool_result_message" } };
+        return {
+          status: "success" as const,
+          finishedAtMs: historyTimestampMs(data),
+          resultMeta: compactResultMeta(data.result ?? data.text ?? data.content) ?? { inferred: true, reason: "history_tool_result_message" },
+        };
       }
     }
-    if (data.role === "assistant" && textFromMessage(data).trim()) return { status: "success" as const, resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" } };
+    if (data.role === "assistant" && textFromMessage(data).trim()) {
+      return {
+        status: "success" as const,
+        finishedAtMs: historyTimestampMs(data),
+        resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
+      };
+    }
   }
   return null;
 }
@@ -108,7 +143,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
     for (const block of toolCallBlocks(data.content)) {
       const toolCallId = readToolCallId(block);
-      const name = typeof block.name === "string" ? block.name : typeof block.toolName === "string" ? block.toolName : null;
+      const name = readToolName(block);
       if (!toolCallId || !name) continue;
       const existingTool = context.runs.getToolCall(sessionKey, toolCallId);
       if (existingTool?.runId && existingTool.runId !== run?.runId) continue;
@@ -117,7 +152,9 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       // a run_id; if those rows are replayed after a fresh user send, assigning
       // them to the current run resurrects ancient tool cards as live activity.
       if (existingTool && !existingTool.runId && run && existingTool.startedAtMs < run.startedAtMs - 1000) continue;
-      const result = completed ? { status: "success" as const, resultMeta: { inferred: true, reason: "bootstrap_completed_history" } } : inferToolResultFromHistory(messages, messageIndex, toolCallId);
+      const result = inferToolResultFromHistory(messages, messageIndex, toolCallId) ?? (completed
+        ? { status: "success" as const, finishedAtMs: historyTimestampMs(data), resultMeta: { inferred: true, reason: "bootstrap_completed_history" } }
+        : null);
       context.runs.upsertToolCall({
         sessionKey,
         toolCallId,
@@ -126,8 +163,10 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
         name,
         phase: result ? "result" : "calling",
         status: result?.status,
-        argsMeta: block.arguments ?? block.input ?? null,
+        argsMeta: readToolArgs(block),
         resultMeta: result?.resultMeta,
+        startedAtMs: historyTimestampMs(data) ?? undefined,
+        finishedAtMs: result?.finishedAtMs ?? undefined,
       });
       inferred += 1;
     }

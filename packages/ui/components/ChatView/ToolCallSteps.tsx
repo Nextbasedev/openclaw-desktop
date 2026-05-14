@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
 import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
@@ -25,23 +25,6 @@ function decisionLabel(decision: ApprovalDecision) {
   return "Decline"
 }
 
-function formatElapsed(ms: number) {
-  const seconds = Math.max(0, ms) / 1000
-  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
-}
-
-function useRunningElapsed(call: InlineToolCall) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (call.status !== "running" || !call.startedAt || call.duration) return
-    const id = window.setInterval(() => setNow(Date.now()), 500)
-    return () => window.clearInterval(id)
-  }, [call.duration, call.startedAt, call.status])
-  if (call.duration) return call.duration
-  if (call.status === "running" && call.startedAt) return formatElapsed(now - call.startedAt)
-  return undefined
-}
-
 function ToolRow({
   call,
   open,
@@ -61,7 +44,6 @@ function ToolRow({
   ) => Promise<void> | void
 }) {
   const { inputText, outputText, hasDetails } = getToolDetailState(call)
-  const elapsed = useRunningElapsed(call)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -111,9 +93,9 @@ function ToolRow({
             approval needed
           </span>
         )}
-        {elapsed && (
+        {call.duration && (
           <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-            {elapsed}
+            {call.duration}
           </span>
         )}
         <span

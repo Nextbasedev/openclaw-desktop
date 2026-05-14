@@ -11,7 +11,7 @@ import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import { SkillPage } from "@/components/SkillPage"
-import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
+import { SettingsDashboard, type SettingSection } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
@@ -55,7 +55,7 @@ import {
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
 
-type SettingsSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
+type SettingsSection = SettingSection
 type EditorGroupId = "group-1" | "group-2"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
@@ -275,6 +275,7 @@ function AppShell({
   const fullScreenInspectorOpen = activeTab === "inspector"
 
   const prevTabRef = useRef("chat")
+  const lastSettingsTabRef = useRef(activeTab)
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const {
     spaces,
@@ -526,6 +527,15 @@ function AppShell({
     return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
   }, [clearConversationState])
 
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
+
+  useEffect(() => {
+    if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
+      setSettingsSection("usage")
+    }
+    lastSettingsTabRef.current = activeTab
+  }, [activeTab])
+
   const activateRoute = useCallback(async (route: ParsedRoute) => {
     routeRequestRef.current += 1
     frontendLog("ui", "route.activate.start", { route, requestId: routeRequestRef.current })
@@ -541,6 +551,9 @@ function AppShell({
     if (route.kind === "tab") {
       setPendingPrompt(null)
       setComposerError(null)
+      if (route.tab === "settings") {
+        setSettingsSection("usage")
+      }
       setActiveTab(route.tab)
       clearConversationState()
       return
@@ -725,8 +738,6 @@ function AppShell({
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
-  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("usage")
-
   const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
@@ -736,7 +747,7 @@ function AppShell({
     }
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
-    setSettingsInitialSection(section)
+    setSettingsSection(section)
     setActiveTab("settings")
     clearConversationState()
     settingsPushedRef.current = true
@@ -1920,6 +1931,10 @@ function AppShell({
       handleNewChat()
       return
     }
+    if (tab === "settings") {
+      openSettings("usage")
+      return
+    }
     routeRequestRef.current += 1
     setActiveTab(tab)
     setComposerError(null)
@@ -1933,7 +1948,7 @@ function AppShell({
     window.history.pushState(null, "", routeUrl(url))
     setPendingPrompt(null)
     clearConversationState()
-  }, [handleNewChat, clearConversationState])
+  }, [handleNewChat, openSettings, clearConversationState])
 
   useEffect(() => {
     if (fullScreenInspectorOpen) {
@@ -2044,7 +2059,8 @@ function AppShell({
                   sessionResolving={sessionResolving}
                   sessionError={sessionError}
                   onSettingsBack={handleSettingsBack}
-                  settingsInitialSection={settingsInitialSection}
+                  settingsSection={settingsSection}
+                  onSettingsSectionChange={setSettingsSection}
                   onFirstMessageSent={handleFirstMessageSent}
                   onQuickSend={handleQuickSend}
                   quickSending={quickSending}
@@ -2095,7 +2111,8 @@ function AppShell({
                           sessionResolving={false}
                           sessionError={null}
                           onSettingsBack={handleSettingsBack}
-                          settingsInitialSection={settingsInitialSection}
+                          settingsSection={settingsSection}
+                          onSettingsSectionChange={setSettingsSection}
                           onFirstMessageSent={handleFirstMessageSent}
                           onQuickSend={handleQuickSend}
                           quickSending={quickSending}
@@ -2129,7 +2146,8 @@ function AppShell({
                 sessionResolving={sessionResolving}
                 sessionError={sessionError}
                 onSettingsBack={handleSettingsBack}
-                settingsInitialSection={settingsInitialSection}
+                settingsSection={settingsSection}
+                onSettingsSectionChange={setSettingsSection}
                 onFirstMessageSent={handleFirstMessageSent}
                 onQuickSend={handleQuickSend}
                 quickSending={quickSending}
@@ -2219,7 +2237,8 @@ function MainContent({
   sessionResolving,
   sessionError,
   onSettingsBack,
-  settingsInitialSection,
+  settingsSection,
+  onSettingsSectionChange,
   onFirstMessageSent,
   onQuickSend,
   quickSending,
@@ -2245,7 +2264,8 @@ function MainContent({
   sessionResolving: boolean
   sessionError: string | null
   onSettingsBack: () => void
-  settingsInitialSection: SettingsSection
+  settingsSection: SettingsSection
+  onSettingsSectionChange: (section: SettingsSection) => void
   onFirstMessageSent: (text: string) => void
   onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
@@ -2263,8 +2283,11 @@ function MainContent({
       <div className="flex h-full w-full">
         <SettingsDashboard
           key={`settings:${settingsInitialSection}`}
-          onBack={onSettingsBack}
+        
           initialSection={settingsInitialSection}
+          onBack={onSettingsBack}
+          activeSection={settingsSection}
+          onSectionChange={onSettingsSectionChange}
         />
       </div>
     )
