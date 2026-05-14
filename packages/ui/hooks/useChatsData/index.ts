@@ -7,6 +7,7 @@ import { localSyncGetChats, localSyncSetChats, localSyncSubscribeChats } from "@
 import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
 import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
+import { deleteWarmChatCache } from "@/lib/warmChatCache"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -293,6 +294,7 @@ export function useChatsData(
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return
     const chatId = deleteTarget.id
+    const sessionKey = deleteTarget.sessionKey
     setDeleting(true)
     try {
       invalidateMiddlewareStartupBootstrap()
@@ -320,6 +322,7 @@ export function useChatsData(
       await invoke("middleware_chats_delete", {
         input: { chatId },
       })
+      if (sessionKey) void deleteWarmChatCache(sessionKey)
       setChats((prev) => {
         const next = prev.filter((chat) => chat.id !== chatId)
         if (spaceId) {
