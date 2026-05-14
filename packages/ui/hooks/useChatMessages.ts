@@ -122,6 +122,25 @@ function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
   return false
 }
 
+export function mergeOptimisticMessagesWithCanonical(
+  canonicalMessages: ChatMessage[],
+  optimisticSource: ChatMessage[] | null | undefined
+) {
+  if (!optimisticSource?.length) return canonicalMessages
+  const keptOptimistic = optimisticSource.filter(
+    (message) =>
+      message.isOptimistic &&
+      !canonicalMessages.some(
+        (canonical) =>
+          canonical.messageId === message.messageId ||
+          (message.role === "user" && canonical.role === "user" && sameUserMessage(canonical, message))
+      )
+  )
+  return keptOptimistic.length
+    ? dedupeChatMessages([...canonicalMessages, ...keptOptimistic])
+    : canonicalMessages
+}
+
 function stableRawMessageId(raw: RawMessage): string {
   const openclawId = raw.__openclaw?.id
   if (typeof openclawId === "string" && openclawId.trim()) return openclawId
@@ -310,6 +329,12 @@ function streamStatusFromCanonicalRun(status: RunStatusV2 | string | null | unde
   return "idle"
 }
 
+function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
+  if (typeof startedAtMs !== "number" || typeof finishedAtMs !== "number") return undefined
+  const seconds = Math.max(0, finishedAtMs - startedAtMs) / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
 function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | null {
   const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
     ? tool.toolCallId
@@ -317,11 +342,20 @@ function inlineToolFromProjection(tool: ToolCallProjectionV2): InlineToolCall | 
       ? tool.id
       : null
   if (!id) return null
-  const status = tool.status === "error" ? "error" : tool.status === "success" ? "success" : "running"
+  const phase = typeof tool.phase === "string" ? tool.phase : ""
+  const status = tool.status === "error" || phase === "error" || phase === "failed"
+    ? "error"
+    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
+      ? "success"
+      : "running"
   return {
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
+    duration: formatToolDuration(
+      typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+      typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
+    ),
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? toolResultText(tool.resultMeta) : undefined,

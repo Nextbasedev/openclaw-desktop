@@ -234,9 +234,9 @@ it("collapses repeated user-only history blocks after assistant dedupe", () => {
       .filter((message) => message.role === "user")
       .map((message) => message.text)
   ).toEqual(["first", "second"])
+})
 
-
-  it("dedupes optimistic user message against history copy with attachment marker", () => {
+it("dedupes optimistic user message against history copy with attachment marker", () => {
     const messages = dedupeChatMessages([
       {
         messageId: "history-user",
@@ -257,7 +257,7 @@ it("collapses repeated user-only history blocks after assistant dedupe", () => {
     expect(messages[0].messageId).toBe("history-user")
   })
 
-  it("merges duplicate assistant partial text without repeating the first word", () => {
+it("merges duplicate assistant partial text without repeating the first word", () => {
     const messages = dedupeChatMessages([
       { messageId: "partial", role: "assistant", text: "NO_REPLY\n\nMerged" },
       { messageId: "final", role: "assistant", text: "Merged `fix/new-bugs` into `main` and pushed." },
@@ -267,7 +267,7 @@ it("collapses repeated user-only history blocks after assistant dedupe", () => {
     expect(messages[0].text).toBe("Merged `fix/new-bugs` into `main` and pushed.")
   })
 
-  it("merges duplicate assistant tool sections by tool id", () => {
+it("merges duplicate assistant tool sections by tool id", () => {
     const messages = dedupeChatMessages([
       {
         messageId: "tools-a",
@@ -287,5 +287,20 @@ it("collapses repeated user-only history blocks after assistant dedupe", () => {
     expect(messages[0].text).toBe("Done")
     expect(messages[0].toolCalls).toHaveLength(1)
     expect(messages[0].toolCalls?.[0].duration).toBe("0.5s")
-  })
+})
+
+it("keeps refetched history in backend gateway sequence order", () => {
+  const messages = dedupeChatMessages([
+    { messageId: "live-user-2", role: "user", text: "second", gatewayIndex: 3 },
+    { messageId: "history-user-1", role: "user", text: "first", gatewayIndex: 1 },
+    { messageId: "history-assistant-1", role: "assistant", text: "first answer", gatewayIndex: 2 },
+    { messageId: "history-assistant-2", role: "assistant", text: "second answer", gatewayIndex: 4 },
+  ])
+
+  expect(messages.map((message) => message.messageId)).toEqual([
+    "history-user-1",
+    "history-assistant-1",
+    "live-user-2",
+    "history-assistant-2",
+  ])
 })

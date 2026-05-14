@@ -1,4 +1,5 @@
 import { execFileSync, spawn as spawnChild, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { IPty } from "node-pty";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,7 +21,7 @@ const gatewaySessionLabel = (label: unknown, sessionKey: string) => {
 
 type CompatTerminal = {
   id: string;
-  child: ChildProcessWithoutNullStreams;
+  proc: IPty;
   cwd: string;
   buffer: string[];
   listeners: Set<(event: string, payload: CompatRecord) => void>;
@@ -356,19 +357,173 @@ function safeJoin(root: string, rel = "") {
 }
 
 function git(repo: string, args: string[]) {
-  return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000, maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 
-function gitStatus(repo: string) {
-  const raw = git(repo, ["status", "--short"]);
-  const files = raw.split(/\r?\n/).filter(Boolean).map((line) => ({ path: line.slice(3), status: line.slice(0, 2).trim() || "modified" }));
-  return { dirty: files.length > 0, files };
+function tryGit(repo: string, args: string[]) {
+  try { return git(repo, args); } catch { return null; }
+}
+
+function fileState(status: string) {
+  if (status.includes("A")) return "added";
+  if (status.includes("D")) return "deleted";
+  if (status.includes("R")) return "renamed";
+  if (status.includes("C")) return "copied";
+  if (status.includes("?")) return "untracked";
+  if (status.includes("M")) return "modified";
+  return "unknown";
+}
+
+function parseGitPorcelain(text: string) {
+  return text.split(/\r?\n/).filter(Boolean).map((line) => {
+    const match = line.match(/^(.{1,2})\s+(.+)$/);
+    const status = match?.[1]?.trim() || "modified";
+    const rawPath = match?.[2]?.trim() || line.trim();
+    const filePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop()!.trim() : rawPath;
+    return { path: filePath, state: fileState(status), status };
+  });
+}
+
+function parseGitNumstat(text: string) {
+  const stats = new Map<string, { additions: number; deletions: number }>();
+  for (const line of text.split(/\r?\n/).filter(Boolean)) {
+    const [additionsRaw, deletionsRaw, filePath] = line.split("\t");
+    if (!filePath) continue;
+    stats.set(filePath, {
+      additions: additionsRaw === "-" ? 0 : Number(additionsRaw || 0),
+      deletions: deletionsRaw === "-" ? 0 : Number(deletionsRaw || 0),
+    });
+  }
+  return stats;
+}
+
+function gitChangedFiles(repo: string) {
+  const files = parseGitPorcelain(tryGit(repo, ["status", "--porcelain", "-u"]) ?? "");
+  const stats = parseGitNumstat([
+    tryGit(repo, ["diff", "--numstat"]),
+    tryGit(repo, ["diff", "--cached", "--numstat"]),
+  ].filter(Boolean).join("\n"));
+  return files.map((file) => ({ ...file, ...(stats.get(file.path) ?? { additions: 0, deletions: 0 }) }));
+}
+
+function gitCommitStats(repo: string, hash: string) {
+  const raw = tryGit(repo, ["show", "--first-parent", "--numstat", "--format=", hash]) ?? "";
+  return raw.split(/\r?\n/).filter(Boolean).reduce((acc, line) => {
+    const [additionsRaw, deletionsRaw] = line.split("\t");
+    acc.additions += additionsRaw === "-" ? 0 : Number(additionsRaw || 0);
+    acc.deletions += deletionsRaw === "-" ? 0 : Number(deletionsRaw || 0);
+    return acc;
+  }, { additions: 0, deletions: 0 });
+}
+
+function gitRecentCommits(repo: string, ref = "HEAD") {
+  const raw = tryGit(repo, ["log", "-10", "--pretty=format:%H%x1f%s%x1f%cr", ref]);
+  if (!raw) return [];
+  return raw.split(/\r?\n/).filter(Boolean).map((line) => {
+    const [hash = "", message = "", date = ""] = line.split("\x1f");
+    return { hash, shortHash: hash.slice(0, 7), message, date, ...gitCommitStats(repo, hash) };
+  });
+}
+
+function gitAheadBehind(repo: string) {
+  const raw = tryGit(repo, ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
+  const [ahead = "0", behind = "0"] = (raw ?? "0 0").split(/\s+/);
+  return { ahead: Number(ahead || 0), behind: Number(behind || 0) };
+}
+
+function gitStatus(repo: string, projectId: string | null = null) {
+  const repoRoot = tryGit(repo, ["rev-parse", "--show-toplevel"]);
+  if (!repoRoot) {
+    return {
+      projectId,
+      repoRoot: repo,
+      hasGit: false,
+      mode: "local",
+      source: "local-fs",
+      branch: null,
+      currentBranch: null,
+      upstream: null,
+      remoteUrl: null,
+      ahead: 0,
+      behind: 0,
+      clean: true,
+      dirty: false,
+      changedFiles: [],
+      files: [],
+      recentCommits: [],
+      summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 },
+      error: "Not a git repository",
+    };
+  }
+  const branch = tryGit(repo, ["branch", "--show-current"]) || tryGit(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const upstream = tryGit(repo, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  const remoteName = upstream?.split("/")[0] || "origin";
+  const remoteUrl = tryGit(repo, ["remote", "get-url", remoteName]);
+  if (remoteUrl) tryGit(repo, ["fetch", "--prune", remoteName]);
+  const files = gitChangedFiles(repo);
+  const summary = files.reduce((acc, file) => {
+    acc.totalAdditions += file.additions ?? 0;
+    acc.totalDeletions += file.deletions ?? 0;
+    return acc;
+  }, { totalFiles: files.length, totalAdditions: 0, totalDeletions: 0 });
+  return {
+    projectId,
+    repoRoot,
+    hasGit: true,
+    mode: "local",
+    source: "local-fs",
+    branch,
+    currentBranch: branch,
+    upstream,
+    remoteUrl,
+    ...gitAheadBehind(repo),
+    clean: files.length === 0,
+    dirty: files.length > 0,
+    changedFiles: files,
+    files,
+    recentCommits: gitRecentCommits(repo, upstream || "HEAD"),
+    summary,
+  };
 }
 
 function gitBranches(repo: string) {
-  const current = git(repo, ["branch", "--show-current"]).trim();
-  const branches = git(repo, ["branch", "--format=%(refname:short)"]).split(/\r?\n/).filter(Boolean).map((name) => ({ name, current: name === current }));
-  return { branches, current };
+  const local = (tryGit(repo, ["branch", "--format", "%(refname:short)"]) ?? "").split(/\r?\n/).filter(Boolean);
+  const remote = (tryGit(repo, ["branch", "-r", "--format", "%(refname:short)"]) ?? "").split(/\r?\n/).filter(Boolean);
+  const current = tryGit(repo, ["branch", "--show-current"]);
+  return { local, remote, current, branches: local };
+}
+
+function gitDiff(repo: string, filePath: string) {
+  const repoRoot = tryGit(repo, ["rev-parse", "--show-toplevel"]);
+  const changed = gitChangedFiles(repo);
+  const state = changed.find((file) => file.path === filePath)?.state ?? "modified";
+  const patch = [
+    tryGit(repo, ["diff", "--cached", "--", filePath]),
+    tryGit(repo, ["diff", "--", filePath]),
+  ].filter(Boolean).join("\n") || null;
+  const stats = parseGitNumstat([
+    tryGit(repo, ["diff", "--numstat", "--", filePath]),
+    tryGit(repo, ["diff", "--cached", "--numstat", "--", filePath]),
+  ].filter(Boolean).join("\n")).get(filePath) ?? { additions: 0, deletions: 0 };
+  return {
+    mode: "local",
+    source: "local-fs",
+    repoRoot: repoRoot ?? repo,
+    path: filePath,
+    state,
+    oldContent: null,
+    newContent: null,
+    patch,
+    ...stats,
+    checkedAt: new Date().toISOString(),
+    ...(patch ? {} : { error: state === "untracked" ? "Untracked file has no git diff until it is staged" : "No diff available for this file" }),
+  };
+}
+
+function gitCommitDetails(repo: string, hash: string) {
+  if (!repo || !hash) return { diff: "" };
+  const diff = tryGit(repo, ["show", "--first-parent", "--find-renames", "--find-copies", "--patch", "--format=medium", hash]) ?? "";
+  return { diff };
 }
 
 function workspaceEntry(root: string, full: string, stat = fs.statSync(full)) {
@@ -513,8 +668,40 @@ async function connectGatewayForStatus(context: AppContext) {
   return context.gateway.status();
 }
 
+type DataHandler = (data: string) => void;
+type ExitHandler = (event: { exitCode: number }) => void;
+
+class ChildProcessTerminal {
+  private dataHandlers = new Set<DataHandler>();
+  private exitHandlers = new Set<ExitHandler>();
+
+  constructor(private child: ChildProcessWithoutNullStreams) {
+    child.stdout.on("data", (chunk) => this.emitData(chunk.toString()));
+    child.stderr.on("data", (chunk) => this.emitData(chunk.toString()));
+    child.on("exit", (code) => this.emitExit(code ?? 0));
+  }
+
+  private emitData(data: string) { for (const handler of this.dataHandlers) handler(data); }
+  private emitExit(exitCode: number) { for (const handler of this.exitHandlers) handler({ exitCode }); }
+  write(data: string) { this.child.stdin.write(data); }
+  resize(_cols: number, _rows: number) {}
+  kill() { this.child.kill(); }
+  onData(handler: DataHandler) { this.dataHandlers.add(handler); return { dispose: () => this.dataHandlers.delete(handler) }; }
+  onExit(handler: ExitHandler) { this.exitHandlers.add(handler); return { dispose: () => this.exitHandlers.delete(handler) }; }
+}
+
 function terminalShell() {
   return process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "bash";
+}
+
+async function spawnPty(command: string, cwd: string, cols: number, rows: number): Promise<IPty> {
+  try {
+    const pty = await import("node-pty");
+    return pty.spawn(command, [], { cwd, cols, rows, env: process.env });
+  } catch {
+    const child = spawnChild(command, [], { cwd, env: process.env, shell: false });
+    return new ChildProcessTerminal(child) as unknown as IPty;
+  }
 }
 
 function broadcastTerminal(term: CompatTerminal, event: string, payload: CompatRecord) {
@@ -523,20 +710,17 @@ function broadcastTerminal(term: CompatTerminal, event: string, payload: CompatR
   return frame;
 }
 
-function spawnTerminal(cwd: string) {
+async function spawnTerminal(cwd: string, body: CompatRecord = {}) {
   const idValue = id("term");
-  const child = spawnChild(terminalShell(), [], { cwd, env: process.env, shell: false });
-  const term: CompatTerminal = { id: idValue, child, cwd, buffer: [], listeners: new Set() };
-  const onData = (chunk: Buffer) => {
-    const data = chunk.toString();
+  const proc = await spawnPty(terminalShell(), cwd, Number(body.cols ?? 80), Number(body.rows ?? 24));
+  const term: CompatTerminal = { id: idValue, proc, cwd, buffer: [], listeners: new Set() };
+  proc.onData((data) => {
     term.buffer.push(data);
     if (term.buffer.length > 200) term.buffer.shift();
     broadcastTerminal(term, "data", { type: "terminal.data", terminalId: idValue, data });
-  };
-  child.stdout.on("data", onData);
-  child.stderr.on("data", onData);
-  child.on("exit", (code) => {
-    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: idValue, exitCode: code ?? 0 });
+  });
+  proc.onExit((event) => {
+    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: idValue, exitCode: event.exitCode ?? 0 });
     compatState.terminals.delete(idValue);
   });
   compatState.terminals.set(idValue, term);
@@ -819,13 +1003,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/status", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found or has no workspace root" } });
-    try { return gitStatus(root); } catch { return { dirty: false, files: [] }; }
+    try { return gitStatus(root, request.params.projectId); } catch { return { hasGit: false, dirty: false, files: [], changedFiles: [], recentCommits: [], summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 } }; }
   });
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/diff", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
     const filePath = String((request.query as CompatRecord).path ?? "");
-    try { return { patch: git(root, ["diff", "--", filePath]) }; } catch { return { patch: "" }; }
+    try { return gitDiff(root, filePath); } catch (error) { return { patch: null, error: error instanceof Error ? error.message : "Diff unavailable" }; }
   });
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/git/branches", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
@@ -845,14 +1029,14 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get("/api/repos/git/status", async (request) => {
     const repoPath = String((request.query as CompatRecord).path ?? (request.query as CompatRecord).repoPath ?? "");
     if (!repoPath) return { dirty: false, files: [] };
-    try { return gitStatus(repoPath); } catch { return { dirty: false, files: [] }; }
+    try { return gitStatus(repoPath, null); } catch { return { hasGit: false, dirty: false, files: [], changedFiles: [], recentCommits: [], summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 } }; }
   });
   app.get("/api/repos/git/diff", async (request) => {
     const query = request.query as CompatRecord;
     const repoPath = String(query.repoPath ?? "");
     const filePath = String(query.path ?? "");
     if (!repoPath) return { patch: "" };
-    try { return { patch: git(repoPath, ["diff", "--", filePath]) }; } catch { return { patch: "" }; }
+    try { return gitDiff(repoPath, filePath); } catch (error) { return { patch: null, error: error instanceof Error ? error.message : "Diff unavailable" }; }
   });
   app.get("/api/repos/git/branches", async (request) => {
     const repoPath = String((request.query as CompatRecord).path ?? (request.query as CompatRecord).repoPath ?? "");
@@ -1138,6 +1322,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           return { ok: true };
         } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Approval resolution failed" } }); }
       }
+      case "middleware_git_commit_details": {
+        const repoRoot = String(input.repoRoot ?? input.repoPath ?? "");
+        const root = input.projectId ? projectRoot(String(input.projectId)) : repoRoot;
+        const hash = String(input.hash ?? input.commit ?? "");
+        if (!root || !hash) return { diff: "" };
+        return gitCommitDetails(root, hash);
+      }
       case "middleware_message_feedback":
       case "middleware_message_feedback_delete":
         return { ok: true };
@@ -1239,27 +1430,30 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.post("/api/terminal/spawn", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const cwd = String(body.cwd ?? body.workspaceRoot ?? process.env.WORKSPACE_ROOT ?? path.join(os.homedir(), ".openclaw", "workspace"));
-    return spawnTerminal(cwd);
+    return spawnTerminal(cwd, body);
   });
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/terminal/spawn", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
-    return spawnTerminal(root);
+    return spawnTerminal(root, (request.body ?? {}) as CompatRecord);
   });
   app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/write", async (request, reply) => {
     const term = getTerminal(request.params.ptyId);
     if (!term) return reply.code(404).send({ ok: false, error: { message: "Terminal not found" } });
     const body = (request.body ?? {}) as CompatRecord;
-    term.child.stdin.write(String(body.data ?? ""));
+    term.proc.write(String(body.data ?? ""));
     return { ok: true };
   });
   app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/resize", async (request) => {
-    // child_process doesn't support resize natively; no-op for compat
+    const term = getTerminal(request.params.ptyId);
+    if (!term) return { ok: true };
+    const body = (request.body ?? {}) as CompatRecord;
+    term.proc.resize(Number(body.cols ?? 80), Number(body.rows ?? 24));
     return { ok: true };
   });
   app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/kill", async (request) => {
     const term = getTerminal(request.params.ptyId);
-    if (term) { term.child.kill(); compatState.terminals.delete(request.params.ptyId); }
+    if (term) { term.proc.kill(); compatState.terminals.delete(request.params.ptyId); }
     return { ok: true };
   });
 
@@ -1292,8 +1486,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     socket.on("message", (raw: Buffer) => {
       try {
         const msg = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number };
-        if (msg.type === "write" && typeof msg.data === "string") term.child.stdin.write(msg.data);
-        if (msg.type === "kill") { term.child.kill(); compatState.terminals.delete(term.id); }
+        if (msg.type === "write" && typeof msg.data === "string") term.proc.write(msg.data);
+        if (msg.type === "resize" && msg.cols && msg.rows) term.proc.resize(msg.cols, msg.rows);
+        if (msg.type === "kill") { term.proc.kill(); compatState.terminals.delete(term.id); }
       } catch {}
     });
     socket.on("close", () => term.listeners.delete(listener));

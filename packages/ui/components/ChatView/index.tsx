@@ -968,6 +968,26 @@ export function ChatView({
     return Array.from(merged.values())
   }
 
+
+  const activeTurnAssistantToolState = useMemo(() => {
+    if (!isGenerating || latestRenderedUserIndex < 0) {
+      return { latestAssistantId: null as string | null, tools: [] as import("./types").InlineToolCall[] }
+    }
+    const assistants = renderedMessages
+      .slice(latestRenderedUserIndex + 1)
+      .filter((message) => message.role === "assistant")
+    const latestAssistant = assistants[assistants.length - 1]
+    if (!latestAssistant) {
+      return { latestAssistantId: null as string | null, tools: [] as import("./types").InlineToolCall[] }
+    }
+    let tools: import("./types").InlineToolCall[] = []
+    for (const message of assistants) {
+      tools = mergeToolCallsForDisplay(tools, toolCallsWithoutSpawn(message.toolCalls ?? []))
+    }
+    tools = mergeToolCallsForDisplay(tools, toolCallsWithoutSpawn(pendingTools))
+    return { latestAssistantId: latestAssistant.messageId, tools }
+  }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
+
   const spawnsByToolCallId = useMemo(() => {
     const map = new Map<string, SpawnedSubagent>()
     for (const sub of spawnedSubagents) map.set(sub.toolCallId, sub)
@@ -1053,10 +1073,14 @@ export function ChatView({
       const filteredPending = toolCallsWithoutSpawn(pendingTools)
       const filteredToolCalls =
         msg.role === "assistant"
-          ? mergeToolCallsForDisplay(
-              toolCallsWithoutSpawn(msg.toolCalls ?? []),
-              isActivelyStreaming ? filteredPending : []
-            )
+          ? isGenerating && isActiveTurnAssistant
+            ? msg.messageId === activeTurnAssistantToolState.latestAssistantId
+              ? activeTurnAssistantToolState.tools
+              : []
+            : mergeToolCallsForDisplay(
+                toolCallsWithoutSpawn(msg.toolCalls ?? []),
+                isActivelyStreaming ? filteredPending : []
+              )
           : toolCallsWithoutSpawn(msg.toolCalls ?? [])
       const anchoredUserSubagents =
         msg.role === "user"
@@ -1150,6 +1174,7 @@ export function ChatView({
     },
     [
       activePopoverId,
+      activeTurnAssistantToolState,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
@@ -1350,7 +1375,10 @@ export function ChatView({
           return isAtBottom ? "smooth" : false
         }}
         computeItemKey={(_, msg) => msg.messageId}
-        increaseViewportBy={{ top: 900, bottom: 1200 }}
+        defaultItemHeight={112}
+        overscan={{ main: 900, reverse: 900 }}
+        increaseViewportBy={{ top: 1800, bottom: 2200 }}
+        minOverscanItemCount={10}
         components={{
           Header: () => (
             <div className="mx-auto max-w-3xl px-4 pt-8">

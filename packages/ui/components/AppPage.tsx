@@ -720,9 +720,9 @@ function AppShell({
   const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
-  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("config")
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("usage")
 
-  const openSettings = useCallback((section: SettingsSection = "config") => {
+  const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     const currentPath = getRoutePath()
@@ -741,7 +741,7 @@ function AppShell({
   useEffect(() => {
     function handleOpenSettings(event: Event) {
       const detail = (event as CustomEvent<{ section?: SettingsSection }>).detail
-      openSettings(detail?.section ?? "config")
+      openSettings(detail?.section ?? "usage")
     }
     window.addEventListener("openclaw:open-settings", handleOpenSettings)
     return () => window.removeEventListener("openclaw:open-settings", handleOpenSettings)

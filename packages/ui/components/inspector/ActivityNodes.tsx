@@ -53,6 +53,23 @@ function formatTime(ts?: number): string {
   })
 }
 
+function formatElapsed(ms: number) {
+  const seconds = Math.max(0, ms) / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function useRunningDuration(call: ToolCall) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (call.status !== "running" || !call.startedAt || call.duration) return
+    const id = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(id)
+  }, [call.duration, call.startedAt, call.status])
+  if (call.duration) return call.duration
+  if (call.status === "running" && call.startedAt) return formatElapsed(now - call.startedAt)
+  return undefined
+}
+
 function compactValue(value: unknown, depth = 0): unknown {
   if (value === null || value === undefined) return value
   if (typeof value === "string") return value.length > 1000 ? `${value.slice(0, 1000)}…(truncated)` : value
@@ -105,6 +122,7 @@ export function ToolCallRow({
   const [renderDetails, setRenderDetails] = useState(open)
   const inputText = useMemo(() => renderDetails && call.input ? formatInput(call.input) : "", [call.input, renderDetails])
   const outputText = useMemo(() => renderDetails && call.output ? truncateOutput(call.output) : "", [call.output, renderDetails])
+  const duration = useRunningDuration(call)
 
   useEffect(() => {
     if (open) {
@@ -146,7 +164,7 @@ export function ToolCallRow({
         </span>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] tabular-nums text-muted-foreground">
-          {call.duration && <span>{call.duration}</span>}
+          {duration && <span>{duration}</span>}
           <span>{formatTime(call.startedAt)}</span>
           {hasDetails && (
             <VscChevronDown
