@@ -433,6 +433,13 @@ function reconcileVisibleActiveStatus(state: SessionState) {
     return
   }
   if (state.spawnedSubagents.some((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working")) return
+  if (state.status === "tool_running") {
+    // Completed tool rows may remain in pendingTools until the final assistant
+    // message arrives so they can stay visible. Once no tool is actually
+    // running, the visible state must stop saying the tool card is loading.
+    state.status = hasAssistantAnswerAfterLatestUser(state) ? "streaming" : "thinking"
+    state.statusLabel = hasAssistantAnswerAfterLatestUser(state) ? "Streaming" : "Thinking"
+  }
   if (state.status === "thinking" && hasAssistantAnswerAfterLatestUser(state)) {
     state.status = "streaming"
     state.statusLabel = "Streaming"
