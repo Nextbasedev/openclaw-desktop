@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
 import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
@@ -204,11 +204,9 @@ export function ToolCallSteps({
   onSelectTool,
   onInteract,
   onResolveApproval,
-  autoOpenLatestResult = false,
 }: {
   tools: InlineToolCall[]
   defaultOpen?: boolean
-  autoOpenLatestResult?: boolean
   onSelectTool?: (id: string) => void
   onInteract?: () => void
   onResolveApproval?: (
@@ -218,20 +216,6 @@ export function ToolCallSteps({
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const [openToolId, setOpenToolId] = useState<string | null>(null)
-  const lastAutoOpenedResultRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (!autoOpenLatestResult) return
-    const latestCompletedWithDetails = [...tools]
-      .reverse()
-      .find((tool) => tool.status !== "running" && getToolDetailState(tool).hasDetails)
-    if (!latestCompletedWithDetails) return
-    const signature = `${latestCompletedWithDetails.id}:${latestCompletedWithDetails.status}:${latestCompletedWithDetails.resultText ?? ""}:${latestCompletedWithDetails.duration ?? ""}`
-    if (lastAutoOpenedResultRef.current === signature) return
-    lastAutoOpenedResultRef.current = signature
-    setOpen(true)
-    setOpenToolId(latestCompletedWithDetails.id)
-  }, [autoOpenLatestResult, tools])
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
     onInteract?.()
