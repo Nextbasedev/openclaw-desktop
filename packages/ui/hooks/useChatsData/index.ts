@@ -316,6 +316,20 @@ export function useChatsData(
     setDeleting(true)
     try {
       invalidateMiddlewareStartupBootstrap()
+      setChats((prev) => {
+        const next = prev.filter((chat) => chat.id !== chatId)
+        if (spaceId) {
+          void persistentCacheSet(`project:${spaceId}:chats`, next, { ttlMs: 1000 * 60 * 60 * 24 })
+          void localSyncSetChats(spaceId, next)
+        }
+        return next
+      })
+      setChatOrder((prev) => prev.filter((id) => id !== chatId))
+      setPinnedChats((prev) => {
+        const next = new Set(prev)
+        next.delete(chatId)
+        return next
+      })
       await invoke("middleware_chats_delete", {
         input: { chatId },
       })
