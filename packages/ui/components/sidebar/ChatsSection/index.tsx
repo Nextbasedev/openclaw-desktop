@@ -149,7 +149,7 @@ export function ChatsSection({
                   as="div"
                   className="flex flex-col gap-0.5"
                 >
-                  {sortedChatIds.slice(0, CHAT_INITIAL_LIMIT).map((chatId, index) => {
+                  {sortedChatIds.slice(0, CHAT_INITIAL_LIMIT).map((chatId) => {
                     const chat = chatsById.get(chatId)
                     if (!chat) return null
 
@@ -160,7 +160,6 @@ export function ChatsSection({
                         chat={chat}
                         isActive={activeChat?.id === chatId}
                         isPinned={pinnedChats.has(chatId)}
-                        animationIndex={index}
                         onClick={() =>
                           onChatSelect({
                             id: chat.id,
@@ -192,7 +191,7 @@ export function ChatsSection({
                     }}
                   >
                     <div className="flex min-h-0 flex-col gap-0.5 overflow-hidden">
-                      {visibleExtraChatIds.map((chatId, index) => {
+                      {visibleExtraChatIds.map((chatId) => {
                         const chat = chatsById.get(chatId)
                         if (!chat) return null
 
@@ -204,7 +203,6 @@ export function ChatsSection({
                             isActive={activeChat?.id === chatId}
                             isPinned={pinnedChats.has(chatId)}
                             disableReorder
-                            animationIndex={CHAT_INITIAL_LIMIT + index}
                             onClick={() =>
                               onChatSelect({
                                 id: chat.id,
