@@ -504,6 +504,39 @@ async function deleteCompatChat(context: AppContext, chatId: string) {
   return { ok: true, chatId, sessionKey };
 }
 
+async function deleteCompatSpace(context: AppContext, spaceId: string) {
+  const deletedChatIds = compatState.chats
+    .filter((chat) => chat.spaceId === spaceId)
+    .map((chat) => typeof chat.id === "string" ? chat.id : null)
+    .filter((chatId): chatId is string => Boolean(chatId));
+  const deletedProjectIds = compatState.projects
+    .filter((project) => project.spaceId === spaceId)
+    .map((project) => typeof project.id === "string" ? project.id : null)
+    .filter((projectId): projectId is string => Boolean(projectId));
+
+  for (const chatId of deletedChatIds) {
+    await deleteCompatChat(context, chatId);
+  }
+
+  compatState.spaces = compatState.spaces.filter((space) => space.id !== spaceId);
+  compatState.projects = compatState.projects.map((project) =>
+    project.spaceId === spaceId ? { ...project, deleted: true, updatedAt: nowIso() } : project,
+  );
+  if (deletedProjectIds.length > 0) {
+    const deletedProjectIdSet = new Set(deletedProjectIds);
+    compatState.topics = compatState.topics.map((topic) =>
+      deletedProjectIdSet.has(String(topic.projectId)) ? { ...topic, deleted: true, updatedAt: nowIso() } : topic,
+    );
+    compatState.sessions = compatState.sessions.filter((session) => !deletedProjectIdSet.has(String(session.projectId)));
+  }
+
+  if (compatState.activeSpaceId === spaceId) {
+    compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+  }
+  saveCompatState(context);
+  return { ok: true, spaceId, activeSpaceId: activeSpaceId(), deletedChatIds };
+}
+
 function projectById(projectId: string) {
   return compatState.projects.find((project) => project.id === projectId && notDeleted(project)) ?? null;
 }
@@ -1169,12 +1202,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.delete<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request) => {
-    patchById(compatState.spaces, request.params.spaceId, { deleted: true });
-    if (compatState.activeSpaceId === request.params.spaceId) {
-      compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
-    }
-    saveCompatState(context);
-    return { ok: true };
+    return deleteCompatSpace(context, request.params.spaceId);
   });
 
   app.get("/api/chats", async (request) => {
@@ -1835,12 +1863,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_spaces_delete": {
         const spaceId = String(input.spaceId ?? "");
         if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
-        patchById(compatState.spaces, spaceId, { deleted: true });
-        if (compatState.activeSpaceId === spaceId) {
-          compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
-        }
-        saveCompatState(context);
-        return { ok: true, activeSpaceId: activeSpaceId() };
+        return deleteCompatSpace(context, spaceId);
       }
       case "middleware_sessions_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
