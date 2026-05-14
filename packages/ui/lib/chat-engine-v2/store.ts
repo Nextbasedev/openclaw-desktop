@@ -171,6 +171,17 @@ function compactLabel(input: unknown, fallback: string) {
   return typeof input === "string" && input.trim() ? input.trim() : fallback
 }
 
+function messageStableId(message: Record<string, unknown>, frame: PatchFrame) {
+  const explicit = message.id ?? message.messageId
+  if (typeof explicit === "string" && explicit.trim()) return explicit.trim()
+  const openclaw = message.__openclaw
+  if (openclaw && typeof openclaw === "object" && !Array.isArray(openclaw)) {
+    const id = (openclaw as Record<string, unknown>).id
+    if (typeof id === "string" && id.trim()) return id.trim()
+  }
+  return `cursor-${frame.patch.cursor}`
+}
+
 function textFromUnknown(value: unknown): string {
   if (typeof value === "string") return value
   if (Array.isArray(value)) return value.map((item) => {
@@ -240,6 +251,7 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
   next[pendingIndex] = {
     ...existing,
     status: inferToolStatus(resultText),
+    duration: existing.duration ?? formatToolDuration(existing.startedAt, frame.patch.createdAtMs),
     resultText: resultText || existing.resultText,
     approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
   }
@@ -289,14 +301,29 @@ function attachDetachedToolsToLatestAssistant(state: SessionState, tools = state
   const index = latestAssistantIndex(state)
   if (index < 0) return false
   const message = state.messages[index]
-  const movedIds = new Set(tools.map((tool) => tool.id))
-  state.messages = state.messages.map((item, itemIndex) => {
-    if (itemIndex === index) return { ...message, toolCalls: mergeToolCalls(message.toolCalls, tools) }
-    if (item.role !== "assistant" || !item.toolCalls?.some((tool) => movedIds.has(tool.id))) return item
-    const remaining = item.toolCalls.filter((tool) => !movedIds.has(tool.id))
-    return { ...item, toolCalls: remaining.length > 0 ? remaining : undefined }
-  })
+  state.messages = state.messages.map((item, itemIndex) =>
+    itemIndex === index ? { ...message, toolCalls: mergeToolCalls(message.toolCalls, tools) } : item
+  )
   return true
+}
+
+function finalizeToolsInPlace(state: SessionState, tools: InlineToolCall[]) {
+  if (tools.length === 0) return []
+  const byId = new Map(tools.map((tool) => [tool.id, tool]))
+  const matchedIds = new Set<string>()
+  state.messages = state.messages.map((message) => {
+    if (message.role !== "assistant" || !message.toolCalls?.length) return message
+    let changed = false
+    const toolCalls = message.toolCalls.map((tool) => {
+      const finalized = byId.get(tool.id)
+      if (!finalized) return tool
+      matchedIds.add(tool.id)
+      changed = true
+      return { ...tool, ...finalized }
+    })
+    return changed ? { ...message, toolCalls } : message
+  })
+  return tools.filter((tool) => !matchedIds.has(tool.id))
 }
 
 function finalizeActiveToolsForTerminalStatus(state: SessionState, status: StreamStatus) {
@@ -306,6 +333,7 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
     return {
       ...tool,
       status: status === "error" ? "error" : "success",
+      duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
       resultText:
         tool.resultText ??
         (status === "error"
@@ -313,11 +341,18 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
           : tool.resultText),
     }
   })
-  attachDetachedToolsToLatestAssistant(state, finalizedTools)
+  const detachedTools = finalizeToolsInPlace(state, finalizedTools)
+  attachDetachedToolsToLatestAssistant(state, detachedTools)
   // Terminal sessions should not keep detached live tools around. Otherwise the
   // UI can render stale tool rows after/below the completed assistant answer,
   // and old completed tools can leak into the next render cycle.
   state.pendingTools = []
+}
+
+function formatToolDuration(startedAtMs: number | undefined, finishedAtMs: number | null | undefined) {
+  if (typeof startedAtMs !== "number" || typeof finishedAtMs !== "number") return undefined
+  const seconds = Math.max(0, finishedAtMs - startedAtMs) / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
 }
 
 function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | null {
@@ -327,11 +362,20 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
       ? tool.id
       : null
   if (!id) return null
-  const status = tool.status === "error" ? "error" : tool.status === "success" ? "success" : "running"
+  const phase = typeof tool.phase === "string" ? tool.phase : ""
+  const status = tool.status === "error" || phase === "error" || phase === "failed"
+    ? "error"
+    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
+      ? "success"
+      : "running"
   return {
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
+    duration: formatToolDuration(
+      typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+      typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
+    ),
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
     input: tool.argsMeta,
     resultText: tool.resultMeta ? textFromUnknown(tool.resultMeta) : undefined,
@@ -418,9 +462,13 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   const pending = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
   const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
 
-  for (const block of blocks) {
-    const id = compactLabel(block.id, `tool-${frame.patch.cursor}-${pending.size + 1}`)
+  const messageId = messageStableId(message, frame)
+  for (const [blockIndex, block] of blocks.entries()) {
     const tool = compactLabel(block.name, "unknown")
+    const id = compactLabel(
+      block.id,
+      `tool:${messageId}:${blockIndex}:${tool}`
+    )
     const input = block.arguments ?? block.input
     const existing = pending.get(id)
     pending.set(id, {
@@ -556,6 +604,27 @@ function isTerminalMessageStatusPatch(frame: PatchFrame, status: StreamStatus) {
   return Boolean(patchMessage(frame))
 }
 
+function isUserMessagePatch(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  if (semanticType === "chat.user.created" || semanticType === "chat.user.confirmed") return true
+  const message = patchMessage(frame)
+  return message?.role === "user"
+}
+
+function resetDetachedActivityForNewTurn(state: SessionState) {
+  state.pendingTools = state.pendingTools.filter((tool) => tool.status === "running")
+  state.spawnedSubagents = state.spawnedSubagents.filter((spawn) =>
+    spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working"
+  )
+}
+
+function isAssistantFinalTextMessage(frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message || message.role !== "assistant") return false
+  if (toolCallBlocks(message).length > 0) return false
+  return textFromUnknown(message.text ?? message.content).trim().length > 0
+}
+
 function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
   if (status !== "done") return false
   const type = frame.patch.type
@@ -610,6 +679,42 @@ function loadingFactorSummary(state: SessionState, patchType: string) {
   }
 }
 
+function stalePatchMatchesPendingTool(state: SessionState, frame: PatchFrame) {
+  const payload = patchPayload(frame)
+  const tool = payload?.toolCall
+  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
+  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+    ? tool.toolCallId
+    : typeof tool.id === "string" && tool.id.trim()
+      ? tool.id
+      : null
+  return Boolean(id && state.pendingTools.some((pending) => pending.id === id))
+}
+
+function applyStaleMatchingToolPatch(state: SessionState, frame: PatchFrame) {
+  if (!stalePatchMatchesPendingTool(state, frame)) return false
+  const previousStatus = state.status
+  const patchStatus = statusFromPatch(frame)
+  applyActivityFromPatch(state, frame)
+  if (patchStatus && !ACTIVE_STATUSES.has(patchStatus.status)) {
+    state.status = patchStatus.status
+    state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
+    state.activityStartedAtMs = 0
+    state.deferredDoneUntilAssistant = false
+    finalizeActiveToolsForTerminalStatus(state, state.status)
+  } else {
+    reconcileVisibleActiveStatus(state)
+  }
+  frontendLog("stream", "global-chat-session.stale-tool-patch-applied", {
+    patchCursor: frame.patch.cursor,
+    stateCursor: state.cursor,
+    patchType: frame.patch.type,
+    previousStatus,
+    status: state.status,
+  }, "debug")
+  return true
+}
+
 function handlePatch(frame: PatchFrame) {
   const sessionKey = frame.patch.sessionKey
   if (!sessionKey) {
@@ -619,12 +724,14 @@ function handlePatch(frame: PatchFrame) {
   const state = getOrCreate(sessionKey)
   if (frame.patch.cursor <= state.cursor) {
     globalCursor = Math.max(globalCursor, state.cursor, frame.patch.cursor)
-    frontendLog("stream", "global-chat-session.patch-stale-skip", {
+    const appliedStaleTool = applyStaleMatchingToolPatch(state, frame)
+    frontendLog("stream", appliedStaleTool ? "global-chat-session.patch-stale-tool-applied" : "global-chat-session.patch-stale-skip", {
       sessionKey,
       patchCursor: frame.patch.cursor,
       stateCursor: state.cursor,
       patchType: frame.patch.type,
     }, "debug")
+    if (appliedStaleTool) notify(sessionKey, frame)
     return
   }
   globalCursor = Math.max(globalCursor, frame.patch.cursor)
@@ -635,20 +742,23 @@ function handlePatch(frame: PatchFrame) {
       state.deferredDoneUntilAssistant = true
     } else if (
       ACTIVE_STATUSES.has(state.status) &&
-      isTerminalMessageStatusPatch(frame, patchStatus.status)
+      isTerminalMessageStatusPatch(frame, patchStatus.status) &&
+      (!isAssistantFinalTextMessage(frame) || !hasActiveToolOrSubagent(state))
     ) {
-      // Message projection patches can carry runStatus:"done" on an assistant
-      // chunk while more assistant/tool patches for the same turn are still in
-      // flight. Do not let those chunks clear the visible running state; wait
-      // for an explicit status/session terminal patch or stale-run reconcile.
+      // Tool-only / partial message projection patches can carry runStatus:"done"
+      // before the final assistant text arrives. Defer those, but accept the
+      // final assistant text patch itself: middleware-v2 does not always emit a
+      // second status-only "done" frame after that websocket message.
       state.deferredDoneUntilAssistant = true
     } else {
       if (!state.activityStartedAtMs && ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = Date.now()
       if (!ACTIVE_STATUSES.has(patchStatus.status)) state.activityStartedAtMs = 0
+      const beginsNewTurn = ACTIVE_STATUSES.has(patchStatus.status) &&
+        (!ACTIVE_STATUSES.has(previousStatus) || isUserMessagePatch(frame))
       state.status = patchStatus.status
       state.statusLabel = normalizeStatusLabel(state.status, patchStatus.label)
       state.deferredDoneUntilAssistant = false
-      finalizeActiveToolsForTerminalStatus(state, patchStatus.status)
+      if (beginsNewTurn) resetDetachedActivityForNewTurn(state)
     }
   } else if (patchImpliesActiveRun(frame) && !ACTIVE_STATUSES.has(state.status)) {
     if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
@@ -656,6 +766,9 @@ function handlePatch(frame: PatchFrame) {
     // Defensive fallback for pre-Phase-3 optimistic patches only; canonical
     // middleware-v2 patches should carry runStatus/statusLabel explicitly.
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
+  }
+  if (isUserMessagePatch(frame) && !state.pendingTools.some((tool) => tool.status === "running")) {
+    resetDetachedActivityForNewTurn(state)
   }
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)

@@ -324,11 +324,16 @@ export function GitTab({ projectId }: { projectId: string | null }) {
 
       {/* Changed files */}
       {files.length > 0 && (
-        <div className="py-3 text-center border bg-gray-500 bg-opacity-25 rounded-md mx-4 mt-2">
-          <p className="mb-2 px-4 text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-left opacity-70">
-            Changes
-          </p>
-          <div className="flex flex-col">
+        <div className="mx-3 mt-2 overflow-hidden rounded-xl border border-border/40 bg-card/40 shadow-sm">
+          <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+              Changes
+            </p>
+            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+              {files.length}
+            </span>
+          </div>
+          <div className="divide-y divide-border/20">
             {files.map((file) => {
               const fileName = file.path.split("/").pop() ?? file.path
               const dirPath = file.path.split("/").slice(0, -1).join("/")
@@ -337,15 +342,21 @@ export function GitTab({ projectId }: { projectId: string | null }) {
                   key={file.path}
                   type="button"
                   onClick={() => setSelectedChangedFile(file)}
-                  className="flex items-center gap-2.5 px-4 py-[6px] text-left transition-colors hover:bg-secondary/30"
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-secondary/35 active:bg-secondary/50"
                 >
                   <StateBadge state={file.state} />
-                  <div className="flex flex-1 flex-col min-w-0">
-                    <span className="truncate text-left text-[12px] text-foreground">{fileName}</span>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[12px] font-medium text-foreground/90">{fileName}</span>
                     {dirPath && (
-                      <span className="truncate text-left text-[10px] text-muted-foreground/60">{dirPath}</span>
+                      <span className="truncate text-[10px] text-muted-foreground/55">{dirPath}</span>
                     )}
                   </div>
+                  {typeof file.additions === "number" && typeof file.deletions === "number" && (file.additions > 0 || file.deletions > 0) && (
+                    <div className="ml-1 flex shrink-0 gap-1.5 font-mono text-[10px]">
+                      {file.additions > 0 && <span className="text-emerald-500">+{file.additions}</span>}
+                      {file.deletions > 0 && <span className="text-red-500">-{file.deletions}</span>}
+                    </div>
+                  )}
                 </button>
               )
             })}
@@ -435,7 +446,7 @@ function CommitDetailView({
         })
         const parsed = parseGitShow(res.diff)
         setDiffs(parsed)
-        if (parsed.length > 0) setSelectedFile(parsed[0].path)
+        setSelectedFile(parsed.length > 0 ? parsed[0].path : null)
       } catch (err) {
         console.error(err)
       } finally {
@@ -443,7 +454,7 @@ function CommitDetailView({
       }
     }
     loadDiff()
-  }, [projectId, hash])
+  }, [projectId, repoPath, hash])
 
   const currentFileDiff = diffs?.find(f => f.path === selectedFile)
 

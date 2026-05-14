@@ -55,18 +55,6 @@ function patchMessageSeq(frame: PatchFrame): number | undefined {
   return undefined
 }
 
-function sortByGatewayIndex(messages: ChatMessage[]) {
-  return messages
-    .map((message, index) => ({ message, index }))
-    .sort((a, b) => {
-      const aIndex = a.message.gatewayIndex
-      const bIndex = b.message.gatewayIndex
-      if (typeof aIndex === "number" && typeof bIndex === "number" && aIndex !== bIndex) return aIndex - bIndex
-      return a.index - b.index
-    })
-    .map((item) => item.message)
-}
-
 function patchRemoveId(frame: PatchFrame): string | null {
   if (frame.patch.type !== "chat.message.remove") return null
   const id = patchPayload(frame)?.messageId
@@ -166,7 +154,13 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     ? parsed.map((item) => ({ ...item, gatewayIndex: messageSeq }))
     : parsed
   const normalized = canonicalMessageId
-    ? withSeq.map((item) => item.role === "user" ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null } : item)
+    ? withSeq.map((item) =>
+      item.role === "user"
+        ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null }
+        : withSeq.length === 1
+          ? { ...item, messageId: canonicalMessageId }
+          : item
+    )
     : withSeq
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
@@ -181,6 +175,6 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     : state.messages
   return {
     cursor: frame.patch.cursor,
-    messages: sortByGatewayIndex(dedupeChatMessages([...baseMessages, ...normalized])),
+    messages: dedupeChatMessages([...baseMessages, ...normalized]),
   }
 }
