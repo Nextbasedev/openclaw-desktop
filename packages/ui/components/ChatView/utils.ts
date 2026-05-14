@@ -37,3 +37,20 @@ export function isAssistantErrorMessage(
     /^WebSocket error:/i.test(text)
   )
 }
+
+export function formatAssistantErrorText(text: string): string {
+  const trimmed = text.trim()
+  const quotedPayload = trimmed.match(/^(.*?\S)\s+("(?:\\.|[^"\\])*")$/)
+  if (!quotedPayload) return trimmed
+
+  try {
+    const parsed = JSON.parse(quotedPayload[2]) as unknown
+    if (typeof parsed === "string" && parsed.trim()) {
+      return `${quotedPayload[1]} ${parsed.trim()}`
+    }
+  } catch {
+    return trimmed
+  }
+
+  return trimmed
+}

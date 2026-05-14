@@ -40,7 +40,7 @@ import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
-import { isAssistantErrorMessage } from "./utils"
+import { formatAssistantErrorText, isAssistantErrorMessage } from "./utils"
 import { getSlashCommandName } from "@/lib/controlSlashCommands"
 import { formatAttachmentSize } from "@/lib/chatAttachments"
 import {
@@ -531,6 +531,9 @@ export function MessageBubble({
 }) {
   const isUser = message.role === "user"
   const isAssistantError = isAssistantErrorMessage(message)
+  const assistantErrorText = isAssistantError
+    ? formatAssistantErrorText(message.text)
+    : message.text
   const shouldAnimateSend = isUser && message.isOptimistic
   const hideAssistantActions =
     !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
@@ -877,7 +880,7 @@ export function MessageBubble({
                 />
               ) : isAssistantError ? (
                 <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
-                  {message.text}
+                  {assistantErrorText}
                 </p>
               ) : (
                 <MarkdownContent
