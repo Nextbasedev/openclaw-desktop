@@ -1559,7 +1559,8 @@ setMessages(warmMessages)
   const handleSend = useCallback(
     async (payload: ChatComposerSubmit, retryMessageId?: string) => {
       const trimmed = payload.text.trim()
-      if (!trimmed || sendingGuardRef.current) return false
+      const hasAttachments = (payload.attachments?.length ?? 0) > 0
+      if ((!trimmed && !hasAttachments) || sendingGuardRef.current) return false
       frontendLog("composer", "chat.send.start", {
         sessionKey,
         retry: Boolean(retryMessageId),
@@ -1593,9 +1594,10 @@ setMessages(warmMessages)
       const snippet = replyTo
         ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
         : undefined
+      const messageText = trimmed || " "
       const gatewayText = snippet
-        ? `> ${snippet.split("\n").join("\n> ")}\n\n${trimmed}`
-        : trimmed
+        ? `> ${snippet.split("\n").join("\n> ")}\n\n${messageText}`
+        : messageText
 
       const messageAttachments = payload.attachments?.map((a) => ({
         name: a.name,

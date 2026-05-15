@@ -116,6 +116,7 @@ export type RawHistoryMessage = {
   model?: string
   provider?: string
   usage?: ChatMessage["usage"]
+  attachments?: unknown[]
   toolCalls?: unknown[]
   tools?: unknown[]
   stopReason?: string | null
@@ -383,6 +384,7 @@ const MESSAGE_TOOL_RE =
 const ASYNC_RESULT_RE =
   /^An async command you ran earlier has completed\.[^\n]*(?:\n[^\n]*Handle the result internally[^\n]*)?(?:\n[^\n]*Do not relay[^\n]*)?\n*/m
 const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
+const ATTACHED_FILE_MARKER_RE = /^\s*\[Attached (?:images?|audio(?: file)?|file):[^\]]+\]\s*/gim
 const MEDIA_REPLY_INSTRUCTION_RE =
   /^To send an image back,[\s\S]*?Keep caption in the text body\.\s*/
 const BRACKETED_DAY_TIME_RE =
@@ -459,6 +461,84 @@ export function stripGatewayPrefixes(text: string): string {
 
 export function cleanUserMessageText(text: string): string {
   return stripGatewayPrefixes(stripBootstrap(text))
+    .replace(ATTACHED_FILE_MARKER_RE, "")
+    .trim()
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function readAttachmentMimeType(raw: Record<string, unknown>): string | undefined {
+  return stringValue(raw.mimeType) ?? stringValue(raw.mime_type) ?? stringValue(raw.mediaType) ?? stringValue(raw.contentType)
+}
+
+function readAttachmentName(raw: Record<string, unknown>, index: number): string {
+  return stringValue(raw.name) ?? stringValue(raw.fileName) ?? stringValue(raw.filename) ?? `attachment-${index + 1}`
+}
+
+function readAttachmentContent(raw: Record<string, unknown>): string | undefined {
+  const direct = stringValue(raw.content) ?? stringValue(raw.data) ?? stringValue(raw.base64)
+  if (!direct) return undefined
+  const dataUrl = direct.match(/^data:([^;,]+);base64,(.+)$/i)
+  return dataUrl ? dataUrl[2] : direct
+}
+
+function readContentBlockAttachments(content: RawHistoryMessage["content"]): ChatMessage["attachments"] {
+  if (!Array.isArray(content)) return undefined
+  const attachments: NonNullable<ChatMessage["attachments"]> = []
+  content.forEach((block, index) => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return
+    const raw = block as Record<string, unknown>
+    const type = stringValue(raw.type)?.toLowerCase()
+    if (type !== "image" && type !== "input_image" && type !== "attachment") return
+    const source = raw.source && typeof raw.source === "object" && !Array.isArray(raw.source)
+      ? raw.source as Record<string, unknown>
+      : raw
+    const mimeType = readAttachmentMimeType(raw) ?? readAttachmentMimeType(source) ?? (type === "image" || type === "input_image" ? "image/png" : undefined)
+    if (!mimeType) return
+    const content = readAttachmentContent(source) ?? readAttachmentContent(raw)
+    const url = stringValue(source.url) ?? stringValue(raw.url)
+    if (!content && !url) return
+    attachments.push({
+      name: readAttachmentName(raw, index),
+      mimeType,
+      content,
+      url,
+      size: numberValue(raw.size) ?? numberValue(source.size),
+    })
+  })
+  return attachments.length > 0 ? attachments : undefined
+}
+
+function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachments"] {
+  const fromTopLevel: NonNullable<ChatMessage["attachments"]> = []
+  if (Array.isArray(raw.attachments)) {
+    raw.attachments.forEach((item, index) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return
+      const attachment = item as Record<string, unknown>
+      const mimeType = readAttachmentMimeType(attachment) ?? (stringValue(attachment.type) === "image" ? "image/png" : undefined)
+      if (!mimeType) return
+      const content = readAttachmentContent(attachment)
+      const url = stringValue(attachment.url)
+      if (!content && !url) return
+      fromTopLevel.push({
+        name: readAttachmentName(attachment, index),
+        mimeType,
+        content,
+        url,
+        size: numberValue(attachment.size),
+      })
+    })
+  }
+
+  const fromContent = readContentBlockAttachments(raw.content) ?? []
+  const all = [...fromTopLevel, ...fromContent]
+  return all.length > 0 ? all : undefined
 }
 
 function isGatewayInjectedCommandOutput(message: RawHistoryMessage) {
@@ -551,6 +631,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     if (role === "user") {
       const rawText = item.text || extractText(item.content)
       const text = rawText ? cleanUserMessageText(rawText) : ""
+      const attachments = readMessageAttachments(item)
       const completed = /\bstatus:\s*completed successfully\b/i.test(rawText)
       const failed = /\bstatus:\s*(failed|errored|error)\b/i.test(rawText)
       if (completed || failed) {
@@ -562,7 +643,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           }
         }
       }
-      if (text) {
+      if (text || (attachments && attachments.length > 0)) {
         const reply = extractReplyFromText(text, messages)
         messages.push({
           messageId: messageId(item),
@@ -575,6 +656,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
           replyTo: reply?.replyTo,
           gatewayIndex: openclawSeq(item),
+          attachments,
         })
       }
       pendingToolCalls = []

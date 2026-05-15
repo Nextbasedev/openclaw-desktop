@@ -833,21 +833,23 @@ export function MessageBubble({
           </div>
         ) : (
           <>
-            <div
-              ref={messageBodyRef}
-              onMouseUp={updateSelectionAction}
-              onKeyUp={updateSelectionAction}
-              className={cn(
-                "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
-                isUser && userSlashCommandName
-                  ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
-                  : isUser
-                    ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
-                    : isAssistantError
-                      ? "w-full text-red-300"
-                    : "w-full text-foreground"
-              )}
-            >
+            {isUser && <RichContentPreview message={message} />}
+            {(!isUser || message.text.trim() || userSlashCommandName) && (
+              <div
+                ref={messageBodyRef}
+                onMouseUp={updateSelectionAction}
+                onKeyUp={updateSelectionAction}
+                className={cn(
+                  "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
+                  isUser && userSlashCommandName
+                    ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    : isUser
+                      ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                      : isAssistantError
+                        ? "w-full text-red-300"
+                      : "w-full text-foreground"
+                )}
+              >
               {shouldAnimateSlashCommandBorder && (
                 <>
                   <motion.span
@@ -909,13 +911,17 @@ export function MessageBubble({
                   }
                 />
               )}
-              <MessageAttachments
-                attachments={message.attachments}
-                isUser={isUser}
-              />
-              {!isUser && <RichContentPreview message={message} />}
-            </div>
-            {isUser && <RichContentPreview message={message} />}
+                {!isUser && (
+                  <>
+                    <MessageAttachments
+                      attachments={message.attachments}
+                      isUser={isUser}
+                    />
+                    <RichContentPreview message={message} />
+                  </>
+                )}
+              </div>
+            )}
             {isUser && message.sendStatus === "failed" && (
               <div className="mt-1 flex max-w-full items-center gap-2 text-[11px] text-rose-300">
                 <span className="min-w-0 truncate">
