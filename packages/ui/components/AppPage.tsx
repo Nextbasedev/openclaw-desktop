@@ -2098,6 +2098,10 @@ function AppShell({
                   onFirstMessageSent={handleFirstMessageSent}
                   onQuickSend={handleQuickSend}
                   quickSending={quickSending}
+                  spaces={spaces}
+                  activeSpaceId={activeSpaceId}
+                  onSpaceSwitch={handleSpaceSwitch}
+                  onOpenSkills={() => setActiveTab("skill")}
                   initialMessages={initialMessages}
                   onSelectTool={handleSelectTool}
                   pendingPrompt={pendingPrompt}
@@ -2150,6 +2154,10 @@ function AppShell({
                           onFirstMessageSent={handleFirstMessageSent}
                           onQuickSend={handleQuickSend}
                           quickSending={quickSending}
+                          spaces={spaces}
+                          activeSpaceId={activeSpaceId}
+                          onSpaceSwitch={handleSpaceSwitch}
+                          onOpenSkills={() => setActiveTab("skill")}
                           initialMessages={undefined}
                           onSelectTool={handleSelectTool}
                           pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
@@ -2185,6 +2193,10 @@ function AppShell({
                 onFirstMessageSent={handleFirstMessageSent}
                 onQuickSend={handleQuickSend}
                 quickSending={quickSending}
+                spaces={spaces}
+                activeSpaceId={activeSpaceId}
+                onSpaceSwitch={handleSpaceSwitch}
+                onOpenSkills={() => setActiveTab("skill")}
                 initialMessages={initialMessages}
                 onSelectTool={handleSelectTool}
                 pendingPrompt={pendingPrompt}
@@ -2276,6 +2288,10 @@ function MainContent({
   onFirstMessageSent,
   onQuickSend,
   quickSending,
+  spaces,
+  activeSpaceId,
+  onSpaceSwitch,
+  onOpenSkills,
   initialMessages,
   onSelectTool,
   pendingPrompt,
@@ -2303,6 +2319,10 @@ function MainContent({
   onFirstMessageSent: (text: string) => void
   onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
+  spaces: import("@/types/space").Space[]
+  activeSpaceId: string | null
+  onSpaceSwitch: (spaceId: string) => void | Promise<void>
+  onOpenSkills: () => void
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   pendingPrompt?: string | null
@@ -2411,6 +2431,11 @@ function MainContent({
         onSend={onQuickSend}
         disabled={quickSending}
         glowOnMount
+        showDraftSpaceBanner
+        spaces={spaces}
+        activeSpaceId={activeSpaceId}
+        onSpaceSelect={onSpaceSwitch}
+        onOpenSkills={onOpenSkills}
       />
     </div>
   )
