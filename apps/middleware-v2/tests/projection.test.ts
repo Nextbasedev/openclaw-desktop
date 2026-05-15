@@ -72,6 +72,22 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("stale activity cleanup finalizes old runs and running tools", () => {
+    const db = openDatabase({ databasePath: testDbPath("stale-activity") });
+    const repo = new RunRepository(db);
+    repo.upsertRun({ runId: "old-run", sessionKey: "s1", status: "tool_running", startedAtMs: 1_000, updatedAtMs: 1_000 });
+    repo.upsertToolCall({ sessionKey: "s1", runId: "old-run", toolCallId: "old-tool", name: "read", phase: "start", startedAtMs: 1_000, updatedAtMs: 1_000 });
+
+    const result = repo.finalizeStaleActivity({ nowMs: 10_000, activeRunMs: 1_000, runningToolMs: 1_000 });
+
+    expect(result).toMatchObject({ runsFinalized: 1, toolsFinalized: 1 });
+    expect(repo.latestRun("s1")).toMatchObject({ status: "done", finishedAtMs: 10_000 });
+    expect(repo.listToolCalls("s1", "old-run")).toEqual([
+      expect.objectContaining({ toolCallId: "old-tool", status: "success", phase: "result", finishedAtMs: 10_000 }),
+    ]);
+    db.close();
+  });
+
   test("confirming optimistic user preserves canonical client id and records gateway identity", () => {
     const db = openDatabase({ databasePath: testDbPath("confirm-user") });
     const repo = new MessageRepository(db);

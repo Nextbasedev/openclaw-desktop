@@ -19,6 +19,47 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
+  test("does not resurrect a completed chat from an old running tool replay", () => {
+    vi.setSystemTime(new Date("2026-05-15T08:30:00.000Z"))
+    const oldStartedAt = Date.now() - 48 * 60 * 60 * 1000
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "hello" },
+        { messageId: "a1", role: "assistant", text: "done" },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          semanticType: "chat.tool.started",
+          runStatus: "tool_running",
+          statusLabel: "read",
+          toolCall: {
+            toolCallId: "stale-tool",
+            name: "read",
+            status: "running",
+            phase: "start",
+            startedAtMs: oldStartedAt,
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")!
+    expect(state.status).toBe("done")
+    expect(state.pendingTools).toEqual([])
+  })
+
   test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

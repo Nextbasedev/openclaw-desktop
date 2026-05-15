@@ -742,6 +742,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       throw new HttpError(400, "Invalid chat bootstrap query", "INVALID_QUERY", parsed.error.flatten());
     }
     const bootstrapStartedAtMs = nowMs();
+    const staleCleanup = context.runs.finalizeStaleActivity();
+    if (staleCleanup.runsFinalized || staleCleanup.toolsFinalized || staleCleanup.detachedToolsFinalized) {
+      log.warn("bootstrap.stale-activity-finalized", { sessionKey: parsed.data.sessionKey, ...staleCleanup });
+    }
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey, limit: parsed.data.limit, hasMaxChars: parsed.data.maxChars !== undefined });
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {

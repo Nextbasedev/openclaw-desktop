@@ -35,6 +35,7 @@ const ACTIVE_STATUSES = new Set<StreamStatus>([
 ])
 
 const STALE_ACTIVE_RUN_MS = 5 * 60 * 1000
+const STALE_RUNNING_TOOL_PATCH_MS = 30 * 60 * 1000
 const PREMATURE_DONE_GRACE_MS = 10 * 1000
 
 function isTerminalOrIdleStatus(status: StreamStatus) {
@@ -543,6 +544,21 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
   const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
   if (!inline) return false
+  if (
+    inline.status === "running" &&
+    typeof inline.startedAt === "number" &&
+    Date.now() - inline.startedAt > STALE_RUNNING_TOOL_PATCH_MS &&
+    (isTerminalOrIdleStatus(state.status) || !state.activityStartedAtMs)
+  ) {
+    frontendLog("stream", "global-chat-session.stale-running-tool-ignored", {
+      toolCallId: inline.id,
+      tool: inline.tool,
+      ageMs: Date.now() - inline.startedAt,
+      status: state.status,
+      patchCursor: frame.patch.cursor,
+    }, "debug")
+    return false
+  }
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
   const existingTool = pending.get(inline.id)
   pending.set(inline.id, {
@@ -778,6 +794,16 @@ function patchCarriesAssistantLiveActivity(frame: PatchFrame) {
   return semanticType === "chat.assistant.started" || semanticType === "chat.assistant.delta"
 }
 
+function isStaleRunningToolReplay(state: SessionState, frame: PatchFrame) {
+  if (!isTerminalOrIdleStatus(state.status) && state.activityStartedAtMs) return false
+  const tool = patchPayload(frame)?.toolCall
+  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
+  const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
+  if (!inline || inline.status !== "running") return false
+  if (typeof inline.startedAt !== "number") return false
+  return Date.now() - inline.startedAt > STALE_RUNNING_TOOL_PATCH_MS
+}
+
 function shouldIgnoreTerminalToActiveStatus(state: SessionState, frame: PatchFrame, previousStatus: StreamStatus, nextStatus: StreamStatus) {
   if (!isTerminalOrIdleStatus(previousStatus)) return false
   if (!ACTIVE_STATUSES.has(nextStatus)) return false
@@ -1003,6 +1029,17 @@ function handlePatch(frame: PatchFrame) {
     return
   }
   globalCursor = Math.max(globalCursor, frame.patch.cursor)
+  if (isStaleRunningToolReplay(state, frame)) {
+    state.cursor = Math.max(state.cursor, frame.patch.cursor)
+    frontendLog("stream", "global-chat-session.stale-running-tool-replay-skip", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      stateCursor: state.cursor,
+      patchType: frame.patch.type,
+      status: state.status,
+    }, "debug")
+    return
+  }
   const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
