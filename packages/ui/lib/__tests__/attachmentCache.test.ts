@@ -47,4 +47,22 @@ describe("attachmentCache", () => {
 
     expect(merged[0]).toMatchObject({ name: "image.png", content: "abc123" })
   })
+
+  it("restores cached content by attachment name when text is attachment-only", () => {
+    cacheAttachments(
+      "session-name",
+      "optimistic-id",
+      [{ name: "screenshot.png", mimeType: "image/png", content: "abc123" }],
+      " ",
+    )
+
+    const merged = mergeAttachmentsWithCache(
+      "session-name",
+      "history-id",
+      [{ name: "screenshot.png", mimeType: "image/png" }],
+      "",
+    )
+
+    expect(merged[0]).toMatchObject({ name: "screenshot.png", content: "abc123" })
+  })
 })
