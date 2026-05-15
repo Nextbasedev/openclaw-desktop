@@ -338,16 +338,24 @@ export function ChatBox({
   }, [handleVoiceStart, handleVoiceStop])
 
   React.useEffect(() => {
-    const restoreInput = (value: string) => {
-      setInput(value)
-      requestAnimationFrame(() => {
+    const placeCaretAtEnd = (value: string) => {
+      const apply = () => {
         const textarea = textareaRef.current
         if (!textarea) return
         const pos = value.length
         textarea.focus()
         textarea.setSelectionRange(pos, pos)
         autoResize()
+      }
+      requestAnimationFrame(() => {
+        apply()
+        requestAnimationFrame(apply)
       })
+      window.setTimeout(apply, 80)
+    }
+    const restoreInput = (value: string) => {
+      setInput(value)
+      placeCaretAtEnd(value)
     }
     if (initialPrompt != null) {
       restoreInput(initialPrompt)
