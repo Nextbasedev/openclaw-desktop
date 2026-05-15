@@ -30,6 +30,7 @@ import { frontendLog } from "@/lib/clientLogs"
 import { windowChatMessages } from "@/lib/messageWindow"
 import { toast } from "react-toastify"
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
+import { MdKeyboardDoubleArrowDown } from "react-icons/md"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -332,6 +333,7 @@ export function ChatView({
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [messageWindowSize, setMessageWindowSize] = useState(240)
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -807,8 +809,32 @@ export function ChatView({
 
   const handleScroll = useCallback(() => {
     onScroll()
+    const el = scrollContainerRef.current
+    if (el) {
+      setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+    }
     if (activePopoverId) setActivePopoverId(null)
-  }, [onScroll, activePopoverId])
+  }, [onScroll, scrollContainerRef, activePopoverId])
+
+  const jumpToLatestMessage = useCallback(() => {
+    setShowJumpToBottom(false)
+    const lastIndex = renderedMessages.length - 1
+    if (lastIndex >= 0) {
+      virtuosoRef.current?.scrollToIndex({
+        index: lastIndex,
+        align: "end",
+        behavior: "smooth",
+      })
+      return
+    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+  }, [bottomRef, renderedMessages.length])
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+  }, [isGenerating, renderedMessages.length, scrollContainerRef])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1416,6 +1442,32 @@ export function ChatView({
       />
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+        <AnimatePresence>
+          {showJumpToBottom && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              className="mb-2 flex justify-center"
+            >
+              <button
+                type="button"
+                aria-label="Scroll to latest message"
+                title="Scroll to latest message"
+                onClick={jumpToLatestMessage}
+                className={cn(
+                  "flex size-9 cursor-pointer items-center justify-center rounded-full border",
+                  "border-border/70 bg-background/90 text-foreground shadow-lg backdrop-blur-xl",
+                  "transition-colors hover:bg-muted hover:text-foreground",
+                  "dark:border-white/10 dark:bg-black/70 dark:text-white dark:hover:bg-white/10"
+                )}
+              >
+                <MdKeyboardDoubleArrowDown size={24} aria-hidden="true" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {spawnedSubagents.length > 0 && (
           <div className="mb-2">
             <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
