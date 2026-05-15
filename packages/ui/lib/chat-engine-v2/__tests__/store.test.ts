@@ -19,6 +19,82 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
+  test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 1,
+      status: "done",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "read file" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "read", status: "success", startedAt: 1_000, completedAt: 2_000, duration: "1.0s" }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_500,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: {
+            id: "tool-result",
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "tool-1", content: "file contents" }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "file contents", status: "success" })],
+      }),
+    ]))
+  })
+
+  test("applies stale result patch to already visible tool rows", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "read file" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "read", status: "success", startedAt: 1_000, completedAt: 2_000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 9,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_500,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: {
+            id: "tool-result",
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "tool-1", content: "late file contents" }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "late file contents", status: "success" })],
+      }),
+    ]))
+  })
+
   test("updates visible tool row from user tool_result content blocks", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

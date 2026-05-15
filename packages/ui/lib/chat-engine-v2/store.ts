@@ -272,14 +272,24 @@ function parseExecApproval(text: string): InlineToolCall["approval"] | undefined
   return { id, slug, command, allowedDecisions: allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"] }
 }
 
+function findVisibleToolById(state: SessionState, id: string | null) {
+  if (!id) return null
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const message = state.messages[i]
+    if (message.role !== "assistant" || !message.toolCalls?.length) continue
+    const tool = message.toolCalls.find((item) => item.id === id)
+    if (tool) return tool
+  }
+  return null
+}
+
 function applyToolResultById(state: SessionState, params: { id: string | null; resultText: string; createdAtMs: number; source?: unknown }) {
   const pendingIndex = params.id
     ? state.pendingTools.findIndex((tool) => tool.id === params.id)
     : state.pendingTools.findIndex((tool) => tool.status === "running")
-  if (pendingIndex < 0) return false
-  const existing = state.pendingTools[pendingIndex]
-  const next = [...state.pendingTools]
-  next[pendingIndex] = {
+  const existing = pendingIndex >= 0 ? state.pendingTools[pendingIndex] : findVisibleToolById(state, params.id)
+  if (!existing) return false
+  const mergedTool: InlineToolCall = {
     ...existing,
     status: inferToolStatus(params.resultText),
     duration: existing.duration ?? formatToolDuration(existing.startedAt, params.createdAtMs),
@@ -287,8 +297,12 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
     resultText: mergeToolResultText(params.resultText || undefined, existing.resultText),
     approval: params.resultText ? (parseExecApproval(params.resultText) ?? existing.approval) : existing.approval,
   }
-  state.pendingTools = next
-  updateToolInMessages(state, next[pendingIndex])
+  if (pendingIndex >= 0) {
+    const next = [...state.pendingTools]
+    next[pendingIndex] = mergedTool
+    state.pendingTools = next
+  }
+  updateToolInMessages(state, mergedTool)
 
   if (existing.tool === "sessions_spawn") {
     const childKey = extractSubagentSessionKey(params.source) ?? extractSubagentSessionKey(params.resultText)
@@ -297,7 +311,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
       return {
         ...spawn,
         sessionKey: childKey ?? spawn.sessionKey,
-        status: next[pendingIndex].status === "error"
+        status: mergedTool.status === "error"
           ? "failed"
           : (childKey ?? spawn.sessionKey)
             ? "working"
@@ -925,13 +939,23 @@ function loadingFactorSummary(state: SessionState, patchType: string) {
 function stalePatchMatchesPendingTool(state: SessionState, frame: PatchFrame) {
   const payload = patchPayload(frame)
   const tool = payload?.toolCall
-  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
-  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
-    ? tool.toolCallId
-    : typeof tool.id === "string" && tool.id.trim()
-      ? tool.id
-      : null
-  return Boolean(id && state.pendingTools.some((pending) => pending.id === id))
+  const ids: string[] = []
+  if (tool && typeof tool === "object" && !Array.isArray(tool)) {
+    const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+      ? tool.toolCallId
+      : typeof tool.id === "string" && tool.id.trim()
+        ? tool.id
+        : null
+    if (id) ids.push(id)
+  }
+  const message = patchMessage(frame)
+  if (message) {
+    for (const block of toolResultBlocks(message)) {
+      const id = toolResultBlockId(block)
+      if (id) ids.push(id)
+    }
+  }
+  return ids.some((id) => state.pendingTools.some((pending) => pending.id === id) || Boolean(findVisibleToolById(state, id)))
 }
 
 function applyStaleMatchingToolPatch(state: SessionState, frame: PatchFrame) {
