@@ -1268,6 +1268,59 @@ export function useChatMessages(
     let bootstrapSettled = false
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
     const mountStartedAtMs = Date.now()
+    type GlobalChatSnapshot = Parameters<Parameters<typeof subscribeGlobalChatSession>[1]>[0]
+    let pendingV2Snapshot: GlobalChatSnapshot | null = null
+    let v2ApplyFrame: number | null = null
+    let v2ApplyTimer: ReturnType<typeof setTimeout> | null = null
+
+    const applyV2Snapshot = (state: GlobalChatSnapshot) => {
+      if (cancelled) return
+      v2CursorRef.current = state.cursor
+      pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
+      spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+      setLocalPendingTools(state.pendingTools)
+      setLocalSpawnedSubagents(state.spawnedSubagents)
+      setStatus(state.status)
+      setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
+      if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
+      else clearCachedChatActivity(sessionKey)
+      setMessages(state.messages)
+    }
+
+    const clearScheduledV2Apply = () => {
+      if (v2ApplyFrame !== null) cancelAnimationFrame(v2ApplyFrame)
+      if (v2ApplyTimer !== null) clearTimeout(v2ApplyTimer)
+      v2ApplyFrame = null
+      v2ApplyTimer = null
+      pendingV2Snapshot = null
+    }
+
+    const flushScheduledV2Apply = () => {
+      const next = pendingV2Snapshot
+      clearScheduledV2Apply()
+      if (next) applyV2Snapshot(next)
+    }
+
+    const scheduleV2SnapshotApply = (state: GlobalChatSnapshot) => {
+      if (cancelled) return
+      if (state.status === "done" || state.status === "error") {
+        clearScheduledV2Apply()
+        applyV2Snapshot(state)
+        return
+      }
+      pendingV2Snapshot = state
+      if (v2ApplyFrame !== null || v2ApplyTimer !== null) return
+      const hidden = typeof document !== "undefined" && document.visibilityState === "hidden"
+      if (hidden) {
+        v2ApplyTimer = setTimeout(flushScheduledV2Apply, 250)
+        return
+      }
+      if (typeof requestAnimationFrame === "function") {
+        v2ApplyFrame = requestAnimationFrame(flushScheduledV2Apply)
+        return
+      }
+      v2ApplyTimer = setTimeout(flushScheduledV2Apply, 16)
+    }
 
     if (!warmMessages) {
       loadingTimeout = setTimeout(() => {
@@ -1440,17 +1493,7 @@ export function useChatMessages(
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
           (state) => {
-            if (cancelled) return
-            v2CursorRef.current = state.cursor
-            pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
-            spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
-            setLocalPendingTools(state.pendingTools)
-            setLocalSpawnedSubagents(state.spawnedSubagents)
-            setStatus(state.status)
-            setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
-            if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
-            else clearCachedChatActivity(sessionKey)
-            setMessages(state.messages)
+            scheduleV2SnapshotApply(state)
           }
         )
         unsubscribeStream = null
@@ -1482,6 +1525,7 @@ export function useChatMessages(
       frontendLog("chat", "chat.unmount", { sessionKey, instanceId: instanceIdRef.current })
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
+      clearScheduledV2Apply()
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
       window.removeEventListener("openclaw:chat-bootstrap-recovery", handleBootstrapRecovery)
       unsubscribeStream?.()

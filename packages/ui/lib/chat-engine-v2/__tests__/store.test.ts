@@ -1774,3 +1774,43 @@ describe("global V2 chat engine store", () => {
     expect(cached.v2Cursor).toBe(9)
   })
 })
+
+test("ingests a 100-message streamed conversation without dropping the latest message", () => {
+  seedGlobalChatSession({
+    sessionKey: "stream-100",
+    cursor: 0,
+    status: "streaming",
+    pendingTools: [],
+    messages: [],
+  })
+
+  for (let i = 1; i <= 100; i++) {
+    const role = i % 2 === 1 ? "user" : "assistant"
+    const id = `${role}-${i}`
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: i,
+        type: "chat.message.upsert",
+        sessionKey: "stream-100",
+        createdAtMs: 1_700_000_000_000 + i,
+        payload: {
+          semanticType: role === "assistant" ? "chat.assistant.final" : "chat.user.confirmed",
+          messageSeq: i,
+          message: {
+            id,
+            role,
+            text: `${role} streamed message ${i}`,
+            __openclaw: { id, seq: i },
+          },
+        },
+      },
+    })
+  }
+
+  const state = getGlobalChatSession("stream-100")!
+  expect(state.messages).toHaveLength(100)
+  expect(state.messages[0]).toMatchObject({ messageId: "user-1", text: "user streamed message 1" })
+  expect(state.messages[99]).toMatchObject({ messageId: "assistant-100", text: "assistant streamed message 100" })
+  expect(state.cursor).toBe(100)
+})
