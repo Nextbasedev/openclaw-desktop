@@ -457,7 +457,9 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
     approval: inline.approval ?? existingTool?.approval,
   })
   state.pendingTools = Array.from(pending.values())
-  promoteRunningToolStatus(state, inline.tool)
+  if (inline.status === "running") {
+    promoteRunningToolStatus(state, inline.tool)
+  }
 
   if (inline.tool === "sessions_spawn") {
     const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))

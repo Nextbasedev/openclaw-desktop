@@ -322,6 +322,64 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("does not keep status stuck on tool_running after final canonical tool result", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          semanticType: "chat.tool.started",
+          runStatus: "tool_running",
+          statusLabel: "exec",
+          activeRun: { status: "tool_running" },
+          toolCall: {
+            toolCallId: "tc-finish",
+            name: "exec",
+            status: "running",
+            phase: "calling",
+            startedAtMs: 1_000,
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({ status: "tool_running", statusLabel: "exec" })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          activeRun: { status: "thinking" },
+          toolCall: {
+            toolCallId: "tc-finish",
+            name: "exec",
+            status: "success",
+            phase: "result",
+            startedAtMs: 1_000,
+            finishedAtMs: 2_000,
+            resultMeta: "ok",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "thinking",
+      statusLabel: "Thinking",
+      pendingTools: [{ id: "tc-finish", tool: "exec", status: "success" }],
+    })
+  })
+
   test("updates live tool result and approval metadata from V2 patches", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
