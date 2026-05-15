@@ -782,6 +782,7 @@ function shouldIgnoreTerminalToActiveStatus(state: SessionState, frame: PatchFra
   if (!isTerminalOrIdleStatus(previousStatus)) return false
   if (!ACTIVE_STATUSES.has(nextStatus)) return false
   if (isUserMessagePatch(frame)) return false
+  if (hasTerminalToolPatch(frame)) return true
   if (patchCarriesToolActivity(frame)) return false
   if (patchCarriesAssistantLiveActivity(frame)) return false
   if (hasActiveToolOrSubagent(state)) return false
