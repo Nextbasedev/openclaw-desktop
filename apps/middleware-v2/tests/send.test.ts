@@ -278,7 +278,14 @@ describe("chat send routes", () => {
     ]));
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
     expect(bootstrap.statusCode).toBe(200);
-    expect(bootstrap.json()).toMatchObject({ sessionStatus: "running", runStatus: "streaming", statusLabel: "Streaming" });
+    expect(bootstrap.json()).toMatchObject({
+      sessionStatus: "running",
+      runStatus: "streaming",
+      statusLabel: "Streaming",
+    });
+    expect(bootstrap.json().messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", text: "partial" }),
+    ]));
     await app.close();
   });
 
