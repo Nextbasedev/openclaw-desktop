@@ -322,6 +322,61 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("updates visible assistant tool row as soon as canonical tool result arrives", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          runStatus: "tool_running",
+          statusLabel: "read",
+          activeRun: { status: "tool_running" },
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc-visible", name: "read", input: { path: "A.md" } }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.messages[0]?.toolCalls).toMatchObject([
+      { id: "tc-visible", tool: "read", status: "running" },
+    ])
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          activeRun: { status: "thinking" },
+          toolCall: {
+            toolCallId: "tc-visible",
+            name: "read",
+            status: "success",
+            phase: "result",
+            startedAtMs: 1_000,
+            finishedAtMs: 2_000,
+            resultMeta: "file contents",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.messages[0]?.toolCalls).toMatchObject([
+      { id: "tc-visible", tool: "read", status: "success", resultText: "file contents" },
+    ])
+  })
+
   test("does not keep status stuck on tool_running after final canonical tool result", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
