@@ -1553,18 +1553,18 @@ function AppShell({
       })
     }
 
-    const otherTab = focused.tabs.find(
-      (tab) => tab.id !== focused.activeTabId && tab.kind !== "draft",
+    const splitTab = focused.tabs.find(
+      (tab) => tab.id === focused.activeTabId && tab.kind !== "draft",
     )
-    if (!otherTab) return
+    if (!splitTab) return
 
-    const data = tabDataRef.current.get(otherTab.id)
+    const data = tabDataRef.current.get(splitTab.id)
     if (data?.chat) {
       const cached = resolvedChatCacheRef.current.get(data.chat.id)
       if (cached) {
         dispatchGroups({
           type: "SPLIT_TAB",
-          tabId: otherTab.id,
+          tabId: splitTab.id,
           sessionData: cached,
         })
         setActiveTopic(null)
@@ -1575,7 +1575,7 @@ function AppShell({
         setPendingPrompt(null)
         setComposerError(null)
       } else {
-        dispatchGroups({ type: "SPLIT_TAB", tabId: otherTab.id, sessionData: null })
+        dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null })
         ensureChatSession(data.chat)
           .then((resolved) => {
             resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
@@ -1595,7 +1595,7 @@ function AppShell({
           .catch(() => {})
       }
     } else {
-      dispatchGroups({ type: "SPLIT_TAB", tabId: otherTab.id, sessionData: null })
+      dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null })
     }
   }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
 
