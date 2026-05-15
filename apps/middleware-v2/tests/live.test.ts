@@ -252,6 +252,48 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("infers missing result for previous sequential tool when the next tool starts", async () => {
+    const app = await createApp(config("sequential-tool-missing-result"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "tool_running", statusLabel: "session_status", startedAtMs: now - 2_000, updatedAtMs: now - 2_000 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "tool-1", name: "session_status", phase: "calling", status: "running", startedAtMs: now - 2_000, updatedAtMs: now - 2_000 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        data: {
+          phase: "start",
+          toolCallId: "tool-2",
+          name: "read",
+          args: { path: "README.md" },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({ status: "success", phase: "result" });
+    expect(context.runs.getToolCall("s1", "tool-2")).toMatchObject({ status: "running", phase: "start", name: "read" });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string } }>;
+    const inferredResultIndex = patches.findIndex((patch) => patch.type === "chat.tool.result" && patch.payload?.toolCallId === "tool-1");
+    const nextStartIndex = patches.findIndex((patch) => patch.type === "chat.tool.started" && patch.payload?.toolCallId === "tool-2");
+    expect(inferredResultIndex).toBeGreaterThanOrEqual(0);
+    expect(nextStartIndex).toBeGreaterThan(inferredResultIndex);
+    await app.close();
+  });
+
   test("preserves live session.tool partial output for response tool rendering", async () => {
     const app = await createApp(config("session-tool-partial-output"));
     const context = contextOf(app);
