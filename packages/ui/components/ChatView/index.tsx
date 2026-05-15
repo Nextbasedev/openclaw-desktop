@@ -1017,17 +1017,37 @@ export function ChatView({
     return null
   }, [renderedMessages])
 
-  const assistantMessages = messages.filter((m) => m.role === "assistant")
-  const lastTwoAssistantIds = new Set(
-    assistantMessages.slice(-2).map((m) => m.messageId)
-  )
-  const toolCallsWithoutSpawn = (tools: import("./types").InlineToolCall[]) =>
+  const lastTwoAssistantIds = useMemo(() => {
+    const ids: string[] = []
+    for (let i = messages.length - 1; i >= 0 && ids.length < 2; i--) {
+      if (messages[i].role === "assistant") ids.push(messages[i].messageId)
+    }
+    return new Set(ids)
+  }, [messages])
+
+  const laterAssistantInSameTurnById = useMemo(() => {
+    const result = new Map<string, boolean>()
+    let hasLaterAssistantText = false
+    for (let i = renderedMessages.length - 1; i >= 0; i--) {
+      const message = renderedMessages[i]
+      if (message.role === "user") {
+        hasLaterAssistantText = false
+        continue
+      }
+      if (message.role !== "assistant") continue
+      result.set(message.messageId, hasLaterAssistantText)
+      if (message.text.trim().length > 0) hasLaterAssistantText = true
+    }
+    return result
+  }, [renderedMessages])
+
+  const toolCallsWithoutSpawn = useCallback((tools: import("./types").InlineToolCall[]) =>
     tools.filter(
       (t) =>
         t.tool !== "sessions_spawn" &&
         t.tool !== "subagents" &&
         t.tool !== "sessions_yield"
-    )
+    ), [])
 
   const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } =
     useMemo(
@@ -1035,14 +1055,15 @@ export function ChatView({
       [renderedMessages]
     )
 
-  const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
-  for (const sub of spawnedSubagents) {
-    spawnsByToolCallId.set(sub.toolCallId, sub)
-  }
+  const spawnsByToolCallId = useMemo(() => {
+    const byId = new Map<string, SpawnedSubagent>()
+    for (const sub of spawnedSubagents) byId.set(sub.toolCallId, sub)
+    return byId
+  }, [spawnedSubagents])
 
-  function getSubagentsForMessage(
+  const getSubagentsForMessage = useCallback((
     toolCalls?: import("./types").InlineToolCall[]
-  ): SpawnedSubagent[] {
+  ): SpawnedSubagent[] => {
     if (!toolCalls) return []
     const matched: SpawnedSubagent[] = []
     for (const tc of toolCalls) {
@@ -1052,31 +1073,38 @@ export function ChatView({
       }
     }
     return matched
-  }
+  }, [spawnsByToolCallId])
 
-  const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
-  const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
-  let nearestUserId: string | null = null
+  const { subagentsByTriggerUserId, orphanSubagentsByAssistantId } = useMemo(() => {
+    const byTriggerUserId = new Map<string, SpawnedSubagent[]>()
+    const orphanByAssistantId = new Map<string, SpawnedSubagent[]>()
+    let nearestUserId: string | null = null
 
-  for (const msg of renderedMessages) {
-    if (msg.role === "user") {
-      nearestUserId = msg.messageId
-      continue
+    for (const msg of renderedMessages) {
+      if (msg.role === "user") {
+        nearestUserId = msg.messageId
+        continue
+      }
+
+      const msgSubagents = getSubagentsForMessage(msg.toolCalls)
+      if (msgSubagents.length === 0) continue
+
+      if (nearestUserId) {
+        const existing = byTriggerUserId.get(nearestUserId) ?? []
+        byTriggerUserId.set(nearestUserId, [
+          ...existing,
+          ...msgSubagents,
+        ])
+      } else {
+        orphanByAssistantId.set(msg.messageId, msgSubagents)
+      }
     }
 
-    const msgSubagents = getSubagentsForMessage(msg.toolCalls)
-    if (msgSubagents.length === 0) continue
-
-    if (nearestUserId) {
-      const existing = subagentsByTriggerUserId.get(nearestUserId) ?? []
-      subagentsByTriggerUserId.set(nearestUserId, [
-        ...existing,
-        ...msgSubagents,
-      ])
-    } else {
-      orphanSubagentsByAssistantId.set(msg.messageId, msgSubagents)
+    return {
+      subagentsByTriggerUserId: byTriggerUserId,
+      orphanSubagentsByAssistantId: orphanByAssistantId,
     }
-  }
+  }, [getSubagentsForMessage, renderedMessages])
 
   const scrollToRenderedMessage = useCallback(
     (messageId: string) => {
@@ -1101,16 +1129,10 @@ export function ChatView({
         isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
-      let hasLaterAssistantInSameTurn = false
-      if (msg.role === "assistant") {
-        for (const next of renderedMessages.slice(index + 1)) {
-          if (next.role === "user") break
-          if (next.role === "assistant" && next.text.trim()) {
-            hasLaterAssistantInSameTurn = true
-            break
-          }
-        }
-      }
+      const hasLaterAssistantInSameTurn =
+        msg.role === "assistant"
+          ? laterAssistantInSameTurnById.get(msg.messageId) === true
+          : false
       const isActiveTurnAssistant =
         msg.role === "assistant" && index > latestRenderedUserIndex
       const suppressAssistantActions =
@@ -1239,6 +1261,7 @@ export function ChatView({
       isGenerating,
       lastEditableUserId,
       lastTwoAssistantIds,
+      laterAssistantInSameTurnById,
       latestRenderedUserIndex,
       markTextAnimationComplete,
       messageActionState.pinnedIds,
@@ -1258,6 +1281,7 @@ export function ChatView({
       subagentsByTriggerUserId,
       switchBranch,
       togglePin,
+      toolCallsWithoutSpawn,
     ]
   )
 
