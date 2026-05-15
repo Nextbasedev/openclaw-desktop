@@ -916,11 +916,6 @@ export function MessageBubble({
               {!isUser && <RichContentPreview message={message} />}
             </div>
             {isUser && <RichContentPreview message={message} />}
-            {isUser && message.sendStatus === "sending" && (
-              <div className="mt-1 text-[11px] text-muted-foreground/70">
-                Sending…
-              </div>
-            )}
             {isUser && message.sendStatus === "failed" && (
               <div className="mt-1 flex max-w-full items-center gap-2 text-[11px] text-rose-300">
                 <span className="min-w-0 truncate">
