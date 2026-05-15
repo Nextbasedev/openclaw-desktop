@@ -258,8 +258,8 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
         .then((value) => ({ status: "fulfilled" as const, value }))
         .catch((reason) => ({ status: "rejected" as const, reason }))
 
-      const jobs = jobsResult.status === "fulfilled" ? jobsResult.value.jobs : []
-      const events = activityResult.status === "fulfilled" ? activityResult.value.events : []
+      const jobs = jobsResult.status === "fulfilled" && Array.isArray(jobsResult.value.jobs) ? jobsResult.value.jobs : []
+      const events = activityResult.status === "fulfilled" && Array.isArray(activityResult.value.events) ? activityResult.value.events : []
       const latestEvents = new Map<string, CronRunEvent>()
 
       for (const job of jobs) {

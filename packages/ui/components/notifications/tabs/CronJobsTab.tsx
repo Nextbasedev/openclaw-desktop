@@ -274,6 +274,12 @@ function isCronJobMissingError(error: unknown): boolean {
   return normalized.includes("job") && normalized.includes("not found")
 }
 
+function normalizeCronJobsResponse(result: unknown): CronJob[] {
+  if (!result || typeof result !== "object") return []
+  const jobs = (result as { jobs?: unknown }).jobs
+  return Array.isArray(jobs) ? jobs as CronJob[] : []
+}
+
 function CronJobEditDialog({
   mode,
   job,
@@ -502,10 +508,10 @@ export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProp
   const fetchJobs = useCallback(async () => {
     setError(null)
     try {
-      const result = await invoke<{ jobs: CronJob[] }>(
+      const result = await invoke<unknown>(
         "middleware_cron_list_jobs",
       )
-      setJobs(result.jobs)
+      setJobs(normalizeCronJobsResponse(result))
     } catch (err) {
       setJobs([])
       setError(err instanceof Error ? err.message : "Failed to load cron jobs.")
