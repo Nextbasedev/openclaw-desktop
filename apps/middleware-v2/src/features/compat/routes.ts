@@ -339,6 +339,112 @@ function telegramTopicFallback(entry: CompatRecord, topicId: string | null) {
   return String(entry.topicName || entry.chatName || (topicId ? `Topic ${topicId}` : "General")).trim();
 }
 
+
+type MiddlewareUpdateStatus = {
+  state: "idle" | "running" | "restarting" | "succeeded" | "failed";
+  startedAt?: string;
+  updatedAt: string;
+  message?: string;
+  repoRoot?: string;
+  branch?: string;
+  logPath?: string;
+};
+
+const UPDATE_REPO_URL = "https://github.com/Nextbasedev/openclaw-desktop.git";
+const UPDATE_BRANCH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_BRANCH || "main";
+const UPDATE_SERVICE_NAME = process.env.OPENCLAW_MIDDLEWARE_SERVICE || "openclaw-middleware";
+const UPDATE_STATUS_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_STATUS || path.join(os.tmpdir(), "openclaw-middleware-update-status.json");
+const UPDATE_LOG_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_LOG || path.join(os.tmpdir(), "openclaw-middleware-update.log");
+
+function findMiddlewareRepoRoot() {
+  let dir = process.cwd();
+  for (let i = 0; i < 10; i += 1) {
+    if (fs.existsSync(path.join(dir, ".git")) && fs.existsSync(path.join(dir, "package.json"))) return dir;
+    const next = path.dirname(dir);
+    if (next === dir) break;
+    dir = next;
+  }
+  return path.resolve(process.cwd(), "../..");
+}
+
+function readMiddlewareUpdateStatus(): MiddlewareUpdateStatus {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(UPDATE_STATUS_PATH, "utf8")) as MiddlewareUpdateStatus;
+    if (parsed?.state && parsed?.updatedAt) return parsed;
+  } catch {}
+  return { state: "idle", updatedAt: nowIso(), branch: UPDATE_BRANCH, logPath: UPDATE_LOG_PATH };
+}
+
+function writeMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
+  fs.writeFileSync(UPDATE_STATUS_PATH, JSON.stringify({ ...status, updatedAt: nowIso() }, null, 2));
+}
+
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function startMiddlewareUpdate() {
+  const current = readMiddlewareUpdateStatus();
+  if (current.state === "running" || current.state === "restarting") {
+    return { ok: true, accepted: false, status: current, message: "Middleware update is already running" };
+  }
+
+  const repoRoot = findMiddlewareRepoRoot();
+  const startedAt = nowIso();
+  const status: MiddlewareUpdateStatus = {
+    state: "running",
+    startedAt,
+    updatedAt: startedAt,
+    message: `Updating OpenClaw Desktop Middleware from ${UPDATE_BRANCH}`,
+    repoRoot,
+    branch: UPDATE_BRANCH,
+    logPath: UPDATE_LOG_PATH,
+  };
+  writeMiddlewareUpdateStatus(status);
+  fs.writeFileSync(UPDATE_LOG_PATH, `[${startedAt}] Starting OpenClaw Middleware update\n`);
+
+  const script = `
+set -euo pipefail
+STATUS=${shellQuote(UPDATE_STATUS_PATH)}
+LOG=${shellQuote(UPDATE_LOG_PATH)}
+REPO=${shellQuote(repoRoot)}
+BRANCH=${shellQuote(UPDATE_BRANCH)}
+REPO_URL=${shellQuote(UPDATE_REPO_URL)}
+SERVICE=${shellQuote(UPDATE_SERVICE_NAME)}
+write_status() {
+  node -e "const fs=require('fs'); const p=process.argv[1]; const state=process.argv[2]; const message=process.argv[3]; const repo=process.argv[4]; const branch=process.argv[5]; const log=process.argv[6]; fs.writeFileSync(p, JSON.stringify({state, message, repoRoot: repo, branch, logPath: log, updatedAt: new Date().toISOString()}, null, 2))" "$STATUS" "$1" "$2" "$REPO" "$BRANCH" "$LOG"
+}
+exec >>"$LOG" 2>&1
+cd "$REPO"
+echo "[$(date -u +%FT%TZ)] Fetching $BRANCH from $REPO_URL"
+git remote set-url origin "$REPO_URL" || true
+git fetch origin "$BRANCH"
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "[$(date -u +%FT%TZ)] Preserving local changes in git stash"
+  git stash push -u -m "openclaw-middleware-update-$(date -u +%Y%m%dT%H%M%SZ)" || true
+fi
+git checkout -B "$BRANCH" "origin/$BRANCH"
+git reset --hard "origin/$BRANCH"
+if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
+echo "[$(date -u +%FT%TZ)] Installing dependencies"
+pnpm install --frozen-lockfile
+echo "[$(date -u +%FT%TZ)] Building middleware v2"
+pnpm --filter @openclaw/desktop-middleware-v2 build
+write_status restarting "Build completed; restarting ${UPDATE_SERVICE_NAME}"
+echo "[$(date -u +%FT%TZ)] Restarting $SERVICE"
+if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files "$SERVICE.service" >/dev/null 2>&1; then
+  systemctl restart "$SERVICE"
+else
+  write_status failed "systemd service $SERVICE was not found; build succeeded but restart is manual"
+  exit 1
+fi
+`;
+
+  const child = spawnChild("bash", ["-lc", script], { detached: true, stdio: "ignore" });
+  child.unref();
+  return { ok: true, accepted: true, status };
+}
+
 function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
   loadCompatState(context);
   const agentId = String(input.agentId || "main");
@@ -2528,9 +2634,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return migrateV1SqliteToV2(context, body.sourcePath);
   });
 
-  // --- self-update stubs ---
-  app.get("/api/middleware/update/status", async () => ({ available: false, current: "0.1.0" }));
-  app.post("/api/middleware/update", async () => ({ ok: true, status: "up-to-date" }));
+  // --- self-update ---
+  app.get("/api/middleware/update/status", async () => readMiddlewareUpdateStatus());
+  app.post("/api/middleware/update", async () => startMiddlewareUpdate());
 
   // --- terminal spawn ---
   app.post("/api/terminal/spawn", async (request) => {
