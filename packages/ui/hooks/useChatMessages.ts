@@ -6,12 +6,12 @@ import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { useQueryClient } from "@tanstack/react-query"
 import { flushSync } from "react-dom"
-import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
+import { invalidateDedupe } from "@/lib/requestDedupe"
 import {
   inferRestoredChatStatus,
   statusFromBackendSession,
 } from "@/lib/chatStatus"
-import { queryKeys, queryStaleTime } from "@/lib/query"
+import { queryKeys } from "@/lib/query"
 import { tryAcquireActiveRunReconcileLock } from "@/lib/activeRunReconcileLock"
 import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
 import {
@@ -230,7 +230,6 @@ function parseExecApproval(
   }
 }
 
-const CHAT_BOOTSTRAP_TTL_MS = 5000
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
@@ -408,14 +407,9 @@ function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | unde
   }
 }
 
-async function loadChatBootstrap(
-  sessionKey: string
-): Promise<ChatBootstrapData> {
-  return dedupeRequest(
-    `chat-bootstrap:${sessionKey}`,
-    () => fetchStableChatBootstrap(sessionKey),
-    { ttlMs: CHAT_BOOTSTRAP_TTL_MS }
-  )
+async function loadFreshChatBootstrap(sessionKey: string): Promise<ChatBootstrapData> {
+  invalidateDedupe(`chat-bootstrap:${sessionKey}`)
+  return fetchStableChatBootstrap(sessionKey)
 }
 
 export function useChatMessages(
@@ -1203,7 +1197,7 @@ export function useChatMessages(
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
-setMessages(warmMessages)
+      setMessages(warmMessages)
       const warmStatus = useCachedGlobal && cachedGlobal?.status
         ? cachedGlobal.status
         : cachedBootstrap?.runStatus
@@ -1342,8 +1336,8 @@ setMessages(warmMessages)
       try {
         const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
-          queryFn: () => loadChatBootstrap(sessionKey),
-          staleTime: queryStaleTime.chatBootstrap,
+          queryFn: () => loadFreshChatBootstrap(sessionKey),
+          staleTime: 0,
         })
         const bootstrapCursor = typeof canonicalCursor === "number" ? canonicalCursor : v2Cursor
         if (typeof bootstrapCursor === "number") v2CursorRef.current = bootstrapCursor
@@ -1389,8 +1383,12 @@ setMessages(warmMessages)
           spawnedSubagents: canonicalSpawns,
           queryClient,
         })
+        const globalAfterSeed = getGlobalChatSession(sessionKey)
+        const displayMessages = globalAfterSeed?.messages.length
+          ? globalAfterSeed.messages
+          : canonicalMessages
         void setWarmChatCache(sessionKey, {
-          messages: canonicalMessages,
+          messages: displayMessages,
           cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
           runStatus: runStatus ?? canonicalStatus,
           statusLabel: canonicalLabel,
@@ -1400,14 +1398,14 @@ setMessages(warmMessages)
             startedAt: activeRun.startedAtMs ?? null,
           } : null,
           pendingTools: inlineTools,
-          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : canonicalMessages.length,
+          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length,
         }).catch((error) => {
           frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
             sessionKey,
             error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
           }, "warn")
         })
-        setMessages(canonicalMessages)
+        setMessages(displayMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
         setStatus(canonicalStatus)

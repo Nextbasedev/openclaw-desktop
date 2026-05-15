@@ -60,6 +60,37 @@ describe("global V2 chat engine store", () => {
     expect(state.pendingTools).toEqual([])
   })
 
+  test("bootstrap seed preserves newer live messages already applied from patches", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tool-live", tool: "exec", status: "running", startedAt: 1_000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "question" },
+        { messageId: "a-live", role: "assistant", text: "new live answer" },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 8,
+      status: "done",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "question" },
+      ],
+    })
+
+    const state = getGlobalChatSession("s1")!
+    expect(state.cursor).toBe(10)
+    expect(state.status).toBe("tool_running")
+    expect(state.pendingTools).toEqual([expect.objectContaining({ id: "tool-live", status: "running" })])
+    expect(state.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "a-live", text: "new live answer" }),
+    ]))
+  })
+
   test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
