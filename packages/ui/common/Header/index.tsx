@@ -24,6 +24,7 @@ import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 
 type VersionInfo = {
   version: string
@@ -324,73 +325,77 @@ export function Header({
               </button>
             )}
 
-            <button
-              type="button"
-              data-testid="toggle-sidebar"
-              aria-label={
-                sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-              }
-              title={
-                sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-              }
-              onClick={onToggleSidebar}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                sidebarOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
+            <HeaderActionTooltip
+              label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
-              <VscLayoutSidebarLeft className="size-4" />
-            </button>
+              <button
+                type="button"
+                data-testid="toggle-sidebar"
+                aria-label={
+                  sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
+                }
+                onClick={onToggleSidebar}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  sidebarOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscLayoutSidebarLeft className="size-4" />
+              </button>
+            </HeaderActionTooltip>
 
-            <button
-              type="button"
-              aria-label="Toggle inspector panel"
-              title="Toggle inspector panel"
-              onClick={onToggleInspector}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                inspectorOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
-            >
-              <VscLayoutSidebarRight className="size-4" />
-            </button>
+            <HeaderActionTooltip label="Toggle inspector panel">
+              <button
+                type="button"
+                aria-label="Toggle inspector panel"
+                onClick={onToggleInspector}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  inspectorOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscLayoutSidebarRight className="size-4" />
+              </button>
+            </HeaderActionTooltip>
 
-            <button
-              type="button"
-              aria-label="Toggle terminal"
-              title="Toggle terminal"
-              onClick={onToggleTerminal}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                terminalOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
-            >
-              <VscTerminal className="size-4" />
-            </button>
+            <HeaderActionTooltip label="Toggle terminal">
+              <button
+                type="button"
+                aria-label="Toggle terminal"
+                onClick={onToggleTerminal}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  terminalOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscTerminal className="size-4" />
+              </button>
+            </HeaderActionTooltip>
 
-            <button
-              type="button"
-              aria-label="Open logs"
-              title="Open logs"
-              onClick={onOpenLogs}
-              className={cn(
-                "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
-                "cursor-pointer transition-colors",
-                "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <VscOutput className="size-3.5" />
-              Logs
-            </button>
+            <HeaderActionTooltip label="Open logs">
+              <button
+                type="button"
+                aria-label="Open logs"
+                onClick={onOpenLogs}
+                className={cn(
+                  "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+                  "cursor-pointer transition-colors",
+                  "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <VscOutput className="size-3.5" />
+                Logs
+              </button>
+            </HeaderActionTooltip>
 
             <NotificationPopover
               onViewAll={onOpenNotifications}
@@ -424,21 +429,50 @@ function HeaderIconButton({
   active?: boolean
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={cn(
-        "flex size-7 items-center justify-center rounded-md",
-        "cursor-pointer transition-colors group/icon",
-        active
-          ? "bg-transparent text-foreground"
-          : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-      )}
-    >
-      <Icon size={16} strokeWidth={1.5} className="size-4" />
-    </button>
+    <HeaderActionTooltip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className={cn(
+          "flex size-7 items-center justify-center rounded-md",
+          "cursor-pointer transition-colors group/icon",
+          active
+            ? "bg-transparent text-foreground"
+            : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+        )}
+      >
+        <Icon size={16} strokeWidth={1.5} className="size-4" />
+      </button>
+    </HeaderActionTooltip>
+  )
+}
+
+function HeaderActionTooltip({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        collisionPadding={12}
+        showArrow={false}
+        className={cn(
+          GLASS_POPOVER,
+          "max-w-[420px] whitespace-normal break-words border-transparent bg-[var(--glass-bg)] px-3 py-1.5 text-[12px] font-medium text-foreground",
+          "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+        )}
+      >
+        <span className="block whitespace-normal break-words">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

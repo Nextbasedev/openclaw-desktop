@@ -65,6 +65,18 @@ describe("client frontend logging safety", () => {
     expect(text).not.toContain("Bearer abc")
     expect(text).not.toContain("token=secret")
   })
+
+  it("treats optional cron SSE startup failures as unavailable warnings", () => {
+    const url = "http://100.123.218.30:8787/api/stream/cron"
+
+    expect(__clientLogsForTests.isOptionalSseStream(url)).toBe(true)
+    expect(
+      __clientLogsForTests.eventSourceEventName(2, false, false, url),
+    ).toBe("sse.unavailable")
+    expect(
+      __clientLogsForTests.eventSourceErrorLevel(2, false, false, url),
+    ).toBe("warn")
+  })
 })
 
 
