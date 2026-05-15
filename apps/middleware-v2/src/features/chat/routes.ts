@@ -118,7 +118,7 @@ function inferToolResultFromHistory(messages: unknown[], messageIndex: number, t
         return {
           status: "success" as const,
           finishedAtMs: historyTimestampMs(data),
-          resultMeta: compactResultMeta(data.result ?? data.text ?? data.content) ?? { inferred: true, reason: "history_tool_result_message" },
+          resultMeta: compactResultMeta(data.result ?? data.text ?? data.content),
         };
       }
     }
@@ -126,7 +126,7 @@ function inferToolResultFromHistory(messages: unknown[], messageIndex: number, t
       return {
         status: "success" as const,
         finishedAtMs: historyTimestampMs(data),
-        resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
+        resultMeta: undefined,
       };
     }
   }
@@ -153,7 +153,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
       // them to the current run resurrects ancient tool cards as live activity.
       if (existingTool && !existingTool.runId && run && existingTool.startedAtMs < run.startedAtMs - 1000) continue;
       const result = inferToolResultFromHistory(messages, messageIndex, toolCallId) ?? (completed
-        ? { status: "success" as const, finishedAtMs: historyTimestampMs(data), resultMeta: { inferred: true, reason: "bootstrap_completed_history" } }
+        ? { status: "success" as const, finishedAtMs: historyTimestampMs(data), resultMeta: undefined }
         : null);
       context.runs.upsertToolCall({
         sessionKey,
@@ -783,7 +783,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     if (activeRun) {
       const finalizedPreRunTools = context.runs.completeRunningToolsStartedBefore(sessionKey, activeRun.runId, activeRun.startedAtMs - 1000, {
         status: "success",
-        resultMeta: { inferred: true, reason: "bootstrap_stale_prerun_tool" },
       });
       if (finalizedPreRunTools > 0) {
         log.warn("bootstrap.stale-prerun-tools-finalized", { sessionKey, runId: activeRun.runId, finalizedTools: finalizedPreRunTools, runStartedAtMs: activeRun.startedAtMs });
@@ -805,7 +804,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           : "stale_bootstrap_after_assistant_final";
         const finalizedTools = context.runs.completeRunningTools(sessionKey, activeRun.runId, {
           status: "success",
-          resultMeta: { inferred: true, reason },
         });
         context.runs.updateRunStatus(activeRun.runId, "done", { statusLabel: null });
         sessionData.status = "done";

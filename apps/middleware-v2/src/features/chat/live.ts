@@ -147,6 +147,10 @@ export class ChatLiveIngest {
     }
     if (event.event === "chat" || event.event === "chat.delta" || event.event === "chat.final") {
       this.handleChatEvent(event.payload);
+      return;
+    }
+    if (event.event === "agent") {
+      this.handleAgentEvent(event.payload);
     }
   }
 
@@ -179,9 +183,11 @@ export class ChatLiveIngest {
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
     const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
     if (assistantHasFinalText && associatedRun) {
-      this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId, {
-        resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
-      });
+      // This is only a lifecycle inference: the gateway did not send a real
+      // tool result event before final assistant text. Mark the tool complete so
+      // the UI stops spinning, but do not fabricate resultMeta. Real output may
+      // still arrive later and should be the only user-visible result.
+      this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId);
     }
     if (projectedMessage.role === "assistant" && associatedRun && !this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) {
       this.context.runs.updateRunStatus(associatedRun.runId, "done", { statusLabel: null });
@@ -300,6 +306,9 @@ export class ChatLiveIngest {
     const rawPhase = typeof data.phase === "string" ? data.phase.toLowerCase() : typeof data.status === "string" ? data.status.toLowerCase() : "start";
     const phase = rawPhase === "error" || rawPhase === "failed" ? "error" : rawPhase === "result" || rawPhase === "done" || rawPhase === "success" ? "result" : rawPhase === "calling" ? "calling" : "start";
     const name = typeof data.name === "string" ? data.name : typeof data.toolName === "string" ? data.toolName : "unknown";
+    if ((phase === "start" || phase === "calling") && run?.runId) {
+      this.completeOlderRunningToolsBeforeNextStart(sessionKey, run.runId, toolCallId);
+    }
     const liveResultMeta = this.safeResultMeta(data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details);
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
@@ -334,6 +343,51 @@ export class ChatLiveIngest {
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
+  }
+
+  private completeOlderRunningToolsBeforeNextStart(sessionKey: string, runId: string, nextToolCallId: string) {
+    const now = Date.now();
+    const olderRunningTools = this.context.runs
+      .listRunningToolCalls(sessionKey, runId)
+      .filter((tool) => tool.toolCallId !== nextToolCallId && now - tool.startedAtMs > 750);
+    if (olderRunningTools.length === 0) return;
+    for (const runningTool of olderRunningTools) {
+      const tool = this.context.runs.upsertToolCall({
+        sessionKey,
+        runId,
+        toolCallId: runningTool.toolCallId,
+        messageId: runningTool.messageId,
+        name: runningTool.name,
+        phase: "result",
+        status: "success",
+        argsMeta: runningTool.argsMeta,
+        // Only infer completion/status before the next tool starts. Do not write
+        // fallback result metadata; otherwise the UI can show the placeholder as
+        // output until refresh rebuilds from the real persisted tool result.
+        resultMeta: runningTool.resultMeta,
+        updatedAtMs: now,
+        finishedAtMs: now,
+      });
+      const event = this.context.messages.appendProjectionEvent({
+        sessionKey,
+        eventType: "chat.tool.result",
+        payload: canonicalPatchPayload({
+          sessionKey,
+          semanticType: "chat.tool.result",
+          run: this.context.runs.getRun(runId),
+          tool,
+          payload: { sessionKey, runId, toolCallId: tool.toolCallId },
+        }),
+      });
+      this.context.patchBus.broadcast({
+        cursor: event.cursor,
+        type: event.eventType,
+        sessionKey: event.sessionKey,
+        payload: event.payload,
+        createdAtMs: event.createdAtMs,
+      });
+      this.log.info("tool.inferred-result-before-next-start.broadcast", { sessionKey, runId, toolCallId: tool.toolCallId, nextToolCallId, cursor: event.cursor });
+    }
   }
 
   private completeRunningToolsWithPatches(sessionKey: string, runId: string, params: { resultMeta?: unknown } = {}) {
@@ -442,6 +496,38 @@ export class ChatLiveIngest {
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
       this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
     }
+  }
+
+  private handleAgentEvent(payload: unknown) {
+    if (!isObject(payload)) return;
+    if (payload.stream !== "thinking") return;
+    const data = isObject(payload.data) ? payload.data : payload;
+    const sessionKey = firstString(payload.sessionKey, data.sessionKey, payload.key, data.key);
+    if (!sessionKey) return;
+    const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    if (!run) return;
+    const text = textFromLiveValue(data.text);
+    const delta = textFromLiveValue(data.delta) ?? text;
+    if (!text && !delta) return;
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.reasoning.delta",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: "chat.reasoning.delta",
+        run,
+        payload: {
+          sessionKey,
+          runId: run.runId,
+          gatewayRunId: run.gatewayRunId,
+          text,
+          delta,
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    this.log.info("reasoning.delta.broadcast", { sessionKey, runId: run.runId, cursor: patch.cursor, textLength: text?.length ?? 0, deltaLength: delta?.length ?? 0 });
   }
 
   private extractLiveAssistantText(payload: Record<string, unknown>) {

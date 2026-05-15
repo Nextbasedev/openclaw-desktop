@@ -55,7 +55,7 @@ const compatState = {
 const DEFAULT_SPACE_ID = "space_default";
 const DEFAULT_SPACE_NAME = "My Workspace";
 
-const compatCollections = ["spaces", "chats", "projects", "topics", "sessions"] as const;
+const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "cronJobs", "cronRuns"] as const;
 
 type CompatCollection = typeof compatCollections[number];
 
@@ -917,7 +917,7 @@ function listMemoryDocuments() {
       docs.push({ name, path: `memory/${name}`, type: "file", size: stat.size, updatedAt: stat.mtime.toISOString(), modifiedAt: stat.mtime.toISOString() });
     }
   }
-  return { documents: docs };
+  return docs;
 }
 
 function storeMemoryEntry(input: CompatRecord) {
@@ -932,7 +932,7 @@ function storeMemoryEntry(input: CompatRecord) {
 }
 
 function recallMemoryEntries() {
-  const docs = listMemoryDocuments().documents;
+  const docs = listMemoryDocuments();
   const entries: CompatRecord[] = [];
   for (const doc of docs) {
     const file = path.join(workspaceRoot(), String(doc.path));
@@ -1105,15 +1105,6 @@ function safeWorkspaceFilePath(inputPath: unknown, fallback = "memory/notes.md")
   }
   fs.mkdirSync(path.dirname(full), { recursive: true });
   return full;
-}
-
-function listMemoryDocuments() {
-  return fs.readdirSync(memoryDir()).flatMap((name) => {
-    const full = path.join(memoryDir(), name);
-    const stat = fs.statSync(full);
-    if (!stat.isFile() || !name.endsWith(".md")) return [];
-    return { name, path: `memory/${name}`, size: stat.size, updatedAt: stat.mtimeMs };
-  });
 }
 
 function searchMemoryDocuments(query: unknown) {
@@ -1983,8 +1974,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         if (!saved.ok) return reply.code(400).send(saved);
         return saved;
       }
-      case "middleware_memory_list":
-        return listMemoryDocuments();
+      case "middleware_memory_list": {
+        const documents = listMemoryDocuments();
+        return { documents, files: documents };
+      }
       case "middleware_memory_read":
         return readMemoryFile(input);
       case "middleware_memory_write":

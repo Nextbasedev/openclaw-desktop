@@ -62,6 +62,52 @@ describe("applyChatPatch", () => {
     expect(next.messages[0]).toMatchObject({ messageId: "m1", role: "user", text: "hello" })
   })
 
+  test("merges sequential tool-only assistant patches into one visible steps block", () => {
+    const withFirstTool = applyChatPatch({ cursor: 0, messages: [
+      { messageId: "u1", role: "user", text: "run tools" },
+    ] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          runStatus: "tool_running",
+          statusLabel: "read",
+          activeRun: { status: "tool_running" },
+          message: { role: "assistant", content: [{ type: "toolCall", id: "tc-read", name: "read", input: { path: "A.md" } }] },
+        },
+        createdAtMs: 1,
+      },
+    })
+
+    const withSecondTool = applyChatPatch(withFirstTool, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          runStatus: "tool_running",
+          statusLabel: "session_status",
+          activeRun: { status: "tool_running" },
+          message: { role: "assistant", content: [{ type: "toolCall", id: "tc-status", name: "session_status", input: {} }] },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    expect(withSecondTool.messages).toHaveLength(2)
+    expect(withSecondTool.messages[1]).toMatchObject({
+      role: "assistant",
+      text: "",
+      toolCalls: [
+        { id: "tc-read", tool: "read" },
+        { id: "tc-status", tool: "session_status" },
+      ],
+    })
+  })
+
   test("uses stable OpenClaw ids so replayed patches do not duplicate history", () => {
     const state = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",

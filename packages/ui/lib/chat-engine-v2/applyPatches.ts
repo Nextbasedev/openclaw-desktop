@@ -105,6 +105,66 @@ function matchingUserIdsAtGatewayIndex(state: ApplyPatchState, normalized: ChatM
     .map((item) => item.messageId)
 }
 
+function isToolOnlyAssistantMessage(message: ChatMessage) {
+  return message.role === "assistant" && !message.text.trim() && Boolean(message.toolCalls?.length)
+}
+
+function latestAssistantIndexAfterLastUser(messages: ChatMessage[]) {
+  let latestUserIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") {
+      latestUserIndex = i
+      break
+    }
+  }
+  for (let i = messages.length - 1; i > latestUserIndex; i--) {
+    if (messages[i]?.role === "assistant") return i
+  }
+  return -1
+}
+
+function mergeInlineToolCalls(existing: ChatMessage["toolCalls"], incoming: NonNullable<ChatMessage["toolCalls"]>) {
+  const merged = new Map((existing ?? []).map((tool) => [tool.id, tool]))
+  for (const tool of incoming) {
+    const current = merged.get(tool.id)
+    merged.set(tool.id, current ? {
+      ...current,
+      ...tool,
+      duration: tool.duration ?? current.duration,
+      startedAt: tool.startedAt ?? current.startedAt,
+      completedAt: tool.completedAt ?? current.completedAt,
+      resultText: tool.resultText ?? current.resultText,
+      approval: tool.approval ?? current.approval,
+    } : tool)
+  }
+  return Array.from(merged.values())
+}
+
+function mergeToolOnlyAssistantMessages(baseMessages: ChatMessage[], incoming: ChatMessage[], frame: PatchFrame) {
+  const patchStatus = statusFromPatch(frame)?.status
+  const canMergeLiveToolMessages = Boolean(patchStatus && ACTIVE_STATUSES.has(patchStatus))
+  const messages = [...baseMessages]
+  for (const message of incoming) {
+    if (!canMergeLiveToolMessages || !isToolOnlyAssistantMessage(message) || !message.toolCalls?.length) {
+      messages.push(message)
+      continue
+    }
+    const index = latestAssistantIndexAfterLastUser(messages)
+    if (index < 0) {
+      messages.push(message)
+      continue
+    }
+    const target = messages[index]
+    messages[index] = {
+      ...target,
+      toolCalls: mergeInlineToolCalls(target.toolCalls, message.toolCalls),
+      createdAt: target.createdAt ?? message.createdAt,
+      gatewayIndex: target.gatewayIndex ?? message.gatewayIndex,
+    }
+  }
+  return messages
+}
+
 const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting"])
 const VALID_STATUSES = new Set<StreamStatus>(["idle", "connected", "queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting", "done", "error"])
 
@@ -190,6 +250,6 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     : state.messages
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages([...baseMessages, ...animated]),
+    messages: dedupeChatMessages(mergeToolOnlyAssistantMessages(baseMessages, animated, frame)),
   }
 }
