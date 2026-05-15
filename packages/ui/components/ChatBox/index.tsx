@@ -967,12 +967,12 @@ export function ChatBox({
       </div>
 
       {showDraftSpaceBanner && (
-        <div className="relative z-0 -mt-[21px] flex min-h-14 items-end justify-between gap-3 rounded-b-[24px] bg-white/[0.052] px-3 pb-2.5 pt-5 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-2xl">
+        <div className="relative z-0 -mt-[21px] flex min-h-14 items-center justify-between gap-3 rounded-b-[24px] bg-white/[0.052] px-3 pb-1.5 pt-6 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-2xl">
           <Popover>
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 py-1 text-left text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
               >
                 <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_12px_rgba(56,189,248,0.35)]", activeSpace ? spaceGradient(activeSpace) : "from-zinc-500 to-zinc-300")} />
                 <span className="shrink-0 text-muted-foreground/70">Space</span>
@@ -1019,7 +1019,7 @@ export function ChatBox({
           <button
             type="button"
             onClick={onOpenSkills}
-            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
           >
             <LuSparkles className="size-3.5" />
             <span>Skills</span>
