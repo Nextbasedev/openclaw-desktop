@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 2;
 
 const schema = `
 CREATE TABLE IF NOT EXISTS v2_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -46,33 +46,10 @@ CREATE TABLE IF NOT EXISTS v2_projection_events (cursor INTEGER PRIMARY KEY AUTO
 CREATE INDEX IF NOT EXISTS idx_v2_projection_events_cursor ON v2_projection_events(cursor);
 CREATE TABLE IF NOT EXISTS v2_gateway_offsets (session_key TEXT PRIMARY KEY, last_openclaw_seq INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS v2_compat_state (key TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS v2_workspace_layouts (
-  layout_key TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL,
-  window_id TEXT NOT NULL,
-  window_label TEXT,
-  route TEXT,
-  active_space_id TEXT,
-  is_meaningful INTEGER NOT NULL DEFAULT 0,
-  payload_json TEXT NOT NULL,
-  closed_at_ms INTEGER,
-  updated_at_ms INTEGER NOT NULL
-);
 `;
-
-function ensureColumn(db: Database.Database, table: string, column: string, definition: string) {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
-  if (rows.some((row) => row.name === column)) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-}
 
 export function migrateDatabase(db: Database.Database) {
   db.exec(schema);
-  ensureColumn(db, "v2_workspace_layouts", "window_label", "TEXT");
-  ensureColumn(db, "v2_workspace_layouts", "route", "TEXT");
-  ensureColumn(db, "v2_workspace_layouts", "active_space_id", "TEXT");
-  ensureColumn(db, "v2_workspace_layouts", "closed_at_ms", "INTEGER");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_v2_workspace_layouts_latest_meaningful ON v2_workspace_layouts(workspace_id, is_meaningful, closed_at_ms DESC, updated_at_ms DESC)");
   db.prepare(`INSERT INTO v2_meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(SCHEMA_VERSION));
 }
 
