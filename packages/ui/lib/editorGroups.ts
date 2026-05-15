@@ -237,9 +237,11 @@ export function editorGroupsReducer(
 
     case "SPLIT_TAB": {
       if (state.groups.length >= 2) return state
-      const source = state.groups[0]!
-      const tab = source.tabs.find((t) => t.id === action.tabId)
-      if (!tab) return state
+      const source = state.groups.find((group) =>
+        group.tabs.some((t) => t.id === action.tabId),
+      )
+      const tab = source?.tabs.find((t) => t.id === action.tabId)
+      if (!source || !tab) return state
 
       const remainingTabs = source.tabs.filter(
         (t) => t.id !== action.tabId,
