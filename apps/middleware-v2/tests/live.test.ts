@@ -252,6 +252,45 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("broadcasts reasoning deltas from Gateway agent thinking events", async () => {
+    const app = await createApp(config("agent-thinking-events"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "agent",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        stream: "thinking",
+        data: { text: "Checking the repo", delta: "Checking" },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.reasoning.delta",
+        payload: expect.objectContaining({
+          semanticType: "chat.reasoning.delta",
+          runId: "run-1",
+          text: "Checking the repo",
+          delta: "Checking",
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("infers missing result for previous sequential tool when the next tool starts", async () => {
     const app = await createApp(config("sequential-tool-missing-result"));
     const context = contextOf(app);
@@ -286,11 +325,12 @@ describe("chat live ingest", () => {
     expect(context.runs.getToolCall("s1", "tool-2")).toMatchObject({ status: "running", phase: "start", name: "read" });
 
     const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
-    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string } }>;
+    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { resultMeta?: unknown } } }>;
     const inferredResultIndex = patches.findIndex((patch) => patch.type === "chat.tool.result" && patch.payload?.toolCallId === "tool-1");
     const nextStartIndex = patches.findIndex((patch) => patch.type === "chat.tool.started" && patch.payload?.toolCallId === "tool-2");
     expect(inferredResultIndex).toBeGreaterThanOrEqual(0);
     expect(nextStartIndex).toBeGreaterThan(inferredResultIndex);
+    expect(patches[inferredResultIndex]?.payload?.toolCall?.resultMeta).toBeUndefined();
     await app.close();
   });
 
