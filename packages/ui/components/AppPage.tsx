@@ -27,7 +27,7 @@ import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
-import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
+import { getWorkspaceWindowId, loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot, type WorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
@@ -361,6 +361,8 @@ function AppShell({
   const initialConnectRedirectAppliedRef = useRef(false)
   const layoutRestoreAttemptedRef = useRef(false)
   const layoutRestoreAppliedRef = useRef(false)
+  const workspaceWindowIdRef = useRef(getWorkspaceWindowId())
+  const latestLayoutSnapshotRef = useRef<Omit<WorkspaceLayoutSnapshot, "version" | "updatedAt"> | null>(null)
 
   useEffect(() => {
     if (activeSessionKey) {
@@ -977,7 +979,7 @@ function AppShell({
     layoutRestoreAttemptedRef.current = true
     let cancelled = false
     async function restoreLastWorkspaceLayout() {
-      const snapshot = await loadWorkspaceLayoutSnapshot().catch(() => null)
+      const snapshot = await loadWorkspaceLayoutSnapshot(activeSpaceId).catch(() => null)
       if (!snapshot || cancelled) return
       const validSpace = snapshot.activeSpaceId
         ? spaces.some((space) => space.id === snapshot.activeSpaceId)
@@ -1273,38 +1275,60 @@ function AppShell({
   }, [activeChat, activeTopic])
 
   useEffect(() => {
+    const enrichedGroups = {
+      ...editorGroups,
+      groups: editorGroups.groups.map((group) => ({
+        ...group,
+        tabs: group.tabs.map((tab) => {
+          const cached = tabDataRef.current.get(tab.id)
+          if (tab.kind === "chat" && !tab.chat && cached?.chat) return { ...tab, chat: cached.chat }
+          if (tab.kind === "topic" && !tab.topic && cached?.topic) return { ...tab, topic: cached.topic }
+          return tab
+        }),
+      })),
+    }
+    const snapshot = {
+      windowId: workspaceWindowIdRef.current,
+      activeSpaceId,
+      activeTab,
+      route: getRoutePath(),
+      activeChat,
+      activeTopic,
+      activeSessionKey,
+      activeSessionTitle,
+      editorGroups: enrichedGroups,
+      splitRatio,
+    }
+    latestLayoutSnapshotRef.current = snapshot
+
     const hasRestorableContent =
       Boolean(activeChat || activeTopic) ||
-      editorGroups.groups.some((group) => group.tabs.some((tab) => tab.kind !== "draft"))
+      enrichedGroups.groups.some((group) => group.tabs.some((tab) => tab.kind !== "draft"))
     if (!layoutRestoreAttemptedRef.current || (!layoutRestoreAppliedRef.current && !hasRestorableContent)) return
 
     const timer = window.setTimeout(() => {
-      const enrichedGroups = {
-        ...editorGroups,
-        groups: editorGroups.groups.map((group) => ({
-          ...group,
-          tabs: group.tabs.map((tab) => {
-            const cached = tabDataRef.current.get(tab.id)
-            if (tab.kind === "chat" && !tab.chat && cached?.chat) return { ...tab, chat: cached.chat }
-            if (tab.kind === "topic" && !tab.topic && cached?.topic) return { ...tab, topic: cached.topic }
-            return tab
-          }),
-        })),
-      }
-      void saveWorkspaceLayoutSnapshot({
-        activeSpaceId,
-        activeTab,
-        route: getRoutePath(),
-        activeChat,
-        activeTopic,
-        activeSessionKey,
-        activeSessionTitle,
-        editorGroups: enrichedGroups,
-        splitRatio,
-      }).catch(() => {})
+      void saveWorkspaceLayoutSnapshot(snapshot).catch(() => {})
     }, 300)
     return () => window.clearTimeout(timer)
   }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, activeTab, activeTopic, editorGroups, splitRatio])
+
+  useEffect(() => {
+    const flushLatestLayout = () => {
+      const snapshot = latestLayoutSnapshotRef.current
+      if (snapshot) void saveWorkspaceLayoutSnapshot(snapshot).catch(() => {})
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushLatestLayout()
+    }
+    window.addEventListener("pagehide", flushLatestLayout)
+    window.addEventListener("beforeunload", flushLatestLayout)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      window.removeEventListener("pagehide", flushLatestLayout)
+      window.removeEventListener("beforeunload", flushLatestLayout)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [])
 
   const switchToGroupSession = useCallback((groupId: "group-1" | "group-2") => {
     if (activeSessionKey && activeChat) {
