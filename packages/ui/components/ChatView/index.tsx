@@ -33,6 +33,10 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import {
+  groupAssistantToolCallsByMessage,
+  mergeToolCallsForDisplay,
+} from "@/lib/chatToolDisplay"
 import type {
   ChatMessage,
   EditPreviewState,
@@ -959,30 +963,11 @@ export function ChatView({
         t.tool !== "sessions_yield"
     )
 
-  const mergeToolCallsForDisplay = (
-    base?: import("./types").InlineToolCall[],
-    live?: import("./types").InlineToolCall[]
-  ) => {
-    const merged = new Map<string, import("./types").InlineToolCall>()
-    for (const tool of base ?? []) {
-      merged.set(tool.id || `${tool.tool}:${merged.size}`, tool)
-    }
-    for (const tool of live ?? []) {
-      const key = tool.id || `${tool.tool}:${merged.size}`
-      const existing = merged.get(key)
-      if (!existing) {
-        merged.set(key, tool)
-        continue
-      }
-      const mergedTool = { ...existing, ...tool }
-      if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
-      if (existing.duration && existing.status !== "running") {
-        mergedTool.duration = existing.duration
-      }
-      merged.set(key, mergedTool)
-    }
-    return Array.from(merged.values())
-  }
+  const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } =
+    useMemo(
+      () => groupAssistantToolCallsByMessage(renderedMessages),
+      [renderedMessages]
+    )
 
   const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
   for (const sub of spawnedSubagents) {
@@ -1066,13 +1051,17 @@ export function ChatView({
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
       const filteredPending = toolCallsWithoutSpawn(pendingTools)
+      const messageToolCalls =
+        msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
+          ? []
+          : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
       const filteredToolCalls =
         msg.role === "assistant"
           ? mergeToolCallsForDisplay(
-              toolCallsWithoutSpawn(msg.toolCalls ?? []),
+              toolCallsWithoutSpawn(messageToolCalls),
               isActivelyStreaming ? filteredPending : []
             )
-          : toolCallsWithoutSpawn(msg.toolCalls ?? [])
+          : toolCallsWithoutSpawn(messageToolCalls)
       const anchoredUserSubagents =
         msg.role === "user"
           ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
@@ -1189,6 +1178,8 @@ export function ChatView({
       orphanSubagentsByAssistantId,
       pendingTools,
       reactToMessage,
+      groupedToolCalls,
+      suppressedToolCallMessages,
       renderedMessages.length,
       replyToMessage,
       resolveExecApproval,
