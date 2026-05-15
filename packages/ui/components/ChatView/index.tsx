@@ -1270,12 +1270,13 @@ export function ChatView({
           isGenerating={isGenerating}
           historyMessages={userMessageHistory}
           onAbort={handleAbort}
-          initialPrompt={composerSeed}
+          initialPrompt={composerSeed || undefined}
           replyTo={replyTo}
           onCancelReply={cancelReply}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
           glowOnMount
+          draftKey={sessionKey}
         />
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
@@ -1425,12 +1426,13 @@ export function ChatView({
           disabled={false}
           isGenerating={isGenerating}
           onAbort={handleAbort}
-          initialPrompt={composerSeed}
+          initialPrompt={composerSeed || undefined}
           replyTo={replyTo}
           onCancelReply={cancelReply}
           onModelSelect={handleSessionModelSelect}
           modelSwitching={modelSwitching}
           historyMessages={userMessageHistory}
+          draftKey={sessionKey}
         />
       </div>
     </div>
