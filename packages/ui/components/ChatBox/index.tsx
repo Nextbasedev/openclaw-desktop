@@ -17,7 +17,7 @@ import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import { GlassDialog } from "@/components/ui/GlassDialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
-import { LuSparkles, LuX } from "react-icons/lu"
+import { LuChevronDown, LuSparkles, LuX } from "react-icons/lu"
 import {
   execPolicyForAutonomyMode,
   stripComposerAttachment,
@@ -664,6 +664,7 @@ export function ChatBox({
         onDrop={handleDrop}
         className={cn(
           "relative flex flex-col rounded-[24px] border bg-white/[0.04] shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
+          showDraftSpaceBanner && "rounded-b-none",
           glowOnMount && "chatbox-glow",
           isFocused
             ? "border-white/18 ring-1 ring-white/10"
@@ -847,67 +848,6 @@ export function ChatBox({
             autoFocus
           />
 
-          {showDraftSpaceBanner && (
-            <div className="mx-3 mb-2 flex min-h-10 items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-black/[0.12] px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-                  >
-                    <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_12px_rgba(56,189,248,0.35)]", activeSpace ? spaceGradient(activeSpace) : "from-zinc-500 to-zinc-300")} />
-                    <span className="shrink-0 text-muted-foreground/70">Space</span>
-                    <span className="min-w-0 max-w-[180px] truncate font-medium text-foreground/85">
-                      {activeSpace?.name ?? "Select a space"}
-                    </span>
-                    <span className="text-muted-foreground/50 transition-transform group-data-[state=open]:rotate-180">⌄</span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="start"
-                  side="bottom"
-                  sideOffset={8}
-                  className={cn(GLASS_POPOVER, "w-64 gap-0 overflow-hidden rounded-xl p-1.5")}
-                >
-                  <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
-                    Select chat space
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {orderedSpaces.length > 0 ? orderedSpaces.map((space) => {
-                      const selected = space.id === activeSpace?.id
-                      return (
-                        <button
-                          key={space.id}
-                          type="button"
-                          onClick={() => void onSpaceSelect?.(space.id)}
-                          className={cn(
-                            "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                            selected ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
-                          )}
-                        >
-                          <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br", spaceGradient(space))} />
-                          <span className="min-w-0 flex-1 truncate">{space.name}</span>
-                          {selected && <span className="text-[11px] text-foreground/60">Current</span>}
-                        </button>
-                      )
-                    }) : (
-                      <div className="px-2 py-3 text-sm text-muted-foreground">No spaces available</div>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
-
-              <button
-                type="button"
-                onClick={onOpenSkills}
-                className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-              >
-                <LuSparkles className="size-3.5" />
-                <span>Skills</span>
-              </button>
-            </div>
-          )}
-
           {attachmentError && (
             <div className="px-3 pb-1">
               <p className="text-[12px] text-red-400/80">{attachmentError}</p>
@@ -1028,6 +968,67 @@ export function ChatBox({
           </div>
         </GlassDialog>
       </div>
+
+      {showDraftSpaceBanner && (
+        <div className="flex min-h-11 items-center justify-between gap-3 rounded-b-[24px] bg-white/[0.035] px-3 py-2 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-2xl">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              >
+                <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_12px_rgba(56,189,248,0.35)]", activeSpace ? spaceGradient(activeSpace) : "from-zinc-500 to-zinc-300")} />
+                <span className="shrink-0 text-muted-foreground/70">Space</span>
+                <span className="min-w-0 max-w-[220px] truncate font-medium text-foreground/85">
+                  {activeSpace?.name ?? "Select a space"}
+                </span>
+                <LuChevronDown className="size-3.5 shrink-0 text-muted-foreground/45 transition-transform group-data-[state=open]:rotate-180" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              side="bottom"
+              sideOffset={8}
+              className={cn(GLASS_POPOVER, "w-64 gap-0 overflow-hidden rounded-xl p-1.5")}
+            >
+              <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
+                Select chat space
+              </div>
+              <div className="max-h-64 overflow-y-auto">
+                {orderedSpaces.length > 0 ? orderedSpaces.map((space) => {
+                  const selected = space.id === activeSpace?.id
+                  return (
+                    <button
+                      key={space.id}
+                      type="button"
+                      onClick={() => void onSpaceSelect?.(space.id)}
+                      className={cn(
+                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                        selected ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+                      )}
+                    >
+                      <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br", spaceGradient(space))} />
+                      <span className="min-w-0 flex-1 truncate">{space.name}</span>
+                      {selected && <span className="text-[11px] text-foreground/60">Current</span>}
+                    </button>
+                  )
+                }) : (
+                  <div className="px-2 py-3 text-sm text-muted-foreground">No spaces available</div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <button
+            type="button"
+            onClick={onOpenSkills}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          >
+            <LuSparkles className="size-3.5" />
+            <span>Skills</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
