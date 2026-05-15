@@ -147,6 +147,10 @@ export class ChatLiveIngest {
     }
     if (event.event === "chat" || event.event === "chat.delta" || event.event === "chat.final") {
       this.handleChatEvent(event.payload);
+      return;
+    }
+    if (event.event === "agent") {
+      this.handleAgentEvent(event.payload);
     }
   }
 
@@ -487,6 +491,38 @@ export class ChatLiveIngest {
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
       this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
     }
+  }
+
+  private handleAgentEvent(payload: unknown) {
+    if (!isObject(payload)) return;
+    if (payload.stream !== "thinking") return;
+    const data = isObject(payload.data) ? payload.data : payload;
+    const sessionKey = firstString(payload.sessionKey, data.sessionKey, payload.key, data.key);
+    if (!sessionKey) return;
+    const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    if (!run) return;
+    const text = textFromLiveValue(data.text);
+    const delta = textFromLiveValue(data.delta) ?? text;
+    if (!text && !delta) return;
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.reasoning.delta",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: "chat.reasoning.delta",
+        run,
+        payload: {
+          sessionKey,
+          runId: run.runId,
+          gatewayRunId: run.gatewayRunId,
+          text,
+          delta,
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    this.log.info("reasoning.delta.broadcast", { sessionKey, runId: run.runId, cursor: patch.cursor, textLength: text?.length ?? 0, deltaLength: delta?.length ?? 0 });
   }
 
   private extractLiveAssistantText(payload: Record<string, unknown>) {

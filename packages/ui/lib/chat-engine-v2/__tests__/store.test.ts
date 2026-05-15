@@ -19,6 +19,58 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
+  test("attaches reasoning deltas to the active assistant message", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "thinking",
+      messages: [{ messageId: "u1", role: "user", text: "check repo" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.reasoning.delta",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          semanticType: "chat.reasoning.delta",
+          runStatus: "thinking",
+          activeRun: { runId: "run-1", status: "thinking" },
+          runId: "run-1",
+          text: "I am inspecting files",
+          delta: "I am inspecting files",
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", reasoningText: "I am inspecting files", text: "" }),
+    ]))
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          messageSeq: 2,
+          message: { id: "a1", role: "assistant", text: "Done." },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual([
+      expect.objectContaining({ messageId: "u1", role: "user" }),
+      expect.objectContaining({ messageId: "a1", role: "assistant", text: "Done.", reasoningText: "I am inspecting files" }),
+    ])
+  })
+
   test("skips replay patches older than seeded bootstrap cursor", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
