@@ -231,10 +231,6 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_skills_uninstall":
     case "middleware_skills_toggle":
       return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
-    case "middleware_workspace_layout_latest":
-      return middlewareFetch<T>(`/api/workspace/layouts/latest${queryString({ workspaceId: input.workspaceId ? String(input.workspaceId) : undefined })}`)
-    case "middleware_workspace_layout_save":
-      return middlewareFetch<T>("/api/workspace/layouts", { method: "POST", body: JSON.stringify(input) })
     case "middleware_git_status":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/git/status`, { headers: { "Cache-Control": "no-cache" } })
     case "middleware_git_status_for_repo":
