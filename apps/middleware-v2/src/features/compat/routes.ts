@@ -238,6 +238,236 @@ function stableCompatId(prefix: string, value: string) {
   return `${prefix}_${crypto.createHash("sha1").update(value).digest("hex").slice(0, 16)}`;
 }
 
+
+function readJsonFile(file: string): CompatRecord {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")) as CompatRecord; } catch { return {}; }
+}
+
+function readJsonlFile(file: string) {
+  try {
+    return fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as CompatRecord);
+  } catch { return [] as CompatRecord[]; }
+}
+
+function gatewaySessionsIndexPath(agentId = "main") {
+  return path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions", "sessions.json");
+}
+
+function parseTelegramSessionKey(key: string) {
+  const direct = key.match(/^agent:([^:]+):telegram:direct:([^:]+)$/);
+  if (direct) return { kind: "direct" as const, agentId: direct[1] || "main", userId: direct[2] || "" };
+  const group = key.match(/^agent:([^:]+):telegram:group:([^:]+)(?::topic:(\d+))?$/);
+  if (group) return { kind: "group" as const, agentId: group[1] || "main", groupId: group[2] || "", topicId: group[3] || null };
+  return null;
+}
+
+function firstTextContent(content: unknown) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((block) => typeof block?.text === "string" ? block.text : typeof block?.content === "string" ? block.content : "").join(" ");
+}
+
+function messageBody(message: CompatRecord) {
+  if (typeof message.text === "string") return message.text;
+  if (typeof message.content === "string") return message.content;
+  return firstTextContent(message.content);
+}
+
+function cleanImportedName(text: string) {
+  return text
+    .replace(/```json\s*\{[\s\S]*?\}\s*```/g, " ")
+    .replace(/^System \(untrusted\):.*$/gmi, " ")
+    .replace(/Conversation info \(untrusted metadata\):[\s\S]*?(?=Sender \(untrusted metadata\):|\[[^\n]+\]|$)/gmi, " ")
+    .replace(/Sender \(untrusted metadata\):[\s\S]*?(?=\[[^\n]+\]|$)/gmi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseConversationInfo(text: string) {
+  const match = text.match(/Conversation info \(untrusted metadata\):\s*```json\s*([\s\S]*?)\s*```/i);
+  if (!match) return null;
+  try { return JSON.parse(match[1]) as CompatRecord; } catch { return null; }
+}
+
+function transcriptMessagesFromJsonl(sessionFile: string): CompatRecord[] {
+  return readJsonlFile(sessionFile)
+    .filter((line) => line?.type === "message" || line?.message?.role)
+    .map((line): CompatRecord => {
+      const message = (line.message && typeof line.message === "object") ? line.message as CompatRecord : line;
+      return { ...message, timestamp: message.timestamp ?? line.timestamp, __openclaw: { id: line.id, seq: line.seq } };
+    })
+    .filter((message) => Boolean(message?.role));
+}
+
+function telegramMetaFromMessages(messages: CompatRecord[]) {
+  for (const message of messages) {
+    const meta = parseConversationInfo(firstTextContent(message.content));
+    if (!meta) continue;
+    return {
+      groupSubject: String(meta.group_subject || "").trim(),
+      topicName: String(meta.topic_name || "").trim(),
+      sender: String(meta.sender || "").trim(),
+    };
+  }
+  return null;
+}
+
+function lastUserMessagePreview(messages: CompatRecord[]) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role !== "user") continue;
+    const cleaned = cleanImportedName(messageBody(message));
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function uniqueName(base: string, used: Set<string>) {
+  const root = (base || "Telegram import").trim() || "Telegram import";
+  let name = root;
+  let n = 2;
+  while (used.has(name.toLowerCase())) name = `${root} (${n++})`;
+  used.add(name.toLowerCase());
+  return name;
+}
+
+function telegramGroupName(entry: CompatRecord, groupId: string) {
+  return String(entry.subject || entry.groupSubject || entry.displayName || entry.label || `Telegram group ${groupId}`).replace(/^telegram:g-/, "").trim() || `Telegram group ${groupId}`;
+}
+
+function telegramTopicFallback(entry: CompatRecord, topicId: string | null) {
+  return String(entry.topicName || entry.chatName || (topicId ? `Topic ${topicId}` : "General")).trim();
+}
+
+function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
+  loadCompatState(context);
+  const agentId = String(input.agentId || "main");
+  const index = readJsonFile(gatewaySessionsIndexPath(agentId));
+  const limit = Math.max(0, Number(input.limit || 0));
+  const usedNames = new Set<string>();
+  const importedKeys = new Set([
+    ...compatState.chats.map((chat) => chat.importedFrom?.sourceSessionKey).filter(Boolean),
+    ...compatState.sessions.map((session) => session.importedFrom?.sourceSessionKey).filter(Boolean),
+  ].map(String));
+  const sessions = Object.entries(index).map(([sourceSessionKey, entryRaw]) => {
+    const parsed = parseTelegramSessionKey(sourceSessionKey);
+    if (!parsed) return null;
+    const entry = (entryRaw && typeof entryRaw === "object") ? entryRaw as CompatRecord : {};
+    const sourceSessionFile = String(entry.sessionFile || "");
+    const messages = sourceSessionFile ? transcriptMessagesFromJsonl(sourceSessionFile) : [];
+    const telegramMeta = telegramMetaFromMessages(messages);
+    const fallback = parsed.kind === "direct"
+      ? (telegramMeta?.sender || "Telegram direct")
+      : (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId));
+    const preview = lastUserMessagePreview(messages);
+    const proposedName = uniqueName(parsed.kind === "group" ? fallback : (preview ? preview.slice(0, 45).trim() : fallback), usedNames);
+    return {
+      sourceSessionKey,
+      sourceSessionId: String(entry.sessionId || ""),
+      sourceSessionFile,
+      proposedName,
+      messageCount: messages.filter((message) => message?.role && message.role !== "system").length,
+      lastUserMessagePreview: preview,
+      updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : null,
+      chatType: parsed.kind,
+      groupId: parsed.kind === "group" ? parsed.groupId : undefined,
+      groupName: parsed.kind === "group" ? (telegramMeta?.groupSubject || telegramGroupName(entry, parsed.groupId)) : undefined,
+      topicId: parsed.kind === "group" ? parsed.topicId : undefined,
+      topicName: parsed.kind === "group" ? proposedName : undefined,
+      alreadyImported: importedKeys.has(sourceSessionKey),
+    };
+  }).filter(Boolean) as CompatRecord[];
+  const selected = limit > 0 ? sessions.slice(0, limit) : sessions;
+  const groups = new Map<string, CompatRecord>();
+  for (const session of selected) {
+    if (session.chatType !== "group") continue;
+    const current = groups.get(session.groupId) ?? { groupId: session.groupId, name: session.groupName, topics: 0 };
+    current.topics += 1;
+    groups.set(session.groupId, current);
+  }
+  return {
+    sessions: selected,
+    summary: {
+      total: selected.length,
+      direct: selected.filter((session) => session.chatType === "direct").length,
+      groups: groups.size,
+      topics: selected.filter((session) => session.chatType === "group").length,
+      alreadyImported: selected.filter((session) => session.alreadyImported).length,
+    },
+    groups: [...groups.values()],
+  };
+}
+
+function transcriptLineFromHistoryMessage(message: CompatRecord) {
+  const meta = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as CompatRecord : {};
+  const idValue = String(meta.id || message.id || crypto.randomUUID());
+  const timestamp = typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : typeof message.timestamp === "string" ? message.timestamp : nowIso();
+  const stripped = { ...message };
+  delete stripped.__openclaw;
+  return JSON.stringify({ id: idValue, timestamp, message: stripped });
+}
+
+function copyHistoryMessagesToTranscript(transcriptPath: string, messages: CompatRecord[]) {
+  fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
+  const existing = fs.existsSync(transcriptPath) ? fs.readFileSync(transcriptPath, "utf8") : "";
+  const header = existing.split(/\r?\n/).find((line) => {
+    if (!line.trim()) return false;
+    try { return JSON.parse(line)?.type === "session"; } catch { return false; }
+  }) || JSON.stringify({ type: "session", version: 1, id: path.basename(transcriptPath, ".jsonl"), timestamp: nowIso(), cwd: process.cwd() });
+  const lines = [header, ...messages.filter((message) => message && message.role !== "system").map(transcriptLineFromHistoryMessage)];
+  fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+async function importTelegramSessions(context: AppContext, input: CompatRecord = {}) {
+  loadCompatState(context);
+  const scan = scanTelegramSessions(context, input);
+  const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0 ? new Set(input.sourceSessionKeys.map(String)) : null;
+  const skipAlreadyImported = input.skipAlreadyImported !== false;
+  const dryRun = Boolean(input.dryRun);
+  const imported: CompatRecord[] = [];
+  const skipped: CompatRecord[] = [];
+  const failed: CompatRecord[] = [];
+  for (const session of scan.sessions) {
+    if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue;
+    const parsed = parseTelegramSessionKey(session.sourceSessionKey);
+    if (!parsed) continue;
+    if (skipAlreadyImported && session.alreadyImported) { skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported" }); continue; }
+    const sourceMessages = transcriptMessagesFromJsonl(session.sourceSessionFile);
+    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: session.proposedName, copiedMessages: sourceMessages.length, dryRun: true }); continue; }
+    try {
+      const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`;
+      const label = session.proposedName || "Telegram import";
+      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label, parentSessionKey: session.sourceSessionKey }, 30_000);
+      const transcriptPath = created?.payload?.entry?.sessionFile || created?.entry?.sessionFile;
+      if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
+      copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
+      const timestamp = nowIso();
+      let chatId: string | null = null;
+      let projectId: string | null = null;
+      let topicId: string | null = null;
+      if (parsed.kind === "group") {
+        let project = compatState.projects.find((item) => item.importedFrom?.kind === "telegram" && item.importedFrom?.groupId === parsed.groupId);
+        if (!project) {
+          project = { id: id("proj"), name: session.groupName || `Telegram group ${parsed.groupId}`, workspaceRoot: path.join(os.homedir(), ".openclaw", "workspace"), archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", groupId: parsed.groupId } };
+          compatState.projects.push(project);
+        }
+        projectId = project.id;
+        topicId = id("topic");
+        compatState.topics.push({ id: topicId, projectId, name: label, archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } });
+        compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
+      } else {
+        chatId = id("chat");
+        compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
+      }
+      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
+    } catch (error) {
+      failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  if (!dryRun) saveCompatState(context);
+  return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };
+}
+
 function stringField(record: CompatRecord, keys: string[]) {
   for (const key of keys) {
     const value = record[key];
@@ -2290,9 +2520,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     }
   });
 
-  // --- migration stubs ---
-  app.get("/api/migration/telegram/scan", async () => ({ sessions: [], count: 0 }));
-  app.post("/api/migration/telegram/import", async () => ({ ok: true, imported: 0 }));
+  // --- migrations ---
+  app.get("/api/migration/telegram/scan", async (request) => scanTelegramSessions(context, (request.query ?? {}) as CompatRecord));
+  app.post("/api/migration/telegram/import", async (request) => importTelegramSessions(context, ((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as CompatRecord));
   app.post("/api/migration/v1-sqlite/import", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     return migrateV1SqliteToV2(context, body.sourcePath);
