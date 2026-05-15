@@ -2386,6 +2386,7 @@ function MainContent({
           onSend={onTopicQuickSend}
           disabled={quickSending}
           glowOnMount
+          draftKey={`topic:${activeTopic.projectId}:${activeTopic.id}:draft`}
         />
       </div>
     )
@@ -2404,6 +2405,7 @@ function MainContent({
         onSend={onQuickSend}
         disabled={quickSending}
         glowOnMount
+        draftKey="new-chat:draft"
       />
     </div>
   )

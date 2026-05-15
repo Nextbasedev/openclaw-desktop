@@ -65,6 +65,7 @@ type Props = {
   onModelSelect?: (modelId: string) => void | Promise<void>
   modelSwitching?: boolean
   glowOnMount?: boolean
+  draftKey?: string | null
 }
 
 export function ChatBox({
@@ -80,8 +81,14 @@ export function ChatBox({
   onModelSelect,
   modelSwitching = false,
   glowOnMount = false,
+  draftKey = null,
 }: Props) {
-  const [input, setInput] = React.useState(initialPrompt ?? "")
+  const draftStorageKey = draftKey ? `openclaw-composer-draft:v1:${draftKey}` : null
+  const [input, setInput] = React.useState(() => {
+    if (initialPrompt != null) return initialPrompt
+    if (!draftStorageKey || typeof localStorage === "undefined") return ""
+    try { return localStorage.getItem(draftStorageKey) ?? "" } catch { return "" }
+  })
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
@@ -335,8 +342,21 @@ export function ChatBox({
       setInput(initialPrompt)
       setHistoryIndex(null)
       draftBeforeHistoryRef.current = ""
+      return
     }
-  }, [initialPrompt])
+    if (!draftStorageKey || typeof localStorage === "undefined") return
+    try { setInput(localStorage.getItem(draftStorageKey) ?? "") } catch { setInput("") }
+    setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
+  }, [draftStorageKey, initialPrompt])
+
+  React.useEffect(() => {
+    if (!draftStorageKey || typeof localStorage === "undefined") return
+    try {
+      if (input.trim().length > 0) localStorage.setItem(draftStorageKey, input)
+      else localStorage.removeItem(draftStorageKey)
+    } catch {}
+  }, [draftStorageKey, input])
 
   React.useEffect(() => {
     setHistoryIndex(null)
@@ -430,6 +450,11 @@ export function ChatBox({
     return isSingleLineInput(target) || isCaretOnLastLine(target)
   }
 
+  function clearPersistedDraft() {
+    if (!draftStorageKey || typeof localStorage === "undefined") return
+    try { localStorage.removeItem(draftStorageKey) } catch {}
+  }
+
   function applyHistoryInput(value: string) {
     setInput(value)
     setSlashMenuOpen(false)
@@ -471,6 +496,7 @@ export function ChatBox({
       isStopSlashCommand(text)
     ) {
       setInput("")
+      clearPersistedDraft()
       setHistoryIndex(null)
       draftBeforeHistoryRef.current = ""
       if (textareaRef.current) textareaRef.current.style.height = "auto"
@@ -503,6 +529,7 @@ export function ChatBox({
       execPolicy: execPolicyForAutonomyMode("manual"),
     }
     setInput("")
+    clearPersistedDraft()
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
