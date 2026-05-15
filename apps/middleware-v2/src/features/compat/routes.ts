@@ -1136,7 +1136,7 @@ function findCronJob(jobId: unknown) {
 }
 
 async function cronListJobsGateway(context: AppContext) {
-  const page = await context.gateway.request<CompatRecord>("cron.list", { includeDisabled: true, limit: 500 }, 30_000);
+  const page = await context.gateway.request<CompatRecord>("cron.list", { includeDisabled: true, limit: 200 }, 30_000);
   const jobs = Array.isArray(page.jobs) ? page.jobs : [];
   const runsPage = await cronRunsPageGateway(context, { scope: "all", limit: 200 }).catch(() => ({ entries: [] as CompatRecord[] }));
   const latestRunByJobId = new Map<string, CompatRecord>();
