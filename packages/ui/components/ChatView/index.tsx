@@ -1468,9 +1468,9 @@ export function ChatView({
                   aria-hidden="true"
                   animate={{ y: [0, 5, 0] }}
                   transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
-                  className="flex bg-transparent"
+                  className="flex origin-center scale-x-125 bg-transparent"
                 >
-                  <MdKeyboardDoubleArrowDown size={26} />
+                  <MdKeyboardDoubleArrowDown size={30} />
                 </motion.span>
               </motion.button>
             </motion.div>
