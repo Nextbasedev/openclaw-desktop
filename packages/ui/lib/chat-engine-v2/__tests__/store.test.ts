@@ -19,6 +19,65 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
+  test("replaces inferred live tool output with real tool result", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "tool_running",
+      pendingTools: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "search memory" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "tool_running",
+          activeRun: { runId: "run-1", status: "tool_running" },
+          toolCallId: "tool-1",
+          toolCall: {
+            toolCallId: "tool-1",
+            name: "memory_search",
+            status: "success",
+            phase: "result",
+            resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
+            startedAtMs: 1_000,
+            finishedAtMs: 2_000,
+          },
+        },
+      },
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: { id: "tool-result", role: "tool", toolCallId: "tool-1", text: "real memory result" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "real memory result", status: "success" })],
+      }),
+    ]))
+  })
+
   test("attaches reasoning deltas to the active assistant message", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
