@@ -170,6 +170,17 @@ function isToolBlock(block: ContentBlock) {
   return type === "toolcall" || type === "tool_call" || type === "tooluse" || type === "tool_use"
 }
 
+function thinkingText(raw: RawHistoryMessage): string {
+  if (!Array.isArray(raw.content)) return ""
+  return raw.content
+    .filter((block) => block && typeof block === "object" && !Array.isArray(block) && block.type === "thinking")
+    .map((block) => {
+      const record = block as { text?: unknown; content?: unknown }
+      return typeof record.text === "string" ? record.text : typeof record.content === "string" ? record.content : ""
+    })
+    .join("")
+}
+
 function toolBlocks(raw: RawHistoryMessage): RawToolBlock[] {
   const contentBlocks = Array.isArray(raw.content)
     ? raw.content.filter(isToolBlock)
@@ -515,7 +526,7 @@ export function deduplicateRawMessages(
   for (const item of raw) {
     if (isAbortedGatewayArtifact(item)) continue
     const currText = visibleMessageText(item).trim()
-    if (item.role === "assistant" && !currText && !toolBlocks(item).length) {
+    if (item.role === "assistant" && !currText && !toolBlocks(item).length && !thinkingText(item).trim()) {
       continue
     }
 
@@ -627,11 +638,13 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       }
 
       const text = visibleMessageText(item).trim()
-      if (text || pendingToolCalls.length > 0) {
+      const reasoningText = thinkingText(item).trim()
+      if (text || pendingToolCalls.length > 0 || reasoningText) {
         const last = messages.at(-1)
         if (last?.role === "assistant") {
           if (text) last.text = mergeAssistantText(last.text, text)
           last.toolCalls = [...(last.toolCalls ?? []), ...pendingToolCalls]
+          if (reasoningText) last.reasoningText = last.reasoningText ? `${last.reasoningText}${reasoningText}` : reasoningText
           last.messageId = messageId(item)
           last.createdAt = createdAtIso(item) ?? last.createdAt
           last.model = item.model ?? last.model
@@ -647,6 +660,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             model: item.model,
             usage: item.usage,
             stopReason: item.stopReason,
+            reasoningText: reasoningText || undefined,
             toolCalls:
               pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
             gatewayIndex: openclawSeq(item),

@@ -169,6 +169,15 @@ function toolCallBlocks(message: Record<string, unknown>) {
   })
 }
 
+function toolResultBlocks(message: Record<string, unknown>) {
+  const content = message.content
+  if (!Array.isArray(content)) return []
+  return content.filter((block): block is Record<string, unknown> => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return false
+    return block.type === "toolResult" || block.type === "tool_result" || block.type === "tool_result_block"
+  })
+}
+
 function compactLabel(input: unknown, fallback: string) {
   return typeof input === "string" && input.trim() ? input.trim() : fallback
 }
@@ -212,6 +221,37 @@ function toolResultText(message: Record<string, unknown>) {
   return textFromUnknown(message.text ?? message.content ?? message.result)
 }
 
+function toolResultBlockId(block: Record<string, unknown>) {
+  const id = block.toolCallId ?? block.tool_call_id ?? block.toolUseId ?? block.tool_use_id ?? block.id
+  return typeof id === "string" && id.trim() ? id.trim() : null
+}
+
+function toolResultBlockText(block: Record<string, unknown>) {
+  return textFromUnknown(block.result ?? block.output ?? block.content ?? block.text ?? block.message ?? block.value)
+}
+
+function isInferredFallbackToolResultText(value: unknown) {
+  if (!value) return false
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as { inferred?: unknown; reason?: unknown }
+    return record.inferred === true && typeof record.reason === "string"
+  }
+  if (typeof value !== "string") return false
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return isInferredFallbackToolResultText(JSON.parse(trimmed) as unknown)
+  } catch {
+    return false
+  }
+}
+
+function mergeToolResultText(incoming: string | undefined, existing: string | undefined) {
+  if (!incoming || isInferredFallbackToolResultText(incoming)) return existing
+  if (!existing || isInferredFallbackToolResultText(existing)) return incoming
+  return incoming ?? existing
+}
+
 function inferToolStatus(text: string): InlineToolCall["status"] {
   return new RegExp("\\b(error|failed|denied|rejected)\\b", "i").test(text) ? "error" : "success"
 }
@@ -231,43 +271,46 @@ function parseExecApproval(text: string): InlineToolCall["approval"] | undefined
   return { id, slug, command, allowedDecisions: allowedDecisions.length > 0 ? allowedDecisions : ["allow-once", "deny"] }
 }
 
-function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
-  const message = patchMessage(frame)
-  if (!message) return false
-  const role = message.role
-  if (role !== "tool" && role !== "tool_result" && role !== "toolResult") return false
-  const explicitId = typeof message.toolCallId === "string"
-    ? message.toolCallId
-    : typeof message.tool_call_id === "string"
-      ? message.tool_call_id
-      : typeof message.id === "string"
-        ? message.id
-        : null
-  const pendingIndex = explicitId
-    ? state.pendingTools.findIndex((tool) => tool.id === explicitId)
-    : state.pendingTools.findIndex((tool) => tool.status === "running")
-  if (pendingIndex < 0) return false
-  const resultText = toolResultText(message)
-  const existing = state.pendingTools[pendingIndex]
-  const next = [...state.pendingTools]
-  next[pendingIndex] = {
-    ...existing,
-    status: inferToolStatus(resultText),
-    duration: existing.duration ?? formatToolDuration(existing.startedAt, frame.patch.createdAtMs),
-    completedAt: existing.completedAt ?? frame.patch.createdAtMs,
-    resultText: resultText || existing.resultText,
-    approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
+function findVisibleToolById(state: SessionState, id: string | null) {
+  if (!id) return null
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const message = state.messages[i]
+    if (message.role !== "assistant" || !message.toolCalls?.length) continue
+    const tool = message.toolCalls.find((item) => item.id === id)
+    if (tool) return tool
   }
-  state.pendingTools = next
+  return null
+}
+
+function applyToolResultById(state: SessionState, params: { id: string | null; resultText: string; createdAtMs: number; source?: unknown }) {
+  const pendingIndex = params.id
+    ? state.pendingTools.findIndex((tool) => tool.id === params.id)
+    : state.pendingTools.findIndex((tool) => tool.status === "running")
+  const existing = pendingIndex >= 0 ? state.pendingTools[pendingIndex] : findVisibleToolById(state, params.id)
+  if (!existing) return false
+  const mergedTool: InlineToolCall = {
+    ...existing,
+    status: inferToolStatus(params.resultText),
+    duration: existing.duration ?? formatToolDuration(existing.startedAt, params.createdAtMs),
+    completedAt: existing.completedAt ?? params.createdAtMs,
+    resultText: mergeToolResultText(params.resultText || undefined, existing.resultText),
+    approval: params.resultText ? (parseExecApproval(params.resultText) ?? existing.approval) : existing.approval,
+  }
+  if (pendingIndex >= 0) {
+    const next = [...state.pendingTools]
+    next[pendingIndex] = mergedTool
+    state.pendingTools = next
+  }
+  updateToolInMessages(state, mergedTool)
 
   if (existing.tool === "sessions_spawn") {
-    const childKey = extractSubagentSessionKey(message) ?? extractSubagentSessionKey(resultText)
+    const childKey = extractSubagentSessionKey(params.source) ?? extractSubagentSessionKey(params.resultText)
     state.spawnedSubagents = state.spawnedSubagents.map((spawn) => {
       if (spawn.toolCallId !== existing.id) return spawn
       return {
         ...spawn,
         sessionKey: childKey ?? spawn.sessionKey,
-        status: next[pendingIndex].status === "error"
+        status: mergedTool.status === "error"
           ? "failed"
           : (childKey ?? spawn.sessionKey)
             ? "working"
@@ -276,6 +319,35 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
     })
   }
   return true
+}
+
+function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
+  const message = patchMessage(frame)
+  if (!message) return false
+  let applied = false
+  for (const block of toolResultBlocks(message)) {
+    applied = applyToolResultById(state, {
+      id: toolResultBlockId(block),
+      resultText: toolResultBlockText(block),
+      createdAtMs: frame.patch.createdAtMs,
+      source: block,
+    }) || applied
+  }
+  const role = message.role
+  if (role !== "tool" && role !== "tool_result" && role !== "toolResult") return applied
+  const explicitId = typeof message.toolCallId === "string"
+    ? message.toolCallId
+    : typeof message.tool_call_id === "string"
+      ? message.tool_call_id
+      : typeof message.id === "string"
+        ? message.id
+        : null
+  return applyToolResultById(state, {
+    id: explicitId,
+    resultText: toolResultText(message),
+    createdAtMs: frame.patch.createdAtMs,
+    source: message,
+  }) || applied
 }
 
 function mergeToolCalls(existing: InlineToolCall[] | undefined, incoming: InlineToolCall[]) {
@@ -318,6 +390,30 @@ function attachDetachedToolsToLatestAssistant(state: SessionState, tools = state
     itemIndex === index ? { ...message, toolCalls: mergeToolCalls(message.toolCalls, tools) } : item
   )
   return true
+}
+
+function updateToolInMessages(state: SessionState, tool: InlineToolCall) {
+  let changed = false
+  state.messages = state.messages.map((message) => {
+    if (message.role !== "assistant" || !message.toolCalls?.length) return message
+    let changedMessage = false
+    const toolCalls = message.toolCalls.map((existing) => {
+      if (existing.id !== tool.id) return existing
+      changed = true
+      changedMessage = true
+      return {
+        ...existing,
+        ...tool,
+        duration: tool.duration ?? existing.duration,
+        startedAt: tool.startedAt ?? existing.startedAt,
+        completedAt: tool.completedAt ?? existing.completedAt,
+        resultText: mergeToolResultText(tool.resultText, existing.resultText),
+        approval: tool.approval ?? existing.approval,
+      }
+    })
+    return changedMessage ? { ...message, toolCalls } : message
+  })
+  return changed
 }
 
 function finalizeToolsInPlace(state: SessionState, tools: InlineToolCall[]) {
@@ -410,8 +506,10 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
     startedAt: realEpochMs(tool.startedAtMs),
     completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
-    resultText: tool.resultMeta === undefined || tool.resultMeta === null ? undefined : textFromUnknown(tool.resultMeta),
-    approval: tool.resultMeta === undefined || tool.resultMeta === null
+    resultText: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResultText(tool.resultMeta)
+      ? undefined
+      : textFromUnknown(tool.resultMeta),
+    approval: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResultText(tool.resultMeta)
       ? undefined
       : parseExecApproval(textFromUnknown(tool.resultMeta)),
   }
@@ -453,10 +551,12 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
     duration: inline.duration ?? existingTool?.duration,
     startedAt: inline.startedAt ?? existingTool?.startedAt,
     completedAt: inline.completedAt ?? existingTool?.completedAt,
-    resultText: inline.resultText ?? existingTool?.resultText,
+    resultText: mergeToolResultText(inline.resultText, existingTool?.resultText),
     approval: inline.approval ?? existingTool?.approval,
   })
+  const mergedTool = pending.get(inline.id) ?? inline
   state.pendingTools = Array.from(pending.values())
+  updateToolInMessages(state, mergedTool)
   if (inline.status === "running") {
     promoteRunningToolStatus(state, inline.tool)
   }
@@ -494,6 +594,63 @@ function shouldDeriveToolActivityFromMessage(frame: PatchFrame) {
   // final semantics. Canonical tool activity should arrive as chat.tool.*
   // patches or payload.toolCall.
   return semanticType !== "chat.assistant.final"
+}
+
+function applyReasoningFromPatch(state: SessionState, frame: PatchFrame) {
+  if (patchSemanticType(frame) !== "chat.reasoning.delta" && frame.patch.type !== "chat.reasoning.delta") return false
+  const payload = patchPayload(frame)
+  const fullText = typeof payload?.text === "string" ? payload.text : null
+  const delta = typeof payload?.delta === "string" ? payload.delta : null
+  const incoming = fullText ?? delta
+  if (!incoming) return false
+
+  const latestUserIndex = latestUserMessageIndex(state)
+  let targetIndex = -1
+  for (let i = state.messages.length - 1; i > latestUserIndex; i--) {
+    const message = state.messages[i]
+    if (message?.role === "assistant") {
+      targetIndex = i
+      break
+    }
+  }
+
+  const runId = typeof payload?.runId === "string" && payload.runId.trim() ? payload.runId.trim() : "active"
+  const nextMessages = [...state.messages]
+  if (targetIndex < 0) {
+    nextMessages.push({
+      messageId: `reasoning:${runId}`,
+      role: "assistant",
+      text: "",
+      reasoningText: incoming,
+      createdAt: new Date(frame.patch.createdAtMs || Date.now()).toISOString(),
+    })
+  } else {
+    const current = nextMessages[targetIndex]
+    const previous = current.reasoningText ?? ""
+    const reasoningText = fullText ?? `${previous}${delta ?? ""}`
+    nextMessages[targetIndex] = { ...current, reasoningText }
+  }
+  state.messages = nextMessages
+  return true
+}
+
+function carryReasoningToFinalAssistant(state: SessionState, frame: PatchFrame) {
+  if (!isAssistantFinalTextMessage(frame)) return
+  const message = patchMessage(frame)
+  if (!message) return
+  const finalId = messageStableId(message, frame)
+  const finalIndex = state.messages.findIndex((item) => item.messageId === finalId)
+  if (finalIndex < 0 || state.messages[finalIndex]?.reasoningText) return
+  for (let i = finalIndex - 1; i >= 0; i--) {
+    const candidate = state.messages[i]
+    if (candidate?.role !== "assistant") continue
+    if (!candidate.reasoningText) continue
+    const next = [...state.messages]
+    next[finalIndex] = { ...next[finalIndex], reasoningText: candidate.reasoningText }
+    if (!candidate.text.trim() && !candidate.toolCalls?.length) next.splice(i, 1)
+    state.messages = next
+    return
+  }
 }
 
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
@@ -783,13 +940,23 @@ function loadingFactorSummary(state: SessionState, patchType: string) {
 function stalePatchMatchesPendingTool(state: SessionState, frame: PatchFrame) {
   const payload = patchPayload(frame)
   const tool = payload?.toolCall
-  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
-  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
-    ? tool.toolCallId
-    : typeof tool.id === "string" && tool.id.trim()
-      ? tool.id
-      : null
-  return Boolean(id && state.pendingTools.some((pending) => pending.id === id))
+  const ids: string[] = []
+  if (tool && typeof tool === "object" && !Array.isArray(tool)) {
+    const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+      ? tool.toolCallId
+      : typeof tool.id === "string" && tool.id.trim()
+        ? tool.id
+        : null
+    if (id) ids.push(id)
+  }
+  const message = patchMessage(frame)
+  if (message) {
+    for (const block of toolResultBlocks(message)) {
+      const id = toolResultBlockId(block)
+      if (id) ids.push(id)
+    }
+  }
+  return ids.some((id) => state.pendingTools.some((pending) => pending.id === id) || Boolean(findVisibleToolById(state, id)))
 }
 
 function applyStaleMatchingToolPatch(state: SessionState, frame: PatchFrame) {
@@ -881,6 +1048,8 @@ function handlePatch(frame: PatchFrame) {
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
+  applyReasoningFromPatch(state, frame)
+  carryReasoningToFinalAssistant(state, frame)
   applyActivityFromPatch(state, frame)
   if (isAssistantErrorMessagePatch(frame)) {
     state.status = "error"

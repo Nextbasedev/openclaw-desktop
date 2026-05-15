@@ -19,6 +19,231 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
+  test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 1,
+      status: "done",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "read file" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "read", status: "success", startedAt: 1_000, completedAt: 2_000, duration: "1.0s" }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_500,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: {
+            id: "tool-result",
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "tool-1", content: "file contents" }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "file contents", status: "success" })],
+      }),
+    ]))
+  })
+
+  test("applies stale result patch to already visible tool rows", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "read file" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "read", status: "success", startedAt: 1_000, completedAt: 2_000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 9,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_500,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: {
+            id: "tool-result",
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "tool-1", content: "late file contents" }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "late file contents", status: "success" })],
+      }),
+    ]))
+  })
+
+  test("updates visible tool row from user tool_result content blocks", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "tool_running",
+      pendingTools: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "search memory" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: {
+            id: "tool-result",
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "tool-1", content: "real result from block" }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "real result from block", status: "success" })],
+      }),
+    ]))
+  })
+
+  test("replaces inferred live tool output with real tool result", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "tool_running",
+      pendingTools: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "search memory" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "tool_running",
+          activeRun: { runId: "run-1", status: "tool_running" },
+          toolCallId: "tool-1",
+          toolCall: {
+            toolCallId: "tool-1",
+            name: "memory_search",
+            status: "success",
+            phase: "result",
+            resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
+            startedAtMs: 1_000,
+            finishedAtMs: 2_000,
+          },
+        },
+      },
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: { id: "tool-result", role: "tool", toolCallId: "tool-1", text: "real memory result" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "real memory result", status: "success" })],
+      }),
+    ]))
+  })
+
+  test("attaches reasoning deltas to the active assistant message", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "thinking",
+      messages: [{ messageId: "u1", role: "user", text: "check repo" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.reasoning.delta",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          semanticType: "chat.reasoning.delta",
+          runStatus: "thinking",
+          activeRun: { runId: "run-1", status: "thinking" },
+          runId: "run-1",
+          text: "I am inspecting files",
+          delta: "I am inspecting files",
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", reasoningText: "I am inspecting files", text: "" }),
+    ]))
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.assistant.final",
+          runStatus: "done",
+          messageSeq: 2,
+          message: { id: "a1", role: "assistant", text: "Done." },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual([
+      expect.objectContaining({ messageId: "u1", role: "user" }),
+      expect.objectContaining({ messageId: "a1", role: "assistant", text: "Done.", reasoningText: "I am inspecting files" }),
+    ])
+  })
+
   test("skips replay patches older than seeded bootstrap cursor", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
@@ -319,6 +544,61 @@ describe("global V2 chat engine store", () => {
 
     expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
       { id: "tc-duration", tool: "exec", status: "success", duration: "1.3s" },
+    ])
+  })
+
+  test("updates visible assistant tool row as soon as canonical tool result arrives", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 1_000,
+        payload: {
+          sessionKey: "s1",
+          runStatus: "tool_running",
+          statusLabel: "read",
+          activeRun: { status: "tool_running" },
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc-visible", name: "read", input: { path: "A.md" } }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.messages[0]?.toolCalls).toMatchObject([
+      { id: "tc-visible", tool: "read", status: "running" },
+    ])
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          activeRun: { status: "thinking" },
+          toolCall: {
+            toolCallId: "tc-visible",
+            name: "read",
+            status: "success",
+            phase: "result",
+            startedAtMs: 1_000,
+            finishedAtMs: 2_000,
+            resultMeta: "file contents",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.messages[0]?.toolCalls).toMatchObject([
+      { id: "tc-visible", tool: "read", status: "success", resultText: "file contents" },
     ])
   })
 
@@ -750,6 +1030,49 @@ describe("global V2 chat engine store", () => {
       status: "done",
       pendingTools: [],
     })
+  })
+
+  test("does not show inferred fallback metadata as tool output", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "run tools" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "web_search", status: "running", startedAt: 1_000 }] },
+      ],
+      status: "tool_running",
+      statusLabel: "web_search",
+      pendingTools: [{ id: "tool-1", tool: "web_search", status: "running", startedAt: 1_000 }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          toolCall: {
+            toolCallId: "tool-1",
+            name: "web_search",
+            status: "success",
+            resultMeta: { inferred: true, reason: "next_tool_started_after_missing_result_event" },
+            startedAtMs: 1_000,
+            finishedAtMs: 3_000,
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", status: "success", resultText: undefined })],
+      }),
+    ]))
   })
 
   test("promotes thinking status to tool_running when tool calls arrive after text", () => {
