@@ -46,6 +46,8 @@ const compatState = {
   projects: [] as CompatRecord[],
   topics: [] as CompatRecord[],
   sessions: [] as CompatRecord[],
+  cronJobs: [] as CompatRecord[],
+  cronRuns: [] as CompatRecord[],
   terminals: new Map<string, CompatTerminal>(),
   loadedDbPath: null as string | null,
 };
@@ -70,6 +72,8 @@ type V1SqliteMigrationResult = {
     projects: number;
     topics: number;
     sessions: number;
+    cronJobs: number;
+    cronRuns: number;
   };
 };
 
@@ -191,7 +195,7 @@ function migrateV1SqliteToV2(context: AppContext, sourcePathInput?: unknown): V1
   loadCompatState(context);
   const sourcePath = normalizeV1SqlitePath(sourcePathInput);
   const v1State = readV1State(sourcePath);
-  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0 };
+  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0, cronJobs: 0, cronRuns: 0 };
   for (const collection of compatCollections) {
     const incoming = Array.isArray(v1State[collection]) ? v1State[collection] as CompatRecord[] : [];
     const result = mergeCompatRecords(collection, incoming);
@@ -744,6 +748,278 @@ function workspaceEntry(root: string, full: string, stat = fs.statSync(full)) {
 
 function readOCPlatformConfig(): CompatRecord {
   try { return JSON.parse(fs.readFileSync(path.join(os.homedir(), ".openclaw", "openclaw.json"), "utf8")); } catch { return {}; }
+}
+
+const voiceDefaultModels: Record<string, string> = {
+  openai: "gpt-4o-transcribe",
+  groq: "whisper-large-v3-turbo",
+  deepgram: "nova-3",
+  google: "gemini-3-flash-preview",
+  mistral: "voxtral-mini-latest",
+};
+
+const voiceProviderEnvVars: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  groq: "GROQ_API_KEY",
+  deepgram: "DEEPGRAM_API_KEY",
+  google: "GEMINI_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+};
+
+const voiceOptions = [
+  { provider: "auto", model: "", label: "Auto - best available" },
+  { provider: "openai", model: "gpt-4o-transcribe", label: "OpenAI - gpt-4o-transcribe" },
+  { provider: "openai", model: "gpt-4o-mini-transcribe", label: "OpenAI - gpt-4o-mini-transcribe" },
+  { provider: "openai", model: "whisper-1", label: "OpenAI - whisper-1" },
+  { provider: "groq", model: "whisper-large-v3-turbo", label: "Groq - whisper-large-v3-turbo" },
+  { provider: "groq", model: "whisper-large-v3", label: "Groq - whisper-large-v3" },
+  { provider: "deepgram", model: "nova-3", label: "Deepgram - nova-3" },
+  { provider: "deepgram", model: "nova-2", label: "Deepgram - nova-2" },
+  { provider: "google", model: "gemini-3-flash-preview", label: "Google - gemini-3-flash-preview" },
+  { provider: "google", model: "gemini-2.5-flash", label: "Google - gemini-2.5-flash" },
+  { provider: "mistral", model: "voxtral-mini-latest", label: "Mistral - voxtral-mini-latest" },
+  { provider: "mistral", model: "voxtral-small-latest", label: "Mistral - voxtral-small-latest" },
+];
+
+function openclawConfigPath() {
+  return path.join(os.homedir(), ".openclaw", "openclaw.json");
+}
+
+function writeOCPlatformConfig(cfg: CompatRecord) {
+  const file = openclawConfigPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2), "utf8");
+}
+
+function normalizeVoiceProvider(value: unknown) {
+  const provider = String(value || "auto").trim().toLowerCase();
+  return provider in voiceDefaultModels ? provider : "auto";
+}
+
+function voiceSettingsFromConfig(cfg: CompatRecord) {
+  const audio = cfg.tools?.media?.audio && typeof cfg.tools.media.audio === "object" ? cfg.tools.media.audio : {};
+  const firstModel = Array.isArray(audio.models) ? audio.models[0] : null;
+  const provider = normalizeVoiceProvider(firstModel?.provider);
+  return {
+    enabled: audio.enabled !== false,
+    provider,
+    model: provider === "auto" ? "" : String(firstModel?.model || voiceDefaultModels[provider]),
+    language: String(audio.language || "").trim(),
+    echoTranscript: Boolean(audio.echoTranscript),
+  };
+}
+
+function voiceSettingsPayload() {
+  return { settings: voiceSettingsFromConfig(readOCPlatformConfig()), options: voiceOptions };
+}
+
+function writeVoiceSettings(input: CompatRecord) {
+  const cfg = readOCPlatformConfig();
+  cfg.tools ??= {};
+  cfg.tools.media ??= {};
+  cfg.tools.media.audio ??= {};
+  const provider = normalizeVoiceProvider(input.provider);
+  const model = String(input.model || (provider === "auto" ? "" : voiceDefaultModels[provider])).trim();
+  const language = String(input.language || "").trim();
+  cfg.tools.media.audio.enabled = input.enabled !== false;
+  cfg.tools.media.audio.echoTranscript = Boolean(input.echoTranscript);
+  if (language) cfg.tools.media.audio.language = language;
+  else delete cfg.tools.media.audio.language;
+  if (provider === "auto") delete cfg.tools.media.audio.models;
+  else cfg.tools.media.audio.models = [{ type: "provider", provider, model: model || voiceDefaultModels[provider] }];
+  writeOCPlatformConfig(cfg);
+  return voiceSettingsPayload();
+}
+
+function providerDetails(providerId: string) {
+  const envVar = voiceProviderEnvVars[providerId] ?? `${providerId.toUpperCase()}_API_KEY`;
+  const name = providerId.charAt(0).toUpperCase() + providerId.slice(1);
+  return {
+    provider: {
+      id: providerId,
+      displayName: name,
+      authMethods: ["api-key"],
+      submit: {
+        payloadShape: {
+          values: {
+            fields: {
+              credentials: [{
+                key: "api-key",
+                label: `${name} API key`,
+                help: `Saved as ${envVar}`,
+                authMethod: "api-key",
+                inputKind: "secret",
+                required: true,
+                sensitive: true,
+                envVar,
+              }],
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function saveProviderCredentials(input: CompatRecord) {
+  const providerId = String(input.providerId || "").trim();
+  const envVar = voiceProviderEnvVars[providerId];
+  const key = String(input.values?.["api-key"] || input.values?.apiKey || input.values?.key || "").trim();
+  if (!providerId || !envVar || !key) return { ok: false, error: { message: "providerId and API key are required" } };
+  const cfg = readOCPlatformConfig();
+  cfg.env ??= {};
+  cfg.env.vars ??= {};
+  cfg.env.vars[envVar] = key;
+  writeOCPlatformConfig(cfg);
+  return { ok: true, providerId, envVar };
+}
+
+function workspaceRoot() {
+  return process.env.WORKSPACE_ROOT || path.join(os.homedir(), ".openclaw", "workspace");
+}
+
+function resolveWorkspaceFile(rawPath: unknown) {
+  const root = path.resolve(workspaceRoot());
+  const requested = String(rawPath || "").trim();
+  if (!requested) throw new Error("path is required");
+  const target = path.resolve(root, requested.replace(/^[/\\]+/, ""));
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new Error("path must stay inside workspace");
+  return { root, target, relativePath: path.relative(root, target).replace(/\\/g, "/") };
+}
+
+function readMemoryFile(input: CompatRecord) {
+  const { target } = resolveWorkspaceFile(input.path);
+  return { content: fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "" };
+}
+
+function writeMemoryFile(input: CompatRecord) {
+  const { target, relativePath } = resolveWorkspaceFile(input.path);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, String(input.content ?? ""), "utf8");
+  return { ok: true, path: relativePath };
+}
+
+function listMemoryDocuments() {
+  const root = workspaceRoot();
+  const candidates = ["MEMORY.md", "SOUL.md", "USER.md", "IDENTITY.md", "TOOLS.md", "AGENTS.md", "HEARTBEAT.md"];
+  const docs: CompatRecord[] = [];
+  for (const name of candidates) {
+    const file = path.join(root, name);
+    if (!fs.existsSync(file)) continue;
+    const stat = fs.statSync(file);
+    docs.push({ name, path: name, type: "file", size: stat.size, updatedAt: stat.mtime.toISOString(), modifiedAt: stat.mtime.toISOString() });
+  }
+  const memoryDir = path.join(root, "memory");
+  if (fs.existsSync(memoryDir)) {
+    for (const name of fs.readdirSync(memoryDir).filter((entry) => entry.endsWith(".md")).sort().reverse()) {
+      const file = path.join(memoryDir, name);
+      const stat = fs.statSync(file);
+      docs.push({ name, path: `memory/${name}`, type: "file", size: stat.size, updatedAt: stat.mtime.toISOString(), modifiedAt: stat.mtime.toISOString() });
+    }
+  }
+  return { documents: docs };
+}
+
+function storeMemoryEntry(input: CompatRecord) {
+  const content = String(input.content || "").trim();
+  if (!content) return { ok: false, error: { message: "content is required" } };
+  const date = new Date().toISOString().slice(0, 10);
+  const { target, relativePath } = resolveWorkspaceFile(`memory/${date}.md`);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const category = String(input.category || "note").trim();
+  fs.appendFileSync(target, `\n\n## ${new Date().toISOString()} — ${category}\n\n${content}\n`, "utf8");
+  return { ok: true, path: relativePath };
+}
+
+function recallMemoryEntries() {
+  const docs = listMemoryDocuments().documents;
+  const entries: CompatRecord[] = [];
+  for (const doc of docs) {
+    const file = path.join(workspaceRoot(), String(doc.path));
+    const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    for (const [index, chunk] of text.split(/\n{2,}/).entries()) {
+      const content = chunk.trim();
+      if (!content) continue;
+      entries.push({ content: content.slice(0, 1200), path: doc.path, line: index + 1, totalScore: 0.5, category: "document", date: String(doc.name).replace(/\.md$/, "") });
+      if (entries.length >= 100) return { entries };
+    }
+  }
+  return { entries };
+}
+
+function normalizeCronJob(input: CompatRecord, existing?: CompatRecord) {
+  const timestamp = nowIso();
+  const paused = input.paused !== undefined ? Boolean(input.paused) : input.enabled !== undefined ? !Boolean(input.enabled) : Boolean(existing?.paused ?? false);
+  const enabled = input.enabled !== undefined ? Boolean(input.enabled) : input.paused !== undefined ? !paused : Boolean(existing?.enabled ?? true);
+  const message = input.message !== undefined ? input.message : existing?.message ?? null;
+  const task = input.task !== undefined ? input.task : existing?.task ?? message ?? "";
+  return {
+    id: existing?.id || input.id || input.jobId || id("cron"),
+    jobId: existing?.jobId || input.jobId || input.id || id("cron"),
+    name: input.name ?? existing?.name ?? "Scheduled task",
+    scheduleType: input.scheduleType ?? existing?.scheduleType ?? "cron",
+    schedule: input.schedule ?? existing?.schedule ?? "0 * * * *",
+    timezone: input.timezone ?? existing?.timezone ?? "Asia/Kolkata",
+    session: input.session ?? existing?.session ?? "isolated",
+    parentSessionKey: input.parentSessionKey ?? existing?.parentSessionKey ?? null,
+    task,
+    message,
+    model: input.model ?? existing?.model ?? null,
+    enabled,
+    paused,
+    status: paused || !enabled ? "paused" : "active",
+    deleteAfterRun: Boolean(input.deleteAfterRun ?? existing?.deleteAfterRun ?? false),
+    deliveryMode: input.deliveryMode ?? existing?.deliveryMode ?? "announce",
+    deliveryChannel: input.deliveryChannel ?? existing?.deliveryChannel ?? null,
+    deliveryTo: input.deliveryTo ?? existing?.deliveryTo ?? null,
+    params: input.params ?? existing?.params ?? null,
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+    lastRun: existing?.lastRun ?? null,
+  };
+}
+
+function findCronJob(jobId: unknown) {
+  const key = String(jobId || "");
+  return compatState.cronJobs.find((job) => job.jobId === key || job.id === key) ?? null;
+}
+
+function cronListJobs() {
+  return { jobs: [...compatState.cronJobs].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))) };
+}
+
+function cronCreateJob(input: CompatRecord) {
+  const job = normalizeCronJob(input);
+  compatState.cronJobs.push(job);
+  return { job, jobId: job.jobId };
+}
+
+function cronUpdateJob(input: CompatRecord) {
+  const key = input.jobId || input.id;
+  const index = compatState.cronJobs.findIndex((job) => job.jobId === key || job.id === key);
+  if (index < 0) return null;
+  const job = normalizeCronJob(input, compatState.cronJobs[index]);
+  compatState.cronJobs[index] = job;
+  return { job };
+}
+
+function cronDeleteJob(input: CompatRecord) {
+  const key = input.jobId || input.id;
+  const before = compatState.cronJobs.length;
+  compatState.cronJobs = compatState.cronJobs.filter((job) => job.jobId !== key && job.id !== key);
+  return before !== compatState.cronJobs.length;
+}
+
+function cronListRuns(input: CompatRecord) {
+  const key = input.jobId || input.id;
+  const runs = key ? compatState.cronRuns.filter((run) => run.jobId === key) : compatState.cronRuns;
+  return { runs };
+}
+
+function cronRecentActivity(input: CompatRecord) {
+  const limit = Number(input.limit || 50);
+  const events = compatState.cronRuns.slice(-limit).reverse();
+  return { events, activity: events };
 }
 
 function modelRefsFromConfig(cfg: CompatRecord): string[] {
@@ -1693,6 +1969,33 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       }
       case "middleware_models_auth_status":
         return { providers: [], configured: true };
+      case "middleware_voice_settings_get":
+        return voiceSettingsPayload();
+      case "middleware_voice_settings_set":
+        return writeVoiceSettings(input);
+      case "middleware_onboarding_provider_details": {
+        const providerId = String(input.providerId || "").trim();
+        if (!providerId) return reply.code(400).send({ ok: false, error: { message: "providerId is required" } });
+        return providerDetails(providerId);
+      }
+      case "middleware_onboarding_provider_submit": {
+        const saved = saveProviderCredentials(input);
+        if (!saved.ok) return reply.code(400).send(saved);
+        return saved;
+      }
+      case "middleware_memory_list":
+        return listMemoryDocuments();
+      case "middleware_memory_read":
+        return readMemoryFile(input);
+      case "middleware_memory_write":
+        return writeMemoryFile(input);
+      case "middleware_memory_store": {
+        const stored = storeMemoryEntry(input);
+        if (!stored.ok) return reply.code(400).send(stored);
+        return stored;
+      }
+      case "middleware_memory_recall":
+        return recallMemoryEntries();
       case "middleware_commands_list":
         return { commands: [] };
       case "middleware_skills_discover":
@@ -1953,8 +2256,41 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return { ok: true };
       }
       case "middleware_cron_list":
+      case "middleware_cron_list_jobs":
+        return cronListJobs();
       case "middleware_cron_get_job":
-        return { jobs: [], job: null };
+        return { job: findCronJob(input.jobId || input.id) };
+      case "middleware_cron_create_job": {
+        const result = cronCreateJob(input);
+        saveCompatCollection(context, "cronJobs");
+        return result;
+      }
+      case "middleware_cron_update_job": {
+        const result = cronUpdateJob(input);
+        if (!result) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
+        saveCompatCollection(context, "cronJobs");
+        return result;
+      }
+      case "middleware_cron_delete_job": {
+        const deleted = cronDeleteJob(input);
+        if (!deleted) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
+        saveCompatCollection(context, "cronJobs");
+        return { ok: true };
+      }
+      case "middleware_cron_list_runs":
+        return cronListRuns(input);
+      case "middleware_cron_recent_activity":
+        return cronRecentActivity(input);
+      case "middleware_cron_job_conversation": {
+        const run = compatState.cronRuns.find((item) => item.jobId === input.jobId || item.runId === input.runId || item.id === input.runId);
+        if (!run?.sessionKey) return { messages: [], lastRun: run ?? null };
+        try {
+          const history = await context.gateway.request("chat.history", { sessionKey: run.sessionKey }, 30_000) as CompatRecord;
+          return { ...(history || {}), messages: history?.messages ?? [], lastRun: run };
+        } catch {
+          return { messages: [], lastRun: run };
+        }
+      }
       default:
         // Safe fallback: return empty ok instead of 404 so UI doesn't crash on unimplemented commands
         return { ok: true };

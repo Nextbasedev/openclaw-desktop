@@ -237,22 +237,25 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
   return messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
-      const aTime = messageTimeMs(a.message)
-      const bTime = messageTimeMs(b.message)
-      const aHasTime = typeof aTime === "number"
-      const bHasTime = typeof bTime === "number"
-      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
-      if (aHasTime !== bHasTime) return aHasTime ? -1 : 1
-      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
-        return roleOrder(a.message) - roleOrder(b.message)
-      }
-
       const aIndex = a.message.gatewayIndex
       const bIndex = b.message.gatewayIndex
       const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
       const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
       if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
-      if (aHasIndex !== bHasIndex) return aHasIndex ? -1 : 1
+
+      const aTime = messageTimeMs(a.message)
+      const bTime = messageTimeMs(b.message)
+      const aHasTime = typeof aTime === "number"
+      const bHasTime = typeof bTime === "number"
+      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
+      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
+
+      // Do not let a newly-sent optimistic message jump above older restored
+      // history just because the old messages have no createdAt/gatewayIndex.
+      // When only one side has ordering metadata, preserve the current array
+      // order, which is already append/order-of-arrival from history or patches.
       return a.index - b.index
     })
     .map((item) => item.message)
