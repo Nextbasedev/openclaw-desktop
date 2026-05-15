@@ -325,11 +325,12 @@ describe("chat live ingest", () => {
     expect(context.runs.getToolCall("s1", "tool-2")).toMatchObject({ status: "running", phase: "start", name: "read" });
 
     const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
-    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string } }>;
+    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { resultMeta?: unknown } } }>;
     const inferredResultIndex = patches.findIndex((patch) => patch.type === "chat.tool.result" && patch.payload?.toolCallId === "tool-1");
     const nextStartIndex = patches.findIndex((patch) => patch.type === "chat.tool.started" && patch.payload?.toolCallId === "tool-2");
     expect(inferredResultIndex).toBeGreaterThanOrEqual(0);
     expect(nextStartIndex).toBeGreaterThan(inferredResultIndex);
+    expect(patches[inferredResultIndex]?.payload?.toolCall?.resultMeta).toBeUndefined();
     await app.close();
   });
 

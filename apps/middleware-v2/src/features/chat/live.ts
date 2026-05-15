@@ -183,9 +183,11 @@ export class ChatLiveIngest {
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
     const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
     if (assistantHasFinalText && associatedRun) {
-      this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId, {
-        resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
-      });
+      // This is only a lifecycle inference: the gateway did not send a real
+      // tool result event before final assistant text. Mark the tool complete so
+      // the UI stops spinning, but do not fabricate resultMeta. Real output may
+      // still arrive later and should be the only user-visible result.
+      this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId);
     }
     if (projectedMessage.role === "assistant" && associatedRun && !this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) {
       this.context.runs.updateRunStatus(associatedRun.runId, "done", { statusLabel: null });
@@ -359,7 +361,10 @@ export class ChatLiveIngest {
         phase: "result",
         status: "success",
         argsMeta: runningTool.argsMeta,
-        resultMeta: runningTool.resultMeta ?? { inferred: true, reason: "next_tool_started_after_missing_result_event" },
+        // Only infer completion/status before the next tool starts. Do not write
+        // fallback result metadata; otherwise the UI can show the placeholder as
+        // output until refresh rebuilds from the real persisted tool result.
+        resultMeta: runningTool.resultMeta,
         updatedAtMs: now,
         finishedAtMs: now,
       });
