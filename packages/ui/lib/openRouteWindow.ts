@@ -5,6 +5,13 @@ function absoluteRouteUrl(path: string) {
   return new URL(routeUrl(path), window.location.href).toString()
 }
 
+function routeWindowUrl(path: string) {
+  const url = routeUrl(path)
+  if (url.startsWith("/#")) return `/?openclawNativeChrome=1${url.slice(1)}`
+  const separator = url.includes("?") ? "&" : "?"
+  return `${url}${separator}openclawNativeChrome=1`
+}
+
 export async function openRouteInNewWindow(path: string, title = "OpenClaw") {
   const url = absoluteRouteUrl(path)
 
@@ -12,12 +19,12 @@ export async function openRouteInNewWindow(path: string, title = "OpenClaw") {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow")
     const label = `openclaw-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`
     const win = new WebviewWindow(label, {
-      url: routeUrl(path),
+      url: routeWindowUrl(path),
       title,
       width: 1280,
       height: 860,
       resizable: true,
-      decorations: false,
+      decorations: true,
       center: true,
     })
     await new Promise<void>((resolve, reject) => {

@@ -60,6 +60,7 @@ type HeaderProps = {
   onOpenSettings?: () => void
   onOpenNotifications?: () => void
   onOpenLogs?: () => void
+  useNativeWindowChrome?: boolean
   onNavigateToChat?: (
     chat: ActiveChat,
   ) => void | boolean | Promise<void | boolean>
@@ -93,6 +94,7 @@ export function Header({
   onOpenSettings,
   onOpenNotifications,
   onOpenLogs,
+  useNativeWindowChrome = false,
   onNavigateToChat,
 }: HeaderProps) {
   const platform = usePlatform()
@@ -123,8 +125,8 @@ export function Header({
 
   const isMac = platform === "macos"
   const isWindows = platform === "windows" || platform === "linux"
-  const showTrafficLights = isTauri && isMac
-  const showWindowControls = isTauri && isWindows
+  const showTrafficLights = isTauri && isMac && !useNativeWindowChrome
+  const showWindowControls = isTauri && isWindows && !useNativeWindowChrome
 
   useEffect(() => {
     const el = rightClusterRef.current
@@ -148,7 +150,7 @@ export function Header({
         className,
       )}
     >
-      {isTauri && (
+      {isTauri && !useNativeWindowChrome && (
         <div data-tauri-drag-region className="absolute inset-0 z-0" />
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-border/50" />
