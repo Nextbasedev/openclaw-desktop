@@ -46,11 +46,46 @@ function everyMsFromSchedule(value) {
         return amount * 86_400_000;
     return amount * 60_000;
 }
+function timeZoneOffsetMs(timeZone, utcMs) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).formatToParts(new Date(utcMs));
+    const value = (type) => Number(parts.find((part) => part.type === type)?.value || 0);
+    let hour = value("hour");
+    if (hour === 24)
+        hour = 0;
+    const asUtcMs = Date.UTC(value("year"), value("month") - 1, value("day"), hour, value("minute"), value("second"));
+    return asUtcMs - utcMs;
+}
+function atScheduleToIso(schedule, timezone) {
+    const text = String(schedule || "").trim();
+    const parsed = new Date(text);
+    if (!text || Number.isNaN(parsed.getTime()))
+        throw new Error("Invalid one-time cron schedule.");
+    if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(text))
+        return parsed.toISOString();
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (!match)
+        return parsed.toISOString();
+    const tz = String(timezone || "Asia/Kolkata");
+    const [, year, month, day, hour, minute, second = "0"] = match;
+    const localAsUtcMs = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+    let utcMs = localAsUtcMs - timeZoneOffsetMs(tz, localAsUtcMs);
+    utcMs = localAsUtcMs - timeZoneOffsetMs(tz, utcMs);
+    return new Date(utcMs).toISOString();
+}
 function scheduleToGateway(input, existing) {
     const type = String(input.scheduleType ?? existing?.scheduleType ?? "cron");
     const schedule = input.schedule ?? existing?.schedule ?? "0 * * * *";
     if (type === "at")
-        return { kind: "at", at: new Date(String(schedule)).toISOString() };
+        return { kind: "at", at: atScheduleToIso(schedule, input.timezone ?? existing?.timezone) };
     if (type === "every")
         return { kind: "every", everyMs: everyMsFromSchedule(schedule) };
     return { kind: "cron", expr: String(schedule || "0 * * * *"), tz: input.timezone ?? existing?.timezone ?? "Asia/Kolkata" };
@@ -1105,6 +1140,13 @@ async function cronGetJobGateway(context, jobId) {
     const jobs = await cronListJobsGateway(context);
     const key = String(jobId || "");
     return { job: jobs.jobs.find((job) => job.jobId === key || job.id === key) ?? null };
+}
+function cronCommandErrorStatus(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+    if (normalized.includes("schedule.") || normalized.includes("one-time cron schedule") || normalized.includes("in the past"))
+        return 400;
+    return 500;
 }
 async function cronCreateJobGateway(context, input) {
     const job = await context.gateway.request("cron.add", compatJobToGateway(input), 30_000);
@@ -2582,7 +2624,7 @@ export async function registerCompatRoutes(app, context) {
                     return await cronCreateJobGateway(context, input);
                 }
                 catch (error) {
-                    return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job create failed" } });
+                    return reply.code(cronCommandErrorStatus(error)).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job create failed" } });
                 }
             }
             case "middleware_cron_update_job": {
@@ -2593,7 +2635,7 @@ export async function registerCompatRoutes(app, context) {
                     return result;
                 }
                 catch (error) {
-                    return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job update failed" } });
+                    return reply.code(cronCommandErrorStatus(error)).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job update failed" } });
                 }
             }
             case "middleware_cron_delete_job": {
