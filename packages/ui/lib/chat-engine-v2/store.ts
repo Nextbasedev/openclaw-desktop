@@ -320,6 +320,30 @@ function attachDetachedToolsToLatestAssistant(state: SessionState, tools = state
   return true
 }
 
+function updateToolInMessages(state: SessionState, tool: InlineToolCall) {
+  let changed = false
+  state.messages = state.messages.map((message) => {
+    if (message.role !== "assistant" || !message.toolCalls?.length) return message
+    let changedMessage = false
+    const toolCalls = message.toolCalls.map((existing) => {
+      if (existing.id !== tool.id) return existing
+      changed = true
+      changedMessage = true
+      return {
+        ...existing,
+        ...tool,
+        duration: tool.duration ?? existing.duration,
+        startedAt: tool.startedAt ?? existing.startedAt,
+        completedAt: tool.completedAt ?? existing.completedAt,
+        resultText: tool.resultText ?? existing.resultText,
+        approval: tool.approval ?? existing.approval,
+      }
+    })
+    return changedMessage ? { ...message, toolCalls } : message
+  })
+  return changed
+}
+
 function finalizeToolsInPlace(state: SessionState, tools: InlineToolCall[]) {
   if (tools.length === 0) return []
   const byId = new Map(tools.map((tool) => [tool.id, tool]))
@@ -456,7 +480,9 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
     resultText: inline.resultText ?? existingTool?.resultText,
     approval: inline.approval ?? existingTool?.approval,
   })
+  const mergedTool = pending.get(inline.id) ?? inline
   state.pendingTools = Array.from(pending.values())
+  updateToolInMessages(state, mergedTool)
   if (inline.status === "running") {
     promoteRunningToolStatus(state, inline.tool)
   }
