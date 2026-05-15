@@ -821,7 +821,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000 }).map((message) => message.data);
+    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }).map((message) => message.data);
     log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: parsed.data.limit ?? 1000 });
     await context.chatLive.ensureSessionSubscribed(sessionKey);
     const event = context.messages.appendProjectionEvent({

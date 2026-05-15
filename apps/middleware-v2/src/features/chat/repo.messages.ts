@@ -233,9 +233,19 @@ export class MessageRepository {
     };
   }
 
-  listMessages(sessionKey: string, opts: { afterSeq?: number; limit?: number } = {}): ProjectedMessage[] {
+  listMessages(sessionKey: string, opts: { afterSeq?: number; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
     const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
-    const rows = this.db.prepare(`
+    const rows = this.db.prepare(opts.latest ? `
+      SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM (
+        SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+        FROM v2_messages
+        WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
+        ORDER BY openclaw_seq DESC
+        LIMIT @limit
+      )
+      ORDER BY openclaw_seq ASC
+    ` : `
       SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
       FROM v2_messages
       WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq

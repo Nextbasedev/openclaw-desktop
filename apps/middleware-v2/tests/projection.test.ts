@@ -35,6 +35,26 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("can read the latest limited messages in chronological order", () => {
+    const db = openDatabase({ databasePath: testDbPath("latest-messages") });
+    const repo = new MessageRepository(db);
+    repo.upsertMessages(normalizeHistoryMessages("s1", Array.from({ length: 65 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `message ${index}`,
+      __openclaw: { id: `m${index}`, seq: index },
+    }))));
+
+    const rows = repo.listMessages("s1", { limit: 60, latest: true });
+
+    expect(rows).toHaveLength(60);
+    expect(rows[0]?.messageId).toBe("m5");
+    expect(rows.at(-1)?.messageId).toBe("m64");
+    expect(rows.map((row) => row.openclawSeq)).toEqual(
+      [...rows].map((row) => row.openclawSeq).sort((a, b) => a - b)
+    );
+    db.close();
+  });
+
   test("normalizer preserves message id fields and explicit fallback seq", () => {
     const rows = normalizeHistoryMessages("s1", [
       { id: "gateway-a", role: "assistant", text: "a" },
