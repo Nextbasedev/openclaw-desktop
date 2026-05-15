@@ -1483,7 +1483,7 @@ export function ChatView({
         itemContent={renderMessageRow}
       />
 
-      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+      <div className="relative shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <AnimatePresence>
           {showJumpToBottom && (
             <motion.div
@@ -1491,7 +1491,7 @@ export function ChatView({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.96 }}
               transition={{ duration: 0.16, ease: "easeOut" }}
-              className="mb-3 flex justify-center"
+              className="pointer-events-none absolute inset-x-0 -top-9 z-30 flex justify-center"
             >
               <motion.button
                 type="button"
@@ -1501,7 +1501,7 @@ export function ChatView({
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
-                  "group flex h-8 w-16 cursor-pointer items-center justify-center",
+                  "group pointer-events-auto flex h-8 w-16 cursor-pointer items-center justify-center",
                   "bg-transparent text-foreground/80 transition-colors hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
