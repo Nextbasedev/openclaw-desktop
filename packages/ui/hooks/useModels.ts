@@ -52,6 +52,12 @@ function normalizeModelsResponse(response: ModelsResponse): { models: ModelEntry
 
 let cachedModels: ModelEntry[] | null = null
 let cachedCurrent: string | null = null
+const currentModelListeners = new Set<(modelId: string | null) => void>()
+
+export function setCachedCurrentModel(modelId: string | null) {
+  cachedCurrent = modelId
+  for (const listener of currentModelListeners) listener(modelId)
+}
 
 export function isActiveModel(
   current: string | null,
@@ -92,11 +98,21 @@ export function useModels() {
   }, [])
 
   useEffect(() => {
+    currentModelListeners.add(setCurrentModel)
+    return () => {
+      currentModelListeners.delete(setCurrentModel)
+    }
+  }, [])
+
+  useEffect(() => {
     void load(false)
   }, [load])
 
   const ensureLoaded = useCallback(() => load(false), [load])
   const reload = useCallback(() => load(true), [load])
+  const setCurrentModelOptimistic = useCallback((modelId: string | null) => {
+    setCachedCurrentModel(modelId)
+  }, [])
 
-  return { models, currentModel, loading, error, reload, ensureLoaded }
+  return { models, currentModel, loading, error, reload, ensureLoaded, setCurrentModelOptimistic }
 }

@@ -19,6 +19,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
     loading,
     error,
     reload,
+    setCurrentModelOptimistic,
   } = useModels()
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState("")
@@ -33,16 +34,18 @@ export function ModelSelector({ open, onOpenChange }: Props) {
   }, [reload, open])
 
   async function handleSelect(modelId: string) {
+    const previousModel = current
+    setCurrentModelOptimistic(modelId)
     setSaving(true)
+    onOpenChange(false)
     try {
       await invoke("middleware_models_set_default", {
         input: { modelId },
       })
-      await reload()
-    } catch {}
-    finally {
+    } catch {
+      setCurrentModelOptimistic(previousModel)
+    } finally {
       setSaving(false)
-      onOpenChange(false)
     }
   }
 
