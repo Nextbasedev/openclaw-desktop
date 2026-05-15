@@ -19,6 +19,44 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
+  test("updates visible tool row from user tool_result content blocks", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "tool_running",
+      pendingTools: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "search memory" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "memory_search", status: "running", startedAt: 1_000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.message.upsert",
+          message: {
+            id: "tool-result",
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "tool-1", content: "real result from block" }],
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "real result from block", status: "success" })],
+      }),
+    ]))
+  })
+
   test("replaces inferred live tool output with real tool result", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
