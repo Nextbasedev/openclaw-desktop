@@ -1032,6 +1032,49 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("does not show inferred fallback metadata as tool output", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [
+        { messageId: "u1", role: "user", text: "run tools" },
+        { messageId: "a-tools", role: "assistant", text: "", toolCalls: [{ id: "tool-1", tool: "web_search", status: "running", startedAt: 1_000 }] },
+      ],
+      status: "tool_running",
+      statusLabel: "web_search",
+      pendingTools: [{ id: "tool-1", tool: "web_search", status: "running", startedAt: 1_000 }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 3_000,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          toolCall: {
+            toolCallId: "tool-1",
+            name: "web_search",
+            status: "success",
+            resultMeta: { inferred: true, reason: "next_tool_started_after_missing_result_event" },
+            startedAtMs: 1_000,
+            finishedAtMs: 3_000,
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a-tools",
+        toolCalls: [expect.objectContaining({ id: "tool-1", status: "success", resultText: undefined })],
+      }),
+    ]))
+  })
+
   test("promotes thinking status to tool_running when tool calls arrive after text", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

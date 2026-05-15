@@ -247,9 +247,8 @@ function isInferredFallbackToolResultText(value: unknown) {
 }
 
 function mergeToolResultText(incoming: string | undefined, existing: string | undefined) {
-  if (!incoming) return existing
-  if (!existing) return incoming
-  if (isInferredFallbackToolResultText(existing) && !isInferredFallbackToolResultText(incoming)) return incoming
+  if (!incoming || isInferredFallbackToolResultText(incoming)) return existing
+  if (!existing || isInferredFallbackToolResultText(existing)) return incoming
   return incoming ?? existing
 }
 
@@ -507,8 +506,10 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
     startedAt: realEpochMs(tool.startedAtMs),
     completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
-    resultText: tool.resultMeta === undefined || tool.resultMeta === null ? undefined : textFromUnknown(tool.resultMeta),
-    approval: tool.resultMeta === undefined || tool.resultMeta === null
+    resultText: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResultText(tool.resultMeta)
+      ? undefined
+      : textFromUnknown(tool.resultMeta),
+    approval: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResultText(tool.resultMeta)
       ? undefined
       : parseExecApproval(textFromUnknown(tool.resultMeta)),
   }
