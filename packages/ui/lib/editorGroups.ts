@@ -37,6 +37,7 @@ export type EditorGroupsAction =
       type: "SPLIT_TAB"
       tabId: string
       sessionData: SessionData | null
+      sourceSessionData?: SessionData | null
     }
   | {
       type: "MOVE_TAB"
@@ -252,6 +253,7 @@ export function editorGroupsReducer(
         ...source,
         tabs: remainingTabs,
         activeTabId: nextActive,
+        sessionData: action.sourceSessionData ?? null,
       })
 
       const newGroup: EditorGroup = {
