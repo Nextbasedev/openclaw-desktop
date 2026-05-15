@@ -109,6 +109,27 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("chat model set patches gateway session with current contract", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async () => ({ ok: true }));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_model_set",
+      payload: { input: { sessionKey: "agent:main:desktop:test", modelId: "openai/gpt-5.5" } },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, sessionKey: "agent:main:desktop:test", modelId: "openai/gpt-5.5" });
+    expect(context.gateway.request).toHaveBeenCalledWith(
+      "sessions.patch",
+      { key: "agent:main:desktop:test", model: { primary: "openai/gpt-5.5" } },
+      2_000,
+    );
+    await app.close();
+  });
+
   test("voice settings commands read/write config and provider access", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-settings-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
