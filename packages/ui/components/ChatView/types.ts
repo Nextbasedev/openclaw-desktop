@@ -97,6 +97,7 @@ export type ChatMessage = {
   sendError?: string | null
   retryPayload?: ChatComposerSubmit
   animateText?: boolean
+  reasoningText?: string
   toolCalls?: InlineToolCall[]
   branches?: MessageBranch[]
   activeBranch?: number

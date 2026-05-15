@@ -522,6 +522,63 @@ function shouldDeriveToolActivityFromMessage(frame: PatchFrame) {
   return semanticType !== "chat.assistant.final"
 }
 
+function applyReasoningFromPatch(state: SessionState, frame: PatchFrame) {
+  if (patchSemanticType(frame) !== "chat.reasoning.delta" && frame.patch.type !== "chat.reasoning.delta") return false
+  const payload = patchPayload(frame)
+  const fullText = typeof payload?.text === "string" ? payload.text : null
+  const delta = typeof payload?.delta === "string" ? payload.delta : null
+  const incoming = fullText ?? delta
+  if (!incoming) return false
+
+  const latestUserIndex = latestUserMessageIndex(state)
+  let targetIndex = -1
+  for (let i = state.messages.length - 1; i > latestUserIndex; i--) {
+    const message = state.messages[i]
+    if (message?.role === "assistant") {
+      targetIndex = i
+      break
+    }
+  }
+
+  const runId = typeof payload?.runId === "string" && payload.runId.trim() ? payload.runId.trim() : "active"
+  const nextMessages = [...state.messages]
+  if (targetIndex < 0) {
+    nextMessages.push({
+      messageId: `reasoning:${runId}`,
+      role: "assistant",
+      text: "",
+      reasoningText: incoming,
+      createdAt: new Date(frame.patch.createdAtMs || Date.now()).toISOString(),
+    })
+  } else {
+    const current = nextMessages[targetIndex]
+    const previous = current.reasoningText ?? ""
+    const reasoningText = fullText ?? `${previous}${delta ?? ""}`
+    nextMessages[targetIndex] = { ...current, reasoningText }
+  }
+  state.messages = nextMessages
+  return true
+}
+
+function carryReasoningToFinalAssistant(state: SessionState, frame: PatchFrame) {
+  if (!isAssistantFinalTextMessage(frame)) return
+  const message = patchMessage(frame)
+  if (!message) return
+  const finalId = messageStableId(message, frame)
+  const finalIndex = state.messages.findIndex((item) => item.messageId === finalId)
+  if (finalIndex < 0 || state.messages[finalIndex]?.reasoningText) return
+  for (let i = finalIndex - 1; i >= 0; i--) {
+    const candidate = state.messages[i]
+    if (candidate?.role !== "assistant") continue
+    if (!candidate.reasoningText) continue
+    const next = [...state.messages]
+    next[finalIndex] = { ...next[finalIndex], reasoningText: candidate.reasoningText }
+    if (!candidate.text.trim() && !candidate.toolCalls?.length) next.splice(i, 1)
+    state.messages = next
+    return
+  }
+}
+
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   if (applyCanonicalToolFromPatch(state, frame)) return
   if (applyToolResultFromPatch(state, frame)) return
@@ -907,6 +964,8 @@ function handlePatch(frame: PatchFrame) {
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
   state.messages = next.messages
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
+  applyReasoningFromPatch(state, frame)
+  carryReasoningToFinalAssistant(state, frame)
   applyActivityFromPatch(state, frame)
   if (isAssistantErrorMessagePatch(frame)) {
     state.status = "error"
