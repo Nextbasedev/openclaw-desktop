@@ -325,7 +325,7 @@ export function VoiceTab() {
     : "Update/rebuild required"
 
   return (
-    <div className="flex flex-col gap-6 pb-10">
+    <div className="flex flex-col gap-5 pb-8">
       <div>
         <h2 className="text-lg font-semibold text-foreground">Voice</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -333,9 +333,9 @@ export function VoiceTab() {
         </p>
       </div>
 
-      <section className="overflow-hidden rounded-none border border-border/50 bg-card/70">
-        <div className="flex items-start gap-3 border-b border-border/35 bg-foreground/[0.035] px-5 py-5">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-none border border-border/50 bg-background/70 text-muted-foreground">
+      <section className="overflow-hidden rounded-lg border border-border/50 bg-card/70">
+        <div className="flex items-start gap-3 border-b border-border/35 bg-foreground/[0.035] px-4 py-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/50 bg-background/70 text-muted-foreground">
             <LuMic size={17} />
           </div>
           <div className="min-w-0 flex-1">
@@ -351,12 +351,12 @@ export function VoiceTab() {
           </div>
         </div>
 
-        <div className="space-y-5 p-5">
+        <div className="space-y-4 p-4">
           <div>
             <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
               Audio provider
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3">
               {providers.map((provider) => {
                 const selected = current.provider === provider
                 const copy = PROVIDER_COPY[provider]
@@ -380,7 +380,7 @@ export function VoiceTab() {
                       }
                     }}
                     className={cn(
-                      "flex items-center gap-2 rounded-none border px-3 py-2 text-left transition-colors disabled:pointer-events-none disabled:opacity-60",
+                      "flex items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors disabled:pointer-events-none disabled:opacity-60",
                       selected
                         ? "border-foreground/25 bg-foreground text-background"
                         : "border-border/50 bg-background/45 text-foreground hover:bg-foreground/[0.04]",
@@ -388,7 +388,7 @@ export function VoiceTab() {
                   >
                     <span
                       className={cn(
-                        "flex size-7 shrink-0 items-center justify-center rounded-none border",
+                        "flex size-7 shrink-0 items-center justify-center rounded-md border",
                         selected ? "border-background/20 bg-background/10" : "border-border/45 bg-foreground/[0.035]",
                       )}
                     >
@@ -405,7 +405,7 @@ export function VoiceTab() {
           </div>
 
           {!voiceSettingsAvailable && (
-            <div className="rounded-none border border-border/50 bg-background/45 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
+            <div className="rounded-md border border-border/50 bg-background/45 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
               Voice is not set for this Desktop build yet. Pull the latest changes and rebuild/reinstall Desktop to enable voice provider and model selection.
             </div>
           )}
@@ -414,7 +414,7 @@ export function VoiceTab() {
             <label className="block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
               Audio model
             </label>
-            <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
               <div className="relative">
                 <select
                   value={current.provider === "auto" ? "auto" : current.model}
@@ -433,7 +433,7 @@ export function VoiceTab() {
                       setStatus({ tone: "muted", message: "Audio model selected. Add provider access below; saving voice model requires the latest Desktop backend." })
                     }
                   }}
-                  className="h-9 w-full appearance-none rounded-none border border-border/60 bg-background/70 px-3 pr-9 text-[13px] text-foreground outline-none transition-colors focus:border-foreground/30 disabled:opacity-60"
+                  className="h-9 w-full appearance-none rounded-md border border-border/60 bg-background/70 px-3 pr-9 text-[13px] text-foreground outline-none transition-colors focus:border-foreground/30 disabled:opacity-60"
                 >
                   {current.provider === "auto" ? (
                     <option value="auto">Automatic fallback chain</option>
@@ -453,7 +453,7 @@ export function VoiceTab() {
                   type="button"
                   disabled={loading || saving}
                   onClick={() => setCustomModelOpen((open) => !open)}
-                  className="rounded-none border border-border/50 px-3 py-2 text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:opacity-60"
+                  className="rounded-md border border-border/50 px-3 py-2 text-[12px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:opacity-60"
                 >
                   Custom
                 </button>
@@ -473,14 +473,14 @@ export function VoiceTab() {
                     setStatus({ tone: "muted", message: "Custom audio model selected. Add provider access below; saving voice model requires the latest Desktop backend." })
                   }
                 }}
-                className="mt-2 w-full rounded-none border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
+                className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
                 placeholder="custom-audio-model-id"
               />
             )}
           </div>
 
           {current.provider !== "auto" && (
-            <div className="rounded-none border border-border/50 bg-background/45">
+            <div className="rounded-md border border-border/50 bg-background/45">
               <button
                 type="button"
                 onClick={() => accessOpen ? setAccessOpen(false) : void openProviderAccess(current.provider)}
@@ -507,7 +507,7 @@ export function VoiceTab() {
                               type="button"
                               onClick={() => { setAuthMethod(method); setCredentialValues({}) }}
                               className={cn(
-                                "rounded-none px-2.5 py-1.5 text-[11px] font-medium transition-colors",
+                                "rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors",
                                 method === authMethod ? "bg-foreground text-background" : "bg-foreground/[0.05] text-muted-foreground hover:text-foreground",
                               )}
                             >
@@ -526,7 +526,7 @@ export function VoiceTab() {
                             type={field.sensitive !== false ? "password" : "text"}
                             disabled={savingAccess}
                             onChange={(event) => setCredentialValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
-                            className="mt-2 w-full rounded-none border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
+                            className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
                             placeholder={field.help || field.envVar || "Paste key"}
                             autoComplete="off"
                             spellCheck={false}
@@ -541,7 +541,7 @@ export function VoiceTab() {
                         type="button"
                         disabled={savingAccess}
                         onClick={() => { void saveProviderAccess() }}
-                        className="rounded-none bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-60"
+                        className="rounded-md bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-60"
                       >
                         {savingAccess ? "Saving…" : "Save provider access"}
                       </button>
@@ -549,7 +549,7 @@ export function VoiceTab() {
                   )}
 
                   {accessStatus && (
-                    <div className={cn("rounded-none border px-3 py-2 text-[12px]", statusClass(accessStatus.tone))}>
+                    <div className={cn("rounded-md border px-3 py-2 text-[12px]", statusClass(accessStatus.tone))}>
                       {accessStatus.message}
                     </div>
                   )}
@@ -560,11 +560,11 @@ export function VoiceTab() {
         </div>
       </section>
 
-      <section className="rounded-none border border-border/50 bg-card/70">
+      <section className="rounded-lg border border-border/50 bg-card/70">
         <button
           type="button"
           onClick={() => setAdvancedOpen((open) => !open)}
-          className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-foreground/[0.035]"
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.035]"
         >
           <span className="flex items-center gap-2 text-[13px] font-medium text-foreground">
             <LuSettings2 size={15} />
@@ -577,7 +577,7 @@ export function VoiceTab() {
         </button>
 
         {advancedOpen && (
-          <div className="space-y-4 border-t border-border/35 px-5 py-5">
+          <div className="space-y-4 border-t border-border/35 px-4 py-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-[12px] font-medium text-muted-foreground">
                 Language hint
@@ -586,12 +586,12 @@ export function VoiceTab() {
                   disabled={!voiceSettingsAvailable || loading || saving}
                   onChange={(event) => setSettings({ ...current, language: event.target.value })}
                   onBlur={(event) => { void save({ ...current, language: event.target.value }) }}
-                  className="mt-2 w-full rounded-none border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
+                  className="mt-2 w-full rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-foreground/30 disabled:opacity-60"
                   placeholder="auto, en, hi..."
                 />
               </label>
 
-              <div className="flex items-center justify-between gap-3 rounded-none border border-border/50 bg-foreground/[0.035] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-foreground/[0.035] px-3 py-2.5">
                 <div>
                   <p className="text-[12px] font-medium text-foreground">Echo transcript</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">Show transcript in chat.</p>
@@ -603,13 +603,13 @@ export function VoiceTab() {
                   disabled={!voiceSettingsAvailable || loading || saving}
                   onClick={() => { void save({ ...current, echoTranscript: !current.echoTranscript }) }}
                   className={cn(
-                    "relative inline-flex h-[22px] w-[40px] shrink-0 items-center rounded-none transition-colors disabled:opacity-60",
+                    "relative inline-flex h-[22px] w-[40px] shrink-0 items-center rounded-full transition-colors disabled:opacity-60",
                     current.echoTranscript ? "bg-foreground" : "bg-muted",
                   )}
                 >
                   <span
                     className={cn(
-                      "block size-[18px] rounded-none bg-background shadow-sm transition-transform",
+                      "block size-[18px] rounded-full bg-background shadow-sm transition-transform",
                       current.echoTranscript ? "translate-x-5" : "translate-x-0.5",
                     )}
                   />
@@ -620,7 +620,7 @@ export function VoiceTab() {
         )}
       </section>
 
-      <section className="rounded-none border border-border/50 bg-foreground/[0.035] px-5 py-4">
+      <section className="rounded-lg border border-border/50 bg-foreground/[0.035] px-4 py-3">
         <div className="flex gap-3">
           <LuInfo size={15} className="mt-0.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 text-[12px] leading-relaxed text-muted-foreground">
@@ -636,7 +636,7 @@ export function VoiceTab() {
       </section>
 
       {status && (
-        <div className={cn("rounded-none border px-3 py-2 text-[12px]", statusClass(status.tone))}>
+        <div className={cn("rounded-md border px-3 py-2 text-[12px]", statusClass(status.tone))}>
           {status.message}
         </div>
       )}
