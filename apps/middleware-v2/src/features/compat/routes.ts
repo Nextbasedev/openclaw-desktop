@@ -34,11 +34,13 @@ const compatState = {
   projects: [] as CompatRecord[],
   topics: [] as CompatRecord[],
   sessions: [] as CompatRecord[],
+  cronJobs: [] as CompatRecord[],
+  cronRuns: [] as CompatRecord[],
   terminals: new Map<string, CompatTerminal>(),
   loadedDbPath: null as string | null,
 };
 
-const compatCollections = ["spaces", "chats", "projects", "topics", "sessions"] as const;
+const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "cronJobs", "cronRuns"] as const;
 
 type CompatCollection = typeof compatCollections[number];
 
@@ -55,6 +57,8 @@ type V1SqliteMigrationResult = {
     projects: number;
     topics: number;
     sessions: number;
+    cronJobs: number;
+    cronRuns: number;
   };
 };
 
@@ -168,7 +172,7 @@ function migrateV1SqliteToV2(context: AppContext, sourcePathInput?: unknown): V1
   loadCompatState(context);
   const sourcePath = normalizeV1SqlitePath(sourcePathInput);
   const v1State = readV1State(sourcePath);
-  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0 };
+  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0, cronJobs: 0, cronRuns: 0 };
   for (const collection of compatCollections) {
     const incoming = Array.isArray(v1State[collection]) ? v1State[collection] as CompatRecord[] : [];
     const result = mergeCompatRecords(collection, incoming);
@@ -727,6 +731,81 @@ function recallMemoryEntries() {
     }
   }
   return { entries };
+}
+
+function normalizeCronJob(input: CompatRecord, existing?: CompatRecord) {
+  const timestamp = nowIso();
+  const paused = input.paused !== undefined ? Boolean(input.paused) : input.enabled !== undefined ? !Boolean(input.enabled) : Boolean(existing?.paused ?? false);
+  const enabled = input.enabled !== undefined ? Boolean(input.enabled) : input.paused !== undefined ? !paused : Boolean(existing?.enabled ?? true);
+  const message = input.message !== undefined ? input.message : existing?.message ?? null;
+  const task = input.task !== undefined ? input.task : existing?.task ?? message ?? "";
+  return {
+    id: existing?.id || input.id || input.jobId || id("cron"),
+    jobId: existing?.jobId || input.jobId || input.id || id("cron"),
+    name: input.name ?? existing?.name ?? "Scheduled task",
+    scheduleType: input.scheduleType ?? existing?.scheduleType ?? "cron",
+    schedule: input.schedule ?? existing?.schedule ?? "0 * * * *",
+    timezone: input.timezone ?? existing?.timezone ?? "Asia/Kolkata",
+    session: input.session ?? existing?.session ?? "isolated",
+    parentSessionKey: input.parentSessionKey ?? existing?.parentSessionKey ?? null,
+    task,
+    message,
+    model: input.model ?? existing?.model ?? null,
+    enabled,
+    paused,
+    status: paused || !enabled ? "paused" : "active",
+    deleteAfterRun: Boolean(input.deleteAfterRun ?? existing?.deleteAfterRun ?? false),
+    deliveryMode: input.deliveryMode ?? existing?.deliveryMode ?? "announce",
+    deliveryChannel: input.deliveryChannel ?? existing?.deliveryChannel ?? null,
+    deliveryTo: input.deliveryTo ?? existing?.deliveryTo ?? null,
+    params: input.params ?? existing?.params ?? null,
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+    lastRun: existing?.lastRun ?? null,
+  };
+}
+
+function findCronJob(jobId: unknown) {
+  const key = String(jobId || "");
+  return compatState.cronJobs.find((job) => job.jobId === key || job.id === key) ?? null;
+}
+
+function cronListJobs() {
+  return { jobs: [...compatState.cronJobs].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))) };
+}
+
+function cronCreateJob(input: CompatRecord) {
+  const job = normalizeCronJob(input);
+  compatState.cronJobs.push(job);
+  return { job, jobId: job.jobId };
+}
+
+function cronUpdateJob(input: CompatRecord) {
+  const key = input.jobId || input.id;
+  const index = compatState.cronJobs.findIndex((job) => job.jobId === key || job.id === key);
+  if (index < 0) return null;
+  const job = normalizeCronJob(input, compatState.cronJobs[index]);
+  compatState.cronJobs[index] = job;
+  return { job };
+}
+
+function cronDeleteJob(input: CompatRecord) {
+  const key = input.jobId || input.id;
+  const before = compatState.cronJobs.length;
+  compatState.cronJobs = compatState.cronJobs.filter((job) => job.jobId !== key && job.id !== key);
+  return before !== compatState.cronJobs.length;
+}
+
+function cronListRuns(input: CompatRecord) {
+  const key = input.jobId || input.id;
+  const runs = key ? compatState.cronRuns.filter((run) => run.jobId === key) : compatState.cronRuns;
+  return { runs };
+}
+
+function cronRecentActivity(input: CompatRecord) {
+  const limit = Number(input.limit || 50);
+  const events = compatState.cronRuns.slice(-limit).reverse();
+  return { events, activity: events };
 }
 
 function modelRefsFromConfig(cfg: CompatRecord): string[] {
@@ -1628,8 +1707,41 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return { ok: true };
       }
       case "middleware_cron_list":
+      case "middleware_cron_list_jobs":
+        return cronListJobs();
       case "middleware_cron_get_job":
-        return { jobs: [], job: null };
+        return { job: findCronJob(input.jobId || input.id) };
+      case "middleware_cron_create_job": {
+        const result = cronCreateJob(input);
+        saveCompatCollection(context, "cronJobs");
+        return result;
+      }
+      case "middleware_cron_update_job": {
+        const result = cronUpdateJob(input);
+        if (!result) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
+        saveCompatCollection(context, "cronJobs");
+        return result;
+      }
+      case "middleware_cron_delete_job": {
+        const deleted = cronDeleteJob(input);
+        if (!deleted) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
+        saveCompatCollection(context, "cronJobs");
+        return { ok: true };
+      }
+      case "middleware_cron_list_runs":
+        return cronListRuns(input);
+      case "middleware_cron_recent_activity":
+        return cronRecentActivity(input);
+      case "middleware_cron_job_conversation": {
+        const run = compatState.cronRuns.find((item) => item.jobId === input.jobId || item.runId === input.runId || item.id === input.runId);
+        if (!run?.sessionKey) return { messages: [], lastRun: run ?? null };
+        try {
+          const history = await context.gateway.request("chat.history", { sessionKey: run.sessionKey }, 30_000) as CompatRecord;
+          return { ...(history || {}), messages: history?.messages ?? [], lastRun: run };
+        } catch {
+          return { messages: [], lastRun: run };
+        }
+      }
       default:
         // Safe fallback: return empty ok instead of 404 so UI doesn't crash on unimplemented commands
         return { ok: true };

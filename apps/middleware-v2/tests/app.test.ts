@@ -146,6 +146,36 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("notification cron commands create, list, update, and delete jobs", async () => {
+    const app = await createApp(testConfig());
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_cron_create_job",
+      payload: { input: { name: "Morning check", scheduleType: "cron", schedule: "0 9 * * *", timezone: "Asia/Kolkata", message: "What changed?", enabled: true } },
+    });
+    expect(created.statusCode).toBe(200);
+    const jobId = created.json().jobId as string;
+    expect(created.json()).toMatchObject({ job: { jobId, name: "Morning check", enabled: true, paused: false } });
+
+    const listed = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_list_jobs", payload: { input: {} } });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().jobs).toEqual(expect.arrayContaining([expect.objectContaining({ jobId, name: "Morning check" })]));
+
+    const updated = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_update_job", payload: { input: { jobId, enabled: false, name: "Paused check" } } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ job: { jobId, name: "Paused check", enabled: false, paused: true, status: "paused" } });
+
+    const activity = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_recent_activity", payload: { input: { limit: 10 } } });
+    expect(activity.statusCode).toBe(200);
+    expect(activity.json()).toMatchObject({ events: [] });
+
+    const deleted = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_delete_job", payload: { input: { jobId } } });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({ ok: true });
+    await app.close();
+  });
+
   test("memory commands read, write, list, store, and recall workspace files", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-memory-settings-"));
     const workspace = path.join(home, ".openclaw", "workspace");
