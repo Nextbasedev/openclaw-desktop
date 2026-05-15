@@ -1456,20 +1456,22 @@ export function ChatView({
                 aria-label="Scroll to latest message"
                 title="Scroll to latest message"
                 onClick={jumpToLatestMessage}
-                whileHover={{ y: 2 }}
-                whileTap={{ scale: 0.92, y: 4 }}
-                transition={{ type: "spring", stiffness: 420, damping: 28 }}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.94 }}
                 className={cn(
-                  "group flex h-8 w-10 cursor-pointer items-center justify-center",
-                  "text-foreground/80 transition-colors hover:text-foreground",
+                  "group flex h-8 w-16 cursor-pointer items-center justify-center",
+                  "bg-transparent text-foreground/80 transition-colors hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
               >
-                <MdKeyboardDoubleArrowDown
-                  size={25}
+                <motion.span
                   aria-hidden="true"
-                  className="transition-transform duration-200 ease-out group-hover:translate-y-0.5"
-                />
+                  animate={{ y: [0, 5, 0] }}
+                  transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
+                  className="flex bg-transparent"
+                >
+                  <MdKeyboardDoubleArrowDown size={26} />
+                </motion.span>
               </motion.button>
             </motion.div>
           )}
