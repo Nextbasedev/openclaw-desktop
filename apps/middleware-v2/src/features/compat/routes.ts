@@ -39,6 +39,157 @@ type CompatTerminal = {
   listeners: Set<(event: string, payload: CompatRecord) => void>;
 };
 
+
+const cronSseClients = new Set<{ write: (event: string, payload: CompatRecord) => void }>();
+
+function emitCronEvent(event: CompatRecord) {
+  for (const client of [...cronSseClients]) {
+    try { client.write(String(event.type || "message"), event); } catch { /* client closed */ }
+  }
+}
+
+function isoFromMs(value: unknown, fallbackMs = Date.now()) {
+  const ms = typeof value === "number" && Number.isFinite(value) ? value : fallbackMs;
+  return new Date(ms).toISOString();
+}
+
+function everyMsFromSchedule(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(1, Math.floor(value));
+  const text = String(value || "").trim().toLowerCase();
+  const match = text.match(/^(\d+)\s*(ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?$/);
+  if (!match) return 60_000;
+  const amount = Math.max(1, Number(match[1]));
+  const unit = match[2] || "m";
+  if (unit === "ms") return amount;
+  if (["s", "sec", "secs", "second", "seconds"].includes(unit)) return amount * 1_000;
+  if (["h", "hr", "hrs", "hour", "hours"].includes(unit)) return amount * 3_600_000;
+  if (["d", "day", "days"].includes(unit)) return amount * 86_400_000;
+  return amount * 60_000;
+}
+
+function scheduleToGateway(input: CompatRecord, existing?: CompatRecord) {
+  const type = String(input.scheduleType ?? existing?.scheduleType ?? "cron");
+  const schedule = input.schedule ?? existing?.schedule ?? "0 * * * *";
+  if (type === "at") return { kind: "at", at: new Date(String(schedule)).toISOString() };
+  if (type === "every") return { kind: "every", everyMs: everyMsFromSchedule(schedule) };
+  return { kind: "cron", expr: String(schedule || "0 * * * *"), tz: input.timezone ?? existing?.timezone ?? "Asia/Kolkata" };
+}
+
+function gatewayScheduleToCompat(schedule: CompatRecord | undefined) {
+  if (!schedule || typeof schedule !== "object") return { scheduleType: "cron", schedule: "0 * * * *", timezone: "Asia/Kolkata" };
+  if (schedule.kind === "at") return { scheduleType: "at", schedule: String(schedule.at || ""), timezone: null };
+  if (schedule.kind === "every") {
+    const everyMs = Number(schedule.everyMs || 0);
+    const minutes = everyMs > 0 ? Math.max(1, Math.floor(everyMs / 60_000)) : 1;
+    return { scheduleType: "every", schedule: `${minutes}m`, timezone: null };
+  }
+  return { scheduleType: "cron", schedule: String(schedule.expr || "0 * * * *"), timezone: schedule.tz ?? "Asia/Kolkata" };
+}
+
+function gatewaySessionToCompat(job: CompatRecord) {
+  const target = String(job.sessionTarget ?? "isolated");
+  if (target.startsWith("session:")) return target.slice("session:".length);
+  return target;
+}
+
+function gatewayRunToCompat(run: CompatRecord, job?: CompatRecord) {
+  const rawStatus = String(run.status || run.lastRunStatus || "completed").toLowerCase();
+  const status = rawStatus === "ok" ? "completed" : rawStatus === "error" ? "failed" : rawStatus;
+  const runAtMs = typeof run.runAtMs === "number" ? run.runAtMs : typeof run.ts === "number" ? run.ts : Date.now();
+  const finishedMs = typeof run.ts === "number" ? run.ts : typeof run.finishedAtMs === "number" ? run.finishedAtMs : runAtMs;
+  const runId = String(run.runId || run.sessionId || `${run.jobId || job?.id || "cron"}-${runAtMs}`);
+  return {
+    id: runId,
+    runId,
+    jobId: String(run.jobId || job?.id || job?.jobId || ""),
+    status,
+    startedAt: isoFromMs(runAtMs),
+    finishedAt: status === "running" ? null : isoFromMs(finishedMs, runAtMs),
+    result: run.summary ?? run.result ?? null,
+    error: run.error ?? (status === "failed" ? run.summary ?? null : null),
+    sessionKey: run.sessionKey ?? null,
+    durationMs: run.durationMs ?? null,
+    deliveryStatus: run.deliveryStatus ?? null,
+  };
+}
+
+function cronEventFromRun(run: CompatRecord, job?: CompatRecord) {
+  const compat = gatewayRunToCompat(run, job);
+  return {
+    type: compat.status === "running" ? "cron.run.started" : compat.status === "failed" ? "cron.run.failed" : "cron.run.completed",
+    jobId: compat.jobId,
+    runId: compat.runId,
+    sessionKey: compat.sessionKey,
+    name: job?.name ?? run.jobName ?? undefined,
+    status: compat.status,
+    timestamp: compat.finishedAt ?? compat.startedAt,
+    result: compat.result,
+    error: compat.error,
+  };
+}
+
+function gatewayJobToCompat(job: CompatRecord, lastRun?: CompatRecord | null) {
+  const schedule = gatewayScheduleToCompat(job.schedule);
+  const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
+  const delivery = job.delivery && typeof job.delivery === "object" ? job.delivery : {};
+  const state = job.state && typeof job.state === "object" ? job.state : {};
+  const convertedLastRun = lastRun ? gatewayRunToCompat(lastRun, job) : state.lastRunAtMs ? gatewayRunToCompat({
+    jobId: job.id,
+    status: state.lastRunStatus || state.lastStatus || "ok",
+    runAtMs: state.lastRunAtMs,
+    ts: state.lastRunAtMs,
+    sessionKey: state.lastSessionKey,
+  }, job) : null;
+  return {
+    id: String(job.id || job.jobId),
+    jobId: String(job.id || job.jobId),
+    name: job.name ?? "Scheduled task",
+    scheduleType: schedule.scheduleType,
+    schedule: schedule.schedule,
+    timezone: schedule.timezone,
+    session: gatewaySessionToCompat(job),
+    parentSessionKey: String(job.sessionTarget || "").startsWith("session:") ? gatewaySessionToCompat(job) : null,
+    task: payload.message ?? payload.text ?? "",
+    message: payload.message ?? payload.text ?? null,
+    model: payload.model ?? null,
+    enabled: job.enabled !== false,
+    paused: job.enabled === false,
+    status: job.enabled === false ? "paused" : "active",
+    deleteAfterRun: Boolean(job.deleteAfterRun),
+    deliveryMode: delivery.mode ?? null,
+    deliveryChannel: delivery.channel ?? null,
+    deliveryTo: delivery.to ?? null,
+    params: { gateway: job },
+    createdAt: isoFromMs(job.createdAtMs),
+    updatedAt: isoFromMs(job.updatedAtMs ?? job.createdAtMs),
+    lastRun: convertedLastRun,
+  };
+}
+
+function compatJobToGateway(input: CompatRecord, existing?: CompatRecord) {
+  const message = String(input.message ?? input.task ?? existing?.message ?? existing?.task ?? "").trim();
+  const model = input.model ?? existing?.model;
+  const session = String(input.session ?? existing?.session ?? "isolated");
+  const deliveryMode = input.deliveryMode ?? existing?.deliveryMode;
+  const delivery = deliveryMode ? {
+    mode: deliveryMode,
+    channel: input.deliveryChannel ?? existing?.deliveryChannel,
+    to: input.deliveryTo ?? existing?.deliveryTo,
+  } : undefined;
+  const payload: CompatRecord = { kind: "agentTurn", message };
+  if (model) payload.model = model;
+  return {
+    name: input.name ?? existing?.name ?? "Scheduled task",
+    schedule: scheduleToGateway(input, existing),
+    sessionTarget: session && session !== "isolated" && session !== "current" && session !== "main" ? `session:${session}` : session || "isolated",
+    wakeMode: input.wakeMode ?? "now",
+    payload,
+    delivery,
+    enabled: input.enabled ?? existing?.enabled ?? true,
+    deleteAfterRun: Boolean(input.deleteAfterRun ?? existing?.deleteAfterRun ?? false),
+  };
+}
+
 const compatState = {
   spaces: [] as CompatRecord[],
   activeSpaceId: null as string | null,
@@ -984,6 +1135,110 @@ function findCronJob(jobId: unknown) {
   return compatState.cronJobs.find((job) => job.jobId === key || job.id === key) ?? null;
 }
 
+async function cronListJobsGateway(context: AppContext) {
+  const page = await context.gateway.request<CompatRecord>("cron.list", { includeDisabled: true, limit: 500 }, 30_000);
+  const jobs = Array.isArray(page.jobs) ? page.jobs : [];
+  const runsPage = await cronRunsPageGateway(context, { scope: "all", limit: 200 }).catch(() => ({ entries: [] as CompatRecord[] }));
+  const latestRunByJobId = new Map<string, CompatRecord>();
+  for (const run of runsPage.entries || []) {
+    const jobId = String(run.jobId || "");
+    if (jobId && !latestRunByJobId.has(jobId)) latestRunByJobId.set(jobId, run);
+  }
+  const compatJobs = jobs.map((job) => gatewayJobToCompat(job, latestRunByJobId.get(String(job.id)) ?? null));
+  compatState.cronJobs = compatJobs;
+  return { ...page, jobs: compatJobs };
+}
+
+async function cronGetJobGateway(context: AppContext, jobId: unknown) {
+  const jobs = await cronListJobsGateway(context);
+  const key = String(jobId || "");
+  return { job: jobs.jobs.find((job: CompatRecord) => job.jobId === key || job.id === key) ?? null };
+}
+
+async function cronCreateJobGateway(context: AppContext, input: CompatRecord) {
+  const job = await context.gateway.request<CompatRecord>("cron.add", compatJobToGateway(input), 30_000);
+  const compat = gatewayJobToCompat(job);
+  compatState.cronJobs = [compat, ...compatState.cronJobs.filter((item) => item.jobId !== compat.jobId)];
+  emitCronEvent({ type: "cron.job.created", jobId: compat.jobId, job: compat, timestamp: nowIso() });
+  return { job: compat, jobId: compat.jobId };
+}
+
+async function cronUpdateJobGateway(context: AppContext, input: CompatRecord) {
+  const key = String(input.jobId || input.id || "");
+  if (!key) return null;
+  const existing = (await cronGetJobGateway(context, key)).job;
+  if (!existing) return null;
+  const patch = compatJobToGateway(input, existing);
+  const job = await context.gateway.request<CompatRecord>("cron.update", { jobId: key, patch }, 30_000);
+  const compat = gatewayJobToCompat(job, existing.lastRun ?? null);
+  compatState.cronJobs = [compat, ...compatState.cronJobs.filter((item) => item.jobId !== compat.jobId)];
+  emitCronEvent({ type: "cron.job.updated", jobId: compat.jobId, job: compat, timestamp: nowIso() });
+  return { job: compat };
+}
+
+async function cronDeleteJobGateway(context: AppContext, input: CompatRecord) {
+  const key = String(input.jobId || input.id || "");
+  if (!key) return false;
+  const result = await context.gateway.request<CompatRecord>("cron.remove", { jobId: key }, 30_000);
+  compatState.cronJobs = compatState.cronJobs.filter((job) => job.jobId !== key && job.id !== key);
+  emitCronEvent({ type: "cron.job.deleted", jobId: key, timestamp: nowIso() });
+  return result.removed !== false;
+}
+
+async function cronRunsPageGateway(context: AppContext, input: CompatRecord) {
+  const params: CompatRecord = {
+    limit: Number(input.limit || 50),
+    offset: Number(input.offset || 0),
+    sortDir: input.sortDir || "desc",
+  };
+  if (input.scope) params.scope = input.scope;
+  if (input.jobId || input.id) params.jobId = input.jobId || input.id;
+  if (!params.scope && !params.jobId) params.scope = "all";
+  return context.gateway.request<CompatRecord>("cron.runs", params, 30_000);
+}
+
+async function cronListRunsGateway(context: AppContext, input: CompatRecord) {
+  const page = await cronRunsPageGateway(context, input);
+  const entries = Array.isArray(page.entries) ? page.entries : [];
+  const jobsById = new Map(compatState.cronJobs.map((job) => [String(job.jobId), job]));
+  const runs = entries.map((run) => gatewayRunToCompat(run, jobsById.get(String(run.jobId))));
+  compatState.cronRuns = runs;
+  return { ...page, runs, entries };
+}
+
+async function cronRecentActivityGateway(context: AppContext, input: CompatRecord) {
+  const page = await cronRunsPageGateway(context, { ...input, scope: "all", limit: Number(input.limit || 50) });
+  const entries = Array.isArray(page.entries) ? page.entries : [];
+  const jobsById = new Map(compatState.cronJobs.map((job) => [String(job.jobId), job]));
+  const events = entries.map((run) => cronEventFromRun(run, jobsById.get(String(run.jobId))));
+  return { ...page, events, activity: events };
+}
+
+async function cronRunJobGateway(context: AppContext, input: CompatRecord) {
+  const key = String(input.jobId || input.id || "");
+  if (!key) throw new Error("jobId is required");
+  const job = findCronJob(key) ?? (await cronGetJobGateway(context, key)).job;
+  const startedRun = {
+    jobId: key,
+    runId: `manual-${Date.now()}`,
+    status: "running",
+    startedAt: nowIso(),
+    finishedAt: null,
+    error: null,
+    sessionKey: null,
+  };
+  emitCronEvent({ type: "cron.run.started", jobId: key, runId: startedRun.runId, name: job?.name, status: "running", timestamp: startedRun.startedAt });
+  const result = await context.gateway.request<CompatRecord>("cron.run", { jobId: key, mode: input.mode || "force" }, 30_000);
+  setTimeout(async () => {
+    try {
+      const runs = await cronListRunsGateway(context, { jobId: key, limit: 1 });
+      const latest = runs.runs?.[0];
+      if (latest) emitCronEvent(cronEventFromRun(latest, job ?? undefined));
+    } catch { /* best-effort refresh */ }
+  }, 1_500).unref?.();
+  return { queued: true, result, run: startedRun };
+}
+
 function cronListJobs() {
   return { jobs: [...compatState.cronJobs].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))) };
 }
@@ -1870,11 +2125,24 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
-    reply.raw.write("event: cron.ready\ndata: {\"ok\":true}\n\n");
+    const write = (event: string, payload: CompatRecord) => {
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+    const client = { write };
+    cronSseClients.add(client);
+    write("cron.ready", { ok: true });
+    const unsubscribe = context.gateway.onEvent((gatewayEvent) => {
+      if (!gatewayEvent.event.startsWith("cron.")) return;
+      const payload = gatewayEvent.payload && typeof gatewayEvent.payload === "object" ? gatewayEvent.payload as CompatRecord : {};
+      const type = String(payload.type || gatewayEvent.event);
+      write(type, { ...payload, type });
+    });
     const interval = setInterval(() => reply.raw.write(":heartbeat\n\n"), 15_000);
     await new Promise<void>((resolve) => {
       request.raw.on("close", () => {
         clearInterval(interval);
+        unsubscribe();
+        cronSseClients.delete(client);
         resolve();
       });
     });
@@ -2250,30 +2518,37 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       }
       case "middleware_cron_list":
       case "middleware_cron_list_jobs":
-        return cronListJobs();
+        return cronListJobsGateway(context).catch(() => cronListJobs());
       case "middleware_cron_get_job":
-        return { job: findCronJob(input.jobId || input.id) };
+        return cronGetJobGateway(context, input.jobId || input.id).catch(() => ({ job: findCronJob(input.jobId || input.id) }));
       case "middleware_cron_create_job": {
-        const result = cronCreateJob(input);
-        saveCompatCollection(context, "cronJobs");
-        return result;
+        try { return await cronCreateJobGateway(context, input); }
+        catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job create failed" } }); }
       }
       case "middleware_cron_update_job": {
-        const result = cronUpdateJob(input);
-        if (!result) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
-        saveCompatCollection(context, "cronJobs");
-        return result;
+        try {
+          const result = await cronUpdateJobGateway(context, input);
+          if (!result) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
+          return result;
+        } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job update failed" } }); }
       }
       case "middleware_cron_delete_job": {
-        const deleted = cronDeleteJob(input);
-        if (!deleted) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
-        saveCompatCollection(context, "cronJobs");
-        return { ok: true };
+        try {
+          const deleted = await cronDeleteJobGateway(context, input);
+          if (!deleted) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
+          return { ok: true, deleted: true, jobId: input.jobId || input.id };
+        } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job delete failed" } }); }
       }
+      case "middleware_cron_run_job":
+        return cronRunJobGateway(context, input).catch((error) => reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job run failed" } }));
+      case "middleware_cron_pause_job":
+        return cronUpdateJobGateway(context, { ...input, enabled: !Boolean(input.paused) }).catch((error) => reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job pause failed" } }));
+      case "middleware_cron_job_status":
+        return context.gateway.request("cron.status", {}, 30_000);
       case "middleware_cron_list_runs":
-        return cronListRuns(input);
+        return cronListRunsGateway(context, input).catch(() => cronListRuns(input));
       case "middleware_cron_recent_activity":
-        return cronRecentActivity(input);
+        return cronRecentActivityGateway(context, input).catch(() => cronRecentActivity(input));
       case "middleware_cron_job_conversation": {
         const run = compatState.cronRuns.find((item) => item.jobId === input.jobId || item.runId === input.runId || item.id === input.runId);
         if (!run?.sessionKey) return { messages: [], lastRun: run ?? null };

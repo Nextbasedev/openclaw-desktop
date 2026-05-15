@@ -82,18 +82,19 @@ const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware on this VPS.
 
 Use this repo/branch:
 https://github.com/Nextbasedev/openclaw-desktop.git
-branch: main
+branch: new-feat-harsh
 
 Requirements:
-Install or update the Middleware from this repo.
+Install or update the Middleware V2 from this repo/branch.
 Run it as an auto-restarting service so it survives crashes and reboot.
-Confirm the OpenClaw Gateway/runtime is running on this VPS.
+Confirm the OpenClaw Gateway/runtime is running on this VPS, including the cron scheduler.
 Choose the best URL that my Desktop can reach:
 If using Tailscale, use the Tailscale MagicDNS name or 100.x.y.z address
 If only LAN/private network, use the reachable private IP
 If public IP is exposed, use http://public_ip:8787/ or the configured reverse proxy URL
 If using firewall/security group, allow the Middleware port or configure reverse proxy.
 Test /health from the chosen URL and make sure openclaw.connected is true.
+Verify cron end-to-end through Middleware V2: create/list/run/history and /api/stream/cron events.
 
 When finished, give me only:
 Middleware URL: <reachable-url>

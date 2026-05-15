@@ -293,7 +293,7 @@ export class GatewayClient {
         maxProtocol: PROTOCOL_VERSION,
         client: CLIENT,
         auth: { token },
-        caps: ["chat", "sessions"],
+        caps: ["chat", "sessions", "cron"],
         scopes,
         device: {
           id: identity.deviceId,
