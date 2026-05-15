@@ -967,7 +967,7 @@ export function ChatBox({
       </div>
 
       {showDraftSpaceBanner && (
-        <div className="flex min-h-11 items-center justify-between gap-3 rounded-b-[24px] bg-white/[0.035] px-3 py-2 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-2xl">
+        <div className="relative -mt-6 flex min-h-16 items-end justify-between gap-3 rounded-b-[24px] bg-white/[0.075] px-3 pb-2.5 pt-8 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.07)] backdrop-blur-2xl">
           <Popover>
             <PopoverTrigger asChild>
               <button
