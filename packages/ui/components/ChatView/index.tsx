@@ -1166,7 +1166,7 @@ export function ChatView({
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
             const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
               ? (
-                  <div className={assistantHasText ? "mt-2 max-w-[85%]" : "mb-2 max-w-[85%]"}>
+                  <div className="mb-2 max-w-[85%]">
                     <ToolCallSteps
                       tools={filteredToolCalls}
                       defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
@@ -1208,7 +1208,7 @@ export function ChatView({
                 }
               />
             ) : null
-            return assistantHasText ? <>{bubble}{toolSteps}</> : <>{toolSteps}{bubble}</>
+            return <>{toolSteps}{bubble}</>
           })()}
           {msg.role === "user" && userSubagents.length > 0 && (
             <div className="mt-3">
