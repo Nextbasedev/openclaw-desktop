@@ -1451,20 +1451,26 @@ export function ChatView({
               transition={{ duration: 0.16, ease: "easeOut" }}
               className="mb-2 flex justify-center"
             >
-              <button
+              <motion.button
                 type="button"
                 aria-label="Scroll to latest message"
                 title="Scroll to latest message"
                 onClick={jumpToLatestMessage}
+                whileHover={{ y: 2 }}
+                whileTap={{ scale: 0.92, y: 4 }}
+                transition={{ type: "spring", stiffness: 420, damping: 28 }}
                 className={cn(
-                  "flex size-9 cursor-pointer items-center justify-center rounded-full border",
-                  "border-border/70 bg-background/90 text-foreground shadow-lg backdrop-blur-xl",
-                  "transition-colors hover:bg-muted hover:text-foreground",
-                  "dark:border-white/10 dark:bg-black/70 dark:text-white dark:hover:bg-white/10"
+                  "group flex h-8 w-10 cursor-pointer items-center justify-center",
+                  "text-foreground/80 transition-colors hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
               >
-                <MdKeyboardDoubleArrowDown size={24} aria-hidden="true" />
-              </button>
+                <MdKeyboardDoubleArrowDown
+                  size={25}
+                  aria-hidden="true"
+                  className="transition-transform duration-200 ease-out group-hover:translate-y-0.5"
+                />
+              </motion.button>
             </motion.div>
           )}
         </AnimatePresence>
