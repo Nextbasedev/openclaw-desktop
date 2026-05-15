@@ -30,7 +30,7 @@ import { emit } from "@/lib/events"
 import { getWorkspaceWindowId, loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot, type WorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
+import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
@@ -316,6 +316,7 @@ function AppShell({
   useEffect(() => {
     installDesktopRouteShim()
     initClientLogs()
+    initMiddlewareConnectionCrossWindowSync()
     initFrontendCacheRealtimeInvalidation()
     frontendLog("ui", "app.bootstrap", { route: getRoutePath() })
     return () => frontendLog("ui", "app.unmount", { route: getRoutePath() })
