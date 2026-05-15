@@ -141,9 +141,6 @@ export function ChatBox({
     reload: reloadModels,
   } = useModels()
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0] ?? null
-  const orderedSpaces = activeSpace
-    ? [activeSpace, ...spaces.filter((space) => space.id !== activeSpace.id)]
-    : spaces
 
   const autoResize = React.useCallback(() => {
     const el = textareaRef.current
@@ -991,7 +988,7 @@ export function ChatBox({
                 Select chat space
               </div>
               <div className="max-h-64 overflow-y-auto">
-                {orderedSpaces.length > 0 ? orderedSpaces.map((space) => {
+                {spaces.length > 0 ? spaces.map((space) => {
                   const selected = space.id === activeSpace?.id
                   return (
                     <button
