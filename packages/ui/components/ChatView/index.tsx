@@ -5,6 +5,7 @@ import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
+import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
 import { SubagentFullChat } from "./SubagentFullChat"
@@ -1099,6 +1100,12 @@ export function ChatView({
                 onOpen={openSubagent}
               />
             </div>
+          )}
+          {msg.role === "assistant" && msg.reasoningText && (
+            <ThinkingBlock
+              text={msg.reasoningText}
+              defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
+            />
           )}
           {msg.role === "assistant" &&
             filteredToolCalls &&

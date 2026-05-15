@@ -6,6 +6,13 @@ import type { OpenClawMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
 
+type ChatHistoryResponse = {
+  sessionKey?: string;
+  sessionId?: string;
+  messages?: unknown[];
+  status?: string;
+};
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -90,6 +97,7 @@ export class ChatLiveIngest {
   private listening = false;
   private optimisticUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs: number }>>();
   private liveAssistantText = new Map<string, string>();
+  private historyBackfillTimers = new Map<string, NodeJS.Timeout>();
   private readonly log = createLogger("chat-live");
 
   constructor(private readonly context: AppContext) {}
@@ -147,6 +155,10 @@ export class ChatLiveIngest {
     }
     if (event.event === "chat" || event.event === "chat.delta" || event.event === "chat.final") {
       this.handleChatEvent(event.payload);
+      return;
+    }
+    if (event.event === "agent") {
+      this.handleAgentEvent(event.payload);
     }
   }
 
@@ -179,9 +191,12 @@ export class ChatLiveIngest {
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
     const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
     if (assistantHasFinalText && associatedRun) {
-      this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId, {
-        resultMeta: { inferred: true, reason: "assistant_final_after_tool_calls" },
-      });
+      // This is only a lifecycle inference: the gateway did not send a real
+      // tool result event before final assistant text. Mark the tool complete so
+      // the UI stops spinning, but do not fabricate resultMeta. Real output may
+      // still arrive later and should be the only user-visible result.
+      this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId);
+      this.scheduleHistoryBackfill(sessionKey, associatedRun.runId, "assistant_final_after_tool_calls");
     }
     if (projectedMessage.role === "assistant" && associatedRun && !this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) {
       this.context.runs.updateRunStatus(associatedRun.runId, "done", { statusLabel: null });
@@ -355,7 +370,10 @@ export class ChatLiveIngest {
         phase: "result",
         status: "success",
         argsMeta: runningTool.argsMeta,
-        resultMeta: runningTool.resultMeta ?? { inferred: true, reason: "next_tool_started_after_missing_result_event" },
+        // Only infer completion/status before the next tool starts. Do not write
+        // fallback result metadata; otherwise the UI can show the placeholder as
+        // output until refresh rebuilds from the real persisted tool result.
+        resultMeta: runningTool.resultMeta,
         updatedAtMs: now,
         finishedAtMs: now,
       });
@@ -379,6 +397,7 @@ export class ChatLiveIngest {
       });
       this.log.info("tool.inferred-result-before-next-start.broadcast", { sessionKey, runId, toolCallId: tool.toolCallId, nextToolCallId, cursor: event.cursor });
     }
+    this.scheduleHistoryBackfill(sessionKey, runId, "next_tool_started_after_missing_result_event");
   }
 
   private completeRunningToolsWithPatches(sessionKey: string, runId: string, params: { resultMeta?: unknown } = {}) {
@@ -486,6 +505,84 @@ export class ChatLiveIngest {
       const updated = this.context.runs.updateRunStatus(run.runId, "streaming", { statusLabel: "Streaming" });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.streaming");
       this.broadcastLiveAssistantText(sessionKey, updated ?? run, data);
+    }
+  }
+
+  private handleAgentEvent(payload: unknown) {
+    if (!isObject(payload)) return;
+    if (payload.stream !== "thinking") return;
+    const data = isObject(payload.data) ? payload.data : payload;
+    const sessionKey = firstString(payload.sessionKey, data.sessionKey, payload.key, data.key);
+    if (!sessionKey) return;
+    const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
+    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    if (!run) return;
+    const text = textFromLiveValue(data.text);
+    const delta = textFromLiveValue(data.delta) ?? text;
+    if (!text && !delta) return;
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey,
+      eventType: "chat.reasoning.delta",
+      payload: canonicalPatchPayload({
+        sessionKey,
+        semanticType: "chat.reasoning.delta",
+        run,
+        payload: {
+          sessionKey,
+          runId: run.runId,
+          gatewayRunId: run.gatewayRunId,
+          text,
+          delta,
+        },
+      }),
+    });
+    this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
+    this.log.info("reasoning.delta.broadcast", { sessionKey, runId: run.runId, cursor: patch.cursor, textLength: text?.length ?? 0, deltaLength: delta?.length ?? 0 });
+  }
+
+  private scheduleHistoryBackfill(sessionKey: string, runId: string | null, reason: string) {
+    const existing = this.historyBackfillTimers.get(sessionKey);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.historyBackfillTimers.delete(sessionKey);
+      void this.backfillHistory(sessionKey, runId, reason);
+    }, 300);
+    this.historyBackfillTimers.set(sessionKey, timer);
+  }
+
+  private async backfillHistory(sessionKey: string, runId: string | null, reason: string) {
+    const startedAt = Date.now();
+    try {
+      const history = await this.context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 });
+      const messages = history.messages ?? [];
+      if (!messages.length) return;
+      const normalized = normalizeHistoryMessages(sessionKey, messages);
+      const projection = this.context.messages.upsertMessages(normalized);
+      const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
+      for (const projected of projection.changedMessages) {
+        this.ingestToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run);
+        const semanticType = projected.role === "assistant" ? "chat.assistant.final" : projected.role === "user" ? "chat.user.confirmed" : "chat.message.upsert";
+        const event = this.context.messages.appendProjectionEvent({
+          sessionKey,
+          eventType: "chat.message.upsert",
+          payload: canonicalPatchPayload({
+            sessionKey,
+            semanticType,
+            run,
+            messageId: projected.messageId,
+            payload: {
+              sessionKey,
+              message: projected.data,
+              messageSeq: projected.openclawSeq,
+              ...(run?.runId ? { runId: run.runId } : {}),
+            },
+          }),
+        });
+        this.context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey: event.sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+      }
+      this.log.info("history.backfill.end", { sessionKey, runId, reason, durationMs: Date.now() - startedAt, messages: messages.length, changedMessages: projection.changedMessages.length });
+    } catch (error) {
+      this.log.warn("history.backfill.fail", { sessionKey, runId, reason, ...errorMeta(error) });
     }
   }
 
@@ -613,5 +710,6 @@ export class ChatLiveIngest {
       createdAtMs: patch.createdAtMs,
     });
     this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status });
+    this.scheduleHistoryBackfill(sessionKey, null, "sessions.changed");
   }
 }

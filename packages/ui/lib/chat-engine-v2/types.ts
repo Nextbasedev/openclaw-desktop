@@ -70,6 +70,8 @@ export type PatchPayloadV2 = {
   activeRun?: ActiveRunV2 | null
   toolCallId?: string
   toolCall?: ToolCallProjectionV2
+  text?: string | null
+  delta?: string | null
   [key: string]: unknown
 }
 
