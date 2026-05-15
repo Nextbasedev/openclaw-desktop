@@ -409,6 +409,7 @@ function AppShell({
           title: activeTopic.name,
           subtitle: activeTopic.projectName,
           kind: "topic",
+          topic: activeTopic,
         },
       })
       return
@@ -424,6 +425,7 @@ function AppShell({
           title,
           subtitle: "Chat",
           kind: "chat",
+          chat: activeChat,
         },
       })
       return
@@ -1558,14 +1560,39 @@ function AppShell({
     )
     if (!splitTab) return
 
+    const sourceFallbackTab = focused.tabs.filter((tab) => tab.id !== splitTab.id).at(-1)
+    const sourceFallbackData = sourceFallbackTab ? tabDataRef.current.get(sourceFallbackTab.id) : null
+    const sourceFallbackChat =
+      sourceFallbackTab?.kind === "chat"
+        ? sourceFallbackTab.chat ?? sourceFallbackData?.chat ?? null
+        : null
+    const sourceFallbackCached = sourceFallbackChat
+      ? resolvedChatCacheRef.current.get(sourceFallbackChat.id)
+      : null
+    const sourceSessionData = sourceFallbackCached
+      ? {
+          chat: sourceFallbackCached.chat,
+          sessionKey: sourceFallbackCached.sessionKey,
+          title: sourceFallbackCached.title,
+        }
+      : sourceFallbackChat?.sessionKey
+        ? {
+            chat: sourceFallbackChat,
+            sessionKey: sourceFallbackChat.sessionKey,
+            title: isUndecidedChatTitle(sourceFallbackChat.name) ? "New Chat" : sourceFallbackChat.name,
+          }
+        : null
+
     const data = tabDataRef.current.get(splitTab.id)
-    if (data?.chat) {
-      const cached = resolvedChatCacheRef.current.get(data.chat.id)
+    const splitChat = splitTab.kind === "chat" ? splitTab.chat ?? data?.chat ?? null : null
+    if (splitChat) {
+      const cached = resolvedChatCacheRef.current.get(splitChat.id)
       if (cached) {
         dispatchGroups({
           type: "SPLIT_TAB",
           tabId: splitTab.id,
           sessionData: cached,
+          sourceSessionData,
         })
         setActiveTopic(null)
         setActiveChat(cached.chat)
@@ -1575,8 +1602,8 @@ function AppShell({
         setPendingPrompt(null)
         setComposerError(null)
       } else {
-        dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null })
-        ensureChatSession(data.chat)
+        dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null, sourceSessionData })
+        ensureChatSession(splitChat)
           .then((resolved) => {
             resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
             dispatchGroups({
@@ -1595,7 +1622,7 @@ function AppShell({
           .catch(() => {})
       }
     } else {
-      dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null })
+      dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null, sourceSessionData })
     }
   }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
 
