@@ -1253,7 +1253,7 @@ export function ChatView({
     )
   }
 
-  if (messages.length === 0 && !isGenerating) {
+  if (messages.length === 0) {
     return (
       <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
         <AnimatedGreeting />
@@ -1270,6 +1270,14 @@ export function ChatView({
           modelSwitching={modelSwitching}
           glowOnMount
         />
+        {statusText && (
+          <div className="flex items-center pl-1">
+            <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+              {statusText.replace(/\.{3}$/, "")}
+              <span className="thinking-ellipsis" aria-hidden="true" />
+            </span>
+          </div>
+        )}
         {status === "error" && (
           <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
             <p className="text-sm text-red-400">
@@ -1384,10 +1392,10 @@ export function ChatView({
               </AnimatePresence>
 
               {statusText && (
-                <div className="mt-4 flex items-center gap-2 pl-1">
-                  <TypingDots />
-                  <span className="text-[12px] text-muted-foreground">
-                    {statusText}
+                <div className="mt-4 flex items-center pl-1">
+                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                    {statusText.replace(/\.{3}$/, "")}
+                    <span className="thinking-ellipsis" aria-hidden="true" />
                   </span>
                 </div>
               )}
