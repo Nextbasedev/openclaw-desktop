@@ -154,6 +154,11 @@ function fallbackPathForTab(tab: string): string {
   return "/"
 }
 
+function shouldUseNativeWindowChrome(): boolean {
+  if (typeof window === "undefined") return false
+  return new URLSearchParams(window.location.search).get("openclawNativeChrome") === "1"
+}
+
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 220
@@ -161,6 +166,7 @@ const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
 
 export default function Page() {
+  const useNativeWindowChrome = shouldUseNativeWindowChrome()
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
   const {
     flowState,
@@ -216,6 +222,7 @@ export default function Page() {
       flowState={flowState}
       onSignOut={signOut}
       onDeleteAccount={deleteAccount}
+      useNativeWindowChrome={useNativeWindowChrome}
     />
   )
 }
@@ -226,6 +233,7 @@ type AppShellProps = {
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
   onSignOut: () => Promise<unknown>
   onDeleteAccount: () => Promise<unknown>
+  useNativeWindowChrome?: boolean
 }
 
 function AppShell({
@@ -234,6 +242,7 @@ function AppShell({
   flowState,
   onSignOut,
   onDeleteAccount,
+  useNativeWindowChrome = false,
 }: AppShellProps) {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
@@ -2007,6 +2016,7 @@ function AppShell({
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
         onOpenLogs={openLogs}
+        useNativeWindowChrome={useNativeWindowChrome}
         onNavigateToChat={handleCronJobNavigate}
       />
 
