@@ -34,6 +34,10 @@ import { MdKeyboardDoubleArrowDown } from "react-icons/md"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import {
+  groupAssistantToolCallsByMessage,
+  mergeToolCallsForDisplay,
+} from "@/lib/chatToolDisplay"
 import type {
   ChatMessage,
   EditPreviewState,
@@ -223,6 +227,7 @@ export function ChatView({
     status,
     statusLabel,
     loading,
+    historyLoadVersion,
     loadError,
     errorMessage,
     isSending,
@@ -253,6 +258,7 @@ export function ChatView({
   // Use a ref for unlisten functions so Strict Mode double-mounts
   // don't leave dangling listeners behind.
   const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
+  const lastRunErrorToastRef = useRef<string | null>(null)
 
   useEffect(() => {
     const setup = async () => {
@@ -312,6 +318,19 @@ export function ChatView({
       toastUnlistenRef.current.open?.()
     }
   }, [sessionKey])
+
+  useEffect(() => {
+    if (status !== "error") {
+      lastRunErrorToastRef.current = null
+      return
+    }
+
+    const message = errorMessage || "Something went wrong. Try again."
+    const toastKey = `${sessionKey}:${message}`
+    if (lastRunErrorToastRef.current === toastKey) return
+    lastRunErrorToastRef.current = toastKey
+    toast.error(message)
+  }, [errorMessage, sessionKey, status])
 
   const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(
     null
@@ -629,6 +648,45 @@ export function ChatView({
     [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
+  const lastHistoryScrollVersionRef = useRef(0)
+
+  useEffect(() => {
+    if (isBackgroundSession) return
+    if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
+    if (renderedMessages.length === 0) return
+
+    lastHistoryScrollVersionRef.current = historyLoadVersion
+    const lastIndex = renderedMessages.length - 1
+    const scrollToLatest = () => {
+      virtuosoRef.current?.scrollToIndex({
+        index: lastIndex,
+        align: "end",
+        behavior: "auto",
+      })
+      const el = scrollContainerRef.current
+      if (el) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+      }
+    }
+
+    let secondFrame: number | null = null
+    const frame = requestAnimationFrame(() => {
+      scrollToLatest()
+      secondFrame = requestAnimationFrame(scrollToLatest)
+    })
+    const settleTimer = window.setTimeout(scrollToLatest, 150)
+    return () => {
+      cancelAnimationFrame(frame)
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame)
+      window.clearTimeout(settleTimer)
+    }
+  }, [
+    historyLoadVersion,
+    isBackgroundSession,
+    renderedMessages.length,
+    scrollContainerRef,
+  ])
+
   const latestRenderedUserIndex = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
       if (renderedMessages[i].role === "user") return i
@@ -971,30 +1029,11 @@ export function ChatView({
         t.tool !== "sessions_yield"
     )
 
-  const mergeToolCallsForDisplay = (
-    base?: import("./types").InlineToolCall[],
-    live?: import("./types").InlineToolCall[]
-  ) => {
-    const merged = new Map<string, import("./types").InlineToolCall>()
-    for (const tool of base ?? []) {
-      merged.set(tool.id || `${tool.tool}:${merged.size}`, tool)
-    }
-    for (const tool of live ?? []) {
-      const key = tool.id || `${tool.tool}:${merged.size}`
-      const existing = merged.get(key)
-      if (!existing) {
-        merged.set(key, tool)
-        continue
-      }
-      const mergedTool = { ...existing, ...tool }
-      if (existing.duration && !tool.duration) mergedTool.duration = existing.duration
-      if (existing.duration && existing.status !== "running") {
-        mergedTool.duration = existing.duration
-      }
-      merged.set(key, mergedTool)
-    }
-    return Array.from(merged.values())
-  }
+  const { grouped: groupedToolCalls, suppressed: suppressedToolCallMessages } =
+    useMemo(
+      () => groupAssistantToolCallsByMessage(renderedMessages),
+      [renderedMessages]
+    )
 
   const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
   for (const sub of spawnedSubagents) {
@@ -1078,13 +1117,17 @@ export function ChatView({
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
       const filteredPending = toolCallsWithoutSpawn(pendingTools)
+      const messageToolCalls =
+        msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
+          ? []
+          : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
       const filteredToolCalls =
         msg.role === "assistant"
           ? mergeToolCallsForDisplay(
-              toolCallsWithoutSpawn(msg.toolCalls ?? []),
+              toolCallsWithoutSpawn(messageToolCalls),
               isActivelyStreaming ? filteredPending : []
             )
-          : toolCallsWithoutSpawn(msg.toolCalls ?? [])
+          : toolCallsWithoutSpawn(messageToolCalls)
       const anchoredUserSubagents =
         msg.role === "user"
           ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
@@ -1205,6 +1248,8 @@ export function ChatView({
       orphanSubagentsByAssistantId,
       pendingTools,
       reactToMessage,
+      groupedToolCalls,
+      suppressedToolCallMessages,
       renderedMessages.length,
       replyToMessage,
       resolveExecApproval,
@@ -1290,7 +1335,7 @@ export function ChatView({
     )
   }
 
-  if (messages.length === 0 && !isGenerating) {
+  if (messages.length === 0) {
     return (
       <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
         <AnimatedGreeting />
@@ -1308,11 +1353,12 @@ export function ChatView({
           glowOnMount
           draftKey={sessionKey}
         />
-        {status === "error" && (
-          <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-            <p className="text-sm text-red-400">
-              {errorMessage || "Something went wrong. Try again."}
-            </p>
+        {statusText && (
+          <div className="flex items-center pl-1">
+            <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+              {statusText.replace(/\.{3}$/, "")}
+              <span className="thinking-ellipsis" aria-hidden="true" />
+            </span>
           </div>
         )}
       </div>
@@ -1422,19 +1468,11 @@ export function ChatView({
               </AnimatePresence>
 
               {statusText && (
-                <div className="mt-4 flex items-center gap-2 pl-1">
-                  <TypingDots />
-                  <span className="text-[12px] text-muted-foreground">
-                    {statusText}
+                <div className="mt-4 flex items-center pl-1">
+                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                    {statusText.replace(/\.{3}$/, "")}
+                    <span className="thinking-ellipsis" aria-hidden="true" />
                   </span>
-                </div>
-              )}
-
-              {status === "error" && (
-                <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-                  <p className="text-sm text-red-400">
-                    {errorMessage || "Something went wrong. Try again."}
-                  </p>
                 </div>
               )}
 

@@ -47,6 +47,10 @@ export async function createApp(config: MiddlewareV2Config) {
   const gateway = new GatewayClient(config);
   const messages = new MessageRepository(db);
   const runs = new RunRepository(db);
+  const startupStaleCleanup = runs.finalizeStaleActivity();
+  if (startupStaleCleanup.runsFinalized || startupStaleCleanup.toolsFinalized || startupStaleCleanup.detachedToolsFinalized) {
+    createLogger("chat-cleanup").warn("startup.stale-activity-finalized", startupStaleCleanup);
+  }
   const patchBus = new PatchBus();
   const context: AppContext = {
     config,

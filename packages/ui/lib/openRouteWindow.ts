@@ -5,18 +5,34 @@ function absoluteRouteUrl(path: string) {
   return new URL(routeUrl(path), window.location.href).toString()
 }
 
+function routeWindowUrl(path: string) {
+  const url = routeUrl(path)
+  if (url.startsWith("/#")) return `/?openclawNativeChrome=1${url.slice(1)}`
+  const separator = url.includes("?") ? "&" : "?"
+  return `${url}${separator}openclawNativeChrome=1`
+}
+
+function isMacPlatform() {
+  if (typeof navigator === "undefined") return false
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
+  const platform = nav.userAgentData?.platform ?? navigator.platform ?? ""
+  return platform.toLowerCase().includes("mac")
+}
+
 export async function openRouteInNewWindow(path: string, title = "OpenClaw") {
   const url = absoluteRouteUrl(path)
 
   if (typeof window !== "undefined" && window.__TAURI_INTERNALS__) {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow")
     const label = `openclaw-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const useNativeWindowChrome = isMacPlatform()
     const win = new WebviewWindow(label, {
-      url: routeUrl(path),
+      url: useNativeWindowChrome ? routeWindowUrl(path) : routeUrl(path),
       title,
       width: 1280,
       height: 860,
       resizable: true,
+      decorations: useNativeWindowChrome,
       center: true,
     })
     await new Promise<void>((resolve, reject) => {

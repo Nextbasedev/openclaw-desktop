@@ -6,12 +6,12 @@ import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { useQueryClient } from "@tanstack/react-query"
 import { flushSync } from "react-dom"
-import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
+import { invalidateDedupe } from "@/lib/requestDedupe"
 import {
   inferRestoredChatStatus,
   statusFromBackendSession,
 } from "@/lib/chatStatus"
-import { queryKeys, queryStaleTime } from "@/lib/query"
+import { queryKeys } from "@/lib/query"
 import { tryAcquireActiveRunReconcileLock } from "@/lib/activeRunReconcileLock"
 import { dedupeChatMessages, sameUserMessage } from "@/lib/chatMessageDedupe"
 import {
@@ -230,7 +230,6 @@ function parseExecApproval(
   }
 }
 
-const CHAT_BOOTSTRAP_TTL_MS = 5000
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
@@ -319,7 +318,7 @@ async function reconcileChatHistory(
   )
   const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
   void status
-  return parsed.messages
+  return hydrateCachedAttachments(sessionKey, parsed.messages)
 }
 
 function isActiveRunStatus(status: StreamStatus | null | undefined) {
@@ -385,6 +384,18 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
   }
 }
 
+function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
+  return messages.map((message) => {
+    const attachments = mergeAttachmentsWithCache(
+      sessionKey,
+      message.messageId,
+      message.attachments ?? [],
+      message.text
+    )
+    return attachments.length > 0 ? { ...message, attachments } : message
+  })
+}
+
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
   return {
     count: attachments?.length ?? 0,
@@ -396,14 +407,9 @@ function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | unde
   }
 }
 
-async function loadChatBootstrap(
-  sessionKey: string
-): Promise<ChatBootstrapData> {
-  return dedupeRequest(
-    `chat-bootstrap:${sessionKey}`,
-    () => fetchStableChatBootstrap(sessionKey),
-    { ttlMs: CHAT_BOOTSTRAP_TTL_MS }
-  )
+async function loadFreshChatBootstrap(sessionKey: string): Promise<ChatBootstrapData> {
+  invalidateDedupe(`chat-bootstrap:${sessionKey}`)
+  return fetchStableChatBootstrap(sessionKey)
 }
 
 export function useChatMessages(
@@ -416,9 +422,12 @@ export function useChatMessages(
   const initialCachedBootstrap = !hasInitial && !initialGlobalSession
     ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
     : null
+  const initialGlobalMessages = initialGlobalSession?.messages?.length
+    ? initialGlobalSession.messages
+    : undefined
   const initialWarmMessages = hasInitial
     ? initialMessages
-    : initialGlobalSession?.messages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
+    : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
   const initialWarmStatus = initialGlobalSession?.status ?? (
     initialCachedBootstrap?.runStatus
       ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
@@ -436,6 +445,7 @@ export function useChatMessages(
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
+  const [historyLoadVersion, setHistoryLoadVersion] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -1171,8 +1181,10 @@ export function useChatMessages(
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     ensureGlobalChatEngine(queryClient)
     const cachedGlobal = getGlobalChatSession(sessionKey)
+    const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
     const useCachedGlobal = Boolean(
-      cachedGlobal &&
+      cachedGlobalHasMessages &&
+        cachedGlobal &&
         (!seededMessages ||
           cachedGlobal.messages.length > seededMessages.length ||
           cachedGlobal.messages.some((message) => message.role === "assistant"))
@@ -1180,7 +1192,8 @@ export function useChatMessages(
     const cachedBootstrap = !useCachedGlobal
       ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
       : null
-    const warmMessages = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
+    const warmMessagesRaw = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
+    const warmMessages = warmMessagesRaw?.length ? warmMessagesRaw : undefined
 
     setLoadError(null)
     setErrorMessage(null)
@@ -1191,7 +1204,7 @@ export function useChatMessages(
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
-setMessages(warmMessages)
+      setMessages(warmMessages)
       const warmStatus = useCachedGlobal && cachedGlobal?.status
         ? cachedGlobal.status
         : cachedBootstrap?.runStatus
@@ -1330,8 +1343,8 @@ setMessages(warmMessages)
       try {
         const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
-          queryFn: () => loadChatBootstrap(sessionKey),
-          staleTime: queryStaleTime.chatBootstrap,
+          queryFn: () => loadFreshChatBootstrap(sessionKey),
+          staleTime: 0,
         })
         const bootstrapCursor = typeof canonicalCursor === "number" ? canonicalCursor : v2Cursor
         if (typeof bootstrapCursor === "number") v2CursorRef.current = bootstrapCursor
@@ -1360,7 +1373,7 @@ setMessages(warmMessages)
         // bundled middleware can briefly return no source/projectionVersion
         // before the first run exists, but this is still V2 bootstrap data, not
         // legacy middleware_chat_history.
-        const canonicalMessages = dedupeChatMessages(parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages)
+        const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages))
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
@@ -1377,8 +1390,12 @@ setMessages(warmMessages)
           spawnedSubagents: canonicalSpawns,
           queryClient,
         })
+        const globalAfterSeed = getGlobalChatSession(sessionKey)
+        const displayMessages = globalAfterSeed?.messages.length
+          ? globalAfterSeed.messages
+          : canonicalMessages
         void setWarmChatCache(sessionKey, {
-          messages: canonicalMessages,
+          messages: displayMessages,
           cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
           runStatus: runStatus ?? canonicalStatus,
           statusLabel: canonicalLabel,
@@ -1388,14 +1405,14 @@ setMessages(warmMessages)
             startedAt: activeRun.startedAtMs ?? null,
           } : null,
           pendingTools: inlineTools,
-          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : canonicalMessages.length,
+          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length,
         }).catch((error) => {
           frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
             sessionKey,
             error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
           }, "warn")
         })
-        setMessages(canonicalMessages)
+        setMessages(displayMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
         setStatus(canonicalStatus)
@@ -1403,6 +1420,7 @@ setMessages(warmMessages)
         if (isActiveRunStatus(canonicalStatus)) markOptimisticChatActivity(sessionKey, canonicalLabel)
         else clearCachedChatActivity(sessionKey)
         setLoading(false)
+        setHistoryLoadVersion((value) => value + 1)
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,
@@ -1559,7 +1577,8 @@ setMessages(warmMessages)
   const handleSend = useCallback(
     async (payload: ChatComposerSubmit, retryMessageId?: string) => {
       const trimmed = payload.text.trim()
-      if (!trimmed || sendingGuardRef.current) return false
+      const hasAttachments = (payload.attachments?.length ?? 0) > 0
+      if ((!trimmed && !hasAttachments) || sendingGuardRef.current) return false
       frontendLog("composer", "chat.send.start", {
         sessionKey,
         retry: Boolean(retryMessageId),
@@ -1593,9 +1612,10 @@ setMessages(warmMessages)
       const snippet = replyTo
         ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
         : undefined
+      const messageText = trimmed || " "
       const gatewayText = snippet
-        ? `> ${snippet.split("\n").join("\n> ")}\n\n${trimmed}`
-        : trimmed
+        ? `> ${snippet.split("\n").join("\n> ")}\n\n${messageText}`
+        : messageText
 
       const messageAttachments = payload.attachments?.map((a) => ({
         name: a.name,
@@ -1612,7 +1632,8 @@ setMessages(warmMessages)
             mimeType: a.mimeType,
             content: a.content,
             size: a.size,
-          }))
+          })),
+          messageText
         )
       }
       const optimisticMessage: ChatMessage = {
@@ -2162,6 +2183,7 @@ setMessages(warmMessages)
     status,
     statusLabel,
     loading,
+    historyLoadVersion,
     loadError,
     errorMessage,
     isSending,

@@ -352,6 +352,78 @@ describe("parseChatHistory", () => {
     )
   })
 
+  it("restores image attachments from history and hides attached-image marker text", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "u1",
+        role: "user",
+        text: "check this image\n\n[Attached image: image.png]",
+        attachments: [
+          {
+            type: "image",
+            fileName: "image.png",
+            mimeType: "image/png",
+            content: "iVBORw0KGgo=",
+            size: 8,
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    assert.equal(parsed.messages[0]?.text, "check this image")
+    assert.deepEqual(parsed.messages[0]?.attachments, [
+      {
+        name: "image.png",
+        mimeType: "image/png",
+        content: "iVBORw0KGgo=",
+        url: undefined,
+        size: 8,
+      },
+    ])
+  })
+
+  it("renders attachment-only image history as a real attachment preview message", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "u1",
+        role: "user",
+        text: "[Attached image: screenshot.png]",
+        attachments: [
+          {
+            name: "screenshot.png",
+            mime_type: "image/png",
+            base64: "iVBORw0KGgo=",
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    assert.equal(parsed.messages[0]?.text, "")
+    assert.equal(parsed.messages[0]?.attachments?.[0]?.name, "screenshot.png")
+    assert.equal(parsed.messages[0]?.attachments?.[0]?.content, "iVBORw0KGgo=")
+  })
+
+  it("keeps marker-only uploaded image history as attachment metadata", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "u1",
+        role: "user",
+        text: "[Attached image: screenshot.png]",
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    assert.equal(parsed.messages[0]?.text, "")
+    assert.deepEqual(parsed.messages[0]?.attachments, [
+      {
+        name: "screenshot.png",
+        mimeType: "image/png",
+      },
+    ])
+  })
+
   it("restores persisted tool durations from tool result tookMs", () => {
     const parsed = parseChatHistory([
       {

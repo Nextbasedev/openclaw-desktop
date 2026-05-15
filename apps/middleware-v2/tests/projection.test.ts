@@ -35,6 +35,26 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("can read the latest limited messages in chronological order", () => {
+    const db = openDatabase({ databasePath: testDbPath("latest-messages") });
+    const repo = new MessageRepository(db);
+    repo.upsertMessages(normalizeHistoryMessages("s1", Array.from({ length: 65 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `message ${index}`,
+      __openclaw: { id: `m${index}`, seq: index },
+    }))));
+
+    const rows = repo.listMessages("s1", { limit: 60, latest: true });
+
+    expect(rows).toHaveLength(60);
+    expect(rows[0]?.messageId).toBe("m5");
+    expect(rows.at(-1)?.messageId).toBe("m64");
+    expect(rows.map((row) => row.openclawSeq)).toEqual(
+      [...rows].map((row) => row.openclawSeq).sort((a, b) => a - b)
+    );
+    db.close();
+  });
+
   test("normalizer preserves message id fields and explicit fallback seq", () => {
     const rows = normalizeHistoryMessages("s1", [
       { id: "gateway-a", role: "assistant", text: "a" },
@@ -69,6 +89,22 @@ describe("SQLite projection", () => {
       expect.objectContaining({ toolCallId: "tool-1", name: "search", status: "success", resultMeta: { count: 3 }, finishedAtMs: 200 }),
     ]);
     expect(repo.hasRunningTools("s1", "r1")).toBe(false);
+    db.close();
+  });
+
+  test("stale activity cleanup finalizes old runs and running tools", () => {
+    const db = openDatabase({ databasePath: testDbPath("stale-activity") });
+    const repo = new RunRepository(db);
+    repo.upsertRun({ runId: "old-run", sessionKey: "s1", status: "tool_running", startedAtMs: 1_000, updatedAtMs: 1_000 });
+    repo.upsertToolCall({ sessionKey: "s1", runId: "old-run", toolCallId: "old-tool", name: "read", phase: "start", startedAtMs: 1_000, updatedAtMs: 1_000 });
+
+    const result = repo.finalizeStaleActivity({ nowMs: 10_000, activeRunMs: 1_000, runningToolMs: 1_000 });
+
+    expect(result).toMatchObject({ runsFinalized: 1, toolsFinalized: 1 });
+    expect(repo.latestRun("s1")).toMatchObject({ status: "done", finishedAtMs: 10_000 });
+    expect(repo.listToolCalls("s1", "old-run")).toEqual([
+      expect.objectContaining({ toolCallId: "old-tool", status: "success", phase: "result", finishedAtMs: 10_000 }),
+    ]);
     db.close();
   });
 
