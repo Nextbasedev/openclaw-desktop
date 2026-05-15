@@ -300,6 +300,9 @@ export class ChatLiveIngest {
     const rawPhase = typeof data.phase === "string" ? data.phase.toLowerCase() : typeof data.status === "string" ? data.status.toLowerCase() : "start";
     const phase = rawPhase === "error" || rawPhase === "failed" ? "error" : rawPhase === "result" || rawPhase === "done" || rawPhase === "success" ? "result" : rawPhase === "calling" ? "calling" : "start";
     const name = typeof data.name === "string" ? data.name : typeof data.toolName === "string" ? data.toolName : "unknown";
+    if ((phase === "start" || phase === "calling") && run?.runId) {
+      this.completeOlderRunningToolsBeforeNextStart(sessionKey, run.runId, toolCallId);
+    }
     const liveResultMeta = this.safeResultMeta(data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details);
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
@@ -334,6 +337,48 @@ export class ChatLiveIngest {
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
+  }
+
+  private completeOlderRunningToolsBeforeNextStart(sessionKey: string, runId: string, nextToolCallId: string) {
+    const now = Date.now();
+    const olderRunningTools = this.context.runs
+      .listRunningToolCalls(sessionKey, runId)
+      .filter((tool) => tool.toolCallId !== nextToolCallId && now - tool.startedAtMs > 750);
+    if (olderRunningTools.length === 0) return;
+    for (const runningTool of olderRunningTools) {
+      const tool = this.context.runs.upsertToolCall({
+        sessionKey,
+        runId,
+        toolCallId: runningTool.toolCallId,
+        messageId: runningTool.messageId,
+        name: runningTool.name,
+        phase: "result",
+        status: "success",
+        argsMeta: runningTool.argsMeta,
+        resultMeta: runningTool.resultMeta ?? { inferred: true, reason: "next_tool_started_after_missing_result_event" },
+        updatedAtMs: now,
+        finishedAtMs: now,
+      });
+      const event = this.context.messages.appendProjectionEvent({
+        sessionKey,
+        eventType: "chat.tool.result",
+        payload: canonicalPatchPayload({
+          sessionKey,
+          semanticType: "chat.tool.result",
+          run: this.context.runs.getRun(runId),
+          tool,
+          payload: { sessionKey, runId, toolCallId: tool.toolCallId },
+        }),
+      });
+      this.context.patchBus.broadcast({
+        cursor: event.cursor,
+        type: event.eventType,
+        sessionKey: event.sessionKey,
+        payload: event.payload,
+        createdAtMs: event.createdAtMs,
+      });
+      this.log.info("tool.inferred-result-before-next-start.broadcast", { sessionKey, runId, toolCallId: tool.toolCallId, nextToolCallId, cursor: event.cursor });
+    }
   }
 
   private completeRunningToolsWithPatches(sessionKey: string, runId: string, params: { resultMeta?: unknown } = {}) {
