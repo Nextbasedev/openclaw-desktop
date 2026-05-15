@@ -338,17 +338,28 @@ export function ChatBox({
   }, [handleVoiceStart, handleVoiceStop])
 
   React.useEffect(() => {
+    const restoreInput = (value: string) => {
+      setInput(value)
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current
+        if (!textarea) return
+        const pos = value.length
+        textarea.focus()
+        textarea.setSelectionRange(pos, pos)
+        autoResize()
+      })
+    }
     if (initialPrompt != null) {
-      setInput(initialPrompt)
+      restoreInput(initialPrompt)
       setHistoryIndex(null)
       draftBeforeHistoryRef.current = ""
       return
     }
     if (!draftStorageKey || typeof localStorage === "undefined") return
-    try { setInput(localStorage.getItem(draftStorageKey) ?? "") } catch { setInput("") }
+    try { restoreInput(localStorage.getItem(draftStorageKey) ?? "") } catch { restoreInput("") }
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
-  }, [draftStorageKey, initialPrompt])
+  }, [autoResize, draftStorageKey, initialPrompt])
 
   React.useEffect(() => {
     if (!draftStorageKey || typeof localStorage === "undefined") return
