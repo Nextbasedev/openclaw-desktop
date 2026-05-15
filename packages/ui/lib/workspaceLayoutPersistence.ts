@@ -35,9 +35,18 @@ function isSnapshot(value: unknown): value is WorkspaceLayoutSnapshot {
   )
 }
 
+export function hasMeaningfulWorkspaceLayout(
+  snapshot: Pick<WorkspaceLayoutSnapshot, "activeChat" | "activeTopic" | "editorGroups">,
+) {
+  return Boolean(snapshot.activeChat || snapshot.activeTopic) ||
+    snapshot.editorGroups.groups.some((group) => group.tabs.some((tab) => tab.kind !== "draft"))
+}
+
 export async function saveWorkspaceLayoutSnapshot(
   snapshot: Omit<WorkspaceLayoutSnapshot, "version" | "updatedAt">,
 ) {
+  if (!hasMeaningfulWorkspaceLayout(snapshot)) return
+
   const payload: WorkspaceLayoutSnapshot = {
     ...snapshot,
     version: LAYOUT_VERSION,
@@ -53,5 +62,6 @@ export async function loadWorkspaceLayoutSnapshot(): Promise<WorkspaceLayoutSnap
   const payload = await persistentCacheGet<WorkspaceLayoutSnapshot>(LAYOUT_CACHE_KEY)
   if (!isSnapshot(payload)) return null
   if (Date.now() - payload.updatedAt > LAYOUT_TTL_MS) return null
+  if (!hasMeaningfulWorkspaceLayout(payload)) return null
   return payload
 }
