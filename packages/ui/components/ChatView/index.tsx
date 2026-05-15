@@ -226,6 +226,7 @@ export function ChatView({
     status,
     statusLabel,
     loading,
+    historyLoadVersion,
     loadError,
     errorMessage,
     isSending,
@@ -645,6 +646,45 @@ export function ChatView({
     [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
+  const lastHistoryScrollVersionRef = useRef(0)
+
+  useEffect(() => {
+    if (isBackgroundSession) return
+    if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
+    if (renderedMessages.length === 0) return
+
+    lastHistoryScrollVersionRef.current = historyLoadVersion
+    const lastIndex = renderedMessages.length - 1
+    const scrollToLatest = () => {
+      virtuosoRef.current?.scrollToIndex({
+        index: lastIndex,
+        align: "end",
+        behavior: "auto",
+      })
+      const el = scrollContainerRef.current
+      if (el) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+      }
+    }
+
+    let secondFrame: number | null = null
+    const frame = requestAnimationFrame(() => {
+      scrollToLatest()
+      secondFrame = requestAnimationFrame(scrollToLatest)
+    })
+    const settleTimer = window.setTimeout(scrollToLatest, 150)
+    return () => {
+      cancelAnimationFrame(frame)
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame)
+      window.clearTimeout(settleTimer)
+    }
+  }, [
+    historyLoadVersion,
+    isBackgroundSession,
+    renderedMessages.length,
+    scrollContainerRef,
+  ])
+
   const latestRenderedUserIndex = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
       if (renderedMessages[i].role === "user") return i
