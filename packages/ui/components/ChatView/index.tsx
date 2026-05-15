@@ -251,6 +251,7 @@ export function ChatView({
   // Use a ref for unlisten functions so Strict Mode double-mounts
   // don't leave dangling listeners behind.
   const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
+  const lastRunErrorToastRef = useRef<string | null>(null)
 
   useEffect(() => {
     const setup = async () => {
@@ -310,6 +311,19 @@ export function ChatView({
       toastUnlistenRef.current.open?.()
     }
   }, [sessionKey])
+
+  useEffect(() => {
+    if (status !== "error") {
+      lastRunErrorToastRef.current = null
+      return
+    }
+
+    const message = errorMessage || "Something went wrong. Try again."
+    const toastKey = `${sessionKey}:${message}`
+    if (lastRunErrorToastRef.current === toastKey) return
+    lastRunErrorToastRef.current = toastKey
+    toast.error(message)
+  }, [errorMessage, sessionKey, status])
 
   const [internalSubagentKey, setInternalSubagentKey] = useState<string | null>(
     null
@@ -1278,13 +1292,6 @@ export function ChatView({
             </span>
           </div>
         )}
-        {status === "error" && (
-          <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-            <p className="text-sm text-red-400">
-              {errorMessage || "Something went wrong. Try again."}
-            </p>
-          </div>
-        )}
       </div>
     )
   }
@@ -1397,14 +1404,6 @@ export function ChatView({
                     {statusText.replace(/\.{3}$/, "")}
                     <span className="thinking-ellipsis" aria-hidden="true" />
                   </span>
-                </div>
-              )}
-
-              {status === "error" && (
-                <div className="mt-4 max-w-[85%] rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3">
-                  <p className="text-sm text-red-400">
-                    {errorMessage || "Something went wrong. Try again."}
-                  </p>
                 </div>
               )}
 
