@@ -680,6 +680,26 @@ export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProp
     }
   }, [fetchJobs, removeStaleJob])
 
+
+  const runJobNow = useCallback(async (job: CronJob) => {
+    markBusy(job.jobId)
+    setError(null)
+    setNotice(null)
+    try {
+      await invoke("middleware_cron_run_job", { jobId: job.jobId })
+      setNotice(`Queued ${job.name} to run now.`)
+      await fetchJobs()
+    } catch (err) {
+      if (isCronJobMissingError(err)) {
+        removeStaleJob(job.jobId, job.name)
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to run cron job.")
+      }
+    } finally {
+      clearBusy(job.jobId)
+    }
+  }, [fetchJobs, removeStaleJob])
+
   const createJob = useCallback(async (draft: CronJobDraft) => {
     setCreatingJob(true)
     try {
@@ -819,6 +839,7 @@ export function CronJobsTab({ activeSessionKey, onDraftPrompt }: CronJobsTabProp
               onDelete={() => deleteJob(job)}
               onDiagnoseFailure={onDraftPrompt ? () => onDraftPrompt(buildDiagnosisPrompt(job)) : undefined}
               onEdit={() => setEditTarget(job)}
+              onRunNow={() => runJobNow(job)}
             />
           ))}
         </div>
