@@ -7,7 +7,19 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
+import {
+  getActiveSkills,
+  getSkillEnabledMap,
+  installSkill,
+  skillsDetail,
+  skillsDiscover,
+  skillsInstalledLocal,
+  skillsVersions,
+  toggleSkill,
+  uninstallSkill,
+} from "../skills/service.js";
 import { fromJson, toJson } from "../../db/json.js";
+import { HttpError } from "../../lib/errors.js";
 
 type CompatRecord = Record<string, any>;
 
@@ -40,7 +52,10 @@ const compatState = {
   loadedDbPath: null as string | null,
 };
 
-const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "cronJobs", "cronRuns"] as const;
+const DEFAULT_SPACE_ID = "space_default";
+const DEFAULT_SPACE_NAME = "My Workspace";
+
+const compatCollections = ["spaces", "chats", "projects", "topics", "sessions"] as const;
 
 type CompatCollection = typeof compatCollections[number];
 
@@ -74,7 +89,15 @@ function loadCompatState(context: AppContext) {
   }
   const active = byKey.get("activeSpaceId");
   if (typeof active === "string") compatState.activeSpaceId = active;
+  let changed = false;
+  compatState.spaces = compatState.spaces.map((space) => {
+    if (space.id !== DEFAULT_SPACE_ID) return space;
+    if (typeof space.name === "string" && space.name.trim() && space.name !== "Default") return space;
+    changed = true;
+    return { ...space, name: DEFAULT_SPACE_NAME, updatedAt: nowIso() };
+  });
   compatState.loadedDbPath = context.config.databasePath;
+  if (changed) saveCompatState(context);
 }
 
 function saveCompatState(context: AppContext) {
@@ -190,8 +213,8 @@ function ensureDefaultSpace() {
   if (compatState.spaces.length > 0) return compatState.spaces[0];
   const timestamp = nowIso();
   const space = {
-    id: "space_default",
-    name: "Default",
+    id: DEFAULT_SPACE_ID,
+    name: DEFAULT_SPACE_NAME,
     archived: false,
     deleted: false,
     sortOrder: 0,
@@ -204,7 +227,11 @@ function ensureDefaultSpace() {
 }
 
 function activeSpaceId() {
-  return compatState.activeSpaceId ?? ensureDefaultSpace().id;
+  const current = compatState.spaces.find((space) => space.id === compatState.activeSpaceId && visibleSpace(space));
+  if (current) return current.id;
+  const fallback = compatState.spaces.find(visibleSpace) ?? ensureDefaultSpace();
+  compatState.activeSpaceId = String(fallback.id);
+  return compatState.activeSpaceId;
 }
 
 function stableCompatId(prefix: string, value: string) {
@@ -221,6 +248,143 @@ function stringField(record: CompatRecord, keys: string[]) {
 
 function timestampField(record: CompatRecord, keys: string[]) {
   return stringField(record, keys) ?? nowIso();
+}
+
+function timeMs(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function messageTimestampMs(message: CompatRecord) {
+  const value = message.timestamp ?? message.createdAt ?? message.created_at ?? message.updatedAt ?? message.updated_at;
+  if (typeof value === "number" && Number.isFinite(value)) return value > 0 && value < 1_000_000_000_000 ? value * 1_000 : value;
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric > 0 && numeric < 1_000_000_000_000 ? numeric * 1_000 : numeric;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function newestTimestamp(...values: unknown[]) {
+  const newest = values.reduce<number>((max, value) => Math.max(max, timeMs(value)), 0);
+  return newest > 0 ? new Date(newest).toISOString() : nowIso();
+}
+
+function chatActivityMs(chat: CompatRecord) {
+  return Math.max(timeMs(chat.updatedAt), timeMs(chat.lastActiveAt), timeMs(chat.lastMessageAt), timeMs(chat.createdAt));
+}
+
+function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
+  return listBySpace(compatState.chats, spaceId)
+    .filter((chat) => !isGatewayOnlySyncedChat(chat))
+    .filter((chat) => typeof archived === "boolean" ? Boolean(chat.archived) === archived : !chat.archived)
+    .sort((a, b) => chatActivityMs(b) - chatActivityMs(a));
+}
+
+function latestProjectedMessageActivity(context: AppContext, sessionKey: string) {
+  const row = context.db.prepare(`
+    SELECT data_json, updated_at_ms
+    FROM v2_messages
+    WHERE session_key = ?
+    ORDER BY updated_at_ms DESC, openclaw_seq DESC
+    LIMIT 1
+  `).get(sessionKey) as { data_json: string; updated_at_ms: number } | undefined;
+  if (!row || !Number.isFinite(Number(row.updated_at_ms))) return null;
+  const data = fromJson(row.data_json) as CompatRecord;
+  const text = stringField(data, ["text", "content"]);
+  const timestampMs = messageTimestampMs(data) || Number(row.updated_at_ms);
+  return {
+    timestamp: new Date(timestampMs).toISOString(),
+    text,
+  };
+}
+
+function applyProjectedChatActivity(context: AppContext) {
+  let changed = false;
+  for (const chat of compatState.chats) {
+    if (isGatewayOnlySyncedChat(chat)) continue;
+    const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+    if (!sessionKey) continue;
+    const projected = latestProjectedMessageActivity(context, sessionKey);
+    if (!projected) continue;
+    const timestamp = projected.timestamp;
+    if (!timestamp) continue;
+    const next = {
+      ...chat,
+      updatedAt: timestamp,
+      lastActiveAt: timestamp,
+      ...(projected ? { lastMessageAt: timestamp } : { lastMessageAt: undefined }),
+      ...(projected?.text ? { lastMessageText: projected.text } : {}),
+    };
+    if (JSON.stringify(next) !== JSON.stringify(chat)) {
+      Object.assign(chat, next);
+      changed = true;
+    }
+  }
+  if (changed) saveCompatState(context);
+}
+
+function isGatewayOnlySyncedChat(chat: CompatRecord) {
+  const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+  return Boolean(sessionKey && chat.id === stableCompatId("chat", sessionKey));
+}
+
+function touchCompatChatActivity(context: AppContext, input: { sessionKey: string; at?: string; lastMessageText?: string | null }) {
+  loadCompatState(context);
+  const sessionKey = input.sessionKey.trim();
+  if (!sessionKey) return;
+  const timestamp = input.at && timeMs(input.at) > 0 ? new Date(timeMs(input.at)).toISOString() : nowIso();
+
+  let chat = compatState.chats.find((record) => record.sessionKey === sessionKey);
+  if (!chat) {
+    let session = compatState.sessions.find((record) => record.sessionKey === sessionKey || record.key === sessionKey);
+    if (!session) {
+      session = {
+        id: stableCompatId("session", sessionKey),
+        key: sessionKey,
+        sessionKey,
+        agentId: "main",
+        label: "New Chat",
+        createdAt: timestamp,
+      };
+      compatState.sessions.push(session);
+    }
+    session.updatedAt = newestTimestamp(timestamp, session.updatedAt, session.lastActiveAt, session.lastMessageAt);
+    session.lastActiveAt = session.updatedAt;
+    session.lastMessageAt = session.updatedAt;
+    saveCompatState(context);
+    return;
+  }
+
+  const nextTimestamp = newestTimestamp(timestamp, chat.updatedAt, chat.lastActiveAt, chat.lastMessageAt);
+  chat.updatedAt = nextTimestamp;
+  chat.lastActiveAt = nextTimestamp;
+  chat.lastMessageAt = nextTimestamp;
+  if (typeof input.lastMessageText === "string") chat.lastMessageText = input.lastMessageText;
+
+  let session = compatState.sessions.find((record) => record.sessionKey === sessionKey || record.key === sessionKey);
+  if (!session) {
+    session = {
+      id: stableCompatId("session", sessionKey),
+      key: sessionKey,
+      sessionKey,
+      agentId: chat.agentId || "main",
+      label: chat.name || "New Chat",
+      createdAt: chat.createdAt || timestamp,
+    };
+    compatState.sessions.push(session);
+  }
+  session.key = session.key || sessionKey;
+  session.sessionKey = sessionKey;
+  session.updatedAt = newestTimestamp(nextTimestamp, session.updatedAt, session.lastActiveAt, session.lastMessageAt);
+  session.lastActiveAt = session.updatedAt;
+  session.lastMessageAt = session.updatedAt;
+
+  saveCompatState(context);
 }
 
 function labelFromGatewaySession(record: CompatRecord, sessionKey: string) {
@@ -242,34 +406,26 @@ async function syncGatewaySessions(context: AppContext) {
     const payload = await context.gateway.request("sessions.list", { limit: 500, includeDerivedTitles: true, includeLastMessage: true }, 10_000);
     const rows = gatewaySessionRows(payload);
     if (rows.length === 0) return;
-    const defaultSpace = ensureDefaultSpace();
+    const beforeCleanup = compatState.chats.length;
+    compatState.chats = compatState.chats.filter((chat) => !isGatewayOnlySyncedChat(chat));
     let changed = false;
+    if (compatState.chats.length !== beforeCleanup) changed = true;
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const createdAt = timestampField(row, ["createdAt", "created_at"]);
-      const updatedAt = timestampField(row, ["updatedAt", "updated_at", "lastActiveAt", "lastMessageAt"]);
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
-        compatState.chats.push({
-          id: stableCompatId("chat", sessionKey),
-          name,
-          sessionKey,
-          spaceId: defaultSpace.id,
-          agentId,
-          archived: false,
-          pinned: false,
-          createdAt,
-          updatedAt,
-          lastActiveAt: updatedAt,
-        });
-        changed = true;
+        // Gateway contains every OpenClaw session, including Telegram, cron,
+        // and detached task sessions. Do not mirror unknown Gateway sessions
+        // into the Desktop chat sidebar; only update chats that already exist
+        // in the compat chat collection.
       } else {
         const existing = compatState.chats[chatIndex];
-        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId, updatedAt: existing.updatedAt || updatedAt, lastActiveAt: existing.lastActiveAt || updatedAt };
+        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.chats[chatIndex] = next;
           changed = true;
@@ -287,12 +443,12 @@ async function syncGatewaySessions(context: AppContext) {
           agentId,
           label: name,
           createdAt,
-          updatedAt,
+          updatedAt: createdAt,
         });
         changed = true;
       } else {
         const existing = compatState.sessions[sessionIndex];
-        const next = { ...existing, key: existing.key || sessionKey, sessionKey, agentId: existing.agentId || agentId, label: existing.label || name, updatedAt: existing.updatedAt || updatedAt };
+        const next = { ...existing, key: existing.key || sessionKey, sessionKey, agentId: existing.agentId || agentId, label: existing.label || name };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.sessions[sessionIndex] = next;
           changed = true;
@@ -309,6 +465,10 @@ function notDeleted(record: CompatRecord) {
   return !record.deleted;
 }
 
+function visibleSpace(record: CompatRecord) {
+  return notDeleted(record) && !record.archived;
+}
+
 function listBySpace(records: CompatRecord[], spaceId?: unknown) {
   const filterSpaceId = typeof spaceId === "string" && spaceId.trim() ? spaceId : null;
   return records.filter((record) => notDeleted(record) && (!filterSpaceId || record.spaceId === filterSpaceId));
@@ -321,15 +481,36 @@ function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord
   return records[index];
 }
 
-function deleteCompatChat(context: AppContext, chatId: string) {
+function archiveChatsForSpace(spaceId: string) {
+  const timestamp = nowIso();
+  compatState.chats = compatState.chats.map((chat) => {
+    if (chat.spaceId !== spaceId) return chat;
+    if (chat.archived) return { ...chat, archivedBySpace: chat.archivedBySpace ?? false };
+    return { ...chat, archived: true, archivedBySpace: true, updatedAt: timestamp };
+  });
+}
+
+function restoreChatsForSpace(spaceId: string) {
+  const timestamp = nowIso();
+  compatState.chats = compatState.chats.map((chat) => {
+    if (chat.spaceId !== spaceId || !chat.archived) return chat;
+    if (chat.archivedBySpace === false) return chat;
+    const { archivedBySpace: _archivedBySpace, ...rest } = chat;
+    return { ...rest, archived: false, updatedAt: timestamp };
+  });
+}
+
+async function deleteCompatChat(context: AppContext, chatId: string) {
   const chat = compatState.chats.find((record) => record.id === chatId);
   const sessionKey = typeof chat?.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
 
   compatState.chats = compatState.chats.filter((record) => record.id !== chatId);
   if (sessionKey) {
     compatState.sessions = compatState.sessions.filter((session) => session.sessionKey !== sessionKey && session.key !== sessionKey);
-    void context.gateway.request("sessions.abort", { sessionKey }, 2_000).catch(() => { /* session may not be running */ });
-    void context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000).catch(() => { /* gateway may be offline */ });
+    await Promise.allSettled([
+      context.gateway.request("sessions.abort", { sessionKey }, 2_000),
+      context.gateway.request("sessions.delete", { key: sessionKey, deleteTranscript: true }, 2_000),
+    ]);
     context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sessionKey);
     context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sessionKey);
@@ -339,6 +520,39 @@ function deleteCompatChat(context: AppContext, chatId: string) {
   }
   saveCompatState(context);
   return { ok: true, chatId, sessionKey };
+}
+
+async function deleteCompatSpace(context: AppContext, spaceId: string) {
+  const deletedChatIds = compatState.chats
+    .filter((chat) => chat.spaceId === spaceId)
+    .map((chat) => typeof chat.id === "string" ? chat.id : null)
+    .filter((chatId): chatId is string => Boolean(chatId));
+  const deletedProjectIds = compatState.projects
+    .filter((project) => project.spaceId === spaceId)
+    .map((project) => typeof project.id === "string" ? project.id : null)
+    .filter((projectId): projectId is string => Boolean(projectId));
+
+  for (const chatId of deletedChatIds) {
+    await deleteCompatChat(context, chatId);
+  }
+
+  compatState.spaces = compatState.spaces.filter((space) => space.id !== spaceId);
+  compatState.projects = compatState.projects.map((project) =>
+    project.spaceId === spaceId ? { ...project, deleted: true, updatedAt: nowIso() } : project,
+  );
+  if (deletedProjectIds.length > 0) {
+    const deletedProjectIdSet = new Set(deletedProjectIds);
+    compatState.topics = compatState.topics.map((topic) =>
+      deletedProjectIdSet.has(String(topic.projectId)) ? { ...topic, deleted: true, updatedAt: nowIso() } : topic,
+    );
+    compatState.sessions = compatState.sessions.filter((session) => !deletedProjectIdSet.has(String(session.projectId)));
+  }
+
+  if (compatState.activeSpaceId === spaceId) {
+    compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+  }
+  saveCompatState(context);
+  return { ok: true, spaceId, activeSpaceId: activeSpaceId(), deletedChatIds };
 }
 
 function projectById(projectId: string) {
@@ -876,6 +1090,56 @@ function openclawWorkspaceRoot() {
   return typeof configured === "string" && configured.trim() ? configured : path.join(os.homedir(), ".openclaw", "workspace");
 }
 
+function memoryDir() {
+  const dir = path.join(openclawWorkspaceRoot(), "memory");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function safeWorkspaceFilePath(inputPath: unknown, fallback = "memory/notes.md") {
+  const root = path.resolve(openclawWorkspaceRoot());
+  const requested = typeof inputPath === "string" && inputPath.trim() ? inputPath.trim() : fallback;
+  const full = path.resolve(root, requested);
+  if (full !== root && !full.startsWith(root + path.sep)) {
+    throw new HttpError(403, "Memory path escapes workspace", "PATH_FORBIDDEN");
+  }
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  return full;
+}
+
+function listMemoryDocuments() {
+  return fs.readdirSync(memoryDir()).flatMap((name) => {
+    const full = path.join(memoryDir(), name);
+    const stat = fs.statSync(full);
+    if (!stat.isFile() || !name.endsWith(".md")) return [];
+    return { name, path: `memory/${name}`, size: stat.size, updatedAt: stat.mtimeMs };
+  });
+}
+
+function searchMemoryDocuments(query: unknown) {
+  const q = String(query ?? "").trim().toLowerCase();
+  const entries: CompatRecord[] = [];
+  for (const doc of listMemoryDocuments()) {
+    const full = safeWorkspaceFilePath(doc.path);
+    const content = fs.readFileSync(full, "utf8");
+    content.split("\n").forEach((line, index) => {
+      const text = line.trim();
+      if (!text) return;
+      if (q && !text.toLowerCase().includes(q)) return;
+      entries.push({
+        path: doc.path,
+        line: index + 1,
+        content: text,
+        text,
+        category: /^#+\s/.test(text) ? "decision" : "fact",
+        totalScore: q ? Math.min(1, Math.max(0.35, q.length / Math.max(text.length, q.length))) : 0.65,
+        tags: [String(doc.name).replace(/\.md$/, "")],
+      });
+    });
+  }
+  return entries.slice(0, 50);
+}
+
 function findGitRepos(root: string, maxDepth = 4, limit = 100) {
   const repos: CompatRecord[] = [];
   const seen = new Set<string>();
@@ -911,26 +1175,157 @@ function findGitRepos(root: string, maxDepth = 4, limit = 100) {
   return repos;
 }
 
-function emptyUsage(days: number, providers: unknown[] = [], unavailable?: string) {
+function usageNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeUsage(raw: CompatRecord) {
+  const input = usageNumber(raw.input ?? raw.input_tokens ?? raw.prompt_tokens);
+  const output = usageNumber(raw.output ?? raw.output_tokens ?? raw.completion_tokens);
+  const cacheRead = usageNumber(raw.cacheRead ?? raw.cache_read_tokens);
+  const cacheWrite = usageNumber(raw.cacheWrite ?? raw.cache_write_tokens);
+  const total = usageNumber(raw.total ?? raw.total_tokens) || input + output + cacheRead + cacheWrite;
+  return { input, output, cacheRead, cacheWrite, total };
+}
+
+function usageTimestampMs(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value < 10_000_000_000 ? value * 1000 : value;
+  if (typeof value !== "string" || !value.trim()) return Date.now();
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function frontendUsageSummary(summary: CompatRecord) {
+  return {
+    totalCost: usageNumber(summary.totalCost),
+    totalInputTokens: usageNumber(summary.input ?? summary.totalInputTokens),
+    totalOutputTokens: usageNumber(summary.output ?? summary.totalOutputTokens),
+    cacheReadTokens: usageNumber(summary.cacheRead ?? summary.cacheReadTokens),
+    cacheWriteTokens: usageNumber(summary.cacheWrite ?? summary.cacheWriteTokens),
+    totalTokens: usageNumber(summary.totalTokens),
+    input: usageNumber(summary.input),
+    output: usageNumber(summary.output),
+    cacheRead: usageNumber(summary.cacheRead),
+    cacheWrite: usageNumber(summary.cacheWrite),
+  };
+}
+
+function frontendDaily(days: CompatRecord[]) {
+  return days.map((day) => ({
+    date: day.day ?? day.date,
+    day: day.day ?? day.date,
+    input_tokens: usageNumber(day.input ?? day.input_tokens),
+    output_tokens: usageNumber(day.output ?? day.output_tokens),
+    cache_read_tokens: usageNumber(day.cacheRead ?? day.cache_read_tokens),
+    cache_write_tokens: usageNumber(day.cacheWrite ?? day.cache_write_tokens),
+    total_tokens: usageNumber(day.totalTokens ?? day.total_tokens),
+    cost_usd: usageNumber(day.totalCost ?? day.cost_usd),
+  }));
+}
+
+function userHomeDir() {
+  return process.env.HOME || os.homedir();
+}
+
+function usageFromSessions(requestedDays = 30) {
+  const usage: CompatRecord[] = [];
+  const days = new Map<string, CompatRecord>();
+  const cutoff = Date.now() - Math.max(1, requestedDays) * 24 * 60 * 60 * 1000;
+  const agentsRoot = path.join(userHomeDir(), ".openclaw", "agents");
+  if (fs.existsSync(agentsRoot)) {
+    for (const agent of fs.readdirSync(agentsRoot)) {
+      const sessionsDir = path.join(agentsRoot, agent, "sessions");
+      if (!fs.existsSync(sessionsDir)) continue;
+      for (const file of fs.readdirSync(sessionsDir)) {
+        if (!file.endsWith(".jsonl") || file.endsWith(".trajectory.jsonl")) continue;
+        const full = path.join(sessionsDir, file);
+        const lines = fs.readFileSync(full, "utf8").split("\n");
+        for (const line of lines) {
+          if (!line.includes('"usage"')) continue;
+          try {
+            const entry = JSON.parse(line) as CompatRecord;
+            const message = entry.message && typeof entry.message === "object" ? entry.message as CompatRecord : {};
+            const data = entry.data && typeof entry.data === "object" ? entry.data as CompatRecord : {};
+            const raw = (message.usage ?? data.usage ?? entry.usage) as CompatRecord | undefined;
+            if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+            const normalized = normalizeUsage(raw);
+            const timestamp = entry.timestamp ?? entry.ts ?? message.timestamp ?? data.timestamp;
+            const timestampMs = usageTimestampMs(timestamp);
+            if (timestampMs < cutoff) continue;
+            const cost = usageNumber((raw.cost && typeof raw.cost === "object" ? (raw.cost as CompatRecord).total : undefined) ?? raw.totalCost);
+            const item = {
+              ...normalized,
+              cost,
+              provider: message.provider ?? entry.provider,
+              model: message.model ?? entry.modelId,
+              timestamp: typeof timestamp === "string" || typeof timestamp === "number" ? timestamp : new Date(timestampMs).toISOString(),
+              sessionFile: full,
+            };
+            usage.push(item);
+            const dayKey = new Date(timestampMs).toISOString().slice(0, 10);
+            const daily = days.get(dayKey) ?? { day: dayKey, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 };
+            daily.input += item.input;
+            daily.output += item.output;
+            daily.cacheRead += item.cacheRead;
+            daily.cacheWrite += item.cacheWrite;
+            daily.totalTokens += item.total;
+            daily.totalCost += item.cost;
+            days.set(dayKey, daily);
+          } catch {
+            // Skip malformed transcript lines.
+          }
+        }
+      }
+    }
+  }
+  const summary = usage.reduce((acc, item) => {
+    acc.input += usageNumber(item.input);
+    acc.output += usageNumber(item.output);
+    acc.cacheRead += usageNumber(item.cacheRead);
+    acc.cacheWrite += usageNumber(item.cacheWrite);
+    acc.totalTokens += usageNumber(item.total);
+    acc.totalCost += usageNumber(item.cost);
+    return acc;
+  }, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, totalCost: 0 });
+  return {
+    summary,
+    usage,
+    days: [...days.values()].sort((a, b) => String(a.day).localeCompare(String(b.day))),
+    source: "openclaw-session-transcripts",
+    unavailable: usage.length === 0,
+  };
+}
+
+async function usageProviders(context: AppContext) {
+  try {
+    const status = await context.gateway.request<CompatRecord>("usage.status", {}, 30_000);
+    const payload = status.payload && typeof status.payload === "object" ? status.payload as CompatRecord : status;
+    return Array.isArray(payload.providers) ? payload.providers : [];
+  } catch {
+    return [];
+  }
+}
+
+async function usageResponse(context: AppContext, days: number) {
+  const usage = usageFromSessions(days);
+  const providers = await usageProviders(context);
   return {
     range: { days },
-    summary: { totalCost: 0, totalInputTokens: 0, totalOutputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 },
+    summary: frontendUsageSummary(usage.summary),
     providers,
-    usage: [],
-    source: "middleware-v2-compat",
-    unavailable,
+    usage: usage.usage.slice(-500),
+    source: usage.source,
+    unavailable: usage.unavailable,
   };
 }
 
 function dailyUsage(days: number) {
-  const today = new Date();
-  const daily = Array.from({ length: Math.max(1, days) }, (_, index) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (days - index - 1));
-    const date = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    return { date, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, total_tokens: 0, cost_usd: 0 };
-  });
-  return { range: { days }, daily, days: daily, source: "middleware-v2-compat" };
+  const usage = usageFromSessions(days);
+  const daily = frontendDaily(usage.days);
+  return { range: { days }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable };
 }
 
 async function connectGatewayForStatus(context: AppContext) {
@@ -1007,6 +1402,7 @@ function getTerminal(terminalId: string) {
 
 export async function registerCompatRoutes(app: FastifyInstance, context: AppContext) {
   loadCompatState(context);
+  context.compat = { touchChatActivity: (input) => touchCompatChatActivity(context, input) };
   if (compatState.spaces.length === 0) {
     ensureDefaultSpace();
     saveCompatState(context);
@@ -1021,23 +1417,28 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get("/api/bootstrap", async () => {
     const gateway = await connectGatewayForStatus(context);
     await syncGatewaySessions(context);
+    applyProjectedChatActivity(context);
     const spaceId = activeSpaceId();
     return {
       ok: true,
       service: "openclaw-middleware-v2",
-      spaces: compatState.spaces.filter(notDeleted),
+      spaces: compatState.spaces.filter(visibleSpace),
       activeSpaceId: spaceId,
-      chats: listBySpace(compatState.chats, spaceId).filter((chat) => !chat.archived),
+      chats: sortedChatsForResponse(spaceId, false),
       projects: listBySpace(compatState.projects, spaceId),
       sessions: compatState.sessions.filter(notDeleted),
       gateway,
     };
   });
 
-  app.get("/api/spaces", async () => ({
-    spaces: compatState.spaces.filter(notDeleted),
-    activeSpaceId: activeSpaceId(),
-  }));
+  app.get("/api/spaces", async (request) => {
+    const query = request.query as CompatRecord;
+    const archived = query.archived === "true" || query.archived === true;
+    return {
+      spaces: compatState.spaces.filter((space) => archived ? Boolean(space.archived) && notDeleted(space) : visibleSpace(space)),
+      activeSpaceId: activeSpaceId(),
+    };
+  });
 
   app.post("/api/spaces", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
@@ -1060,31 +1461,47 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.patch<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request, reply) => {
     const space = patchById(compatState.spaces, request.params.spaceId, request.body as CompatRecord);
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    if (space.archived && compatState.activeSpaceId === space.id) {
+      compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+    }
     saveCompatCollection(context, "spaces");
     return { space };
   });
 
-  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/switch", async (request, reply) => {
-    const space = compatState.spaces.find((item) => item.id === request.params.spaceId && notDeleted(item));
+  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/archive", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const archived = body.archived ?? true;
+    const space = patchById(compatState.spaces, request.params.spaceId, { archived });
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    if (archived) archiveChatsForSpace(request.params.spaceId);
+    else restoreChatsForSpace(request.params.spaceId);
+    if (archived && compatState.activeSpaceId === space.id) {
+      compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+    }
+    saveCompatState(context);
+    return { ok: true, activeSpaceId: activeSpaceId(), space, archived };
+  });
+
+  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/switch", async (request, reply) => {
+    const space = compatState.spaces.find((item) => item.id === request.params.spaceId && visibleSpace(item));
+    if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    space.updatedAt = nowIso();
     compatState.activeSpaceId = space.id;
     saveCompatState(context);
     return { activeSpaceId: space.id, space };
   });
 
   app.delete<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request) => {
-    patchById(compatState.spaces, request.params.spaceId, { deleted: true });
-    if (compatState.activeSpaceId === request.params.spaceId) compatState.activeSpaceId = ensureDefaultSpace().id;
-    saveCompatState(context);
-    return { ok: true };
+    return deleteCompatSpace(context, request.params.spaceId);
   });
 
   app.get("/api/chats", async (request) => {
     await syncGatewaySessions(context);
+    applyProjectedChatActivity(context);
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     return {
-      chats: listBySpace(compatState.chats, query.spaceId).filter((chat) => Boolean(chat.archived) === archived),
+      chats: sortedChatsForResponse(query.spaceId, archived),
     };
   });
 
@@ -1141,9 +1558,22 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return { chat };
   });
 
+  app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/rename", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const space = patchById(compatState.spaces, request.params.spaceId, { name: body.name || "New Space" });
+    if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+    saveCompatCollection(context, "spaces");
+    return { space, activeSpaceId: activeSpaceId() };
+  });
+
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/archive", async (request, reply) => {
     const body = (request.body ?? {}) as CompatRecord;
-    const chat = patchById(compatState.chats, request.params.chatId, { archived: body.archived ?? true });
+    const archived = body.archived ?? true;
+    const chat = patchById(
+      compatState.chats,
+      request.params.chatId,
+      archived ? { archived: true, archivedBySpace: false } : { archived: false, archivedBySpace: undefined },
+    );
     if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
     saveCompatCollection(context, "chats");
     return { chat };
@@ -1522,7 +1952,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
     switch (command) {
       case "middleware_usage":
-        return emptyUsage(Number(input.days) || 30);
+        return usageResponse(context, Number(input.days) || 30);
       case "middleware_usage_daily":
         return dailyUsage(Number(input.days) || 30);
       case "middleware_models_list":
@@ -1568,6 +1998,25 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return recallMemoryEntries();
       case "middleware_commands_list":
         return { commands: [] };
+      case "middleware_skills_discover":
+        return skillsDiscover(input as Parameters<typeof skillsDiscover>[0]);
+      case "middleware_skills_installed_local":
+      case "middleware_skills_installed":
+        return skillsInstalledLocal(input as Parameters<typeof skillsInstalledLocal>[0]);
+      case "middleware_skills_detail":
+        return skillsDetail(input as Parameters<typeof skillsDetail>[0]);
+      case "middleware_skills_versions":
+        return skillsVersions(input as Parameters<typeof skillsVersions>[0]);
+      case "middleware_skills_install":
+        return installSkill(context, input as Parameters<typeof installSkill>[1]);
+      case "middleware_skills_uninstall":
+        return uninstallSkill(input as Parameters<typeof uninstallSkill>[0]);
+      case "middleware_skills_toggle":
+        return toggleSkill(input as Parameters<typeof toggleSkill>[0]);
+      case "middleware_skills_enabled_map":
+        return getSkillEnabledMap();
+      case "middleware_skills_active":
+        return getActiveSkills();
       case "middleware_autonaming_quick": {
         const name = String(input.text || input.prompt || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
         return { name, title: name };
@@ -1630,9 +2079,109 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         if (!root || !hash) return { diff: "" };
         return gitCommitDetails(root, hash);
       }
+      case "middleware_memory_list": {
+        const documents = listMemoryDocuments();
+        return { documents, files: documents };
+      }
+      case "middleware_memory_read": {
+        const filePath = safeWorkspaceFilePath(input.path, "memory/notes.md");
+        if (!fs.existsSync(filePath)) return { content: "" };
+        if (!fs.statSync(filePath).isFile()) {
+          return reply.code(400).send({ ok: false, error: { code: "BAD_REQUEST", message: "Memory path is a directory" } });
+        }
+        return { content: fs.readFileSync(filePath, "utf8") };
+      }
+      case "middleware_memory_write": {
+        const filePath = safeWorkspaceFilePath(input.path, "memory/notes.md");
+        fs.writeFileSync(filePath, String(input.content ?? ""), "utf8");
+        return { ok: true, path: input.path };
+      }
+      case "middleware_memory_store": {
+        const today = new Date().toISOString().slice(0, 10);
+        const relativePath = `memory/${today}.md`;
+        const filePath = safeWorkspaceFilePath(relativePath);
+        fs.appendFileSync(filePath, `\n- ${String(input.content ?? input.text ?? "")}\n`, "utf8");
+        return { ok: true, path: relativePath };
+      }
+      case "middleware_memory_recall": {
+        const entries = searchMemoryDocuments(input.query ?? input.text ?? "");
+        return { entries, results: entries };
+      }
       case "middleware_message_feedback":
       case "middleware_message_feedback_delete":
         return { ok: true };
+      case "middleware_spaces_list":
+        return {
+          spaces: compatState.spaces.filter((space) => {
+            const archived = input.archived === true || input.archived === "true";
+            return archived ? Boolean(space.archived) && notDeleted(space) : visibleSpace(space);
+          }),
+          activeSpaceId: activeSpaceId(),
+        };
+      case "middleware_spaces_create": {
+        const timestamp = nowIso();
+        const space = {
+          id: id("space"),
+          name: input.name || "New Space",
+          archived: false,
+          deleted: false,
+          sortOrder: compatState.spaces.length,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        compatState.spaces.push(space);
+        compatState.activeSpaceId = space.id;
+        saveCompatState(context);
+        return { space, activeSpaceId: space.id };
+      }
+      case "middleware_spaces_update": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const space = patchById(compatState.spaces, spaceId, input);
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        if (space.archived && compatState.activeSpaceId === space.id) {
+          compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+        }
+        saveCompatState(context);
+        return { space, activeSpaceId: activeSpaceId() };
+      }
+      case "middleware_spaces_rename": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const space = patchById(compatState.spaces, spaceId, { name: input.name || "New Space" });
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        saveCompatCollection(context, "spaces");
+        return { space, activeSpaceId: activeSpaceId() };
+      }
+      case "middleware_spaces_archive": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const archived = input.archived ?? true;
+        const space = patchById(compatState.spaces, spaceId, { archived });
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        if (archived) archiveChatsForSpace(spaceId);
+        else restoreChatsForSpace(spaceId);
+        if (archived && compatState.activeSpaceId === space.id) {
+          compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
+        }
+        saveCompatState(context);
+        return { ok: true, activeSpaceId: activeSpaceId(), space, archived };
+      }
+      case "middleware_spaces_switch": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        const space = compatState.spaces.find((item) => item.id === spaceId && visibleSpace(item));
+        if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
+        space.updatedAt = nowIso();
+        compatState.activeSpaceId = space.id;
+        saveCompatState(context);
+        return { activeSpaceId: space.id, space };
+      }
+      case "middleware_spaces_delete": {
+        const spaceId = String(input.spaceId ?? "");
+        if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
+        return deleteCompatSpace(context, spaceId);
+      }
       case "middleware_sessions_create": {
         const sessionKey = String(input.sessionKey || `agent:main:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         const timestamp = nowIso();
@@ -1829,8 +2378,26 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   // --- pairing ---
+  app.post("/pairing/claim", async (request, reply) => {
+    const body = (request.body ?? {}) as CompatRecord;
+    const code = String(body.code ?? "").trim().toUpperCase();
+    const expectedCode = String(context.config.pairingCode ?? process.env.MIDDLEWARE_PAIRING_CODE ?? "").trim().toUpperCase();
+    if (!expectedCode || code !== expectedCode) {
+      return reply.code(403).send({ ok: false, error: { code: "INVALID_PAIRING_CODE", message: "Invalid pairing code" } });
+    }
+    const host = request.headers.host ?? `127.0.0.1:${context.config.port}`;
+    const url = `http://${host}`;
+    return {
+      ok: true,
+      url,
+      token: context.config.middlewareToken ?? process.env.MIDDLEWARE_TOKEN ?? "",
+      mode: "remote",
+      openclaw: { connected: context.gateway.status().connected },
+    };
+  });
+
   app.get("/pairing/local", async () => {
     const gateway = context.gateway.status();
-    return { ok: true, url: `http://127.0.0.1:${context.config.port}`, token: "", mode: "local", openclaw: { connected: gateway.connected } };
+    return { ok: true, url: `http://127.0.0.1:${context.config.port}`, token: context.config.middlewareToken ?? "", mode: "local", openclaw: { connected: gateway.connected } };
   });
 }

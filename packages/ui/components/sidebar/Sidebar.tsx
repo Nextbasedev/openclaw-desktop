@@ -3,6 +3,7 @@ import { Reorder } from "framer-motion"
 import type { ActiveTopic } from "@/types/project"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
 import { SpacesSection } from "./SpacesSection"
+import { CollapsedSpacesPopover } from "./CollapsedSpacesPopover"
 import { cn } from "@/lib/utils"
 import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
 import { Icons } from "../icons"
@@ -49,8 +50,10 @@ type SidebarProps = {
   spaces: Space[]
   activeSpaceId: string | null
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
+  onSpaceNewChat: (spaceId: string) => void | Promise<void>
   onSpaceCreate: (name?: string) => void | Promise<void>
   onSpaceUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
+  onSpaceArchive: (spaceId: string) => void | Promise<void>
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
@@ -72,17 +75,19 @@ export function Sidebar({
   spaces,
   activeSpaceId,
   onSpaceSwitch,
+  onSpaceNewChat,
   onSpaceCreate,
   onSpaceUpdate,
+  onSpaceArchive,
   onSpaceDelete,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [chatsPopoverOpen, setChatsPopoverOpen] = useState(false)
   const [uniqueSidebarBg, setUniqueSidebarBg] = useState(() => {
     if (typeof window === "undefined") return false
     return localStorage.getItem(UNIQUE_SIDEBAR_BG_KEY) === "true"
   })
-  const [chatsPopoverOpen, setChatsPopoverOpen] = useState(false)
   const prevCollapsed = useRef(collapsed)
 
   useEffect(() => {
@@ -149,6 +154,8 @@ export function Sidebar({
   const isHiddenMobileSidebar = collapsed && isMobileViewport
   const showExpandedContent = !collapsed || isMobileViewport
   const itemCollapsed = isMobileViewport ? false : collapsed
+  const activeSpaceName =
+    spaces.find((space) => space.id === activeSpaceId)?.name ?? "MySpace"
 
   return (
     <>
@@ -228,7 +235,6 @@ export function Sidebar({
                   collapsed={itemCollapsed}
                 />
               ))}
-
               <Popover open={chatsPopoverOpen} onOpenChange={setChatsPopoverOpen}>
                 <PopoverTrigger asChild>
                   <div>
@@ -260,23 +266,27 @@ export function Sidebar({
                     <ChatsSection
                       collapsed={false}
                       collapsible={false}
+                      sectionLabel={activeSpaceName}
                       activeChat={activeChat}
                       onChatSelect={handleChatSelectInPopover}
                       onChatClear={onChatClear}
-                      onNewChat={() => { setChatsPopoverOpen(false); onNewChat() }}
+                      onNewChat={() => {
+                        setChatsPopoverOpen(false)
+                        onNewChat()
+                      }}
                       refreshTrigger={chatRefreshTrigger}
                       spaceId={activeSpaceId}
                     />
                   </div>
                 </PopoverContent>
               </Popover>
-
             </div>
           )}
 
           <div className={cn("mt-2 border-t border-border/10 pt-2", !showExpandedContent && "hidden")}>
             <ChatsSection
               collapsed={false}
+              sectionLabel={activeSpaceName}
               activeChat={activeChat}
               onChatSelect={onChatSelect}
               onChatClear={onChatClear}
@@ -288,13 +298,28 @@ export function Sidebar({
 
         </nav>
 
+        {!isHiddenMobileSidebar && !showExpandedContent && (
+          <div className="relative z-10 border-t border-white/[0.06] px-2 pb-3 pt-2.5 dark:border-white/[0.06]">
+            <div className="flex justify-center">
+              <CollapsedSpacesPopover
+                spaces={spaces}
+                activeSpaceId={activeSpaceId}
+                onSpaceSwitch={onSpaceSwitch}
+                onSpaceCreate={onSpaceCreate}
+              />
+            </div>
+          </div>
+        )}
+
         {!isHiddenMobileSidebar && showExpandedContent && (
           <SpacesSection
             spaces={spaces}
             activeSpaceId={activeSpaceId}
             onSwitch={onSpaceSwitch}
+            onNewChat={onSpaceNewChat}
             onCreate={onSpaceCreate}
             onUpdate={onSpaceUpdate}
+            onArchive={onSpaceArchive}
             onDelete={onSpaceDelete}
           />
         )}

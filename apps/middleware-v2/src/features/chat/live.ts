@@ -169,6 +169,12 @@ export class ChatLiveIngest {
     const projection = confirmed ? { upserted: 1, lastSeq: confirmed.openclawSeq } : this.context.messages.upsertMessages(normalized);
     const emittedMessage = confirmed?.data ?? message;
     const emittedSeq = confirmed?.openclawSeq ?? projectedMessage.openclawSeq;
+    const activityAt = new Date(projectedMessage.updatedAtMs).toISOString();
+    this.context.compat?.touchChatActivity({
+      sessionKey,
+      at: activityAt,
+      lastMessageText: textFromMessage(message),
+    });
     const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
     const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
@@ -187,7 +193,11 @@ export class ChatLiveIngest {
           sessionKey,
           status: "done",
           statusLabel: null,
+          lastActiveAt: activityAt,
+          lastMessageAt: activityAt,
+          lastMessageText: textFromMessage(message),
         },
+        updatedAtMs: projectedMessage.updatedAtMs,
       });
     }
     if (projectedMessage.role === "assistant" && associatedRun) {

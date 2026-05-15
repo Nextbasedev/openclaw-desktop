@@ -47,7 +47,15 @@ export function recordRoutes(store: Store) {
     chatsUpdate: (chatId: string, body: any) => { const s = state(store); const c = s.chats.find((x)=>x.id===chatId); if(!c) throw new HttpError(404,"Chat not found","NOT_FOUND"); Object.assign(c, body, { updatedAt: now() }); save(store,s); return { chat: c } },
     chatsRename: (chatId: string, name: string) => { const s = state(store); const c = s.chats.find((x)=>x.id===chatId); if(!c) throw new HttpError(404,"Chat not found","NOT_FOUND"); c.name = name; c.updatedAt = now(); save(store,s); return { chat: c } },
     chatsArchive: (chatId: string, archived = true) => { const s = state(store); const c = s.chats.find((x)=>x.id===chatId); if(!c) throw new HttpError(404,"Chat not found","NOT_FOUND"); c.archived = archived; c.updatedAt = now(); save(store,s); return { ok: true, chatId, archived } },
-    chatsDelete: (chatId: string) => { const s = state(store); s.chats = s.chats.filter((c)=>c.id!==chatId); save(store,s); return { ok: true } },
+    chatsDelete: (chatId: string) => {
+      const s = state(store)
+      const chat = s.chats.find((c) => c.id === chatId)
+      const sessionKey = typeof chat?.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null
+      s.chats = s.chats.filter((c)=>c.id!==chatId)
+      if (sessionKey) s.sessions = s.sessions.filter((session)=>session.sessionKey !== sessionKey && session.key !== sessionKey)
+      save(store,s)
+      return { ok: true, chatId, sessionKey }
+    },
     chatsAttachSession: (chatId: string, sessionKey: string) => { const s = state(store); const c = s.chats.find((x)=>x.id===chatId); if(!c) throw new HttpError(404,"Chat not found","NOT_FOUND"); c.sessionKey = sessionKey; c.updatedAt = now(); save(store,s); return { chat: c } },
 
     spacesList: () => { const s = state(store); const active = ensureDefaultSpace(s); save(store, s); return { spaces: s.spaces.filter((space)=>!space.archived && !space.deleted).sort((a,b)=>(a.sortOrder ?? 0) - (b.sortOrder ?? 0)), activeSpaceId: s.activeSpaceId || active?.id } },

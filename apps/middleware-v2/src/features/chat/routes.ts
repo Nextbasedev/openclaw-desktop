@@ -418,6 +418,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             data: clientMessage,
             updatedAtMs: optimisticCreatedAtMs,
           });
+          context.compat?.touchChatActivity({
+            sessionKey: input.sessionKey,
+            at: nowIso,
+            lastMessageText: prepared.message,
+          });
           log.info("message.persist.optimistic", { sessionKey: input.sessionKey, messageId: clientMessage.__openclaw.id, messageSeq: optimisticSeq, role: "user" });
           const event = context.messages.appendProjectionEvent({
             sessionKey: input.sessionKey,
@@ -454,7 +459,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               sessionId: existingSession?.sessionId ?? null,
               status: "running",
               statusLabel: "Thinking",
+              lastActiveAt: nowIso,
+              lastMessageAt: nowIso,
+              lastMessageText: prepared.message,
             },
+            updatedAtMs: optimisticCreatedAtMs,
           });
           log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: "running", statusLabel: "Thinking" });
           const statusEvent = context.messages.appendProjectionEvent({

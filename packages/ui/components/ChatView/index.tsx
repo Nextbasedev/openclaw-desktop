@@ -534,9 +534,9 @@ export function ChatView({
           input: { approvalId, decision },
         })
       }
-      emit("chat:activity")
+      emit("chat:activity", { sessionKey })
     },
-    []
+    [sessionKey]
   )
 
   const handleSessionModelSelect = useCallback(
@@ -547,7 +547,7 @@ export function ChatView({
         await invoke("middleware_chat_model_set", {
           input: { sessionKey, modelId },
         })
-        emit("chat:activity")
+        emit("chat:activity", { sessionKey })
         toast.update(toastId, {
           render: `Switched model to ${modelId}`,
           type: "success",
@@ -587,6 +587,7 @@ export function ChatView({
         !firstFiredRef.current &&
         messages.length === 0 &&
         Boolean(onFirstMessageSent)
+      emit("chat:activity", { sessionKey })
       const sent = await handleSend(payload)
       if (sent === false) return
       if (shouldNotifyFirstSend && onFirstMessageSent) {
@@ -599,7 +600,7 @@ export function ChatView({
       setReplyTo(null)
       setComposerSeed("")
     },
-    [handleSend, messages.length, modelSwitching, onFirstMessageSent]
+    [handleSend, messages.length, modelSwitching, onFirstMessageSent, sessionKey]
   )
 
   const retrySend = useCallback(

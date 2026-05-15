@@ -50,6 +50,7 @@ export type EditorGroupsAction =
       sessionData: SessionData | null
     }
   | { type: "CLOSE_GROUP"; groupId: "group-1" | "group-2" }
+  | { type: "RESTORE"; state: EditorGroupsState }
   | { type: "RESET"; tab?: EditorTab }
 
 const DRAFT_TAB: EditorTab = {
@@ -343,6 +344,17 @@ export function editorGroupsReducer(
         groups: [{ ...target, tabs: mergedTabs }],
         focusedGroupId: target.id,
       }
+    }
+
+    case "RESTORE": {
+      const groups = action.state.groups
+        .filter((group) => group.id === "group-1" || group.id === "group-2")
+        .map((group) => ensureGroupHasTabs(group))
+      if (groups.length === 0) return state
+      const focusedGroupId = groups.some((group) => group.id === action.state.focusedGroupId)
+        ? action.state.focusedGroupId
+        : groups[0]!.id
+      return { groups: groups.slice(0, 2), focusedGroupId }
     }
 
     case "RESET": {

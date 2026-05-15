@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react"
-import { createPortal } from "react-dom"
 import {
   VscAdd,
   VscClose,
@@ -24,6 +23,7 @@ import { invoke } from "@/lib/ipc"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 type VersionInfo = {
   version: string
@@ -579,7 +579,7 @@ function HeaderTab({
                 }
               }}
               className={cn(
-                "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+                "cursor-pointer relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
                 isActive || menuOpen ? "opacity-100" : "opacity-0",
                 isActive
                   ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
@@ -640,7 +640,7 @@ function HeaderTab({
             }
           }}
           className={cn(
-            "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+            "cursor-pointer relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
             isActive ? "opacity-100" : "opacity-0",
             isActive
               ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
@@ -667,56 +667,24 @@ function HeaderTooltip({
   label: string
   children: ReactNode
 }) {
-  const [show, setShow] = useState(false)
-  const [mounted, setMounted] = useState(false)
-  const triggerRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setMounted(true), 0)
-    return () => window.clearTimeout(timer)
-  }, [])
-
-  function handleEnter() {
-    if (!triggerRef.current) return
-    const rect = triggerRef.current.getBoundingClientRect()
-    setPos({
-      top: rect.top - 8,
-      left: rect.left + rect.width / 2,
-    })
-    setShow(true)
-  }
-
   return (
-    <div
-      ref={triggerRef}
-      onMouseEnter={handleEnter}
-      onMouseLeave={() => setShow(false)}
-      className="shrink-0"
-    >
-      {children}
-      {show && mounted && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999]"
-          style={{
-            top: pos.top,
-            left: pos.left,
-            transform: "translate(-50%, -100%)",
-          }}
-        >
-          <div
-            className={cn(
-              "whitespace-nowrap rounded-[12px] px-2.5 py-1",
-              "border border-white/[0.08] bg-[#1B1B1D]/88 backdrop-blur-xl",
-              "text-[12px] font-medium text-foreground",
-              "shadow-[0_8px_24px_rgba(0,0,0,0.28)]",
-            )}
-          >
-            {label}
-          </div>
-        </div>,
-        document.body,
-      )}
-    </div>
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>
+        <div className="shrink-0">{children}</div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        collisionPadding={12}
+        showArrow={false}
+        className={cn(
+          "max-w-[min(420px,calc(100vw-24px))] rounded-md border border-white/[0.08] bg-[#1B1B1D]/88 px-2.5 py-1 text-[12px] font-medium text-foreground backdrop-blur-xl",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.28)]",
+        )}
+      >
+        <span className="block break-words whitespace-normal">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }

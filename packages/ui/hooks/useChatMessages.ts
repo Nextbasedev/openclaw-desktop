@@ -59,6 +59,12 @@ import {
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
+import {
+  getWarmChatCache,
+  pruneWarmChatCache,
+  setWarmChatCache,
+  WARM_CHAT_WRITE_DEBOUNCE_MS,
+} from "@/lib/warmChatCache"
 
 type RawMessage = {
   id?: string
@@ -438,12 +444,36 @@ export function useChatMessages(
     hasInitial ? "thinking" : initialWarmStatus
   )
   const isSendingRef = useRef(false)
+  const v2CursorRef = useRef(0)
+  const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
+  const suppressNextWarmPersistRef = useRef(false)
 
-  const schedulePersistentMessages = useCallback((_next: ChatMessage[]) => {
-    // V2 middleware projection is the chat source of truth.
-    // Do not persist full chat arrays in frontend cache/localStorage.
+  const schedulePersistentMessages = useCallback((next: ChatMessage[]) => {
+    // V2 middleware projection is the chat source of truth. This warm cache is
+    // a bounded recent-window preview only, used for fast paint on reopen.
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
-  }, [])
+    if (suppressNextWarmPersistRef.current) {
+      suppressNextWarmPersistRef.current = false
+      return
+    }
+    if (next.length === 0) return
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null
+      void setWarmChatCache(sessionKey, {
+        messages: next,
+        cursor: v2CursorRef.current,
+        runStatus: statusRef.current,
+        statusLabel: normalizeStatusLabelForStatus(statusRef.current, statusLabel),
+        pendingTools: Array.from(pendingToolMapRef.current.values()),
+        messageCount: next.length,
+      }).catch((error) => {
+        frontendLog("chat", "warm-cache.persist.fail", {
+          sessionKey,
+          error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+        }, "warn")
+      })
+    }, WARM_CHAT_WRITE_DEBOUNCE_MS)
+  }, [sessionKey, statusLabel])
 
   const setMessages = useCallback(
     (update: SetStateAction<ChatMessage[]>) => {
@@ -476,7 +506,6 @@ export function useChatMessages(
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const [pendingTools, setLocalPendingTools] = useState<InlineToolCall[]>([])
-  const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
   const embedsMapRef = useRef<
     Map<string, { ref: string; content: string; title?: string }>
   >(new Map())
@@ -512,7 +541,6 @@ export function useChatMessages(
   const messagesRef = useRef<ChatMessage[]>(
     hasInitial ? initialMessages : []
   )
-  const v2CursorRef = useRef(0)
 
   useEffect(() => {
     cacheChatActivity(sessionKey, {
@@ -1238,6 +1266,56 @@ setMessages(warmMessages)
       }, CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS)
     }
 
+    async function applyPersistedWarmCache() {
+      if (warmMessages) return
+      try {
+        const cached = await getWarmChatCache(sessionKey)
+        if (!cached || cancelled || bootstrapSettled) return
+        const cachedMessages = dedupeChatMessages(cached.entry.messages)
+        if (cachedMessages.length === 0) return
+        for (const message of cachedMessages) {
+          seenIds.current.add(message.messageId)
+        }
+        const cachedStatus = streamStatusFromCanonicalRun(cached.entry.runStatus)
+        const hasCachedActiveWork =
+          isActiveRunStatus(cachedStatus) ||
+          Boolean(cached.entry.pendingToolSummary?.some((tool) => tool.status === "running"))
+        const effectiveStatus: StreamStatus = cached.stale && hasCachedActiveWork
+          ? "running"
+          : cachedStatus
+        const effectiveLabel = cached.stale && hasCachedActiveWork
+          ? "Checking latest run state…"
+          : normalizeStatusLabelForStatus(effectiveStatus, cached.entry.statusLabel)
+
+        if (typeof cached.entry.cursor === "number") v2CursorRef.current = cached.entry.cursor
+        setLoading(false)
+        suppressNextWarmPersistRef.current = true
+        setMessages(cachedMessages)
+        setStatus(effectiveStatus)
+        setStatusLabel(effectiveLabel)
+        if (cached.entry.pendingTools?.length) {
+          pendingToolMapRef.current = new Map(cached.entry.pendingTools.map((tool) => [tool.id, tool]))
+          setPendingTools(cached.entry.pendingTools)
+        }
+        frontendLog("chat", "warm-cache.applied", {
+          sessionKey,
+          messageCount: cachedMessages.length,
+          cursor: cached.entry.cursor,
+          fresh: cached.fresh,
+          stale: cached.stale,
+          ageMs: cached.ageMs,
+          status: effectiveStatus,
+          hasCachedActiveWork,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+        })
+      } catch (error) {
+        frontendLog("chat", "warm-cache.load.fail", {
+          sessionKey,
+          error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+        }, "warn")
+      }
+    }
+
     const handleBootstrapRecovery = () => {
       frontendLog("stream", "chat.bootstrap-recovery.reload", { sessionKey }, "warn")
       invalidateDedupe(`chat-bootstrap:${sessionKey}`)
@@ -1250,7 +1328,7 @@ setMessages(warmMessages)
       const bootstrapStartedAtMs = Date.now()
       frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs })
       try {
-        const { messages: bootstrapMessages, history, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
+        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
           queryFn: () => loadChatBootstrap(sessionKey),
           staleTime: queryStaleTime.chatBootstrap,
@@ -1299,6 +1377,24 @@ setMessages(warmMessages)
           spawnedSubagents: canonicalSpawns,
           queryClient,
         })
+        void setWarmChatCache(sessionKey, {
+          messages: canonicalMessages,
+          cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
+          runStatus: runStatus ?? canonicalStatus,
+          statusLabel: canonicalLabel,
+          activeRunSummary: activeRun ? {
+            runId: activeRun.runId,
+            status: activeRun.status,
+            startedAt: activeRun.startedAtMs ?? null,
+          } : null,
+          pendingTools: inlineTools,
+          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : canonicalMessages.length,
+        }).catch((error) => {
+          frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
+            sessionKey,
+            error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+          }, "warn")
+        })
         setMessages(canonicalMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
@@ -1323,394 +1419,6 @@ setMessages(warmMessages)
         })
         forceScrollToBottom(false)
 
-        // Defensive legacy fallback: only used if middleware-v2 does not expose
-        // the canonical projection contract. This path may infer from raw
-        // history, but it is not authoritative for normal Phase-4 operation.
-        frontendLog("chat", "chat.bootstrap.legacy-fallback", { sessionKey, source, projectionVersion }, "warn")
-        const rawAll = (bootstrapMessages as RawMessage[]) || []
-        const normalizedHistory = parseChatHistory(rawAll)
-        const raw = deduplicateRawMessages(rawAll) as RawMessage[]
-        const histMsgs: ChatMessage[] = []
-        let pendingToolCalls: InlineToolCall[] = []
-        let resultQueue: InlineToolCall[] = []
-        const historyEmbeds = new Map<
-          string,
-          { ref: string; content: string; title?: string }
-        >()
-        const historySpawns: Array<{
-          toolCallId: string
-          label: string
-          task?: string
-          sessionKey: string | null
-          terminal: boolean
-          error: boolean
-        }> = []
-        let autoAnnouncesToSkip = 0
-
-        for (let rawIdx = 0; rawIdx < raw.length; rawIdx++) {
-          const m = raw[rawIdx]
-          if (m.role === "user") {
-            const id = stableRawMessageId(m)
-            seenIds.current.add(id)
-            const rawText = m.text || extractText(m.content)
-            const text = rawText ? cleanUserMessageText(rawText) : ""
-            const isBootstrapEcho = rawText.includes(
-              "[Bootstrap truncation warning]"
-            )
-            const hasAssistantBeforeLaterSameUser = (() => {
-              if (!isBootstrapEcho) return false
-              for (const later of raw.slice(rawIdx + 1)) {
-                if (later.role === "user") {
-                  const laterRawText = later.text || extractText(later.content)
-                  if (cleanUserMessageText(laterRawText).trim() === text.trim())
-                    return false
-                }
-                if (
-                  later.role === "assistant" &&
-                  ((later.text || extractText(later.content)).trim() ||
-                    (later as { errorMessage?: string }).errorMessage)
-                )
-                  return true
-              }
-              return false
-            })()
-            const hasLaterSameUserText =
-              isBootstrapEcho &&
-              raw.slice(rawIdx + 1).some((later) => {
-                if (later.role !== "user") return false
-                const laterRawText = later.text || extractText(later.content)
-                return cleanUserMessageText(laterRawText).trim() === text.trim()
-              })
-            const isSubagentAnnounce = text
-              ? /agent:[^\s"',}\]]+:subagent:[0-9a-f-]{36}/.test(text)
-              : false
-
-            if (isSubagentAnnounce) {
-              if (autoAnnouncesToSkip > 0) autoAnnouncesToSkip--
-            } else if (
-              text &&
-              (!hasLaterSameUserText || hasAssistantBeforeLaterSameUser)
-            ) {
-              const reply = extractReplyBlock(text, histMsgs)
-              const rawAttachments = m.attachments
-              const resolvedAttachments =
-                rawAttachments && rawAttachments.length > 0
-                  ? mergeAttachmentsWithCache(sessionKey, id, rawAttachments)
-                  : rawAttachments
-              if (resolvedAttachments && resolvedAttachments.length > 0) {
-                cacheAttachments(
-                  sessionKey,
-                  id,
-                  resolvedAttachments
-                    .filter((a) => a.content)
-                    .map((a) => ({
-                      name: a.name,
-                      mimeType: a.mimeType,
-                      content: a.content!,
-                      size: a.size,
-                    }))
-                )
-              }
-              histMsgs.push({
-                messageId: id,
-                role: "user",
-                text: reply ? reply.displayText : text,
-                createdAt: m.createdAt,
-                model: m.model,
-                usage: m.usage,
-                stopReason: m.stopReason,
-                isOptimistic: Boolean(m.isOptimistic || m.__clientOptimistic),
-                replyTo: reply?.replyTo,
-                gatewayIndex: rawIdx,
-                attachments: resolvedAttachments,
-              })
-            }
-            pendingToolCalls = []
-            resultQueue = []
-          } else if (m.role === "assistant") {
-            const id = stableRawMessageId(m)
-            seenIds.current.add(id)
-
-            const blocks = Array.isArray(m.content)
-              ? (m.content as Array<{
-                  type?: string
-                  id?: string
-                  name?: string
-                  arguments?: unknown
-                  input?: unknown
-                }>)
-              : []
-            const tcBlocks = blocks.filter(
-              (b) => b.type === "toolCall" || b.type === "tool_use"
-            )
-            for (const b of tcBlocks) {
-              const call: InlineToolCall = {
-                id: b.id ?? randomId(),
-                tool: b.name ?? "unknown",
-                status: "success",
-                input: b.arguments ?? b.input,
-              }
-              pendingToolCalls.push(call)
-              resultQueue.push(call)
-              if (b.name === "write") {
-                const args = (b.arguments ?? b.input ?? {}) as Record<
-                  string,
-                  unknown
-                >
-                const ref = args.ref as string | undefined
-                const content = args.content as string | undefined
-                const title = args.title as string | undefined
-                if (ref && content) {
-                  historyEmbeds.set(ref, { ref, content, title })
-                }
-              }
-              if (b.name === "sessions_spawn") {
-                const args = (b.arguments ?? b.input ?? {}) as Record<
-                  string,
-                  unknown
-                >
-                const histTask = (args.task as string) ?? ""
-                const label =
-                  (args.label as string) ??
-                  (args.agentId as string) ??
-                  (histTask.length > 0
-                    ? histTask.slice(0, 60) +
-                      (histTask.length > 60 ? "..." : "")
-                    : `Sub-agent ${historySpawns.length + 1}`)
-                historySpawns.push({
-                  toolCallId: call.id,
-                  label,
-                  task: histTask,
-                  sessionKey: null,
-                  terminal: false,
-                  error: false,
-                })
-              }
-            }
-
-            const text = (m.text || extractText(m.content))?.trim()
-            const currentEmbeds =
-              historyEmbeds.size > 0
-                ? Array.from(historyEmbeds.values())
-                : undefined
-            const lastEntry = histMsgs[histMsgs.length - 1]
-            if (lastEntry?.role === "assistant") {
-              lastEntry.gatewayIndex = rawIdx
-              if (text) {
-                lastEntry.text = lastEntry.text
-                  ? lastEntry.text + "\n\n" + text
-                  : text
-                lastEntry.messageId = id
-                lastEntry.createdAt = m.createdAt || lastEntry.createdAt
-                lastEntry.model = m.model ?? lastEntry.model
-                lastEntry.usage = m.usage ?? lastEntry.usage
-                lastEntry.stopReason = m.stopReason ?? lastEntry.stopReason
-                if (currentEmbeds)
-                  lastEntry.embeds = [
-                    ...(lastEntry.embeds ?? []),
-                    ...currentEmbeds,
-                  ]
-                if (pendingToolCalls.length > 0) {
-                  lastEntry.toolCalls = [
-                    ...(lastEntry.toolCalls || []),
-                    ...pendingToolCalls,
-                  ]
-                }
-              } else if (pendingToolCalls.length > 0) {
-                lastEntry.toolCalls = [
-                  ...(lastEntry.toolCalls || []),
-                  ...pendingToolCalls,
-                ]
-              }
-            } else if (text) {
-              const currentEmbeds =
-                historyEmbeds.size > 0
-                  ? Array.from(historyEmbeds.values())
-                  : undefined
-              histMsgs.push({
-                messageId: id,
-                role: "assistant",
-                text,
-                createdAt: m.createdAt,
-                model: m.model,
-                usage: m.usage,
-                stopReason: m.stopReason,
-                toolCalls:
-                  pendingToolCalls.length > 0
-                    ? [...pendingToolCalls]
-                    : undefined,
-                embeds: currentEmbeds,
-                gatewayIndex: rawIdx,
-              })
-            } else if (pendingToolCalls.length > 0) {
-              histMsgs.push({
-                messageId: id,
-                role: "assistant",
-                text: "",
-                createdAt: m.createdAt,
-                model: m.model,
-                usage: m.usage,
-                stopReason: m.stopReason,
-                toolCalls: [...pendingToolCalls],
-                gatewayIndex: rawIdx,
-              })
-            }
-            pendingToolCalls = []
-          } else if (
-            m.role === "tool" ||
-            m.role === "tool_result" ||
-            m.role === "toolResult"
-          ) {
-            const resultText = m.text || extractText(m.content)
-            let matchedCall: InlineToolCall | null = null
-            if (resultQueue.length > 0) {
-              matchedCall = resultQueue.shift()!
-              if (resultText) {
-                matchedCall.resultText = resultText
-                matchedCall.approval =
-                  parseExecApproval(resultText) ?? matchedCall.approval
-                try {
-                  const parsed = JSON.parse(resultText)
-                  matchedCall.status =
-                    parsed.status === "error" ? "error" : "success"
-                } catch {
-                  matchedCall.status = "success"
-                }
-              }
-            }
-            if (matchedCall?.tool === "sessions_spawn" && resultText) {
-              const spawn = historySpawns.find(
-                (s) => s.toolCallId === matchedCall!.id
-              )
-              if (spawn) {
-                if (matchedCall.status === "error") spawn.error = true
-                const childKey = extractSubagentSessionKey(resultText)
-                if (childKey && !spawn.sessionKey) {
-                  spawn.sessionKey = childKey
-                  autoAnnouncesToSkip++
-                }
-              }
-            } else if (matchedCall?.tool === "sessions_yield") {
-              const spawn = [...historySpawns]
-                .reverse()
-                .find((s) => !s.terminal && !s.error)
-              if (spawn) {
-                if (matchedCall.status === "error") {
-                  spawn.error = true
-                } else {
-                  spawn.terminal = true
-                }
-              }
-            }
-          }
-        }
-
-        for (const hs of historySpawns) {
-          const spawn: SpawnedSubagent = {
-            id: `spawn:${hs.toolCallId}`,
-            label: hs.label,
-            task: hs.task,
-            sessionKey: hs.sessionKey,
-            status: hs.error
-              ? "failed"
-              : hs.terminal
-                ? "completed"
-                : hs.sessionKey
-                  ? "working"
-                  : "linking",
-            toolCallId: hs.toolCallId,
-          }
-          spawnMapRef.current.set(hs.toolCallId, spawn)
-        }
-        if (historySpawns.length > 0) {
-          setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
-        }
-        if (
-          historySpawns.length === 0 &&
-          normalizedHistory.subagents.length > 0
-        ) {
-          for (const spawn of normalizedHistory.subagents) {
-            spawnMapRef.current.set(spawn.toolCallId, spawn)
-          }
-          setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
-        }
-
-        const edits = (branchData.branches ?? [])
-          .filter((b) => b.branchReason === "edit")
-          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-
-        let filtered =
-          histMsgs.length > 0 ? histMsgs : normalizedHistory.messages
-        for (const edit of edits) {
-          const sourceIdx = filtered.findIndex(
-            (m) => m.messageId === edit.sourceMessageId
-          )
-          if (sourceIdx === -1) continue
-
-          let editIdx = -1
-          for (let i = sourceIdx + 1; i < filtered.length; i++) {
-            const m = filtered[i]
-            if (
-              m.role === "user" &&
-              m.createdAt &&
-              m.createdAt >= edit.createdAt
-            ) {
-              editIdx = i
-              break
-            }
-          }
-          if (editIdx === -1) continue
-
-          filtered = [
-            ...filtered.slice(0, sourceIdx),
-            ...filtered.slice(editIdx),
-          ]
-        }
-
-        const allMessages = dedupeChatMessages(filtered)
-        const bootstrapStatus = history.sessionStatus ? statusFromBackendSession(history.sessionStatus, allMessages) : inferRestoredChatStatus(allMessages, statusRef.current)
-        seedGlobalChatSession({
-          sessionKey,
-          messages: allMessages,
-          cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-          status: bootstrapStatus,
-          pendingTools: Array.from(pendingToolMapRef.current.values()),
-          spawnedSubagents: Array.from(spawnMapRef.current.values()),
-          queryClient,
-        })
-
-        setMessages((prev) => {
-          const histIds = new Set(allMessages.map((hm) => hm.messageId))
-          const kept = prev.filter(
-            (pm) =>
-              pm.isOptimistic &&
-              !histIds.has(pm.messageId) &&
-              !allMessages.some((hm) => sameUserMessage(hm, pm))
-          )
-          return dedupeChatMessages([...allMessages, ...kept])
-        })
-        const restoredStatus = bootstrapStatus
-        if (history.sessionStatus || !isActiveRunStatus(restoredStatus) || isActiveRunStatus(statusRef.current)) {
-          setStatus(restoredStatus)
-          if (restoredStatus === "done" || restoredStatus === "idle" || restoredStatus === "error") {
-            setStatusLabel(null)
-            pendingToolMapRef.current.clear()
-            setPendingTools([])
-            clearCachedChatActivity(sessionKey)
-          }
-        }
-        setLoading(false)
-frontendLog("chat", "chat.bootstrap.applied", {
-          sessionKey,
-          messageCount: allMessages.length,
-          status: restoredStatus,
-          pendingToolCount: pendingToolMapRef.current.size,
-          spawnedSubagentCount: spawnMapRef.current.size,
-          durationMs: Date.now() - bootstrapStartedAtMs,
-          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
-        })
-        forceScrollToBottom(false)
-
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
           (state) => {
@@ -1722,30 +1430,13 @@ frontendLog("chat", "chat.bootstrap.applied", {
             setLocalSpawnedSubagents(state.spawnedSubagents)
             setStatus(state.status)
             setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
-            frontendLog("status", "chat.render-factors", {
-              sessionKey,
-              status: state.status,
-              statusLabel: normalizeStatusLabelForStatus(state.status, state.statusLabel),
-              cursor: state.cursor,
-              messageCount: state.messages.length,
-              pendingToolCount: state.pendingTools.length,
-              runningToolCount: state.pendingTools.filter((tool) => tool.status === "running").length,
-              spawnedSubagentCount: state.spawnedSubagents.length,
-              activeSubagentCount: state.spawnedSubagents.filter((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working").length,
-            }, "debug")
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
             else clearCachedChatActivity(sessionKey)
             setMessages(state.messages)
           }
         )
-
-        // V2 is the single source of truth for chat messages.
-        // Do not also subscribe to the legacy chat stream here: running both
-        // streams races two independent sources into the same React message
-        // array and can produce duplicate user bubbles or assistant-only turns
-        // in secondary windows. Tool/status events need first-class V2 patches
-        // instead of legacy message mutation.
         unsubscribeStream = null
+        return
       } catch (e) {
         bootstrapSettled = true
         frontendLog("chat", "chat.bootstrap.fail", {
@@ -1765,6 +1456,8 @@ frontendLog("chat", "chat.bootstrap.applied", {
       }
     }
 
+    void pruneWarmChatCache()
+    void applyPersistedWarmCache()
     init()
 
     return () => {
@@ -1998,7 +1691,7 @@ frontendLog("chat", "chat.bootstrap.applied", {
         // Send ACK is not lifecycle truth. Wait for canonical runStatus patches
         // or bootstrap recovery before clearing/completing the visible run.
         frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
-        emit("chat:activity")
+        emit("chat:activity", { sessionKey })
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
