@@ -46,6 +46,15 @@ CREATE TABLE IF NOT EXISTS v2_projection_events (cursor INTEGER PRIMARY KEY AUTO
 CREATE INDEX IF NOT EXISTS idx_v2_projection_events_cursor ON v2_projection_events(cursor);
 CREATE TABLE IF NOT EXISTS v2_gateway_offsets (session_key TEXT PRIMARY KEY, last_openclaw_seq INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS v2_compat_state (key TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS v2_workspace_layouts (
+  layout_key TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  window_id TEXT NOT NULL,
+  is_meaningful INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_v2_workspace_layouts_latest_meaningful ON v2_workspace_layouts(workspace_id, is_meaningful, updated_at_ms DESC);
 `;
 
 export function migrateDatabase(db: Database.Database) {

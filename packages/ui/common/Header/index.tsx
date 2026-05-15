@@ -15,7 +15,6 @@ import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { WindowControls } from "@/components/WindowControls"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
@@ -24,6 +23,7 @@ import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 
 type VersionInfo = {
   version: string
@@ -326,73 +326,77 @@ export function Header({
               </button>
             )}
 
-            <button
-              type="button"
-              data-testid="toggle-sidebar"
-              aria-label={
-                sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-              }
-              title={
-                sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-              }
-              onClick={onToggleSidebar}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                sidebarOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
+            <HeaderActionTooltip
+              label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
-              <VscLayoutSidebarLeft className="size-4" />
-            </button>
+              <button
+                type="button"
+                data-testid="toggle-sidebar"
+                aria-label={
+                  sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
+                }
+                onClick={onToggleSidebar}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  sidebarOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscLayoutSidebarLeft className="size-4" />
+              </button>
+            </HeaderActionTooltip>
 
-            <button
-              type="button"
-              aria-label="Toggle inspector panel"
-              title="Toggle inspector panel"
-              onClick={onToggleInspector}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                inspectorOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
-            >
-              <VscLayoutSidebarRight className="size-4" />
-            </button>
+            <HeaderActionTooltip label="Toggle inspector panel">
+              <button
+                type="button"
+                aria-label="Toggle inspector panel"
+                onClick={onToggleInspector}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  inspectorOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscLayoutSidebarRight className="size-4" />
+              </button>
+            </HeaderActionTooltip>
 
-            <button
-              type="button"
-              aria-label="Toggle terminal"
-              title="Toggle terminal"
-              onClick={onToggleTerminal}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-md",
-                "cursor-pointer transition-colors",
-                terminalOpen
-                  ? "bg-transparent text-foreground"
-                  : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-              )}
-            >
-              <VscTerminal className="size-4" />
-            </button>
+            <HeaderActionTooltip label="Toggle terminal">
+              <button
+                type="button"
+                aria-label="Toggle terminal"
+                onClick={onToggleTerminal}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  terminalOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscTerminal className="size-4" />
+              </button>
+            </HeaderActionTooltip>
 
-            <button
-              type="button"
-              aria-label="Open logs"
-              title="Open logs"
-              onClick={onOpenLogs}
-              className={cn(
-                "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
-                "cursor-pointer transition-colors",
-                "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <VscOutput className="size-3.5" />
-              Logs
-            </button>
+            <HeaderActionTooltip label="Open logs">
+              <button
+                type="button"
+                aria-label="Open logs"
+                onClick={onOpenLogs}
+                className={cn(
+                  "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+                  "cursor-pointer transition-colors",
+                  "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <VscOutput className="size-3.5" />
+                Logs
+              </button>
+            </HeaderActionTooltip>
 
             <NotificationPopover
               onViewAll={onOpenNotifications}
@@ -426,21 +430,50 @@ function HeaderIconButton({
   active?: boolean
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={cn(
-        "flex size-7 items-center justify-center rounded-md",
-        "cursor-pointer transition-colors group/icon",
-        active
-          ? "bg-transparent text-foreground"
-          : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-      )}
-    >
-      <Icon size={16} strokeWidth={1.5} className="size-4" />
-    </button>
+    <HeaderActionTooltip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className={cn(
+          "flex size-7 items-center justify-center rounded-md",
+          "cursor-pointer transition-colors group/icon",
+          active
+            ? "bg-transparent text-foreground"
+            : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+        )}
+      >
+        <Icon size={16} strokeWidth={1.5} className="size-4" />
+      </button>
+    </HeaderActionTooltip>
+  )
+}
+
+function HeaderActionTooltip({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        collisionPadding={12}
+        showArrow={false}
+        className={cn(
+          GLASS_POPOVER,
+          "max-w-[420px] whitespace-normal break-words border-transparent bg-[var(--glass-bg)] px-3 py-1.5 text-[12px] font-medium text-foreground",
+          "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+        )}
+      >
+        <span className="block whitespace-normal break-words">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -465,7 +498,6 @@ function HeaderTab({
 }) {
   const activeAndFocused = isActive && isFocusedGroup
   const tabLabel = `${tab.subtitle} / ${tab.title}`
-  const [menuOpen, setMenuOpen] = useState(false)
   const openTabWindow = () => {
     if (onOpenWindow) {
       onOpenWindow()
@@ -487,12 +519,6 @@ function HeaderTab({
         event.preventDefault()
         event.stopPropagation()
         openTabWindow()
-      }}
-      onContextMenu={(event) => {
-        if (tab.kind !== "chat") return
-        event.preventDefault()
-        event.stopPropagation()
-        setMenuOpen(true)
       }}
       onClick={onSelect}
       onKeyDown={(event) => {
@@ -562,69 +588,63 @@ function HeaderTab({
         </div>
       </div>
       {tab.kind === "chat" && (
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-          <PopoverTrigger asChild>
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label="Open tab menu"
-              title="Tab options"
-              onClick={(e) => {
+        <div
+          className={cn(
+            "relative z-10 ml-0.5 flex shrink-0 items-center gap-0.5 transition-opacity group-hover:opacity-100",
+            isActive ? "opacity-100" : "opacity-0",
+          )}
+        >
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label="Open as new window"
+            title="Open as new window"
+            onClick={(e) => {
+              e.stopPropagation()
+              openTabWindow()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
                 e.stopPropagation()
-                setMenuOpen((open) => !open)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setMenuOpen((open) => !open)
-                }
-              }}
-              className={cn(
-                "cursor-pointer relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
-                isActive || menuOpen ? "opacity-100" : "opacity-0",
-                isActive
-                  ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
-                  : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
-              )}
-            >
-              <Icons.MoreVertical size={14} strokeWidth={1.5} />
-            </span>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            side="bottom"
-            sideOffset={6}
-            className="z-[9999] w-44 gap-0 rounded-xl border border-white/[0.08] bg-[#1B1B1D]/95 p-1 shadow-2xl backdrop-blur-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                setMenuOpen(false)
                 openTabWindow()
-              }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium text-foreground/80 transition-colors hover:bg-foreground/8 hover:text-foreground"
-            >
-              <LuExternalLink className="size-3.5" />
-              Open as new window
-            </button>
-            <div className="my-0.5 h-px bg-border/20" />
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                setMenuOpen(false)
+              }
+            }}
+            className={cn(
+              "flex size-5 cursor-pointer items-center justify-center rounded-md transition-colors",
+              isActive
+                ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+                : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+            )}
+          >
+            <LuExternalLink className="size-3.5" />
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label="Close tab"
+            title="Close tab"
+            onClick={(e) => {
+              e.stopPropagation()
+              onClose()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                e.stopPropagation()
                 onClose()
-              }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium text-foreground/80 transition-colors hover:bg-foreground/8 hover:text-foreground"
-            >
-              <VscClose className="size-3.5" />
-              Close tab
-            </button>
-          </PopoverContent>
-        </Popover>
+              }
+            }}
+            className={cn(
+              "flex size-5 cursor-pointer items-center justify-center rounded-md transition-colors",
+              isActive
+                ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+                : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+            )}
+          >
+            <VscClose className="size-3.5" />
+          </span>
+        </div>
       )}
       {tab.kind !== "chat" && (
         <span

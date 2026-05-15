@@ -310,12 +310,19 @@ function eventSourceStateLabel(readyState: number): "connecting" | "open" | "clo
       : "closed"
 }
 
+function isOptionalSseStream(url?: string): boolean {
+  if (!url) return false
+  return url.includes("/api/stream/cron")
+}
+
 function eventSourceErrorLevel(
   readyState: number,
   closeRequested: boolean,
   hasOpened: boolean,
+  url?: string,
 ): LogLevel {
   if (closeRequested) return "debug"
+  if (readyState === 2 && !hasOpened && isOptionalSseStream(url)) return "warn"
   if (readyState === 2) return hasOpened ? "warn" : "error"
   return hasOpened ? "info" : "warn"
 }
@@ -324,8 +331,12 @@ function eventSourceEventName(
   readyState: number,
   closeRequested: boolean,
   hasOpened: boolean,
-): "sse.error" | "sse.disconnected" | "sse.retrying" | "sse.closed" {
+  url?: string,
+): "sse.error" | "sse.disconnected" | "sse.retrying" | "sse.closed" | "sse.unavailable" {
   if (closeRequested) return "sse.closed"
+  if (readyState === 2 && !hasOpened && isOptionalSseStream(url)) {
+    return "sse.unavailable"
+  }
   if (readyState === 2) return hasOpened ? "sse.disconnected" : "sse.error"
   return "sse.retrying"
 }
@@ -432,12 +443,14 @@ function instrumentEventSource() {
             this.readyState,
             this.__closeRequested,
             this.__hasOpened,
+            safeUrl,
           ),
           { url: safeUrl, readyState: state },
           eventSourceErrorLevel(
             this.readyState,
             this.__closeRequested,
             this.__hasOpened,
+            safeUrl,
           ),
         )
       })
@@ -597,6 +610,7 @@ export const __clientLogsForTests = {
   summarizeBody,
   errorMeta,
   pushFrontend,
+  isOptionalSseStream,
   eventSourceStateLabel,
   eventSourceErrorLevel,
   eventSourceEventName,
