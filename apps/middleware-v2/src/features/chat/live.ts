@@ -34,6 +34,14 @@ function toolCallBlocks(content: unknown) {
   });
 }
 
+function toolResultBlocks(content: unknown) {
+  if (!Array.isArray(content)) return [];
+  return content.filter((block): block is Record<string, unknown> => {
+    if (!isObject(block)) return false;
+    return block.type === "toolResult" || block.type === "tool_result" || block.type === "tool_result_block";
+  });
+}
+
 function readToolCallId(value: Record<string, unknown>) {
   const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
@@ -46,6 +54,10 @@ function readToolName(value: Record<string, unknown>) {
 
 function readToolArgs(value: Record<string, unknown>) {
   return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
+}
+
+function readToolResult(value: Record<string, unknown>) {
+  return value.result ?? value.output ?? value.content ?? value.text ?? value.message ?? value.value ?? null;
 }
 
 function firstString(...values: unknown[]) {
@@ -374,15 +386,29 @@ export class ChatLiveIngest {
       });
     }
 
+    for (const block of toolResultBlocks(message.content)) {
+      const toolCallId = readToolCallId(block);
+      if (!toolCallId) continue;
+      this.handleSessionTool({
+        sessionKey,
+        runId: run?.gatewayRunId ?? run?.runId,
+        messageId,
+        toolCallId,
+        name: readToolName(block) ?? readToolName(message as unknown as Record<string, unknown>) ?? "unknown",
+        phase: block.is_error === true || block.isError === true ? "error" : "result",
+        result: readToolResult(block),
+      });
+    }
+
     const role = message.role;
     if (role !== "tool" && role !== "toolResult" && role !== "tool_result") return;
-    const toolCallId = readToolCallId(message as unknown as Record<string, unknown>);
-    if (!toolCallId) return;
+    const topLevelToolCallId = readToolCallId(message as unknown as Record<string, unknown>);
+    if (!topLevelToolCallId) return;
     this.handleSessionTool({
       sessionKey,
       runId: run?.gatewayRunId ?? run?.runId,
       messageId,
-      toolCallId,
+      toolCallId: topLevelToolCallId,
       name: readToolName(message as unknown as Record<string, unknown>) ?? "unknown",
       phase: "result",
       result: message.content ?? message.text ?? null,

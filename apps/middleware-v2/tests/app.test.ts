@@ -109,6 +109,103 @@ describe("middleware-v2 app", () => {
     await app.close();
   });
 
+  test("voice settings commands read/write config and provider access", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-settings-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const app = await createApp(testConfig());
+
+    const initial = await app.inject({ method: "POST", url: "/api/commands/middleware_voice_settings_get", payload: { input: {} } });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json()).toMatchObject({ settings: { provider: "auto", model: "", enabled: true } });
+
+    const saved = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_voice_settings_set",
+      payload: { input: { provider: "openai", model: "whisper-1", language: "en", echoTranscript: true } },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ settings: { provider: "openai", model: "whisper-1", language: "en", echoTranscript: true } });
+
+    const details = await app.inject({ method: "POST", url: "/api/commands/middleware_onboarding_provider_details", payload: { input: { providerId: "openai" } } });
+    expect(details.statusCode).toBe(200);
+    expect(details.json()).toMatchObject({ provider: { id: "openai", authMethods: ["api-key"] } });
+
+    const access = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_onboarding_provider_submit",
+      payload: { input: { providerId: "openai", values: { "api-key": "sk-test" } } },
+    });
+    expect(access.statusCode).toBe(200);
+    expect(access.json()).toMatchObject({ ok: true, envVar: "OPENAI_API_KEY" });
+
+    const config = JSON.parse(fs.readFileSync(path.join(home, ".openclaw", "openclaw.json"), "utf8"));
+    expect(config).toMatchObject({
+      tools: { media: { audio: { language: "en", echoTranscript: true, models: [{ provider: "openai", model: "whisper-1" }] } } },
+      env: { vars: { OPENAI_API_KEY: "sk-test" } },
+    });
+    await app.close();
+  });
+
+  test("notification cron commands create, list, update, and delete jobs", async () => {
+    const app = await createApp(testConfig());
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_cron_create_job",
+      payload: { input: { name: "Morning check", scheduleType: "cron", schedule: "0 9 * * *", timezone: "Asia/Kolkata", message: "What changed?", enabled: true } },
+    });
+    expect(created.statusCode).toBe(200);
+    const jobId = created.json().jobId as string;
+    expect(created.json()).toMatchObject({ job: { jobId, name: "Morning check", enabled: true, paused: false } });
+
+    const listed = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_list_jobs", payload: { input: {} } });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().jobs).toEqual(expect.arrayContaining([expect.objectContaining({ jobId, name: "Morning check" })]));
+
+    const updated = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_update_job", payload: { input: { jobId, enabled: false, name: "Paused check" } } });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ job: { jobId, name: "Paused check", enabled: false, paused: true, status: "paused" } });
+
+    const activity = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_recent_activity", payload: { input: { limit: 10 } } });
+    expect(activity.statusCode).toBe(200);
+    expect(activity.json()).toMatchObject({ events: [] });
+
+    const deleted = await app.inject({ method: "POST", url: "/api/commands/middleware_cron_delete_job", payload: { input: { jobId } } });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({ ok: true });
+    await app.close();
+  });
+
+  test("memory commands read, write, list, store, and recall workspace files", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-memory-settings-"));
+    const workspace = path.join(home, ".openclaw", "workspace");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(workspace, "SOUL.md"), "# Soul\n\nHelpful.", "utf8");
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const app = await createApp(testConfig());
+
+    const readRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_read", payload: { input: { path: "SOUL.md" } } });
+    expect(readRes.statusCode).toBe(200);
+    expect(readRes.json()).toMatchObject({ content: "# Soul\n\nHelpful." });
+
+    const writeRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_write", payload: { input: { path: "USER.md", content: "Krish" } } });
+    expect(writeRes.statusCode).toBe(200);
+    expect(fs.readFileSync(path.join(workspace, "USER.md"), "utf8")).toBe("Krish");
+
+    const listRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_list", payload: { input: {} } });
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json().documents.map((doc: { path: string }) => doc.path)).toEqual(expect.arrayContaining(["SOUL.md", "USER.md"]));
+
+    const storeRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_store", payload: { input: { content: "Remember this", category: "fact" } } });
+    expect(storeRes.statusCode).toBe(200);
+    expect(storeRes.json().path).toMatch(/^memory\/\d{4}-\d{2}-\d{2}\.md$/);
+
+    const recallRes = await app.inject({ method: "POST", url: "/api/commands/middleware_memory_recall", payload: { input: {} } });
+    expect(recallRes.statusCode).toBe(200);
+    expect(recallRes.json().entries.length).toBeGreaterThan(0);
+    await app.close();
+  });
+
   test("middleware_chats_delete command fallback deletes chats instead of returning fake success", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;

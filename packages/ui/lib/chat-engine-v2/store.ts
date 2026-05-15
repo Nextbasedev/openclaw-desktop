@@ -457,7 +457,9 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
     approval: inline.approval ?? existingTool?.approval,
   })
   state.pendingTools = Array.from(pending.values())
-  promoteRunningToolStatus(state, inline.tool)
+  if (inline.status === "running") {
+    promoteRunningToolStatus(state, inline.tool)
+  }
 
   if (inline.tool === "sessions_spawn") {
     const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
@@ -606,6 +608,27 @@ function hasActiveToolOrSubagent(state: SessionState) {
     state.pendingTools.some((tool) => tool.status === "running") ||
     state.spawnedSubagents.some((spawn) => spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working")
   )
+}
+
+function patchCarriesToolActivity(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  if (semanticType.startsWith("chat.tool.")) return true
+  return Boolean(patchPayload(frame)?.toolCall)
+}
+
+function patchCarriesAssistantLiveActivity(frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  return semanticType === "chat.assistant.started" || semanticType === "chat.assistant.delta"
+}
+
+function shouldIgnoreTerminalToActiveStatus(state: SessionState, frame: PatchFrame, previousStatus: StreamStatus, nextStatus: StreamStatus) {
+  if (!isTerminalOrIdleStatus(previousStatus)) return false
+  if (!ACTIVE_STATUSES.has(nextStatus)) return false
+  if (isUserMessagePatch(frame)) return false
+  if (patchCarriesToolActivity(frame)) return false
+  if (patchCarriesAssistantLiveActivity(frame)) return false
+  if (hasActiveToolOrSubagent(state)) return false
+  return hasAssistantAnswerAfterLatestUser(state)
 }
 
 function latestUserMessageIndex(state: SessionState) {
@@ -816,7 +839,12 @@ function handlePatch(frame: PatchFrame) {
   const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
-    if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
+    if (shouldIgnoreTerminalToActiveStatus(state, frame, previousStatus, patchStatus.status)) {
+      // History/bootstrap replay can arrive after a session is already final and
+      // still carry an old activeRun/runStatus:"thinking" projection. Do not
+      // resurrect completed chats into a permanent spinner unless the patch is
+      // a real new user turn, live assistant delta, or tool/subagent activity.
+    } else if (shouldDeferBareDoneStatus(state, frame, patchStatus.status)) {
       state.deferredDoneUntilAssistant = true
     } else if (
       ACTIVE_STATUSES.has(state.status) &&
