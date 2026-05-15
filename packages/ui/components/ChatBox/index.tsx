@@ -663,7 +663,7 @@ export function ChatBox({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
-          "relative z-10 flex flex-col rounded-[24px] bg-white/[0.04] shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
+          "relative z-10 flex flex-col rounded-[24px] bg-white/[0.04] shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
           glowOnMount && "chatbox-glow",
           isDragOver && "ring-2 ring-primary/20"
         )}
@@ -966,7 +966,7 @@ export function ChatBox({
       </div>
 
       {showDraftSpaceBanner && (
-        <div className="relative z-0 -mt-[21px] flex min-h-14 items-center justify-between gap-3 rounded-b-[24px] bg-white/[0.052] px-3 pb-1.5 pt-6 shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-2xl">
+        <div className="relative z-0 -mt-[21px] flex min-h-14 items-center justify-between gap-3 rounded-b-[24px] bg-black/[0.16] px-3 pb-1.5 pt-6 shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-2xl">
           <Popover>
             <PopoverTrigger asChild>
               <button
