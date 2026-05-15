@@ -153,8 +153,6 @@ export function Header({
       {isTauri && !useNativeWindowChrome && (
         <div data-tauri-drag-region className="absolute inset-0 z-0" />
       )}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-border/50" />
-
       {/* Left: app identity */}
       <div
         className="relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3"
@@ -530,9 +528,9 @@ function HeaderTab({
       className={cn(
         "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
         activeAndFocused
-          ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-6px_16px_rgba(0,0,0,0.2)]"
+          ? "z-20 border-transparent bg-background text-foreground shadow-none"
           : isActive
-            ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
+            ? "z-10 border-transparent bg-background/72 text-foreground/74 shadow-none"
             : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
       )}
     >
