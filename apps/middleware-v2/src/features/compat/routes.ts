@@ -44,7 +44,7 @@ const cronSseClients = new Set<{ write: (event: string, payload: CompatRecord) =
 
 function emitCronEvent(event: CompatRecord) {
   for (const client of [...cronSseClients]) {
-    try { client.write(String(event.type || "message"), event); } catch { /* client closed */ }
+    try { client.write("data", event); } catch { /* client closed */ }
   }
 }
 
@@ -2135,7 +2135,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       if (!gatewayEvent.event.startsWith("cron.")) return;
       const payload = gatewayEvent.payload && typeof gatewayEvent.payload === "object" ? gatewayEvent.payload as CompatRecord : {};
       const type = String(payload.type || gatewayEvent.event);
-      write(type, { ...payload, type });
+      write("data", { ...payload, type });
     });
     const interval = setInterval(() => reply.raw.write(":heartbeat\n\n"), 15_000);
     await new Promise<void>((resolve) => {

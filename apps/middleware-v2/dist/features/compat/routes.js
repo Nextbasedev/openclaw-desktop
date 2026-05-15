@@ -18,7 +18,7 @@ const cronSseClients = new Set();
 function emitCronEvent(event) {
     for (const client of [...cronSseClients]) {
         try {
-            client.write(String(event.type || "message"), event);
+            client.write("data", event);
         }
         catch { /* client closed */ }
     }
@@ -2154,7 +2154,7 @@ export async function registerCompatRoutes(app, context) {
                 return;
             const payload = gatewayEvent.payload && typeof gatewayEvent.payload === "object" ? gatewayEvent.payload : {};
             const type = String(payload.type || gatewayEvent.event);
-            write(type, { ...payload, type });
+            write("data", { ...payload, type });
         });
         const interval = setInterval(() => reply.raw.write(":heartbeat\n\n"), 15_000);
         await new Promise((resolve) => {
