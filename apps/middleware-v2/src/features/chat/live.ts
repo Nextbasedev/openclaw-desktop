@@ -605,6 +605,20 @@ export class ChatLiveIngest {
     if (!next || next === previous) return;
     this.liveAssistantText.set(run.runId, next);
     const messageId = `live:${run.runId}:assistant`;
+    const projectedSeq = this.context.messages.nextMessageSeq(sessionKey);
+    this.context.messages.upsertMessages([{
+      sessionKey,
+      openclawSeq: projectedSeq,
+      messageId,
+      role: "assistant",
+      data: {
+        id: messageId,
+        role: "assistant",
+        text: next,
+        __openclaw: { id: messageId },
+      },
+      updatedAtMs: Date.now(),
+    }]);
     const patch = this.context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.message.upsert",
