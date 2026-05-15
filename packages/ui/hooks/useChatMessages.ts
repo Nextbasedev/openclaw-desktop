@@ -422,9 +422,12 @@ export function useChatMessages(
   const initialCachedBootstrap = !hasInitial && !initialGlobalSession
     ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
     : null
+  const initialGlobalMessages = initialGlobalSession?.messages?.length
+    ? initialGlobalSession.messages
+    : undefined
   const initialWarmMessages = hasInitial
     ? initialMessages
-    : initialGlobalSession?.messages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
+    : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
   const initialWarmStatus = initialGlobalSession?.status ?? (
     initialCachedBootstrap?.runStatus
       ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
@@ -442,6 +445,7 @@ export function useChatMessages(
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
+  const [historyLoadVersion, setHistoryLoadVersion] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -1177,8 +1181,10 @@ export function useChatMessages(
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     ensureGlobalChatEngine(queryClient)
     const cachedGlobal = getGlobalChatSession(sessionKey)
+    const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
     const useCachedGlobal = Boolean(
-      cachedGlobal &&
+      cachedGlobalHasMessages &&
+        cachedGlobal &&
         (!seededMessages ||
           cachedGlobal.messages.length > seededMessages.length ||
           cachedGlobal.messages.some((message) => message.role === "assistant"))
@@ -1186,7 +1192,8 @@ export function useChatMessages(
     const cachedBootstrap = !useCachedGlobal
       ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
       : null
-    const warmMessages = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
+    const warmMessagesRaw = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
+    const warmMessages = warmMessagesRaw?.length ? warmMessagesRaw : undefined
 
     setLoadError(null)
     setErrorMessage(null)
@@ -1413,6 +1420,7 @@ export function useChatMessages(
         if (isActiveRunStatus(canonicalStatus)) markOptimisticChatActivity(sessionKey, canonicalLabel)
         else clearCachedChatActivity(sessionKey)
         setLoading(false)
+        setHistoryLoadVersion((value) => value + 1)
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,
@@ -2175,6 +2183,7 @@ export function useChatMessages(
     status,
     statusLabel,
     loading,
+    historyLoadVersion,
     loadError,
     errorMessage,
     isSending,
