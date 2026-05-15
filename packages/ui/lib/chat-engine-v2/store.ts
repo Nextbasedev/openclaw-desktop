@@ -212,6 +212,29 @@ function toolResultText(message: Record<string, unknown>) {
   return textFromUnknown(message.text ?? message.content ?? message.result)
 }
 
+function isInferredFallbackToolResultText(value: unknown) {
+  if (!value) return false
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as { inferred?: unknown; reason?: unknown }
+    return record.inferred === true && typeof record.reason === "string"
+  }
+  if (typeof value !== "string") return false
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return isInferredFallbackToolResultText(JSON.parse(trimmed) as unknown)
+  } catch {
+    return false
+  }
+}
+
+function mergeToolResultText(incoming: string | undefined, existing: string | undefined) {
+  if (!incoming) return existing
+  if (!existing) return incoming
+  if (isInferredFallbackToolResultText(existing) && !isInferredFallbackToolResultText(incoming)) return incoming
+  return incoming ?? existing
+}
+
 function inferToolStatus(text: string): InlineToolCall["status"] {
   return new RegExp("\\b(error|failed|denied|rejected)\\b", "i").test(text) ? "error" : "success"
 }
@@ -255,10 +278,11 @@ function applyToolResultFromPatch(state: SessionState, frame: PatchFrame) {
     status: inferToolStatus(resultText),
     duration: existing.duration ?? formatToolDuration(existing.startedAt, frame.patch.createdAtMs),
     completedAt: existing.completedAt ?? frame.patch.createdAtMs,
-    resultText: resultText || existing.resultText,
+    resultText: mergeToolResultText(resultText || undefined, existing.resultText),
     approval: resultText ? (parseExecApproval(resultText) ?? existing.approval) : existing.approval,
   }
   state.pendingTools = next
+  updateToolInMessages(state, next[pendingIndex])
 
   if (existing.tool === "sessions_spawn") {
     const childKey = extractSubagentSessionKey(message) ?? extractSubagentSessionKey(resultText)
@@ -335,7 +359,7 @@ function updateToolInMessages(state: SessionState, tool: InlineToolCall) {
         duration: tool.duration ?? existing.duration,
         startedAt: tool.startedAt ?? existing.startedAt,
         completedAt: tool.completedAt ?? existing.completedAt,
-        resultText: tool.resultText ?? existing.resultText,
+        resultText: mergeToolResultText(tool.resultText, existing.resultText),
         approval: tool.approval ?? existing.approval,
       }
     })
@@ -477,7 +501,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
     duration: inline.duration ?? existingTool?.duration,
     startedAt: inline.startedAt ?? existingTool?.startedAt,
     completedAt: inline.completedAt ?? existingTool?.completedAt,
-    resultText: inline.resultText ?? existingTool?.resultText,
+    resultText: mergeToolResultText(inline.resultText, existingTool?.resultText),
     approval: inline.approval ?? existingTool?.approval,
   })
   const mergedTool = pending.get(inline.id) ?? inline
