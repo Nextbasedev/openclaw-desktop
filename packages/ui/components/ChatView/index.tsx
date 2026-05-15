@@ -1136,50 +1136,54 @@ export function ChatView({
               defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
             />
           )}
-          {msg.role === "assistant" &&
-            filteredToolCalls &&
-            filteredToolCalls.length > 0 && (
-              <div className="mb-2 max-w-[85%]">
-                <ToolCallSteps
-                  tools={filteredToolCalls}
-                  defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
-                  onSelectTool={onSelectTool}
-                  onResolveApproval={resolveExecApproval}
-                />
-              </div>
-            )}
-          {(msg.role === "user" || msg.text) && (
-            <MessageBubble
-              message={msg}
-              onEdit={
-                msg.role === "user" && msg.messageId === lastEditableUserId
-                  ? handleEdit
-                  : undefined
-              }
-              onRetrySend={retrySend}
-              onSwitchBranch={switchBranch}
-              onReply={replyToMessage}
-              onPin={togglePin}
-              onDelete={deleteMessage}
-              onReact={msg.role === "assistant" ? reactToMessage : undefined}
-              onExport={exportOneMessage}
-              onTextAnimationComplete={markTextAnimationComplete}
-              onFork={msg.role === "assistant" ? forkFromMessage : undefined}
-              onResolveApproval={resolveExecApproval}
-              onAskSelectedText={
-                msg.role === "assistant" ? askAboutSelectedText : undefined
-              }
-              isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
-              reaction={messageActionState.reactions[msg.messageId]}
-              isGenerating={isGenerating}
-              isActivelyStreaming={isActivelyStreaming}
-              suppressActions={suppressAssistantActions}
-              popoverOpen={activePopoverId === msg.messageId}
-              onPopoverOpenChange={(open) =>
-                setActivePopoverId(open ? msg.messageId : null)
-              }
-            />
-          )}
+          {(() => {
+            const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
+            const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
+              ? (
+                  <div className={assistantHasText ? "mt-2 max-w-[85%]" : "mb-2 max-w-[85%]"}>
+                    <ToolCallSteps
+                      tools={filteredToolCalls}
+                      defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
+                      onSelectTool={onSelectTool}
+                      onResolveApproval={resolveExecApproval}
+                    />
+                  </div>
+                )
+              : null
+            const bubble = (msg.role === "user" || msg.text) ? (
+              <MessageBubble
+                message={msg}
+                onEdit={
+                  msg.role === "user" && msg.messageId === lastEditableUserId
+                    ? handleEdit
+                    : undefined
+                }
+                onRetrySend={retrySend}
+                onSwitchBranch={switchBranch}
+                onReply={replyToMessage}
+                onPin={togglePin}
+                onDelete={deleteMessage}
+                onReact={msg.role === "assistant" ? reactToMessage : undefined}
+                onExport={exportOneMessage}
+                onTextAnimationComplete={markTextAnimationComplete}
+                onFork={msg.role === "assistant" ? forkFromMessage : undefined}
+                onResolveApproval={resolveExecApproval}
+                onAskSelectedText={
+                  msg.role === "assistant" ? askAboutSelectedText : undefined
+                }
+                isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
+                reaction={messageActionState.reactions[msg.messageId]}
+                isGenerating={isGenerating}
+                isActivelyStreaming={isActivelyStreaming}
+                suppressActions={suppressAssistantActions}
+                popoverOpen={activePopoverId === msg.messageId}
+                onPopoverOpenChange={(open) =>
+                  setActivePopoverId(open ? msg.messageId : null)
+                }
+              />
+            ) : null
+            return assistantHasText ? <>{bubble}{toolSteps}</> : <>{toolSteps}{bubble}</>
+          })()}
           {msg.role === "user" && userSubagents.length > 0 && (
             <div className="mt-3">
               <SubagentCard subagents={userSubagents} onOpen={openSubagent} />
