@@ -405,6 +405,25 @@ describe("parseChatHistory", () => {
     assert.equal(parsed.messages[0]?.attachments?.[0]?.content, "iVBORw0KGgo=")
   })
 
+  it("keeps marker-only uploaded image history as attachment metadata", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "u1",
+        role: "user",
+        text: "[Attached image: screenshot.png]",
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 1)
+    assert.equal(parsed.messages[0]?.text, "")
+    assert.deepEqual(parsed.messages[0]?.attachments, [
+      {
+        name: "screenshot.png",
+        mimeType: "image/png",
+      },
+    ])
+  })
+
   it("restores persisted tool durations from tool result tookMs", () => {
     const parsed = parseChatHistory([
       {

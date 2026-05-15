@@ -396,6 +396,7 @@ const ASYNC_RESULT_RE =
   /^An async command you ran earlier has completed\.[^\n]*(?:\n[^\n]*Handle the result internally[^\n]*)?(?:\n[^\n]*Do not relay[^\n]*)?\n*/m
 const MEDIA_ATTACHMENT_HEADER_RE = /^\[media attached:[\s\S]*?\]\s*/
 const ATTACHED_FILE_MARKER_RE = /^\s*\[Attached (?:images?|audio(?: file)?|file):[^\]]+\]\s*/gim
+const ATTACHED_FILE_MARKER_CAPTURE_RE = /\[Attached (images?|audio(?: file)?|file):([^\]]+)\]/gim
 const MEDIA_REPLY_INSTRUCTION_RE =
   /^To send an image back,[\s\S]*?Keep caption in the text body\.\s*/
 const BRACKETED_DAY_TIME_RE =
@@ -499,6 +500,42 @@ function readAttachmentContent(raw: Record<string, unknown>): string | undefined
   return dataUrl ? dataUrl[2] : direct
 }
 
+function mimeTypeFromAttachmentMarker(kind: string, name: string) {
+  const lowerName = name.toLowerCase()
+  if (kind.startsWith("image")) {
+    if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg"
+    if (lowerName.endsWith(".webp")) return "image/webp"
+    if (lowerName.endsWith(".gif")) return "image/gif"
+    if (lowerName.endsWith(".svg")) return "image/svg+xml"
+    return "image/png"
+  }
+  if (kind.startsWith("audio")) {
+    if (lowerName.endsWith(".wav")) return "audio/wav"
+    if (lowerName.endsWith(".ogg")) return "audio/ogg"
+    if (lowerName.endsWith(".m4a")) return "audio/mp4"
+    return "audio/mpeg"
+  }
+  if (lowerName.endsWith(".pdf")) return "application/pdf"
+  return "application/octet-stream"
+}
+
+function readAttachmentMarkerAttachments(text: string): ChatMessage["attachments"] {
+  const attachments: NonNullable<ChatMessage["attachments"]> = []
+  for (const match of text.matchAll(ATTACHED_FILE_MARKER_CAPTURE_RE)) {
+    const kind = match[1]?.toLowerCase() ?? "file"
+    const rawNames = match[2] ?? ""
+    for (const rawName of rawNames.split(/,| and /i)) {
+      const name = rawName.trim()
+      if (!name) continue
+      attachments.push({
+        name,
+        mimeType: mimeTypeFromAttachmentMarker(kind, name),
+      })
+    }
+  }
+  return attachments.length > 0 ? attachments : undefined
+}
+
 function readContentBlockAttachments(content: RawHistoryMessage["content"]): ChatMessage["attachments"] {
   if (!Array.isArray(content)) return undefined
   const attachments: NonNullable<ChatMessage["attachments"]> = []
@@ -548,7 +585,13 @@ function readMessageAttachments(raw: RawHistoryMessage): ChatMessage["attachment
   }
 
   const fromContent = readContentBlockAttachments(raw.content) ?? []
-  const all = [...fromTopLevel, ...fromContent]
+  const fromMarkers = (readAttachmentMarkerAttachments(raw.text || extractText(raw.content)) ?? [])
+    .filter((marker) =>
+      ![...fromTopLevel, ...fromContent].some(
+        (attachment) => attachment.name === marker.name && attachment.mimeType === marker.mimeType
+      )
+    )
+  const all = [...fromTopLevel, ...fromContent, ...fromMarkers]
   return all.length > 0 ? all : undefined
 }
 
