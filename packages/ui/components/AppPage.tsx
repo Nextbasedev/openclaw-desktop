@@ -436,6 +436,7 @@ function AppShell({
           title,
           subtitle: "Chat",
           kind: "chat",
+          chat: activeChat,
         },
       })
       return
@@ -949,29 +950,43 @@ function AppShell({
     setActiveTopic(null)
     setInitialMessages(undefined)
 
+    const applyChatSelection = (selection: SessionData) => {
+      setActiveChat(selection.chat)
+      setActiveSessionKey(selection.sessionKey)
+      setActiveSessionTitle(selection.title)
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: {
+          id: `chat:${selection.chat.id}`,
+          title: selection.title,
+          subtitle: "Chat",
+          kind: "chat",
+          chat: selection.chat,
+        },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: editorGroups.focusedGroupId,
+        sessionData: selection,
+      })
+      window.history.pushState(null, "", routeUrl(`/${selection.chat.id}`))
+    }
+
     const cached = resolvedChatCacheRef.current.get(chat.id)
     if (cached) {
-      setActiveChat(cached.chat)
-      setActiveSessionKey(cached.sessionKey)
-      setActiveSessionTitle(cached.title)
-      window.history.pushState(null, "", routeUrl(`/${cached.chat.id}`))
+      applyChatSelection(cached)
     } else if (isRealChatSessionKey(chat.sessionKey)) {
       const title = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
-      setActiveChat(chat)
-      setActiveSessionKey(chat.sessionKey)
-      setActiveSessionTitle(title)
-      resolvedChatCacheRef.current.set(chat.id, { chat, sessionKey: chat.sessionKey, title })
-      window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+      const selection = { chat, sessionKey: chat.sessionKey, title }
+      resolvedChatCacheRef.current.set(chat.id, selection)
+      applyChatSelection(selection)
     }
 
     try {
       const resolved = await ensureChatSession(chat)
       if (routeRequestRef.current !== requestId) return
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
-      setActiveChat(resolved.chat)
-      setActiveSessionKey(resolved.sessionKey)
-      setActiveSessionTitle(resolved.title)
-      window.history.pushState(null, "", routeUrl(`/${resolved.chat.id}`))
+      applyChatSelection(resolved)
     } catch (err) {
       if (routeRequestRef.current !== requestId) return
       console.error("Failed to open chat session", err)
@@ -982,7 +997,7 @@ function AppShell({
         window.history.pushState(null, "", routeUrl(`/${chat.id}`))
       }
     }
-  }, [])
+  }, [editorGroups.focusedGroupId])
 
   useEffect(() => {
     if (layoutRestoreAttemptedRef.current || spaces.length === 0) return

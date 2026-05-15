@@ -128,6 +128,15 @@ function removeTabFromGroup(
   return { ...group, tabs: next }
 }
 
+function sessionDataFromTab(tab: EditorTab): SessionData | null {
+  if (tab.kind !== "chat" || !tab.chat?.sessionKey) return null
+  return {
+    chat: tab.chat,
+    sessionKey: tab.chat.sessionKey,
+    title: tab.title,
+  }
+}
+
 export function editorGroupsReducer(
   state: EditorGroupsState,
   action: EditorGroupsAction,
@@ -154,18 +163,21 @@ export function editorGroupsReducer(
             }
           }
           if (existing >= 0) {
+            const nextTab = action.tab
             return {
               ...g,
               tabs: withoutDraft.map((t) =>
-                t.id === action.tab.id ? action.tab : t,
+                t.id === action.tab.id ? nextTab : t,
               ),
               activeTabId: action.tab.id,
+              sessionData: sessionDataFromTab(nextTab) ?? g.sessionData,
             }
           }
           return {
             ...g,
             tabs: [...withoutDraft, action.tab],
             activeTabId: action.tab.id,
+            sessionData: sessionDataFromTab(action.tab) ?? g.sessionData,
           }
         }),
       }
