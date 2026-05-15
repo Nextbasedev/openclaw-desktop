@@ -17,6 +17,7 @@ export async function openRouteInNewWindow(path: string, title = "OpenClaw") {
       width: 1280,
       height: 860,
       resizable: true,
+      decorations: false,
       center: true,
     })
     await new Promise<void>((resolve, reject) => {
