@@ -6,6 +6,8 @@ export type ToolPhase = "start" | "calling" | "result" | "error";
 export type ToolStatus = "running" | "success" | "error";
 
 const STALE_DETACHED_TOOL_MS = 5 * 60 * 1000;
+const DEFAULT_STALE_ACTIVE_RUN_MS = 10 * 60 * 1000;
+const DEFAULT_STALE_RUNNING_TOOL_MS = 30 * 60 * 1000;
 
 export type ProjectedRun = {
   runId: string;
@@ -314,6 +316,51 @@ export class RunRepository {
       LIMIT 1
     `).get({ sessionKey, runId }) as unknown;
     return Boolean(row);
+  }
+
+  finalizeStaleActivity(params: { nowMs?: number; activeRunMs?: number; runningToolMs?: number } = {}) {
+    const now = params.nowMs ?? Date.now();
+    const activeRunCutoff = now - (params.activeRunMs ?? DEFAULT_STALE_ACTIVE_RUN_MS);
+    const runningToolCutoff = now - (params.runningToolMs ?? DEFAULT_STALE_RUNNING_TOOL_MS);
+
+    const detachedTools = this.db.prepare(`
+      UPDATE v2_tool_calls
+      SET status = 'success', phase = 'result', finished_at_ms = COALESCE(finished_at_ms, @now), updated_at_ms = @now
+      WHERE status = 'running'
+        AND run_id IS NULL
+        AND started_at_ms < @runningToolCutoff
+    `).run({ now, runningToolCutoff });
+
+    const staleTools = this.db.prepare(`
+      UPDATE v2_tool_calls
+      SET status = 'success', phase = 'result', finished_at_ms = COALESCE(finished_at_ms, @now), updated_at_ms = @now
+      WHERE status = 'running'
+        AND run_id IN (
+          SELECT run_id FROM v2_runs
+          WHERE status IN ('queued', 'thinking', 'streaming', 'tool_running', 'done', 'error', 'aborted')
+            AND updated_at_ms < @activeRunCutoff
+        )
+        AND started_at_ms < @runningToolCutoff
+    `).run({ now, activeRunCutoff, runningToolCutoff });
+
+    const staleRuns = this.db.prepare(`
+      UPDATE v2_runs
+      SET status = 'done', status_label = NULL, finished_at_ms = COALESCE(finished_at_ms, @now), updated_at_ms = @now
+      WHERE status IN ('queued', 'thinking', 'streaming', 'tool_running')
+        AND updated_at_ms < @activeRunCutoff
+        AND NOT EXISTS (
+          SELECT 1 FROM v2_tool_calls
+          WHERE v2_tool_calls.run_id = v2_runs.run_id
+            AND v2_tool_calls.session_key = v2_runs.session_key
+            AND v2_tool_calls.status = 'running'
+        )
+    `).run({ now, activeRunCutoff });
+
+    return {
+      runsFinalized: Number(staleRuns.changes ?? 0),
+      detachedToolsFinalized: Number(detachedTools.changes ?? 0),
+      toolsFinalized: Number(staleTools.changes ?? 0),
+    };
   }
 
   diagnostics() {

@@ -30,7 +30,7 @@ import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
+import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
@@ -154,6 +154,11 @@ function fallbackPathForTab(tab: string): string {
   return "/"
 }
 
+function shouldUseNativeWindowChrome(): boolean {
+  if (typeof window === "undefined") return false
+  return new URLSearchParams(window.location.search).get("openclawNativeChrome") === "1"
+}
+
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 220
@@ -161,6 +166,7 @@ const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
 
 export default function Page() {
+  const useNativeWindowChrome = shouldUseNativeWindowChrome()
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
   const {
     flowState,
@@ -216,6 +222,7 @@ export default function Page() {
       flowState={flowState}
       onSignOut={signOut}
       onDeleteAccount={deleteAccount}
+      useNativeWindowChrome={useNativeWindowChrome}
     />
   )
 }
@@ -226,6 +233,7 @@ type AppShellProps = {
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
   onSignOut: () => Promise<unknown>
   onDeleteAccount: () => Promise<unknown>
+  useNativeWindowChrome?: boolean
 }
 
 function AppShell({
@@ -234,6 +242,7 @@ function AppShell({
   flowState,
   onSignOut,
   onDeleteAccount,
+  useNativeWindowChrome = false,
 }: AppShellProps) {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
@@ -307,6 +316,7 @@ function AppShell({
   useEffect(() => {
     installDesktopRouteShim()
     initClientLogs()
+    initMiddlewareConnectionCrossWindowSync()
     initFrontendCacheRealtimeInvalidation()
     frontendLog("ui", "app.bootstrap", { route: getRoutePath() })
     return () => frontendLog("ui", "app.unmount", { route: getRoutePath() })
@@ -939,29 +949,43 @@ function AppShell({
     setActiveTopic(null)
     setInitialMessages(undefined)
 
+    const applyChatSelection = (selection: SessionData) => {
+      setActiveChat(selection.chat)
+      setActiveSessionKey(selection.sessionKey)
+      setActiveSessionTitle(selection.title)
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: {
+          id: `chat:${selection.chat.id}`,
+          title: selection.title,
+          subtitle: "Chat",
+          kind: "chat",
+          chat: selection.chat,
+        },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: editorGroups.focusedGroupId,
+        sessionData: selection,
+      })
+      window.history.pushState(null, "", routeUrl(`/${selection.chat.id}`))
+    }
+
     const cached = resolvedChatCacheRef.current.get(chat.id)
     if (cached) {
-      setActiveChat(cached.chat)
-      setActiveSessionKey(cached.sessionKey)
-      setActiveSessionTitle(cached.title)
-      window.history.pushState(null, "", routeUrl(`/${cached.chat.id}`))
+      applyChatSelection(cached)
     } else if (isRealChatSessionKey(chat.sessionKey)) {
       const title = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
-      setActiveChat(chat)
-      setActiveSessionKey(chat.sessionKey)
-      setActiveSessionTitle(title)
-      resolvedChatCacheRef.current.set(chat.id, { chat, sessionKey: chat.sessionKey, title })
-      window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+      const selection = { chat, sessionKey: chat.sessionKey, title }
+      resolvedChatCacheRef.current.set(chat.id, selection)
+      applyChatSelection(selection)
     }
 
     try {
       const resolved = await ensureChatSession(chat)
       if (routeRequestRef.current !== requestId) return
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
-      setActiveChat(resolved.chat)
-      setActiveSessionKey(resolved.sessionKey)
-      setActiveSessionTitle(resolved.title)
-      window.history.pushState(null, "", routeUrl(`/${resolved.chat.id}`))
+      applyChatSelection(resolved)
     } catch (err) {
       if (routeRequestRef.current !== requestId) return
       console.error("Failed to open chat session", err)
@@ -972,7 +996,7 @@ function AppShell({
         window.history.pushState(null, "", routeUrl(`/${chat.id}`))
       }
     }
-  }, [])
+  }, [editorGroups.focusedGroupId])
 
   useEffect(() => {
     if (layoutRestoreAttemptedRef.current || spaces.length === 0) return
@@ -2034,6 +2058,7 @@ function AppShell({
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
         onOpenLogs={openLogs}
+        useNativeWindowChrome={useNativeWindowChrome}
         onNavigateToChat={handleCronJobNavigate}
       />
 
@@ -2091,6 +2116,10 @@ function AppShell({
                   onFirstMessageSent={handleFirstMessageSent}
                   onQuickSend={handleQuickSend}
                   quickSending={quickSending}
+                  spaces={spaces}
+                  activeSpaceId={activeSpaceId}
+                  onSpaceSwitch={handleSpaceSwitch}
+                  onOpenSkills={() => setActiveTab("skill")}
                   initialMessages={initialMessages}
                   onSelectTool={handleSelectTool}
                   pendingPrompt={pendingPrompt}
@@ -2143,6 +2172,10 @@ function AppShell({
                           onFirstMessageSent={handleFirstMessageSent}
                           onQuickSend={handleQuickSend}
                           quickSending={quickSending}
+                          spaces={spaces}
+                          activeSpaceId={activeSpaceId}
+                          onSpaceSwitch={handleSpaceSwitch}
+                          onOpenSkills={() => setActiveTab("skill")}
                           initialMessages={undefined}
                           onSelectTool={handleSelectTool}
                           pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
@@ -2178,6 +2211,10 @@ function AppShell({
                 onFirstMessageSent={handleFirstMessageSent}
                 onQuickSend={handleQuickSend}
                 quickSending={quickSending}
+                spaces={spaces}
+                activeSpaceId={activeSpaceId}
+                onSpaceSwitch={handleSpaceSwitch}
+                onOpenSkills={() => setActiveTab("skill")}
                 initialMessages={initialMessages}
                 onSelectTool={handleSelectTool}
                 pendingPrompt={pendingPrompt}
@@ -2269,6 +2306,10 @@ function MainContent({
   onFirstMessageSent,
   onQuickSend,
   quickSending,
+  spaces,
+  activeSpaceId,
+  onSpaceSwitch,
+  onOpenSkills,
   initialMessages,
   onSelectTool,
   pendingPrompt,
@@ -2296,6 +2337,10 @@ function MainContent({
   onFirstMessageSent: (text: string) => void
   onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
+  spaces: import("@/types/space").Space[]
+  activeSpaceId: string | null
+  onSpaceSwitch: (spaceId: string) => void | Promise<void>
+  onOpenSkills: () => void
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   pendingPrompt?: string | null
@@ -2406,6 +2451,11 @@ function MainContent({
         disabled={quickSending}
         glowOnMount
         draftKey="new-chat:draft"
+        showDraftSpaceBanner
+        spaces={spaces}
+        activeSpaceId={activeSpaceId}
+        onSpaceSelect={onSpaceSwitch}
+        onOpenSkills={onOpenSkills}
       />
     </div>
   )

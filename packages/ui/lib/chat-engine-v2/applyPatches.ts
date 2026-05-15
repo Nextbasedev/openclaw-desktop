@@ -165,6 +165,30 @@ function mergeToolOnlyAssistantMessages(baseMessages: ChatMessage[], incoming: C
   return messages
 }
 
+function messageHasAttachments(message: ChatMessage) {
+  return Boolean(message.attachments?.length)
+}
+
+function preserveUserAttachmentsFromReplacedMessages(
+  state: ApplyPatchState,
+  incoming: ChatMessage[],
+  idsToReplace: Set<string>,
+) {
+  return incoming.map((message) => {
+    if (message.role !== "user" || messageHasAttachments(message)) return message
+    const existing = state.messages.find(
+      (candidate) =>
+        candidate.role === "user" &&
+        messageHasAttachments(candidate) &&
+        (idsToReplace.has(candidate.messageId) ||
+          userTextMatchesSent(message.text, candidate.text))
+    )
+    return existing?.attachments?.length
+      ? { ...message, attachments: existing.attachments }
+      : message
+  })
+}
+
 const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting"])
 const VALID_STATUSES = new Set<StreamStatus>(["idle", "connected", "queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting", "done", "error"])
 
@@ -232,11 +256,6 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
           : item
     )
     : withSeq
-  const animated = normalized.map((item) =>
-    shouldAnimateAssistantTextPatch(frame, item)
-      ? { ...item, animateText: true }
-      : item
-  )
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
   }
@@ -248,6 +267,16 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   const baseMessages = idsToReplace.size > 0
     ? state.messages.filter((item) => !idsToReplace.has(item.messageId))
     : state.messages
+  const withPreservedAttachments = preserveUserAttachmentsFromReplacedMessages(
+    state,
+    normalized,
+    idsToReplace,
+  )
+  const animated = withPreservedAttachments.map((item) =>
+    shouldAnimateAssistantTextPatch(frame, item)
+      ? { ...item, animateText: true }
+      : item
+  )
   return {
     cursor: frame.patch.cursor,
     messages: dedupeChatMessages(mergeToolOnlyAssistantMessages(baseMessages, animated, frame)),

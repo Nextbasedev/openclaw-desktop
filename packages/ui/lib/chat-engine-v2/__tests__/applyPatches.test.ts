@@ -254,6 +254,59 @@ describe("applyChatPatch", () => {
     expect(confirmed.messages[0]).toMatchObject({ messageId: "client-1", role: "user", text: "good night now" })
   })
 
+
+  test("keeps optimistic user attachment previews when confirmed patch omits attachments", () => {
+    const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          messageId: "client-1",
+          message: {
+            role: "user",
+            text: "look",
+            attachments: [{ name: "image.png", mimeType: "image/png", content: "abc123" }],
+            isOptimistic: true,
+            __clientOptimistic: true,
+            __openclaw: { id: "client-1" },
+          },
+        },
+        createdAtMs: 1,
+      },
+    })
+
+    const confirmed = applyChatPatch(withOptimistic, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          messageId: "client-1",
+          optimisticId: "client-1",
+          message: {
+            role: "user",
+            text: "look",
+            __openclaw: { id: "gateway-1", seq: 1 },
+          },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    expect(confirmed.messages).toHaveLength(1)
+    expect(confirmed.messages[0]).toMatchObject({
+      messageId: "client-1",
+      role: "user",
+      text: "look",
+      attachments: [{ name: "image.png", mimeType: "image/png", content: "abc123" }],
+    })
+  })
+
   test("applies semantic confirmed user patch by canonical client id", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",

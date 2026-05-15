@@ -5,6 +5,7 @@ import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey, isSubagentSessionKey } from "../subagentSession"
+import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
@@ -35,6 +36,7 @@ const ACTIVE_STATUSES = new Set<StreamStatus>([
 ])
 
 const STALE_ACTIVE_RUN_MS = 5 * 60 * 1000
+const STALE_RUNNING_TOOL_PATCH_MS = 30 * 60 * 1000
 const PREMATURE_DONE_GRACE_MS = 10 * 1000
 
 function isTerminalOrIdleStatus(status: StreamStatus) {
@@ -51,6 +53,7 @@ let globalCursor = 0
 let unsubscribeStream: (() => void) | null = null
 let queryClientRef: QueryClient | null = null
 let sweepInterval: ReturnType<typeof setInterval> | null = null
+const warmPersistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 function cloneState(state: SessionState): SessionState {
   return {
@@ -127,6 +130,30 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       branchData: cached.branchData ?? { branches: [] },
     } satisfies CachedChatBootstrapV2
   })
+}
+
+function persistWarmSessionSnapshot(sessionKey: string, state: SessionState) {
+  if (state.messages.length === 0) return
+  const existing = warmPersistTimers.get(sessionKey)
+  if (existing) clearTimeout(existing)
+  const snapshot = cloneState(state)
+  const timer = setTimeout(() => {
+    warmPersistTimers.delete(sessionKey)
+    void setWarmChatCache(sessionKey, {
+      messages: snapshot.messages,
+      cursor: snapshot.cursor,
+      runStatus: snapshot.status,
+      statusLabel: normalizeStatusLabel(snapshot.status, snapshot.statusLabel),
+      pendingTools: snapshot.pendingTools,
+      messageCount: snapshot.messages.length,
+    }).catch((error) => {
+      frontendLog("chat", "warm-cache.live-persist.fail", {
+        sessionKey,
+        error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) },
+      }, "warn")
+    })
+  }, WARM_CHAT_WRITE_DEBOUNCE_MS)
+  warmPersistTimers.set(sessionKey, timer)
 }
 
 
@@ -543,6 +570,21 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
   const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
   if (!inline) return false
+  if (
+    inline.status === "running" &&
+    typeof inline.startedAt === "number" &&
+    Date.now() - inline.startedAt > STALE_RUNNING_TOOL_PATCH_MS &&
+    (isTerminalOrIdleStatus(state.status) || !state.activityStartedAtMs)
+  ) {
+    frontendLog("stream", "global-chat-session.stale-running-tool-ignored", {
+      toolCallId: inline.id,
+      tool: inline.tool,
+      ageMs: Date.now() - inline.startedAt,
+      status: state.status,
+      patchCursor: frame.patch.cursor,
+    }, "debug")
+    return false
+  }
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
   const existingTool = pending.get(inline.id)
   pending.set(inline.id, {
@@ -778,6 +820,16 @@ function patchCarriesAssistantLiveActivity(frame: PatchFrame) {
   return semanticType === "chat.assistant.started" || semanticType === "chat.assistant.delta"
 }
 
+function isStaleRunningToolReplay(state: SessionState, frame: PatchFrame) {
+  if (!isTerminalOrIdleStatus(state.status) && state.activityStartedAtMs) return false
+  const tool = patchPayload(frame)?.toolCall
+  if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false
+  const inline = toolProjectionToInline(tool as ToolCallProjectionV2)
+  if (!inline || inline.status !== "running") return false
+  if (typeof inline.startedAt !== "number") return false
+  return Date.now() - inline.startedAt > STALE_RUNNING_TOOL_PATCH_MS
+}
+
 function shouldIgnoreTerminalToActiveStatus(state: SessionState, frame: PatchFrame, previousStatus: StreamStatus, nextStatus: StreamStatus) {
   if (!isTerminalOrIdleStatus(previousStatus)) return false
   if (!ACTIVE_STATUSES.has(nextStatus)) return false
@@ -907,6 +959,7 @@ function notify(sessionKey: string, frame?: PatchFrame) {
   const state = states.get(sessionKey)
   if (!state) return
   cacheBootstrap(sessionKey, state)
+  persistWarmSessionSnapshot(sessionKey, state)
   const callbacks = listeners.get(sessionKey)
   if (!callbacks) return
   const snapshot = cloneState(state)
@@ -1004,6 +1057,17 @@ function handlePatch(frame: PatchFrame) {
     return
   }
   globalCursor = Math.max(globalCursor, frame.patch.cursor)
+  if (isStaleRunningToolReplay(state, frame)) {
+    state.cursor = Math.max(state.cursor, frame.patch.cursor)
+    frontendLog("stream", "global-chat-session.stale-running-tool-replay-skip", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      stateCursor: state.cursor,
+      patchType: frame.patch.type,
+      status: state.status,
+    }, "debug")
+    return
+  }
   const previousStatus = state.status
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
@@ -1128,9 +1192,13 @@ export function seedGlobalChatSession(params: {
 }) {
   if (params.queryClient) queryClientRef = params.queryClient
   const state = getOrCreate(params.sessionKey)
-  state.messages = dedupeChatMessages(params.messages)
-  state.cursor = Math.max(state.cursor, params.cursor ?? 0)
-  if (params.status) {
+  const incomingCursor = params.cursor ?? 0
+  const hadNewerLiveState = state.cursor > incomingCursor && state.messages.length > 0
+  state.messages = hadNewerLiveState
+    ? dedupeChatMessages([...params.messages, ...state.messages])
+    : dedupeChatMessages(params.messages)
+  state.cursor = Math.max(state.cursor, incomingCursor)
+  if (params.status && !hadNewerLiveState) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
     const now = Date.now()
@@ -1139,18 +1207,22 @@ export function seedGlobalChatSession(params: {
       : 0
     if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
   }
-  if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
-  if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
-  if (params.status) state.deferredDoneUntilAssistant = false
-  if (params.pendingTools) state.pendingTools = params.pendingTools
-  if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
-  if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
+  if (!hadNewerLiveState) {
+    if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
+    if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
+    if (params.status) state.deferredDoneUntilAssistant = false
+    if (params.pendingTools) state.pendingTools = params.pendingTools
+    if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
+    if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
+  }
   globalCursor = Math.max(globalCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)
   frontendLog("session", "global-chat-session.seed", {
     sessionKey: params.sessionKey,
     messageCount: state.messages.length,
     cursor: state.cursor,
+    incomingCursor,
+    preservedNewerLiveState: hadNewerLiveState,
     status: state.status,
     pendingToolCount: state.pendingTools.length,
     spawnedSubagentCount: state.spawnedSubagents.length,
@@ -1260,4 +1332,6 @@ export function clearGlobalChatEngineForTests() {
     clearInterval(sweepInterval)
     sweepInterval = null
   }
+  for (const timer of warmPersistTimers.values()) clearTimeout(timer)
+  warmPersistTimers.clear()
 }
