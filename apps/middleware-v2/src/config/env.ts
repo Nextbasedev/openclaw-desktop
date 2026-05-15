@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -10,6 +11,8 @@ const envSchema = z.object({
   MIDDLEWARE_V2_DB: z.string().optional(),
   OPENCLAW_GATEWAY_URL: z.string().optional(),
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
+  MIDDLEWARE_TOKEN: z.string().optional(),
+  MIDDLEWARE_PAIRING_CODE: z.string().optional(),
   NODE_ENV: z.string().optional(),
 });
 
@@ -19,6 +22,8 @@ export type MiddlewareV2Config = {
   databasePath: string;
   openclawGatewayUrl: string;
   openclawGatewayToken?: string;
+  middlewareToken?: string;
+  pairingCode?: string;
   nodeEnv: string;
 };
 
@@ -34,6 +39,8 @@ export function loadEnv(rawEnv: NodeJS.ProcessEnv = process.env): MiddlewareV2Co
     databasePath: env.MIDDLEWARE_V2_DB ?? defaultDatabasePath(),
     openclawGatewayUrl: env.OPENCLAW_GATEWAY_URL ?? "ws://127.0.0.1:18789",
     openclawGatewayToken: env.OPENCLAW_GATEWAY_TOKEN,
+    middlewareToken: env.MIDDLEWARE_TOKEN ?? crypto.randomBytes(32).toString("hex"),
+    pairingCode: env.MIDDLEWARE_PAIRING_CODE ?? crypto.randomBytes(3).toString("hex").toUpperCase(),
     nodeEnv: env.NODE_ENV ?? "development",
   };
 }

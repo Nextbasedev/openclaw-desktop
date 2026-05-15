@@ -74,7 +74,7 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
   if (typeof window === "undefined") return
   const next = { url: trimTrailingSlash(input.url), token: input.token.trim() }
   const previous = getMiddlewareConnection()
-  const changed = previous?.url !== next.url
+  const changed = previous?.url !== next.url || previous?.token !== next.token
   frontendLog("connection", changed ? "middleware.save.changed" : "middleware.save.updated", {
     url: sanitizeUrlForLog(next.url),
     hadToken: Boolean(next.token),

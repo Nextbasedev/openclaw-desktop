@@ -48,6 +48,20 @@ export function readOpenClawMessageId(message: OpenClawMessage): string | null {
   return typeof id === "string" && id.trim() ? id.trim() : null;
 }
 
+function readMessageTimestampMs(message: OpenClawMessage, fallbackMs: number): number {
+  const value = message.timestamp ?? message.createdAt ?? message.created_at ?? message.updatedAt ?? message.updated_at;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 0 && value < 1_000_000_000_000 ? value * 1_000 : value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric > 0 && numeric < 1_000_000_000_000 ? numeric * 1_000 : numeric;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallbackMs;
+}
+
 export function normalizeHistoryMessages(sessionKey: string, messages: unknown[], nowMs = Date.now(), firstFallbackSeq = 1): ProjectedMessage[] {
   return messages
     .filter((message): message is OpenClawMessage => Boolean(message) && typeof message === "object" && !Array.isArray(message))
@@ -57,6 +71,6 @@ export function normalizeHistoryMessages(sessionKey: string, messages: unknown[]
       messageId: readOpenClawMessageId(message),
       role: typeof message.role === "string" ? message.role : null,
       data: message,
-      updatedAtMs: nowMs,
+      updatedAtMs: readMessageTimestampMs(message, nowMs),
     }));
 }
