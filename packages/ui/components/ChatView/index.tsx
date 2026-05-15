@@ -1449,7 +1449,7 @@ export function ChatView({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.96 }}
               transition={{ duration: 0.16, ease: "easeOut" }}
-              className="mb-2 flex justify-center"
+              className="mb-3 flex justify-center"
             >
               <motion.button
                 type="button"
