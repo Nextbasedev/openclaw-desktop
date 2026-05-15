@@ -319,7 +319,7 @@ async function reconcileChatHistory(
   )
   const parsed = parseChatHistory((history.messages as RawMessage[]) || [])
   void status
-  return parsed.messages
+  return hydrateCachedAttachments(sessionKey, parsed.messages)
 }
 
 function isActiveRunStatus(status: StreamStatus | null | undefined) {
@@ -383,6 +383,18 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
     status: tool.status === "error" ? "failed" : tool.status === "success" ? "completed" : childSessionKey ? "working" : "spawning",
     toolCallId: tool.id,
   }
+}
+
+function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
+  return messages.map((message) => {
+    const attachments = mergeAttachmentsWithCache(
+      sessionKey,
+      message.messageId,
+      message.attachments ?? [],
+      message.text
+    )
+    return attachments.length > 0 ? { ...message, attachments } : message
+  })
 }
 
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
@@ -1360,7 +1372,7 @@ setMessages(warmMessages)
         // bundled middleware can briefly return no source/projectionVersion
         // before the first run exists, but this is still V2 bootstrap data, not
         // legacy middleware_chat_history.
-        const canonicalMessages = dedupeChatMessages(parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages)
+        const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages))
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
@@ -1614,7 +1626,8 @@ setMessages(warmMessages)
             mimeType: a.mimeType,
             content: a.content,
             size: a.size,
-          }))
+          })),
+          messageText
         )
       }
       const optimisticMessage: ChatMessage = {

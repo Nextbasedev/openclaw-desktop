@@ -10,6 +10,26 @@ describe("attachmentCache", () => {
     expect(normalizeAttachmentCacheText("hello\n\n[Attached image: image.png]")).toBe("hello")
   })
 
+  it("restores cached attachments while canonical history has no attachments yet", () => {
+    cacheAttachments(
+      "session-empty",
+      "optimistic-id",
+      [{ name: "image.png", mimeType: "image/png", content: "abc123" }],
+      "hello",
+    )
+
+    const merged = mergeAttachmentsWithCache(
+      "session-empty",
+      "history-id",
+      [],
+      "hello",
+    )
+
+    expect(merged).toEqual([
+      { name: "image.png", mimeType: "image/png", content: "abc123" },
+    ])
+  })
+
   it("restores cached image content by message text when history id changes", () => {
     cacheAttachments(
       "session-a",

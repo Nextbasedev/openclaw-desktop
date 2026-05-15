@@ -74,6 +74,7 @@ export function mergeAttachmentsWithCache(
 }> {
   const cached = cache.get(key(sessionKey, messageId)) ?? (messageText ? getCachedAttachmentsForText(sessionKey, messageText) : undefined)
   if (!cached) return attachments
+  if (attachments.length === 0) return cached
 
   return attachments.map((att, i) => {
     if (att.content || att.url) return att
