@@ -40,14 +40,15 @@ type MiddlewareUpdateStart = {
 }
 
 type TelegramMigrationScan = {
-  summary: {
-    total: number
-    direct: number
-    groups: number
-    topics: number
-    alreadyImported: number
+  sessions?: Array<Record<string, unknown>>
+  summary?: {
+    total?: number
+    direct?: number
+    groups?: number
+    topics?: number
+    alreadyImported?: number
   }
-  groups: Array<{ groupId: string; name: string; topics: number }>
+  groups?: Array<{ groupId: string; name: string; topics: number }>
 }
 
 type TelegramMigrationImport = {
@@ -359,7 +360,15 @@ function TelegramMigrationCard() {
     }
   }
 
-  const importable = scan ? Math.max(0, scan.summary.total - scan.summary.alreadyImported) : 0
+  const scanSummary = {
+    total: scan?.summary?.total ?? scan?.sessions?.length ?? 0,
+    direct: scan?.summary?.direct ?? 0,
+    groups: scan?.summary?.groups ?? scan?.groups?.length ?? 0,
+    topics: scan?.summary?.topics ?? 0,
+    alreadyImported: scan?.summary?.alreadyImported ?? 0,
+  }
+  const scanGroups = scan?.groups ?? []
+  const importable = Math.max(0, scanSummary.total - scanSummary.alreadyImported)
 
   return (
     <section className="rounded-md border border-border/50 bg-muted/[0.03] p-5">
@@ -398,21 +407,21 @@ function TelegramMigrationCard() {
       {scan && (
         <div className="mt-4 rounded-md border border-border/35 bg-background/35 p-3 text-[11px] text-muted-foreground">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <Stat label="Sessions" value={scan.summary.total} />
-            <Stat label="Direct" value={scan.summary.direct} />
-            <Stat label="Groups" value={scan.summary.groups} />
-            <Stat label="Topics" value={scan.summary.topics} />
-            <Stat label="Imported" value={scan.summary.alreadyImported} />
+            <Stat label="Sessions" value={scanSummary.total} />
+            <Stat label="Direct" value={scanSummary.direct} />
+            <Stat label="Groups" value={scanSummary.groups} />
+            <Stat label="Topics" value={scanSummary.topics} />
+            <Stat label="Imported" value={scanSummary.alreadyImported} />
           </div>
-          {scan.groups.length > 0 && (
+          {scanGroups.length > 0 && (
             <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
-              {scan.groups.slice(0, 5).map((group) => (
+              {scanGroups.slice(0, 5).map((group) => (
                 <div key={group.groupId} className="flex items-center justify-between gap-3">
                   <span className="truncate text-foreground/80">{group.name}</span>
                   <span className="shrink-0 text-muted-foreground/70">{group.topics} topics</span>
                 </div>
               ))}
-              {scan.groups.length > 5 && <p className="text-muted-foreground/60">+{scan.groups.length - 5} more groups</p>}
+              {scanGroups.length > 5 && <p className="text-muted-foreground/60">+{scanGroups.length - 5} more groups</p>}
             </div>
           )}
         </div>
