@@ -1,0 +1,107 @@
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import sensible from "@fastify/sensible";
+import websocket from "@fastify/websocket";
+import { registerErrorHandler } from "./lib/errors.js";
+import { openDatabase } from "./db/connection.js";
+import { GatewayClient } from "./features/gateway/client.js";
+import { MessageRepository } from "./features/chat/repo.messages.js";
+import { RunRepository } from "./features/chat/repo.runs.js";
+import { ChatLiveIngest } from "./features/chat/live.js";
+import { SessionSendQueue } from "./features/chat/send-queue.js";
+import { PatchBus, registerPatchRoutes } from "./features/patches.js";
+import { registerSystemRoutes } from "./features/system/routes.js";
+import { registerGatewayRoutes } from "./features/gateway/routes.js";
+import { registerDiagnosticsRoutes } from "./features/diagnostics/routes.js";
+import { registerChatRoutes } from "./features/chat/routes.js";
+import { registerCompatRoutes } from "./features/compat/routes.js";
+import { registerSkillRoutes } from "./features/skills/routes.js";
+import { registerWorkspaceLayoutRoutes } from "./features/workspace-layout/routes.js";
+import { createLogger, errorMeta, safePathFromUrl } from "./lib/logger.js";
+export async function createApp(config) {
+    const app = Fastify({ logger: false });
+    app.removeContentTypeParser("application/json");
+    app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
+        const raw = typeof body === "string" ? body.trim() : "";
+        if (!raw) {
+            done(null, {});
+            return;
+        }
+        try {
+            done(null, JSON.parse(raw));
+        }
+        catch (error) {
+            done(error);
+        }
+    });
+    const log = createLogger("http");
+    const db = openDatabase(config);
+    const gateway = new GatewayClient(config);
+    const messages = new MessageRepository(db);
+    const runs = new RunRepository(db);
+    const patchBus = new PatchBus();
+    const context = {
+        config,
+        gateway,
+        db,
+        messages,
+        runs,
+        chatLive: undefined,
+        sendQueue: new SessionSendQueue(),
+        patchBus,
+        startedAtMs: Date.now(),
+    };
+    context.chatLive = new ChatLiveIngest(context);
+    app.v2Context = context;
+    await app.register(cors, {
+        origin: true,
+        credentials: false,
+        methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Authorization", "Content-Type", "Cache-Control"],
+    });
+    await app.register(sensible);
+    await app.register(websocket);
+    app.addHook("onRequest", async (request) => {
+        log.info("request.start", {
+            requestId: request.id,
+            method: request.method,
+            path: safePathFromUrl(request.url),
+            remoteAddress: request.ip,
+        });
+    });
+    app.addHook("onResponse", async (request, reply) => {
+        log.info("request.end", {
+            requestId: request.id,
+            method: request.method,
+            path: safePathFromUrl(request.url),
+            statusCode: reply.statusCode,
+            statusText: reply.raw.statusMessage,
+            durationMs: Math.round(reply.elapsedTime),
+        });
+    });
+    app.addHook("onError", async (request, reply, error) => {
+        const errorStatusCode = typeof error.statusCode === "number" ? error.statusCode : reply.statusCode >= 400 ? reply.statusCode : 500;
+        log.error("request.fail", {
+            requestId: request.id,
+            method: request.method,
+            path: safePathFromUrl(request.url),
+            statusCode: errorStatusCode,
+            statusText: reply.raw.statusMessage,
+            ...errorMeta(error),
+        });
+    });
+    registerErrorHandler(app);
+    await registerSystemRoutes(app, context);
+    await registerCompatRoutes(app, context);
+    await registerSkillRoutes(app, context);
+    await registerWorkspaceLayoutRoutes(app, context);
+    await registerGatewayRoutes(app, context);
+    await registerDiagnosticsRoutes(app, context);
+    await registerChatRoutes(app, context);
+    await registerPatchRoutes(app, context);
+    app.addHook("onClose", async () => {
+        context.gateway.close();
+        context.db.close();
+    });
+    return app;
+}
