@@ -7,6 +7,8 @@ const ACTIVE_PROJECT_KEY = "openclaw.activeProjectId"
 export const MIDDLEWARE_CONNECTION_CHANGED_EVENT = "openclaw:middleware-connection-changed"
 export const MIDDLEWARE_DISCONNECTED_EVENT = "openclaw:middleware-disconnected"
 
+let crossWindowSyncInitialized = false
+
 export type MiddlewareConnection = {
   url: string
   token: string
@@ -75,6 +77,7 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
   const next = { url: trimTrailingSlash(input.url), token: input.token.trim() }
   const previous = getMiddlewareConnection()
   const changed = previous?.url !== next.url || previous?.token !== next.token
+  const workspaceChanged = previous?.url !== next.url
   frontendLog("connection", changed ? "middleware.save.changed" : "middleware.save.updated", {
     url: sanitizeUrlForLog(next.url),
     hadToken: Boolean(next.token),
@@ -82,7 +85,7 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
   localStorage.setItem(URL_KEY, next.url)
   localStorage.setItem(TOKEN_KEY, next.token)
   localStorage.setItem("jarvis.gatewayActive", "true")
-  if (changed) {
+  if (workspaceChanged) {
     clearWorkspaceScopeCache()
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: next.url } }))
   }
@@ -102,6 +105,28 @@ export function clearMiddlewareConnection() {
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: previous.url } }))
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: null } }))
   }
+}
+
+export function initMiddlewareConnectionCrossWindowSync() {
+  if (crossWindowSyncInitialized || typeof window === "undefined") return
+  crossWindowSyncInitialized = true
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== URL_KEY && event.key !== TOKEN_KEY) return
+    if (event.oldValue === event.newValue) return
+
+    const current = getMiddlewareConnection()
+    clearWorkspaceScopeCache()
+
+    if (!current) {
+      window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: event.oldValue ?? null } }))
+      window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: null } }))
+      return
+    }
+
+    window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: current.url } }))
+    window.dispatchEvent(new CustomEvent("openclaw:middleware-connected", { detail: { url: current.url } }))
+  })
 }
 
 export async function middlewareFetch<T>(path: string, init: RequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
