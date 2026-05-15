@@ -528,9 +528,9 @@ function HeaderTab({
       className={cn(
         "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
         activeAndFocused
-          ? "z-20 rounded-b-[10px] border-transparent bg-background text-foreground shadow-none"
+          ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
           : isActive
-            ? "z-10 rounded-b-[10px] border-transparent bg-background/72 text-foreground/74 shadow-none"
+            ? "z-10 overflow-visible border-transparent bg-background/72 text-foreground/74 shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
             : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
       )}
     >
