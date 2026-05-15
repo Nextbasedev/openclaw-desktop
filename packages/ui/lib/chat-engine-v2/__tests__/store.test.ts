@@ -1573,6 +1573,45 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
+  test("does not resurrect a completed chat when late terminal tool results carry active runStatus", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "run" },
+        { messageId: "a1", role: "assistant", text: "Done answer" },
+      ],
+      pendingTools: [],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: 11,
+        payload: {
+          semanticType: "chat.tool.result",
+          runStatus: "tool_running",
+          statusLabel: "exec",
+          toolCall: { toolCallId: "late-tool", name: "exec", status: "success", phase: "result", resultMeta: "late ok" },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state).toMatchObject({ status: "done", statusLabel: null, pendingTools: [] })
+    expect(state?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        messageId: "a1",
+        text: "Done answer",
+        toolCalls: [expect.objectContaining({ id: "late-tool", status: "success", resultText: "late ok" })],
+      }),
+    ]))
+  })
+
   test("does not merge a new assistant response into a previous gateway-indexed answer", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
