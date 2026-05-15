@@ -1164,9 +1164,13 @@ export function seedGlobalChatSession(params: {
 }) {
   if (params.queryClient) queryClientRef = params.queryClient
   const state = getOrCreate(params.sessionKey)
-  state.messages = dedupeChatMessages(params.messages)
-  state.cursor = Math.max(state.cursor, params.cursor ?? 0)
-  if (params.status) {
+  const incomingCursor = params.cursor ?? 0
+  const hadNewerLiveState = state.cursor > incomingCursor && state.messages.length > 0
+  state.messages = hadNewerLiveState
+    ? dedupeChatMessages([...params.messages, ...state.messages])
+    : dedupeChatMessages(params.messages)
+  state.cursor = Math.max(state.cursor, incomingCursor)
+  if (params.status && !hadNewerLiveState) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
     const now = Date.now()
@@ -1175,18 +1179,22 @@ export function seedGlobalChatSession(params: {
       : 0
     if (ACTIVE_STATUSES.has(params.status)) state.lastPatchAtMs = now
   }
-  if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
-  if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
-  if (params.status) state.deferredDoneUntilAssistant = false
-  if (params.pendingTools) state.pendingTools = params.pendingTools
-  if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
-  if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
+  if (!hadNewerLiveState) {
+    if (params.statusLabel !== undefined) state.statusLabel = params.statusLabel
+    if (params.status) state.statusLabel = normalizeStatusLabel(state.status, state.statusLabel)
+    if (params.status) state.deferredDoneUntilAssistant = false
+    if (params.pendingTools) state.pendingTools = params.pendingTools
+    if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
+    if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
+  }
   globalCursor = Math.max(globalCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)
   frontendLog("session", "global-chat-session.seed", {
     sessionKey: params.sessionKey,
     messageCount: state.messages.length,
     cursor: state.cursor,
+    incomingCursor,
+    preservedNewerLiveState: hadNewerLiveState,
     status: state.status,
     pendingToolCount: state.pendingTools.length,
     spawnedSubagentCount: state.spawnedSubagents.length,
