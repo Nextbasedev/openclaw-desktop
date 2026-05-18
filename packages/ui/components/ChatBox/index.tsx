@@ -146,7 +146,6 @@ export function ChatBox({
     loading: modelsLoading,
     error: modelsError,
     reload: reloadModels,
-    setCurrentModelOptimistic,
   } = useModels()
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0] ?? null
 
@@ -952,15 +951,13 @@ export function ChatBox({
             }}
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
-              const previousModel = sessionModelId ?? currentModel
               setSessionModelId(modelId)
-              setCurrentModelOptimistic(modelId)
               setModelOpen(false)
               const applyModel = onModelSelect
                 ? onModelSelect(modelId)
                 : invoke("middleware_models_set_default", {
                     input: { modelId },
-                  })
+                  }).then(() => reloadModels())
               Promise.resolve(applyModel).catch((error) => {
                 setAttachmentError(
                   error instanceof Error
@@ -968,7 +965,6 @@ export function ChatBox({
                     : "Failed to switch model"
                 )
                 setSessionModelId(null)
-                setCurrentModelOptimistic(previousModel)
               })
             }}
             isRecording={voiceState === "recording"}
