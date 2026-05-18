@@ -3488,6 +3488,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return cronListRunsGateway(context, input).catch(() => cronListRuns(input));
       case "middleware_cron_recent_activity":
         return cronRecentActivityGateway(context, input).catch(() => cronRecentActivity(input));
+      case "middleware_cron_reset_fixtures":
+        compatState.cronJobs = [];
+        compatState.cronRuns = [];
+        saveCompatCollection(context, "cronJobs");
+        saveCompatCollection(context, "cronRuns");
+        emitCronEvent({ type: "cron.fixtures.reset", timestamp: nowIso() });
+        return { ok: true };
       case "middleware_cron_job_conversation": {
         const run = compatState.cronRuns.find((item) => item.jobId === input.jobId || item.runId === input.runId || item.id === input.runId);
         if (!run?.sessionKey) return { messages: [], lastRun: run ?? null };
