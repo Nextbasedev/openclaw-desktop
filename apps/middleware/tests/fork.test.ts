@@ -89,6 +89,20 @@ describe("chat fork compatibility command", () => {
     await app.close();
   });
 
+  test("does not silently fall back for mistyped fork command names", async () => {
+    const app = await createApp(config("mistyped-command"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_fork%5E",
+      payload: { input: { sessionKey: "s1", messageId: "m1" } },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ ok: false });
+    await app.close();
+  });
+
   test("preserves project topic context when forking from a topic chat", async () => {
     const app = await createApp(config("topic-context"));
     const context = contextOf(app);
