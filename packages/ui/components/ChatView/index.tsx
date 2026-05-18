@@ -1507,7 +1507,7 @@ export function ChatView({
         itemContent={renderMessageRow}
       />
 
-      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+      <div className="relative shrink-0 bg-transparent py-3">
         <AnimatePresence>
           {showJumpToBottom && (
             <motion.div
@@ -1515,28 +1515,28 @@ export function ChatView({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.96 }}
               transition={{ duration: 0.16, ease: "easeOut" }}
-              className="mb-3 flex justify-center"
+              className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-3 flex justify-center"
             >
               <motion.button
                 type="button"
                 aria-label="Scroll to latest message"
                 title="Scroll to latest message"
                 onClick={jumpToLatestMessage}
+                animate={{ y: [0, 5, 0] }}
+                transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
-                  "group flex h-8 w-16 cursor-pointer items-center justify-center",
-                  "bg-transparent text-foreground/80 transition-colors hover:text-foreground",
+                  "group pointer-events-auto inline-flex aspect-square cursor-pointer items-center justify-center rounded-full p-3",
+                  "border border-white/10 bg-[#252529]/80 text-foreground/80 shadow-[0_10px_28px_-18px_rgba(0,0,0,0.9)] backdrop-blur-md transition-colors hover:bg-[#2d2d32]/90 hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
               >
                 <motion.span
                   aria-hidden="true"
-                  animate={{ y: [0, 5, 0] }}
-                  transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
-                  className="flex origin-center scale-x-125 bg-transparent"
+                  className="flex origin-center scale-x-125"
                 >
-                  <MdKeyboardDoubleArrowDown size={30} />
+                  <MdKeyboardDoubleArrowDown size={24} />
                 </motion.span>
               </motion.button>
             </motion.div>
