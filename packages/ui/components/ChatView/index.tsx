@@ -353,7 +353,7 @@ export function ChatView({
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const scrollStateFrameRef = useRef<number | null>(null)
   const showJumpToBottomRef = useRef(false)
-  const [messageWindowSize, setMessageWindowSize] = useState(240)
+  const [messageWindowSize, setMessageWindowSize] = useState(1000)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
   const [dbPins, setDbPins] = useState<{
@@ -365,7 +365,7 @@ export function ChatView({
     // Reset everything when the session changes
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
-    setMessageWindowSize(240)
+    setMessageWindowSize(1000)
 
     invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
       "middleware_pins_list",
@@ -863,7 +863,7 @@ export function ChatView({
 
   const loadOlderMessages = useCallback(() => {
     setMessageWindowSize((current) =>
-      Math.min(current + 240, visibleAllMessages.length)
+      Math.min(current + 1000, visibleAllMessages.length)
     )
   }, [visibleAllMessages.length])
 
@@ -1479,7 +1479,7 @@ export function ChatView({
           return isAtBottom ? "smooth" : false
         }}
         computeItemKey={(_, msg) => msg.messageId}
-        increaseViewportBy={{ top: 900, bottom: 1200 }}
+        increaseViewportBy={{ top: 5000, bottom: 5000 }}
         components={{
           Header: () => (
             <div className="mx-auto max-w-3xl px-4 pt-8">
