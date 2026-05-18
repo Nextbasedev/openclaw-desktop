@@ -52,6 +52,13 @@ function normalizeModelsResponse(response: ModelsResponse): { models: ModelEntry
 
 let cachedModels: ModelEntry[] | null = null
 let cachedCurrent: string | null = null
+const listeners = new Set<() => void>()
+
+function publishModels(models: ModelEntry[], currentModel: string | null) {
+  cachedModels = models
+  cachedCurrent = currentModel
+  listeners.forEach((listener) => listener())
+}
 
 export function isActiveModel(
   current: string | null,
@@ -81,10 +88,9 @@ export function useModels() {
         input: {},
       })
       const normalized = normalizeModelsResponse(res)
-      cachedModels = normalized.models
-      cachedCurrent = normalized.currentModel
-      setModels(cachedModels)
-      setCurrentModel(cachedCurrent)
+      publishModels(normalized.models, normalized.currentModel)
+      setModels(normalized.models)
+      setCurrentModel(normalized.currentModel)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load models")
     }
@@ -92,7 +98,15 @@ export function useModels() {
   }, [])
 
   useEffect(() => {
+    const listener = () => {
+      setModels(cachedModels ?? [])
+      setCurrentModel(cachedCurrent)
+    }
+    listeners.add(listener)
     void load(false)
+    return () => {
+      listeners.delete(listener)
+    }
   }, [load])
 
   const ensureLoaded = useCallback(() => load(false), [load])
