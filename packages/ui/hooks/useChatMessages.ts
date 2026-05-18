@@ -1654,6 +1654,34 @@ export function useChatMessages(
         doneAfterYieldRef.current = 0
       }
 
+      if (isGenerating && isStopCommand) {
+        frontendLog("chat", "chat.stop-command.abort-before-send", { sessionKey, status: statusRef.current })
+        setStatus("stopping")
+        setStatusLabel(null)
+        updateGlobalChatSessionActivity({
+          sessionKey,
+          pendingTools: [],
+          status: "stopping",
+          statusLabel: null,
+        })
+        try {
+          await abortChatV2({ sessionKey })
+        } catch (error) {
+          frontendLog("chat", "chat.stop-command.abort-fail", {
+            sessionKey,
+            error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+          }, "warn")
+        }
+        pendingToolMapRef.current.clear()
+        setPendingTools([])
+        updateGlobalChatSessionActivity({
+          sessionKey,
+          pendingTools: [],
+          status: "idle",
+          statusLabel: null,
+        })
+      }
+
       const replyTo = payload.replyTo ?? undefined
       const snippet = replyTo
         ? replyTo.text.slice(0, 150) + (replyTo.text.length > 150 ? "…" : "")
@@ -1718,12 +1746,7 @@ export function useChatMessages(
       })
       forceScrollToBottom(true)
       try {
-        if (isGenerating && isStopCommand) {
-          frontendLog("chat", "chat.stop-command.abort-before-send", { sessionKey, status: statusRef.current })
-          setStatus("stopping")
-          setStatusLabel(null)
-          await abortChatV2({ sessionKey })
-        } else if (isGenerating && !payload.runWhileGenerating) {
+        if (isGenerating && !isStopCommand && !payload.runWhileGenerating) {
           restartInFlightRef.current = true
           frontendLog("chat", "chat.restart-before-send", { sessionKey, status: statusRef.current })
           setStatus("restarting")
