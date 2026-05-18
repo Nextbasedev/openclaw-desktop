@@ -25,7 +25,7 @@ function isLoopbackServerUrl(url: string): boolean {
 }
 
 function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
-  if (typeof window === "undefined" || isTauriRuntime()) return rawUrl
+  if (typeof window === "undefined") return rawUrl
   const browserHostname = window.location?.hostname
   if (!browserHostname || isLoopbackHost(browserHostname)) return rawUrl
   try {
