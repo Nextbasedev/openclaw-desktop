@@ -38,12 +38,20 @@ function isLoopbackHost(hostname: string) {
   return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "tauri.localhost" || hostname === "::1" || hostname === "0.0.0.0"
 }
 
+function isTauriRuntime(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    Boolean((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__)
+  )
+}
+
 function getBrowserHostname() {
   if (typeof window === "undefined") return null
   return window.location?.hostname || null
 }
 
 function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
+  if (isTauriRuntime()) return rawUrl
   const browserHostname = getBrowserHostname()
   if (!browserHostname || isLoopbackHost(browserHostname)) return rawUrl
   try {
