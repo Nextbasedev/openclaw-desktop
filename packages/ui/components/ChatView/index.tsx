@@ -353,7 +353,7 @@ export function ChatView({
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const scrollStateFrameRef = useRef<number | null>(null)
   const showJumpToBottomRef = useRef(false)
-  const [messageWindowSize, setMessageWindowSize] = useState(80)
+  const [messageWindowSize, setMessageWindowSize] = useState(1000)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
   const [dbPins, setDbPins] = useState<{
@@ -365,7 +365,7 @@ export function ChatView({
     // Reset everything when the session changes
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
-    setMessageWindowSize(80)
+    setMessageWindowSize(1000)
 
     invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
       "middleware_pins_list",
@@ -658,7 +658,7 @@ export function ChatView({
     if (renderedMessages.length === 0) return
 
     lastHistoryScrollVersionRef.current = historyLoadVersion
-    const lastIndex = messageWindow.hiddenBefore + renderedMessages.length - 1
+    const lastIndex = renderedMessages.length - 1
     const scrollToLatest = () => {
       virtuosoRef.current?.scrollToIndex({
         index: lastIndex,
@@ -685,7 +685,6 @@ export function ChatView({
   }, [
     historyLoadVersion,
     isBackgroundSession,
-    messageWindow.hiddenBefore,
     renderedMessages.length,
     scrollContainerRef,
   ])
@@ -864,7 +863,7 @@ export function ChatView({
 
   const loadOlderMessages = useCallback(() => {
     setMessageWindowSize((current) =>
-      Math.min(current + 80, visibleAllMessages.length)
+      Math.min(current + 1000, visibleAllMessages.length)
     )
   }, [visibleAllMessages.length])
 
@@ -877,15 +876,12 @@ export function ChatView({
       scrollStateFrameRef.current = null
       const el = scrollContainerRef.current
       if (!el) return
-      if (el.scrollTop < 240 && messageWindow.hiddenBefore > 0) {
-        loadOlderMessages()
-      }
       const shouldShow = el.scrollHeight - el.scrollTop - el.clientHeight > 160
       if (showJumpToBottomRef.current === shouldShow) return
       showJumpToBottomRef.current = shouldShow
       setShowJumpToBottom(shouldShow)
     })
-  }, [onScroll, scrollContainerRef, activePopoverId, loadOlderMessages, messageWindow.hiddenBefore])
+  }, [onScroll, scrollContainerRef, activePopoverId])
 
   useEffect(() => {
     return () => {
@@ -898,8 +894,8 @@ export function ChatView({
   const jumpToLatestMessage = useCallback(() => {
     showJumpToBottomRef.current = false
     setShowJumpToBottom(false)
-    const lastIndex = messageWindow.hiddenBefore + renderedMessages.length - 1
-    if (renderedMessages.length > 0) {
+    const lastIndex = renderedMessages.length - 1
+    if (lastIndex >= 0) {
       virtuosoRef.current?.scrollToIndex({
         index: lastIndex,
         align: "end",
@@ -908,7 +904,7 @@ export function ChatView({
       return
     }
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-  }, [bottomRef, messageWindow.hiddenBefore, renderedMessages.length])
+  }, [bottomRef, renderedMessages.length])
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -1138,19 +1134,18 @@ export function ChatView({
       )
       if (index < 0) return false
       virtuosoRef.current?.scrollToIndex({
-        index: messageWindow.hiddenBefore + index,
+        index,
         align: "center",
         behavior: "smooth",
       })
       return true
     },
-    [messageWindow.hiddenBefore, renderedMessages]
+    [renderedMessages]
   )
 
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
-      const localIndex = index - messageWindow.hiddenBefore
-      const isLast = localIndex === renderedMessages.length - 1
+      const isLast = index === renderedMessages.length - 1
       const showPending =
         isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
       const isActivelyStreaming =
@@ -1160,7 +1155,7 @@ export function ChatView({
           ? laterAssistantInSameTurnById.get(msg.messageId) === true
           : false
       const isActiveTurnAssistant =
-        msg.role === "assistant" && localIndex > latestRenderedUserIndex
+        msg.role === "assistant" && index > latestRenderedUserIndex
       const suppressAssistantActions =
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
@@ -1299,7 +1294,6 @@ export function ChatView({
       reactToMessage,
       groupedToolCalls,
       suppressedToolCallMessages,
-      messageWindow.hiddenBefore,
       renderedMessages.length,
       replyToMessage,
       resolveExecApproval,
@@ -1485,8 +1479,7 @@ export function ChatView({
           return isAtBottom ? "smooth" : false
         }}
         computeItemKey={(_, msg) => msg.messageId}
-        firstItemIndex={messageWindow.hiddenBefore}
-        increaseViewportBy={{ top: 1200, bottom: 1600 }}
+        increaseViewportBy={{ top: 5000, bottom: 5000 }}
         components={{
           Header: () => (
             <div className="mx-auto max-w-3xl px-4 pt-8">
