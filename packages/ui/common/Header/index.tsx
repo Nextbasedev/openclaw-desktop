@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react"
 import {
   VscAdd,
   VscClose,
@@ -68,6 +68,25 @@ type HeaderProps = {
 
 const DEFAULT_USER: HeaderUser = {
   name: "OpenClaw",
+}
+
+function isWindowDragExcludedTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return true
+  return Boolean(
+    target.closest(
+      [
+        "button",
+        "a",
+        "input",
+        "textarea",
+        "select",
+        "[role='button']",
+        "[contenteditable='true']",
+        "[draggable='true']",
+        "[data-window-drag-exclude='true']",
+      ].join(","),
+    ),
+  )
 }
 
 export function Header({
@@ -141,8 +160,22 @@ export function Header({
   const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
 
+  const handleHeaderMouseDown = async (event: MouseEvent<HTMLElement>) => {
+    if (!isTauri || useNativeWindowChrome || event.button !== 0) return
+    if (isWindowDragExcludedTarget(event.target)) return
+
+    try {
+      event.preventDefault()
+      const { getCurrentWindow } = await import("@tauri-apps/api/window")
+      await getCurrentWindow().startDragging()
+    } catch {
+      // Browser/dev mode or unsupported platform: keep normal header behavior.
+    }
+  }
+
   return (
     <header
+      onMouseDown={handleHeaderMouseDown}
       className={cn(
         "relative z-50 flex h-11 shrink-0 items-center",
         "bg-[#151515]",

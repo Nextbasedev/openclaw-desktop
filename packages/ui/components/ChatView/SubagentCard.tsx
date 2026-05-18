@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   isActiveSubagent,
   subagentStatusLabel,
 } from "@/lib/subagentLifecycle"
 import { VscChevronDown } from "react-icons/vsc"
+import { dedupeSubagentsForDisplay } from "./subagentDisplay"
 import type { SpawnedSubagent } from "./types"
 
 export function SubagentCard({
@@ -17,10 +18,11 @@ export function SubagentCard({
   onOpen: (sub: SpawnedSubagent) => void
 }) {
   const [open, setOpen] = useState(false)
-  if (subagents.length === 0) return null
+  const visibleSubagents = useMemo(() => dedupeSubagentsForDisplay(subagents), [subagents])
+  if (visibleSubagents.length === 0) return null
 
-  const hasActive = subagents.some((s) => isActiveSubagent(s.status))
-  const count = subagents.length
+  const hasActive = visibleSubagents.some((s) => isActiveSubagent(s.status))
+  const count = visibleSubagents.length
   const label = hasActive
     ? `${count} background agent${count !== 1 ? "s" : ""} active`
     : `${count} background agent${count !== 1 ? "s" : ""}`
@@ -50,7 +52,7 @@ export function SubagentCard({
 
       {open && (
         <div className="mt-2 space-y-2 pl-0.5">
-          {subagents.map((sub) => (
+          {visibleSubagents.map((sub) => (
             <div key={sub.id}>
               <p className="text-[13px] font-medium text-foreground/60">
                 {subagentStatusLabel(sub.status)}

@@ -20,6 +20,7 @@ import {
 } from "../skills/service.js";
 import { fromJson, toJson } from "../../db/json.js";
 import { HttpError } from "../../lib/errors.js";
+import { normalizeHistoryMessages, readOpenClawMessageId } from "../chat/message-normalizer.js";
 
 type CompatRecord = Record<string, any>;
 
@@ -232,6 +233,7 @@ const compatState = {
   projects: [] as CompatRecord[],
   topics: [] as CompatRecord[],
   sessions: [] as CompatRecord[],
+  branches: [] as CompatRecord[],
   cronJobs: [] as CompatRecord[],
   cronRuns: [] as CompatRecord[],
   terminals: new Map<string, CompatTerminal>(),
@@ -241,7 +243,7 @@ const compatState = {
 const DEFAULT_SPACE_ID = "space_default";
 const DEFAULT_SPACE_NAME = "My Workspace";
 
-const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "cronJobs", "cronRuns"] as const;
+const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "branches", "cronJobs", "cronRuns"] as const;
 
 type CompatCollection = typeof compatCollections[number];
 
@@ -708,6 +710,178 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: Compa
   }) || JSON.stringify({ type: "session", version: 1, id: path.basename(transcriptPath, ".jsonl"), timestamp: nowIso(), cwd: process.cwd() });
   const lines = [header, ...messages.filter((message) => message && message.role !== "system").map(transcriptLineFromHistoryMessage)];
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+function agentIdFromSessionKey(sessionKey: string) {
+  const match = sessionKey.match(/^agent:([^:]+):/);
+  return match?.[1] || "main";
+}
+
+function messageIdOf(message: CompatRecord) {
+  return readOpenClawMessageId(message) ?? null;
+}
+
+function sessionFileFromCreateResult(created: CompatRecord) {
+  const candidate = created?.payload?.entry?.sessionFile ?? created?.entry?.sessionFile ?? created?.sessionFile;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
+function sessionIdFromCreateResult(created: CompatRecord, fallbackSessionKey: string) {
+  const candidate = created?.payload?.entry?.sessionId ?? created?.entry?.sessionId ?? created?.sessionId ?? created?.payload?.entry?.id ?? created?.entry?.id;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : fallbackSessionKey;
+}
+
+function normalizeHistoryForFork(history: CompatRecord) {
+  return Array.isArray(history.messages) ? history.messages.filter((message) => message && typeof message === "object" && !Array.isArray(message)) as CompatRecord[] : [];
+}
+
+function findForkMessageIndex(messages: CompatRecord[], input: CompatRecord) {
+  const gatewayIndex = Number(input.gatewayIndex);
+  if (Number.isInteger(gatewayIndex) && gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
+  const messageId = String(input.messageId ?? "").trim();
+  if (!messageId) return -1;
+  return messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+}
+
+function sourceChatForSession(sessionKey: string) {
+  return compatState.chats.find((chat) => chat.sessionKey === sessionKey || chat.key === sessionKey) ?? null;
+}
+
+function sourceSessionForSession(sessionKey: string) {
+  return compatState.sessions.find((session) => session.sessionKey === sessionKey || session.key === sessionKey) ?? null;
+}
+
+async function createChatFork(context: AppContext, input: CompatRecord) {
+  loadCompatState(context);
+  const sourceSessionKey = String(input.sessionKey ?? "").trim();
+  const sourceMessageId = String(input.messageId ?? "").trim();
+  if (!sourceSessionKey) throw new HttpError(400, "sessionKey required", "BAD_REQUEST");
+  if (!sourceMessageId && input.gatewayIndex === undefined) throw new HttpError(400, "messageId or gatewayIndex required", "BAD_REQUEST");
+
+  const history = await context.gateway.request<CompatRecord>("chat.history", { sessionKey: sourceSessionKey }, 30_000);
+  const messages = normalizeHistoryForFork(history);
+  const messageIndex = findForkMessageIndex(messages, input);
+  if (messageIndex < 0 || messageIndex >= messages.length) {
+    throw new HttpError(400, `Message index ${messageIndex} out of range (${messages.length} messages)`, "BAD_REQUEST");
+  }
+  const sliced = messages.slice(0, messageIndex + 1);
+  const selectedMessageId = sourceMessageId || messageIdOf(messages[messageIndex]) || `index:${messageIndex}`;
+  const agentId = String(input.agentId || history.agentId || agentIdFromSessionKey(sourceSessionKey));
+  const newSessionKey = String(input.branchSessionKey || input.newSessionKey || `agent:${agentId}:desktop:fork-${crypto.randomUUID()}`);
+  const forkLabel = String(input.name || input.label || input.branchName || `Fork ${crypto.randomUUID().slice(0, 8)}`);
+  const created = await context.gateway.request<CompatRecord>("sessions.create", {
+    key: newSessionKey,
+    agentId,
+    label: gatewaySessionLabel(forkLabel, newSessionKey),
+    parentSessionKey: sourceSessionKey,
+  }, 30_000);
+  const transcriptPath = sessionFileFromCreateResult(created);
+  if (transcriptPath) copyHistoryMessagesToTranscript(transcriptPath, sliced);
+
+  const now = nowIso();
+  const chatId = id("chat");
+  const branchId = id("branch");
+  const sourceChat = sourceChatForSession(sourceSessionKey);
+  const sourceSession = sourceSessionForSession(sourceSessionKey);
+  const spaceId = sourceChat?.spaceId || activeSpaceId();
+  const sessionId = sessionIdFromCreateResult(created, newSessionKey);
+
+  const chat = {
+    id: chatId,
+    name: forkLabel,
+    sessionKey: newSessionKey,
+    spaceId,
+    agentId,
+    archived: false,
+    pinned: false,
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now,
+  };
+  const session = {
+    id: id("session"),
+    key: newSessionKey,
+    sessionKey: newSessionKey,
+    projectId: sourceSession?.projectId ?? null,
+    topicId: null,
+    agentId,
+    label: forkLabel,
+    status: "idle",
+    hidden: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const branch = {
+    id: branchId,
+    sourceSessionKey,
+    sourceMessageId: selectedMessageId,
+    branchSessionKey: newSessionKey,
+    branchTopicId: null,
+    branchReason: "fork",
+    createdAt: now,
+    metadata: {
+      sourceGatewaySessionId: sourceSessionKey,
+      newGatewaySessionId: newSessionKey,
+      messageIndex,
+      transcriptPath,
+    },
+  };
+
+  compatState.chats.push(chat);
+  compatState.sessions.push(session);
+  compatState.branches.push(branch);
+  saveCompatState(context);
+
+  context.messages.upsertSession({
+    sessionKey: newSessionKey,
+    sessionId,
+    data: { sessionKey: newSessionKey, sessionId, status: "done", statusLabel: null, label: forkLabel, parentSessionKey: sourceSessionKey },
+  });
+  context.messages.upsertMessages(normalizeHistoryMessages(newSessionKey, sliced));
+  context.messages.appendProjectionEvent({
+    sessionKey: newSessionKey,
+    eventType: "session.upsert",
+    payload: { sessionKey: newSessionKey, sessionId, label: forkLabel, parentSessionKey: sourceSessionKey, isFork: true },
+  });
+
+  return {
+    ok: true,
+    chatId,
+    sessionKey: newSessionKey,
+    name: forkLabel,
+    messages: sliced,
+    sourceSessionKey,
+    sourceMessageId: selectedMessageId,
+    branch,
+    projectId: session.projectId,
+    topicId: session.topicId,
+  };
+}
+
+async function chatForkHistory(context: AppContext, input: CompatRecord) {
+  loadCompatState(context);
+  const sessionKey = String(input.sessionKey ?? "").trim();
+  if (!sessionKey) throw new HttpError(400, "sessionKey required", "BAD_REQUEST");
+  const branch = compatState.branches.find((item) => item.branchSessionKey === sessionKey && item.branchReason === "fork");
+  if (!branch) return { messages: [], isFork: false };
+  const messageIndex = Number(branch.metadata?.messageIndex ?? -1);
+  try {
+    const history = await context.gateway.request<CompatRecord>("chat.history", { sessionKey: branch.sourceSessionKey }, 30_000);
+    const messages = normalizeHistoryForFork(history);
+    return {
+      messages: messageIndex >= 0 ? messages.slice(0, messageIndex + 1) : [],
+      isFork: true,
+      sourceSessionKey: branch.sourceSessionKey,
+      sourceMessageId: branch.sourceMessageId,
+    };
+  } catch {
+    return {
+      messages: [],
+      isFork: true,
+      sourceSessionKey: branch.sourceSessionKey,
+      sourceMessageId: branch.sourceMessageId,
+    };
+  }
 }
 
 async function importTelegramSessions(context: AppContext, input: CompatRecord = {}) {
@@ -2888,6 +3062,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         saveCompatState(context);
         return { chat, session };
       }
+      case "middleware_chat_fork":
+        return createChatFork(context, input).catch((error) => reply.code(error instanceof HttpError ? error.statusCode : 500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Fork failed" } }));
+      case "middleware_chat_fork_history":
+        return chatForkHistory(context, input).catch((error) => reply.code(error instanceof HttpError ? error.statusCode : 500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Fork history failed" } }));
       case "middleware_chat_stop": {
         const sk = String(input.sessionKey ?? "");
         if (!sk) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
