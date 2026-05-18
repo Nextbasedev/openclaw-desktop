@@ -37,11 +37,9 @@ import {
   LuFileCode,
   LuFileText,
   LuImage,
-  LuLoader,
   LuMessageSquare,
   LuPencil,
   LuRefreshCw,
-  LuSearch,
   LuSettings2,
   LuSparkles,
   LuTerminal,
@@ -74,46 +72,48 @@ type StatusIconMeta = {
   label: string
 }
 
+const STATUS_ICON_CLASS = "text-amber-400"
+
 const STATUS_TOOL_ICON_META: Record<string, StatusIconMeta> = {
-  read: { icon: LuFileText, className: "text-sky-300", label: "Read file" },
-  write: { icon: LuPencil, className: "text-emerald-300", label: "Write file" },
-  edit: { icon: LuPencil, className: "text-teal-300", label: "Edit file" },
-  apply_patch: { icon: LuFileCode, className: "text-cyan-300", label: "Apply patch" },
-  exec: { icon: LuTerminal, className: "text-violet-300", label: "Run command" },
-  process: { icon: LuRefreshCw, className: "text-indigo-300", label: "Process" },
-  web_fetch: { icon: LuSearch, className: "text-blue-300", label: "Fetch web page" },
-  web_search: { icon: LuSearch, className: "text-blue-300", label: "Search web" },
-  cron: { icon: LuClock, className: "text-amber-300", label: "Schedule job" },
-  sessions_list: { icon: LuMessageSquare, className: "text-purple-300", label: "List sessions" },
-  sessions_history: { icon: LuMessageSquare, className: "text-purple-300", label: "Session history" },
-  sessions_send: { icon: LuMessageSquare, className: "text-purple-300", label: "Send to session" },
-  sessions_spawn: { icon: LuSparkles, className: "text-fuchsia-300", label: "Spawn sub-agent" },
-  sessions_yield: { icon: LuSparkles, className: "text-fuchsia-300", label: "Wait for sub-agent" },
-  subagents: { icon: LuSparkles, className: "text-fuchsia-300", label: "Sub-agent" },
-  session_status: { icon: LuSettings2, className: "text-slate-300", label: "Session status" },
-  image: { icon: LuImage, className: "text-pink-300", label: "Analyze image" },
-  image_generate: { icon: LuImage, className: "text-pink-300", label: "Generate image" },
-  memory_get: { icon: LuBrain, className: "text-lime-300", label: "Read memory" },
-  memory_search: { icon: LuBrain, className: "text-lime-300", label: "Search memory" },
-  update_plan: { icon: LuWrench, className: "text-orange-300", label: "Update plan" },
+  read: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Read file" },
+  write: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Write file" },
+  edit: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Edit file" },
+  apply_patch: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Apply patch" },
+  exec: { icon: LuTerminal, className: STATUS_ICON_CLASS, label: "Run command" },
+  process: { icon: LuRefreshCw, className: STATUS_ICON_CLASS, label: "Process" },
+  web_fetch: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Fetch web page" },
+  web_search: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Search web" },
+  cron: { icon: LuClock, className: STATUS_ICON_CLASS, label: "Schedule job" },
+  sessions_list: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "List sessions" },
+  sessions_history: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Session history" },
+  sessions_send: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Send to session" },
+  sessions_spawn: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Spawn sub-agent" },
+  sessions_yield: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Wait for sub-agent" },
+  subagents: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Sub-agent" },
+  session_status: { icon: LuSettings2, className: STATUS_ICON_CLASS, label: "Session status" },
+  image: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Analyze image" },
+  image_generate: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Generate image" },
+  memory_get: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Read memory" },
+  memory_search: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Search memory" },
+  update_plan: { icon: LuWrench, className: STATUS_ICON_CLASS, label: "Update plan" },
 }
 
 function statusIconMeta(tool?: string | null): StatusIconMeta {
   if (tool && STATUS_TOOL_ICON_META[tool]) return STATUS_TOOL_ICON_META[tool]
-  return { icon: LuSparkles, className: "text-blue-300", label: "Thinking" }
+  return { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Thinking" }
 }
 
-function ProcessStatusIcon({ tool, running }: { tool?: string | null; running?: boolean }) {
+function ProcessStatusIcon({ tool }: { tool?: string | null }) {
   const meta = statusIconMeta(tool)
-  const Icon = tool ? meta.icon : running ? LuLoader : meta.icon
+  const Icon = meta.icon
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className="mr-2 flex size-5 shrink-0 items-center justify-center rounded-md bg-white/[0.035] ring-1 ring-white/[0.06]"
+          className="mr-2 flex size-4 shrink-0 items-center justify-center"
           aria-label={meta.label}
         >
-          <Icon className={cn("size-3.5", !tool && running ? "animate-spin text-blue-400" : meta.className)} />
+          <Icon className={cn("size-3.5", meta.className)} />
         </span>
       </TooltipTrigger>
       <TooltipContent side="left" sideOffset={8} className="text-[11px]">
@@ -1636,10 +1636,7 @@ export function ChatView({
 
               {statusText && (
                 <div className="mt-4 flex items-center pl-1">
-                  <ProcessStatusIcon
-                    tool={liveTool?.tool}
-                    running={Boolean(liveTool) || status === "running" || status === "tool_running" || status === "collect"}
-                  />
+                  <ProcessStatusIcon tool={liveTool?.tool} />
                   <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
                     {statusText.replace(/\.{3}$/, "")}
                     <span className="thinking-ellipsis" aria-hidden="true" />
