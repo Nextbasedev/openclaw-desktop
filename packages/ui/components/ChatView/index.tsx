@@ -682,18 +682,27 @@ export function ChatView({
     [referencedTextsByMessageId]
   )
 
-  const focusReplyTarget = useCallback((messageId: string) => {
-    const target = document.getElementById(`message-${messageId}`)
+  const focusReplyTarget = useCallback((messageId: string, text?: string) => {
+    const normalizedId = messageId.replace(/:selection.*$/, "")
+    const fallbackText = text?.trim()
+    const resolvedId = document.getElementById(`message-${normalizedId}`)
+      ? normalizedId
+      : fallbackText
+        ? messages.find((message) => message.text.includes(fallbackText))?.messageId
+        : undefined
+    if (!resolvedId) return
+
+    const target = document.getElementById(`message-${resolvedId}`)
     target?.scrollIntoView({ behavior: "smooth", block: "center" })
-    setActiveReplyTargetId(messageId)
+    setActiveReplyTargetId(resolvedId)
     if (activeReplyTargetTimerRef.current !== null) {
       window.clearTimeout(activeReplyTargetTimerRef.current)
     }
     activeReplyTargetTimerRef.current = window.setTimeout(() => {
-      setActiveReplyTargetId((current) => current === messageId ? null : current)
+      setActiveReplyTargetId((current) => current === resolvedId ? null : current)
       activeReplyTargetTimerRef.current = null
     }, 2200)
-  }, [])
+  }, [messages])
 
   useEffect(() => {
     return () => {
