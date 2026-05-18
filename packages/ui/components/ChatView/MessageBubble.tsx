@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -328,7 +328,7 @@ function BranchNav({
   )
 }
 
-function MessageBubbleImpl({
+export function MessageBubble({
   message,
   onEdit,
   onRetrySend,
@@ -1035,8 +1035,6 @@ function MessageBubbleImpl({
     </motion.div>
   )
 }
-
-export const MessageBubble = memo(MessageBubbleImpl)
 
 export function TypingDots() {
   return (

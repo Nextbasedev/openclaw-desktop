@@ -351,8 +351,6 @@ export function ChatView({
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
   const virtuosoRef = useRef<VirtuosoHandle>(null)
-  const scrollStateFrameRef = useRef<number | null>(null)
-  const showJumpToBottomRef = useRef(false)
   const [messageWindowSize, setMessageWindowSize] = useState(240)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
@@ -869,30 +867,14 @@ export function ChatView({
 
   const handleScroll = useCallback(() => {
     onScroll()
+    const el = scrollContainerRef.current
+    if (el) {
+      setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+    }
     if (activePopoverId) setActivePopoverId(null)
-    if (scrollStateFrameRef.current !== null) return
-
-    scrollStateFrameRef.current = window.requestAnimationFrame(() => {
-      scrollStateFrameRef.current = null
-      const el = scrollContainerRef.current
-      if (!el) return
-      const shouldShow = el.scrollHeight - el.scrollTop - el.clientHeight > 160
-      if (showJumpToBottomRef.current === shouldShow) return
-      showJumpToBottomRef.current = shouldShow
-      setShowJumpToBottom(shouldShow)
-    })
   }, [onScroll, scrollContainerRef, activePopoverId])
 
-  useEffect(() => {
-    return () => {
-      if (scrollStateFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollStateFrameRef.current)
-      }
-    }
-  }, [])
-
   const jumpToLatestMessage = useCallback(() => {
-    showJumpToBottomRef.current = false
     setShowJumpToBottom(false)
     const lastIndex = renderedMessages.length - 1
     if (lastIndex >= 0) {
@@ -909,10 +891,7 @@ export function ChatView({
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    const shouldShow = el.scrollHeight - el.scrollTop - el.clientHeight > 160
-    if (showJumpToBottomRef.current === shouldShow) return
-    showJumpToBottomRef.current = shouldShow
-    setShowJumpToBottom(shouldShow)
+    setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
   }, [isGenerating, renderedMessages.length, scrollContainerRef])
 
   const handleFeedbackSubmit = useCallback(
