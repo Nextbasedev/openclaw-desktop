@@ -122,14 +122,14 @@ describe("middleware onboarding client", () => {
     await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "", mode: "local" })
   })
 
-  it("accepts middleware-v2 gateway.connected health shape", async () => {
+  it("accepts middleware gateway.connected health shape", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware-v2", version: "0.1.0", gateway: { connected: true } }), { status: 200 })
+      if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0", gateway: { connected: true } }), { status: 200 })
       return new Response("not found", { status: 404 })
     }))
 
     await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "", mode: "local" })
-    expect(isOpenClawConnected({ ok: true, service: "openclaw-middleware-v2", version: "0.1.0", gateway: { connected: true } })).toBe(true)
+    expect(isOpenClawConnected({ ok: true, service: "openclaw-middleware", version: "0.1.0", gateway: { connected: true } })).toBe(true)
   })
 
   it("does not auto-detect middleware when OpenClaw gateway is unavailable", async () => {
