@@ -1549,6 +1549,10 @@ function AppShell({
     }
   }, [])
 
+  const handleEditorTabsReorder = useCallback((groupId: EditorGroupId, tabIds: string[]) => {
+    dispatchGroups({ type: "SET_TAB_ORDER", groupId, tabIds })
+  }, [])
+
   const handleFocusGroup = useCallback((groupId: "group-1" | "group-2") => {
     if (groupId === editorGroups.focusedGroupId) return
     switchToGroupSession(groupId)
@@ -2060,6 +2064,7 @@ function AppShell({
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
         onOpenChatTabWindow={effectiveActiveTab === "chat" ? handleOpenChatTabWindow : undefined}
         onMoveChatTab={effectiveActiveTab === "chat" ? handleEditorTabMove : undefined}
+        onReorderChatTabs={effectiveActiveTab === "chat" ? handleEditorTabsReorder : undefined}
         onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
         showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
         splitActive={editorGroups.groups.length > 1}

@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react"
+import { Reorder } from "framer-motion"
 import {
   VscAdd,
   VscClose,
@@ -53,6 +54,7 @@ type HeaderProps = {
     targetGroupId: "group-1" | "group-2",
     targetIndex?: number,
   ) => void
+  onReorderChatTabs?: (groupId: "group-1" | "group-2", tabIds: string[]) => void
   onNewChat?: (groupId?: "group-1" | "group-2") => void
   showSplitButton?: boolean
   splitActive?: boolean
@@ -105,7 +107,7 @@ export function Header({
   onSelectChatTab,
   onCloseChatTab,
   onOpenChatTabWindow,
-  onMoveChatTab,
+  onReorderChatTabs,
   onNewChat,
   showSplitButton = false,
   splitActive = false,
@@ -123,9 +125,6 @@ export function Header({
   const [nodeVersion, setNodeVersion] = useState<string | null>(null)
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
-  const [dragOverGroupId, setDragOverGroupId] = useState<"group-1" | "group-2" | null>(null)
-  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
-  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -244,37 +243,18 @@ export function Header({
             return (
               <div
                 key={group.id}
-                className={cn(
-                  "flex min-w-0 flex-1 items-end rounded-t-md transition-colors",
-                  dragOverGroupId === group.id && "bg-white/[0.035] ring-1 ring-inset ring-white/10",
-                )}
+                className="flex min-w-0 flex-1 items-end rounded-t-md transition-colors"
                 style={
                   isLastGroup && rightClusterWidth > 0
                     ? { paddingRight: rightClusterWidth + 12 }
                     : undefined
                 }
-                onDragOver={(event) => {
-                  if (!onMoveChatTab) return
-                  const tabId = event.dataTransfer.types.includes("text/tab-id")
-                  if (!tabId) return
-                  event.preventDefault()
-                  event.dataTransfer.dropEffect = "move"
-                  setDragOverGroupId(group.id)
-                }}
-                onDragLeave={() => {
-                  if (dragOverGroupId === group.id) setDragOverGroupId(null)
-                }}
-                onDrop={(event) => {
-                  if (!onMoveChatTab) return
-                  event.preventDefault()
-                  const tabId = event.dataTransfer.getData("text/tab-id")
-                  const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
-                  setDragOverGroupId(null)
-                  if (!tabId || !sourceGroupId || sourceGroupId === group.id) return
-                  onMoveChatTab(tabId, sourceGroupId, group.id)
-                }}
               >
-                <div
+                <Reorder.Group
+                  axis="x"
+                  values={visibleTabs.map((tab) => tab.id)}
+                  onReorder={(tabIds) => onReorderChatTabs?.(group.id, tabIds)}
+                  as="div"
                   onWheel={(event) => {
                     const target = event.currentTarget
                     if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
@@ -290,64 +270,30 @@ export function Header({
                       : "px-0",
                   )}
                 >
-                  {visibleTabs.map((tab, tabIndex) => (
-                    <HeaderTab
+                  {visibleTabs.map((tab) => (
+                    <Reorder.Item
                       key={tab.id}
-                      tab={tab}
-                      isActive={group.activeTabId === tab.id}
-                      isFocusedGroup={isFocusedGroup}
-                      isDragging={draggingTabId === tab.id}
-                      isDragTarget={dragOverTabId === tab.id}
-                      onSelect={() => onSelectChatTab?.(group.id, tab.id)}
-                      onClose={() => onCloseChatTab?.(tab.id)}
-                      onOpenWindow={
-                        tab.kind === "chat"
-                          ? () => onOpenChatTabWindow?.(tab)
-                          : undefined
-                      }
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData("text/tab-id", tab.id)
-                        event.dataTransfer.setData("text/source-group", group.id)
-                        event.dataTransfer.effectAllowed = "move"
-                        setDraggingTabId(tab.id)
-                      }}
-                      onDragOver={(event) => {
-                        if (!onMoveChatTab) return
-                        if (!event.dataTransfer.types.includes("text/tab-id")) return
-                        event.preventDefault()
-                        event.dataTransfer.dropEffect = "move"
-                        setDragOverGroupId(group.id)
-                        setDragOverTabId(tab.id)
-                      }}
-                      onDrop={(event) => {
-                        if (!onMoveChatTab) return
-                        event.preventDefault()
-                        event.stopPropagation()
-                        const tabId = event.dataTransfer.getData("text/tab-id")
-                        const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
-                        setDraggingTabId(null)
-                        setDragOverGroupId(null)
-                        setDragOverTabId(null)
-                        if (!tabId || !sourceGroupId || tabId === tab.id) return
-
-                        const rect = event.currentTarget.getBoundingClientRect()
-                        const droppedAfterTarget = event.clientX > rect.left + rect.width / 2
-                        const rawTargetIndex = tabIndex + (droppedAfterTarget ? 1 : 0)
-                        const sourceIndex = sourceGroupId === group.id
-                          ? visibleTabs.findIndex((item) => item.id === tabId)
-                          : -1
-                        const targetIndex = sourceIndex >= 0 && sourceIndex < rawTargetIndex
-                          ? rawTargetIndex - 1
-                          : rawTargetIndex
-
-                        onMoveChatTab(tabId, sourceGroupId, group.id, targetIndex)
-                      }}
-                      onDragEnd={() => {
-                        setDraggingTabId(null)
-                        setDragOverGroupId(null)
-                        setDragOverTabId(null)
-                      }}
-                    />
+                      value={tab.id}
+                      as="div"
+                      layout="position"
+                      transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
+                      className="shrink-0"
+                      style={{ position: "relative", boxShadow: "none" }}
+                      whileDrag={{ boxShadow: "none" }}
+                    >
+                      <HeaderTab
+                        tab={tab}
+                        isActive={group.activeTabId === tab.id}
+                        isFocusedGroup={isFocusedGroup}
+                        onSelect={() => onSelectChatTab?.(group.id, tab.id)}
+                        onClose={() => onCloseChatTab?.(tab.id)}
+                        onOpenWindow={
+                          tab.kind === "chat"
+                            ? () => onOpenChatTabWindow?.(tab)
+                            : undefined
+                        }
+                      />
+                    </Reorder.Item>
                   ))}
                   {onNewChat && !hasDraftTab && (
                     <button
@@ -363,7 +309,7 @@ export function Header({
                       <VscAdd className="size-3.5" />
                     </button>
                   )}
-                </div>
+                </Reorder.Group>
               </div>
             )
           })}
@@ -553,28 +499,16 @@ function HeaderTab({
   tab,
   isActive,
   isFocusedGroup = true,
-  isDragging = false,
-  isDragTarget = false,
   onSelect,
   onClose,
   onOpenWindow,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
 }: {
   tab: EditorTab
   isActive: boolean
   isFocusedGroup?: boolean
-  isDragging?: boolean
-  isDragTarget?: boolean
   onSelect: () => void
   onClose: () => void
   onOpenWindow?: () => void
-  onDragStart?: (event: DragEvent<HTMLElement>) => void
-  onDragOver?: (event: DragEvent<HTMLElement>) => void
-  onDrop?: (event: DragEvent<HTMLElement>) => void
-  onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
   const tabLabel = `${tab.subtitle} / ${tab.title}`
@@ -591,11 +525,6 @@ function HeaderTab({
     <div
       role="button"
       tabIndex={0}
-      draggable
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
       onDoubleClick={(event) => {
         if (tab.kind !== "chat") return
         event.preventDefault()
@@ -610,9 +539,7 @@ function HeaderTab({
         }
       }}
       className={cn(
-        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-grab items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200 active:cursor-grabbing",
-        isDragging && "opacity-45",
-        isDragTarget && !isDragging && "translate-y-[-1px] ring-1 ring-inset ring-white/15",
+        "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200",
         activeAndFocused
           ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
           : isActive

@@ -53,6 +53,11 @@ export type EditorGroupsAction =
       targetIndex: number
     }
   | {
+      type: "SET_TAB_ORDER"
+      groupId: "group-1" | "group-2"
+      tabIds: string[]
+    }
+  | {
       type: "SET_SESSION_DATA"
       groupId: "group-1" | "group-2"
       sessionData: SessionData | null
@@ -355,6 +360,21 @@ export function editorGroupsReducer(
             tabs: insertTabAt(withoutTab, tab, action.targetIndex),
             activeTabId: tab.id,
           }
+        }),
+      }
+    }
+
+    case "SET_TAB_ORDER": {
+      return {
+        ...state,
+        groups: state.groups.map((g) => {
+          if (g.id !== action.groupId) return g
+          const tabsById = new Map(g.tabs.map((tab) => [tab.id, tab]))
+          const orderedTabs = action.tabIds
+            .map((tabId) => tabsById.get(tabId))
+            .filter((tab): tab is EditorTab => Boolean(tab))
+          const missingTabs = g.tabs.filter((tab) => !action.tabIds.includes(tab.id))
+          return { ...g, tabs: [...orderedTabs, ...missingTabs] }
         }),
       }
     }

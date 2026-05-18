@@ -47,6 +47,21 @@ describe("editorGroupsReducer", () => {
     expect(next.groups[0]?.activeTabId).toBe("chat:c")
   })
 
+  it("sets tab order from a reordered tab id list", () => {
+    let state = createInitialState(chatTab("a"))
+    state = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("b") })
+    state = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("c") })
+
+    const next = editorGroupsReducer(state, {
+      type: "SET_TAB_ORDER",
+      groupId: "group-1",
+      tabIds: ["chat:b", "chat:c", "chat:a"],
+    })
+
+    expect(next.groups[0]?.tabs.map((tab) => tab.id)).toEqual(["chat:b", "chat:c", "chat:a"])
+    expect(next.groups[0]?.activeTabId).toBe("chat:c")
+  })
+
   it("moves tabs between split groups at the dropped position", () => {
     let state = createInitialState(chatTab("a"))
     state = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("b") })
