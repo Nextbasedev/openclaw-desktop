@@ -100,8 +100,6 @@ Middleware must connect to OpenClaw Gateway with the official operator scopes us
 - `operator.approvals`
 - `operator.admin`
 
-These are Gateway scopes only. Desktop workspace, git, terminal, and other Desktop features are verified through Middleware's own HTTP APIs, not as separate OpenClaw Gateway scopes.
-
 ## Mandatory smoke test
 
 Run the smoke test before returning URL/code. It verifies health, OpenClaw Gateway connection, pairing/token, official Gateway operator scopes via chat/admin/approval paths, plus Middleware HTTP APIs for cron, `/api/stream/cron`, chat send, workspace, and terminal.

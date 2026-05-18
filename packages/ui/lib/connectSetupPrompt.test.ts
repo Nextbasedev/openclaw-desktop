@@ -20,7 +20,6 @@ describe("connect setup prompt", () => {
       expect(prompt.length).toBeLessThan(1500)
       expect(prompt).toContain("Official OpenClaw Gateway scopes required from code")
       expect(prompt).toContain("operator.read, operator.write, operator.approvals, operator.admin")
-      expect(prompt).toContain("Desktop workspace/git/terminal are Middleware HTTP APIs, not extra Gateway scopes")
       expect(prompt).toContain("Final output only")
       for (const reference of REQUIRED_PROMPT_REFERENCES) {
         expect(prompt).toContain(reference)
