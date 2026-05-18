@@ -51,6 +51,7 @@ type HeaderProps = {
     tabId: string,
     sourceGroupId: "group-1" | "group-2",
     targetGroupId: "group-1" | "group-2",
+    targetIndex?: number,
   ) => void
   onNewChat?: (groupId?: "group-1" | "group-2") => void
   showSplitButton?: boolean
@@ -104,6 +105,8 @@ export function Header({
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
   const [dragOverGroupId, setDragOverGroupId] = useState<"group-1" | "group-2" | null>(null)
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -254,12 +257,14 @@ export function Header({
                       : "px-0",
                   )}
                 >
-                  {visibleTabs.map((tab) => (
+                  {visibleTabs.map((tab, tabIndex) => (
                     <HeaderTab
                       key={tab.id}
                       tab={tab}
                       isActive={group.activeTabId === tab.id}
                       isFocusedGroup={isFocusedGroup}
+                      isDragging={draggingTabId === tab.id}
+                      isDragTarget={dragOverTabId === tab.id}
                       onSelect={() => onSelectChatTab?.(group.id, tab.id)}
                       onClose={() => onCloseChatTab?.(tab.id)}
                       onOpenWindow={
@@ -271,8 +276,44 @@ export function Header({
                         event.dataTransfer.setData("text/tab-id", tab.id)
                         event.dataTransfer.setData("text/source-group", group.id)
                         event.dataTransfer.effectAllowed = "move"
+                        setDraggingTabId(tab.id)
                       }}
-                      onDragEnd={() => setDragOverGroupId(null)}
+                      onDragOver={(event) => {
+                        if (!onMoveChatTab) return
+                        if (!event.dataTransfer.types.includes("text/tab-id")) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = "move"
+                        setDragOverGroupId(group.id)
+                        setDragOverTabId(tab.id)
+                      }}
+                      onDrop={(event) => {
+                        if (!onMoveChatTab) return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        const tabId = event.dataTransfer.getData("text/tab-id")
+                        const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
+                        setDraggingTabId(null)
+                        setDragOverGroupId(null)
+                        setDragOverTabId(null)
+                        if (!tabId || !sourceGroupId || tabId === tab.id) return
+
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        const droppedAfterTarget = event.clientX > rect.left + rect.width / 2
+                        const rawTargetIndex = tabIndex + (droppedAfterTarget ? 1 : 0)
+                        const sourceIndex = sourceGroupId === group.id
+                          ? visibleTabs.findIndex((item) => item.id === tabId)
+                          : -1
+                        const targetIndex = sourceIndex >= 0 && sourceIndex < rawTargetIndex
+                          ? rawTargetIndex - 1
+                          : rawTargetIndex
+
+                        onMoveChatTab(tabId, sourceGroupId, group.id, targetIndex)
+                      }}
+                      onDragEnd={() => {
+                        setDraggingTabId(null)
+                        setDragOverGroupId(null)
+                        setDragOverTabId(null)
+                      }}
                     />
                   ))}
                   {onNewChat && !hasDraftTab && (
@@ -479,19 +520,27 @@ function HeaderTab({
   tab,
   isActive,
   isFocusedGroup = true,
+  isDragging = false,
+  isDragTarget = false,
   onSelect,
   onClose,
   onOpenWindow,
   onDragStart,
+  onDragOver,
+  onDrop,
   onDragEnd,
 }: {
   tab: EditorTab
   isActive: boolean
   isFocusedGroup?: boolean
+  isDragging?: boolean
+  isDragTarget?: boolean
   onSelect: () => void
   onClose: () => void
   onOpenWindow?: () => void
   onDragStart?: (event: DragEvent<HTMLElement>) => void
+  onDragOver?: (event: DragEvent<HTMLElement>) => void
+  onDrop?: (event: DragEvent<HTMLElement>) => void
   onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
@@ -511,6 +560,8 @@ function HeaderTab({
       tabIndex={0}
       draggable
       onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       onDragEnd={onDragEnd}
       onDoubleClick={(event) => {
         if (tab.kind !== "chat") return
@@ -526,7 +577,9 @@ function HeaderTab({
         }
       }}
       className={cn(
-        "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
+        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-grab items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200 active:cursor-grabbing",
+        isDragging && "opacity-45",
+        isDragTarget && !isDragging && "translate-y-[-1px] ring-1 ring-inset ring-white/15",
         activeAndFocused
           ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
           : isActive

@@ -44,6 +44,13 @@ export type EditorGroupsAction =
       tabId: string
       sourceGroupId: "group-1" | "group-2"
       targetGroupId: "group-1" | "group-2"
+      targetIndex?: number
+    }
+  | {
+      type: "REORDER_TAB"
+      groupId: "group-1" | "group-2"
+      tabId: string
+      targetIndex: number
     }
   | {
       type: "SET_SESSION_DATA"
@@ -136,6 +143,13 @@ function sessionDataFromTab(tab: EditorTab): SessionData | null {
     sessionKey: tab.chat.sessionKey,
     title: tab.title,
   }
+}
+
+function insertTabAt(tabs: EditorTab[], tab: EditorTab, targetIndex?: number): EditorTab[] {
+  const next = [...tabs]
+  const index = Math.max(0, Math.min(targetIndex ?? next.length, next.length))
+  next.splice(index, 0, tab)
+  return next
 }
 
 export function editorGroupsReducer(
@@ -300,7 +314,7 @@ export function editorGroupsReducer(
       if (updatedSource.tabs.length === 0) {
         const updatedTarget = {
           ...targetGroup,
-          tabs: [...targetGroup.tabs, tab],
+          tabs: insertTabAt(targetGroup.tabs, tab, action.targetIndex),
           activeTabId: tab.id,
         }
         return {
@@ -311,7 +325,7 @@ export function editorGroupsReducer(
 
       const updatedTarget = {
         ...targetGroup,
-        tabs: [...targetGroup.tabs, tab],
+        tabs: insertTabAt(targetGroup.tabs, tab, action.targetIndex),
         activeTabId: tab.id,
       }
 
@@ -323,6 +337,24 @@ export function editorGroupsReducer(
             return ensureGroupHasTabs(updatedSource)
           if (g.id === action.targetGroupId) return updatedTarget
           return g
+        }),
+      }
+    }
+
+    case "REORDER_TAB": {
+      return {
+        ...state,
+        focusedGroupId: action.groupId,
+        groups: state.groups.map((g) => {
+          if (g.id !== action.groupId) return g
+          const tab = g.tabs.find((t) => t.id === action.tabId)
+          if (!tab) return g
+          const withoutTab = g.tabs.filter((t) => t.id !== action.tabId)
+          return {
+            ...g,
+            tabs: insertTabAt(withoutTab, tab, action.targetIndex),
+            activeTabId: tab.id,
+          }
         }),
       }
     }

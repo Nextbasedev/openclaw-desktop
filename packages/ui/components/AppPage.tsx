@@ -1483,8 +1483,17 @@ function AppShell({
     tabId: string,
     sourceGroupId: EditorGroupId,
     targetGroupId: EditorGroupId,
+    targetIndex?: number,
   ) => {
-    if (sourceGroupId === targetGroupId) return
+    if (sourceGroupId === targetGroupId) {
+      dispatchGroups({
+        type: "REORDER_TAB",
+        groupId: targetGroupId,
+        tabId,
+        targetIndex: targetIndex ?? 0,
+      })
+      return
+    }
 
     const data = tabDataRef.current.get(tabId)
     const cached = data?.chat ? resolvedChatCacheRef.current.get(data.chat.id) : null
@@ -1507,6 +1516,7 @@ function AppShell({
       tabId,
       sourceGroupId,
       targetGroupId,
+      targetIndex,
     })
 
     dispatchGroups({
