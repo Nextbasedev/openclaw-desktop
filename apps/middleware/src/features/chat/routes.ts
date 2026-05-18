@@ -332,30 +332,23 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       agentId: input.agentId || "main",
     });
 
-    const knownSessionBeforeCreate = context.messages.getSession(input.sessionKey);
-    const knownSessionDataBeforeCreate = objectData(knownSessionBeforeCreate?.data);
-    const hasSeededTranscript = knownSessionDataBeforeCreate.transcriptSeeded === true;
-    if (hasSeededTranscript) {
-      log.info("session.create.skip_seeded_transcript", { sessionKey: input.sessionKey, sessionId: knownSessionBeforeCreate?.sessionId ?? null });
-    } else {
-      const sessionCreateStartedAtMs = nowMs();
-      log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label) });
-      const gatewayLabel = (() => {
-        const base = String(input.label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
-        const suffix = (input.sessionKey.split(":").pop() || input.sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
-        return `${base} \u00b7 ${suffix}`;
-      })();
-      await context.gateway.request("sessions.create", {
-        key: input.sessionKey,
-        agentId: input.agentId || "main",
-        label: gatewayLabel,
-      }).then(() => {
-        log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs) });
-      }).catch((error) => {
-        log.warn("session.create.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
-        return null;
-      });
-    }
+    const sessionCreateStartedAtMs = nowMs();
+    log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label) });
+    const gatewayLabel = (() => {
+      const base = String(input.label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+      const suffix = (input.sessionKey.split(":").pop() || input.sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
+      return `${base} \u00b7 ${suffix}`;
+    })();
+    await context.gateway.request("sessions.create", {
+      key: input.sessionKey,
+      agentId: input.agentId || "main",
+      label: gatewayLabel,
+    }).then(() => {
+      log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs) });
+    }).catch((error) => {
+      log.warn("session.create.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
+      return null;
+    });
 
     if (input.execPolicy !== undefined) {
       const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as { security?: unknown; ask?: unknown } : null;

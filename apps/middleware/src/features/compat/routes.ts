@@ -704,20 +704,11 @@ function stripTranscriptUiMeta(value: unknown): unknown {
   return out;
 }
 
-function transcriptLineFromHistoryMessage(message: CompatRecord, parentId: string | null) {
+function transcriptLineFromHistoryMessage(message: CompatRecord) {
   const meta = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as CompatRecord : {};
   const idValue = String(meta.id || message.id || crypto.randomUUID());
   const timestamp = typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : typeof message.timestamp === "string" ? message.timestamp : nowIso();
-  return {
-    id: idValue,
-    line: JSON.stringify({
-      type: "message",
-      id: idValue,
-      parentId,
-      timestamp,
-      message: stripTranscriptUiMeta(message),
-    }),
-  };
+  return JSON.stringify({ id: idValue, timestamp, message: stripTranscriptUiMeta(message) });
 }
 
 function copyHistoryMessagesToTranscript(transcriptPath: string, messages: CompatRecord[]) {
@@ -727,13 +718,7 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: Compa
     if (!line.trim()) return false;
     try { return JSON.parse(line)?.type === "session"; } catch { return false; }
   }) || JSON.stringify({ type: "session", version: 1, id: path.basename(transcriptPath, ".jsonl"), timestamp: nowIso(), cwd: process.cwd() });
-  const lines = [header];
-  let parentId: string | null = null;
-  for (const message of messages.filter((item) => item && item.role !== "system")) {
-    const record = transcriptLineFromHistoryMessage(message, parentId);
-    lines.push(record.line);
-    parentId = record.id;
-  }
+  const lines = [header, ...messages.filter((message) => message && message.role !== "system").map(transcriptLineFromHistoryMessage)];
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
@@ -780,8 +765,7 @@ function findForkMessageIndex(messages: CompatRecord[], input: CompatRecord) {
   if (Number.isInteger(gatewayIndex)) {
     const bySeq = messages.findIndex((message) => messageSeqOf(message) === gatewayIndex);
     if (bySeq >= 0) return bySeq;
-    if (!messageId && gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
-    if (expectedRole && gatewayIndex >= 0 && gatewayIndex < messages.length && messages[gatewayIndex]?.role === expectedRole) return gatewayIndex;
+    if (gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
   }
   return -1;
 }
@@ -816,6 +800,7 @@ async function createChatFork(context: AppContext, input: CompatRecord) {
     key: newSessionKey,
     agentId,
     label: gatewaySessionLabel(forkLabel, newSessionKey),
+    parentSessionKey: sourceSessionKey,
   }, 30_000);
   const transcriptPath = sessionFileFromCreateResult(created);
   if (!transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
@@ -900,13 +885,13 @@ async function createChatFork(context: AppContext, input: CompatRecord) {
   context.messages.upsertSession({
     sessionKey: newSessionKey,
     sessionId,
-    data: { sessionKey: newSessionKey, sessionId, status: "done", statusLabel: null, label: forkLabel, isFork: true, transcriptSeeded: true, sourceSessionKey },
+    data: { sessionKey: newSessionKey, sessionId, status: "done", statusLabel: null, label: forkLabel, parentSessionKey: sourceSessionKey },
   });
   context.messages.upsertMessages(normalizeHistoryMessages(newSessionKey, sliced));
   context.messages.appendProjectionEvent({
     sessionKey: newSessionKey,
     eventType: "session.upsert",
-    payload: { sessionKey: newSessionKey, sessionId, label: forkLabel, sourceSessionKey, isFork: true, transcriptSeeded: true },
+    payload: { sessionKey: newSessionKey, sessionId, label: forkLabel, parentSessionKey: sourceSessionKey, isFork: true },
   });
 
   return {
