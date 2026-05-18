@@ -193,6 +193,31 @@ function plainTextFromChildren(children: React.ReactNode): string {
   return parts.join("")
 }
 
+function containsBlockChild(children: React.ReactNode): boolean {
+  return React.Children.toArray(children).some((child) => {
+    if (!React.isValidElement(child)) return false
+    if (child.type === CodeBlock || child.type === MermaidBlock) return true
+    if (typeof child.type === "string") {
+      return [
+        "blockquote",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "hr",
+        "ol",
+        "pre",
+        "table",
+        "ul",
+      ].includes(child.type)
+    }
+    return false
+  })
+}
+
 function MarkdownParagraph({
   children,
   highlightTexts,
@@ -204,16 +229,17 @@ function MarkdownParagraph({
   const content = highlightTexts?.length
     ? highlightChildren(children, highlightTexts)
     : children
+  const Component = containsBlockChild(content) ? "div" : "p"
 
   return (
-    <p
+    <Component
       className={cn(
         "my-2.5 break-words leading-[1.75] [overflow-wrap:anywhere] first:mt-0 last:mb-0",
         isChatErrorLine(plainText) ? "text-red-300" : "text-foreground/85"
       )}
     >
       {content}
-    </p>
+    </Component>
   )
 }
 

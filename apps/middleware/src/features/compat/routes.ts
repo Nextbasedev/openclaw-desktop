@@ -731,6 +731,11 @@ function messageIdOf(message: CompatRecord) {
   return readOpenClawMessageId(message) ?? null;
 }
 
+function messageSeqOf(message: CompatRecord) {
+  const seq = message.__openclaw?.seq ?? message.seq ?? message.gatewayIndex;
+  return typeof seq === "number" && Number.isFinite(seq) ? Math.floor(seq) : null;
+}
+
 function sessionFileFromCreateResult(created: CompatRecord) {
   const candidate = created?.payload?.entry?.sessionFile ?? created?.entry?.sessionFile ?? created?.sessionFile;
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
@@ -756,7 +761,11 @@ function findForkMessageIndex(messages: CompatRecord[], input: CompatRecord) {
     if (byId >= 0) return byId;
   }
   const gatewayIndex = Number(input.gatewayIndex);
-  if (Number.isInteger(gatewayIndex) && gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
+  if (Number.isInteger(gatewayIndex)) {
+    const bySeq = messages.findIndex((message) => messageSeqOf(message) === gatewayIndex);
+    if (bySeq >= 0) return bySeq;
+    if (gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
+  }
   return -1;
 }
 
