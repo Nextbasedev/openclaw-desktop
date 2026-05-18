@@ -798,11 +798,15 @@ async function createChatFork(context: AppContext, input: CompatRecord) {
   const agentId = String(input.agentId || history.agentId || agentIdFromSessionKey(sourceSessionKey));
   const newSessionKey = String(input.branchSessionKey || input.newSessionKey || `agent:${agentId}:desktop:fork-${crypto.randomUUID()}`);
   const forkLabel = String(input.name || input.label || input.branchName || `Fork ${crypto.randomUUID().slice(0, 8)}`);
+  // Do not pass parentSessionKey to Gateway here. Gateway treats that as a
+  // lazy fork-on-first-send and will fork from the parent's current leaf, which
+  // can include messages after the selected fork point. Middleware has already
+  // sliced the parent history to the requested message and writes that exact
+  // prefix into the new transcript below.
   const created = await context.gateway.request<CompatRecord>("sessions.create", {
     key: newSessionKey,
     agentId,
     label: gatewaySessionLabel(forkLabel, newSessionKey),
-    parentSessionKey: sourceSessionKey,
   }, 30_000);
   const transcriptPath = sessionFileFromCreateResult(created);
   if (transcriptPath) copyHistoryMessagesToTranscript(transcriptPath, sliced);

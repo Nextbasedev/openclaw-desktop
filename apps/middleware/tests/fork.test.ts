@@ -56,11 +56,12 @@ describe("chat fork compatibility command", () => {
     expect(body).toMatchObject({ ok: true, sourceSessionKey: "agent:main:desktop:source", sourceMessageId: "msg-2" });
     expect(body.sessionKey).toMatch(/^agent:main:desktop:fork-/);
     expect(body.messages).toHaveLength(2);
-    expect(calls.find((call) => call.method === "sessions.create")?.payload).toMatchObject({
+    const createPayload = calls.find((call) => call.method === "sessions.create")?.payload;
+    expect(createPayload).toMatchObject({
       key: body.sessionKey,
       agentId: "main",
-      parentSessionKey: "agent:main:desktop:source",
     });
+    expect(createPayload).not.toHaveProperty("parentSessionKey");
     const transcriptLines = fs.readFileSync(transcriptPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
     expect(transcriptLines).toMatchObject([
       { type: "session" },
