@@ -908,6 +908,136 @@ async function chatForkHistory(context: AppContext, input: CompatRecord) {
   }
 }
 
+function findMessageIndexById(messages: CompatRecord[], messageId: string) {
+  return messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+}
+
+function nextAssistantAfter(messages: CompatRecord[], index: number) {
+  for (let i = index + 1; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message?.role === "user") return null;
+    if (message?.role === "assistant") return message;
+  }
+  return null;
+}
+
+function editedUserMessage(original: CompatRecord, text: string, messageId: string) {
+  return {
+    ...original,
+    id: messageId,
+    messageId,
+    role: "user",
+    text,
+    content: text,
+    createdAt: new Date().toISOString(),
+    __openclaw: undefined,
+  };
+}
+
+function appendProjectedChatMessage(context: AppContext, sessionKey: string, message: CompatRecord) {
+  const [projected] = normalizeHistoryMessages(sessionKey, [message]);
+  if (projected) context.messages.upsertMessages([projected]);
+  context.messages.appendProjectionEvent({
+    sessionKey,
+    eventType: "chat.message.upsert",
+    payload: { type: "chat.message", ...message },
+  });
+}
+
+async function createEditPreview(context: AppContext, input: CompatRecord) {
+  loadCompatState(context);
+  const sourceSessionKey = String(input.sessionKey ?? "").trim();
+  const sourceUserMessageId = String(input.userMessageId ?? input.messageId ?? "").trim();
+  const text = String(input.text ?? "").trim();
+  if (!sourceSessionKey) throw new HttpError(400, "sessionKey required", "BAD_REQUEST");
+  if (!sourceUserMessageId) throw new HttpError(400, "userMessageId required", "BAD_REQUEST");
+  if (!text) throw new HttpError(400, "text required", "BAD_REQUEST");
+
+  const history = await context.gateway.request<CompatRecord>("chat.history", { sessionKey: sourceSessionKey }, 30_000);
+  const messages = normalizeHistoryForFork(history);
+  const userIndex = findMessageIndexById(messages, sourceUserMessageId);
+  if (userIndex < 0 || messages[userIndex]?.role !== "user") {
+    throw new HttpError(404, "User message not found", "NOT_FOUND");
+  }
+
+  const originalUser = messages[userIndex];
+  const originalAssistant = nextAssistantAfter(messages, userIndex);
+  const agentId = String(input.agentId || history.agentId || agentIdFromSessionKey(sourceSessionKey));
+  const branchSessionKey = String(input.branchSessionKey || `agent:${agentId}:desktop:edit-${crypto.randomUUID()}`);
+  const sourceChat = sourceChatForSession(sourceSessionKey);
+  const sourceSession = sourceSessionForSession(sourceSessionKey);
+  const branchLabel = String(input.name || input.label || `Edit preview ${crypto.randomUUID().slice(0, 8)}`);
+  const created = await context.gateway.request<CompatRecord>("sessions.create", {
+    key: branchSessionKey,
+    agentId,
+    label: gatewaySessionLabel(branchLabel, branchSessionKey),
+    parentSessionKey: sourceSessionKey,
+  }, 30_000);
+  const transcriptPath = sessionFileFromCreateResult(created);
+  if (!transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
+
+  const prefix = messages.slice(0, userIndex);
+  copyHistoryMessagesToTranscript(transcriptPath, prefix);
+  const editedUser = editedUserMessage(originalUser, text, `edited:${sourceUserMessageId}`);
+  const sessionId = sessionIdFromCreateResult(created, branchSessionKey);
+  const now = nowIso();
+  const branch = {
+    id: id("branch"),
+    sourceSessionKey,
+    sourceMessageId: sourceUserMessageId,
+    branchSessionKey,
+    branchTopicId: null,
+    branchReason: "edit-preview",
+    createdAt: now,
+    metadata: { userIndex, transcriptPath, sourceAssistantMessageId: originalAssistant ? messageIdOf(originalAssistant) : null },
+  };
+  compatState.sessions.push({
+    id: id("session"),
+    key: branchSessionKey,
+    sessionKey: branchSessionKey,
+    projectId: sourceSession?.projectId ?? null,
+    topicId: sourceSession?.topicId ?? null,
+    agentId,
+    label: branchLabel,
+    status: "thinking",
+    hidden: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+  compatState.branches.push(branch);
+  saveCompatState(context);
+
+  context.messages.upsertSession({
+    sessionKey: branchSessionKey,
+    sessionId,
+    data: { sessionKey: branchSessionKey, sessionId, status: "thinking", statusLabel: "Thinking", label: branchLabel, parentSessionKey: sourceSessionKey, sourceChatId: sourceChat?.id ?? null },
+  });
+  context.messages.upsertMessages(normalizeHistoryMessages(branchSessionKey, [...prefix, editedUser]));
+
+  void (async () => {
+    try {
+      await context.gateway.request("chat.send", { sessionKey: branchSessionKey, message: text, timeoutMs: 120_000, idempotencyKey: `edit:${branchSessionKey}:${sourceUserMessageId}` }, 130_000);
+      const branchHistory = await context.gateway.request<CompatRecord>("chat.history", { sessionKey: branchSessionKey, limit: 200 }, 30_000);
+      const branchMessages = normalizeHistoryForFork(branchHistory);
+      context.messages.upsertMessages(normalizeHistoryMessages(branchSessionKey, branchMessages));
+      const assistant = [...branchMessages].reverse().find((message) => message.role === "assistant");
+      if (assistant) appendProjectedChatMessage(context, branchSessionKey, assistant);
+      context.messages.appendProjectionEvent({ sessionKey: branchSessionKey, eventType: "chat.status", payload: { type: "chat.status", state: "done", status: "done" } });
+    } catch (error) {
+      context.messages.appendProjectionEvent({ sessionKey: branchSessionKey, eventType: "chat.error", payload: { type: "chat.error", message: error instanceof Error ? error.message : "Edit preview failed" } });
+    }
+  })();
+
+  return {
+    branchSessionKey,
+    sourceUserMessageId,
+    sourceAssistantMessageId: originalAssistant ? messageIdOf(originalAssistant) : null,
+    original: { user: originalUser, assistant: originalAssistant },
+    edited: { user: editedUser, assistant: null },
+    branch,
+  };
+}
+
 async function importTelegramSessions(context: AppContext, input: CompatRecord = {}) {
   loadCompatState(context);
   const scan = scanTelegramSessions(context, input);
@@ -3094,6 +3224,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return createChatFork(context, input).catch((error) => reply.code(error instanceof HttpError ? error.statusCode : 500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Fork failed" } }));
       case "middleware_chat_fork_history":
         return chatForkHistory(context, input).catch((error) => reply.code(error instanceof HttpError ? error.statusCode : 500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Fork history failed" } }));
+      case "middleware_chat_edit_last_preview":
+        return createEditPreview(context, input).catch((error) => reply.code(error instanceof HttpError ? error.statusCode : 500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Edit preview failed" } }));
       case "middleware_chat_stop": {
         const sk = String(input.sessionKey ?? "");
         if (!sk) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
