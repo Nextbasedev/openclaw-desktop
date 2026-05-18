@@ -29,6 +29,21 @@ import { emit } from "@/lib/events"
 import { frontendLog } from "@/lib/clientLogs"
 import { toast } from "react-toastify"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
+import {
+  LuBrain,
+  LuClock,
+  LuFileCode,
+  LuFileText,
+  LuGlobe,
+  LuImage,
+  LuMessageSquare,
+  LuPencil,
+  LuRefreshCw,
+  LuSettings2,
+  LuSparkles,
+  LuWrench,
+} from "react-icons/lu"
+import type { IconType } from "react-icons"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -43,6 +58,68 @@ import type {
   ReplyTo,
   SpawnedSubagent,
 } from "./types"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+
+type StatusIconMeta = {
+  icon: IconType
+  className: string
+  label: string
+}
+
+const STATUS_ICON_CLASS = "text-amber-400"
+
+const STATUS_TOOL_ICON_META: Record<string, StatusIconMeta> = {
+  read: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Read file" },
+  write: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Write file" },
+  edit: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Edit file" },
+  apply_patch: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Apply patch" },
+  exec: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Run command" },
+  process: { icon: LuRefreshCw, className: STATUS_ICON_CLASS, label: "Process" },
+  web_fetch: { icon: LuGlobe, className: STATUS_ICON_CLASS, label: "Fetch web page" },
+  web_search: { icon: LuGlobe, className: STATUS_ICON_CLASS, label: "Search web" },
+  cron: { icon: LuClock, className: STATUS_ICON_CLASS, label: "Schedule job" },
+  sessions_list: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "List sessions" },
+  sessions_history: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Session history" },
+  sessions_send: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Send to session" },
+  sessions_spawn: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Spawn sub-agent" },
+  sessions_yield: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Wait for sub-agent" },
+  subagents: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Sub-agent" },
+  session_status: { icon: LuSettings2, className: STATUS_ICON_CLASS, label: "Session status" },
+  image: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Analyze image" },
+  image_generate: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Generate image" },
+  memory_get: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Read memory" },
+  memory_search: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Search memory" },
+  update_plan: { icon: LuWrench, className: STATUS_ICON_CLASS, label: "Update plan" },
+}
+
+function statusIconMeta(tool?: string | null): StatusIconMeta {
+  if (tool && STATUS_TOOL_ICON_META[tool]) return STATUS_TOOL_ICON_META[tool]
+  return { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Thinking" }
+}
+
+function ProcessStatusIcon({ tool }: { tool?: string | null }) {
+  const meta = statusIconMeta(tool)
+  const Icon = meta.icon
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="mr-2 flex size-4 shrink-0 items-center justify-center"
+          aria-label={meta.label}
+        >
+          <Icon className={cn("size-3.5", meta.className)} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="left" sideOffset={8} className="text-[11px]">
+        {meta.label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
 
 type Props = {
   sessionKey: string
@@ -1314,6 +1391,7 @@ export function ChatView({
         />
         {statusText && (
           <div className="flex items-center pl-1">
+            <ProcessStatusIcon tool={liveTool?.tool} />
             <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
               {statusText.replace(/\.{3}$/, "")}
               <span className="thinking-ellipsis" aria-hidden="true" />
@@ -1400,6 +1478,7 @@ export function ChatView({
 
           {statusText && (
             <div className="mt-4 flex items-center pl-1">
+              <ProcessStatusIcon tool={liveTool?.tool} />
               <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
                 {statusText.replace(/\.{3}$/, "")}
                 <span className="thinking-ellipsis" aria-hidden="true" />
