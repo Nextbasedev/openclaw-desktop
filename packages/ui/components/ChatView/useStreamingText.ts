@@ -48,15 +48,18 @@ export function useStreamingText(
   target: string,
   streaming?: boolean,
   onRevealComplete?: () => void,
+  options?: { mode?: "buffered" | "immediate" },
 ): { displayText: string; isRevealing: boolean } {
   const [display, setDisplay] = useState(() => (streaming ? "" : target))
   const [isRevealing, setIsRevealing] = useState(Boolean(streaming))
   const rafRef = useRef<number | null>(null)
+  const revealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastFrameAtRef = useRef(0)
   const displayRef = useRef(streaming ? "" : target)
   const targetRef = useRef(target)
   const revealActiveRef = useRef(Boolean(streaming))
   const completeRef = useRef(onRevealComplete)
+  const mode = options?.mode ?? "buffered"
 
   useEffect(() => {
     completeRef.current = onRevealComplete
@@ -76,6 +79,8 @@ export function useStreamingText(
     const stopAnimation = () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
+      if (revealTimeoutRef.current) clearTimeout(revealTimeoutRef.current)
+      revealTimeoutRef.current = null
     }
 
     targetRef.current = target
@@ -89,6 +94,25 @@ export function useStreamingText(
       commitState(target, false)
       return () => {
         cancelled = true
+      }
+    }
+
+    if (mode === "immediate") {
+      stopAnimation()
+      const changed = target !== displayRef.current
+      displayRef.current = target
+      revealActiveRef.current = Boolean(canAnimate && changed)
+      commitState(target, Boolean(canAnimate && changed))
+      if (canAnimate && changed) {
+        revealTimeoutRef.current = setTimeout(() => {
+          revealActiveRef.current = false
+          setIsRevealing(false)
+          completeRef.current?.()
+        }, 180)
+      }
+      return () => {
+        cancelled = true
+        stopAnimation()
       }
     }
 
@@ -151,7 +175,7 @@ export function useStreamingText(
       cancelled = true
       stopAnimation()
     }
-  }, [target, streaming])
+  }, [target, streaming, mode])
 
   return { displayText: display, isRevealing }
 }

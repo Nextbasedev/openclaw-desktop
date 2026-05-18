@@ -3,10 +3,16 @@
   "identifier": "default",
   "description": "Grants default and window-control permissions",
   "windows": [
-    "main"
+    "main",
+    "openclaw-chat-*"
+  ],
+  "webviews": [
+    "main",
+    "openclaw-chat-*"
   ],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
     "core:window:allow-close",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",

@@ -37,6 +37,7 @@ export type EditorGroupsAction =
       type: "SPLIT_TAB"
       tabId: string
       sessionData: SessionData | null
+      sourceSessionData?: SessionData | null
     }
   | {
       type: "MOVE_TAB"
@@ -50,6 +51,7 @@ export type EditorGroupsAction =
       sessionData: SessionData | null
     }
   | { type: "CLOSE_GROUP"; groupId: "group-1" | "group-2" }
+  | { type: "RESTORE"; state: EditorGroupsState }
   | { type: "RESET"; tab?: EditorTab }
 
 const DRAFT_TAB: EditorTab = {
@@ -127,6 +129,15 @@ function removeTabFromGroup(
   return { ...group, tabs: next }
 }
 
+function sessionDataFromTab(tab: EditorTab): SessionData | null {
+  if (tab.kind !== "chat" || !tab.chat?.sessionKey) return null
+  return {
+    chat: tab.chat,
+    sessionKey: tab.chat.sessionKey,
+    title: tab.title,
+  }
+}
+
 export function editorGroupsReducer(
   state: EditorGroupsState,
   action: EditorGroupsAction,
@@ -153,18 +164,21 @@ export function editorGroupsReducer(
             }
           }
           if (existing >= 0) {
+            const nextTab = action.tab
             return {
               ...g,
               tabs: withoutDraft.map((t) =>
-                t.id === action.tab.id ? action.tab : t,
+                t.id === action.tab.id ? nextTab : t,
               ),
               activeTabId: action.tab.id,
+              sessionData: sessionDataFromTab(nextTab) ?? g.sessionData,
             }
           }
           return {
             ...g,
             tabs: [...withoutDraft, action.tab],
             activeTabId: action.tab.id,
+            sessionData: sessionDataFromTab(action.tab) ?? g.sessionData,
           }
         }),
       }
@@ -236,9 +250,11 @@ export function editorGroupsReducer(
 
     case "SPLIT_TAB": {
       if (state.groups.length >= 2) return state
-      const source = state.groups[0]!
-      const tab = source.tabs.find((t) => t.id === action.tabId)
-      if (!tab) return state
+      const source = state.groups.find((group) =>
+        group.tabs.some((t) => t.id === action.tabId),
+      )
+      const tab = source?.tabs.find((t) => t.id === action.tabId)
+      if (!source || !tab) return state
 
       const remainingTabs = source.tabs.filter(
         (t) => t.id !== action.tabId,
@@ -249,6 +265,7 @@ export function editorGroupsReducer(
         ...source,
         tabs: remainingTabs,
         activeTabId: nextActive,
+        sessionData: action.sourceSessionData ?? null,
       })
 
       const newGroup: EditorGroup = {
@@ -343,6 +360,17 @@ export function editorGroupsReducer(
         groups: [{ ...target, tabs: mergedTabs }],
         focusedGroupId: target.id,
       }
+    }
+
+    case "RESTORE": {
+      const groups = action.state.groups
+        .filter((group) => group.id === "group-1" || group.id === "group-2")
+        .map((group) => ensureGroupHasTabs(group))
+      if (groups.length === 0) return state
+      const focusedGroupId = groups.some((group) => group.id === action.state.focusedGroupId)
+        ? action.state.focusedGroupId
+        : groups[0]!.id
+      return { groups: groups.slice(0, 2), focusedGroupId }
     }
 
     case "RESET": {

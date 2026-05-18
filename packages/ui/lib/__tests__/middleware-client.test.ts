@@ -2,11 +2,14 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   clearMiddlewareConnection,
   getMiddlewareConnection,
+  initMiddlewareConnectionCrossWindowSync,
   saveMiddlewareConnection,
   testMiddlewareConnection,
   claimMiddlewarePairing,
   detectLocalMiddleware,
+  isOpenClawConnected,
   MIDDLEWARE_CONNECTION_CHANGED_EVENT,
+  MIDDLEWARE_DISCONNECTED_EVENT,
 } from "../middleware-client"
 
 function mockStorage() {
@@ -14,6 +17,7 @@ function mockStorage() {
   const eventTarget = new EventTarget()
   vi.stubGlobal("window", {
     ...globalThis,
+    location: { hostname: "localhost" },
     addEventListener: eventTarget.addEventListener.bind(eventTarget),
     removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
     dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
@@ -26,6 +30,7 @@ function mockStorage() {
     },
     configurable: true,
   })
+  return { data, eventTarget }
 }
 
 describe("middleware onboarding client", () => {
@@ -54,6 +59,30 @@ describe("middleware onboarding client", () => {
     expect(getMiddlewareConnection()).toEqual({ url: "http://127.0.0.1:8787", token: "new-token" })
     expect(listener).toHaveBeenCalledTimes(1)
     window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, listener)
+  })
+
+  it("syncs middleware disconnects from another app window", () => {
+    const { data, eventTarget } = mockStorage()
+    data.set("openclaw.middleware.url", "http://127.0.0.1:8787")
+    data.set("openclaw.middleware.token", "token")
+    const disconnected = vi.fn()
+    const changed = vi.fn()
+    window.addEventListener(MIDDLEWARE_DISCONNECTED_EVENT, disconnected)
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, changed)
+
+    initMiddlewareConnectionCrossWindowSync()
+    data.delete("openclaw.middleware.url")
+    const event = new Event("storage") as StorageEvent
+    Object.defineProperties(event, {
+      key: { value: "openclaw.middleware.url" },
+      oldValue: { value: "http://127.0.0.1:8787" },
+      newValue: { value: null },
+    })
+    eventTarget.dispatchEvent(event)
+
+    expect(disconnected).toHaveBeenCalledTimes(1)
+    expect(changed).toHaveBeenCalledTimes(1)
+    expect((changed.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({ url: null })
   })
 
   it("tests health and protected version endpoint", async () => {
@@ -93,6 +122,16 @@ describe("middleware onboarding client", () => {
     await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "", mode: "local" })
   })
 
+  it("accepts middleware gateway.connected health shape", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0", gateway: { connected: true } }), { status: 200 })
+      return new Response("not found", { status: 404 })
+    }))
+
+    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toEqual({ ok: true, url: "http://127.0.0.1:8787", token: "", mode: "local" })
+    expect(isOpenClawConnected({ ok: true, service: "openclaw-middleware", version: "0.1.0", gateway: { connected: true } })).toBe(true)
+  })
+
   it("does not auto-detect middleware when OpenClaw gateway is unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, service: "openclaw-middleware", version: "0.1.0", openclaw: { connected: false } }), { status: 200 })
@@ -101,6 +140,29 @@ describe("middleware onboarding client", () => {
     }))
 
     await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toBeNull()
+  })
+
+  it("does not probe localhost middleware when opened from a remote host", async () => {
+    Object.defineProperty(window, "location", { value: { hostname: "100.79.189.15" }, configurable: true })
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(detectLocalMiddleware(["http://127.0.0.1:8787"])).resolves.toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps loopback middleware URLs when opened inside Tauri", () => {
+    Object.defineProperty(window, "location", { value: { hostname: "tauri.localhost" }, configurable: true })
+    saveMiddlewareConnection({ url: "http://127.0.0.1:8787/", token: "abc" })
+
+    expect(getMiddlewareConnection()).toEqual({ url: "http://127.0.0.1:8787", token: "abc" })
+  })
+
+  it("rewrites stale loopback middleware URLs when opened from a remote host", () => {
+    Object.defineProperty(window, "location", { value: { hostname: "100.79.189.15" }, configurable: true })
+    saveMiddlewareConnection({ url: "http://127.0.0.1:8787/", token: "abc" })
+
+    expect(getMiddlewareConnection()).toEqual({ url: "http://100.79.189.15:8787", token: "abc" })
   })
 
   it("claims remote pairing code and receives token", async () => {

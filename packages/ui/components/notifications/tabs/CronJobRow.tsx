@@ -128,6 +128,7 @@ export function CronJobRow({
   onDelete,
   onDiagnoseFailure,
   onEdit,
+  onRunNow,
 }: {
   job: CronJob
   busy: boolean
@@ -135,6 +136,7 @@ export function CronJobRow({
   onDelete: () => void
   onDiagnoseFailure?: () => void
   onEdit?: () => void
+  onRunNow?: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -274,6 +276,15 @@ export function CronJobRow({
             label="Edit"
             onClick={onEdit}
             testId={`cron-job-edit-${job.jobId}`}
+          />
+        )}
+        {onRunNow && (
+          <ActionButton
+            icon={Icons.Play}
+            label="Run now"
+            disabled={busy || !job.enabled}
+            onClick={onRunNow}
+            testId={`cron-job-run-now-${job.jobId}`}
           />
         )}
         <ActionButton

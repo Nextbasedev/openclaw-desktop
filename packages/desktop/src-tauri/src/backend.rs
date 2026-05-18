@@ -357,7 +357,18 @@ fn resolve_server_dir(app: &AppHandle, log_path: &Path) -> Result<PathBuf, Strin
     );
 
     if candidate.exists() {
-      return Ok(candidate.clone());
+      let entry_path = candidate.join("dist").join("index.js");
+      if entry_path.exists() {
+        return Ok(candidate.clone());
+      }
+      append_backend_log(
+        log_path,
+        &format!(
+          "Skipping bundled middleware candidate {} because {} is missing",
+          candidate.display(),
+          entry_path.display()
+        ),
+      );
     }
   }
 

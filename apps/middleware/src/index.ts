@@ -1,14 +1,11 @@
-import http from "node:http"
-import { createApp, createStore } from "./app.js"
-import { loadConfig } from "./config.js"
-import { attachRealtime } from "./realtime.js"
+import { createApp } from "./app.js";
+import { loadEnv } from "./config/env.js";
+import { createLogger } from "./lib/logger.js";
 
-const config = loadConfig()
-const store = createStore(config)
-const app = createApp(config, store)
-const server = http.createServer(app)
-attachRealtime(server, config, store)
+const config = loadEnv();
+const log = createLogger("server");
+const app = await createApp(config);
 
-server.listen(config.port, config.host, () => {
-  console.log(`OpenClaw Middleware listening on http://${config.host}:${config.port}`)
-})
+log.info("listen.start", { host: config.host, port: config.port });
+await app.listen({ host: config.host, port: config.port });
+log.info("listen.end", { host: config.host, port: config.port });

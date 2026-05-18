@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import ConnectionErrorGuide from "@/components/connect/ConnectionErrorGuide"
+import { LOCAL_OPENCLAW_PROMPT, VPS_OPENCLAW_PROMPT } from "@/lib/connectSetupPrompt"
 
 type ConnectionStatus = {
   gatewayConfigured: boolean
@@ -71,35 +72,6 @@ type ConnectPageViewProps = {
   onDisconnect: () => void
 }
 
-const LOCAL_OPENCLAW_PROMPT = `Set up OpenClaw Desktop on this machine.
-
-1. Check whether the OpenClaw Gateway/runtime is running locally.
-2. If it is not running, start it.
-3. Then start OpenClaw Desktop Middleware for this repo on port 8787.
-4. When it is ready, give me only: READY`
-
-const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware on this VPS.
-
-Use this repo/branch:
-https://github.com/Nextbasedev/openclaw-desktop.git
-branch: main
-
-Requirements:
-Install or update the Middleware from this repo.
-Run it as an auto-restarting service so it survives crashes and reboot.
-Confirm the OpenClaw Gateway/runtime is running on this VPS.
-Choose the best URL that my Desktop can reach:
-If using Tailscale, use the Tailscale MagicDNS name or 100.x.y.z address
-If only LAN/private network, use the reachable private IP
-If public IP is exposed, use http://public_ip:8787/ or the configured reverse proxy URL
-If using firewall/security group, allow the Middleware port or configure reverse proxy.
-Test /health from the chosen URL and make sure openclaw.connected is true.
-
-When finished, give me only:
-Middleware URL: <reachable-url>
-Pairing code: <code>
-Network note: <public domain | tailscale | private ip | public ip | reverse proxy>`
-
 export function ConnectPageView({
   url,
   token,
@@ -127,7 +99,7 @@ export function ConnectPageView({
   const busy = testing || saving || disconnecting || detecting
   const missingConfig =
     setupMode === "local" ? !url.trim() : !url.trim() || !token.trim()
-  const showSplitShell = !isConnected
+  const showSplitShell = !loadingStatus && !isConnected
   const errorBlockRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -290,109 +262,115 @@ export function ConnectPageView({
               </div>
             ) : (
               <div className="mx-auto w-full max-w-[560px] space-y-6">
-                <header className="space-y-3 text-center">
-                  <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-white/10 bg-white/5">
-                    <HugeiconsIcon
-                      icon={ServerStack01Icon}
-                      size={22}
-                      className="text-zinc-200"
-                    />
-                  </div>
-                  <div>
-                    <p className="text-xl font-semibold tracking-tight text-white">
-                      Where is OpenClaw running?
-                    </p>
-                    <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-                      Choose where OpenClaw runs. Desktop must be able to reach
-                      that machine over your network.
-                    </p>
-                  </div>
-                </header>
+                {loadingStatus ? (
+                  <ConnectPageSkeleton />
+                ) : (
+                  <>
+                    <header className="space-y-3 text-center">
+                      <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-white/10 bg-white/5">
+                        <HugeiconsIcon
+                          icon={ServerStack01Icon}
+                          size={22}
+                          className="text-zinc-200"
+                        />
+                      </div>
+                      <div>
+                        <p className="text-xl font-semibold tracking-tight text-white">
+                          Where is OpenClaw running?
+                        </p>
+                        <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+                          Choose where OpenClaw runs. Desktop must be able to reach
+                          that machine over your network.
+                        </p>
+                      </div>
+                    </header>
 
-                {isConnected ? (
+                    {isConnected ? (
                   <ConnectedState
                     url={connectResult?.url || status?.gatewayUrl || url}
                     busy={busy}
                     disconnecting={disconnecting}
                     onDisconnect={onDisconnect}
                   />
-                ) : (
-                  <>
-                    {setupMode === "choice" ? (
-                      <ChoiceScreen onSelect={onSetupModeChange} />
-                    ) : setupMode === "local" ? (
-                      <LocalOpenClawPanel
-                        url={url}
-                        busy={busy}
-                        saving={saving}
-                        missingConfig={missingConfig}
-                        loadingStatus={loadingStatus}
-                        detectMessage={detectMessage}
-                        onDetect={() => onAutoDetectChange(true)}
-                        onUrlChange={onUrlChange}
-                        onSave={onSave}
-                      />
                     ) : (
-                      <VpsOpenClawPanel
-                        url={url}
-                        token={token}
-                        showToken={showToken}
-                        busy={busy}
-                        saving={saving}
-                        missingConfig={missingConfig}
-                        onUrlChange={onUrlChange}
-                        onTokenChange={onTokenChange}
-                        onShowTokenChange={onShowTokenChange}
-                        onSave={onSave}
-                      />
-                    )}
-
-                    {setupMode !== "choice" && (
-                      <details className="rounded-xl border border-white/10 bg-black/20 p-4">
-                        <summary className="cursor-pointer text-sm font-medium text-zinc-300 select-none hover:text-white">
-                          Advanced manual setup
-                        </summary>
-                        <div className="mt-4 space-y-4">
-                          <ManualFields
+                      <>
+                        {setupMode === "choice" ? (
+                          <ChoiceScreen onSelect={onSetupModeChange} />
+                        ) : setupMode === "local" ? (
+                          <LocalOpenClawPanel
+                            url={url}
+                            busy={busy}
+                            saving={saving}
+                            missingConfig={missingConfig}
+                            loadingStatus={loadingStatus}
+                            detectMessage={detectMessage}
+                            onDetect={() => onAutoDetectChange(true)}
+                            onUrlChange={onUrlChange}
+                            onSave={onSave}
+                          />
+                        ) : (
+                          <VpsOpenClawPanel
                             url={url}
                             token={token}
                             showToken={showToken}
-                            disabled={busy}
+                            busy={busy}
+                            saving={saving}
+                            missingConfig={missingConfig}
                             onUrlChange={onUrlChange}
                             onTokenChange={onTokenChange}
                             onShowTokenChange={onShowTokenChange}
+                            onSave={onSave}
                           />
-                          <div className="grid grid-cols-2 gap-3">
-                            <Button
-                              onClick={onTest}
-                              disabled={busy || missingConfig}
-                              variant="outline"
-                              size="sm"
-                            >
-                              {testing ? "Testing..." : "Test"}
-                            </Button>
-                            <Button
-                              onClick={onSave}
-                              disabled={busy || missingConfig}
-                              size="sm"
-                            >
-                              {saving ? "Connecting..." : "Save"}
-                            </Button>
-                          </div>
-                        </div>
-                      </details>
+                        )}
+
+                        {setupMode !== "choice" && (
+                          <details className="rounded-xl border border-white/10 bg-black/20 p-4">
+                            <summary className="cursor-pointer text-sm font-medium text-zinc-300 select-none hover:text-white">
+                              Advanced manual setup
+                            </summary>
+                            <div className="mt-4 space-y-4">
+                              <ManualFields
+                                url={url}
+                                token={token}
+                                showToken={showToken}
+                                disabled={busy}
+                                onUrlChange={onUrlChange}
+                                onTokenChange={onTokenChange}
+                                onShowTokenChange={onShowTokenChange}
+                              />
+                              <div className="grid grid-cols-2 gap-3">
+                                <Button
+                                  onClick={onTest}
+                                  disabled={busy || missingConfig}
+                                  variant="outline"
+                                  size="sm"
+                                >
+                                  {testing ? "Testing..." : "Test"}
+                                </Button>
+                                <Button
+                                  onClick={onSave}
+                                  disabled={busy || missingConfig}
+                                  size="sm"
+                                >
+                                  {saving ? "Connecting..." : "Save"}
+                                </Button>
+                              </div>
+                            </div>
+                          </details>
+                        )}
+                      </>
+                    )}
+
+                    {!isConnected && (error || connectResult) && (
+                      <div ref={errorBlockRef}>
+                        <ConnectionErrorGuide
+                          result={connectResult}
+                          rawError={error}
+                          gatewayUrl={url}
+                        />
+                      </div>
                     )}
                   </>
-                )}
-
-                {!isConnected && (error || connectResult) && (
-                  <div ref={errorBlockRef}>
-                    <ConnectionErrorGuide
-                      result={connectResult}
-                      rawError={error}
-                      gatewayUrl={url}
-                    />
-                  </div>
                 )}
               </div>
             )}
@@ -843,6 +821,37 @@ function ConnectedState({
         <HugeiconsIcon icon={Unlink03Icon} size={14} />
         {disconnecting ? "Disconnecting..." : "Disconnect"}
       </Button>
+    </div>
+  )
+}
+
+function ConnectStatusSkeleton() {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-center">
+      <div className="mx-auto flex size-11 animate-pulse items-center justify-center rounded-2xl bg-white/8" />
+      <div className="mt-3 flex flex-col items-center gap-2">
+        <div className="h-4 w-32 animate-pulse rounded-md bg-white/10" />
+        <div className="h-3 w-72 max-w-full animate-pulse rounded-md bg-white/6" />
+        <div className="h-3 w-56 max-w-full animate-pulse rounded-md bg-white/5" />
+      </div>
+      <div className="mx-auto mt-4 h-8 w-28 animate-pulse rounded-md bg-white/8" />
+    </div>
+  )
+}
+
+function ConnectPageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="size-12 animate-pulse rounded-md border border-white/10 bg-white/6" />
+        <div className="space-y-2">
+          <div className="mx-auto h-6 w-64 animate-pulse rounded-md bg-white/10" />
+          <div className="mx-auto h-4 w-80 max-w-full animate-pulse rounded-md bg-white/6" />
+          <div className="mx-auto h-4 w-72 max-w-full animate-pulse rounded-md bg-white/5" />
+        </div>
+      </div>
+
+      <ConnectStatusSkeleton />
     </div>
   )
 }
