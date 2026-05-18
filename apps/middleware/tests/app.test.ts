@@ -4,7 +4,9 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../src/app.js";
+import type { AppContext } from "../src/app.js";
 import { loadEnv, type MiddlewareConfig } from "../src/config/env.js";
+import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
 
 function testConfig(overrides: Partial<MiddlewareConfig> = {}): MiddlewareConfig {
   return {
@@ -358,6 +360,22 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap" });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ ok: false, error: { code: "INVALID_QUERY" } });
+    await app.close();
+  });
+
+  test("chat messages supports beforeSeq pagination for older messages", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    context.messages.upsertMessages(normalizeHistoryMessages("s1", Array.from({ length: 12 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `message ${index + 1}`,
+      __openclaw: { id: `m${index + 1}`, seq: index + 1 },
+    }))));
+
+    const res = await app.inject({ method: "GET", url: "/api/chat/messages?sessionKey=s1&beforeSeq=10&limit=4" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().messages.map((message: { openclawSeq: number }) => message.openclawSeq)).toEqual([6, 7, 8, 9]);
     await app.close();
   });
 

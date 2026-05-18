@@ -847,14 +847,16 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const parsed = z.object({
       sessionKey: z.string().min(1),
       afterSeq: z.coerce.number().int().min(0).optional(),
+      beforeSeq: z.coerce.number().int().positive().optional(),
       limit: z.coerce.number().int().positive().max(1000).optional(),
     }).safeParse(request.query);
     if (!parsed.success) {
       throw new HttpError(400, "Invalid chat messages query", "INVALID_QUERY", parsed.error.flatten());
     }
-    log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? 0, limit: parsed.data.limit });
+    log.info("messages.read.start", { sessionKey: parsed.data.sessionKey, afterSeq: parsed.data.afterSeq ?? 0, beforeSeq: parsed.data.beforeSeq ?? null, limit: parsed.data.limit });
     const messages = context.messages.listMessages(parsed.data.sessionKey, {
       afterSeq: parsed.data.afterSeq,
+      beforeSeq: parsed.data.beforeSeq,
       limit: parsed.data.limit,
     });
     log.info("messages.read.end", { sessionKey: parsed.data.sessionKey, messageCount: messages.length });

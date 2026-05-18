@@ -233,9 +233,22 @@ export class MessageRepository {
     };
   }
 
-  listMessages(sessionKey: string, opts: { afterSeq?: number; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
+  listMessages(sessionKey: string, opts: { afterSeq?: number; beforeSeq?: number; limit?: number; latest?: boolean } = {}): ProjectedMessage[] {
     const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
-    const rows = this.db.prepare(opts.latest ? `
+    const beforeSeq = opts.beforeSeq ?? null;
+    const rows = this.db.prepare(beforeSeq !== null ? `
+      SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM (
+        SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+        FROM v2_messages
+        WHERE session_key = @sessionKey
+          AND openclaw_seq > @afterSeq
+          AND openclaw_seq < @beforeSeq
+        ORDER BY openclaw_seq DESC
+        LIMIT @limit
+      )
+      ORDER BY openclaw_seq ASC
+    ` : opts.latest ? `
       SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
       FROM (
         SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
@@ -251,7 +264,7 @@ export class MessageRepository {
       WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
       ORDER BY openclaw_seq ASC
       LIMIT @limit
-    `).all({ sessionKey, afterSeq: opts.afterSeq ?? 0, limit }) as Array<{
+    `).all({ sessionKey, afterSeq: opts.afterSeq ?? 0, beforeSeq, limit }) as Array<{
       session_key: string;
       openclaw_seq: number;
       message_id: string | null;

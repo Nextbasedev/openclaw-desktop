@@ -55,6 +55,23 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("can read older messages before a sequence in chronological order", () => {
+    const db = openDatabase({ databasePath: testDbPath("before-seq-messages") });
+    const repo = new MessageRepository(db);
+    repo.upsertMessages(normalizeHistoryMessages("s1", Array.from({ length: 20 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `message ${index}`,
+      __openclaw: { id: `m${index}`, seq: index + 1 },
+    }))));
+
+    const rows = repo.listMessages("s1", { beforeSeq: 15, limit: 5 });
+
+    expect(rows.map((row) => row.openclawSeq)).toEqual([10, 11, 12, 13, 14]);
+    expect(rows[0]?.messageId).toBe("m9");
+    expect(rows.at(-1)?.messageId).toBe("m13");
+    db.close();
+  });
+
   test("normalizer preserves message id fields and explicit fallback seq", () => {
     const rows = normalizeHistoryMessages("s1", [
       { id: "gateway-a", role: "assistant", text: "a" },
