@@ -91,6 +91,43 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
+  test("bootstrap seed preserves live assistant answer when history is temporarily stale", () => {
+    seedGlobalChatSession({
+      sessionKey: "fork-1",
+      cursor: 20,
+      status: "done",
+      messages: [
+        { messageId: "u-old", role: "user", text: "first question" },
+        { messageId: "a-old", role: "assistant", text: "first answer" },
+        { messageId: "u-new", role: "user", text: "what was previous question?" },
+        { messageId: "a-live", role: "assistant", text: "The previous question was: first question" },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "fork-1",
+      cursor: 21,
+      status: "thinking",
+      messages: [
+        { messageId: "u-old", role: "user", text: "first question" },
+        { messageId: "a-old", role: "assistant", text: "first answer" },
+        { messageId: "u-new", role: "user", text: "what was previous question?" },
+      ],
+    })
+
+    const state = getGlobalChatSession("fork-1")!
+    expect(state.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "a-live", text: "The previous question was: first question" }),
+    ]))
+    expect(state.messages.map((message) => message.text)).toEqual([
+      "first question",
+      "first answer",
+      "what was previous question?",
+      "The previous question was: first question",
+    ])
+    expect(state.status).toBe("done")
+  })
+
   test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

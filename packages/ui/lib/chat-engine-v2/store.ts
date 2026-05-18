@@ -848,16 +848,45 @@ function latestUserMessageIndex(state: SessionState) {
   return -1
 }
 
-function hasAssistantAnswerAfterLatestUser(state: SessionState) {
-  const latestUserIndex = latestUserMessageIndex(state)
+function messagesLatestUserIndex(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return i
+  }
+  return -1
+}
+
+function normalizeChatText(value: string) {
+  return value.replace(/\s+/g, " ").trim()
+}
+
+function latestUserText(messages: ChatMessage[]) {
+  const index = messagesLatestUserIndex(messages)
+  return index >= 0 ? normalizeChatText(messages[index]?.text ?? "") : ""
+}
+
+function messagesHaveAssistantAnswerAfterLatestUser(messages: ChatMessage[]) {
+  const latestUserIndex = messagesLatestUserIndex(messages)
   const start = latestUserIndex >= 0 ? latestUserIndex + 1 : 0
-  for (let i = state.messages.length - 1; i >= start; i--) {
-    const message = state.messages[i]
+  for (let i = messages.length - 1; i >= start; i--) {
+    const message = messages[i]
     if (message?.role !== "assistant") continue
     if (message.toolCalls?.some((tool) => tool.status === "running")) return false
     if (message.text.trim().length > 0) return true
   }
   return false
+}
+
+function hasAssistantAnswerAfterLatestUser(state: SessionState) {
+  return messagesHaveAssistantAnswerAfterLatestUser(state.messages)
+}
+
+function shouldPreserveExistingAnswerFromStaleSeed(existing: SessionState, incomingMessages: ChatMessage[]) {
+  if (!existing.messages.length || !incomingMessages.length) return false
+  if (!messagesHaveAssistantAnswerAfterLatestUser(existing.messages)) return false
+  if (messagesHaveAssistantAnswerAfterLatestUser(incomingMessages)) return false
+  const existingLatestUser = latestUserText(existing.messages)
+  const incomingLatestUser = latestUserText(incomingMessages)
+  return Boolean(existingLatestUser && incomingLatestUser && existingLatestUser === incomingLatestUser)
 }
 
 function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
@@ -1193,7 +1222,8 @@ export function seedGlobalChatSession(params: {
   if (params.queryClient) queryClientRef = params.queryClient
   const state = getOrCreate(params.sessionKey)
   const incomingCursor = params.cursor ?? 0
-  const hadNewerLiveState = state.cursor > incomingCursor && state.messages.length > 0
+  const preserveExistingLiveAnswer = shouldPreserveExistingAnswerFromStaleSeed(state, params.messages)
+  const hadNewerLiveState = (state.cursor > incomingCursor && state.messages.length > 0) || preserveExistingLiveAnswer
   state.messages = hadNewerLiveState
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)
@@ -1223,6 +1253,7 @@ export function seedGlobalChatSession(params: {
     cursor: state.cursor,
     incomingCursor,
     preservedNewerLiveState: hadNewerLiveState,
+    preservedLiveAnswer: preserveExistingLiveAnswer,
     status: state.status,
     pendingToolCount: state.pendingTools.length,
     spawnedSubagentCount: state.spawnedSubagents.length,
