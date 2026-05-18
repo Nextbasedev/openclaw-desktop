@@ -48,16 +48,6 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
-  it("dedupes identical assistant replies even when backend indexes differ", () => {
-    const messages = dedupeChatMessages([
-      { messageId: "live-assistant", role: "assistant", text: "Same final answer", gatewayIndex: 4 },
-      { messageId: "history-assistant", role: "assistant", text: "Same final answer", gatewayIndex: 6 },
-    ])
-
-    expect(messages).toHaveLength(1)
-    expect(messages[0].text).toBe("Same final answer")
-  })
-
   it("keeps newly sent timestamped messages below restored untimed history", () => {
     const messages = dedupeChatMessages([
       { messageId: "u-old", role: "user", text: "previous question" },

@@ -127,10 +127,6 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   return false
 }
 
-function normalizedAssistantTextForDedupe(text: string) {
-  return stripNoReplyLines(text).replace(/\s+/g, " ").trim()
-}
-
 function isAssistantPrefixUpdate(shorter: string, longer: string) {
   if (!longer.startsWith(shorter)) return false
   const nextChar = longer.charAt(shorter.length)
@@ -141,6 +137,7 @@ function isAssistantPrefixUpdate(shorter: string, longer: string) {
 
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
+  if (hasDifferentGatewayIndex(a, b)) return false
   if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
     return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
   }
@@ -149,8 +146,7 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.messageId === b.messageId) return true
   if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
-  if (normalizedAssistantTextForDedupe(aText) === normalizedAssistantTextForDedupe(bText)) return true
-  if (hasDifferentGatewayIndex(a, b)) return false
+  if (aText === bText) return true
   return aText.length <= bText.length
     ? isAssistantPrefixUpdate(aText, bText)
     : isAssistantPrefixUpdate(bText, aText)
