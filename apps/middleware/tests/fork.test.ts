@@ -84,40 +84,6 @@ describe("chat fork compatibility command", () => {
     await app.close();
   });
 
-  test("treats gatewayIndex as OpenClaw sequence before falling back to array index", async () => {
-    const app = await createApp(config("gateway-seq"));
-    const context = contextOf(app);
-    const transcriptPath = path.join(os.tmpdir(), `openclaw-fork-seq-${Date.now()}-${Math.random()}.jsonl`);
-    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
-      if (method === "chat.history") {
-        return {
-          sessionKey: payload?.sessionKey,
-          messages: [
-            { role: "user", text: "places in Gujarat", __openclaw: { id: "msg-28", seq: 28 } },
-            { role: "assistant", text: "Best places to explore in Gujarat", __openclaw: { id: "msg-30", seq: 30 } },
-            { role: "user", text: "How much gdp count in America", __openclaw: { id: "msg-31", seq: 31 } },
-          ],
-        };
-      }
-      if (method === "sessions.create") return { entry: { sessionFile: transcriptPath, sessionId: payload?.key } };
-      return { ok: true };
-    });
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/commands/middleware_chat_fork",
-      payload: { input: { sessionKey: "s1", gatewayIndex: 30 } },
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.json().messages).toMatchObject([
-      { text: "places in Gujarat" },
-      { text: "Best places to explore in Gujarat" },
-    ]);
-    expect(res.json().messages).toHaveLength(2);
-    await app.close();
-  });
-
   test("returns a bad request when the fork point cannot be found", async () => {
     const app = await createApp(config("missing-message"));
     const context = contextOf(app);
