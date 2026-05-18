@@ -777,11 +777,20 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       const reasoningText = thinkingText(item).trim()
       if (text || pendingToolCalls.length > 0 || reasoningText) {
         const last = messages.at(-1)
-        if (last?.role === "assistant") {
+        const incomingId = messageId(item)
+        const shouldMergeWithPreviousAssistant =
+          last?.role === "assistant" &&
+          (
+            last.messageId === incomingId ||
+            pendingToolCalls.length > 0 ||
+            (last.toolCalls?.length ?? 0) > 0 ||
+            (!text && Boolean(reasoningText))
+          )
+        if (last && shouldMergeWithPreviousAssistant) {
           if (text) last.text = mergeAssistantText(last.text, text)
           last.toolCalls = [...(last.toolCalls ?? []), ...pendingToolCalls]
           if (reasoningText) last.reasoningText = last.reasoningText ? `${last.reasoningText}${reasoningText}` : reasoningText
-          last.messageId = messageId(item)
+          last.messageId = incomingId
           last.createdAt = createdAtIso(item) ?? last.createdAt
           last.model = item.model ?? last.model
           last.usage = item.usage ?? last.usage
@@ -789,7 +798,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           last.gatewayIndex = openclawSeq(item) ?? last.gatewayIndex
         } else {
           messages.push({
-            messageId: messageId(item),
+            messageId: incomingId,
             role: "assistant",
             text,
             createdAt: createdAtIso(item),

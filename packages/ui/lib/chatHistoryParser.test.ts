@@ -239,6 +239,20 @@ describe("isTransientSlashCommandHistory", () => {
 })
 
 describe("parseChatHistory", () => {
+  it("does not append a new assistant response into the previous assistant bubble", () => {
+    const parsed = parseChatHistory([
+      { role: "user", content: [{ type: "text", text: "give me best place to explore in gujarat" }], __openclaw: { id: "u1", seq: 1 } },
+      { role: "assistant", content: [{ type: "text", text: "Best places to explore in Gujarat" }], __openclaw: { id: "a1", seq: 2 } },
+      { role: "assistant", content: [{ type: "text", text: "Your last question was about Gujarat." }], __openclaw: { id: "a2", seq: 4 } },
+      { role: "user", content: [{ type: "text", text: "what is your last question?" }], __openclaw: { id: "u2", seq: 3 } },
+    ])
+
+    const assistantMessages = parsed.messages.filter((message) => message.role === "assistant")
+    assert.equal(assistantMessages.length, 2)
+    assert.equal(assistantMessages[0]?.text, "Best places to explore in Gujarat")
+    assert.equal(assistantMessages[1]?.text, "Your last question was about Gujarat.")
+  })
+
   it("renders assistant provider errors even when the assistant content is empty", () => {
     const parsed = parseChatHistory([
       { role: "user", content: [{ type: "text", text: "hii" }] },
