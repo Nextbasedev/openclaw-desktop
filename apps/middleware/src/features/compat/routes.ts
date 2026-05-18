@@ -692,34 +692,13 @@ function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
   };
 }
 
-function stripTranscriptUiMeta(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripTranscriptUiMeta);
-  if (!value || typeof value !== "object") return value;
-  const out: CompatRecord = {};
-  for (const [key, item] of Object.entries(value as CompatRecord)) {
-    if (key === "__openclaw" || key === "messageId" || key === "seq" || key === "gatewayIndex") continue;
-    out[key] = stripTranscriptUiMeta(item);
-  }
-  return out;
-}
-
-function transcriptRecordFromHistoryMessage(message: CompatRecord, parentId: string | null) {
+function transcriptLineFromHistoryMessage(message: CompatRecord) {
   const meta = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as CompatRecord : {};
   const idValue = String(meta.id || message.id || crypto.randomUUID());
-  const timestamp = typeof message.timestamp === "number"
-    ? new Date(message.timestamp > 0 && message.timestamp < 1_000_000_000_000 ? message.timestamp * 1000 : message.timestamp).toISOString()
-    : typeof message.timestamp === "string"
-      ? message.timestamp
-      : typeof message.createdAt === "string"
-        ? message.createdAt
-        : nowIso();
-  return {
-    type: "message",
-    id: idValue,
-    parentId,
-    timestamp,
-    message: stripTranscriptUiMeta(message),
-  };
+  const timestamp = typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : typeof message.timestamp === "string" ? message.timestamp : nowIso();
+  const stripped = { ...message };
+  delete stripped.__openclaw;
+  return JSON.stringify({ id: idValue, timestamp, message: stripped });
 }
 
 function copyHistoryMessagesToTranscript(transcriptPath: string, messages: CompatRecord[]) {
@@ -729,15 +708,7 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: Compa
     if (!line.trim()) return false;
     try { return JSON.parse(line)?.type === "session"; } catch { return false; }
   }) || JSON.stringify({ type: "session", version: 1, id: path.basename(transcriptPath, ".jsonl"), timestamp: nowIso(), cwd: process.cwd() });
-  let parentId: string | null = null;
-  const records = messages
-    .filter((message) => message && message.role !== "system")
-    .map((message) => {
-      const record = transcriptRecordFromHistoryMessage(message, parentId);
-      parentId = record.id;
-      return JSON.stringify(record);
-    });
-  const lines = [header, ...records];
+  const lines = [header, ...messages.filter((message) => message && message.role !== "system").map(transcriptLineFromHistoryMessage)];
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
