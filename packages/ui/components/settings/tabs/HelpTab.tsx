@@ -22,6 +22,26 @@ type HelpTabProps = {
   onShortcutsClick?: () => void
 }
 
+type MiddlewareGitStatus = {
+  repoRoot: string
+  currentBranch?: string
+  targetBranch?: string
+  upstream?: string
+  headSha?: string
+  headSubject?: string
+  remoteSha?: string
+  remoteSubject?: string
+  ahead?: number
+  behind?: number
+  dirty?: boolean
+  staged?: number
+  unstaged?: number
+  untracked?: number
+  diffSummary?: string
+  checkedAt: string
+  error?: string
+}
+
 type MiddlewareUpdateStatus = {
   state: "idle" | "running" | "restarting" | "succeeded" | "failed"
   startedAt?: string
@@ -30,6 +50,7 @@ type MiddlewareUpdateStatus = {
   repoRoot?: string
   branch?: string
   logPath?: string
+  git?: MiddlewareGitStatus
 }
 
 type MiddlewareUpdateStart = {
@@ -197,8 +218,8 @@ function MiddlewareUpdateCard() {
     return false
   }
 
-  async function refreshStatus() {
-    const next = await invoke<MiddlewareUpdateStatus>("middleware_self_update_status")
+  async function refreshStatus(branch = updateBranch) {
+    const next = await invoke<MiddlewareUpdateStatus>("middleware_self_update_status", { branch })
     setStatus(next)
     return next
   }
@@ -226,13 +247,13 @@ function MiddlewareUpdateCard() {
       const started = await invoke<MiddlewareUpdateStart>("middleware_self_update", { branch: updateBranch })
       setStatus(started.status)
       statusTimer = window.setInterval(() => {
-        refreshStatus().catch(() => undefined)
+        refreshStatus(updateBranch).catch(() => undefined)
       }, 2_000)
       const connected = await waitForMiddlewareBack()
       if (connected) {
         setStatus({ state: "succeeded", updatedAt: new Date().toISOString(), message: `Middleware updated from ${updateBranch} and OpenClaw is connected.`, branch: updateBranch })
       } else {
-        const latest = await refreshStatus().catch(() => null)
+        const latest = await refreshStatus(updateBranch).catch(() => null)
         if (!latest || latest.state !== "failed") {
           setError("Update started, but Middleware did not come back healthy within 90 seconds. Check the VPS service logs.")
         }
@@ -315,7 +336,7 @@ function MiddlewareUpdateCard() {
         </button>
         <button
           type="button"
-          onClick={() => { setNeedsManualBootstrap(false); refreshStatus().catch(handleUpdateError) }}
+          onClick={() => { setNeedsManualBootstrap(false); refreshStatus(updateBranch).catch(handleUpdateError) }}
           disabled={busy}
           className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -330,6 +351,15 @@ function MiddlewareUpdateCard() {
             {status.message}
             {status.branch && <span className="ml-1 text-muted-foreground/70">({status.branch})</span>}
             <span className="mt-0.5 block text-[10px] text-muted-foreground/60">State: {status.state} · Updated: {new Date(status.updatedAt).toLocaleTimeString()}</span>
+            {status.git && (
+              <span className="mt-1 block space-y-0.5 text-[10px] text-muted-foreground/60">
+                <span className="block">Local: {status.git.currentBranch ?? "unknown"} {status.git.headSha ? `@ ${status.git.headSha.slice(0, 7)}` : ""}{status.git.headSubject ? ` — ${status.git.headSubject}` : ""}</span>
+                <span className="block">Remote: {status.git.upstream ?? "origin"} {status.git.remoteSha ? `@ ${status.git.remoteSha.slice(0, 7)}` : ""}{status.git.remoteSubject ? ` — ${status.git.remoteSubject}` : ""}</span>
+                <span className="block">Ahead: {status.git.ahead ?? 0} · Behind: {status.git.behind ?? 0} · Dirty: {status.git.dirty ? `yes (${(status.git.staged ?? 0) + (status.git.unstaged ?? 0) + (status.git.untracked ?? 0)} files)` : "no"}</span>
+                {status.git.diffSummary && <span className="block whitespace-pre-wrap rounded border border-border/25 bg-background/40 p-2 font-mono text-[10px] text-muted-foreground/75">{status.git.diffSummary}</span>}
+                {status.git.error && <span className="block text-amber-400">Git status warning: {status.git.error}</span>}
+              </span>
+            )}
             {status.logPath && <span className="mt-0.5 block text-[10px] text-muted-foreground/60">Log: {status.logPath}</span>}
           </span>
         </div>

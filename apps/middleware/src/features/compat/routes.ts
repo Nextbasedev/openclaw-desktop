@@ -567,6 +567,26 @@ function discordTopicFallback(entry: CompatRecord, channelId: string, threadId: 
 }
 
 
+type MiddlewareGitStatus = {
+  repoRoot: string;
+  currentBranch?: string;
+  targetBranch?: string;
+  upstream?: string;
+  headSha?: string;
+  headSubject?: string;
+  remoteSha?: string;
+  remoteSubject?: string;
+  ahead?: number;
+  behind?: number;
+  dirty?: boolean;
+  staged?: number;
+  unstaged?: number;
+  untracked?: number;
+  diffSummary?: string;
+  checkedAt: string;
+  error?: string;
+};
+
 type MiddlewareUpdateStatus = {
   state: "idle" | "running" | "restarting" | "succeeded" | "failed";
   startedAt?: string;
@@ -575,6 +595,7 @@ type MiddlewareUpdateStatus = {
   repoRoot?: string;
   branch?: string;
   logPath?: string;
+  git?: MiddlewareGitStatus;
 };
 
 type MiddlewareUpdateInput = {
@@ -605,12 +626,106 @@ function findMiddlewareRepoRoot() {
   return path.resolve(process.cwd(), "../..");
 }
 
-function readMiddlewareUpdateStatus(): MiddlewareUpdateStatus {
+function gitOutput(repoRoot: string, args: string[]) {
+  return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function shortSha(value?: string) {
+  return value ? value.slice(0, 7) : "unknown";
+}
+
+function parsePorcelainStatus(text: string) {
+  let staged = 0;
+  let unstaged = 0;
+  let untracked = 0;
+  for (const line of text.split(/\r?\n/).filter(Boolean)) {
+    const x = line[0];
+    const y = line[1];
+    if (line.startsWith("??")) { untracked += 1; continue; }
+    if (x && x !== " ") staged += 1;
+    if (y && y !== " ") unstaged += 1;
+  }
+  return { staged, unstaged, untracked, dirty: staged + unstaged + untracked > 0 };
+}
+
+function readMiddlewareGitStatus(branchInput?: unknown): MiddlewareGitStatus {
+  const repoRoot = findMiddlewareRepoRoot();
+  const checkedAt = nowIso();
+  try {
+    const currentBranch = gitOutput(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const targetBranch = normalizeMiddlewareUpdateBranch(branchInput || currentBranch || DEFAULT_UPDATE_BRANCH);
+    let fetchError: string | undefined;
+    try {
+      gitOutput(repoRoot, ["fetch", "--quiet", "origin", targetBranch]);
+    } catch (error) {
+      fetchError = error instanceof Error ? error.message : String(error);
+    }
+    const upstream = `origin/${targetBranch}`;
+    const headSha = gitOutput(repoRoot, ["rev-parse", "HEAD"]);
+    const headSubject = gitOutput(repoRoot, ["log", "-1", "--format=%s", "HEAD"]);
+    let remoteSha: string | undefined;
+    let remoteSubject: string | undefined;
+    let ahead = 0;
+    let behind = 0;
+    try {
+      remoteSha = gitOutput(repoRoot, ["rev-parse", upstream]);
+      remoteSubject = gitOutput(repoRoot, ["log", "-1", "--format=%s", upstream]);
+      const counts = gitOutput(repoRoot, ["rev-list", "--left-right", "--count", `HEAD...${upstream}`]).split(/\s+/).map((value) => Number(value));
+      ahead = Number.isFinite(counts[0]) ? counts[0] : 0;
+      behind = Number.isFinite(counts[1]) ? counts[1] : 0;
+    } catch (error) {
+      fetchError = fetchError || (error instanceof Error ? error.message : String(error));
+    }
+    const dirtyInfo = parsePorcelainStatus(gitOutput(repoRoot, ["status", "--porcelain"]));
+    const diffSummary = [
+      gitOutput(repoRoot, ["diff", "--stat"]),
+      gitOutput(repoRoot, ["diff", "--cached", "--stat"]),
+    ].filter(Boolean).join("\n");
+    return {
+      repoRoot,
+      currentBranch,
+      targetBranch,
+      upstream,
+      headSha,
+      headSubject,
+      remoteSha,
+      remoteSubject,
+      ahead,
+      behind,
+      ...dirtyInfo,
+      diffSummary,
+      checkedAt,
+      error: fetchError,
+    };
+  } catch (error) {
+    return { repoRoot, checkedAt, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function middlewareGitStatusMessage(git: MiddlewareGitStatus) {
+  if (git.error && !git.headSha) return `Git status unavailable: ${git.error}`;
+  const branch = git.currentBranch || "unknown branch";
+  const target = git.upstream || (git.targetBranch ? `origin/${git.targetBranch}` : "remote");
+  const parts: string[] = [];
+  if ((git.behind ?? 0) > 0) parts.push(`${branch} is ${git.behind} commit${git.behind === 1 ? "" : "s"} behind ${target}`);
+  else if ((git.ahead ?? 0) > 0) parts.push(`${branch} is ${git.ahead} commit${git.ahead === 1 ? "" : "s"} ahead of ${target}`);
+  else parts.push(`${branch} is up to date with ${target}`);
+  if (git.dirty) parts.push(`working tree has ${(git.staged ?? 0) + (git.unstaged ?? 0) + (git.untracked ?? 0)} changed file${((git.staged ?? 0) + (git.unstaged ?? 0) + (git.untracked ?? 0)) === 1 ? "" : "s"}`);
+  if (git.remoteSha && git.remoteSha !== git.headSha) parts.push(`local ${shortSha(git.headSha)} → remote ${shortSha(git.remoteSha)}`);
+  else if (git.headSha) parts.push(`commit ${shortSha(git.headSha)}`);
+  return parts.join("; ");
+}
+
+function readMiddlewareUpdateStatus(input: MiddlewareUpdateInput = {}): MiddlewareUpdateStatus {
+  let status: MiddlewareUpdateStatus;
   try {
     const parsed = JSON.parse(fs.readFileSync(UPDATE_STATUS_PATH, "utf8")) as MiddlewareUpdateStatus;
-    if (parsed?.state && parsed?.updatedAt) return parsed;
-  } catch {}
-  return { state: "idle", updatedAt: nowIso(), branch: DEFAULT_UPDATE_BRANCH, logPath: UPDATE_LOG_PATH };
+    status = parsed?.state && parsed?.updatedAt ? parsed : { state: "idle", updatedAt: nowIso(), branch: DEFAULT_UPDATE_BRANCH, logPath: UPDATE_LOG_PATH };
+  } catch {
+    status = { state: "idle", updatedAt: nowIso(), branch: DEFAULT_UPDATE_BRANCH, logPath: UPDATE_LOG_PATH };
+  }
+  const git = readMiddlewareGitStatus(input.branch || status.branch || DEFAULT_UPDATE_BRANCH);
+  return { ...status, branch: git.targetBranch || status.branch, repoRoot: git.repoRoot || status.repoRoot, git, message: middlewareGitStatusMessage(git) };
 }
 
 function normalizeMiddlewareUpdateBranch(value: unknown) {
@@ -625,6 +740,23 @@ function writeMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
   fs.writeFileSync(UPDATE_STATUS_PATH, JSON.stringify({ ...status, updatedAt: nowIso() }, null, 2));
 }
 
+function fallbackMiddlewareUpdateBranches(source = "fallback"): { branches: MiddlewareUpdateBranch[]; defaultBranch: string; source: string } {
+  const names = new Set<string>([DEFAULT_UPDATE_BRANCH, "main", "dev-2-temp", "dev-2", "dev-3-harsh"]);
+  try {
+    const repoRoot = findMiddlewareRepoRoot();
+    const refs = gitOutput(repoRoot, ["branch", "-r", "--format=%(refname:short)"]);
+    for (const ref of refs.split(/\r?\n/).filter(Boolean)) {
+      const name = ref.replace(/^origin\//, "").trim();
+      if (name && name !== "HEAD") names.add(name);
+    }
+  } catch {}
+  return {
+    branches: [...names].filter(Boolean).map((name) => ({ name, url: `https://github.com/Nextbasedev/openclaw-desktop/tree/${encodeURIComponent(name)}` })),
+    defaultBranch: DEFAULT_UPDATE_BRANCH,
+    source,
+  };
+}
+
 async function listMiddlewareUpdateBranches(): Promise<{ branches: MiddlewareUpdateBranch[]; defaultBranch: string; source: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
@@ -633,7 +765,7 @@ async function listMiddlewareUpdateBranches(): Promise<{ branches: MiddlewareUpd
       headers: { "Accept": "application/vnd.github+json", "User-Agent": "openclaw-desktop-middleware" },
       signal: controller.signal,
     });
-    if (!res.ok) throw new Error(`GitHub branches request failed (${res.status})`);
+    if (!res.ok) return fallbackMiddlewareUpdateBranches(`github-${res.status}`);
     const rawBranches = await res.json() as Array<{ name?: string; commit?: { sha?: string; url?: string } }>;
     const branches = await Promise.all(rawBranches.map(async (branch): Promise<MiddlewareUpdateBranch | null> => {
       const name = String(branch.name || "").trim();
@@ -656,7 +788,9 @@ async function listMiddlewareUpdateBranches(): Promise<{ branches: MiddlewareUpd
     const sorted = branches
       .filter(Boolean) as MiddlewareUpdateBranch[];
     sorted.sort((a, b) => Date.parse(b.updatedAt || "0") - Date.parse(a.updatedAt || "0") || a.name.localeCompare(b.name));
-    return { branches: sorted, defaultBranch: DEFAULT_UPDATE_BRANCH, source: "github" };
+    return { branches: sorted.length > 0 ? sorted : fallbackMiddlewareUpdateBranches().branches, defaultBranch: DEFAULT_UPDATE_BRANCH, source: "github" };
+  } catch {
+    return fallbackMiddlewareUpdateBranches("fallback");
   } finally {
     clearTimeout(timeout);
   }
@@ -668,7 +802,7 @@ function shellQuote(value: string) {
 
 function startMiddlewareUpdate(input: MiddlewareUpdateInput = {}) {
   const branch = normalizeMiddlewareUpdateBranch(input.branch);
-  const current = readMiddlewareUpdateStatus();
+  const current = readMiddlewareUpdateStatus({ branch });
   if (current.state === "running" || current.state === "restarting") {
     return { ok: true, accepted: false, status: current, message: "Middleware update is already running" };
   }
@@ -3798,7 +3932,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   // --- self-update ---
-  app.get("/api/middleware/update/status", async () => readMiddlewareUpdateStatus());
+  app.get("/api/middleware/update/status", async (request) => readMiddlewareUpdateStatus((request.query ?? {}) as MiddlewareUpdateInput));
   app.get("/api/middleware/update/branches", async () => listMiddlewareUpdateBranches());
   app.post("/api/middleware/update", async (request) => startMiddlewareUpdate(((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as MiddlewareUpdateInput));
 
