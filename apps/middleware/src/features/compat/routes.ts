@@ -260,6 +260,7 @@ type V1SqliteMigrationResult = {
     projects: number;
     topics: number;
     sessions: number;
+    branches: number;
     cronJobs: number;
     cronRuns: number;
   };
@@ -383,7 +384,7 @@ function migrateV1SqliteToV2(context: AppContext, sourcePathInput?: unknown): V1
   loadCompatState(context);
   const sourcePath = normalizeV1SqlitePath(sourcePathInput);
   const v1State = readV1State(sourcePath);
-  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0, cronJobs: 0, cronRuns: 0 };
+  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0, branches: 0, cronJobs: 0, cronRuns: 0 };
   for (const collection of compatCollections) {
     const incoming = Array.isArray(v1State[collection]) ? v1State[collection] as CompatRecord[] : [];
     const result = mergeCompatRecords(collection, incoming);
@@ -779,31 +780,54 @@ async function createChatFork(context: AppContext, input: CompatRecord) {
   if (transcriptPath) copyHistoryMessagesToTranscript(transcriptPath, sliced);
 
   const now = nowIso();
-  const chatId = id("chat");
+  const requestContext = input.context && typeof input.context === "object" && !Array.isArray(input.context) ? input.context as CompatRecord : {};
+  const isTopicFork = requestContext.type === "topic" && typeof requestContext.projectId === "string" && requestContext.projectId.trim().length > 0;
+  const chatId = isTopicFork ? null : id("chat");
   const branchId = id("branch");
   const sourceChat = sourceChatForSession(sourceSessionKey);
   const sourceSession = sourceSessionForSession(sourceSessionKey);
+  const projectId = isTopicFork ? String(requestContext.projectId) : sourceSession?.projectId ?? null;
+  const topicId = isTopicFork ? id("topic") : null;
   const spaceId = sourceChat?.spaceId || activeSpaceId();
   const sessionId = sessionIdFromCreateResult(created, newSessionKey);
 
-  const chat = {
-    id: chatId,
-    name: forkLabel,
-    sessionKey: newSessionKey,
-    spaceId,
-    agentId,
-    archived: false,
-    pinned: false,
-    createdAt: now,
-    updatedAt: now,
-    lastActiveAt: now,
-  };
+  if (isTopicFork && topicId) {
+    compatState.topics.push({
+      id: topicId,
+      name: forkLabel,
+      projectId,
+      archived: false,
+      pinned: false,
+      unreadCount: 0,
+      sortOrder: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      forkedFrom: {
+        topicId: requestContext.topicId ?? sourceSession?.topicId ?? null,
+        sessionKey: sourceSessionKey,
+        messageId: selectedMessageId,
+      },
+    });
+  } else {
+    compatState.chats.push({
+      id: chatId,
+      name: forkLabel,
+      sessionKey: newSessionKey,
+      spaceId,
+      agentId,
+      archived: false,
+      pinned: false,
+      createdAt: now,
+      updatedAt: now,
+      lastActiveAt: now,
+    });
+  }
   const session = {
     id: id("session"),
     key: newSessionKey,
     sessionKey: newSessionKey,
-    projectId: sourceSession?.projectId ?? null,
-    topicId: null,
+    projectId,
+    topicId,
     agentId,
     label: forkLabel,
     status: "idle",
@@ -816,7 +840,7 @@ async function createChatFork(context: AppContext, input: CompatRecord) {
     sourceSessionKey,
     sourceMessageId: selectedMessageId,
     branchSessionKey: newSessionKey,
-    branchTopicId: null,
+    branchTopicId: topicId,
     branchReason: "fork",
     createdAt: now,
     metadata: {
@@ -827,7 +851,6 @@ async function createChatFork(context: AppContext, input: CompatRecord) {
     },
   };
 
-  compatState.chats.push(chat);
   compatState.sessions.push(session);
   compatState.branches.push(branch);
   saveCompatState(context);
