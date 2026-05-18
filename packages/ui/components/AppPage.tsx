@@ -22,6 +22,7 @@ import { ChatView } from "@/components/ChatView"
 import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
+import { useAppContextMenu } from "@/components/AppContextMenu"
 import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
@@ -828,6 +829,13 @@ function AppShell({
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
   }, [resolvedTheme, setTheme])
+
+  const appContextMenu = useAppContextMenu({
+    onReload: () => window.location.reload(),
+    onToggleTheme: toggleTheme,
+    onOpenTerminal: toggleTerminal,
+    themeLabel: resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme",
+  })
 
   useEffect(() => {
     try {
@@ -2036,7 +2044,10 @@ function AppShell({
   }, [onDeleteAccount, onResetOnboarding])
 
   return (
-    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
+    <div
+      className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
+      onContextMenu={appContextMenu.onContextMenu}
+    >
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
@@ -2283,6 +2294,7 @@ function AppShell({
       />
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />
+      {appContextMenu.portal}
     </div>
   )
 }
