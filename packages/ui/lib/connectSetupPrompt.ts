@@ -36,7 +36,7 @@ Mode target: run Middleware ${details.where}
 Host env: HOST=${details.host}
 URL to return: ${details.urlHint}
 
-Official OpenClaw Gateway scopes required from code: operator.read, operator.write, operator.approvals, operator.admin. Desktop workspace/git/terminal are Middleware HTTP APIs, not extra Gateway scopes.
+Official OpenClaw Gateway scopes required from code: operator.read, operator.write, operator.approvals, operator.admin.
 
 After install, run the required curl smoke test from repo root:
 MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_PAIRING_CODE=<pairing-code> ${SMOKE_TEST}
