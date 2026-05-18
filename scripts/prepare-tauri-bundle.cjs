@@ -131,7 +131,7 @@ function pruneBundledWorkspaceNodeModules() {
     path.join(
       bundledTopLevelNodeModulesDir,
       "@openclaw",
-      "desktop-middleware-v2",
+      "desktop-middleware",
       "node_modules",
     ),
     { recursive: true, force: true },
@@ -203,7 +203,7 @@ function main() {
     run(pnpm, ["--filter", "ui", "build"])
   }
 
-  // Legacy middleware is intentionally disabled; middleware-v2 now owns the old 8787 port.
+  // Legacy middleware is intentionally disabled; middleware now owns the old 8787 port.
   // run(pnpm, ["--filter", "@openclaw/desktop-middleware", "build"])
   // run(pnpm, [
   //   "--filter",
@@ -213,10 +213,10 @@ function main() {
   //   "--prod",
   //   bundledServerDir,
   // ])
-  run(pnpm, ["--filter", "@openclaw/desktop-middleware-v2", "build"])
+  run(pnpm, ["--filter", "@openclaw/desktop-middleware", "build"])
   run(pnpm, [
     "--filter",
-    "@openclaw/desktop-middleware-v2",
+    "@openclaw/desktop-middleware",
     "deploy",
     "--legacy",
     "--prod",
