@@ -3,20 +3,180 @@
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
-import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
+import {
+  LuBrain,
+  LuClock,
+  LuFileCode,
+  LuFileText,
+  LuImage,
+  LuLoader,
+  LuMessageSquare,
+  LuPencil,
+  LuRefreshCw,
+  LuSearch,
+  LuSettings2,
+  LuShieldCheck,
+  LuSparkles,
+  LuTerminal,
+  LuWrench,
+} from "react-icons/lu"
+import type { IconType } from "react-icons"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { ToolCallDetails, getToolDetailState } from "./ToolCallDetails"
 import type { InlineToolCall } from "./types"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
-function ToolIcon({ status }: { status: InlineToolCall["status"] }) {
-  if (status === "running") {
-    return <LuLoader className="size-3.5 shrink-0 animate-spin text-blue-400" />
+type ToolIconMeta = {
+  icon: IconType
+  className: string
+  label: string
+}
+
+const TOOL_ICON_META: Record<string, ToolIconMeta> = {
+  read: {
+    icon: LuFileText,
+    className: "text-sky-300",
+    label: "Read file",
+  },
+  write: {
+    icon: LuPencil,
+    className: "text-emerald-300",
+    label: "Write file",
+  },
+  edit: {
+    icon: LuPencil,
+    className: "text-teal-300",
+    label: "Edit file",
+  },
+  apply_patch: {
+    icon: LuFileCode,
+    className: "text-cyan-300",
+    label: "Apply patch",
+  },
+  exec: {
+    icon: LuTerminal,
+    className: "text-violet-300",
+    label: "Run command",
+  },
+  process: {
+    icon: LuRefreshCw,
+    className: "text-indigo-300",
+    label: "Process",
+  },
+  web_fetch: {
+    icon: LuSearch,
+    className: "text-blue-300",
+    label: "Fetch web page",
+  },
+  web_search: {
+    icon: LuSearch,
+    className: "text-blue-300",
+    label: "Search web",
+  },
+  cron: {
+    icon: LuClock,
+    className: "text-amber-300",
+    label: "Schedule job",
+  },
+  sessions_list: {
+    icon: LuMessageSquare,
+    className: "text-purple-300",
+    label: "List sessions",
+  },
+  sessions_history: {
+    icon: LuMessageSquare,
+    className: "text-purple-300",
+    label: "Session history",
+  },
+  sessions_send: {
+    icon: LuMessageSquare,
+    className: "text-purple-300",
+    label: "Send to session",
+  },
+  sessions_spawn: {
+    icon: LuSparkles,
+    className: "text-fuchsia-300",
+    label: "Spawn sub-agent",
+  },
+  sessions_yield: {
+    icon: LuSparkles,
+    className: "text-fuchsia-300",
+    label: "Wait for sub-agent",
+  },
+  subagents: {
+    icon: LuSparkles,
+    className: "text-fuchsia-300",
+    label: "Sub-agent",
+  },
+  session_status: {
+    icon: LuSettings2,
+    className: "text-slate-300",
+    label: "Session status",
+  },
+  image: {
+    icon: LuImage,
+    className: "text-pink-300",
+    label: "Analyze image",
+  },
+  image_generate: {
+    icon: LuImage,
+    className: "text-pink-300",
+    label: "Generate image",
+  },
+  memory_get: {
+    icon: LuBrain,
+    className: "text-lime-300",
+    label: "Read memory",
+  },
+  memory_search: {
+    icon: LuBrain,
+    className: "text-lime-300",
+    label: "Search memory",
+  },
+  update_plan: {
+    icon: LuWrench,
+    className: "text-orange-300",
+    label: "Update plan",
+  },
+}
+
+function toolIconMeta(tool: string): ToolIconMeta {
+  return TOOL_ICON_META[tool] ?? {
+    icon: LuTerminal,
+    className: "text-foreground/45",
+    label: tool || "Tool call",
   }
-  if (status === "error") {
-    return <VscError className="size-3.5 shrink-0 text-rose-400" />
-  }
-  return <LuTerminal className="size-3.5 shrink-0 text-foreground/40" />
+}
+
+function ToolIcon({ call }: { call: InlineToolCall }) {
+  const meta = toolIconMeta(call.tool)
+  const Icon = call.status === "error" ? VscError : call.status === "running" ? LuLoader : meta.icon
+  const iconClassName = call.status === "error"
+    ? "text-rose-400"
+    : call.status === "running"
+      ? "animate-spin text-blue-400"
+      : meta.className
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="flex size-5 shrink-0 items-center justify-center rounded-md bg-white/[0.035] ring-1 ring-white/[0.06]"
+          aria-label={meta.label}
+        >
+          <Icon className={cn("size-3.5 shrink-0", iconClassName)} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="left" sideOffset={8} className="text-[11px]">
+        {meta.label}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function decisionLabel(decision: ApprovalDecision) {
@@ -84,7 +244,7 @@ function ToolRow({
           "hover:bg-card/80"
         )}
       >
-        <ToolIcon status={call.status} />
+        <ToolIcon call={call} />
         <span className="flex-1 truncate text-[12px] text-foreground/60">
           {call.tool}
         </span>
