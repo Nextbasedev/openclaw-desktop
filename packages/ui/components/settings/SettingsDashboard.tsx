@@ -11,7 +11,7 @@ import { UsageTab } from "./tabs/UsageTab"
 import { VoiceTab } from "./tabs/VoiceTab"
 import { cn } from "@/lib/utils"
 
-type SettingSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
+export type SettingSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -42,22 +42,23 @@ const FOOTER_ITEMS: Array<{ id: SettingSection; label: string; icon: React.Eleme
 
 type SettingsDashboardProps = {
   onBack?: () => void
-  initialSection?: SettingSection
+  activeSection: SettingSection
+  onSectionChange: (section: SettingSection) => void
 }
 
-export function SettingsDashboard({ onBack, initialSection = "config" }: SettingsDashboardProps) {
-  const [activeSection, setActiveSection] = React.useState<SettingSection>(initialSection)
+export function SettingsDashboard({ onBack, activeSection, onSectionChange }: SettingsDashboardProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
+  const resolvedSection = topNavItems.some((item) => item.id === activeSection)
+    ? activeSection
+    : "usage"
 
   React.useEffect(() => {
-    setActiveSection(initialSection)
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [initialSection])
+  }, [activeSection])
 
   function handleSidebarClick(id: SettingSection) {
-    setActiveSection(id)
-    if (scrollRef.current) scrollRef.current.scrollTop = 0
+    onSectionChange(id)
   }
 
   return (
@@ -86,20 +87,23 @@ export function SettingsDashboard({ onBack, initialSection = "config" }: Setting
         </div>
       </nav>
 
-      <div ref={scrollRef} className="my-2 mx-2 w-full max-w-2xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6">
-        {activeSection === "usage" && <UsageTab />}
+      <div
+        ref={scrollRef}
+        className="my-2 mx-2 min-h-0 flex-1 w-full max-w-2xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6"
+      >
+        {resolvedSection === "usage" && <UsageTab />}
 
-        {activeSection === "config" && <ConfigTab />}
+        {resolvedSection === "config" && <ConfigTab />}
 
-        {activeSection === "archive" && <ArchiveTab />}
+        {resolvedSection === "archive" && <ArchiveTab />}
 
-        {activeSection === "appearance" && <AppearanceTab />}
+        {resolvedSection === "appearance" && <AppearanceTab />}
 
-        {activeSection === "voice" && <VoiceTab />}
+        {resolvedSection === "voice" && <VoiceTab />}
 
-        {activeSection === "help" && <HelpTab onShortcutsClick={() => { setActiveSection("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+        {resolvedSection === "help" && <HelpTab onShortcutsClick={() => { onSectionChange("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
 
-        {activeSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { setActiveSection("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+        {resolvedSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { onSectionChange("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
       </div>
     </div>
   )

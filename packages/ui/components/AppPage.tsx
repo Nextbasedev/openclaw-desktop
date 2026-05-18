@@ -11,7 +11,7 @@ import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import { SkillPage } from "@/components/SkillPage"
-import { SettingsDashboard } from "@/components/settings/SettingsDashboard"
+import { SettingsDashboard, type SettingSection } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
 import { useTerminalShortcut } from "@/hooks/useTerminalShortcut"
 import { useAppShortcuts } from "@/hooks/useAppShortcuts"
@@ -22,14 +22,15 @@ import { ChatView } from "@/components/ChatView"
 import { useOnboardingFlow } from "@/components/onboarding"
 import { CommandPalette } from "@/components/CommandPalette"
 import { LogsDialog } from "@/components/logs/LogsDialog"
-import { initClientLogs } from "@/lib/clientLogs"
+import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
+import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
+import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
-import {
-  getMiddlewareConnection,
-  MIDDLEWARE_CONNECTION_CHANGED_EVENT,
-  MIDDLEWARE_DISCONNECTED_EVENT,
-} from "@/lib/middleware-client"
+import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
+import { sendChatV2 } from "@/lib/chat-engine-v2/client"
+import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
+import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
@@ -43,6 +44,7 @@ import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import { VscLayoutSidebarRightOff } from "react-icons/vsc"
 import { InspectorView, type InspectorTabId } from "@/components/inspector/InspectorView"
 import { cn } from "@/lib/utils"
+import type { SearchSpaceResult } from "@/lib/api/search"
 import {
   editorGroupsReducer,
   createInitialState,
@@ -53,7 +55,7 @@ import {
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
 
-type SettingsSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
+type SettingsSection = SettingSection
 type EditorGroupId = "group-1" | "group-2"
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
@@ -67,6 +69,11 @@ const CRON_SESSION_TARGETS = new Set(["isolated", "main", "current"])
 
 function isRealChatSessionKey(sessionKey: string | null | undefined): sessionKey is string {
   return Boolean(sessionKey && !CRON_SESSION_TARGETS.has(sessionKey) && !sessionKey.includes(":cron:"))
+}
+
+function sessionKeyFromResponse(response: unknown): string | null {
+  const data = response as { session?: { key?: string; sessionKey?: string }; chat?: { sessionKey?: string }; sessionKey?: string } | null
+  return data?.session?.key ?? data?.session?.sessionKey ?? data?.chat?.sessionKey ?? data?.sessionKey ?? null
 }
 
 function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
@@ -98,13 +105,6 @@ type CronConversationTarget = {
   session: string
   schedule: string
   prompt: string
-}
-
-type SearchHighlightTarget = {
-  sessionKey: string
-  messageId?: string
-  snippet: string
-  query?: string
 }
 
 type ParsedRoute =
@@ -154,6 +154,11 @@ function fallbackPathForTab(tab: string): string {
   return "/"
 }
 
+function shouldUseNativeWindowChrome(): boolean {
+  if (typeof window === "undefined") return false
+  return new URLSearchParams(window.location.search).get("openclawNativeChrome") === "1"
+}
+
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 220
@@ -161,17 +166,23 @@ const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
 
 export default function Page() {
+  const useNativeWindowChrome = shouldUseNativeWindowChrome()
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
   const {
     flowState,
     loading: onboardingLoading,
     signOut,
     deleteAccount,
-  } = useOnboardingFlow()
+  } = useOnboardingFlow({ autoLoad: false })
   const [hasToken, setHasToken] = useState<boolean | null>(null)
 
   useEffect(() => {
     async function checkToken() {
+      const route = parseRoute(getRoutePath())
+      if (route.kind === "chat" || route.kind === "topic" || route.kind === "inspector") {
+        setHasToken(true)
+        return
+      }
       try {
         const s = await invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
         setHasToken(!!s.hasConnection)
@@ -211,6 +222,7 @@ export default function Page() {
       flowState={flowState}
       onSignOut={signOut}
       onDeleteAccount={deleteAccount}
+      useNativeWindowChrome={useNativeWindowChrome}
     />
   )
 }
@@ -221,6 +233,7 @@ type AppShellProps = {
   flowState: import("@/components/onboarding/useOnboardingFlow").FlowState | null
   onSignOut: () => Promise<unknown>
   onDeleteAccount: () => Promise<unknown>
+  useNativeWindowChrome?: boolean
 }
 
 function AppShell({
@@ -229,10 +242,8 @@ function AppShell({
   flowState,
   onSignOut,
   onDeleteAccount,
+  useNativeWindowChrome = false,
 }: AppShellProps) {
-  const [workspaceConnected, setWorkspaceConnected] = useState(
-    !initialConnect,
-  )
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
@@ -270,10 +281,10 @@ function AppShell({
     getRoutePath() === "/"
       ? "chat"
       : activeTab
-  const disconnectedShell = !workspaceConnected && effectiveActiveTab === "connect"
   const fullScreenInspectorOpen = activeTab === "inspector"
 
   const prevTabRef = useRef("chat")
+  const lastSettingsTabRef = useRef(activeTab)
   const [sidebarItems, setSidebarItems] = useState<SidebarNavItem[]>(DEFAULT_DRAGGABLE_ITEMS)
   const {
     spaces,
@@ -281,6 +292,7 @@ function AppShell({
     activeSpace,
     createSpace,
     updateSpace,
+    archiveSpace,
     switchSpace,
     deleteSpace,
   } = useSpaces()
@@ -304,6 +316,10 @@ function AppShell({
   useEffect(() => {
     installDesktopRouteShim()
     initClientLogs()
+    initMiddlewareConnectionCrossWindowSync()
+    initFrontendCacheRealtimeInvalidation()
+    frontendLog("ui", "app.bootstrap", { route: getRoutePath() })
+    return () => frontendLog("ui", "app.unmount", { route: getRoutePath() })
   }, [])
 
   useEffect(() => {
@@ -314,6 +330,8 @@ function AppShell({
           localStorage.getItem("jarvis.autoDetect") === "true"
       } catch {}
       if (!autoDetect) return
+      const route = parseRoute(getRoutePath())
+      if (route.kind === "chat" || route.kind === "topic" || route.kind === "inspector") return
 
       try {
         const s = await invoke<{
@@ -349,27 +367,16 @@ function AppShell({
 
   const lastActiveSessionKeyRef = useRef<string | null>(null)
 
-  // Keep the previous session alive (hidden) so its SSE connection
-  // and notification logic survive when the user switches away.
-  const [backgroundSessionKey, setBackgroundSessionKey] = useState<string | null>(null)
-  const [backgroundSessionTitle, setBackgroundSessionTitle] = useState<string | null>(null)
-  const prevActiveSessionKeyRef = useRef<string | null>(null)
-  const prevActiveSessionTitleRef = useRef<string | null>(null)
   const initialRouteAppliedRef = useRef(false)
   const initialConnectRedirectAppliedRef = useRef(false)
+  const layoutRestoreAttemptedRef = useRef(false)
+  const layoutRestoreAppliedRef = useRef(false)
 
   useEffect(() => {
-    const prevKey = prevActiveSessionKeyRef.current
-    const prevTitle = prevActiveSessionTitleRef.current
-    if (prevKey && prevKey !== activeSessionKey) {
-      setBackgroundSessionKey(prevKey)
-      setBackgroundSessionTitle(prevTitle)
-    }
     if (activeSessionKey) {
       lastActiveSessionKeyRef.current = activeSessionKey
     }
-    prevActiveSessionKeyRef.current = activeSessionKey
-    prevActiveSessionTitleRef.current = activeSessionTitle
+    frontendLog("session", "active-session.change", { sessionKey: activeSessionKey, title: activeSessionTitle })
   }, [activeSessionKey, activeSessionTitle])
 
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null)
@@ -385,6 +392,16 @@ function AppShell({
     { chat: ActiveChat; sessionKey: string; title: string }
   >())
   activeChatRef.current = activeChat
+
+  useEffect(() => {
+    frontendLog("chat", "active-chat.change", {
+      chatId: activeChat?.id ?? null,
+      chatName: activeChat?.name ?? null,
+      sessionKey: activeChat?.sessionKey ?? activeSessionKey,
+      activeTopicId: activeTopic?.id ?? null,
+      activeTopicName: activeTopic?.name ?? null,
+    })
+  }, [activeChat, activeSessionKey, activeTopic])
 
   const focusedGroup = getFocusedGroup(editorGroups)
   const allTabs = editorGroups.groups.flatMap((g) => g.tabs)
@@ -402,6 +419,7 @@ function AppShell({
           title: activeTopic.name,
           subtitle: activeTopic.projectName,
           kind: "topic",
+          topic: activeTopic,
         },
       })
       return
@@ -417,6 +435,7 @@ function AppShell({
           title,
           subtitle: "Chat",
           kind: "chat",
+          chat: activeChat,
         },
       })
       return
@@ -452,13 +471,12 @@ function AppShell({
     })
   }, [activeSessionKey, activeChat, activeSessionTitle, editorGroups.focusedGroupId])
 
+  type ChatMessage = import("@/components/ChatView/types").ChatMessage
   type OptimisticMsg = { messageId: string; role: "user"; text: string; createdAt: string; isOptimistic: true; attachments?: Array<{ name: string; mimeType: string; content?: string; size?: number }> }
-  const [initialMessages, setInitialMessages] = useState<OptimisticMsg[] | undefined>()
+  const [initialMessages, setInitialMessages] = useState<ChatMessage[] | undefined>()
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
-  const [searchHighlightTarget, setSearchHighlightTarget] =
-    useState<SearchHighlightTarget | null>(null)
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
@@ -477,30 +495,43 @@ function AppShell({
     setActiveSessionKey(null)
     setActiveSessionTitle(null)
     setInitialMessages(undefined)
-    setSearchHighlightTarget(null)
   }, [])
+
+  const recoverToDraftRoute = useCallback(() => {
+    clearConversationState()
+    setActiveTab("chat")
+    dispatchGroups({
+      type: "ADD_TAB",
+      groupId: editorGroups.focusedGroupId,
+      tab: createDraftTab(editorGroups.focusedGroupId),
+    })
+    if (getRoutePath() !== "/") window.history.replaceState(null, "", routeUrl("/"))
+  }, [clearConversationState, editorGroups.focusedGroupId])
+
+  useEffect(() => {
+    if (!activeChat || activeSessionKey || !isUndecidedChatTitle(activeChat.name)) return
+    const timer = window.setTimeout(() => {
+      const route = parseRoute(getRoutePath())
+      if (route.kind === "chat" && route.chatId === activeChat.id && !resolvedChatCacheRef.current.has(activeChat.id)) {
+        recoverToDraftRoute()
+      }
+    }, 2500)
+    return () => window.clearTimeout(timer)
+  }, [activeChat, activeSessionKey, recoverToDraftRoute])
 
   useEffect(() => {
     function resetMiddlewareScopedUi() {
       routeRequestRef.current += 1
       resolvedChatCacheRef.current.clear()
       clearConversationState()
-      setBackgroundSessionKey(null)
-      setBackgroundSessionTitle(null)
-      prevActiveSessionKeyRef.current = null
-      prevActiveSessionTitleRef.current = null
       lastActiveSessionKeyRef.current = null
       setCronConversationTarget(null)
       setPendingPrompt(null)
       setComposerError(null)
       setFocusedToolCallId(null)
+      setActiveTab("chat")
       setChatRefreshTrigger((n) => n + 1)
       try { localStorage.removeItem("openclaw.activeProjectId") } catch {}
-      if (!getMiddlewareConnection()) {
-        emit("sidebar:refresh")
-        return
-      }
-      setActiveTab("chat")
       if (getRoutePath() !== "/") window.history.replaceState(null, "", routeUrl("/"))
       emit("sidebar:refresh")
     }
@@ -508,8 +539,18 @@ function AppShell({
     return () => window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
   }, [clearConversationState])
 
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
+
+  useEffect(() => {
+    if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
+      setSettingsSection("usage")
+    }
+    lastSettingsTabRef.current = activeTab
+  }, [activeTab])
+
   const activateRoute = useCallback(async (route: ParsedRoute) => {
     routeRequestRef.current += 1
+    frontendLog("ui", "route.activate.start", { route, requestId: routeRequestRef.current })
 
     if (route.kind === "inspector") {
       setPendingPrompt(null)
@@ -522,6 +563,9 @@ function AppShell({
     if (route.kind === "tab") {
       setPendingPrompt(null)
       setComposerError(null)
+      if (route.tab === "settings") {
+        setSettingsSection("usage")
+      }
       setActiveTab(route.tab)
       clearConversationState()
       return
@@ -532,6 +576,11 @@ function AppShell({
       setComposerError(null)
       setActiveTab("chat")
       clearConversationState()
+      dispatchGroups({
+        type: "ADD_TAB",
+        groupId: editorGroups.focusedGroupId,
+        tab: createDraftTab(editorGroups.focusedGroupId),
+      })
       return
     }
 
@@ -558,8 +607,7 @@ function AppShell({
           (chat) => chat.id === route.chatId,
         )
         if (!found || found.archived) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
           return
         }
 
@@ -571,13 +619,14 @@ function AppShell({
         if (!isCurrentPath()) return
 
         resolvedChatCacheRef.current.set(found.id, resolved)
+        frontendLog("ui", "route.chat.resolved", { chatId: found.id, sessionKey: resolved.sessionKey, title: resolved.title })
         setActiveChat(resolved.chat)
         setActiveSessionKey(resolved.sessionKey)
         setActiveSessionTitle(resolved.title)
-      } catch {
+      } catch (error) {
+        frontendLog("ui", "route.chat.fail", { chatId: route.chatId, error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) } }, "error")
         if (isCurrentPath()) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
         }
       }
       return
@@ -606,8 +655,7 @@ function AppShell({
           (p) => p.id === route.projectId && !p.archived,
         )
         if (!project) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
           return
         }
 
@@ -622,8 +670,7 @@ function AppShell({
           (t) => t.id === route.topicId && !t.archived,
         )
         if (!topic) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
           return
         }
 
@@ -644,44 +691,22 @@ function AppShell({
 
         const session = (sessionResult.sessions || []).find((s) => !s.hidden)
         if (session) {
+          frontendLog("ui", "route.topic.resolved", { projectId: route.projectId, topicId: route.topicId, sessionKey: session.key })
           setActiveSessionKey(session.key)
           setActiveSessionTitle(session.label?.trim() || nextTopic.name)
         } else {
+          frontendLog("ui", "route.topic.resolved", { projectId: route.projectId, topicId: route.topicId, sessionKey: null })
           setActiveSessionKey(null)
           setActiveSessionTitle(null)
         }
-      } catch {
+      } catch (error) {
+        frontendLog("ui", "route.topic.fail", { projectId: route.projectId, topicId: route.topicId, error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) } }, "error")
         if (isCurrentPath()) {
-          clearConversationState()
-          window.history.replaceState(null, "", routeUrl("/"))
+          recoverToDraftRoute()
         }
       }
     }
-  }, [clearConversationState])
-
-  useEffect(() => {
-    function onMiddlewareConnected() {
-      setWorkspaceConnected(true)
-      setConnectAutoOpenEnabled(false)
-      setSidebarOpen(typeof window !== "undefined" ? window.innerWidth >= 1024 : true)
-    }
-    function onMiddlewareDisconnected() {
-      setWorkspaceConnected(false)
-      setConnectAutoOpenEnabled(true)
-      setSidebarOpen(false)
-      setInspectorOpen(false)
-      setTerminalActive(false)
-      settingsPushedRef.current = false
-      window.history.replaceState(null, "", routeUrl("/connect"))
-      void activateRoute({ kind: "tab", tab: "connect" })
-    }
-    window.addEventListener("openclaw:middleware-connected", onMiddlewareConnected)
-    window.addEventListener(MIDDLEWARE_DISCONNECTED_EVENT, onMiddlewareDisconnected)
-    return () => {
-      window.removeEventListener("openclaw:middleware-connected", onMiddlewareConnected)
-      window.removeEventListener(MIDDLEWARE_DISCONNECTED_EVENT, onMiddlewareDisconnected)
-    }
-  }, [activateRoute])
+  }, [clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute])
 
   // Restore state from URL on mount
   useEffect(() => {
@@ -693,6 +718,7 @@ function AppShell({
   // Handle browser back/forward
   useEffect(() => {
     function onPopState() {
+      frontendLog("ui", "route.popstate", { route: getRoutePath() })
       void activateRoute(parseRoute(getRoutePath()))
     }
     window.addEventListener("popstate", onPopState)
@@ -700,15 +726,11 @@ function AppShell({
   }, [activateRoute])
 
   const handleSelectTool = useCallback((toolCallId: string) => {
-    if (!workspaceConnected) return
     if (!inspectorOpen) setInspectorOpen(true)
     setFocusedToolCallId(toolCallId)
-  }, [inspectorOpen, workspaceConnected])
+  }, [inspectorOpen])
 
-  const toggleInspector = useCallback(() => {
-    if (!workspaceConnected) return
-    setInspectorOpen((prev) => !prev)
-  }, [workspaceConnected])
+  const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const setChatModePersisted = useCallback((mode: "simple" | "mission") => {
     setChatMode(mode)
     setInspectorOpen(mode === "mission")
@@ -717,7 +739,6 @@ function AppShell({
     } catch {}
   }, [])
   const toggleTerminal = useCallback(() => {
-    if (!workspaceConnected) return
     if (inspectorOpen && terminalActive) {
       setInspectorOpen(false)
       setTerminalActive(false)
@@ -725,19 +746,11 @@ function AppShell({
       setInspectorOpen(true)
       setTerminalActive(true)
     }
-  }, [inspectorOpen, terminalActive, workspaceConnected])
-  const toggleSidebar = useCallback(() => {
-    if (!workspaceConnected) return
-    setSidebarOpen((prev) => !prev)
-  }, [workspaceConnected])
-  const closeSidebar = useCallback(() => {
-    if (!workspaceConnected) return
-    setSidebarOpen(false)
-  }, [workspaceConnected])
+  }, [inspectorOpen, terminalActive])
+  const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
-  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("config")
-
-  const openSettings = useCallback((section: SettingsSection = "config") => {
+  const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
     const currentPath = getRoutePath()
@@ -746,7 +759,7 @@ function AppShell({
     }
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
-    setSettingsInitialSection(section)
+    setSettingsSection(section)
     setActiveTab("settings")
     clearConversationState()
     settingsPushedRef.current = true
@@ -756,7 +769,7 @@ function AppShell({
   useEffect(() => {
     function handleOpenSettings(event: Event) {
       const detail = (event as CustomEvent<{ section?: SettingsSection }>).detail
-      openSettings(detail?.section ?? "config")
+      openSettings(detail?.section ?? "usage")
     }
     window.addEventListener("openclaw:open-settings", handleOpenSettings)
     return () => window.removeEventListener("openclaw:open-settings", handleOpenSettings)
@@ -929,28 +942,160 @@ function AppShell({
 
   const handleChatSelect = useCallback(async (chat: ActiveChat) => {
     setConnectAutoOpenEnabled(false)
-    routeRequestRef.current += 1
+    const requestId = ++routeRequestRef.current
     setPendingPrompt(null)
     setComposerError(null)
     setActiveTab("chat")
     setActiveTopic(null)
     setInitialMessages(undefined)
 
+    const applyChatSelection = (selection: SessionData) => {
+      setActiveChat(selection.chat)
+      setActiveSessionKey(selection.sessionKey)
+      setActiveSessionTitle(selection.title)
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: {
+          id: `chat:${selection.chat.id}`,
+          title: selection.title,
+          subtitle: "Chat",
+          kind: "chat",
+          chat: selection.chat,
+        },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: editorGroups.focusedGroupId,
+        sessionData: selection,
+      })
+      window.history.pushState(null, "", routeUrl(`/${selection.chat.id}`))
+    }
+
+    const cached = resolvedChatCacheRef.current.get(chat.id)
+    if (cached) {
+      applyChatSelection(cached)
+    } else if (isRealChatSessionKey(chat.sessionKey)) {
+      const title = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
+      const selection = { chat, sessionKey: chat.sessionKey, title }
+      resolvedChatCacheRef.current.set(chat.id, selection)
+      applyChatSelection(selection)
+    }
+
     try {
       const resolved = await ensureChatSession(chat)
+      if (routeRequestRef.current !== requestId) return
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
-      setActiveChat(resolved.chat)
-      setActiveSessionKey(resolved.sessionKey)
-      setActiveSessionTitle(resolved.title)
-      window.history.pushState(null, "", routeUrl(`/${resolved.chat.id}`))
+      applyChatSelection(resolved)
     } catch (err) {
+      if (routeRequestRef.current !== requestId) return
       console.error("Failed to open chat session", err)
-      setActiveChat(chat)
-      setActiveSessionKey(null)
-      setActiveSessionTitle(null)
-      window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+      if (!cached && !isRealChatSessionKey(chat.sessionKey)) {
+        setActiveChat(chat)
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
+        window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+      }
     }
-  }, [])
+  }, [editorGroups.focusedGroupId])
+
+  useEffect(() => {
+    if (layoutRestoreAttemptedRef.current || spaces.length === 0) return
+    layoutRestoreAttemptedRef.current = true
+    let cancelled = false
+    async function restoreLastWorkspaceLayout() {
+      const snapshot = await loadWorkspaceLayoutSnapshot().catch(() => null)
+      if (!snapshot || cancelled) return
+      const validSpace = snapshot.activeSpaceId
+        ? spaces.some((space) => space.id === snapshot.activeSpaceId)
+        : true
+      if (snapshot.activeSpaceId && validSpace && snapshot.activeSpaceId !== activeSpaceId) {
+        await switchSpace(snapshot.activeSpaceId).catch(() => {})
+      }
+
+      const chatIds = new Set<string>()
+      for (const group of snapshot.editorGroups.groups) {
+        for (const tab of group.tabs) {
+          if (tab.kind === "chat") {
+            const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+            if (chatId) chatIds.add(chatId)
+          }
+        }
+      }
+      if (snapshot.activeChat?.id) chatIds.add(snapshot.activeChat.id)
+
+      const chatsById = new Map<string, ActiveChat>()
+      if (chatIds.size > 0) {
+        const result = await invoke<{ chats: Array<ActiveChat & { archived?: boolean }> }>(
+          "middleware_chats_list",
+          { input: { spaceId: validSpace ? snapshot.activeSpaceId ?? undefined : undefined } },
+        ).catch(() => ({ chats: [] }))
+        for (const chat of result.chats || []) {
+          if (!chat.archived) chatsById.set(chat.id, chat)
+        }
+      }
+
+      const restoredGroups = snapshot.editorGroups.groups.map((group) => {
+        const tabs = group.tabs.flatMap((tab): EditorTab[] => {
+          if (tab.kind === "draft") return [tab]
+          if (tab.kind === "chat") {
+            const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+            const chat = chatsById.get(chatId)
+            if (!chat) return []
+            return [{ ...tab, id: `chat:${chat.id}`, title: chat.name, chat }]
+          }
+          return [tab]
+        })
+        const activeTabId = tabs.some((tab) => tab.id === group.activeTabId)
+          ? group.activeTabId
+          : tabs[tabs.length - 1]?.id ?? null
+        const activeTab = tabs.find((tab) => tab.id === activeTabId)
+        const chat = activeTab?.kind === "chat" ? activeTab.chat : null
+        const sessionKey = chat?.sessionKey ?? group.sessionData?.sessionKey ?? null
+        return {
+          ...group,
+          tabs,
+          activeTabId,
+          sessionData: chat && sessionKey ? { chat, sessionKey, title: chat.name } : null,
+        }
+      }).filter((group) => group.tabs.length > 0)
+
+      if (cancelled || restoredGroups.length === 0) return
+      layoutRestoreAppliedRef.current = true
+      setConnectAutoOpenEnabled(false)
+      setSplitRatio(Math.max(0.3, Math.min(0.7, snapshot.splitRatio || 0.5)))
+      dispatchGroups({
+        type: "RESTORE",
+        state: {
+          groups: restoredGroups.slice(0, 2),
+          focusedGroupId: restoredGroups.some((group) => group.id === snapshot.editorGroups.focusedGroupId)
+            ? snapshot.editorGroups.focusedGroupId
+            : restoredGroups[0]!.id,
+        },
+      })
+
+      const focused = restoredGroups.find((group) => group.id === snapshot.editorGroups.focusedGroupId) ?? restoredGroups[0]
+      const activeTab = focused?.tabs.find((tab) => tab.id === focused.activeTabId) ?? focused?.tabs[0]
+      setActiveTab(snapshot.activeTab || "chat")
+      if (activeTab?.kind === "chat" && activeTab.chat) {
+        const sessionKey = activeTab.chat.sessionKey ?? focused?.sessionData?.sessionKey ?? null
+        setActiveTopic(null)
+        setActiveChat(activeTab.chat)
+        setActiveSessionKey(sessionKey)
+        setActiveSessionTitle(activeTab.chat.name)
+        setInitialMessages(undefined)
+        window.history.replaceState(null, "", routeUrl(`/${activeTab.chat.id}`))
+      } else if (activeTab?.kind === "topic" && activeTab.topic) {
+        handleTopicSelect(activeTab.topic)
+      } else {
+        clearConversationState()
+        window.history.replaceState(null, "", routeUrl("/"))
+      }
+    }
+    void restoreLastWorkspaceLayout()
+    return () => {
+      cancelled = true
+    }
+  }, [activeSpaceId, clearConversationState, handleTopicSelect, spaces, switchSpace])
 
   const handleCronJobNavigate = useCallback(async (cronJob: ActiveChat) => {
     try {
@@ -1118,6 +1263,13 @@ function AppShell({
     emit("sidebar:refresh")
   }, [activeSpaceId, clearConversationState, switchSpace])
 
+  const handleSpaceNewChat = useCallback(async (spaceId: string) => {
+    if (spaceId !== activeSpaceId) {
+      await handleSpaceSwitch(spaceId)
+    }
+    handleNewChat()
+  }, [activeSpaceId, handleNewChat, handleSpaceSwitch])
+
   const handleSpaceCreate = useCallback(async (name?: string) => {
     const space = await createSpace(name)
     await handleSpaceSwitch(space.id)
@@ -1128,28 +1280,12 @@ function AppShell({
     await handleSpaceSwitch(nextSpaceId)
   }, [deleteSpace, handleSpaceSwitch])
 
-  const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
+  const handleSpaceArchive = useCallback(async (spaceId: string) => {
+    const nextSpaceId = await archiveSpace(spaceId)
+    await handleSpaceSwitch(nextSpaceId)
+  }, [archiveSpace, handleSpaceSwitch])
 
-  const sessionDataForTab = useCallback((tab?: EditorTab | null): SessionData | null => {
-    if (!tab || tab.kind !== "chat") return null
-    const data = tabDataRef.current.get(tab.id)
-    const chat = data?.chat
-    if (!chat) return null
-    const cached = resolvedChatCacheRef.current.get(chat.id)
-    if (cached) {
-      return {
-        chat: cached.chat,
-        sessionKey: cached.sessionKey,
-        title: cached.title,
-      }
-    }
-    if (!chat.sessionKey) return null
-    return {
-      chat,
-      sessionKey: chat.sessionKey,
-      title: chat.name,
-    }
-  }, [])
+  const tabDataRef = useRef(new Map<string, { chat?: ActiveChat; topic?: ActiveTopic }>())
 
   useEffect(() => {
     if (activeTopic) {
@@ -1161,6 +1297,40 @@ function AppShell({
       tabDataRef.current.set(tabId, { chat: activeChat })
     }
   }, [activeChat, activeTopic])
+
+  useEffect(() => {
+    const hasRestorableContent =
+      Boolean(activeChat || activeTopic) ||
+      editorGroups.groups.some((group) => group.tabs.some((tab) => tab.kind !== "draft"))
+    if (!layoutRestoreAttemptedRef.current || (!layoutRestoreAppliedRef.current && !hasRestorableContent)) return
+
+    const timer = window.setTimeout(() => {
+      const enrichedGroups = {
+        ...editorGroups,
+        groups: editorGroups.groups.map((group) => ({
+          ...group,
+          tabs: group.tabs.map((tab) => {
+            const cached = tabDataRef.current.get(tab.id)
+            if (tab.kind === "chat" && !tab.chat && cached?.chat) return { ...tab, chat: cached.chat }
+            if (tab.kind === "topic" && !tab.topic && cached?.topic) return { ...tab, topic: cached.topic }
+            return tab
+          }),
+        })),
+      }
+      void saveWorkspaceLayoutSnapshot({
+        activeSpaceId,
+        activeTab,
+        route: getRoutePath(),
+        activeChat,
+        activeTopic,
+        activeSessionKey,
+        activeSessionTitle,
+        editorGroups: enrichedGroups,
+        splitRatio,
+      }).catch(() => {})
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, activeTab, activeTopic, editorGroups, splitRatio])
 
   const switchToGroupSession = useCallback((groupId: "group-1" | "group-2") => {
     if (activeSessionKey && activeChat) {
@@ -1302,17 +1472,19 @@ function AppShell({
     }
   }, [editorGroups, handleChatSelect, handleNewChat, handleTopicSelect])
 
+  const handleOpenChatTabWindow = useCallback((tab: EditorTab) => {
+    if (tab.kind !== "chat") return
+    const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
+    if (!chatId || chatId === tab.id) return
+    void openRouteInNewWindow(`/${chatId}`, tab.title)
+  }, [])
+
   const handleEditorTabMove = useCallback((
     tabId: string,
     sourceGroupId: EditorGroupId,
     targetGroupId: EditorGroupId,
   ) => {
     if (sourceGroupId === targetGroupId) return
-
-    const sourceGroup = editorGroups.groups.find((group) => group.id === sourceGroupId)
-    const sourceRemainingTabs =
-      sourceGroup?.tabs.filter((tab) => tab.id !== tabId) ?? []
-    const sourceFallbackTab = sourceRemainingTabs[sourceRemainingTabs.length - 1]
 
     const data = tabDataRef.current.get(tabId)
     const cached = data?.chat ? resolvedChatCacheRef.current.get(data.chat.id) : null
@@ -1335,12 +1507,6 @@ function AppShell({
       tabId,
       sourceGroupId,
       targetGroupId,
-    })
-
-    dispatchGroups({
-      type: "SET_SESSION_DATA",
-      groupId: sourceGroupId,
-      sessionData: sessionDataForTab(sourceFallbackTab),
     })
 
     dispatchGroups({
@@ -1371,7 +1537,7 @@ function AppShell({
       setComposerError(null)
       window.history.replaceState(null, "", routeUrl("/"))
     }
-  }, [editorGroups.groups, sessionDataForTab])
+  }, [])
 
   const handleFocusGroup = useCallback((groupId: "group-1" | "group-2") => {
     if (groupId === editorGroups.focusedGroupId) return
@@ -1401,18 +1567,6 @@ function AppShell({
     }
 
     const focused = getFocusedGroup(editorGroups)
-    const activeTab = focused.tabs.find((tab) => tab.id === focused.activeTabId)
-    if (!activeTab || activeTab.kind === "draft") return
-
-    const remainingTabs = focused.tabs.filter((tab) => tab.id !== activeTab.id)
-    const sourceFallbackTab = remainingTabs[remainingTabs.length - 1]
-    const sourceFallbackSessionData = sessionDataForTab(sourceFallbackTab)
-
-    const hasAnotherRealTab = focused.tabs.some(
-      (tab) => tab.id !== activeTab.id && tab.kind !== "draft",
-    )
-    if (!hasAnotherRealTab) return
-
     if (activeSessionKey && activeChat) {
       dispatchGroups({
         type: "SET_SESSION_DATA",
@@ -1425,19 +1579,44 @@ function AppShell({
       })
     }
 
-    const data = tabDataRef.current.get(activeTab.id)
-    if (data?.chat) {
-      const cached = resolvedChatCacheRef.current.get(data.chat.id)
+    const splitTab = focused.tabs.find(
+      (tab) => tab.id === focused.activeTabId && tab.kind !== "draft",
+    )
+    if (!splitTab) return
+
+    const sourceFallbackTab = focused.tabs.filter((tab) => tab.id !== splitTab.id).at(-1)
+    const sourceFallbackData = sourceFallbackTab ? tabDataRef.current.get(sourceFallbackTab.id) : null
+    const sourceFallbackChat =
+      sourceFallbackTab?.kind === "chat"
+        ? sourceFallbackTab.chat ?? sourceFallbackData?.chat ?? null
+        : null
+    const sourceFallbackCached = sourceFallbackChat
+      ? resolvedChatCacheRef.current.get(sourceFallbackChat.id)
+      : null
+    const sourceSessionData = sourceFallbackCached
+      ? {
+          chat: sourceFallbackCached.chat,
+          sessionKey: sourceFallbackCached.sessionKey,
+          title: sourceFallbackCached.title,
+        }
+      : sourceFallbackChat?.sessionKey
+        ? {
+            chat: sourceFallbackChat,
+            sessionKey: sourceFallbackChat.sessionKey,
+            title: isUndecidedChatTitle(sourceFallbackChat.name) ? "New Chat" : sourceFallbackChat.name,
+          }
+        : null
+
+    const data = tabDataRef.current.get(splitTab.id)
+    const splitChat = splitTab.kind === "chat" ? splitTab.chat ?? data?.chat ?? null : null
+    if (splitChat) {
+      const cached = resolvedChatCacheRef.current.get(splitChat.id)
       if (cached) {
         dispatchGroups({
           type: "SPLIT_TAB",
-          tabId: activeTab.id,
+          tabId: splitTab.id,
           sessionData: cached,
-        })
-        dispatchGroups({
-          type: "SET_SESSION_DATA",
-          groupId: focused.id,
-          sessionData: sourceFallbackSessionData,
+          sourceSessionData,
         })
         setActiveTopic(null)
         setActiveChat(cached.chat)
@@ -1446,15 +1625,9 @@ function AppShell({
         setInitialMessages(undefined)
         setPendingPrompt(null)
         setComposerError(null)
-        window.history.replaceState(null, "", routeUrl(`/${cached.chat.id}`))
       } else {
-        dispatchGroups({ type: "SPLIT_TAB", tabId: activeTab.id, sessionData: null })
-        dispatchGroups({
-          type: "SET_SESSION_DATA",
-          groupId: focused.id,
-          sessionData: sourceFallbackSessionData,
-        })
-        ensureChatSession(data.chat)
+        dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null, sourceSessionData })
+        ensureChatSession(splitChat)
           .then((resolved) => {
             resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
             dispatchGroups({
@@ -1469,19 +1642,13 @@ function AppShell({
             setInitialMessages(undefined)
             setPendingPrompt(null)
             setComposerError(null)
-            window.history.replaceState(null, "", routeUrl(`/${resolved.chat.id}`))
           })
           .catch(() => {})
       }
     } else {
-      dispatchGroups({ type: "SPLIT_TAB", tabId: activeTab.id, sessionData: null })
-      dispatchGroups({
-        type: "SET_SESSION_DATA",
-        groupId: focused.id,
-        sessionData: sourceFallbackSessionData,
-      })
+      dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null, sourceSessionData })
     }
-  }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups, sessionDataForTab])
+  }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
 
   const handleSessionNavigate = useCallback(async (sessionKey?: string) => {
     setConnectAutoOpenEnabled(false)
@@ -1531,65 +1698,6 @@ function AppShell({
       handleNewChat()
     }
   }, [handleNewChat])
-
-  const handleProjectSearchNavigate = useCallback(async (projectId: string) => {
-    try {
-      localStorage.setItem("openclaw.activeProjectId", projectId)
-    } catch {}
-
-    try {
-      const result = await invoke<{
-        topics: Array<{ id: string; name: string; archived: boolean }>
-      }>("middleware_topics_list", { input: { projectId } })
-      const topic = (result.topics || []).find((item) => !item.archived)
-      if (topic) {
-        const projectResult = await invoke<{
-          projects: Array<{ id: string; name: string; archived: boolean }>
-        }>("middleware_projects_list", { input: {} })
-        const project = (projectResult.projects || []).find(
-          (item) => item.id === projectId && !item.archived,
-        )
-        if (project) {
-          handleTopicSelect({
-            id: topic.id,
-            name: topic.name,
-            projectId,
-            projectName: project.name,
-          })
-          return
-        }
-      }
-    } catch (error) {
-      console.error("Failed to navigate to project search result", error)
-    }
-
-    setPendingPrompt(null)
-    setComposerError(null)
-    setConnectAutoOpenEnabled(false)
-    setActiveTab("chat")
-    clearConversationState()
-    window.history.pushState(null, "", routeUrl("/"))
-  }, [clearConversationState, handleTopicSelect])
-
-  const handleSearchMessageNavigate = useCallback(async (input: {
-    chat?: ActiveChat
-    sessionKey: string
-    messageId?: string
-    snippet: string
-    query?: string
-  }) => {
-    setSearchHighlightTarget({
-      sessionKey: input.sessionKey,
-      messageId: input.messageId,
-      snippet: input.snippet,
-      query: input.query,
-    })
-    if (input.chat) {
-      await handleChatSelect(input.chat)
-      return
-    }
-    await handleSessionNavigate(input.sessionKey)
-  }, [handleChatSelect, handleSessionNavigate])
 
   const handlePromptDraft = useCallback((prompt: string) => {
     setConnectAutoOpenEnabled(false)
@@ -1652,24 +1760,43 @@ function AppShell({
 
   const handleQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
+    frontendLog("composer", "quick-send.attempt", {
+      hasText: Boolean(text),
+      textLength: text.length,
+      attachmentCount: payload.attachments?.length ?? 0,
+      quickSending,
+      activeSpaceId,
+    })
     if (quickSending || !text) return
     if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
     setComposerError(null)
     setQuickSending(true)
     try {
+      const targetGroupId = editorGroups.focusedGroupId
       const fallbackName = fallbackChatNameFromText(text)
-      const result = await invoke<{ chat: { id: string; name: string } }>(
+      const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
         "middleware_chats_create",
-        { input: { name: fallbackName, spaceId: activeSpaceId } },
+        { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
       )
-      const sessionResult = await invoke<{ session: { key: string } }>(
-        "middleware_sessions_create",
-        { input: { agentId: "main", label: fallbackName } },
-      )
+      let sessionKey = sessionKeyFromResponse(result)
+      if (!sessionKey) {
+        const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
+          "middleware_sessions_create",
+          { input: { agentId: "main", label: fallbackName } },
+        )
+        sessionKey = sessionKeyFromResponse(sessionResult)
+        if (sessionKey) {
+          await invoke("middleware_chats_attach_session", {
+            input: { chatId: result.chat.id, sessionKey },
+          })
+        }
+      }
+      if (!sessionKey) throw new Error("New chat did not return a sessionKey")
 
+      const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
-        messageId: randomId(),
+        messageId: optimisticId,
         role: "user",
         text,
         createdAt: new Date().toISOString(),
@@ -1685,24 +1812,37 @@ function AppShell({
       setInitialMessages(optimisticMessages)
       setActiveTab("chat")
       setActiveTopic(null)
-      setActiveChat({ id: result.chat.id, name: fallbackName, sessionKey: sessionResult.session.key })
-      setActiveSessionKey(sessionResult.session.key)
+      const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
+      const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
+      resolvedChatCacheRef.current.set(result.chat.id, sessionData)
+      setActiveChat(createdChat)
+      setActiveSessionKey(sessionKey)
       setActiveSessionTitle(fallbackName)
+      dispatchGroups({
+        type: "ADD_TAB",
+        groupId: targetGroupId,
+        tab: { id: `chat:${result.chat.id}`, title: fallbackName, subtitle: "Chat", kind: "chat", chat: createdChat },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: targetGroupId,
+        sessionData,
+      })
       setChatRefreshTrigger((n) => n + 1)
       window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
-
-      await invoke("middleware_chats_attach_session", {
-        input: { chatId: result.chat.id, sessionKey: sessionResult.session.key },
+      frontendLog("composer", "quick-send.dispatch", {
+        chatId: result.chat.id,
+        sessionKey,
+        optimisticId,
+        attachmentCount: payload.attachments?.length ?? 0,
       })
-
-      await invoke("middleware_chat_send", {
-        input: {
-          sessionKey: sessionResult.session.key,
-          text,
-          attachments: payload.attachments,
-        },
+      await sendChatV2({
+        sessionKey,
+        text,
+        attachments: payload.attachments,
+        idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
+        clientMessageId: optimisticId,
       })
-
       try {
         const { name } = await invoke<{ name: string }>(
           "middleware_autonaming_quick",
@@ -1712,15 +1852,28 @@ function AppShell({
         await invoke("middleware_chats_rename", {
           input: { chatId: result.chat.id, name: finalName },
         })
+        const renamedChat = { ...createdChat, name: finalName }
+        resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
         setActiveChat((prev) =>
           prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
         )
         setActiveSessionTitle(finalName)
+        dispatchGroups({
+          type: "UPDATE_TAB",
+          tabId: `chat:${result.chat.id}`,
+          updates: { title: finalName, chat: renamedChat },
+        })
+        dispatchGroups({
+          type: "SET_SESSION_DATA",
+          groupId: targetGroupId,
+          sessionData: { chat: renamedChat, sessionKey, title: finalName },
+        })
         setChatRefreshTrigger((n) => n + 1)
       } catch (err) {
         console.error("Auto-naming chat failed", err)
       }
     } catch (err) {
+      frontendLog("composer", "quick-send.fail", { error: err instanceof Error ? { kind: err.name, message: err.message } : { kind: "Error", message: String(err) } }, "error")
       console.error("Quick send failed", err)
       if (isGatewayError(err)) {
         showGatewayError(err instanceof Error ? err.message : undefined)
@@ -1738,17 +1891,24 @@ function AppShell({
     } finally {
       setQuickSending(false)
     }
-  }, [activeSpaceId, clearConversationState, quickSending])
+  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, quickSending])
 
   const handleTopicQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
+    frontendLog("composer", "topic-quick-send.attempt", {
+      hasText: Boolean(text),
+      textLength: text.length,
+      attachmentCount: payload.attachments?.length ?? 0,
+      quickSending,
+      topicId: activeTopic?.id ?? null,
+    })
     if (quickSending || !text || !activeTopic) return
     if (!(await checkGatewayOrRedirect())) return
     routeRequestRef.current += 1
     setComposerError(null)
     setQuickSending(true)
     try {
-      const sessionResult = await invoke<{ session: { key: string } }>(
+      const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
         "middleware_sessions_create",
         {
           input: {
@@ -1759,8 +1919,11 @@ function AppShell({
           },
         },
       )
+      const sessionKey = sessionKeyFromResponse(sessionResult)
+      if (!sessionKey) throw new Error("New topic session did not return a sessionKey")
+      const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
-        messageId: randomId(),
+        messageId: optimisticId,
         role: "user",
         text,
         createdAt: new Date().toISOString(),
@@ -1774,17 +1937,24 @@ function AppShell({
       }]
       setPendingPrompt(null)
       setInitialMessages(optimisticMessages)
-      setActiveSessionKey(sessionResult.session.key)
+      setActiveSessionKey(sessionKey)
       setActiveSessionTitle(activeTopic.name)
 
-      await invoke("middleware_chat_send", {
-        input: {
-          sessionKey: sessionResult.session.key,
-          text,
-          attachments: payload.attachments,
-        },
+      frontendLog("composer", "topic-quick-send.dispatch", {
+        topicId: activeTopic.id,
+        sessionKey,
+        optimisticId,
+        attachmentCount: payload.attachments?.length ?? 0,
+      })
+      await sendChatV2({
+        sessionKey,
+        text,
+        attachments: payload.attachments,
+        idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
+        clientMessageId: optimisticId,
       })
     } catch (err) {
+      frontendLog("composer", "topic-quick-send.fail", { error: err instanceof Error ? { kind: err.name, message: err.message } : { kind: "Error", message: String(err) } }, "error")
       console.error("Topic quick send failed", err)
       if (isGatewayError(err)) {
         showGatewayError(err instanceof Error ? err.message : undefined)
@@ -1812,6 +1982,10 @@ function AppShell({
       handleNewChat()
       return
     }
+    if (tab === "settings") {
+      openSettings("usage")
+      return
+    }
     routeRequestRef.current += 1
     setActiveTab(tab)
     setComposerError(null)
@@ -1825,7 +1999,7 @@ function AppShell({
     window.history.pushState(null, "", routeUrl(url))
     setPendingPrompt(null)
     clearConversationState()
-  }, [handleNewChat, clearConversationState])
+  }, [handleNewChat, openSettings, clearConversationState])
 
   useEffect(() => {
     if (fullScreenInspectorOpen) {
@@ -1861,40 +2035,6 @@ function AppShell({
     onResetOnboarding()
   }, [onDeleteAccount, onResetOnboarding])
 
-  const visibleSessionKeys = new Set(
-    [
-      activeSessionKey,
-      backgroundSessionKey,
-      ...editorGroups.groups.map((group) => group.sessionData?.sessionKey ?? null),
-    ].filter((key): key is string => Boolean(key)),
-  )
-  const warmChatSessions = effectiveActiveTab === "chat"
-    ? Array.from(
-        new Map(
-          allTabs
-            .filter((tab) => tab.kind === "chat")
-            .map((tab) => {
-              const data = tabDataRef.current.get(tab.id)
-              const cached = data?.chat
-                ? resolvedChatCacheRef.current.get(data.chat.id)
-                : null
-              const sessionKey = cached?.sessionKey ?? data?.chat?.sessionKey
-              if (!data?.chat || !sessionKey || visibleSessionKeys.has(sessionKey)) {
-                return null
-              }
-              return [
-                sessionKey,
-                {
-                  sessionKey,
-                  title: cached?.title ?? data.chat.name,
-                },
-              ] as const
-            })
-            .filter((entry): entry is readonly [string, { sessionKey: string; title: string }] => Boolean(entry)),
-        ).values(),
-      ).slice(0, 6)
-    : []
-
   return (
     <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
@@ -1905,10 +2045,10 @@ function AppShell({
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         sidebarReservedWidth={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
-        inspectorReservedWidth={inspectorWidth}
         editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
+        onOpenChatTabWindow={effectiveActiveTab === "chat" ? handleOpenChatTabWindow : undefined}
         onMoveChatTab={effectiveActiveTab === "chat" ? handleEditorTabMove : undefined}
         onNewChat={effectiveActiveTab === "chat" ? handleNewChat : undefined}
         showSplitButton={effectiveActiveTab === "chat" && totalNonDraftTabs >= 2}
@@ -1918,45 +2058,42 @@ function AppShell({
         onOpenSettings={openSettings}
         onOpenNotifications={openNotifications}
         onOpenLogs={openLogs}
-        showWorkspaceControls={!disconnectedShell}
+        useNativeWindowChrome={useNativeWindowChrome}
         onNavigateToChat={handleCronJobNavigate}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {!disconnectedShell && (
-          <Sidebar
-            width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
-            collapsed={!sidebarOpen}
-            onClose={closeSidebar}
-            onResizeStart={handleResizeStart}
-            activeTab={effectiveActiveTab}
-            onTabChange={handleTabChange}
-            items={sidebarItems}
-            onItemsReorder={handleItemsReorder}
-            activeTopic={activeTopic}
-            onTopicSelect={handleTopicSelect}
-            onTopicClear={handleTopicClear}
-            activeChat={activeChat}
-            onChatSelect={handleChatSelect}
-            onChatClear={handleChatClear}
-            onNewChat={handleNewChat}
-            chatRefreshTrigger={chatRefreshTrigger}
-            spaces={spaces}
-            activeSpaceId={activeSpaceId}
-            onSpaceSwitch={handleSpaceSwitch}
-            onSpaceCreate={handleSpaceCreate}
-            onSpaceUpdate={updateSpace}
-            onSpaceDelete={handleSpaceDelete}
-          />
-        )}
+        <Sidebar
+          width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+          collapsed={!sidebarOpen}
+          onClose={closeSidebar}
+          onResizeStart={handleResizeStart}
+          activeTab={effectiveActiveTab}
+          onTabChange={handleTabChange}
+          items={sidebarItems}
+          onItemsReorder={handleItemsReorder}
+          activeTopic={activeTopic}
+          onTopicSelect={handleTopicSelect}
+          onTopicClear={handleTopicClear}
+          activeChat={activeChat}
+          onChatSelect={handleChatSelect}
+          onChatClear={handleChatClear}
+          onNewChat={handleNewChat}
+          chatRefreshTrigger={chatRefreshTrigger}
+          spaces={spaces}
+          activeSpaceId={activeSpaceId}
+          onSpaceSwitch={handleSpaceSwitch}
+          onSpaceNewChat={handleSpaceNewChat}
+          onSpaceCreate={handleSpaceCreate}
+          onSpaceUpdate={updateSpace}
+          onSpaceArchive={handleSpaceArchive}
+          onSpaceDelete={handleSpaceDelete}
+        />
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <main
             ref={mainContentRef}
-            className={cn(
-              "relative flex flex-1 justify-center overflow-hidden transition-all duration-300 ease-in-out",
-              disconnectedShell ? "items-center" : "items-start",
-            )}
+            className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out"
           >
 {effectiveActiveTab === "chat" ? (
               editorGroups.groups.length === 1 ? (
@@ -1974,10 +2111,15 @@ function AppShell({
                   sessionResolving={sessionResolving}
                   sessionError={sessionError}
                   onSettingsBack={handleSettingsBack}
-                  settingsInitialSection={settingsInitialSection}
+                  settingsSection={settingsSection}
+                  onSettingsSectionChange={setSettingsSection}
                   onFirstMessageSent={handleFirstMessageSent}
                   onQuickSend={handleQuickSend}
                   quickSending={quickSending}
+                  spaces={spaces}
+                  activeSpaceId={activeSpaceId}
+                  onSpaceSwitch={handleSpaceSwitch}
+                  onOpenSkills={() => setActiveTab("skill")}
                   initialMessages={initialMessages}
                   onSelectTool={handleSelectTool}
                   pendingPrompt={pendingPrompt}
@@ -1986,7 +2128,6 @@ function AppShell({
                   onDraftPrompt={handlePromptDraft}
                   onNavigateToChat={handleCronJobNavigate}
                   onForkNavigate={handleForkNavigate}
-                  searchHighlightTarget={searchHighlightTarget}
                 />
               ) : (
                 <EditorGroupsContainer
@@ -1998,11 +2139,14 @@ function AppShell({
                     const group = editorGroups.groups.find((g) => g.id === groupId)
                     const groupSessionData = group?.sessionData
                     if (groupSessionData) {
+                      const isFocusedActiveSession = group.id === editorGroups.focusedGroupId && groupSessionData.sessionKey === activeSessionKey
                       return (
                         <ChatView
                           key={`pane:${groupSessionData.chat.id}:${groupSessionData.sessionKey}`}
                           sessionKey={groupSessionData.sessionKey}
                           sessionTitle={groupSessionData.title}
+                          initialMessages={isFocusedActiveSession ? initialMessages : undefined}
+                          onFirstMessageSent={isFocusedActiveSession ? handleFirstMessageSent : undefined}
                           forkContext={{ type: "chat" }}
                         />
                       )
@@ -2023,10 +2167,15 @@ function AppShell({
                           sessionResolving={false}
                           sessionError={null}
                           onSettingsBack={handleSettingsBack}
-                          settingsInitialSection={settingsInitialSection}
+                          settingsSection={settingsSection}
+                          onSettingsSectionChange={setSettingsSection}
                           onFirstMessageSent={handleFirstMessageSent}
                           onQuickSend={handleQuickSend}
                           quickSending={quickSending}
+                          spaces={spaces}
+                          activeSpaceId={activeSpaceId}
+                          onSpaceSwitch={handleSpaceSwitch}
+                          onOpenSkills={() => setActiveTab("skill")}
                           initialMessages={undefined}
                           onSelectTool={handleSelectTool}
                           pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
@@ -2035,7 +2184,6 @@ function AppShell({
                           onDraftPrompt={handlePromptDraft}
                           onNavigateToChat={handleCronJobNavigate}
                           onForkNavigate={handleForkNavigate}
-                          searchHighlightTarget={null}
                         />
                       )
                     }
@@ -2058,10 +2206,15 @@ function AppShell({
                 sessionResolving={sessionResolving}
                 sessionError={sessionError}
                 onSettingsBack={handleSettingsBack}
-                settingsInitialSection={settingsInitialSection}
+                settingsSection={settingsSection}
+                onSettingsSectionChange={setSettingsSection}
                 onFirstMessageSent={handleFirstMessageSent}
                 onQuickSend={handleQuickSend}
                 quickSending={quickSending}
+                spaces={spaces}
+                activeSpaceId={activeSpaceId}
+                onSpaceSwitch={handleSpaceSwitch}
+                onOpenSkills={() => setActiveTab("skill")}
                 initialMessages={initialMessages}
                 onSelectTool={handleSelectTool}
                 pendingPrompt={pendingPrompt}
@@ -2070,58 +2223,33 @@ function AppShell({
                 onDraftPrompt={handlePromptDraft}
                 onNavigateToChat={handleCronJobNavigate}
                 onForkNavigate={handleForkNavigate}
-                searchHighlightTarget={searchHighlightTarget}
               />
-            )}
-            {!disconnectedShell &&
-              (backgroundSessionKey || warmChatSessions.length > 0) && (
-              <div className="hidden">
-                {backgroundSessionKey && backgroundSessionKey !== activeSessionKey && !editorGroups.groups.some((g) => g.sessionData?.sessionKey === backgroundSessionKey) && (
-                  <ChatView
-                    sessionKey={backgroundSessionKey}
-                    sessionTitle={backgroundSessionTitle ?? undefined}
-                    isBackgroundSession
-                  />
-                )}
-                {warmChatSessions.map((session) => (
-                  <ChatView
-                    key={`warm:${session.sessionKey}`}
-                    sessionKey={session.sessionKey}
-                    sessionTitle={session.title}
-                    isBackgroundSession
-                  />
-                ))}
-              </div>
             )}
           </main>
         </div>
 
-        {!disconnectedShell && (
-          <InspectorPanel
-            open={inspectorOpen}
-            onClose={toggleInspector}
-            onOpenFullWindow={openInspectorFullWindow}
-            onWidthChange={setInspectorWidth}
-            terminalActive={terminalActive}
-            onTerminalActiveChange={setTerminalActive}
-            sessionKey={activeSessionKey}
-            focusedToolCallId={focusedToolCallId}
-            onClearFocusedToolCall={() => setFocusedToolCallId(null)}
-            projectId={activeTopic?.projectId ?? null}
-            activeAgentId={activeAgentId}
-            onAgentSelect={setActiveAgentId}
-          />
-        )}
+        <InspectorPanel
+          open={inspectorOpen}
+          onClose={toggleInspector}
+          onOpenFullWindow={openInspectorFullWindow}
+          onWidthChange={setInspectorWidth}
+          terminalActive={terminalActive}
+          onTerminalActiveChange={setTerminalActive}
+          sessionKey={activeSessionKey}
+          focusedToolCallId={focusedToolCallId}
+          onClearFocusedToolCall={() => setFocusedToolCallId(null)}
+          projectId={activeTopic?.projectId ?? null}
+          activeAgentId={activeAgentId}
+          onAgentSelect={setActiveAgentId}
+        />
       </div>
 
-      {!disconnectedShell && (
-        <Footer
-          terminalOpen={terminalActive}
-          onToggleTerminal={toggleTerminal}
-        />
-      )}
+      <Footer
+        terminalOpen={terminalActive}
+        onToggleTerminal={toggleTerminal}
+      />
 
-      {!disconnectedShell && fullScreenInspectorMounted && (
+      {fullScreenInspectorMounted && (
         <FullScreenInspectorOverlay
           open={fullScreenInspectorVisible}
           activeTab={fullWindowInspectorTab}
@@ -2140,15 +2268,18 @@ function AppShell({
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onNavigateChat={handleSessionNavigate}
-        onNavigateProject={handleProjectSearchNavigate}
-        onNavigateTopic={handleTopicSelect}
-        onNavigateDirectChat={handleChatSelect}
-        onNavigateSearchMessage={handleSearchMessageNavigate}
+        onNavigateSpace={(space: SearchSpaceResult) => {
+          void handleSpaceSwitch(space.id)
+        }}
         onNewChat={() => { setPendingPrompt(null); handleNewChat() }}
         onSendPrompt={handlePromptDraft}
         onOpenSettings={openSettings}
         onToggleTerminal={toggleTerminal}
         onToggleTheme={toggleTheme}
+        onNavigateProject={() => {}}
+        onNavigateTopic={() => {}}
+        onNavigateDirectChat={() => {}}
+        onNavigateSearchMessage={() => {}}
       />
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />
@@ -2170,10 +2301,15 @@ function MainContent({
   sessionResolving,
   sessionError,
   onSettingsBack,
-  settingsInitialSection,
+  settingsSection,
+  onSettingsSectionChange,
   onFirstMessageSent,
   onQuickSend,
   quickSending,
+  spaces,
+  activeSpaceId,
+  onSpaceSwitch,
+  onOpenSkills,
   initialMessages,
   onSelectTool,
   pendingPrompt,
@@ -2182,7 +2318,6 @@ function MainContent({
   onDraftPrompt,
   onNavigateToChat,
   onForkNavigate,
-  searchHighlightTarget,
 }: {
   activeTab: string
   activeTopic: ActiveTopic | null
@@ -2197,10 +2332,15 @@ function MainContent({
   sessionResolving: boolean
   sessionError: string | null
   onSettingsBack: () => void
-  settingsInitialSection: SettingsSection
+  settingsSection: SettingsSection
+  onSettingsSectionChange: (section: SettingsSection) => void
   onFirstMessageSent: (text: string) => void
   onQuickSend: (payload: ChatComposerSubmit) => void | Promise<void>
   quickSending: boolean
+  spaces: import("@/types/space").Space[]
+  activeSpaceId: string | null
+  onSpaceSwitch: (spaceId: string) => void | Promise<void>
+  onOpenSkills: () => void
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
   pendingPrompt?: string | null
@@ -2209,12 +2349,16 @@ function MainContent({
   onDraftPrompt?: (prompt: string) => void
   onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
   onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
-  searchHighlightTarget?: SearchHighlightTarget | null
 }) {
   if (activeTab === "settings") {
     return (
       <div className="flex h-full w-full">
-        <SettingsDashboard onBack={onSettingsBack} initialSection={settingsInitialSection} />
+        <SettingsDashboard
+          key={`settings:${settingsSection}`}
+          onBack={onSettingsBack}
+          activeSection={settingsSection}
+          onSectionChange={onSettingsSectionChange}
+        />
       </div>
     )
   }
@@ -2252,11 +2396,6 @@ function MainContent({
           initialPrompt={pendingPrompt ?? undefined}
           forkContext={activeTopic ? { type: "topic", projectId: activeTopic.projectId, projectName: activeTopic.projectName, topicId: activeTopic.id, topicName: activeTopic.name } : { type: "chat" }}
           onForkNavigate={onForkNavigate}
-          searchHighlightTarget={
-            searchHighlightTarget?.sessionKey === activeSessionKey
-              ? searchHighlightTarget
-              : null
-          }
         />
       </div>
     )
@@ -2292,6 +2431,7 @@ function MainContent({
           onSend={onTopicQuickSend}
           disabled={quickSending}
           glowOnMount
+          draftKey={`topic:${activeTopic.projectId}:${activeTopic.id}:draft`}
         />
       </div>
     )
@@ -2310,6 +2450,12 @@ function MainContent({
         onSend={onQuickSend}
         disabled={quickSending}
         glowOnMount
+        draftKey="new-chat:draft"
+        showDraftSpaceBanner
+        spaces={spaces}
+        activeSpaceId={activeSpaceId}
+        onSpaceSelect={onSpaceSwitch}
+        onOpenSkills={onOpenSkills}
       />
     </div>
   )

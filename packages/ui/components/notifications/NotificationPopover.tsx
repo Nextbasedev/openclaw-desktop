@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { invoke, openEventStream } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { notify, ensureNotificationPermission } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import type { ActiveChat } from "@/types/chat"
@@ -256,8 +258,8 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
         .then((value) => ({ status: "fulfilled" as const, value }))
         .catch((reason) => ({ status: "rejected" as const, reason }))
 
-      const jobs = jobsResult.status === "fulfilled" ? jobsResult.value.jobs : []
-      const events = activityResult.status === "fulfilled" ? activityResult.value.events : []
+      const jobs = jobsResult.status === "fulfilled" && Array.isArray(jobsResult.value.jobs) ? jobsResult.value.jobs : []
+      const events = activityResult.status === "fulfilled" && Array.isArray(activityResult.value.events) ? activityResult.value.events : []
       const latestEvents = new Map<string, CronRunEvent>()
 
       for (const job of jobs) {
@@ -345,35 +347,54 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
 
   return (
     <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        data-testid="notifications-trigger"
-        aria-label="Notifications"
-        title="Notifications"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "relative flex size-7 items-center justify-center rounded-md",
-          "cursor-pointer transition-colors group/icon",
-          open
-            ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        <Icons.Notification size={16} strokeWidth={1.5} className="size-4" />
-        {badgeCount > 0 && (
-          <span
+      <Tooltip delayDuration={250}>
+        <TooltipTrigger asChild>
+          <button
+            ref={triggerRef}
+            type="button"
+            data-testid="notifications-trigger"
+            aria-label="Notifications"
+            onClick={() => setOpen((v) => !v)}
             className={cn(
-              "absolute -right-0.5 -top-0.5 flex items-center justify-center",
-              "min-w-[14px] rounded-full bg-destructive px-[3px] py-[1px]",
-              "text-[8px] font-bold leading-none text-destructive-foreground",
-              "pointer-events-none",
+              "relative flex size-7 items-center justify-center rounded-md",
+              "cursor-pointer transition-colors group/icon",
+              open
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {badgeCount > 99 ? "99+" : badgeCount}
+            <Icons.Notification size={16} strokeWidth={1.5} className="size-4" />
+            {badgeCount > 0 && (
+              <span
+                className={cn(
+                  "absolute -right-0.5 -top-0.5 flex items-center justify-center",
+                  "min-w-[14px] rounded-full bg-destructive px-[3px] py-[1px]",
+                  "text-[8px] font-bold leading-none text-destructive-foreground",
+                  "pointer-events-none",
+                )}
+              >
+                {badgeCount > 99 ? "99+" : badgeCount}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          align="center"
+          sideOffset={8}
+          collisionPadding={12}
+          showArrow={false}
+          className={cn(
+            GLASS_POPOVER,
+            "max-w-[420px] whitespace-normal break-words border-transparent bg-[var(--glass-bg)] px-3 py-1.5 text-[12px] font-medium text-foreground",
+            "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+          )}
+        >
+          <span className="block whitespace-normal break-words">
+            Notifications
           </span>
-        )}
-      </button>
+        </TooltipContent>
+      </Tooltip>
 
       <AnimatePresence>
         {open && (
