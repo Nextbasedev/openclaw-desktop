@@ -3,7 +3,7 @@ import { getMiddlewareConnection } from "../middleware-client"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
-const DEFAULT_V2_URL = "http://127.0.0.1:8787"
+const DEFAULT_MIDDLEWARE_URL = "http://127.0.0.1:8787"
 const CONNECTED_MIDDLEWARE_URL_KEY = "openclaw.middleware.url"
 const V2_URL_KEY = "openclaw.middleware.v2.url"
 
@@ -29,7 +29,7 @@ function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
   }
 }
 
-export function getMiddlewareV2Url(): string {
+export function getMiddlewareUrl(): string {
   if (typeof window !== "undefined") {
     const connectedMiddlewareUrl = localStorage.getItem(CONNECTED_MIDDLEWARE_URL_KEY)?.trim()
     if (connectedMiddlewareUrl) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connectedMiddlewareUrl))
@@ -37,7 +37,7 @@ export function getMiddlewareV2Url(): string {
     const stored = localStorage.getItem(V2_URL_KEY)?.trim()
     if (stored) return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(stored))
   }
-  return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_V2_URL))
+  return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_MIDDLEWARE_URL))
 }
 
 function summarizeV2Body(body: BodyInit | null | undefined): unknown {
@@ -53,8 +53,8 @@ function summarizeV2Body(body: BodyInit | null | undefined): unknown {
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const startedAt = performance.now()
   const method = (init?.method ?? "GET").toUpperCase()
-  const baseUrl = getMiddlewareV2Url()
-  frontendLog("api", "middleware-v2.fetch.start", {
+  const baseUrl = getMiddlewareUrl()
+  frontendLog("api", "middleware.fetch.start", {
     method,
     path: sanitizeUrlForLog(path),
     baseUrl: sanitizeUrlForLog(baseUrl),
@@ -71,20 +71,20 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await response.text()
     const body = text ? JSON.parse(text) : null
     const durationMs = Math.round(performance.now() - startedAt)
-    frontendLog("api", response.ok ? "middleware-v2.fetch.end" : "middleware-v2.fetch.fail", {
+    frontendLog("api", response.ok ? "middleware.fetch.end" : "middleware.fetch.fail", {
       method,
       path: sanitizeUrlForLog(path),
       durationMs,
       status: response.status,
       statusText: response.statusText || undefined,
-      error: response.ok ? undefined : redactText(body?.error?.message ?? `Middleware V2 request failed (${response.status})`),
+      error: response.ok ? undefined : redactText(body?.error?.message ?? `Middleware request failed (${response.status})`),
     }, response.ok ? "info" : "error")
     if (!response.ok) {
-      throw new Error(body?.error?.message ?? `Middleware V2 request failed (${response.status})`)
+      throw new Error(body?.error?.message ?? `Middleware request failed (${response.status})`)
     }
     return body as T
   } catch (error) {
-    frontendLog("api", "middleware-v2.fetch.fail", {
+    frontendLog("api", "middleware.fetch.fail", {
       method,
       path: sanitizeUrlForLog(path),
       durationMs: Math.round(performance.now() - startedAt),
@@ -113,7 +113,7 @@ async function replayPatchBacklog(afterCursor: number, onFrame: (frame: StreamFr
 export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFrame) => void): () => void {
   if (typeof window === "undefined") return () => undefined
   const startCursor = Math.max(0, afterCursor)
-  const url = new URL(`${getMiddlewareV2Url()}/api/stream/ws`)
+  const url = new URL(`${getMiddlewareUrl()}/api/stream/ws`)
   url.searchParams.set("afterCursor", String(startCursor))
   const wsUrl = url.toString().replace(/^http/, "ws")
   frontendLog("stream", "patch-stream.start", { url: sanitizeUrlForLog(wsUrl), afterCursor: startCursor })

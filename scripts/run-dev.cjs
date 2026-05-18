@@ -77,9 +77,9 @@ process.on("SIGTERM", () => shutdown(0, "SIGTERM"));
 
 const ui = spawnPnpm(["run", "dev:ui"], "UI dev server");
 const middlewareV2 = spawnPnpm(
-  ["--filter", "@openclaw/desktop-middleware-v2", "dev"],
-  "middleware-v2 dev server",
+  ["--filter", "@openclaw/desktop-middleware", "dev"],
+  "middleware dev server",
 );
 
 watch(ui, "UI dev server");
-watch(middlewareV2, "middleware-v2 dev server");
+watch(middlewareV2, "middleware dev server");

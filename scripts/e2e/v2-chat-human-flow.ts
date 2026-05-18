@@ -3,8 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createApp } from "../../apps/middleware-v2/src/app.js";
-import type { AppContext } from "../../apps/middleware-v2/src/app.js";
+import { createApp } from "../../apps/middleware/src/app.js";
+import type { AppContext } from "../../apps/middleware/src/app.js";
 
 const chrome = process.env.CHROME_BIN || "/usr/bin/google-chrome";
 const port = 9222 + Math.floor(Math.random() * 1000);

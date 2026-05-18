@@ -84,7 +84,7 @@ function getOrCreate(sessionKey: string): SessionState {
 
 function legacySessionStatusFromStreamStatus(status: StreamStatus): string | null {
   // Compatibility mirror for old ChatView/cache readers only. The canonical
-  // middleware-v2 contract is runStatus/statusLabel/activeRun.
+  // middleware contract is runStatus/statusLabel/activeRun.
   if (ACTIVE_STATUSES.has(status)) return "running"
   return status === "idle" || status === "connected" ? null : status
 }
@@ -111,7 +111,7 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
     const tools = state.pendingTools.map((tool) => inlineToolToProjection(sessionKey, tool))
     return {
       ...cached,
-      source: cached.source ?? "middleware-v2-projection",
+      source: cached.source ?? "middleware-projection",
       projectionVersion: cached.projectionVersion ?? CHAT_PROJECTION_VERSION,
       messages: state.messages,
       messageCount: state.messages.length,
@@ -628,7 +628,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
 
 function shouldDeriveToolActivityFromMessage(frame: PatchFrame) {
   const semanticType = patchSemanticType(frame)
-  // Canonical middleware-v2 history projections label completed assistant
+  // Canonical middleware history projections label completed assistant
   // messages as chat.assistant.final. Those messages can contain historical
   // toolCall blocks from hours ago; treating them as live fallback activity
   // resurrects old tools after refresh/backlog replay. Only use message-block
@@ -861,7 +861,7 @@ function hasAssistantAnswerAfterLatestUser(state: SessionState) {
 }
 
 function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
-  // Legacy/corrupt-stream fallback only. In the normal middleware-v2 contract,
+  // Legacy/corrupt-stream fallback only. In the normal middleware contract,
   // run completion is authoritative via canonical runStatus/chat.run.* patches.
   if (!ACTIVE_STATUSES.has(state.status)) return false
   if (patchType !== "legacy:assistant-answer-fallback") return false
@@ -1086,7 +1086,7 @@ function handlePatch(frame: PatchFrame) {
     ) {
       // Tool-only / partial message projection patches can carry runStatus:"done"
       // before the final assistant text arrives. Defer those, but accept the
-      // final assistant text patch itself: middleware-v2 does not always emit a
+      // final assistant text patch itself: middleware does not always emit a
       // second status-only "done" frame after that websocket message.
       state.deferredDoneUntilAssistant = true
     } else {
@@ -1103,7 +1103,7 @@ function handlePatch(frame: PatchFrame) {
     if (!state.activityStartedAtMs) state.activityStartedAtMs = Date.now()
     state.status = "thinking"
     // Defensive fallback for pre-Phase-3 optimistic patches only; canonical
-    // middleware-v2 patches should carry runStatus/statusLabel explicitly.
+    // middleware patches should carry runStatus/statusLabel explicitly.
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
   if (isUserMessagePatch(frame) && !state.pendingTools.some((tool) => tool.status === "running")) {

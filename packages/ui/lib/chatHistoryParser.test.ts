@@ -118,7 +118,7 @@ describe("stripGatewayPrefixes", () => {
     ],
     [
       "sender metadata envelope and IST/GMT timestamp",
-      'Sender (untrusted metadata):\n```json\n{\n  "label": "OpenClaw Desktop Middleware V2 (gateway-client)",\n  "id": "gateway-client",\n  "name": "OpenClaw Desktop Middleware V2",\n  "username": "OpenClaw Desktop Middleware V2"\n}\n```\n\n[Sat 2026-05-09 21:57 GMT+5:30] okay that\'s spirit',
+      'Sender (untrusted metadata):\n```json\n{\n  "label": "OpenClaw Desktop Middleware (gateway-client)",\n  "id": "gateway-client",\n  "name": "OpenClaw Desktop Middleware",\n  "username": "OpenClaw Desktop Middleware"\n}\n```\n\n[Sat 2026-05-09 21:57 GMT+5:30] okay that\'s spirit',
       "okay that's spirit",
     ],
     [
