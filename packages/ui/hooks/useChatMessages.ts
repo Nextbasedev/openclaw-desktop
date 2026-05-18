@@ -56,15 +56,8 @@ import {
   type RunStatusV2,
   type ToolCallProjectionV2,
 } from "@/lib/chat-engine-v2/client"
-import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
-import {
-  getWarmChatCache,
-  pruneWarmChatCache,
-  setWarmChatCache,
-  WARM_CHAT_WRITE_DEBOUNCE_MS,
-} from "@/lib/warmChatCache"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 
 type RawMessage = {
@@ -419,21 +412,8 @@ export function useChatMessages(
 ) {
   const hasInitial = initialMessages && initialMessages.length > 0
   const queryClient = useQueryClient()
-  const initialGlobalSession = !hasInitial ? getGlobalChatSession(sessionKey) : null
-  const initialCachedBootstrap = !hasInitial && !initialGlobalSession
-    ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
-    : null
-  const initialGlobalMessages = initialGlobalSession?.messages?.length
-    ? initialGlobalSession.messages
-    : undefined
-  const initialWarmMessages = hasInitial
-    ? initialMessages
-    : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
-  const initialWarmStatus = initialGlobalSession?.status ?? (
-    initialCachedBootstrap?.runStatus
-      ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
-      : "idle"
-  )
+  const initialWarmMessages = hasInitial ? initialMessages : undefined
+  const initialWarmStatus: StreamStatus = hasInitial ? "thinking" : "idle"
   const instanceIdRef = useRef(randomId())
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
     () => initialWarmMessages ? dedupeChatMessages(initialWarmMessages) : []
@@ -442,9 +422,8 @@ export function useChatMessages(
     () => hasInitial ? "thinking" : initialWarmStatus
   )
   const [statusLabel, setStatusLabel] = useState<string | null>(
-    () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
+    () => normalizeStatusLabelForStatus(initialWarmStatus, null)
   )
-  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
   const [historyLoadVersion, setHistoryLoadVersion] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -457,47 +436,16 @@ export function useChatMessages(
   const isSendingRef = useRef(false)
   const v2CursorRef = useRef(0)
   const pendingToolMapRef = useRef<Map<string, InlineToolCall>>(new Map())
-  const suppressNextWarmPersistRef = useRef(false)
-
-  const schedulePersistentMessages = useCallback((next: ChatMessage[]) => {
-    // V2 middleware projection is the chat source of truth. This warm cache is
-    // a bounded recent-window preview only, used for fast paint on reopen.
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
-    if (suppressNextWarmPersistRef.current) {
-      suppressNextWarmPersistRef.current = false
-      return
-    }
-    if (next.length === 0) return
-    persistTimerRef.current = setTimeout(() => {
-      persistTimerRef.current = null
-      void setWarmChatCache(sessionKey, {
-        messages: next,
-        cursor: v2CursorRef.current,
-        runStatus: statusRef.current,
-        statusLabel: normalizeStatusLabelForStatus(statusRef.current, statusLabel),
-        pendingTools: Array.from(pendingToolMapRef.current.values()),
-        messageCount: next.length,
-      }).catch((error) => {
-        frontendLog("chat", "warm-cache.persist.fail", {
-          sessionKey,
-          error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-        }, "warn")
-      })
-    }, WARM_CHAT_WRITE_DEBOUNCE_MS)
-  }, [sessionKey, statusLabel])
-
   const setMessages = useCallback(
     (update: SetStateAction<ChatMessage[]>) => {
       setLocalMessages((prev) => {
         const next = dedupeChatMessages(
           typeof update === "function" ? update(prev) : update
         )
-        schedulePersistentMessages(next)
-        updateCachedBootstrapMessages(queryClient, sessionKey, next)
         return next
       })
     },
-    [queryClient, schedulePersistentMessages, sessionKey]
+    []
   )
 
   const setStatus = useCallback(
@@ -1181,20 +1129,7 @@ export function useChatMessages(
     const seededMessages =
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     ensureGlobalChatEngine(queryClient)
-    const cachedGlobal = getGlobalChatSession(sessionKey)
-    const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
-    const useCachedGlobal = Boolean(
-      cachedGlobalHasMessages &&
-        cachedGlobal &&
-        (!seededMessages ||
-          cachedGlobal.messages.length > seededMessages.length ||
-          cachedGlobal.messages.some((message) => message.role === "assistant"))
-    )
-    const cachedBootstrap = !useCachedGlobal
-      ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
-      : null
-    const warmMessagesRaw = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
-    const warmMessages = warmMessagesRaw?.length ? warmMessagesRaw : undefined
+    const warmMessages = seededMessages?.length ? seededMessages : undefined
 
     setLoadError(null)
     setErrorMessage(null)
@@ -1206,43 +1141,19 @@ export function useChatMessages(
       }
       setLoading(false)
       setMessages(warmMessages)
-      const warmStatus = useCachedGlobal && cachedGlobal?.status
-        ? cachedGlobal.status
-        : cachedBootstrap?.runStatus
-          ? streamStatusFromCanonicalRun(cachedBootstrap.runStatus)
-          : (cachedBootstrap?.history.sessionStatus
-            ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages)
-            : inferRestoredChatStatus(warmMessages, statusRef.current))
+      const warmStatus: StreamStatus = hasInitial ? "thinking" : "idle"
       setStatus(warmStatus)
-      setStatusLabel(useCachedGlobal
-        ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
-        : normalizeStatusLabelForStatus(warmStatus, cachedBootstrap?.statusLabel))
-      const warmTerminal = warmStatus === "done" || warmStatus === "idle" || warmStatus === "error"
-      if (warmTerminal) {
-        pendingToolMapRef.current.clear()
-        setPendingTools([])
-        clearCachedChatActivity(sessionKey)
-      }
-      if (!warmTerminal && useCachedGlobal && cachedGlobal?.pendingTools) {
-        pendingToolMapRef.current = new Map(cachedGlobal.pendingTools.map((tool) => [tool.id, tool]))
-        setPendingTools(cachedGlobal.pendingTools)
-      }
-      if (useCachedGlobal && cachedGlobal?.spawnedSubagents) {
-        spawnMapRef.current = new Map(cachedGlobal.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
-        setSpawnedSubagents(cachedGlobal.spawnedSubagents)
-      }
-      if (useCachedGlobal && typeof cachedGlobal?.cursor === "number") v2CursorRef.current = cachedGlobal.cursor
-      else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
+      setStatusLabel(normalizeStatusLabelForStatus(warmStatus, null))
+      pendingToolMapRef.current.clear()
+      setPendingTools([])
+      clearCachedChatActivity(sessionKey)
     } else {
       setLoading(true)
       setMessages([])
       setStatus("idle")
     }
 
-    if (useCachedGlobal) {
-      // Activity already restored from the global V2 chat engine above.
-      // Do not clear it here: remounting ChatView must not wipe live tools/subagents.
-    } else if (cachedActivity) {
+    if (cachedActivity) {
       pendingToolMapRef.current = new Map(
         cachedActivity.pendingTools.map((tool) => [tool.id, tool])
       )
@@ -1333,56 +1244,6 @@ export function useChatMessages(
       }, CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS)
     }
 
-    async function applyPersistedWarmCache() {
-      if (warmMessages) return
-      try {
-        const cached = await getWarmChatCache(sessionKey)
-        if (!cached || cancelled || bootstrapSettled) return
-        const cachedMessages = dedupeChatMessages(cached.entry.messages)
-        if (cachedMessages.length === 0) return
-        for (const message of cachedMessages) {
-          seenIds.current.add(message.messageId)
-        }
-        const cachedStatus = streamStatusFromCanonicalRun(cached.entry.runStatus)
-        const hasCachedActiveWork =
-          isActiveRunStatus(cachedStatus) ||
-          Boolean(cached.entry.pendingToolSummary?.some((tool) => tool.status === "running"))
-        const effectiveStatus: StreamStatus = cached.stale && hasCachedActiveWork
-          ? "running"
-          : cachedStatus
-        const effectiveLabel = cached.stale && hasCachedActiveWork
-          ? "Checking latest run state…"
-          : normalizeStatusLabelForStatus(effectiveStatus, cached.entry.statusLabel)
-
-        if (typeof cached.entry.cursor === "number") v2CursorRef.current = cached.entry.cursor
-        setLoading(false)
-        suppressNextWarmPersistRef.current = true
-        setMessages(cachedMessages)
-        setStatus(effectiveStatus)
-        setStatusLabel(effectiveLabel)
-        if (cached.entry.pendingTools?.length) {
-          pendingToolMapRef.current = new Map(cached.entry.pendingTools.map((tool) => [tool.id, tool]))
-          setPendingTools(cached.entry.pendingTools)
-        }
-        frontendLog("chat", "warm-cache.applied", {
-          sessionKey,
-          messageCount: cachedMessages.length,
-          cursor: cached.entry.cursor,
-          fresh: cached.fresh,
-          stale: cached.stale,
-          ageMs: cached.ageMs,
-          status: effectiveStatus,
-          hasCachedActiveWork,
-          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
-        })
-      } catch (error) {
-        frontendLog("chat", "warm-cache.load.fail", {
-          sessionKey,
-          error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-        }, "warn")
-      }
-    }
-
     const handleBootstrapRecovery = () => {
       frontendLog("stream", "chat.bootstrap-recovery.reload", { sessionKey }, "warn")
       invalidateDedupe(`chat-bootstrap:${sessionKey}`)
@@ -1395,11 +1256,7 @@ export function useChatMessages(
       const bootstrapStartedAtMs = Date.now()
       frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs })
       try {
-        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
-          queryKey: queryKeys.chatBootstrap(sessionKey),
-          queryFn: () => loadFreshChatBootstrap(sessionKey),
-          staleTime: 0,
-        })
+        const { messages: bootstrapMessages, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await loadFreshChatBootstrap(sessionKey)
         const bootstrapCursor = typeof canonicalCursor === "number" ? canonicalCursor : v2Cursor
         if (typeof bootstrapCursor === "number") v2CursorRef.current = bootstrapCursor
         bootstrapSettled = true
@@ -1448,24 +1305,6 @@ export function useChatMessages(
         const displayMessages = globalAfterSeed?.messages.length
           ? globalAfterSeed.messages
           : canonicalMessages
-        void setWarmChatCache(sessionKey, {
-          messages: displayMessages,
-          cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-          runStatus: runStatus ?? canonicalStatus,
-          statusLabel: canonicalLabel,
-          activeRunSummary: activeRun ? {
-            runId: activeRun.runId,
-            status: activeRun.status,
-            startedAt: activeRun.startedAtMs ?? null,
-          } : null,
-          pendingTools: inlineTools,
-          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length,
-        }).catch((error) => {
-          frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
-            sessionKey,
-            error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-          }, "warn")
-        })
         setMessages(displayMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
@@ -1518,8 +1357,6 @@ export function useChatMessages(
       }
     }
 
-    void pruneWarmChatCache()
-    void applyPersistedWarmCache()
     init()
 
     return () => {
@@ -1527,7 +1364,6 @@ export function useChatMessages(
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
       clearScheduledV2Apply()
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
       window.removeEventListener("openclaw:chat-bootstrap-recovery", handleBootstrapRecovery)
       unsubscribeStream?.()
       unsubscribeV2Stream?.()

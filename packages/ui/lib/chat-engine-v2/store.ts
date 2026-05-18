@@ -5,7 +5,6 @@ import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey, isSubagentSessionKey } from "../subagentSession"
-import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
@@ -53,7 +52,6 @@ let globalCursor = 0
 let unsubscribeStream: (() => void) | null = null
 let queryClientRef: QueryClient | null = null
 let sweepInterval: ReturnType<typeof setInterval> | null = null
-const warmPersistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 function cloneState(state: SessionState): SessionState {
   return {
@@ -131,31 +129,6 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
     } satisfies CachedChatBootstrapV2
   })
 }
-
-function persistWarmSessionSnapshot(sessionKey: string, state: SessionState) {
-  if (state.messages.length === 0) return
-  const existing = warmPersistTimers.get(sessionKey)
-  if (existing) clearTimeout(existing)
-  const snapshot = cloneState(state)
-  const timer = setTimeout(() => {
-    warmPersistTimers.delete(sessionKey)
-    void setWarmChatCache(sessionKey, {
-      messages: snapshot.messages,
-      cursor: snapshot.cursor,
-      runStatus: snapshot.status,
-      statusLabel: normalizeStatusLabel(snapshot.status, snapshot.statusLabel),
-      pendingTools: snapshot.pendingTools,
-      messageCount: snapshot.messages.length,
-    }).catch((error) => {
-      frontendLog("chat", "warm-cache.live-persist.fail", {
-        sessionKey,
-        error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) },
-      }, "warn")
-    })
-  }, WARM_CHAT_WRITE_DEBOUNCE_MS)
-  warmPersistTimers.set(sessionKey, timer)
-}
-
 
 function patchPayload(frame: PatchFrame): PatchPayloadV2 | null {
   const payload = frame.patch.payload
@@ -959,7 +932,6 @@ function notify(sessionKey: string, frame?: PatchFrame) {
   const state = states.get(sessionKey)
   if (!state) return
   cacheBootstrap(sessionKey, state)
-  persistWarmSessionSnapshot(sessionKey, state)
   const callbacks = listeners.get(sessionKey)
   if (!callbacks) return
   const snapshot = cloneState(state)
@@ -1332,6 +1304,4 @@ export function clearGlobalChatEngineForTests() {
     clearInterval(sweepInterval)
     sweepInterval = null
   }
-  for (const timer of warmPersistTimers.values()) clearTimeout(timer)
-  warmPersistTimers.clear()
 }
