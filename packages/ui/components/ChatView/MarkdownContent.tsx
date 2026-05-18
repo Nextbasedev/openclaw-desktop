@@ -193,10 +193,30 @@ function plainTextFromChildren(children: React.ReactNode): string {
   return parts.join("")
 }
 
+function elementText(value: React.ReactNode): string {
+  return React.Children.toArray(value)
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number") return String(child)
+      if (React.isValidElement(child)) {
+        const props = child.props as { children?: React.ReactNode }
+        return elementText(props.children)
+      }
+      return ""
+    })
+    .join("")
+}
+
+function isBlockCodeElement(child: React.ReactElement): boolean {
+  if (child.type !== "code") return false
+  const props = child.props as { className?: string; children?: React.ReactNode }
+  const text = elementText(props.children)
+  return Boolean(props.className) || text.includes("\n") || /[┌┐└┘│─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]/.test(text)
+}
+
 function containsBlockChild(children: React.ReactNode): boolean {
   return React.Children.toArray(children).some((child) => {
     if (!React.isValidElement(child)) return false
-    if (child.type === CodeBlock || child.type === MermaidBlock) return true
+    if (child.type === CodeBlock || child.type === MermaidBlock || isBlockCodeElement(child)) return true
     if (typeof child.type === "string") {
       return [
         "blockquote",

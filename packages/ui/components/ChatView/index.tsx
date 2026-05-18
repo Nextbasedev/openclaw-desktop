@@ -1091,6 +1091,7 @@ export function ChatView({
             sessionKey,
             messageId,
             gatewayIndex: msg.gatewayIndex,
+            role: msg.role,
             context: forkContext ?? { type: "chat" },
           },
         })
