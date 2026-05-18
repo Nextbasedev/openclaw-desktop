@@ -46,9 +46,7 @@ function stopChildren(code) {
 }
 
 console.log('Starting local OpenClaw Desktop stack: middleware + web UI')
-// Legacy middleware is intentionally disabled; middleware now owns the old 8787 port.
-// run('middleware', ['dev:middleware'])
-run('middleware', ['dev:middleware:v2'])
+run('middleware', ['dev:middleware'])
 run('web', ['dev:ui'])
 
 process.on('SIGINT', () => stopChildren(130))
