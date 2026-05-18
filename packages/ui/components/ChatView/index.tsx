@@ -1527,7 +1527,7 @@ export function ChatView({
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
-                  "group pointer-events-auto inline-flex aspect-square cursor-pointer items-center justify-center rounded-full p-2",
+                  "group pointer-events-auto inline-flex aspect-square cursor-pointer items-center justify-center rounded-full p-3",
                   "border border-white/10 bg-[#252529]/80 text-foreground/80 shadow-[0_10px_28px_-18px_rgba(0,0,0,0.9)] backdrop-blur-md transition-colors hover:bg-[#2d2d32]/90 hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
