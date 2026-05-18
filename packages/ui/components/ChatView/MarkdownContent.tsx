@@ -263,9 +263,9 @@ const mdComponents = {
   h3({ children }: { children?: React.ReactNode }) { return <h3 className="mb-2 mt-4 text-[15px] font-semibold text-foreground first:mt-0">{children}</h3> },
   h4({ children }: { children?: React.ReactNode }) { return <h4 className="mb-1.5 mt-3 text-[14px] font-medium text-foreground first:mt-0">{children}</h4> },
   p({ children }: { children?: React.ReactNode }) { return <MarkdownParagraph>{children}</MarkdownParagraph> },
-  ul({ children }: { children?: React.ReactNode }) { return <ul className="my-2.5 list-disc space-y-1.5 pl-5 text-foreground/85 marker:text-foreground/30">{children}</ul> },
-  ol({ children }: { children?: React.ReactNode }) { return <ol className="my-2.5 list-decimal space-y-2 pl-5 text-foreground/85 marker:text-foreground/50 marker:font-semibold">{children}</ol> },
-  li({ children }: { children?: React.ReactNode }) { return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p]:my-1 [&>ul]:my-1">{children}</li> },
+  ul({ children }: { children?: React.ReactNode }) { return <ul className="my-2.5 list-outside list-disc space-y-1.5 pl-7 text-foreground/85 marker:text-foreground/30">{children}</ul> },
+  ol({ children }: { children?: React.ReactNode }) { return <ol className="my-2.5 list-outside list-decimal space-y-2 pl-8 text-foreground/85 marker:text-foreground/60 marker:font-semibold">{children}</ol> },
+  li({ children }: { children?: React.ReactNode }) { return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p:first-child]:inline [&>p:first-child]:my-0 [&>p]:my-1 [&>ul]:my-1">{children}</li> },
   blockquote({ children }: { children?: React.ReactNode }) { return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{children}</blockquote> },
   hr() { return <hr className="my-5 border-border/25" /> },
   strong({ children }: { children?: React.ReactNode }) { return <strong className="font-semibold text-foreground">{children}</strong> },
@@ -382,7 +382,7 @@ export function MarkdownContent({
         return <MarkdownParagraph highlightTexts={normalizedHighlightTexts}>{children}</MarkdownParagraph>
       },
       li({ children }: { children?: React.ReactNode }) {
-        return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p]:my-1 [&>ul]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</li>
+        return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p:first-child]:inline [&>p:first-child]:my-0 [&>p]:my-1 [&>ul]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</li>
       },
       blockquote({ children }: { children?: React.ReactNode }) {
         return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</blockquote>
