@@ -65,6 +65,7 @@ import {
   setWarmChatCache,
   WARM_CHAT_WRITE_DEBOUNCE_MS,
 } from "@/lib/warmChatCache"
+import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 
 type RawMessage = {
   id?: string
@@ -1633,6 +1634,7 @@ export function useChatMessages(
         hasReplyTo: Boolean(payload.replyTo),
         autonomyMode: payload.autonomyMode,
       })
+      const isStopCommand = isStopSlashCommand(trimmed)
       const runsAlongsideGeneration = Boolean(
         isGenerating && payload.runWhileGenerating
       )
@@ -1716,7 +1718,17 @@ export function useChatMessages(
       })
       forceScrollToBottom(true)
       try {
-        if (isGenerating && !payload.runWhileGenerating) {
+        if (isGenerating && isStopCommand) {
+          frontendLog("chat", "chat.stop-command.abort-before-send", { sessionKey, status: statusRef.current })
+          setStatus("stopping")
+          setStatusLabel(null)
+          void abortChatV2({ sessionKey }).catch((error) => {
+            frontendLog("chat", "chat.stop-command.abort-fail", {
+              sessionKey,
+              error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+            }, "warn")
+          })
+        } else if (isGenerating && !payload.runWhileGenerating) {
           restartInFlightRef.current = true
           frontendLog("chat", "chat.restart-before-send", { sessionKey, status: statusRef.current })
           setStatus("restarting")

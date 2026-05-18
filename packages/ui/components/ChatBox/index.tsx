@@ -536,34 +536,6 @@ export function ChatBox({
       isPreparingAttachments
     )
       return
-    if (
-      isGenerating &&
-      attachments.length === 0 &&
-      !replyTo &&
-      isStopSlashCommand(text)
-    ) {
-      setInput("")
-      clearPersistedDraft()
-      setHistoryIndex(null)
-      draftBeforeHistoryRef.current = ""
-      if (textareaRef.current) textareaRef.current.style.height = "auto"
-      setSlashMenuOpen(false)
-      frontendLog("composer", "composer.stop.start", {})
-      dispatchComposer({ type: "stop_start" })
-      try {
-        await onAbort?.()
-        frontendLog("composer", "composer.stop.done", {})
-        dispatchComposer({ type: "stop_done" })
-      } catch {
-        frontendLog("composer", "composer.stop.fail", {}, "error")
-        dispatchComposer({
-          type: "send_failed",
-          error: "Could not stop generation. Try again.",
-        })
-        setAttachmentError("Could not stop generation. Try again.")
-      }
-      return
-    }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
       attachments:
@@ -581,20 +553,21 @@ export function ChatBox({
     draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
     if (isGenerating) {
-      dispatchComposer({ type: "restart_start", payload })
+      const isStopCommand = isStopSlashCommand(text)
+      dispatchComposer(isStopCommand ? { type: "stop_start" } : { type: "restart_start", payload })
       try {
-        frontendLog("composer", "composer.restart-send.start", {
+        frontendLog(isStopCommand ? "composer" : "composer", isStopCommand ? "composer.stop-command.send.start" : "composer.restart-send.start", {
           attachmentCount: payload.attachments?.length ?? 0,
           textLength: payload.text.length,
         })
         await onSend?.(payload)
-        frontendLog("composer", "composer.restart-send.success", {})
+        frontendLog("composer", isStopCommand ? "composer.stop-command.send.success" : "composer.restart-send.success", {})
         dispatchComposer({ type: "send_success" })
         clearAttachments()
         setAttachmentError(null)
         setSlashMenuOpen(false)
       } catch {
-        frontendLog("composer", "composer.restart-send.fail", {}, "error")
+        frontendLog("composer", isStopCommand ? "composer.stop-command.send.fail" : "composer.restart-send.fail", {}, "error")
         setInput(payload.text)
         dispatchComposer({
           type: "send_failed",
