@@ -2,6 +2,8 @@
 
 Use this guide when OpenClaw Desktop asks you to prepare Middleware for a local computer or remote VPS/server.
 
+If the user already has old Middleware v1 data, migrate it first using [`MIGRATE-V1-DATA.md`](./MIGRATE-V1-DATA.md).
+
 ## Source
 
 - Repo: `https://github.com/Nextbasedev/openclaw-desktop.git`
