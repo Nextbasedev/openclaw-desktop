@@ -712,10 +712,10 @@ export function ChatView({
     () =>
       windowChatMessages(
         visibleAllMessages,
-        messageActionState.pinnedIds,
+        importantMessageIds,
         messageWindowSize
       ),
-    [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
+    [visibleAllMessages, importantMessageIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
   const lastHistoryScrollVersionRef = useRef(0)
@@ -1236,11 +1236,20 @@ export function ChatView({
           : []
       const userSubagents =
         anchoredUserSubagents.length > 0 ? anchoredUserSubagents : liveSubagents
+      const isRepliedMessage = repliedMessageIds.has(msg.messageId)
+      const isActiveReplyTarget = activeReplyTargetId === msg.messageId
 
       return (
         <div
           id={`message-${msg.messageId}`}
-          className="mx-auto max-w-3xl px-4 py-2.5"
+          className={cn(
+            "mx-auto max-w-3xl rounded-md border px-4 py-2.5 transition-[background-color,border-color,box-shadow] duration-300",
+            isRepliedMessage
+              ? "border-blue-300/35 bg-blue-400/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_0_0_1px_rgba(147,197,253,0.12),0_18px_50px_-32px_rgba(59,130,246,0.95)] backdrop-blur-md"
+              : "border-transparent",
+            isActiveReplyTarget &&
+              "border-blue-300/55 bg-blue-400/[0.15] shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_0_0_1px_rgba(147,197,253,0.24),0_18px_54px_-26px_rgba(59,130,246,1)]"
+          )}
         >
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
@@ -1326,6 +1335,7 @@ export function ChatView({
     },
     [
       activePopoverId,
+      activeReplyTargetId,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
@@ -1347,8 +1357,9 @@ export function ChatView({
       reactToMessage,
       groupedToolCalls,
       suppressedToolCallMessages,
-      renderedMessages.length,
       referencedTextsByMessageId,
+      repliedMessageIds,
+      renderedMessages.length,
       replyToMessage,
       resolveExecApproval,
       retrySend,
