@@ -39,7 +39,20 @@ type MiddlewareUpdateStart = {
   status: MiddlewareUpdateStatus
 }
 
-const UPDATE_BRANCH_OPTIONS = ["main", "dev-2-temp", "dev-2", "dev-3-harsh"] as const
+const FALLBACK_UPDATE_BRANCH_OPTIONS = ["main", "dev-2-temp", "dev-2", "dev-3-harsh"] as const
+
+type MiddlewareUpdateBranch = {
+  name: string
+  sha?: string
+  updatedAt?: string
+  url?: string
+}
+
+type MiddlewareUpdateBranchesResponse = {
+  branches: MiddlewareUpdateBranch[]
+  defaultBranch?: string
+  source?: string
+}
 
 type SessionMigrationScan = {
   sessions?: Array<Record<string, unknown>>
@@ -139,10 +152,36 @@ function MiddlewareUpdateCard() {
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [needsManualBootstrap, setNeedsManualBootstrap] = React.useState(false)
-  const [selectedBranch, setSelectedBranch] = React.useState<string>(UPDATE_BRANCH_OPTIONS[0])
+  const [selectedBranch, setSelectedBranch] = React.useState<string>(FALLBACK_UPDATE_BRANCH_OPTIONS[0])
   const [customBranch, setCustomBranch] = React.useState("")
+  const [branches, setBranches] = React.useState<MiddlewareUpdateBranch[]>(() => FALLBACK_UPDATE_BRANCH_OPTIONS.map((name) => ({ name })))
+  const [branchesLoading, setBranchesLoading] = React.useState(false)
+  const [branchesError, setBranchesError] = React.useState<string | null>(null)
 
   const updateBranch = selectedBranch === "custom" ? customBranch.trim() : selectedBranch
+
+  async function refreshBranches() {
+    setBranchesLoading(true)
+    setBranchesError(null)
+    try {
+      const res = await invoke<MiddlewareUpdateBranchesResponse>("middleware_self_update_branches")
+      if (Array.isArray(res.branches) && res.branches.length > 0) {
+        setBranches(res.branches)
+        if (!res.branches.some((branch) => branch.name === selectedBranch) && selectedBranch !== "custom") {
+          setSelectedBranch(res.defaultBranch || res.branches[0]?.name || FALLBACK_UPDATE_BRANCH_OPTIONS[0])
+        }
+      }
+    } catch (err) {
+      setBranchesError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBranchesLoading(false)
+    }
+  }
+
+  React.useEffect(() => {
+    refreshBranches().catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function waitForMiddlewareBack() {
     const connection = getMiddlewareConnection()
@@ -232,8 +271,10 @@ function MiddlewareUpdateCard() {
             disabled={busy}
             className="h-9 rounded-md border border-border/50 bg-background px-3 text-[12px] text-foreground outline-none transition-colors focus:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {UPDATE_BRANCH_OPTIONS.map((branch) => (
-              <option key={branch} value={branch}>{branch}</option>
+            {branches.map((branch) => (
+              <option key={branch.name} value={branch.name}>
+                {branch.name}{branch.updatedAt ? ` · ${new Date(branch.updatedAt).toLocaleDateString()}` : ""}
+              </option>
             ))}
             <option value="custom">Custom branch…</option>
           </select>
@@ -248,6 +289,18 @@ function MiddlewareUpdateCard() {
             className="h-9 rounded-md border border-border/50 bg-background px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 focus:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-60"
           />
         </label>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground/65">
+        <span>{branchesLoading ? "Refreshing public repo branches…" : `Showing ${branches.length} public repo branches, newest first.`}</span>
+        <button
+          type="button"
+          onClick={() => refreshBranches().catch(() => undefined)}
+          disabled={busy || branchesLoading}
+          className="rounded border border-border/40 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Refresh branches
+        </button>
+        {branchesError && <span className="text-red-400">Branch fetch failed; using fallback list.</span>}
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">

@@ -581,6 +581,13 @@ type MiddlewareUpdateInput = {
   branch?: string;
 };
 
+type MiddlewareUpdateBranch = {
+  name: string;
+  sha?: string;
+  updatedAt?: string;
+  url?: string;
+};
+
 const UPDATE_REPO_URL = "https://github.com/Nextbasedev/openclaw-desktop.git";
 const DEFAULT_UPDATE_BRANCH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_BRANCH || "main";
 const UPDATE_SERVICE_NAME = process.env.OPENCLAW_MIDDLEWARE_SERVICE || "openclaw-middleware";
@@ -616,6 +623,43 @@ function normalizeMiddlewareUpdateBranch(value: unknown) {
 
 function writeMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
   fs.writeFileSync(UPDATE_STATUS_PATH, JSON.stringify({ ...status, updatedAt: nowIso() }, null, 2));
+}
+
+async function listMiddlewareUpdateBranches(): Promise<{ branches: MiddlewareUpdateBranch[]; defaultBranch: string; source: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch("https://api.github.com/repos/Nextbasedev/openclaw-desktop/branches?per_page=100", {
+      headers: { "Accept": "application/vnd.github+json", "User-Agent": "openclaw-desktop-middleware" },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`GitHub branches request failed (${res.status})`);
+    const rawBranches = await res.json() as Array<{ name?: string; commit?: { sha?: string; url?: string } }>;
+    const branches = await Promise.all(rawBranches.map(async (branch): Promise<MiddlewareUpdateBranch | null> => {
+      const name = String(branch.name || "").trim();
+      if (!name) return null;
+      let updatedAt: string | undefined;
+      if (branch.commit?.url) {
+        try {
+          const commitRes = await fetch(branch.commit.url, {
+            headers: { "Accept": "application/vnd.github+json", "User-Agent": "openclaw-desktop-middleware" },
+            signal: controller.signal,
+          });
+          if (commitRes.ok) {
+            const commit = await commitRes.json() as { commit?: { committer?: { date?: string }; author?: { date?: string } } };
+            updatedAt = commit.commit?.committer?.date || commit.commit?.author?.date;
+          }
+        } catch {}
+      }
+      return { name, sha: branch.commit?.sha, updatedAt, url: `https://github.com/Nextbasedev/openclaw-desktop/tree/${encodeURIComponent(name)}` };
+    }));
+    const sorted = branches
+      .filter(Boolean) as MiddlewareUpdateBranch[];
+    sorted.sort((a, b) => Date.parse(b.updatedAt || "0") - Date.parse(a.updatedAt || "0") || a.name.localeCompare(b.name));
+    return { branches: sorted, defaultBranch: DEFAULT_UPDATE_BRANCH, source: "github" };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function shellQuote(value: string) {
@@ -3755,6 +3799,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   // --- self-update ---
   app.get("/api/middleware/update/status", async () => readMiddlewareUpdateStatus());
+  app.get("/api/middleware/update/branches", async () => listMiddlewareUpdateBranches());
   app.post("/api/middleware/update", async (request) => startMiddlewareUpdate(((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as MiddlewareUpdateInput));
 
   // --- terminal spawn ---

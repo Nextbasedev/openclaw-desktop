@@ -105,6 +105,7 @@ check git_checkout_repo POST /api/repos/git/checkout "{\"repoPath\":\"$REPO\",\"
 check migration_telegram_scan GET /api/migration/telegram/scan '' '200'
 check migration_discord_scan GET /api/migration/discord/scan '' '200'
 check middleware_update_status GET /api/middleware/update/status '' '200'
+check middleware_update_branches GET /api/middleware/update/branches '' '200'
 check middleware_update_invalid_branch POST /api/middleware/update '{"branch":"../bad"}' '400'
 check workspace_capabilities GET "/api/projects/$PROJECT_ID/workspace/capabilities" '' '200'
 check workspace_tree GET "/api/projects/$PROJECT_ID/workspace/tree?path=" '' '200'
