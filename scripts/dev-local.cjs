@@ -3,6 +3,11 @@ const { spawn } = require('node:child_process')
 const isWindows = process.platform === 'win32'
 const pnpmCommand = isWindows ? 'pnpm.cmd' : 'pnpm'
 
+function quoteWindowsArg(arg) {
+  if (!/[ \t"]/u.test(arg)) return arg
+  return `"${arg.replace(/"/g, '\\"')}"`
+}
+
 function sanitizeEnv(env) {
   return Object.fromEntries(
     Object.entries(env)
@@ -15,12 +20,17 @@ const children = []
 let stopping = false
 
 function run(name, args) {
-  const child = spawn(pnpmCommand, args, {
-    stdio: 'inherit',
-    env: sanitizeEnv(process.env),
-    shell: isWindows,
-    windowsHide: false,
-  })
+  const child = isWindows
+    ? spawn('cmd.exe', ['/d', '/s', '/c', [pnpmCommand, ...args].map(quoteWindowsArg).join(' ')], {
+        stdio: 'inherit',
+        env: sanitizeEnv(process.env),
+        windowsHide: false,
+      })
+    : spawn(pnpmCommand, args, {
+        stdio: 'inherit',
+        env: sanitizeEnv(process.env),
+        windowsHide: false,
+      })
 
   child.on('error', (error) => {
     console.error(`[${name}] failed to start pnpm: ${error.message}`)
