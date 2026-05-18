@@ -953,6 +953,7 @@ export function ChatView({
             sessionKey,
             messageId,
             gatewayIndex: msg.gatewayIndex,
+            context: forkContext ?? { type: "chat" },
           },
         })
         emit("fork:create", {

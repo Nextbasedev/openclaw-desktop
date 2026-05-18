@@ -88,4 +88,51 @@ describe("chat fork compatibility command", () => {
     expect(res.json()).toMatchObject({ ok: false });
     await app.close();
   });
+
+  test("preserves project topic context when forking from a topic chat", async () => {
+    const app = await createApp(config("topic-context"));
+    const context = contextOf(app);
+    const sourceSessionKey = "agent:main:desktop:topic-source";
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: payload?.sessionKey,
+          messages: [
+            { role: "user", text: "topic context", __openclaw: { id: "msg-1", seq: 1 } },
+            { role: "assistant", text: "answer", __openclaw: { id: "msg-2", seq: 2 } },
+          ],
+        };
+      }
+      if (method === "sessions.create") return { entry: { sessionId: payload?.key } };
+      return { ok: true };
+    });
+
+    await app.inject({ method: "POST", url: "/api/topics", payload: { id: "topic_source", projectId: "project_1", name: "Source topic" } });
+    await app.inject({ method: "POST", url: "/api/sessions", payload: { sessionKey: sourceSessionKey, projectId: "project_1", topicId: "topic_source", agentId: "main", label: "Source topic" } });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_fork",
+      payload: {
+        input: {
+          sessionKey: sourceSessionKey,
+          messageId: "msg-2",
+          gatewayIndex: 1,
+          context: { type: "topic", projectId: "project_1", topicId: "topic_source", topicName: "Source topic" },
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ ok: true, projectId: "project_1" });
+    expect(body.topicId).toMatch(/^topic_/);
+    expect(body.chatId).toBeNull();
+
+    const sessions = await app.inject({ method: "GET", url: `/api/sessions?projectId=project_1&topicId=${encodeURIComponent(body.topicId)}` });
+    expect(sessions.json().sessions).toMatchObject([{ sessionKey: body.sessionKey, projectId: "project_1", topicId: body.topicId }]);
+    const topics = await app.inject({ method: "GET", url: "/api/topics?projectId=project_1" });
+    expect(topics.json().topics.some((topic: { id: string }) => topic.id === body.topicId)).toBe(true);
+    await app.close();
+  });
 });
