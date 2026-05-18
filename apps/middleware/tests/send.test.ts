@@ -80,7 +80,7 @@ describe("chat send routes", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/chat/send",
-      payload: { sessionKey: "s1", text: "hello", modelId: "anthropic/claude-opus-4-6", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", clientMessageId: "client-ui-1" },
     });
     expect(res.statusCode).toBe(200);
     expect(context.chatLive.diagnostics().optimisticUserSessions).toBe(1);
@@ -115,9 +115,8 @@ describe("chat send routes", () => {
     expect(gatewayRequest).toHaveBeenCalledWith("chat.send", expect.objectContaining({
       sessionKey: "s1",
       message: "hello",
-      modelId: "anthropic/claude-opus-4-6",
-      model: { primary: "anthropic/claude-opus-4-6" },
     }), expect.any(Number));
+    expect(gatewayRequest).not.toHaveBeenCalledWith("sessions.patch", expect.objectContaining({ model: expect.anything() }));
     expect(patches[1]).toMatchObject({
       type: "chat.status",
       sessionKey: "s1",

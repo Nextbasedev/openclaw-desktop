@@ -3544,7 +3544,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const modelId = String(input.modelId ?? "");
         if (!sessionKey || !modelId) return reply.code(400).send({ ok: false, error: { message: "sessionKey and modelId required" } });
         try {
-          await context.gateway.request("sessions.patch", { sessionKey, patch: { model: { primary: modelId } } });
+          await context.gateway.request("sessions.patch", { key: sessionKey, model: modelId });
           return { ok: true };
         } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Model switch failed" } }); }
       }

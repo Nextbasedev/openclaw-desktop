@@ -342,7 +342,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       hasText: rawMessage.trim().length > 0,
       attachments: attachmentMetadata(input.attachments),
       hasExecPolicy: input.execPolicy !== undefined,
-      hasModelId: Boolean(input.modelId),
       agentId: input.agentId || "main",
     });
 
@@ -363,13 +362,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       log.warn("session.create.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
       return null;
     });
-
-    if (input.modelId) {
-      log.info("session.model.patch.start", { sessionKey: input.sessionKey, modelId: input.modelId });
-      await context.gateway.request("sessions.patch", { sessionKey: input.sessionKey, patch: { model: { primary: input.modelId } } })
-        .catch(async () => context.gateway.request("sessions.patch", { key: input.sessionKey, model: { primary: input.modelId } }));
-      log.info("session.model.patch.end", { sessionKey: input.sessionKey, modelId: input.modelId });
-    }
 
     if (input.execPolicy !== undefined) {
       const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as { security?: unknown; ask?: unknown } : null;
@@ -523,7 +515,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               message: prepared.message,
               timeoutMs: input.timeoutMs || 120_000,
               idempotencyKey: input.idempotencyKey,
-              ...(input.modelId ? { modelId: input.modelId, model: { primary: input.modelId } } : {}),
               ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
             }, input.timeoutMs || 130_000);
             log.info("gateway.chat.send.end", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, durationMs: elapsedMs(gatewaySendStartedAtMs), elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), status: typeof result.status === "string" ? result.status : undefined, runId: typeof result.runId === "string" ? result.runId : undefined });

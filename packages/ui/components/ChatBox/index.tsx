@@ -575,7 +575,6 @@ export function ChatBox({
     }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
-      modelId: selectedModelRef,
       attachments:
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)

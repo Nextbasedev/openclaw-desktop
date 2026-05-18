@@ -184,7 +184,6 @@ export type SendChatV2Input = {
   sessionKey: string
   text: string
   attachments?: unknown
-  modelId?: string | null
   idempotencyKey: string
   clientMessageId?: string
   replyTo?: { messageId: string; snippet: string }

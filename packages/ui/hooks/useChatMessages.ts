@@ -1683,7 +1683,6 @@ export function useChatMessages(
           sessionKey,
           text: gatewayText,
           attachments: payload.attachments,
-          modelId: payload.modelId,
           idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
           clientMessageId: optimisticId,
           replyTo: replyTo
