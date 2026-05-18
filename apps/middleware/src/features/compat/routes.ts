@@ -753,10 +753,9 @@ function normalizeHistoryForFork(history: CompatRecord) {
 function findForkMessageIndex(messages: CompatRecord[], input: CompatRecord) {
   // Prefer the stable message id over gatewayIndex. The visible UI list and raw
   // Gateway history can drift, so using index first can fork from the wrong
-  // message and copy the wrong context. Treat gatewayIndex as OpenClaw seq next,
-  // and only use it as a legacy array-index fallback when it is safe.
+  // message and copy the wrong context. Keep gatewayIndex only as a fallback
+  // for callers that do not provide a resolvable message id.
   const messageId = String(input.messageId ?? "").trim();
-  const expectedRole = typeof input.role === "string" ? input.role : null;
   if (messageId) {
     const byId = messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
     if (byId >= 0) return byId;

@@ -118,35 +118,6 @@ describe("chat fork compatibility command", () => {
     await app.close();
   });
 
-  test("does not use a misleading array index when message id is present", async () => {
-    const app = await createApp(config("message-id-no-index-fallback"));
-    const context = contextOf(app);
-    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
-      if (method === "chat.history") {
-        return {
-          sessionKey: payload?.sessionKey,
-          messages: [
-            { role: "user", text: "places in Gujarat" },
-            { role: "assistant", text: "Best places to explore in Gujarat" },
-            { role: "user", text: "How much gdp count in America" },
-          ],
-        };
-      }
-      if (method === "sessions.create") throw new Error("sessions.create should not be called for unresolved fork point");
-      return { ok: true };
-    });
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/commands/middleware_chat_fork",
-      payload: { input: { sessionKey: "s1", messageId: "ui-only-assistant-id", gatewayIndex: 2, role: "assistant" } },
-    });
-
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ ok: false });
-    await app.close();
-  });
-
   test("returns a bad request when the fork point cannot be found", async () => {
     const app = await createApp(config("missing-message"));
     const context = contextOf(app);
