@@ -349,7 +349,11 @@ export function ChatView({
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [modelSwitching, setModelSwitching] = useState(false)
+  const [activeReplyTargetId, setActiveReplyTargetId] = useState<string | null>(
+    null
+  )
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
+  const activeReplyTargetTimerRef = useRef<number | null>(null)
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [messageWindowSize, setMessageWindowSize] = useState(240)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
@@ -1339,6 +1343,7 @@ export function ChatView({
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
+      focusReplyTarget,
       forkFromMessage,
       getSubagentsForMessage,
       handleEdit,
