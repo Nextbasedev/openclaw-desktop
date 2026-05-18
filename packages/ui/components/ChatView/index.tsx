@@ -28,6 +28,8 @@ import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
 import { frontendLog } from "@/lib/clientLogs"
 import { windowChatMessages } from "@/lib/messageWindow"
+import { parseChatHistory } from "@/lib/chatHistoryParser"
+import { seedGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { toast } from "react-toastify"
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
@@ -1081,11 +1083,13 @@ export function ChatView({
       )
       try {
         const result = await invoke<{
+          ok?: boolean
           chatId?: string | null
           sessionKey: string
           name: string
           projectId?: string | null
           topicId?: string | null
+          messages?: unknown[]
         }>("middleware_chat_fork", {
           input: {
             sessionKey,
@@ -1095,6 +1099,21 @@ export function ChatView({
             context: forkContext ?? { type: "chat" },
           },
         })
+        if (result.ok === false || !result.sessionKey) {
+          throw new Error("Fork command did not return ok:true/sessionKey")
+        }
+        const sourcePrefix = messages.slice(0, messages.findIndex((item) => item.messageId === messageId) + 1)
+        const forkMessages = result.messages?.length
+          ? parseChatHistory(result.messages as never[]).messages
+          : sourcePrefix
+        if (forkMessages.length > 0) {
+          seedGlobalChatSession({
+            sessionKey: result.sessionKey,
+            messages: forkMessages,
+            status: "done",
+            statusLabel: null,
+          })
+        }
         emit("fork:create", {
           status: "resolved",
           requestId,
