@@ -723,6 +723,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     void context.gateway.request<Record<string, unknown>>("chat.abort", parsed.data, 30_000).catch((error) => {
       log.warn("abort.gateway.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
     });
+    void context.gateway.request<Record<string, unknown>>("sessions.abort", { sessionKey: parsed.data.sessionKey }, 30_000).catch((error) => {
+      log.warn("abort.gateway-session.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
+    });
     const projectedRun = parsed.data.runId
       ? context.runs.getRun(parsed.data.runId) ?? context.runs.findRunByGatewayRunId(parsed.data.runId)
       : context.runs.findLatestPendingRun(parsed.data.sessionKey);
@@ -746,6 +749,30 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
           sessionKey: parsed.data.sessionKey,
           semanticType: "chat.run.aborted",
           run: abortedRun ?? projectedRun,
+          payload: { completedTools },
+        }),
+      });
+      context.patchBus.broadcast({
+        cursor: abortEvent.cursor,
+        type: abortEvent.eventType,
+        sessionKey: abortEvent.sessionKey,
+        payload: abortEvent.payload,
+        createdAtMs: abortEvent.createdAtMs,
+      });
+    } else {
+      const existingSession = context.messages.getSession(parsed.data.sessionKey);
+      context.messages.upsertSession({
+        sessionKey: parsed.data.sessionKey,
+        sessionId: existingSession?.sessionId ?? null,
+        data: { ...objectData(existingSession?.data), sessionKey: parsed.data.sessionKey, status: "aborted", statusLabel: null },
+      });
+      const abortEvent = context.messages.appendProjectionEvent({
+        sessionKey: parsed.data.sessionKey,
+        eventType: "chat.status",
+        payload: canonicalPatchPayload({
+          sessionKey: parsed.data.sessionKey,
+          semanticType: "chat.run.aborted",
+          legacyStatus: "aborted",
           payload: { completedTools },
         }),
       });

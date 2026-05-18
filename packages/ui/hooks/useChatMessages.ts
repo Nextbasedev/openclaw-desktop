@@ -1961,14 +1961,30 @@ export function useChatMessages(
   const handleAbort = useCallback(async () => {
     setStatus("stopping")
     setStatusLabel(null)
+    updateGlobalChatSessionActivity({
+      sessionKey,
+      status: "stopping",
+      statusLabel: null,
+    })
     try {
-      await invoke("middleware_chat_stop", { input: { sessionKey } })
+      await abortChatV2({ sessionKey })
       pendingToolMapRef.current.clear()
       setPendingTools([])
       setStatus("idle")
+      updateGlobalChatSessionActivity({
+        sessionKey,
+        pendingTools: [],
+        status: "idle",
+        statusLabel: null,
+      })
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
+      updateGlobalChatSessionActivity({
+        sessionKey,
+        status: "error",
+        statusLabel: null,
+      })
     }
   }, [sessionKey])
 
