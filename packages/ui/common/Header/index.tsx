@@ -278,8 +278,8 @@ export function Header({
                       layout="position"
                       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
                       className="shrink-0"
-                      style={{ position: "relative", boxShadow: "none" }}
-                      whileDrag={{ boxShadow: "none" }}
+                      style={{ position: "relative", zIndex: 0, boxShadow: "none" }}
+                      whileDrag={{ zIndex: 60, boxShadow: "none" }}
                     >
                       <HeaderTab
                         tab={tab}
