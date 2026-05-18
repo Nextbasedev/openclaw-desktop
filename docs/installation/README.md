@@ -91,9 +91,20 @@ Pick the URL Desktop can actually reach, in this order:
 3. Private IP / LAN URL
 4. Public IP with `:8787` only if firewall/security group allows it
 
+## Official OpenClaw Gateway scopes
+
+Middleware must connect to OpenClaw Gateway with the official operator scopes used in the OpenClaw code (`apps/middleware/src/services/gateway.ts`):
+
+- `operator.read`
+- `operator.write`
+- `operator.approvals`
+- `operator.admin`
+
+These are Gateway scopes only. Desktop workspace, git, terminal, and other Desktop features are verified through Middleware's own HTTP APIs, not as separate OpenClaw Gateway scopes.
+
 ## Mandatory smoke test
 
-Run the smoke test before returning URL/code. It verifies health, OpenClaw Gateway connection, pairing/token, authenticated APIs, admin commands, cron, `/api/stream/cron`, chat send, workspace, and terminal.
+Run the smoke test before returning URL/code. It verifies health, OpenClaw Gateway connection, pairing/token, official Gateway operator scopes via chat/admin/approval paths, plus Middleware HTTP APIs for cron, `/api/stream/cron`, chat send, workspace, and terminal.
 
 From repo root:
 
