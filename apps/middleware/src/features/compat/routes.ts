@@ -693,13 +693,22 @@ function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
   };
 }
 
+function stripTranscriptUiMeta(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripTranscriptUiMeta);
+  if (!value || typeof value !== "object") return value;
+  const out: CompatRecord = {};
+  for (const [key, item] of Object.entries(value as CompatRecord)) {
+    if (key === "__openclaw" || key === "messageId" || key === "seq" || key === "gatewayIndex") continue;
+    out[key] = stripTranscriptUiMeta(item);
+  }
+  return out;
+}
+
 function transcriptLineFromHistoryMessage(message: CompatRecord) {
   const meta = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as CompatRecord : {};
   const idValue = String(meta.id || message.id || crypto.randomUUID());
   const timestamp = typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : typeof message.timestamp === "string" ? message.timestamp : nowIso();
-  const stripped = { ...message };
-  delete stripped.__openclaw;
-  return JSON.stringify({ id: idValue, timestamp, message: stripped });
+  return JSON.stringify({ id: idValue, timestamp, message: stripTranscriptUiMeta(message) });
 }
 
 function copyHistoryMessagesToTranscript(transcriptPath: string, messages: CompatRecord[]) {
@@ -737,11 +746,18 @@ function normalizeHistoryForFork(history: CompatRecord) {
 }
 
 function findForkMessageIndex(messages: CompatRecord[], input: CompatRecord) {
+  // Prefer the stable message id over gatewayIndex. The visible UI list and raw
+  // Gateway history can drift, so using index first can fork from the wrong
+  // message and copy the wrong context. Keep gatewayIndex only as a fallback
+  // for callers that do not provide a resolvable message id.
+  const messageId = String(input.messageId ?? "").trim();
+  if (messageId) {
+    const byId = messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+    if (byId >= 0) return byId;
+  }
   const gatewayIndex = Number(input.gatewayIndex);
   if (Number.isInteger(gatewayIndex) && gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
-  const messageId = String(input.messageId ?? "").trim();
-  if (!messageId) return -1;
-  return messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+  return -1;
 }
 
 function sourceChatForSession(sessionKey: string) {
