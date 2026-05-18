@@ -765,11 +765,18 @@ function normalizeHistoryForFork(history: CompatRecord) {
 }
 
 function findForkMessageIndex(messages: CompatRecord[], input: CompatRecord) {
+  // Prefer the stable message id over gatewayIndex. The UI-visible list can be
+  // filtered/normalized differently from raw Gateway history, so an index can
+  // point at the wrong message and copy too much/too little context. Use the
+  // index only as a fallback for older callers that do not provide messageId.
+  const messageId = String(input.messageId ?? "").trim();
+  if (messageId) {
+    const byId = messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+    if (byId >= 0) return byId;
+  }
   const gatewayIndex = Number(input.gatewayIndex);
   if (Number.isInteger(gatewayIndex) && gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
-  const messageId = String(input.messageId ?? "").trim();
-  if (!messageId) return -1;
-  return messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+  return -1;
 }
 
 function sourceChatForSession(sessionKey: string) {
