@@ -638,6 +638,76 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
+  const repliedMessageIds = useMemo(() => {
+    const availableIds = new Set(messages.map((message) => message.messageId))
+    const ids = new Set<string>()
+    for (const message of messages) {
+      const replyId = message.replyTo?.messageId
+      const normalizedReplyId = replyId?.replace(/:selection$/, "")
+      if (normalizedReplyId && availableIds.has(normalizedReplyId)) {
+        ids.add(normalizedReplyId)
+      }
+      for (const selection of message.replyTo?.selections ?? []) {
+        const selectionId = selection.messageId?.replace(/:selection$/, "")
+        if (selectionId && availableIds.has(selectionId)) {
+          ids.add(selectionId)
+        }
+      }
+    }
+    return ids
+  }, [messages])
+
+  const referencedTextsByMessageId = useMemo(() => {
+    const availableIds = new Set(messages.map((message) => message.messageId))
+    const references = new Map<string, string[]>()
+    const addReference = (messageId: string | undefined, text: string | undefined) => {
+      const normalizedId = messageId?.replace(/:selection$/, "")
+      const trimmedText = text?.trim()
+      if (!normalizedId || !trimmedText || !availableIds.has(normalizedId)) return
+      references.set(normalizedId, [...(references.get(normalizedId) ?? []), trimmedText])
+    }
+
+    for (const message of messages) {
+      const selections = message.replyTo?.selections ?? []
+      if (selections.length > 0) {
+        for (const selection of selections) {
+          addReference(selection.messageId, selection.text)
+        }
+      } else {
+        addReference(message.replyTo?.messageId, message.replyTo?.text)
+      }
+    }
+
+    return references
+  }, [messages])
+
+  const focusReplyTarget = useCallback((messageId: string) => {
+    const target = document.getElementById(`message-${messageId}`)
+    target?.scrollIntoView({ behavior: "smooth", block: "center" })
+    setActiveReplyTargetId(messageId)
+    if (activeReplyTargetTimerRef.current !== null) {
+      window.clearTimeout(activeReplyTargetTimerRef.current)
+    }
+    activeReplyTargetTimerRef.current = window.setTimeout(() => {
+      setActiveReplyTargetId((current) => current === messageId ? null : current)
+      activeReplyTargetTimerRef.current = null
+    }, 2200)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (activeReplyTargetTimerRef.current !== null) {
+        window.clearTimeout(activeReplyTargetTimerRef.current)
+      }
+    }
+  }, [])
+  const importantMessageIds = useMemo(
+    () =>
+      Array.from(
+        new Set([...messageActionState.pinnedIds, ...repliedMessageIds])
+      ),
+    [messageActionState.pinnedIds, repliedMessageIds]
+  )
   const messageWindow = useMemo(
     () =>
       windowChatMessages(
@@ -727,9 +797,10 @@ export function ChatView({
       const selected = text.trim()
       if (!selected) return
       setReplyTo({
-        messageId: `${messageId}:selection`,
+        messageId,
         role: "assistant",
         text: selected,
+        selections: [{ messageId, text: selected, comment }],
       })
       setComposerSeed(comment?.trim() ?? "")
     },
@@ -1220,6 +1291,8 @@ export function ChatView({
                 onAskSelectedText={
                   msg.role === "assistant" ? askAboutSelectedText : undefined
                 }
+                onReplyTargetClick={focusReplyTarget}
+                referencedTexts={referencedTextsByMessageId.get(msg.messageId)}
                 isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                 reaction={messageActionState.reactions[msg.messageId]}
                 isGenerating={isGenerating}
@@ -1275,6 +1348,7 @@ export function ChatView({
       groupedToolCalls,
       suppressedToolCallMessages,
       renderedMessages.length,
+      referencedTextsByMessageId,
       replyToMessage,
       resolveExecApproval,
       retrySend,
