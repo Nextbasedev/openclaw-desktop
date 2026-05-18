@@ -345,7 +345,7 @@ function splitTextAndEmbeds(text: string, embeds?: EmbedContent[]) {
   return parts
 }
 
-export function MarkdownContent({
+function MarkdownContentImpl({
   text,
   className,
   embeds,
@@ -428,3 +428,5 @@ export function MarkdownContent({
     </div>
   )
 }
+
+export const MarkdownContent = React.memo(MarkdownContentImpl)
