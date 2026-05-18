@@ -134,6 +134,29 @@ function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
   return false
 }
 
+
+function latestUserTextForMessages(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role === "user") return message.text.replace(/\s+/g, " ").trim()
+  }
+  return ""
+}
+
+function shouldPreserveVisibleAssistantAnswer(currentMessages: ChatMessage[], nextMessages: ChatMessage[]) {
+  if (!hasAssistantAnswerAfterLatestUserMessage(currentMessages)) return false
+  if (hasAssistantAnswerAfterLatestUserMessage(nextMessages)) return false
+  const currentLatestUser = latestUserTextForMessages(currentMessages)
+  const nextLatestUser = latestUserTextForMessages(nextMessages)
+  return Boolean(currentLatestUser && nextLatestUser && currentLatestUser === nextLatestUser)
+}
+
+export function mergeWithVisibleAssistantAnswer(currentMessages: ChatMessage[], nextMessages: ChatMessage[]) {
+  return shouldPreserveVisibleAssistantAnswer(currentMessages, nextMessages)
+    ? dedupeChatMessages([...nextMessages, ...currentMessages])
+    : nextMessages
+}
+
 export function mergeOptimisticMessagesWithCanonical(
   canonicalMessages: ChatMessage[],
   optimisticSource: ChatMessage[] | null | undefined
@@ -1284,7 +1307,7 @@ export function useChatMessages(
       setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
       if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
       else clearCachedChatActivity(sessionKey)
-      setMessages(state.messages)
+      setMessages((prev) => mergeWithVisibleAssistantAnswer(prev, state.messages))
     }
 
     const clearScheduledV2Apply = () => {

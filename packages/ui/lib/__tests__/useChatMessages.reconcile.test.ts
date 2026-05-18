@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { mergeOptimisticMessagesWithCanonical, shouldPreserveActiveReconcile } from "../../hooks/useChatMessages"
+import { mergeOptimisticMessagesWithCanonical, mergeWithVisibleAssistantAnswer, shouldPreserveActiveReconcile } from "../../hooks/useChatMessages"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 const user = (text = "question"): ChatMessage => ({ messageId: `u-${text}`, role: "user", text })
@@ -40,8 +40,29 @@ describe("chat reconcile active-state guards", () => {
     })).toBe(false)
   })
 
-  test("keeps a newly sent optimistic user message when canonical bootstrap is still empty", () => {
-    expect(mergeOptimisticMessagesWithCanonical([], [optimisticUser("long task")])).toMatchObject([
+
+  test("keeps visible assistant answer when a stale snapshot omits it", () => {
+    const current = [
+      user("first question"),
+      assistant("first answer"),
+      user("what was previous question?"),
+      { ...assistant("The previous question was: first question"), messageId: "live-answer" },
+    ]
+    const stale = [
+      user("first question"),
+      assistant("first answer"),
+      user("what was previous question?"),
+    ]
+
+    expect(mergeWithVisibleAssistantAnswer(current, stale).map((message) => message.text)).toEqual([
+      "first question",
+      "first answer",
+      "what was previous question?",
+      "The previous question was: first question",
+    ])
+  })
+
+  test("keeps a newly sent optimistic user message when canonical bootstrap is still empty", () => {    expect(mergeOptimisticMessagesWithCanonical([], [optimisticUser("long task")])).toMatchObject([
       { role: "user", text: "long task", isOptimistic: true },
     ])
   })
