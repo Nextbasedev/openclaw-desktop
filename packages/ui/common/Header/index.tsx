@@ -125,6 +125,7 @@ export function Header({
   const [nodeVersion, setNodeVersion] = useState<string | null>(null)
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -277,14 +278,17 @@ export function Header({
                       as="div"
                       layout="position"
                       transition={{ layout: { type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] } }}
-                      className="shrink-0"
-                      style={{ position: "relative", zIndex: 0, boxShadow: "none" }}
-                      whileDrag={{ zIndex: 60, boxShadow: "none" }}
+                      className={cn("shrink-0", draggingTabId === tab.id ? "z-[100]" : "z-0")}
+                      style={{ position: "relative", boxShadow: "none" }}
+                      whileDrag={{ zIndex: 100, boxShadow: "none" }}
+                      onDragStart={() => setDraggingTabId(tab.id)}
+                      onDragEnd={() => setDraggingTabId(null)}
                     >
                       <HeaderTab
                         tab={tab}
                         isActive={group.activeTabId === tab.id}
                         isFocusedGroup={isFocusedGroup}
+                        isDragging={draggingTabId === tab.id}
                         onSelect={() => onSelectChatTab?.(group.id, tab.id)}
                         onClose={() => onCloseChatTab?.(tab.id)}
                         onOpenWindow={
@@ -499,6 +503,7 @@ function HeaderTab({
   tab,
   isActive,
   isFocusedGroup = true,
+  isDragging = false,
   onSelect,
   onClose,
   onOpenWindow,
@@ -506,6 +511,7 @@ function HeaderTab({
   tab: EditorTab
   isActive: boolean
   isFocusedGroup?: boolean
+  isDragging?: boolean
   onSelect: () => void
   onClose: () => void
   onOpenWindow?: () => void
@@ -540,7 +546,9 @@ function HeaderTab({
       }}
       className={cn(
         "group relative mb-0 flex h-[35px] w-46 shrink-0 items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200",
-        activeAndFocused
+        isDragging
+          ? "z-[100] overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
+          : activeAndFocused
           ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
           : isActive
             ? "z-10 overflow-visible border-transparent bg-background/72 text-foreground/74 shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
