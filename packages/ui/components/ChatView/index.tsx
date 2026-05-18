@@ -42,7 +42,6 @@ import {
   LuRefreshCw,
   LuSettings2,
   LuSparkles,
-  LuTerminal,
   LuWrench,
 } from "react-icons/lu"
 import type { IconType } from "react-icons"
@@ -79,7 +78,7 @@ const STATUS_TOOL_ICON_META: Record<string, StatusIconMeta> = {
   write: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Write file" },
   edit: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Edit file" },
   apply_patch: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Apply patch" },
-  exec: { icon: LuTerminal, className: STATUS_ICON_CLASS, label: "Run command" },
+  exec: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Run command" },
   process: { icon: LuRefreshCw, className: STATUS_ICON_CLASS, label: "Process" },
   web_fetch: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Fetch web page" },
   web_search: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Search web" },
