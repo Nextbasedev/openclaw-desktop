@@ -27,9 +27,7 @@ import { invoke } from "@/lib/ipc"
 import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
 import { frontendLog } from "@/lib/clientLogs"
-import { windowChatMessages } from "@/lib/messageWindow"
 import { toast } from "react-toastify"
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
@@ -350,8 +348,6 @@ export function ChatView({
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [modelSwitching, setModelSwitching] = useState(false)
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
-  const [messageWindowSize, setMessageWindowSize] = useState(240)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
   const [dbPins, setDbPins] = useState<{
@@ -363,7 +359,6 @@ export function ChatView({
     // Reset everything when the session changes
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
-    setMessageWindowSize(240)
 
     invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
       "middleware_pins_list",
@@ -638,16 +633,7 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const messageWindow = useMemo(
-    () =>
-      windowChatMessages(
-        visibleAllMessages,
-        messageActionState.pinnedIds,
-        messageWindowSize
-      ),
-    [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
-  )
-  const renderedMessages = messageWindow.messages
+  const renderedMessages = visibleAllMessages
   const lastHistoryScrollVersionRef = useRef(0)
 
   useEffect(() => {
@@ -656,17 +642,13 @@ export function ChatView({
     if (renderedMessages.length === 0) return
 
     lastHistoryScrollVersionRef.current = historyLoadVersion
-    const lastIndex = renderedMessages.length - 1
     const scrollToLatest = () => {
-      virtuosoRef.current?.scrollToIndex({
-        index: lastIndex,
-        align: "end",
-        behavior: "auto",
-      })
       const el = scrollContainerRef.current
       if (el) {
         el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+        return
       }
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
     }
 
     let secondFrame: number | null = null
@@ -859,12 +841,6 @@ export function ChatView({
     [sessionKey, messageActionState.reactions]
   )
 
-  const loadOlderMessages = useCallback(() => {
-    setMessageWindowSize((current) =>
-      Math.min(current + 240, visibleAllMessages.length)
-    )
-  }, [visibleAllMessages.length])
-
   const handleScroll = useCallback(() => {
     onScroll()
     const el = scrollContainerRef.current
@@ -876,17 +852,8 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    const lastIndex = renderedMessages.length - 1
-    if (lastIndex >= 0) {
-      virtuosoRef.current?.scrollToIndex({
-        index: lastIndex,
-        align: "end",
-        behavior: "smooth",
-      })
-      return
-    }
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-  }, [bottomRef, renderedMessages.length])
+  }, [bottomRef])
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -1079,21 +1046,12 @@ export function ChatView({
     }
   }
 
-  const scrollToRenderedMessage = useCallback(
-    (messageId: string) => {
-      const index = renderedMessages.findIndex(
-        (msg) => msg.messageId === messageId
-      )
-      if (index < 0) return false
-      virtuosoRef.current?.scrollToIndex({
-        index,
-        align: "center",
-        behavior: "smooth",
-      })
-      return true
-    },
-    [renderedMessages]
-  )
+  const scrollToRenderedMessage = useCallback((messageId: string) => {
+    const target = document.getElementById(`message-${messageId}`)
+    if (!target) return false
+    target.scrollIntoView({ behavior: "smooth", block: "center" })
+    return true
+  }, [])
 
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
@@ -1418,71 +1376,40 @@ export function ChatView({
         onSubmit={handleFeedbackSubmit}
       />
 
-      <Virtuoso
-        ref={virtuosoRef}
-        data={renderedMessages}
-        className="flex-1"
-        scrollerRef={(ref) => {
-          scrollContainerRef.current =
-            ref instanceof HTMLDivElement ? ref : null
-        }}
+      <div
+        ref={scrollContainerRef}
         onScroll={handleScroll}
-        initialTopMostItemIndex={{ index: "LAST", align: "end" }}
-        alignToBottom
-        followOutput={(isAtBottom) => {
-          if (isSending) return "smooth"
-          if (isGenerating) return isAtBottom ? "auto" : false
-          return isAtBottom ? "smooth" : false
-        }}
-        computeItemKey={(_, msg) => msg.messageId}
-        increaseViewportBy={{ top: 900, bottom: 1200 }}
-        components={{
-          Header: () => (
-            <div className="mx-auto max-w-3xl px-4 pt-8">
-              {messageWindow.hiddenBefore > 0 && (
-                <div className="mx-auto mb-2 flex w-fit items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
-                  <span>
-                    Showing latest {renderedMessages.length} of{" "}
-                    {messageWindow.total} messages
-                  </span>
-                  <button
-                    type="button"
-                    onClick={loadOlderMessages}
-                    className="cursor-pointer font-medium text-foreground underline-offset-2 hover:underline"
-                  >
-                    Load older messages
-                  </button>
-                </div>
-              )}
-            </div>
-          ),
-          Footer: () => (
-            <div className="mx-auto max-w-3xl px-4 pb-8">
-              <AnimatePresence initial={false}>
-                {editPreview && (
-                  <EditPreviewPanel
-                    key={editPreview.branchSessionKey}
-                    preview={editPreview}
-                    onSelect={selectEditBranch}
-                  />
-                )}
-              </AnimatePresence>
+        className="flex-1 overflow-y-auto"
+      >
+        <div className="mx-auto max-w-3xl px-4 pt-8" />
+        {renderedMessages.map((msg, index) => (
+          <div key={msg.messageId} className="contents">
+            {renderMessageRow(index, msg)}
+          </div>
+        ))}
+        <div className="mx-auto max-w-3xl px-4 pb-8">
+          <AnimatePresence initial={false}>
+            {editPreview && (
+              <EditPreviewPanel
+                key={editPreview.branchSessionKey}
+                preview={editPreview}
+                onSelect={selectEditBranch}
+              />
+            )}
+          </AnimatePresence>
 
-              {statusText && (
-                <div className="mt-4 flex items-center pl-1">
-                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                    {statusText.replace(/\.{3}$/, "")}
-                    <span className="thinking-ellipsis" aria-hidden="true" />
-                  </span>
-                </div>
-              )}
-
-              <div ref={bottomRef} className="h-8" />
+          {statusText && (
+            <div className="mt-4 flex items-center pl-1">
+              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                {statusText.replace(/\.{3}$/, "")}
+                <span className="thinking-ellipsis" aria-hidden="true" />
+              </span>
             </div>
-          ),
-        }}
-        itemContent={renderMessageRow}
-      />
+          )}
+
+          <div ref={bottomRef} className="h-8" />
+        </div>
+      </div>
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <AnimatePresence>
