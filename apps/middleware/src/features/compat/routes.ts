@@ -1863,8 +1863,18 @@ function workspaceMove(root: string, body: CompatRecord) {
   return { ok: true, fromPath, toPath };
 }
 
+function openclawConfigPath() {
+  return path.join(os.homedir(), ".openclaw", "openclaw.json");
+}
+
 function readOCPlatformConfig(): CompatRecord {
-  try { return JSON.parse(fs.readFileSync(path.join(os.homedir(), ".openclaw", "openclaw.json"), "utf8")); } catch { return {}; }
+  try { return JSON.parse(fs.readFileSync(openclawConfigPath(), "utf8")); } catch { return {}; }
+}
+
+function writeOCPlatformConfig(cfg: CompatRecord) {
+  const configPath = openclawConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), "utf8");
 }
 
 const voiceDefaultModels: Record<string, string> = {
@@ -1897,16 +1907,6 @@ const voiceOptions = [
   { provider: "mistral", model: "voxtral-mini-latest", label: "Mistral - voxtral-mini-latest" },
   { provider: "mistral", model: "voxtral-small-latest", label: "Mistral - voxtral-small-latest" },
 ];
-
-function openclawConfigPath() {
-  return path.join(os.homedir(), ".openclaw", "openclaw.json");
-}
-
-function writeOCPlatformConfig(cfg: CompatRecord) {
-  const file = openclawConfigPath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(cfg, null, 2), "utf8");
-}
 
 function normalizeVoiceProvider(value: unknown) {
   const provider = String(value || "auto").trim().toLowerCase();
@@ -3306,8 +3306,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         cfg.agents ??= {}; cfg.agents.defaults ??= {}; cfg.agents.defaults.model ??= {};
         if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model };
         cfg.agents.defaults.model.primary = modelId;
-        fs.writeFileSync(path.join(os.homedir(), ".openclaw", "openclaw.json"), JSON.stringify(cfg, null, 2), "utf8");
-        return { ok: true, modelId, currentModel: modelId, defaultModel: modelId };
+        writeOCPlatformConfig(cfg);
+        return { ok: true, modelId, ...modelsResponse(cfg) };
       }
       case "middleware_models_auth_status":
         return { providers: [], configured: true };

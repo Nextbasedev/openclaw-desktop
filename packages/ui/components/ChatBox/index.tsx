@@ -118,9 +118,10 @@ export function ChatBox({
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
-  const [sessionModelId, setSessionModelId] = React.useState<string | null>(
-    null
-  )
+  const [sessionModelId, setSessionModelId] = React.useState<string | null>(() => {
+    if (!draftKey || typeof localStorage === "undefined") return null
+    try { return localStorage.getItem(`openclaw-session-model:v1:${draftKey}`) } catch { return null }
+  })
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
   const [voiceSetupOpen, setVoiceSetupOpen] = React.useState(false)
@@ -449,6 +450,14 @@ export function ChatBox({
 
   const hasInput = input.trim().length > 0 || attachments.length > 0
   const isSlashCommandInput = /^([/@])\S*/.test(input)
+  React.useEffect(() => {
+    if (!draftKey || typeof localStorage === "undefined") {
+      setSessionModelId(null)
+      return
+    }
+    try { setSessionModelId(localStorage.getItem(`openclaw-session-model:v1:${draftKey}`)) } catch { setSessionModelId(null) }
+  }, [draftKey])
+
   const selectedModelRef = sessionModelId ?? currentModel
   function updateSlashMenu(value: string) {
     const match = value.match(/^([/@])(\S*)$/)
@@ -566,6 +575,7 @@ export function ChatBox({
     }
     const payload: ChatComposerSubmit = {
       text: text || "Please transcribe and respond to the attached audio.",
+      modelId: selectedModelRef,
       attachments:
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
@@ -952,6 +962,9 @@ export function ChatBox({
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
               setSessionModelId(modelId)
+              if (draftKey && typeof localStorage !== "undefined") {
+                try { localStorage.setItem(`openclaw-session-model:v1:${draftKey}`, modelId) } catch {}
+              }
               setModelOpen(false)
               const applyModel = onModelSelect
                 ? onModelSelect(modelId)
