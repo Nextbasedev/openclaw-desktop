@@ -491,7 +491,6 @@ export function MessageBubble({
   onFork,
   onResolveApproval,
   onAskSelectedText,
-  onReplyTargetClick,
   referencedTexts,
   isPinned,
   reaction,
@@ -522,7 +521,6 @@ export function MessageBubble({
     text: string,
     comment?: string
   ) => void
-  onReplyTargetClick?: (messageId: string) => void
   referencedTexts?: string[]
   isPinned?: boolean
   reaction?: "up" | "down"
@@ -783,17 +781,19 @@ export function MessageBubble({
           <button
             type="button"
             onClick={() => {
-              onReplyTargetClick?.(message.replyTo!.messageId)
+              document
+                .getElementById(`message-${message.replyTo!.messageId}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" })
             }}
             className={cn(
-              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-md border border-blue-300/25 bg-blue-400/[0.10] px-2.5 pb-1.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_28px_-22px_rgba(59,130,246,0.75)] backdrop-blur-md transition-colors hover:border-blue-300/35 hover:bg-blue-400/[0.14]"
+              "mb-1 flex w-fit max-w-full cursor-pointer items-start gap-2 rounded-lg border border-b-0 border-border/20 bg-foreground/[0.03] px-2.5 pb-1.5 text-left transition-colors hover:bg-foreground/[0.06]"
             )}
           >
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-medium text-blue-100/75">
+              <span className="text-[10px] font-medium text-muted-foreground/60">
                 {message.replyTo.role === "user" ? "You" : "Assistant"}
               </span>
-              <p className="line-clamp-2 text-[12px] leading-snug text-blue-50/70">
+              <p className="line-clamp-2 text-[12px] leading-snug text-foreground/50">
                 {message.replyTo.text.slice(0, 150)}
                 {message.replyTo.text.length > 150 ? "…" : ""}
               </p>

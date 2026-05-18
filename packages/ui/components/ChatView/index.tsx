@@ -353,8 +353,6 @@ export function ChatView({
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [messageWindowSize, setMessageWindowSize] = useState(240)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [activeReplyTargetId, setActiveReplyTargetId] = useState<string | null>(null)
-  const activeReplyTargetTimerRef = useRef<number | null>(null)
 
   const [dbPins, setDbPins] = useState<{
     pins: Array<{ messageId: string; messageText: string }>
@@ -640,58 +638,14 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const repliedMessageIds = useMemo(() => {
-    const availableIds = new Set(messages.map((message) => message.messageId))
-    const ids = new Set<string>()
-    for (const message of messages) {
-      const replyId = message.replyTo?.messageId
-      if (replyId && availableIds.has(replyId)) {
-        ids.add(replyId)
-      }
-      for (const selection of message.replyTo?.selections ?? []) {
-        if (selection.messageId && availableIds.has(selection.messageId)) {
-          ids.add(selection.messageId)
-        }
-      }
-    }
-    return ids
-  }, [messages])
-
-  const focusReplyTarget = useCallback((messageId: string) => {
-    const target = document.getElementById(`message-${messageId}`)
-    target?.scrollIntoView({ behavior: "smooth", block: "center" })
-    setActiveReplyTargetId(messageId)
-    if (activeReplyTargetTimerRef.current !== null) {
-      window.clearTimeout(activeReplyTargetTimerRef.current)
-    }
-    activeReplyTargetTimerRef.current = window.setTimeout(() => {
-      setActiveReplyTargetId((current) => current === messageId ? null : current)
-      activeReplyTargetTimerRef.current = null
-    }, 2200)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (activeReplyTargetTimerRef.current !== null) {
-        window.clearTimeout(activeReplyTargetTimerRef.current)
-      }
-    }
-  }, [])
-  const importantMessageIds = useMemo(
-    () =>
-      Array.from(
-        new Set([...messageActionState.pinnedIds, ...repliedMessageIds])
-      ),
-    [messageActionState.pinnedIds, repliedMessageIds]
-  )
   const messageWindow = useMemo(
     () =>
       windowChatMessages(
         visibleAllMessages,
-        importantMessageIds,
+        messageActionState.pinnedIds,
         messageWindowSize
       ),
-    [visibleAllMessages, importantMessageIds, messageWindowSize]
+    [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
   const lastHistoryScrollVersionRef = useRef(0)
@@ -1212,20 +1166,10 @@ export function ChatView({
       const userSubagents =
         anchoredUserSubagents.length > 0 ? anchoredUserSubagents : liveSubagents
 
-      const isRepliedMessage = repliedMessageIds.has(msg.messageId)
-      const isActiveReplyTarget = activeReplyTargetId === msg.messageId
-
       return (
         <div
           id={`message-${msg.messageId}`}
-          className={cn(
-            "mx-auto max-w-3xl rounded-md border px-4 py-2.5 transition-[background-color,border-color,box-shadow] duration-300",
-            isRepliedMessage
-              ? "border-blue-300/20 bg-blue-400/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_42px_-34px_rgba(59,130,246,0.9)] backdrop-blur-md"
-              : "border-transparent",
-            isActiveReplyTarget &&
-              "border-blue-300/45 bg-blue-400/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_0_0_1px_rgba(147,197,253,0.18),0_18px_50px_-28px_rgba(59,130,246,0.95)]"
-          )}
+          className="mx-auto max-w-3xl px-4 py-2.5"
         >
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
@@ -1276,7 +1220,6 @@ export function ChatView({
                 onAskSelectedText={
                   msg.role === "assistant" ? askAboutSelectedText : undefined
                 }
-                onReplyTargetClick={focusReplyTarget}
                 isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                 reaction={messageActionState.reactions[msg.messageId]}
                 isGenerating={isGenerating}
@@ -1335,9 +1278,6 @@ export function ChatView({
       replyToMessage,
       resolveExecApproval,
       retrySend,
-      repliedMessageIds,
-      activeReplyTargetId,
-      focusReplyTarget,
       setActivePopoverId,
       subagentsByTriggerUserId,
       switchBranch,
