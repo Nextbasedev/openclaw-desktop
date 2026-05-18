@@ -3,11 +3,6 @@ const { spawn } = require('node:child_process')
 const isWindows = process.platform === 'win32'
 const pnpmCommand = isWindows ? 'pnpm.cmd' : 'pnpm'
 
-function quoteWindowsArg(arg) {
-  if (!/[ \t"]/u.test(arg)) return arg
-  return `"${arg.replace(/"/g, '\\"')}"`
-}
-
 function sanitizeEnv(env) {
   return Object.fromEntries(
     Object.entries(env)
@@ -20,17 +15,12 @@ const children = []
 let stopping = false
 
 function run(name, args) {
-  const child = isWindows
-    ? spawn('cmd.exe', ['/d', '/s', '/c', [pnpmCommand, ...args].map(quoteWindowsArg).join(' ')], {
-        stdio: 'inherit',
-        env: sanitizeEnv(process.env),
-        windowsHide: false,
-      })
-    : spawn(pnpmCommand, args, {
-        stdio: 'inherit',
-        env: sanitizeEnv(process.env),
-        windowsHide: false,
-      })
+  const child = spawn(pnpmCommand, args, {
+    stdio: 'inherit',
+    env: sanitizeEnv(process.env),
+    shell: isWindows,
+    windowsHide: false,
+  })
 
   child.on('error', (error) => {
     console.error(`[${name}] failed to start pnpm: ${error.message}`)
@@ -56,7 +46,9 @@ function stopChildren(code) {
 }
 
 console.log('Starting local OpenClaw Desktop stack: middleware + web UI')
-run('middleware', ['dev:middleware'])
+// Legacy middleware is intentionally disabled; middleware now owns the old 8787 port.
+// run('middleware', ['dev:middleware'])
+run('middleware', ['dev:middleware:v2'])
 run('web', ['dev:ui'])
 
 process.on('SIGINT', () => stopChildren(130))

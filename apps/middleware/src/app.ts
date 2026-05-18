@@ -66,6 +66,8 @@ export async function createApp(config: MiddlewareConfig) {
   context.chatLive = new ChatLiveIngest(context);
   (app as typeof app & { v2Context?: AppContext }).v2Context = context;
 
+  await gateway.connect();
+
   await app.register(cors, {
     origin: true,
     credentials: false,
