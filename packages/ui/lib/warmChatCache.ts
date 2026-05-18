@@ -13,8 +13,8 @@ import {
 export const WARM_CHAT_FRESH_MS = 2 * 60 * 1000
 export const WARM_CHAT_DISPLAYABLE_MS = 24 * 60 * 60 * 1000
 export const WARM_CHAT_MAX_CHATS = 30
-export const WARM_CHAT_MAX_MESSAGES = 1000
-export const WARM_CHAT_MAX_APPROX_BYTES_PER_CHAT = 8 * 1024 * 1024
+export const WARM_CHAT_MAX_MESSAGES = 60
+export const WARM_CHAT_MAX_APPROX_BYTES_PER_CHAT = 500 * 1024
 export const WARM_CHAT_WRITE_DEBOUNCE_MS = 1000
 
 const WARM_CHAT_INDEX_KEY = "warm-chat:index"

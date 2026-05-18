@@ -7,7 +7,7 @@ afterEach(async () => {
 })
 
 describe("warmChatCache", () => {
-  it("stores a large recent message window for fast chat loading", async () => {
+  it("stores only the latest 60 messages for fast chat loading", async () => {
     const messages = Array.from({ length: WARM_CHAT_MAX_MESSAGES + 5 }, (_, index) => ({
       messageId: `m${index}`,
       role: index % 2 === 0 ? "user" as const : "assistant" as const,
@@ -17,9 +17,9 @@ describe("warmChatCache", () => {
     await setWarmChatCache("s1", { messages })
     const cached = await getWarmChatCache("s1")
 
-    expect(WARM_CHAT_MAX_MESSAGES).toBe(1000)
-    expect(cached?.entry.messages).toHaveLength(1000)
+    expect(WARM_CHAT_MAX_MESSAGES).toBe(60)
+    expect(cached?.entry.messages).toHaveLength(60)
     expect(cached?.entry.messages[0]?.messageId).toBe("m5")
-    expect(cached?.entry.messages.at(-1)?.messageId).toBe("m1004")
+    expect(cached?.entry.messages.at(-1)?.messageId).toBe("m64")
   })
 })

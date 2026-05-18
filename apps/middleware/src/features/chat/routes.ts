@@ -9,11 +9,9 @@ import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
 import type { ProjectedRun } from "./repo.runs.js";
 
-const CHAT_BOOTSTRAP_DEFAULT_LIMIT = 1000;
-
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
-  limit: z.coerce.number().int().positive().max(CHAT_BOOTSTRAP_DEFAULT_LIMIT).optional(),
+  limit: z.coerce.number().int().positive().max(1000).optional(),
   maxChars: z.coerce.number().int().positive().optional(),
 });
 
@@ -823,9 +821,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    const bootstrapLimit = parsed.data.limit ?? CHAT_BOOTSTRAP_DEFAULT_LIMIT;
-    const projectedMessages = context.messages.listMessages(sessionKey, { limit: bootstrapLimit, latest: true }).map((message) => message.data);
-    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: bootstrapLimit });
+    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }).map((message) => message.data);
+    log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: parsed.data.limit ?? 1000 });
     await context.chatLive.ensureSessionSubscribed(sessionKey);
     const event = context.messages.appendProjectionEvent({
       sessionKey,
