@@ -1522,6 +1522,8 @@ export function ChatView({
                 aria-label="Scroll to latest message"
                 title="Scroll to latest message"
                 onClick={jumpToLatestMessage}
+                animate={{ y: [0, 5, 0] }}
+                transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
@@ -1532,8 +1534,6 @@ export function ChatView({
               >
                 <motion.span
                   aria-hidden="true"
-                  animate={{ y: [0, 5, 0] }}
-                  transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
                   className="flex origin-center scale-x-125"
                 >
                   <MdKeyboardDoubleArrowDown size={24} />
