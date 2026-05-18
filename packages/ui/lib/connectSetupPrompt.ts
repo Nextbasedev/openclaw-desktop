@@ -36,7 +36,7 @@ Mode target: run Middleware ${details.where}
 Host env: HOST=${details.host}
 URL to return: ${details.urlHint}
 
-Important: Desktop needs full Middleware access: auth APIs, operator/admin commands, approvals, cron, streams, chat send, workspace, git, terminal, usage, settings.
+Official OpenClaw Gateway scopes required from code: operator.read, operator.write, operator.approvals, operator.admin. Desktop workspace/git/terminal are Middleware HTTP APIs, not extra Gateway scopes.
 
 After install, run the required curl smoke test from repo root:
 MIDDLEWARE_TEST_URL=<middleware-url> MIDDLEWARE_PAIRING_CODE=<pairing-code> ${SMOKE_TEST}
