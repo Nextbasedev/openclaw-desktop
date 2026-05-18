@@ -234,6 +234,7 @@ const compatState = {
   topics: [] as CompatRecord[],
   sessions: [] as CompatRecord[],
   branches: [] as CompatRecord[],
+  pins: [] as CompatRecord[],
   cronJobs: [] as CompatRecord[],
   cronRuns: [] as CompatRecord[],
   terminals: new Map<string, CompatTerminal>(),
@@ -243,7 +244,7 @@ const compatState = {
 const DEFAULT_SPACE_ID = "space_default";
 const DEFAULT_SPACE_NAME = "My Workspace";
 
-const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "branches", "cronJobs", "cronRuns"] as const;
+const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "branches", "pins", "cronJobs", "cronRuns"] as const;
 
 type CompatCollection = typeof compatCollections[number];
 
@@ -261,6 +262,7 @@ type V1SqliteMigrationResult = {
     topics: number;
     sessions: number;
     branches: number;
+    pins: number;
     cronJobs: number;
     cronRuns: number;
   };
@@ -384,7 +386,7 @@ function migrateV1SqliteToV2(context: AppContext, sourcePathInput?: unknown): V1
   loadCompatState(context);
   const sourcePath = normalizeV1SqlitePath(sourcePathInput);
   const v1State = readV1State(sourcePath);
-  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0, branches: 0, cronJobs: 0, cronRuns: 0 };
+  const totals = { imported: 0, updated: 0, skipped: 0, spaces: 0, chats: 0, projects: 0, topics: 0, sessions: 0, branches: 0, pins: 0, cronJobs: 0, cronRuns: 0 };
   for (const collection of compatCollections) {
     const incoming = Array.isArray(v1State[collection]) ? v1State[collection] as CompatRecord[] : [];
     const result = mergeCompatRecords(collection, incoming);
@@ -1130,7 +1132,6 @@ function chatActivityMs(chat: CompatRecord) {
 
 function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
   return listBySpace(compatState.chats, spaceId)
-    .filter((chat) => !isGatewayOnlySyncedChat(chat))
     .filter((chat) => typeof archived === "boolean" ? Boolean(chat.archived) === archived : !chat.archived)
     .sort((a, b) => chatActivityMs(b) - chatActivityMs(a));
 }
@@ -1269,10 +1270,20 @@ async function syncGatewaySessions(context: AppContext) {
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
-        // Gateway contains every OpenClaw session, including Telegram, cron,
-        // and detached task sessions. Do not mirror unknown Gateway sessions
-        // into the Desktop chat sidebar; only update chats that already exist
-        // in the compat chat collection.
+        compatState.chats.push({
+          id: stableCompatId("chat", sessionKey),
+          name,
+          sessionKey,
+          spaceId: DEFAULT_SPACE_ID,
+          agentId,
+          archived: false,
+          pinned: false,
+          syncedFromGateway: true,
+          createdAt,
+          updatedAt: createdAt,
+          lastActiveAt: timestampField(row, ["updatedAt", "updated_at", "lastActiveAt"]) || createdAt,
+        });
+        changed = true;
       } else {
         const existing = compatState.chats[chatIndex];
         const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId };
@@ -1594,6 +1605,52 @@ function gitCommitDetails(repo: string, hash: string) {
 
 function workspaceEntry(root: string, full: string, stat = fs.statSync(full)) {
   return { name: path.basename(full), path: path.relative(root, full).replace(/\\/g, "/"), type: stat.isDirectory() ? "directory" : "file", size: stat.size, modifiedAt: stat.mtime.toISOString() };
+}
+
+function workspaceCapabilities() {
+  return { capabilities: { canTree: true, canStat: true, canRead: true, canWrite: true, canDownloadFile: true, canCreateDir: true, canMoveEntry: true, canDeleteEntry: true } };
+}
+
+function workspaceTree(root: string, rel: string) {
+  const dir = safeJoin(root, rel);
+  const entries = fs.readdirSync(dir, { withFileTypes: true }).map((entry) => workspaceEntry(root, path.join(dir, entry.name)));
+  return { entries };
+}
+
+function workspaceStat(root: string, rel: string) {
+  return { entry: workspaceEntry(root, safeJoin(root, rel)) };
+}
+
+function workspaceReadFile(root: string, rel: string) {
+  const file = safeJoin(root, rel);
+  const content = fs.readFileSync(file, "utf8");
+  return { path: rel, content, encoding: "utf-8", file: { path: rel, content, encoding: "utf-8" } };
+}
+
+function workspaceWriteFile(root: string, body: CompatRecord) {
+  const rel = String(body.path ?? "");
+  const file = safeJoin(root, rel);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, String(body.content ?? ""), "utf8");
+  return { ok: true, path: rel };
+}
+
+function workspaceDeleteFile(root: string, rel: string) {
+  fs.unlinkSync(safeJoin(root, rel));
+  return { ok: true, path: rel };
+}
+
+function workspaceMkdir(root: string, body: CompatRecord) {
+  const rel = String(body.path ?? "");
+  fs.mkdirSync(safeJoin(root, rel), { recursive: true });
+  return { ok: true, path: rel };
+}
+
+function workspaceMove(root: string, body: CompatRecord) {
+  const fromPath = String(body.fromPath ?? body.oldPath ?? body.source ?? "");
+  const toPath = String(body.toPath ?? body.newPath ?? body.destination ?? "");
+  fs.renameSync(safeJoin(root, fromPath), safeJoin(root, toPath));
+  return { ok: true, fromPath, toPath };
 }
 
 function readOCPlatformConfig(): CompatRecord {
@@ -2708,37 +2765,78 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   // --- workspace (project-scoped) ---
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/capabilities", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    return workspaceCapabilities();
+  });
+
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/tree", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
     const rel = String((request.query as CompatRecord).path ?? "");
     try {
-      const dir = safeJoin(root, rel);
-      const entries = fs.readdirSync(dir, { withFileTypes: true }).map((entry) => workspaceEntry(root, path.join(dir, entry.name)));
-      return { entries };
+      return workspaceTree(root, rel);
     } catch { return { entries: [] }; }
   });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/stat", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try { return workspaceStat(root, rel); }
+    catch { return reply.code(404).send({ ok: false, error: { message: "Not found" } }); }
+  });
+
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/file", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
     const rel = String((request.query as CompatRecord).path ?? "");
     try {
-      const file = safeJoin(root, rel);
-      const content = fs.readFileSync(file, "utf8");
-      return { path: rel, content, encoding: "utf-8", file: { path: rel, content, encoding: "utf-8" } };
+      return workspaceReadFile(root, rel);
     } catch { return reply.code(404).send({ ok: false, error: { message: "File not found" } }); }
   });
   app.put<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/file", async (request, reply) => {
     const root = projectRoot(request.params.projectId);
     if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
     const body = (request.body ?? {}) as CompatRecord;
-    const rel = String(body.path ?? "");
+    try {
+      return workspaceWriteFile(root, body);
+    } catch { return reply.code(500).send({ ok: false, error: { message: "Write failed" } }); }
+  });
+
+  app.delete<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/file", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const rel = String((request.query as CompatRecord).path ?? "");
+    try { return workspaceDeleteFile(root, rel); }
+    catch { return reply.code(404).send({ ok: false, error: { message: "Not found" } }); }
+  });
+
+  app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/mkdir", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    try { return workspaceMkdir(root, (request.body ?? {}) as CompatRecord); }
+    catch { return reply.code(500).send({ ok: false, error: { message: "mkdir failed" } }); }
+  });
+
+  app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/move", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    try { return workspaceMove(root, (request.body ?? {}) as CompatRecord); }
+    catch { return reply.code(500).send({ ok: false, error: { message: "Move failed" } }); }
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workspace/download", async (request, reply) => {
+    const root = projectRoot(request.params.projectId);
+    if (!root) return reply.code(404).send({ ok: false, error: { message: "Project not found" } });
+    const rel = String((request.query as CompatRecord).path ?? "");
     try {
       const file = safeJoin(root, rel);
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, String(body.content ?? ""), "utf8");
-      return { ok: true, path: rel };
-    } catch { return reply.code(500).send({ ok: false, error: { message: "Write failed" } }); }
+      const content = fs.readFileSync(file);
+      const mimeType = rel.endsWith(".json") ? "application/json" : rel.endsWith(".html") ? "text/html" : "application/octet-stream";
+      return reply.type(mimeType).header("Content-Disposition", `attachment; filename="${path.basename(file)}"`).send(content);
+    } catch { return reply.code(404).send({ ok: false, error: { message: "File not found" } }); }
   });
 
   // --- global workspace (no project scope) ---
@@ -2748,7 +2846,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   }
 
   app.get("/api/workspace/capabilities", async () => ({
-    capabilities: { canTree: true, canStat: true, canRead: true, canWrite: true, canDownloadFile: true, canCreateDir: true, canMoveEntry: true, canDeleteEntry: true },
+    ...workspaceCapabilities(),
   }));
 
   app.get("/api/workspace/tree", async (request) => {
@@ -3009,6 +3107,121 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           return { ok: true };
         } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Model switch failed" } }); }
       }
+      case "middleware_chat_send": {
+        const sessionKey = String(input.sessionKey ?? "");
+        const message = String(input.message ?? input.text ?? input.prompt ?? "");
+        if (!sessionKey || !message.trim()) return reply.code(400).send({ ok: false, error: { message: "sessionKey and message required" } });
+        try {
+          const result = await context.gateway.request("chat.send", {
+            ...input,
+            sessionKey,
+            message,
+            text: undefined,
+            prompt: undefined,
+          }, Number(input.timeoutMs ?? 130_000));
+          return { ok: true, result, sessionKey };
+        } catch (error) {
+          return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Chat send failed" } });
+        }
+      }
+      case "middleware_chat_regenerate": {
+        const sessionKey = String(input.sessionKey ?? "");
+        if (!sessionKey) return reply.code(400).send({ ok: false, error: { message: "sessionKey required" } });
+        const rows = context.messages.listMessages(sessionKey, { limit: 1000 });
+        const lastUser = [...rows].reverse().find((row) => row.data?.role === "user");
+        const message = String(lastUser?.data?.text ?? "").trim();
+        if (!message) return reply.code(404).send({ ok: false, error: { message: "No user message available to regenerate" } });
+        try {
+          const result = await context.gateway.request("chat.send", { sessionKey, message, timeoutMs: input.timeoutMs ?? 130_000 }, Number(input.timeoutMs ?? 130_000));
+          return { ok: true, result, sessionKey };
+        } catch (error) {
+          return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Regenerate failed" } });
+        }
+      }
+      case "middleware_chat_select_edit_branch": {
+        const branchSessionKey = String(input.branchSessionKey ?? input.sessionKey ?? "");
+        const branch = compatState.branches.find((item) => item.branchSessionKey === branchSessionKey || item.sessionKey === branchSessionKey) ?? null;
+        if (branch) branch.selectedAt = nowIso();
+        saveCompatCollection(context, "branches");
+        return { ok: true, branch, branchSessionKey };
+      }
+      case "middleware_branch_list": {
+        const sourceSessionKey = input.sourceSessionKey ? String(input.sourceSessionKey) : null;
+        const branches = compatState.branches.filter((branch) => !sourceSessionKey || branch.sourceSessionKey === sourceSessionKey);
+        return { branches };
+      }
+      case "middleware_pins_list": {
+        const sessionKey = String(input.sessionKey ?? "global");
+        const pins = compatState.pins.filter((pin) => pin.sessionKey === sessionKey);
+        return { pins };
+      }
+      case "middleware_pins_add": {
+        const sessionKey = String(input.sessionKey ?? "global");
+        const messageId = String(input.messageId ?? input.id ?? "");
+        if (!messageId) return reply.code(400).send({ ok: false, error: { message: "messageId required" } });
+        const existing = compatState.pins.find((pin) => pin.sessionKey === sessionKey && pin.messageId === messageId);
+        const pin = existing ?? { id: id("pin"), sessionKey, messageId, createdAt: nowIso() };
+        Object.assign(pin, input, { sessionKey, messageId, pinnedAt: input.pinnedAt ?? pin.pinnedAt ?? nowIso() });
+        if (!existing) compatState.pins.push(pin);
+        saveCompatCollection(context, "pins");
+        return { ok: true, pin };
+      }
+      case "middleware_pins_remove": {
+        const sessionKey = String(input.sessionKey ?? "global");
+        const messageId = String(input.messageId ?? input.id ?? "");
+        const before = compatState.pins.length;
+        compatState.pins = compatState.pins.filter((pin) => !(pin.sessionKey === sessionKey && (pin.messageId === messageId || pin.id === messageId)));
+        if (before !== compatState.pins.length) saveCompatCollection(context, "pins");
+        return { ok: true, removed: before - compatState.pins.length };
+      }
+      case "middleware_version_info": {
+        let version = "0.1.0";
+        try {
+          const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+          version = String(pkg.version || version);
+        } catch { /* keep default */ }
+        return { ok: true, version, middleware: version, openclawVersion: version, nodeVersion: process.version, node: process.version, service: "openclaw-middleware" };
+      }
+      case "middleware_profiles_list": {
+        const gateway = await connectGatewayForStatus(context);
+        return { profiles: [{ id: "desktop_middleware", name: "Desktop Middleware", mode: "local", gatewayUrl: gateway.gatewayUrl ?? context.config.openclawGatewayUrl, workspaceRoot: workspaceRoot(), isDefault: true, status: gateway.connected ? "connected" : "disconnected", error: gateway.lastError ?? null }] };
+      }
+      case "middleware_pty_spawn_workspace": {
+        const cwd = input.cwd ? safeJoin(workspaceRoot(), String(input.cwd)) : workspaceRoot();
+        const terminal = await spawnTerminal(cwd, input);
+        return { ...terminal, ptyId: terminal.terminalId };
+      }
+      case "middleware_voice_transcribe":
+        return reply.code(501).send({ ok: false, error: { message: "Voice transcription is not available in desktop middleware yet" } });
+      case "middleware_sync_pull_now":
+        return { ok: true, skipped: true, reason: "Gateway sync is handled by live bootstrap" };
+      case "middleware_openclaw_bot_name_get": {
+        const cfg = readOCPlatformConfig();
+        const botName = cfg.bot?.name ?? "OpenClaw";
+        return { botName, name: botName };
+      }
+      case "middleware_openclaw_bot_name_set": {
+        const cfg = readOCPlatformConfig();
+        const botName = String(input.botName ?? input.name ?? "OpenClaw");
+        cfg.bot ??= {};
+        cfg.bot.name = botName;
+        writeOCPlatformConfig(cfg);
+        return { ok: true, botName, name: botName };
+      }
+      case "middleware_onboarding_core":
+        return { ok: true, core: { configured: true }, state: { completed: true } };
+      case "middleware_onboarding_flow":
+        return { ok: true, flow: { completed: true, step: "done" }, state: { completed: true } };
+      case "middleware_onboarding_providers":
+        return { ok: true, providers: voiceOptions.filter((option) => option.provider !== "auto").map((option) => ({ id: option.provider, name: option.label.split(" - ")[0] })) };
+      case "middleware_onboarding_model_contract":
+        return { ok: true, contract: { providerId: input.providerId ?? "custom", fields: [] } };
+      case "middleware_onboarding_model_submit":
+        return { ok: true, modelId: input.modelId ?? input.model ?? null };
+      case "middleware_onboarding_sign_out":
+        return { ok: true };
+      case "middleware_onboarding_delete_account":
+        return reply.code(501).send({ ok: false, error: { message: "Account deletion is not supported by desktop middleware" } });
       case "middleware_connect_status": {
         const gateway = await connectGatewayForStatus(context);
         return {
@@ -3246,14 +3459,24 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           const result = await cronUpdateJobGateway(context, input);
           if (!result) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
           return result;
-        } catch (error) { return reply.code(cronCommandErrorStatus(error)).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job update failed" } }); }
+        } catch (error) {
+          const result = cronUpdateJob(input);
+          if (!result) return reply.code(cronCommandErrorStatus(error)).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job update failed" } });
+          emitCronEvent({ type: "cron.job.updated", jobId: result.job.jobId, job: result.job, timestamp: nowIso() });
+          return result;
+        }
       }
       case "middleware_cron_delete_job": {
         try {
           const deleted = await cronDeleteJobGateway(context, input);
           if (!deleted) return reply.code(404).send({ ok: false, error: { message: "Cron job not found" } });
           return { ok: true, deleted: true, jobId: input.jobId || input.id };
-        } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job delete failed" } }); }
+        } catch (error) {
+          const deleted = cronDeleteJob(input);
+          if (!deleted) return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job delete failed" } });
+          emitCronEvent({ type: "cron.job.deleted", jobId: String(input.jobId || input.id || ""), timestamp: nowIso() });
+          return { ok: true, deleted: true, jobId: input.jobId || input.id };
+        }
       }
       case "middleware_cron_run_job":
         return cronRunJobGateway(context, input).catch((error) => reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Cron job run failed" } }));
@@ -3276,8 +3499,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         }
       }
       default:
-        // Safe fallback: return empty ok instead of 404 so UI doesn't crash on unimplemented commands
-        return { ok: true };
+        return reply.code(501).send({ ok: false, error: { message: `Unsupported middleware command: ${command}` } });
     }
   });
 

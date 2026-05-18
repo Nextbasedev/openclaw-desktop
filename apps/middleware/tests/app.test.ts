@@ -73,6 +73,71 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("command compatibility returns real version info and rejects unknown commands", async () => {
+    const app = await createApp(testConfig());
+    const version = await app.inject({ method: "POST", url: "/api/commands/middleware_version_info", payload: { input: {} } });
+    expect(version.statusCode).toBe(200);
+    expect(version.json()).toMatchObject({ ok: true, service: "openclaw-middleware", nodeVersion: process.version });
+
+    const unknown = await app.inject({ method: "POST", url: "/api/commands/middleware_unknown_future_command", payload: { input: {} } });
+    expect(unknown.statusCode).toBe(501);
+    expect(unknown.json()).toMatchObject({ ok: false });
+    await app.close();
+  });
+
+  test("pins command compatibility persists by session", async () => {
+    const app = await createApp(testConfig());
+    const add = await app.inject({ method: "POST", url: "/api/commands/middleware_pins_add", payload: { input: { sessionKey: "s1", messageId: "m1", messageText: "hello" } } });
+    expect(add.statusCode).toBe(200);
+    expect(add.json()).toMatchObject({ ok: true, pin: { sessionKey: "s1", messageId: "m1" } });
+
+    const list = await app.inject({ method: "POST", url: "/api/commands/middleware_pins_list", payload: { input: { sessionKey: "s1" } } });
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toMatchObject({ pins: [expect.objectContaining({ messageId: "m1", messageText: "hello" })] });
+
+    const remove = await app.inject({ method: "POST", url: "/api/commands/middleware_pins_remove", payload: { input: { sessionKey: "s1", messageId: "m1" } } });
+    expect(remove.statusCode).toBe(200);
+    expect(remove.json()).toMatchObject({ ok: true, removed: 1 });
+    await app.close();
+  });
+
+  test("project workspace compatibility mirrors global workspace routes", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-project-workspace-"));
+    const app = await createApp(testConfig());
+    const project = await app.inject({ method: "POST", url: "/api/projects", payload: { name: "Workspace", workspaceRoot: root } });
+    const projectId = project.json().project.id as string;
+
+    const capabilities = await app.inject({ method: "GET", url: `/api/projects/${projectId}/workspace/capabilities` });
+    expect(capabilities.statusCode).toBe(200);
+    expect(capabilities.json()).toMatchObject({ capabilities: { canRead: true, canWrite: true } });
+
+    const write = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/workspace/file`, payload: { path: "notes/a.txt", content: "hello" } });
+    expect(write.statusCode).toBe(200);
+
+    const stat = await app.inject({ method: "GET", url: `/api/projects/${projectId}/workspace/stat?path=notes/a.txt` });
+    expect(stat.statusCode).toBe(200);
+    expect(stat.json()).toMatchObject({ entry: { path: "notes/a.txt", type: "file" } });
+
+    const mkdir = await app.inject({ method: "POST", url: `/api/projects/${projectId}/workspace/mkdir`, payload: { path: "other" } });
+    expect(mkdir.statusCode).toBe(200);
+    const move = await app.inject({ method: "POST", url: `/api/projects/${projectId}/workspace/move`, payload: { fromPath: "notes/a.txt", toPath: "other/b.txt" } });
+    expect(move.statusCode).toBe(200);
+    const del = await app.inject({ method: "DELETE", url: `/api/projects/${projectId}/workspace/file?path=other/b.txt` });
+    expect(del.statusCode).toBe(200);
+    await app.close();
+  });
+
+  test("old chat send command forwards to Gateway instead of fake success", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async () => ({ runId: "run-1" }));
+    const res = await app.inject({ method: "POST", url: "/api/commands/middleware_chat_send", payload: { input: { sessionKey: "s1", message: "hello" } } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, sessionKey: "s1" });
+    expect(context.gateway.request).toHaveBeenCalledWith("chat.send", expect.objectContaining({ sessionKey: "s1", message: "hello" }), 130_000);
+    await app.close();
+  });
+
   test("new chat returns a usable sessionKey", async () => {
     const app = await createApp(testConfig());
     const uniqueName = `Hello ${Date.now()}`;
