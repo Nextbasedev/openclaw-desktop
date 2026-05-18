@@ -1714,6 +1714,7 @@ export function useChatMessages(
         // or bootstrap recovery before clearing/completing the visible run.
         frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
         emit("chat:activity", { sessionKey })
+        emit("chat:message-confirmed", { sessionKey })
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

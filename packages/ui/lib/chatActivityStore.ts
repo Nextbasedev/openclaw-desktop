@@ -15,9 +15,22 @@ type ChatActivityListener = (sessionKey: string, snapshot: ChatActivitySnapshot 
 
 const activity = new Map<string, ChatActivitySnapshot>()
 const listeners = new Set<ChatActivityListener>()
+const CHAT_ACTIVITY_STALE_MS = 10 * 60 * 1000
 
 function emitActivity(sessionKey: string, snapshot: ChatActivitySnapshot | null) {
   for (const listener of [...listeners]) listener(sessionKey, snapshot)
+}
+
+function isFresh(snapshot: ChatActivitySnapshot, now = Date.now()) {
+  return now - snapshot.updatedAt <= CHAT_ACTIVITY_STALE_MS
+}
+
+function pruneStaleActivity(now = Date.now()) {
+  for (const [sessionKey, snapshot] of activity) {
+    if (isFresh(snapshot, now)) continue
+    activity.delete(sessionKey)
+    emitActivity(sessionKey, null)
+  }
 }
 
 function hasLiveTool(tools: InlineToolCall[]) {
@@ -63,7 +76,12 @@ export function markOptimisticChatActivity(
 }
 
 export function getCachedChatActivity(sessionKey: string) {
-  return activity.get(sessionKey) ?? null
+  const snapshot = activity.get(sessionKey)
+  if (!snapshot) return null
+  if (isFresh(snapshot)) return snapshot
+  activity.delete(sessionKey)
+  emitActivity(sessionKey, null)
+  return null
 }
 
 export function clearCachedChatActivity(sessionKey: string) {
@@ -72,10 +90,12 @@ export function clearCachedChatActivity(sessionKey: string) {
 }
 
 export function getAllCachedChatActivity() {
+  pruneStaleActivity()
   return new Map(activity)
 }
 
 export function subscribeChatActivity(listener: ChatActivityListener) {
+  pruneStaleActivity()
   listeners.add(listener)
   return () => listeners.delete(listener)
 }

@@ -49,6 +49,8 @@ type ChatActivityEvent = {
   sessionKey?: string
 }
 
+type ChatMessageConfirmedEvent = ChatActivityEvent
+
 function chatActivityTime(chat: Chat) {
   return Math.max(
     new Date(chat.updatedAt || 0).getTime() || 0,
@@ -220,23 +222,33 @@ export function useChatsData(
     })
   }, [])
 
-  useEffect(() => {
-    return on<ChatActivityEvent>("chat:activity", (event) => {
-      const chatId = event?.chatId ?? activeChat?.id
-      const sessionKey = event?.sessionKey ?? activeChat?.sessionKey
-      if (!chatId && !sessionKey) return
-      const timestamp = new Date().toISOString()
-      setChats((prev) =>
-        prev.map((c) => {
-          const matchesChat = chatId ? c.id === chatId : false
-          const matchesSession = sessionKey ? c.sessionKey === sessionKey : false
-          return matchesChat || matchesSession
-            ? { ...c, updatedAt: timestamp, lastActiveAt: timestamp, lastMessageAt: timestamp }
-            : c
-        }),
-      )
-    })
+  const bumpChatActivityTime = useCallback((event?: ChatActivityEvent | null) => {
+    const chatId = event?.chatId ?? activeChat?.id
+    const sessionKey = event?.sessionKey ?? activeChat?.sessionKey
+    if (!chatId && !sessionKey) return
+    const timestamp = new Date().toISOString()
+    setChats((prev) =>
+      prev.map((c) => {
+        const matchesChat = chatId ? c.id === chatId : false
+        const matchesSession = sessionKey ? c.sessionKey === sessionKey : false
+        return matchesChat || matchesSession
+          ? { ...c, updatedAt: timestamp, lastActiveAt: timestamp, lastMessageAt: timestamp }
+          : c
+      }),
+    )
   }, [activeChat])
+
+  useEffect(() => {
+    // Generic activity means thinking/tool/model/approval state and should not
+    // reorder the sidebar. Reordering on every activity event caused the active
+    // chat to jump while the optimistic user message was still settling.
+    // Confirmed message events below are the intentional jump-to-top trigger.
+    return on<ChatActivityEvent>("chat:activity", () => undefined)
+  }, [])
+
+  useEffect(() => {
+    return on<ChatMessageConfirmedEvent>("chat:message-confirmed", bumpChatActivityTime)
+  }, [bumpChatActivityTime])
 
   useEffect(() => {
     if (renameOpen)
