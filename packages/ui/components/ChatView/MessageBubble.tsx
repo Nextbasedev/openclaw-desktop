@@ -493,7 +493,6 @@ export function MessageBubble({
   onAskSelectedText,
   onReplyTargetClick,
   referencedTexts,
-  isReplyTargetActive,
   isPinned,
   reaction,
   isGenerating,
@@ -525,7 +524,6 @@ export function MessageBubble({
   ) => void
   onReplyTargetClick?: (messageId: string, text?: string) => void
   referencedTexts?: string[]
-  isReplyTargetActive?: boolean
   isPinned?: boolean
   reaction?: "up" | "down"
   isGenerating?: boolean
@@ -846,8 +844,6 @@ export function MessageBubble({
                 onKeyUp={updateSelectionAction}
                 className={cn(
                   "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
-                  isReplyTargetActive &&
-                    "rounded-2xl ring-1 ring-sky-400/60 ring-offset-2 ring-offset-background transition-shadow",
                   isUser && userSlashCommandName
                     ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
                     : isUser

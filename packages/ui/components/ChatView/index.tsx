@@ -349,11 +349,7 @@ export function ChatView({
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
   const [activePopoverId, setActivePopoverId] = useState<string | null>(null)
   const [modelSwitching, setModelSwitching] = useState(false)
-  const [activeReplyTargetId, setActiveReplyTargetId] = useState<string | null>(
-    null
-  )
   const lastFeedbackTimesRef = useRef<Record<string, number>>({})
-  const activeReplyTargetTimerRef = useRef<number | null>(null)
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [messageWindowSize, setMessageWindowSize] = useState(240)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
@@ -694,23 +690,7 @@ export function ChatView({
 
     const target = document.getElementById(`message-${resolvedId}`)
     target?.scrollIntoView({ behavior: "smooth", block: "center" })
-    setActiveReplyTargetId(resolvedId)
-    if (activeReplyTargetTimerRef.current !== null) {
-      window.clearTimeout(activeReplyTargetTimerRef.current)
-    }
-    activeReplyTargetTimerRef.current = window.setTimeout(() => {
-      setActiveReplyTargetId((current) => current === resolvedId ? null : current)
-      activeReplyTargetTimerRef.current = null
-    }, 2200)
   }, [messages])
-
-  useEffect(() => {
-    return () => {
-      if (activeReplyTargetTimerRef.current !== null) {
-        window.clearTimeout(activeReplyTargetTimerRef.current)
-      }
-    }
-  }, [])
   const importantMessageIds = useMemo(
     () =>
       Array.from(
@@ -1246,16 +1226,11 @@ export function ChatView({
           : []
       const userSubagents =
         anchoredUserSubagents.length > 0 ? anchoredUserSubagents : liveSubagents
-      const isActiveReplyTarget = activeReplyTargetId === msg.messageId
 
       return (
         <div
           id={`message-${msg.messageId}`}
-          className={cn(
-            "mx-auto max-w-3xl rounded-md border border-transparent px-4 py-2.5 transition-[background-color,border-color,box-shadow] duration-300",
-            isActiveReplyTarget &&
-              "border-blue-300/45 bg-blue-400/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_0_0_1px_rgba(147,197,253,0.18),0_18px_50px_-28px_rgba(59,130,246,0.95)]"
-          )}
+          className="mx-auto max-w-3xl px-4 py-2.5"
         >
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
@@ -1341,7 +1316,6 @@ export function ChatView({
     },
     [
       activePopoverId,
-      activeReplyTargetId,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
