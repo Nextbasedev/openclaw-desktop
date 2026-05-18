@@ -104,8 +104,8 @@ export function RichContentPreview({ message }: { message: ChatMessage }) {
 
   for (const attachment of attachments) {
     const url = attachmentUrl(attachment)
-    if (attachment.mimeType.startsWith("image/") && url) {
-      images.push({ attachment, url })
+    if (attachment.mimeType.startsWith("image/")) {
+      if (url) images.push({ attachment, url })
     } else {
       others.push(attachment)
     }

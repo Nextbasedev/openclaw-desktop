@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { windowChatMessages } from "../messageWindow"
+import type { ChatMessage } from "../../components/ChatView/types"
 
-function msg(i: number) {
-  return { messageId: `m${i}`, role: i % 2 ? "user" : "assistant", text: `message ${i}` } as any
+function msg(i: number): ChatMessage {
+  return { messageId: `m${i}`, role: i % 2 ? "user" : "assistant", text: `message ${i}` }
 }
 
 describe("windowChatMessages", () => {

@@ -185,10 +185,14 @@ export function useSubagentMessages(
       return
     }
 
-    setLoading(true)
-    fetchMessages(sessionKey, 6_000).finally(() => {
-      if (!cancelledRef.current) setLoading(false)
-    })
+    const timer = window.setTimeout(() => {
+      if (cancelledRef.current) return
+      setLoading(true)
+      fetchMessages(sessionKey, 6_000).finally(() => {
+        if (!cancelledRef.current) setLoading(false)
+      })
+    }, 0)
+    timerRef.current = timer
 
     // Do not poll chat history while a subagent is live. Live updates should
     // come from the stream path; history is only fetched when the view opens or

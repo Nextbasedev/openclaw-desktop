@@ -136,8 +136,8 @@ export function ToolCallRow({
 
   useEffect(() => {
     if (open) {
-      setRenderDetails(true)
-      return
+      const timer = window.setTimeout(() => setRenderDetails(true), 0)
+      return () => window.clearTimeout(timer)
     }
     const timer = window.setTimeout(() => setRenderDetails(false), 180)
     return () => window.clearTimeout(timer)
