@@ -2784,6 +2784,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const input = (body.input ?? body ?? {}) as CompatRecord;
 
+    if (command.startsWith("middleware_chat_fork") && command !== "middleware_chat_fork" && command !== "middleware_chat_fork_history") {
+      return reply.code(404).send({ ok: false, error: { message: `Unknown command: ${command}` } });
+    }
+
     switch (command) {
       case "middleware_usage":
         return usageResponse(context, Number(input.days) || 30);
