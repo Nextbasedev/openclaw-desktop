@@ -39,7 +39,9 @@ type MiddlewareUpdateStart = {
   status: MiddlewareUpdateStatus
 }
 
-type TelegramMigrationScan = {
+const UPDATE_BRANCH_OPTIONS = ["main", "dev-2-temp", "dev-2", "dev-3-harsh"] as const
+
+type SessionMigrationScan = {
   sessions?: Array<Record<string, unknown>>
   summary?: {
     total?: number
@@ -51,7 +53,7 @@ type TelegramMigrationScan = {
   groups?: Array<{ groupId: string; name: string; topics: number }>
 }
 
-type TelegramMigrationImport = {
+type SessionMigrationImport = {
   summary: { imported: number; skipped: number; failed: number }
   failed?: Array<{ sourceSessionKey: string; error: string }>
 }
@@ -125,7 +127,9 @@ export function HelpTab({ links = HELP_LINKS, onShortcutsClick }: HelpTabProps) 
 
       <V1SqliteMigrationCard />
 
-      <TelegramMigrationCard />
+      <SessionMigrationCard platform="telegram" />
+
+      <SessionMigrationCard platform="discord" />
     </div>
   )
 }
@@ -135,6 +139,10 @@ function MiddlewareUpdateCard() {
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [needsManualBootstrap, setNeedsManualBootstrap] = React.useState(false)
+  const [selectedBranch, setSelectedBranch] = React.useState<string>(UPDATE_BRANCH_OPTIONS[0])
+  const [customBranch, setCustomBranch] = React.useState("")
+
+  const updateBranch = selectedBranch === "custom" ? customBranch.trim() : selectedBranch
 
   async function waitForMiddlewareBack() {
     const connection = getMiddlewareConnection()
@@ -170,12 +178,20 @@ function MiddlewareUpdateCard() {
     setBusy(true)
     setError(null)
     setNeedsManualBootstrap(false)
+    let statusTimer: number | null = null
     try {
-      const started = await invoke<MiddlewareUpdateStart>("middleware_self_update")
+      if (!updateBranch) {
+        setError("Choose a branch before updating Middleware.")
+        return
+      }
+      const started = await invoke<MiddlewareUpdateStart>("middleware_self_update", { branch: updateBranch })
       setStatus(started.status)
+      statusTimer = window.setInterval(() => {
+        refreshStatus().catch(() => undefined)
+      }, 2_000)
       const connected = await waitForMiddlewareBack()
       if (connected) {
-        setStatus({ state: "succeeded", updatedAt: new Date().toISOString(), message: "Middleware updated and OpenClaw is connected.", branch: "main" })
+        setStatus({ state: "succeeded", updatedAt: new Date().toISOString(), message: `Middleware updated from ${updateBranch} and OpenClaw is connected.`, branch: updateBranch })
       } else {
         const latest = await refreshStatus().catch(() => null)
         if (!latest || latest.state !== "failed") {
@@ -185,6 +201,7 @@ function MiddlewareUpdateCard() {
     } catch (err) {
       handleUpdateError(err)
     } finally {
+      if (statusTimer !== null) window.clearInterval(statusTimer)
       setBusy(false)
     }
   }
@@ -201,9 +218,36 @@ function MiddlewareUpdateCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-[13px] font-medium text-foreground">VPS Middleware update</h3>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Pull latest OpenClaw Desktop Middleware from <span className="text-foreground/80">main</span>, rebuild it, restart the VPS service, and verify OpenClaw is connected.
+            Pick a branch, pull latest OpenClaw Desktop Middleware, rebuild it, restart the VPS service, and verify OpenClaw is connected.
           </p>
         </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 rounded-md border border-border/35 bg-background/30 p-3 sm:grid-cols-[minmax(0,220px)_1fr]">
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+          Update branch
+          <select
+            value={selectedBranch}
+            onChange={(event) => setSelectedBranch(event.target.value)}
+            disabled={busy}
+            className="h-9 rounded-md border border-border/50 bg-background px-3 text-[12px] text-foreground outline-none transition-colors focus:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {UPDATE_BRANCH_OPTIONS.map((branch) => (
+              <option key={branch} value={branch}>{branch}</option>
+            ))}
+            <option value="custom">Custom branch…</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+          {selectedBranch === "custom" ? "Custom branch name" : "Selected branch"}
+          <input
+            value={selectedBranch === "custom" ? customBranch : updateBranch}
+            onChange={(event) => setCustomBranch(event.target.value)}
+            disabled={busy || selectedBranch !== "custom"}
+            placeholder="feature/my-branch"
+            className="h-9 rounded-md border border-border/50 bg-background px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 focus:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        </label>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -228,8 +272,13 @@ function MiddlewareUpdateCard() {
 
       {status?.message && (
         <div className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-[12px] ${success ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400" : failed ? "border-red-500/20 bg-red-500/10 text-red-400" : "border-border/35 bg-background/35 text-muted-foreground"}`}>
-          {success ? <LuCheck className="mt-0.5 shrink-0" size={14} /> : failed ? <LuCircleAlert className="mt-0.5 shrink-0" size={14} /> : <LuRefreshCw className="mt-0.5 shrink-0" size={14} />}
-          <span>{status.message}</span>
+          {success ? <LuCheck className="mt-0.5 shrink-0" size={14} /> : failed ? <LuCircleAlert className="mt-0.5 shrink-0" size={14} /> : <LuRefreshCw className="mt-0.5 shrink-0 animate-spin" size={14} />}
+          <span>
+            {status.message}
+            {status.branch && <span className="ml-1 text-muted-foreground/70">({status.branch})</span>}
+            <span className="mt-0.5 block text-[10px] text-muted-foreground/60">State: {status.state} · Updated: {new Date(status.updatedAt).toLocaleTimeString()}</span>
+            {status.logPath && <span className="mt-0.5 block text-[10px] text-muted-foreground/60">Log: {status.logPath}</span>}
+          </span>
         </div>
       )}
 
@@ -244,7 +293,7 @@ function MiddlewareUpdateCard() {
         <div className="mt-3 rounded-md border border-border/35 bg-background/35 p-3">
           <p className="text-[11px] leading-relaxed text-muted-foreground">Run this once on the VPS:</p>
           <code className="mt-2 block overflow-x-auto rounded bg-muted/40 px-3 py-2 text-[11px] text-foreground">
-            curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/main/apps/middleware/scripts/install.sh | sudo bash
+            {`curl -fsSL https://raw.githubusercontent.com/Nextbasedev/openclaw-desktop/${updateBranch || "main"}/apps/middleware/scripts/install.sh | sudo OPENCLAW_DESKTOP_BRANCH=${updateBranch || "main"} bash`}
           </code>
         </div>
       )}
@@ -327,18 +376,44 @@ function V1SqliteMigrationCard() {
   )
 }
 
-function TelegramMigrationCard() {
-  const [scan, setScan] = React.useState<TelegramMigrationScan | null>(null)
-  const [result, setResult] = React.useState<TelegramMigrationImport | null>(null)
+type SessionMigrationPlatform = "telegram" | "discord"
+
+const SESSION_MIGRATION_COPY: Record<SessionMigrationPlatform, {
+  title: string
+  scanLabel: string
+  importLabel: string
+  description: string
+  channelLabel: string
+}> = {
+  telegram: {
+    title: "Telegram migration",
+    scanLabel: "Scan Telegram",
+    importLabel: "Import Telegram",
+    description: "Import Telegram history into Desktop. Direct chats become normal chats. Groups become projects, and Telegram topics become topics inside those projects.",
+    channelLabel: "Groups",
+  },
+  discord: {
+    title: "Discord migration",
+    scanLabel: "Scan Discord",
+    importLabel: "Import Discord",
+    description: "Import Discord history into Desktop. DMs become normal chats. Channels and threads become topics grouped inside Desktop projects.",
+    channelLabel: "Channels",
+  },
+}
+
+function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform }) {
+  const copy = SESSION_MIGRATION_COPY[platform]
+  const [scan, setScan] = React.useState<SessionMigrationScan | null>(null)
+  const [result, setResult] = React.useState<SessionMigrationImport | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<"scan" | "import" | null>(null)
 
-  async function scanTelegram() {
+  async function scanSessions() {
     setBusy("scan")
     setError(null)
     setResult(null)
     try {
-      setScan(await invoke<TelegramMigrationScan>("middleware_migration_telegram_scan"))
+      setScan(await invoke<SessionMigrationScan>(`middleware_migration_${platform}_scan`))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -346,13 +421,13 @@ function TelegramMigrationCard() {
     }
   }
 
-  async function importTelegram() {
+  async function importSessions() {
     setBusy("import")
     setError(null)
     try {
-      const imported = await invoke<TelegramMigrationImport>("middleware_migration_telegram_import", { input: { skipAlreadyImported: true } })
+      const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`, { input: { skipAlreadyImported: true } })
       setResult(imported)
-      setScan(await invoke<TelegramMigrationScan>("middleware_migration_telegram_scan"))
+      setScan(await invoke<SessionMigrationScan>(`middleware_migration_${platform}_scan`))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -377,9 +452,9 @@ function TelegramMigrationCard() {
           <LuMessagesSquare size={16} />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[13px] font-medium text-foreground">Telegram migration</h3>
+          <h3 className="text-[13px] font-medium text-foreground">{copy.title}</h3>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Import Telegram history into Desktop. Direct chats become normal chats. Groups become projects, and Telegram topics become topics inside those projects.
+            {copy.description}
           </p>
         </div>
       </div>
@@ -387,20 +462,20 @@ function TelegramMigrationCard() {
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={scanTelegram}
+          onClick={scanSessions}
           disabled={busy !== null}
           className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <LuRefreshCw size={13} className={busy === "scan" ? "animate-spin" : ""} />
-          {busy === "scan" ? "Scanning…" : "Scan Telegram"}
+          {busy === "scan" ? "Scanning…" : copy.scanLabel}
         </button>
         <button
           type="button"
-          onClick={importTelegram}
+          onClick={importSessions}
           disabled={busy !== null || !scan || importable === 0}
           className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-foreground px-3 py-2 text-[12px] font-medium text-background transition-colors hover:bg-foreground/85 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy === "import" ? "Importing…" : "Import Telegram"}
+          {busy === "import" ? "Importing…" : copy.importLabel}
         </button>
       </div>
 
@@ -409,7 +484,7 @@ function TelegramMigrationCard() {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Stat label="Sessions" value={scanSummary.total} />
             <Stat label="Direct" value={scanSummary.direct} />
-            <Stat label="Groups" value={scanSummary.groups} />
+            <Stat label={copy.channelLabel} value={scanSummary.groups} />
             <Stat label="Topics" value={scanSummary.topics} />
             <Stat label="Imported" value={scanSummary.alreadyImported} />
           </div>

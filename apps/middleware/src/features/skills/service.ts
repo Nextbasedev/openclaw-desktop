@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AppContext } from "../../app.js";
+import { HttpError } from "../../lib/errors.js";
 
 const CLAWHUB_BASE_URL = "https://clawhub.ai";
 const CLAWHUB_TIMEOUT_MS = 15_000;
@@ -100,6 +101,9 @@ function workspaceSkillsRoot() {
 }
 
 function skillRootForScope(scope: string | undefined): string {
+  if (scope !== undefined && scope !== "user" && scope !== "workspace") {
+    throw new HttpError(400, "scope must be 'user' or 'workspace'", "INVALID_SKILL_INPUT");
+  }
   const root = scope === "workspace" ? workspaceSkillsRoot() : userSkillsRoot();
   fs.mkdirSync(root, { recursive: true });
   return root;
@@ -342,7 +346,7 @@ export function getActiveSkills() {
 
 export function toggleSkill(input: { slug?: string; skillId?: string; enabled?: boolean }) {
   const slug = String(input.slug || input.skillId || "").trim();
-  if (!slug) throw new Error("slug is required");
+  if (!slug) throw new HttpError(400, "slug is required", "INVALID_SKILL_INPUT");
   return setSkillEnabled(slug, input.enabled !== false);
 }
 
@@ -424,7 +428,7 @@ export async function skillsDiscover(input?: { query?: string; limit?: number; s
 
 export async function skillsDetail(input: { slug?: string }) {
   const slug = String(input.slug || "").trim();
-  if (!slug) throw new Error("slug is required");
+  if (!slug) throw new HttpError(400, "slug is required", "INVALID_SKILL_INPUT");
   const [detail, packageDetail] = await Promise.all([
     fetchClawHubSkillDetail(slug).catch(() => ({ skill: null } as ClawHubDetail)),
     fetchClawHubPackageDetail(slug).catch(() => null),
@@ -461,7 +465,7 @@ export async function skillsDetail(input: { slug?: string }) {
 
 export async function skillsVersions(input: { slug?: string; limit?: number; cursor?: string }) {
   const slug = String(input.slug || "").trim();
-  if (!slug) throw new Error("slug is required");
+  if (!slug) throw new HttpError(400, "slug is required", "INVALID_SKILL_INPUT");
   return clawhubFetch<{ items: Array<{ version: string; createdAt: number; changelog?: string }>; nextCursor?: string | null }>(
     `/api/v1/skills/${encodeURIComponent(slug)}/versions`,
     { limit: input.limit ? String(input.limit) : undefined, cursor: input.cursor },
@@ -473,15 +477,15 @@ export async function installSkill(context: AppContext, input: { source?: string
   const scope = input.scope ?? "user";
 
   if (source === "local") {
-    if (!input.localPath) throw new Error("localPath is required for local source");
+    if (!input.localPath) throw new HttpError(400, "localPath is required for local source", "INVALID_SKILL_INPUT");
     const localPath = input.localPath;
     const sourceFile = path.join(localPath, "SKILL.md");
-    if (!fs.existsSync(sourceFile)) throw new Error(`No SKILL.md found in ${localPath}`);
+    if (!fs.existsSync(sourceFile)) throw new HttpError(404, `No SKILL.md found in ${localPath}`, "SKILL_NOT_FOUND");
     const raw = fs.readFileSync(sourceFile, "utf8");
     const meta = parseSkillFrontmatter(raw);
     const slug = input.slug ?? path.basename(localPath);
     const targetDir = path.join(skillRootForScope(scope), slug);
-    if (fs.existsSync(targetDir) && !input.force) throw new Error(`Skill '${slug}' already installed at ${targetDir}. Use force to overwrite.`);
+    if (fs.existsSync(targetDir) && !input.force) throw new HttpError(400, `Skill '${slug}' already installed at ${targetDir}. Use force to overwrite.`, "SKILL_ALREADY_INSTALLED");
     fs.rmSync(targetDir, { recursive: true, force: true });
     copyDirSync(localPath, targetDir);
     invalidateSkillCache();
@@ -496,7 +500,7 @@ export async function installSkill(context: AppContext, input: { source?: string
 
   if (source === "clawhub") {
     const slug = String(input.slug || "").trim();
-    if (!slug) throw new Error("slug is required for clawhub source");
+    if (!slug) throw new HttpError(400, "slug is required for clawhub source", "INVALID_SKILL_INPUT");
     const targetDir = path.join(skillRootForScope(scope), slug);
     if (fs.existsSync(path.join(targetDir, "SKILL.md")) && !input.force) {
       const local = findLocalSkill(slug);
@@ -536,12 +540,12 @@ export async function installSkill(context: AppContext, input: { source?: string
     };
   }
 
-  throw new Error(`Unsupported skill source: ${source}`);
+  throw new HttpError(400, `Unsupported skill source: ${source}`, "INVALID_SKILL_INPUT");
 }
 
 export function uninstallSkill(input: { slug?: string }) {
   const slug = String(input.slug || "").trim();
-  if (!slug) throw new Error("slug is required");
+  if (!slug) throw new HttpError(400, "slug is required", "INVALID_SKILL_INPUT");
   let removed = false;
   for (const root of [userSkillsRoot(), workspaceSkillsRoot()]) {
     const dir = path.join(root, slug);

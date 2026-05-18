@@ -85,6 +85,19 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("skill commands return structured 400 errors for invalid inputs", async () => {
+    const app = await createApp(testConfig());
+
+    const missingSlug = await app.inject({ method: "POST", url: "/api/commands/middleware_skills_detail", payload: { input: {} } });
+    expect(missingSlug.statusCode).toBe(400);
+    expect(missingSlug.json()).toMatchObject({ ok: false, error: { code: "INVALID_SKILL_INPUT", message: "slug is required" } });
+
+    const unsupportedSource = await app.inject({ method: "POST", url: "/api/skills/install", payload: { source: "unknown" } });
+    expect(unsupportedSource.statusCode).toBe(400);
+    expect(unsupportedSource.json()).toMatchObject({ ok: false, error: { code: "INVALID_SKILL_INPUT", message: "Unsupported skill source: unknown" } });
+    await app.close();
+  });
+
   test("pins command compatibility persists by session", async () => {
     const app = await createApp(testConfig());
     const add = await app.inject({ method: "POST", url: "/api/commands/middleware_pins_add", payload: { input: { sessionKey: "s1", messageId: "m1", messageText: "hello" } } });

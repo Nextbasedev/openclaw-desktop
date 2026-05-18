@@ -39,6 +39,29 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("returns structured errors for invalid or missing approval ids", async () => {
+    const app = await createApp(config("approval-errors"));
+    const context = contextOf(app);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/exec/approval/resolve",
+      payload: { decision: "deny" },
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json()).toMatchObject({ ok: false, error: { code: "BAD_REQUEST", message: "approvalId is required" } });
+
+    vi.spyOn(context.gateway, "request").mockRejectedValue(new Error("approval request not found"));
+    const notFound = await app.inject({
+      method: "POST",
+      url: "/api/exec/approval/resolve",
+      payload: { approvalId: "missing-approval", decision: "deny" },
+    });
+    expect(notFound.statusCode).toBe(404);
+    expect(notFound.json()).toMatchObject({ ok: false, error: { code: "APPROVAL_NOT_FOUND", details: { approvalId: "missing-approval" } } });
+    await app.close();
+  });
+
   test("validates idempotencyKey", async () => {
     const app = await createApp(config("validation"));
     const res = await app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "hi" } });

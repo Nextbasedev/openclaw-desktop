@@ -293,6 +293,11 @@ const approvalResolveBody = z.object({
   decision: z.enum(["allow-once", "allow-always", "deny"]),
 });
 
+function isMissingApprovalError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /approval/i.test(message) && /(not found|missing|unknown|no pending|no such)/i.test(message);
+}
+
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
   const log = createLogger("chat-route");
 
@@ -304,12 +309,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const approvalId = parsed.data.approvalId ?? parsed.data.id;
     if (!approvalId) throw new HttpError(400, "approvalId is required", "BAD_REQUEST");
     log.info("approval.resolve.start", { approvalId, decision: parsed.data.decision });
-    const result = await context.gateway.request<Record<string, unknown>>("exec.approval.resolve", {
-      id: approvalId,
-      decision: parsed.data.decision,
-    }, 30_000);
-    log.info("approval.resolve.end", { approvalId, decision: parsed.data.decision });
-    return { ok: true, approvalId, decision: parsed.data.decision, ...result };
+    try {
+      const result = await context.gateway.request<Record<string, unknown>>("exec.approval.resolve", {
+        id: approvalId,
+        decision: parsed.data.decision,
+      }, 30_000);
+      log.info("approval.resolve.end", { approvalId, decision: parsed.data.decision });
+      return { ok: true, approvalId, decision: parsed.data.decision, ...result };
+    } catch (error) {
+      if (isMissingApprovalError(error)) {
+        throw new HttpError(404, "Approval request not found", "APPROVAL_NOT_FOUND", { approvalId });
+      }
+      throw error;
+    }
   });
 
   app.post("/api/chat/send", async (request) => {

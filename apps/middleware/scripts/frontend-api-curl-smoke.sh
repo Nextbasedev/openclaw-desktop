@@ -103,7 +103,9 @@ check git_branches_repo GET "/api/repos/git/branches?path=$(python3 -c 'import u
 check git_checkout POST "/api/projects/$PROJECT_ID/git/checkout" '{"branchName":"master"}' '200 400 500'
 check git_checkout_repo POST /api/repos/git/checkout "{\"repoPath\":\"$REPO\",\"branchName\":\"master\"}" '200 400 500'
 check migration_telegram_scan GET /api/migration/telegram/scan '' '200'
+check migration_discord_scan GET /api/migration/discord/scan '' '200'
 check middleware_update_status GET /api/middleware/update/status '' '200'
+check middleware_update_invalid_branch POST /api/middleware/update '{"branch":"../bad"}' '400'
 check workspace_capabilities GET "/api/projects/$PROJECT_ID/workspace/capabilities" '' '200'
 check workspace_tree GET "/api/projects/$PROJECT_ID/workspace/tree?path=" '' '200'
 check workspace_write PUT "/api/projects/$PROJECT_ID/workspace/file" '{"path":"smoke/a.txt","content":"hello"}' '200'
@@ -133,7 +135,8 @@ middleware_autonaming_quick middleware_branch_list middleware_chat_edit_last_pre
 PAYLOAD="{\"input\":{\"text\":\"hello\",\"message\":\"hello\",\"sessionKey\":\"$SESSION_KEY\",\"sourceSessionKey\":\"$SESSION_KEY\",\"messageId\":\"msg_1\",\"modelId\":\"test/model\",\"providerId\":\"openai\",\"jobId\":\"job_missing\",\"name\":\"Smoke Job\",\"scheduleType\":\"cron\",\"schedule\":\"0 9 * * *\",\"timezone\":\"UTC\",\"spaceId\":\"$SPACE_ID\",\"path\":\"MEMORY.md\",\"key\":\"smoke:key\",\"value\":\"smoke\",\"command\":\"echo smoke\"}}"
 for cmd in "${COMMANDS[@]}"; do
   allow='200 400 404 500'
-  if [[ "$cmd" == "middleware_onboarding_delete_account" || "$cmd" == "middleware_voice_transcribe" ]]; then allow='501'; fi
+  if [[ "$cmd" == "middleware_onboarding_delete_account" ]]; then allow='501'; fi
+  if [[ "$cmd" == "middleware_voice_transcribe" ]]; then allow='200 400 501'; fi
   check "$cmd" POST "/api/commands/$cmd" "$PAYLOAD" "$allow"
 done
 

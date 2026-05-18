@@ -1068,8 +1068,10 @@ Kill terminal process. **Response** `200` `{ ok: true }`
 |----------|--------|----------|
 | `GET /api/migration/telegram/scan` | GET | `{ sessions: [], count: 0 }` |
 | `POST /api/migration/telegram/import` | POST | `{ ok: true, imported: 0 }` |
-| `GET /api/middleware/update/status` | GET | `{ available: false, current: "0.1.0" }` |
-| `POST /api/middleware/update` | POST | `{ ok: true, status: "up-to-date" }` |
+| `GET /api/migration/discord/scan` | GET | `{ sessions: [], count: 0 }` |
+| `POST /api/migration/discord/import` | POST | `{ ok: true, imported: 0 }` |
+| `GET /api/middleware/update/status` | GET | `{ state: "idle", branch: "main", logPath: "/tmp/openclaw-middleware-update.log" }` |
+| `POST /api/middleware/update` | POST | Body `{ branch?: "main" }`; starts async fetch/install/build/restart and returns `{ ok: true, accepted: true, status }` |
 
 ---
 

@@ -27,6 +27,10 @@ type CompatRecord = Record<string, any>;
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 const shortSessionId = (sessionKey: string) => (sessionKey.split(":").pop() || sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
+const isMissingApprovalError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /approval/i.test(message) && /(not found|missing|unknown|no pending|no such)/i.test(message);
+};
 const gatewaySessionLabel = (label: unknown, sessionKey: string) => {
   const base = String(label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
   return `${base} · ${shortSessionId(sessionKey)}`;
@@ -452,6 +456,14 @@ function parseTelegramSessionKey(key: string) {
   return null;
 }
 
+function parseDiscordSessionKey(key: string) {
+  const direct = key.match(/^agent:([^:]+):discord:(?:direct|dm):([^:]+)$/);
+  if (direct) return { kind: "direct" as const, agentId: direct[1] || "main", userId: direct[2] || "" };
+  const channel = key.match(/^agent:([^:]+):discord:(channel|group):([^:]+)(?::thread:([^:]+))?$/);
+  if (channel) return { kind: "channel" as const, agentId: channel[1] || "main", channelKind: channel[2] || "channel", channelId: channel[3] || "", threadId: channel[4] || null };
+  return null;
+}
+
 function firstTextContent(content: unknown) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -503,6 +515,21 @@ function telegramMetaFromMessages(messages: CompatRecord[]) {
   return null;
 }
 
+function discordMetaFromMessages(messages: CompatRecord[]) {
+  for (const message of messages) {
+    const meta = parseConversationInfo(firstTextContent(message.content));
+    if (!meta) continue;
+    return {
+      groupSubject: String(meta.group_subject || "").trim(),
+      groupChannel: String(meta.group_channel || "").trim(),
+      groupSpace: String(meta.group_space || "").trim(),
+      threadLabel: String(meta.thread_label || "").trim(),
+      sender: String(meta.sender || "").trim(),
+    };
+  }
+  return null;
+}
+
 function lastUserMessagePreview(messages: CompatRecord[]) {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
@@ -530,6 +557,15 @@ function telegramTopicFallback(entry: CompatRecord, topicId: string | null) {
   return String(entry.topicName || entry.chatName || (topicId ? `Topic ${topicId}` : "General")).trim();
 }
 
+function discordProjectName(entry: CompatRecord, channelId: string, meta?: ReturnType<typeof discordMetaFromMessages>) {
+  const display = String(entry.subject || entry.groupSubject || entry.displayName || entry.label || "").replace(/^discord:/, "").trim();
+  return meta?.groupSubject || display || `Discord channel ${channelId}`;
+}
+
+function discordTopicFallback(entry: CompatRecord, channelId: string, threadId: string | null, meta?: ReturnType<typeof discordMetaFromMessages>) {
+  return String(meta?.threadLabel || meta?.groupChannel || entry.threadName || entry.channelName || entry.topicName || (threadId ? `Thread ${threadId}` : `Channel ${channelId}`)).trim();
+}
+
 
 type MiddlewareUpdateStatus = {
   state: "idle" | "running" | "restarting" | "succeeded" | "failed";
@@ -541,8 +577,12 @@ type MiddlewareUpdateStatus = {
   logPath?: string;
 };
 
+type MiddlewareUpdateInput = {
+  branch?: string;
+};
+
 const UPDATE_REPO_URL = "https://github.com/Nextbasedev/openclaw-desktop.git";
-const UPDATE_BRANCH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_BRANCH || "main";
+const DEFAULT_UPDATE_BRANCH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_BRANCH || "main";
 const UPDATE_SERVICE_NAME = process.env.OPENCLAW_MIDDLEWARE_SERVICE || "openclaw-middleware";
 const UPDATE_STATUS_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_STATUS || path.join(os.tmpdir(), "openclaw-middleware-update-status.json");
 const UPDATE_LOG_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_LOG || path.join(os.tmpdir(), "openclaw-middleware-update.log");
@@ -563,7 +603,15 @@ function readMiddlewareUpdateStatus(): MiddlewareUpdateStatus {
     const parsed = JSON.parse(fs.readFileSync(UPDATE_STATUS_PATH, "utf8")) as MiddlewareUpdateStatus;
     if (parsed?.state && parsed?.updatedAt) return parsed;
   } catch {}
-  return { state: "idle", updatedAt: nowIso(), branch: UPDATE_BRANCH, logPath: UPDATE_LOG_PATH };
+  return { state: "idle", updatedAt: nowIso(), branch: DEFAULT_UPDATE_BRANCH, logPath: UPDATE_LOG_PATH };
+}
+
+function normalizeMiddlewareUpdateBranch(value: unknown) {
+  const branch = String(value || DEFAULT_UPDATE_BRANCH).trim() || DEFAULT_UPDATE_BRANCH;
+  if (!/^[A-Za-z0-9._\/-]{1,120}$/.test(branch) || branch.includes("..") || branch.startsWith("/") || branch.endsWith("/")) {
+    throw new HttpError(400, "Invalid update branch");
+  }
+  return branch;
 }
 
 function writeMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
@@ -574,7 +622,8 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-function startMiddlewareUpdate() {
+function startMiddlewareUpdate(input: MiddlewareUpdateInput = {}) {
+  const branch = normalizeMiddlewareUpdateBranch(input.branch);
   const current = readMiddlewareUpdateStatus();
   if (current.state === "running" || current.state === "restarting") {
     return { ok: true, accepted: false, status: current, message: "Middleware update is already running" };
@@ -586,9 +635,9 @@ function startMiddlewareUpdate() {
     state: "running",
     startedAt,
     updatedAt: startedAt,
-    message: `Updating OpenClaw Desktop Middleware from ${UPDATE_BRANCH}`,
+    message: `Preparing to update OpenClaw Desktop Middleware from ${branch}`,
     repoRoot,
-    branch: UPDATE_BRANCH,
+    branch,
     logPath: UPDATE_LOG_PATH,
   };
   writeMiddlewareUpdateStatus(status);
@@ -599,7 +648,7 @@ set -euo pipefail
 STATUS=${shellQuote(UPDATE_STATUS_PATH)}
 LOG=${shellQuote(UPDATE_LOG_PATH)}
 REPO=${shellQuote(repoRoot)}
-BRANCH=${shellQuote(UPDATE_BRANCH)}
+BRANCH=${shellQuote(branch)}
 REPO_URL=${shellQuote(UPDATE_REPO_URL)}
 SERVICE=${shellQuote(UPDATE_SERVICE_NAME)}
 write_status() {
@@ -607,24 +656,30 @@ write_status() {
 }
 exec >>"$LOG" 2>&1
 cd "$REPO"
+write_status running "Fetching $BRANCH from GitHub"
 echo "[$(date -u +%FT%TZ)] Fetching $BRANCH from $REPO_URL"
 git remote set-url origin "$REPO_URL" || true
 git fetch origin "$BRANCH"
 if ! git diff --quiet || ! git diff --cached --quiet; then
+  write_status running "Preserving local changes in git stash"
   echo "[$(date -u +%FT%TZ)] Preserving local changes in git stash"
   git stash push -u -m "openclaw-middleware-update-$(date -u +%Y%m%dT%H%M%SZ)" || true
 fi
+write_status running "Checking out $BRANCH"
 git checkout -B "$BRANCH" "origin/$BRANCH"
 git reset --hard "origin/$BRANCH"
 if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
+write_status running "Installing dependencies"
 echo "[$(date -u +%FT%TZ)] Installing dependencies"
 pnpm install --frozen-lockfile
+write_status running "Building middleware"
 echo "[$(date -u +%FT%TZ)] Building middleware"
 pnpm --filter @openclaw/desktop-middleware build
 write_status restarting "Build completed; restarting ${UPDATE_SERVICE_NAME}"
 echo "[$(date -u +%FT%TZ)] Restarting $SERVICE"
 if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files "$SERVICE.service" >/dev/null 2>&1; then
   systemctl restart "$SERVICE"
+  write_status succeeded "Middleware updated from $BRANCH and restart command completed"
 else
   write_status failed "systemd service $SERVICE was not found; build succeeded but restart is manual"
   exit 1
@@ -689,6 +744,66 @@ function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
       direct: selected.filter((session) => session.chatType === "direct").length,
       groups: groups.size,
       topics: selected.filter((session) => session.chatType === "group").length,
+      alreadyImported: selected.filter((session) => session.alreadyImported).length,
+    },
+    groups: [...groups.values()],
+  };
+}
+
+function scanDiscordSessions(context: AppContext, input: CompatRecord = {}) {
+  loadCompatState(context);
+  const agentId = String(input.agentId || "main");
+  const index = readJsonFile(gatewaySessionsIndexPath(agentId));
+  const limit = Math.max(0, Number(input.limit || 0));
+  const usedNames = new Set<string>();
+  const importedKeys = new Set([
+    ...compatState.chats.map((chat) => chat.importedFrom?.sourceSessionKey).filter(Boolean),
+    ...compatState.sessions.map((session) => session.importedFrom?.sourceSessionKey).filter(Boolean),
+  ].map(String));
+  const sessions = Object.entries(index).map(([sourceSessionKey, entryRaw]) => {
+    const parsed = parseDiscordSessionKey(sourceSessionKey);
+    if (!parsed) return null;
+    const entry = (entryRaw && typeof entryRaw === "object") ? entryRaw as CompatRecord : {};
+    const sourceSessionFile = String(entry.sessionFile || "");
+    const messages = sourceSessionFile ? transcriptMessagesFromJsonl(sourceSessionFile) : [];
+    const discordMeta = discordMetaFromMessages(messages);
+    const preview = lastUserMessagePreview(messages);
+    const fallback = parsed.kind === "direct"
+      ? (discordMeta?.sender || "Discord direct")
+      : discordTopicFallback(entry, parsed.channelId, parsed.threadId, discordMeta);
+    const proposedName = uniqueName(parsed.kind === "channel" ? fallback : (preview ? preview.slice(0, 45).trim() : fallback), usedNames);
+    return {
+      sourceSessionKey,
+      sourceSessionId: String(entry.sessionId || ""),
+      sourceSessionFile,
+      proposedName,
+      messageCount: messages.filter((message) => message?.role && message.role !== "system").length,
+      lastUserMessagePreview: preview,
+      updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : null,
+      chatType: parsed.kind,
+      groupId: parsed.kind === "channel" ? (discordMeta?.groupSpace || parsed.channelId) : undefined,
+      groupName: parsed.kind === "channel" ? discordProjectName(entry, parsed.channelId, discordMeta) : undefined,
+      channelId: parsed.kind === "channel" ? parsed.channelId : undefined,
+      threadId: parsed.kind === "channel" ? parsed.threadId : undefined,
+      topicName: parsed.kind === "channel" ? proposedName : undefined,
+      alreadyImported: importedKeys.has(sourceSessionKey),
+    };
+  }).filter(Boolean) as CompatRecord[];
+  const selected = limit > 0 ? sessions.slice(0, limit) : sessions;
+  const groups = new Map<string, CompatRecord>();
+  for (const session of selected) {
+    if (session.chatType !== "channel") continue;
+    const current = groups.get(session.groupId) ?? { groupId: session.groupId, name: session.groupName, topics: 0 };
+    current.topics += 1;
+    groups.set(session.groupId, current);
+  }
+  return {
+    sessions: selected,
+    summary: {
+      total: selected.length,
+      direct: selected.filter((session) => session.chatType === "direct").length,
+      groups: groups.size,
+      topics: selected.filter((session) => session.chatType === "channel").length,
       alreadyImported: selected.filter((session) => session.alreadyImported).length,
     },
     groups: [...groups.values()],
@@ -1080,6 +1195,57 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       } else {
         chatId = id("chat");
         compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
+      }
+      imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
+    } catch (error) {
+      failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  if (!dryRun) saveCompatState(context);
+  return { imported, skipped, failed, summary: { imported: imported.length, skipped: skipped.length, failed: failed.length } };
+}
+
+async function importDiscordSessions(context: AppContext, input: CompatRecord = {}) {
+  loadCompatState(context);
+  const scan = scanDiscordSessions(context, input);
+  const selectedKeys = Array.isArray(input.sourceSessionKeys) && input.sourceSessionKeys.length > 0 ? new Set(input.sourceSessionKeys.map(String)) : null;
+  const skipAlreadyImported = input.skipAlreadyImported !== false;
+  const dryRun = Boolean(input.dryRun);
+  const imported: CompatRecord[] = [];
+  const skipped: CompatRecord[] = [];
+  const failed: CompatRecord[] = [];
+  for (const session of scan.sessions) {
+    if (selectedKeys && !selectedKeys.has(session.sourceSessionKey)) continue;
+    const parsed = parseDiscordSessionKey(session.sourceSessionKey);
+    if (!parsed) continue;
+    if (skipAlreadyImported && session.alreadyImported) { skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported" }); continue; }
+    const sourceMessages = transcriptMessagesFromJsonl(session.sourceSessionFile);
+    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: session.proposedName, copiedMessages: sourceMessages.length, dryRun: true }); continue; }
+    try {
+      const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-discord-${crypto.randomUUID()}`;
+      const label = session.proposedName || "Discord import";
+      const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label, parentSessionKey: session.sourceSessionKey }, 30_000);
+      const transcriptPath = created?.payload?.entry?.sessionFile || created?.entry?.sessionFile;
+      if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
+      copyHistoryMessagesToTranscript(transcriptPath, sourceMessages);
+      const timestamp = nowIso();
+      let chatId: string | null = null;
+      let projectId: string | null = null;
+      let topicId: string | null = null;
+      if (parsed.kind === "channel") {
+        const projectImportKey = String(session.groupId || parsed.channelId);
+        let project = compatState.projects.find((item) => item.importedFrom?.kind === "discord" && item.importedFrom?.groupId === projectImportKey);
+        if (!project) {
+          project = { id: id("proj"), name: session.groupName || `Discord channel ${parsed.channelId}`, workspaceRoot: path.join(os.homedir(), ".openclaw", "workspace"), archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", groupId: projectImportKey, channelId: parsed.channelId } };
+          compatState.projects.push(project);
+        }
+        projectId = project.id;
+        topicId = id("topic");
+        compatState.topics.push({ id: topicId, projectId, name: label, archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey, groupId: projectImportKey, channelId: parsed.channelId, threadId: parsed.threadId } });
+        compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
+      } else {
+        chatId = id("chat");
+        compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "discord", sourceSessionKey: session.sourceSessionKey } });
       }
       imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, transcriptPath });
     } catch (error) {
@@ -1716,8 +1882,60 @@ function voiceSettingsFromConfig(cfg: CompatRecord) {
   };
 }
 
+function voiceApiKeyConfigured(cfg: CompatRecord, provider: string) {
+  if (provider === "auto") return Boolean(localVoiceTranscriber());
+  const envVar = voiceProviderEnvVars[provider];
+  if (!envVar) return false;
+  return Boolean(String(process.env[envVar] || cfg.env?.vars?.[envVar] || "").trim());
+}
+
 function voiceSettingsPayload() {
-  return { settings: voiceSettingsFromConfig(readOCPlatformConfig()), options: voiceOptions };
+  const cfg = readOCPlatformConfig();
+  const settings = voiceSettingsFromConfig(cfg);
+  return { settings, options: voiceOptions, status: { apiKeyConfigured: voiceApiKeyConfigured(cfg, settings.provider), localTranscriberAvailable: Boolean(localVoiceTranscriber()) } };
+}
+
+function localVoiceTranscriber() {
+  const python = String(process.env.OPENCLAW_VOICE_TRANSCRIBE_PYTHON || path.join(os.homedir(), ".whisper-venv", "bin", "python"));
+  const script = String(process.env.OPENCLAW_VOICE_TRANSCRIBE_SCRIPT || path.join(workspaceRoot(), "whisper", "transcribe.py"));
+  return fs.existsSync(python) && fs.existsSync(script) ? { python, script } : null;
+}
+
+function audioAttachmentBuffer(input: CompatRecord) {
+  const attachment = input.attachment && typeof input.attachment === "object" ? input.attachment as CompatRecord : input;
+  const content = String(attachment.content || attachment.data || attachment.base64 || "");
+  if (!content) throw new HttpError(400, "Audio attachment is required", "VOICE_ATTACHMENT_REQUIRED");
+  const base64 = content.replace(/^data:[^;,]+;base64,/i, "");
+  return Buffer.from(base64, String(attachment.encoding || "base64") === "base64" ? "base64" : "utf8");
+}
+
+function audioAttachmentExtension(input: CompatRecord) {
+  const attachment = input.attachment && typeof input.attachment === "object" ? input.attachment as CompatRecord : input;
+  const mimeType = String(attachment.mimeType || attachment.mime_type || attachment.contentType || "audio/webm").split(";")[0]?.toLowerCase();
+  if (mimeType === "audio/ogg") return "ogg";
+  if (mimeType === "audio/mp4") return "m4a";
+  if (mimeType === "audio/mpeg") return "mp3";
+  if (mimeType === "audio/wav") return "wav";
+  return "webm";
+}
+
+function transcribeVoice(input: CompatRecord) {
+  const local = localVoiceTranscriber();
+  if (!local) {
+    throw new HttpError(501, "Voice transcription is not configured on this desktop middleware. Configure a voice provider or install the local Whisper transcriber.", "VOICE_TRANSCRIPTION_UNSUPPORTED", { unsupported: true });
+  }
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-"));
+  const audioFile = path.join(tmpDir, `input.${audioAttachmentExtension(input)}`);
+  try {
+    fs.writeFileSync(audioFile, audioAttachmentBuffer(input));
+    const transcript = execFileSync(local.python, [local.script, audioFile], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 }).trim();
+    return { ok: true, transcript, provider: "local", model: "faster-whisper-base" };
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(500, error instanceof Error ? error.message : "Voice transcription failed", "VOICE_TRANSCRIPTION_FAILED");
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore cleanup failure */ }
+  }
 }
 
 function writeVoiceSettings(input: CompatRecord) {
@@ -2388,10 +2606,23 @@ function broadcastTerminal(term: CompatTerminal, event: string, payload: CompatR
   return frame;
 }
 
+function safeTerminalCwd(rawCwd: unknown) {
+  const root = workspaceRoot();
+  fs.mkdirSync(root, { recursive: true });
+  try {
+    const cwd = rawCwd ? safeJoin(root, String(rawCwd)) : root;
+    const stat = fs.existsSync(cwd) ? fs.statSync(cwd) : null;
+    return stat?.isDirectory() ? cwd : root;
+  } catch {
+    return root;
+  }
+}
+
 async function spawnTerminal(cwd: string, body: CompatRecord = {}) {
   const idValue = id("term");
-  const proc = await spawnPty(terminalShell(), cwd, Number(body.cols ?? 80), Number(body.rows ?? 24));
-  const term: CompatTerminal = { id: idValue, proc, cwd, buffer: [], listeners: new Set() };
+  const resolvedCwd = safeTerminalCwd(cwd === workspaceRoot() ? undefined : cwd);
+  const proc = await spawnPty(terminalShell(), resolvedCwd, Number(body.cols ?? 80), Number(body.rows ?? 24));
+  const term: CompatTerminal = { id: idValue, proc, cwd: resolvedCwd, buffer: [], listeners: new Set() };
   proc.onData((data) => {
     term.buffer.push(data);
     if (term.buffer.length > 200) term.buffer.shift();
@@ -2402,7 +2633,7 @@ async function spawnTerminal(cwd: string, body: CompatRecord = {}) {
     compatState.terminals.delete(idValue);
   });
   compatState.terminals.set(idValue, term);
-  return { terminalId: idValue, cwd, streamUrl: `/api/terminal/${idValue}/stream`, websocketUrl: `/api/terminal/${idValue}/ws` };
+  return { terminalId: idValue, cwd: resolvedCwd, streamUrl: `/api/terminal/${idValue}/stream`, websocketUrl: `/api/terminal/${idValue}/ws` };
 }
 
 function getTerminal(terminalId: string) {
@@ -3187,12 +3418,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return { profiles: [{ id: "desktop_middleware", name: "Desktop Middleware", mode: "local", gatewayUrl: gateway.gatewayUrl ?? context.config.openclawGatewayUrl, workspaceRoot: workspaceRoot(), isDefault: true, status: gateway.connected ? "connected" : "disconnected", error: gateway.lastError ?? null }] };
       }
       case "middleware_pty_spawn_workspace": {
-        const cwd = input.cwd ? safeJoin(workspaceRoot(), String(input.cwd)) : workspaceRoot();
-        const terminal = await spawnTerminal(cwd, input);
+        const terminal = await spawnTerminal(safeTerminalCwd(input.cwd), input);
         return { ...terminal, ptyId: terminal.terminalId };
       }
       case "middleware_voice_transcribe":
-        return reply.code(501).send({ ok: false, error: { message: "Voice transcription is not available in desktop middleware yet" } });
+        return transcribeVoice(input);
       case "middleware_sync_pull_now":
         return { ok: true, skipped: true, reason: "Gateway sync is handled by live bootstrap" };
       case "middleware_openclaw_bot_name_get": {
@@ -3248,13 +3478,16 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return { ok: true, gateway, openclaw: { connected: gateway.connected } };
       }
       case "middleware_exec_approval_resolve": {
-        const approvalId = String(input.approvalId ?? "");
+        const approvalId = String(input.approvalId ?? input.id ?? "").trim();
         const decision = String(input.decision ?? "deny");
-        if (!approvalId) return reply.code(400).send({ ok: false, error: { message: "approvalId required" } });
+        if (!approvalId) return reply.code(400).send({ ok: false, error: { code: "BAD_REQUEST", message: "approvalId required" } });
         try {
           await context.gateway.request("exec.approval.resolve", { approvalId, decision });
           return { ok: true };
-        } catch (error) { return reply.code(500).send({ ok: false, error: { message: error instanceof Error ? error.message : "Approval resolution failed" } }); }
+        } catch (error) {
+          if (isMissingApprovalError(error)) return reply.code(404).send({ ok: false, error: { code: "APPROVAL_NOT_FOUND", message: "Approval request not found", details: { approvalId } } });
+          return reply.code(500).send({ ok: false, error: { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : "Approval resolution failed" } });
+        }
       }
       case "middleware_git_commit_details": {
         const repoRoot = String(input.repoRoot ?? input.repoPath ?? "");
@@ -3513,6 +3746,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   // --- migrations ---
   app.get("/api/migration/telegram/scan", async (request) => scanTelegramSessions(context, (request.query ?? {}) as CompatRecord));
   app.post("/api/migration/telegram/import", async (request) => importTelegramSessions(context, ((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as CompatRecord));
+  app.get("/api/migration/discord/scan", async (request) => scanDiscordSessions(context, (request.query ?? {}) as CompatRecord));
+  app.post("/api/migration/discord/import", async (request) => importDiscordSessions(context, ((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as CompatRecord));
   app.post("/api/migration/v1-sqlite/import", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     return migrateV1SqliteToV2(context, body.sourcePath);
@@ -3520,7 +3755,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   // --- self-update ---
   app.get("/api/middleware/update/status", async () => readMiddlewareUpdateStatus());
-  app.post("/api/middleware/update", async () => startMiddlewareUpdate());
+  app.post("/api/middleware/update", async (request) => startMiddlewareUpdate(((request.body ?? {}) as CompatRecord).input ?? (request.body ?? {}) as MiddlewareUpdateInput));
 
   // --- terminal spawn ---
   app.post("/api/terminal/spawn", async (request) => {
