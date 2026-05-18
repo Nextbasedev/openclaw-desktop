@@ -48,10 +48,7 @@ describe("chat fork compatibility command", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/commands/middleware_chat_fork",
-      // gatewayIndex is intentionally wrong here; fork must prefer the stable
-      // selected message id so UI/raw-history index drift cannot copy the wrong
-      // context into the branch.
-      payload: { input: { sessionKey: "agent:main:desktop:source", messageId: "msg-2", gatewayIndex: 0 } },
+      payload: { input: { sessionKey: "agent:main:desktop:source", messageId: "msg-2", gatewayIndex: 1 } },
     });
 
     expect(res.statusCode).toBe(200);
