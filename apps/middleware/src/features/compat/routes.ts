@@ -777,7 +777,8 @@ async function createChatFork(context: AppContext, input: CompatRecord) {
     parentSessionKey: sourceSessionKey,
   }, 30_000);
   const transcriptPath = sessionFileFromCreateResult(created);
-  if (transcriptPath) copyHistoryMessagesToTranscript(transcriptPath, sliced);
+  if (!transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
+  copyHistoryMessagesToTranscript(transcriptPath, sliced);
 
   const now = nowIso();
   const requestContext = input.context && typeof input.context === "object" && !Array.isArray(input.context) ? input.context as CompatRecord : {};

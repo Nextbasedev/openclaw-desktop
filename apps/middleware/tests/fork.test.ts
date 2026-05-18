@@ -103,10 +103,33 @@ describe("chat fork compatibility command", () => {
     await app.close();
   });
 
+  test("fails when Gateway does not return a transcript file for copied fork context", async () => {
+    const app = await createApp(config("missing-transcript"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "chat.history") {
+        return { sessionKey: payload?.sessionKey, messages: [{ role: "assistant", text: "source", __openclaw: { id: "msg-1", seq: 1 } }] };
+      }
+      if (method === "sessions.create") return { ok: true };
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_fork",
+      payload: { input: { sessionKey: "s1", messageId: "msg-1", gatewayIndex: 0 } },
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ ok: false, error: { message: "sessions.create did not return entry.sessionFile" } });
+    await app.close();
+  });
+
   test("preserves project topic context when forking from a topic chat", async () => {
     const app = await createApp(config("topic-context"));
     const context = contextOf(app);
     const sourceSessionKey = "agent:main:desktop:topic-source";
+    const transcriptPath = path.join(os.tmpdir(), `openclaw-fork-topic-${Date.now()}-${Math.random()}.jsonl`);
     vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
       if (method === "chat.history") {
         return {
@@ -117,7 +140,7 @@ describe("chat fork compatibility command", () => {
           ],
         };
       }
-      if (method === "sessions.create") return { entry: { sessionId: payload?.key } };
+      if (method === "sessions.create") return { entry: { sessionFile: transcriptPath, sessionId: payload?.key } };
       return { ok: true };
     });
 
