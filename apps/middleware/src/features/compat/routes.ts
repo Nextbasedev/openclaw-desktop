@@ -2469,7 +2469,7 @@ function normalizeModelEntry(value: unknown) {
   return { id: entryId, name: String((value as CompatRecord)?.name || entryId || ref), provider, reasoning: Boolean((value as CompatRecord)?.reasoning) };
 }
 
-function modelsResponse(cfg: CompatRecord) {
+function configuredModelsResponse(cfg: CompatRecord) {
   const refs = modelRefsFromConfig(cfg);
   const defaultsModels = cfg.agents?.defaults?.models;
   const rawModels: unknown[] = Array.isArray(defaultsModels)
@@ -2495,6 +2495,38 @@ function modelsResponse(cfg: CompatRecord) {
     models.unshift(normalizeModelEntry(currentModel));
   }
   return { models, currentModel, defaultModel: currentModel };
+}
+
+function mergeModelLists(primary: ReturnType<typeof normalizeModelEntry>[], fallback: ReturnType<typeof normalizeModelEntry>[]) {
+  const seen = new Set<string>();
+  const merged: ReturnType<typeof normalizeModelEntry>[] = [];
+  for (const model of [...primary, ...fallback]) {
+    const key = `${model.provider}/${model.id}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(model);
+  }
+  return merged;
+}
+
+async function modelsResponse(context: AppContext, cfg: CompatRecord) {
+  const configured = configuredModelsResponse(cfg);
+  try {
+    const official = await context.gateway.request<{ models?: unknown[] }>("models.list", {}, 12_000);
+    const officialModels = Array.isArray(official?.models) ? official.models.map(normalizeModelEntry) : [];
+    const models = mergeModelLists(officialModels, configured.models);
+    if (configured.currentModel && !models.some((model) => `${model.provider}/${model.id}` === configured.currentModel || model.id === configured.currentModel)) {
+      models.unshift(normalizeModelEntry(configured.currentModel));
+    }
+    return { ...configured, models, source: "gateway", official: true };
+  } catch (error) {
+    return {
+      ...configured,
+      source: "config",
+      official: false,
+      warning: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 
@@ -3432,7 +3464,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_usage_daily":
         return dailyUsage(Number(input.days) || 30);
       case "middleware_models_list":
-        return modelsResponse(readOCPlatformConfig());
+        return modelsResponse(context, readOCPlatformConfig());
       case "middleware_models_set_default": {
         const modelId = String(input.modelId || input.modelRef || "").trim();
         if (!modelId) return reply.code(400).send({ ok: false, error: { message: "modelId is required" } });
@@ -3441,7 +3473,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         if (typeof cfg.agents.defaults.model === "string") cfg.agents.defaults.model = { primary: cfg.agents.defaults.model };
         cfg.agents.defaults.model.primary = modelId;
         writeOCPlatformConfig(cfg);
-        return { ok: true, modelId, ...modelsResponse(cfg) };
+        return { ok: true, modelId, ...(await modelsResponse(context, cfg)) };
       }
       case "middleware_models_auth_status":
         return { providers: [], configured: true };
