@@ -250,7 +250,7 @@ export function RichContentPreview({ message }: { message: ChatMessage }) {
   }
 
   return (
-    <div className="mt-2 flex max-w-full flex-col gap-2 overflow-visible">
+    <div className="my-2 flex max-w-full flex-col gap-2 overflow-visible">
       {images.length > 0 && <ImageGallery images={images} />}
 
       {others.map((attachment, index) => {
