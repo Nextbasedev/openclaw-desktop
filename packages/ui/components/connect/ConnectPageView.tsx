@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import ConnectionErrorGuide from "@/components/connect/ConnectionErrorGuide"
+import { LOCAL_OPENCLAW_PROMPT, VPS_OPENCLAW_PROMPT } from "@/lib/connectSetupPrompt"
 
 type ConnectionStatus = {
   gatewayConfigured: boolean
@@ -70,36 +71,6 @@ type ConnectPageViewProps = {
   onSave: () => void
   onDisconnect: () => void
 }
-
-const LOCAL_OPENCLAW_PROMPT = `Set up OpenClaw Desktop on this machine.
-
-1. Check whether the OpenClaw Gateway/runtime is running locally.
-2. If it is not running, start it.
-3. Then start OpenClaw Desktop Middleware for this repo on port 8787.
-4. When it is ready, give me only: READY`
-
-const VPS_OPENCLAW_PROMPT = `Set up OpenClaw Desktop Middleware on this VPS.
-
-Use this repo/branch:
-https://github.com/Nextbasedev/openclaw-desktop.git
-branch: new-feat-harsh
-
-Requirements:
-Install or update the Middleware V2 from this repo/branch.
-Run it as an auto-restarting service so it survives crashes and reboot.
-Confirm the OpenClaw Gateway/runtime is running on this VPS, including the cron scheduler.
-Choose the best URL that my Desktop can reach:
-If using Tailscale, use the Tailscale MagicDNS name or 100.x.y.z address
-If only LAN/private network, use the reachable private IP
-If public IP is exposed, use http://public_ip:8787/ or the configured reverse proxy URL
-If using firewall/security group, allow the Middleware port or configure reverse proxy.
-Test /health from the chosen URL and make sure openclaw.connected is true.
-Verify cron end-to-end through Middleware V2: create/list/run/history and /api/stream/cron events.
-
-When finished, give me only:
-Middleware URL: <reachable-url>
-Pairing code: <code>
-Network note: <public domain | tailscale | private ip | public ip | reverse proxy>`
 
 export function ConnectPageView({
   url,
