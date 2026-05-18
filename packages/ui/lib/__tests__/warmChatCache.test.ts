@@ -17,9 +17,9 @@ describe("warmChatCache", () => {
     await setWarmChatCache("s1", { messages })
     const cached = await getWarmChatCache("s1")
 
-    expect(WARM_CHAT_MAX_MESSAGES).toBe(80)
-    expect(cached?.entry.messages).toHaveLength(80)
+    expect(WARM_CHAT_MAX_MESSAGES).toBe(1000)
+    expect(cached?.entry.messages).toHaveLength(1000)
     expect(cached?.entry.messages[0]?.messageId).toBe("m5")
-    expect(cached?.entry.messages.at(-1)?.messageId).toBe("m84")
+    expect(cached?.entry.messages.at(-1)?.messageId).toBe("m1004")
   })
 })
