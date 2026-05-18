@@ -642,33 +642,25 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const repliedMessageIds = useMemo(() => {
-    const availableIds = new Set(messages.map((message) => message.messageId))
-    const ids = new Set<string>()
-    for (const message of messages) {
-      const replyId = message.replyTo?.messageId
-      const normalizedReplyId = replyId?.replace(/:selection$/, "")
-      if (normalizedReplyId && availableIds.has(normalizedReplyId)) {
-        ids.add(normalizedReplyId)
-      }
-      for (const selection of message.replyTo?.selections ?? []) {
-        const selectionId = selection.messageId?.replace(/:selection$/, "")
-        if (selectionId && availableIds.has(selectionId)) {
-          ids.add(selectionId)
-        }
-      }
-    }
-    return ids
-  }, [messages])
-
   const referencedTextsByMessageId = useMemo(() => {
     const availableIds = new Set(messages.map((message) => message.messageId))
     const references = new Map<string, string[]>()
-    const addReference = (messageId: string | undefined, text: string | undefined) => {
-      const normalizedId = messageId?.replace(/:selection$/, "")
+    const resolveReferenceId = (messageId: string | undefined, text: string | undefined) => {
+      const normalizedId = messageId?.replace(/:selection.*$/, "")
+      if (normalizedId && availableIds.has(normalizedId)) return normalizedId
       const trimmedText = text?.trim()
-      if (!normalizedId || !trimmedText || !availableIds.has(normalizedId)) return
-      references.set(normalizedId, [...(references.get(normalizedId) ?? []), trimmedText])
+      if (!trimmedText) return null
+      return [...messages]
+        .reverse()
+        .find((candidate) => candidate.text.includes(trimmedText))
+        ?.messageId ?? null
+    }
+    const addReference = (messageId: string | undefined, text: string | undefined) => {
+      const trimmedText = text?.trim()
+      if (!trimmedText) return
+      const referenceId = resolveReferenceId(messageId, trimmedText)
+      if (!referenceId) return
+      references.set(referenceId, [...(references.get(referenceId) ?? []), trimmedText])
     }
 
     for (const message of messages) {
@@ -684,6 +676,11 @@ export function ChatView({
 
     return references
   }, [messages])
+
+  const repliedMessageIds = useMemo(
+    () => new Set(referencedTextsByMessageId.keys()),
+    [referencedTextsByMessageId]
+  )
 
   const focusReplyTarget = useCallback((messageId: string) => {
     const target = document.getElementById(`message-${messageId}`)
