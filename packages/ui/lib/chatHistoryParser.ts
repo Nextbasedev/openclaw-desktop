@@ -51,6 +51,17 @@ function extractReplyFromText(
         displayText,
       }
     }
+    if (msg.text.includes(quoted)) {
+      return {
+        replyTo: {
+          messageId: msg.messageId,
+          role: msg.role,
+          text: quoted,
+          selections: [{ messageId: msg.messageId, text: quoted }],
+        },
+        displayText,
+      }
+    }
   }
 
   return {

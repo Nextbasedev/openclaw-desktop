@@ -664,4 +664,32 @@ describe("parseChatHistory", () => {
       text: assistantText,
     })
   })
+
+  it("restores selected reply quotes as highlightable selections", () => {
+    const assistantText =
+      "One opening sentence. The selected middle sentence should highlight. Final sentence."
+    const selectedText = "selected middle sentence should highlight"
+    const userText = "Why this part?"
+    const parsed = parseChatHistory([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        text: assistantText,
+      },
+      {
+        id: "user-1",
+        role: "user",
+        text: `> ${selectedText}\n\n${userText}`,
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(parsed.messages[1]?.text, userText)
+    assert.deepEqual(parsed.messages[1]?.replyTo, {
+      messageId: "assistant-1",
+      role: "assistant",
+      text: selectedText,
+      selections: [{ messageId: "assistant-1", text: selectedText }],
+    })
+  })
 })

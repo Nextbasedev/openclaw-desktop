@@ -31,6 +31,21 @@ import { windowChatMessages } from "@/lib/messageWindow"
 import { toast } from "react-toastify"
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
+import {
+  LuBrain,
+  LuClock,
+  LuFileCode,
+  LuFileText,
+  LuGlobe,
+  LuImage,
+  LuMessageSquare,
+  LuPencil,
+  LuRefreshCw,
+  LuSettings2,
+  LuSparkles,
+  LuWrench,
+} from "react-icons/lu"
+import type { IconType } from "react-icons"
 import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -45,6 +60,68 @@ import type {
   ReplyTo,
   SpawnedSubagent,
 } from "./types"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+
+type StatusIconMeta = {
+  icon: IconType
+  className: string
+  label: string
+}
+
+const STATUS_ICON_CLASS = "text-amber-400"
+
+const STATUS_TOOL_ICON_META: Record<string, StatusIconMeta> = {
+  read: { icon: LuFileText, className: STATUS_ICON_CLASS, label: "Read file" },
+  write: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Write file" },
+  edit: { icon: LuPencil, className: STATUS_ICON_CLASS, label: "Edit file" },
+  apply_patch: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Apply patch" },
+  exec: { icon: LuFileCode, className: STATUS_ICON_CLASS, label: "Run command" },
+  process: { icon: LuRefreshCw, className: STATUS_ICON_CLASS, label: "Process" },
+  web_fetch: { icon: LuGlobe, className: STATUS_ICON_CLASS, label: "Fetch web page" },
+  web_search: { icon: LuGlobe, className: STATUS_ICON_CLASS, label: "Search web" },
+  cron: { icon: LuClock, className: STATUS_ICON_CLASS, label: "Schedule job" },
+  sessions_list: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "List sessions" },
+  sessions_history: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Session history" },
+  sessions_send: { icon: LuMessageSquare, className: STATUS_ICON_CLASS, label: "Send to session" },
+  sessions_spawn: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Spawn sub-agent" },
+  sessions_yield: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Wait for sub-agent" },
+  subagents: { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Sub-agent" },
+  session_status: { icon: LuSettings2, className: STATUS_ICON_CLASS, label: "Session status" },
+  image: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Analyze image" },
+  image_generate: { icon: LuImage, className: STATUS_ICON_CLASS, label: "Generate image" },
+  memory_get: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Read memory" },
+  memory_search: { icon: LuBrain, className: STATUS_ICON_CLASS, label: "Search memory" },
+  update_plan: { icon: LuWrench, className: STATUS_ICON_CLASS, label: "Update plan" },
+}
+
+function statusIconMeta(tool?: string | null): StatusIconMeta {
+  if (tool && STATUS_TOOL_ICON_META[tool]) return STATUS_TOOL_ICON_META[tool]
+  return { icon: LuSparkles, className: STATUS_ICON_CLASS, label: "Thinking" }
+}
+
+function ProcessStatusIcon({ tool }: { tool?: string | null }) {
+  const meta = statusIconMeta(tool)
+  const Icon = meta.icon
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="mr-2 flex size-4 shrink-0 items-center justify-center"
+          aria-label={meta.label}
+        >
+          <Icon className={cn("size-3.5", meta.className)} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="left" sideOffset={8} className="text-[11px]">
+        {meta.label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
 
 type Props = {
   sessionKey: string
@@ -638,14 +715,74 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
+  const referencedTextsByMessageId = useMemo(() => {
+    const availableIds = new Set(messages.map((message) => message.messageId))
+    const references = new Map<string, string[]>()
+    const resolveReferenceId = (messageId: string | undefined, text: string | undefined) => {
+      const normalizedId = messageId?.replace(/:selection.*$/, "")
+      if (normalizedId && availableIds.has(normalizedId)) return normalizedId
+      const trimmedText = text?.trim()
+      if (!trimmedText) return null
+      return [...messages]
+        .reverse()
+        .find((candidate) => candidate.text.includes(trimmedText))
+        ?.messageId ?? null
+    }
+    const addReference = (messageId: string | undefined, text: string | undefined) => {
+      const trimmedText = text?.trim()
+      if (!trimmedText) return
+      const referenceId = resolveReferenceId(messageId, trimmedText)
+      if (!referenceId) return
+      references.set(referenceId, [...(references.get(referenceId) ?? []), trimmedText])
+    }
+
+    for (const message of messages) {
+      const selections = message.replyTo?.selections ?? []
+      if (selections.length > 0) {
+        for (const selection of selections) {
+          addReference(selection.messageId, selection.text)
+        }
+      } else {
+        addReference(message.replyTo?.messageId, message.replyTo?.text)
+      }
+    }
+
+    return references
+  }, [messages])
+
+  const repliedMessageIds = useMemo(
+    () => new Set(referencedTextsByMessageId.keys()),
+    [referencedTextsByMessageId]
+  )
+
+  const focusReplyTarget = useCallback((messageId: string, text?: string) => {
+    const normalizedId = messageId.replace(/:selection.*$/, "")
+    const fallbackText = text?.trim()
+    const resolvedId = document.getElementById(`message-${normalizedId}`)
+      ? normalizedId
+      : fallbackText
+        ? messages.find((message) => message.text.includes(fallbackText))?.messageId
+        : undefined
+    if (!resolvedId) return
+
+    const target = document.getElementById(`message-${resolvedId}`)
+    target?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [messages])
+  const importantMessageIds = useMemo(
+    () =>
+      Array.from(
+        new Set([...messageActionState.pinnedIds, ...repliedMessageIds])
+      ),
+    [messageActionState.pinnedIds, repliedMessageIds]
+  )
   const messageWindow = useMemo(
     () =>
       windowChatMessages(
         visibleAllMessages,
-        messageActionState.pinnedIds,
+        importantMessageIds,
         messageWindowSize
       ),
-    [visibleAllMessages, messageActionState.pinnedIds, messageWindowSize]
+    [visibleAllMessages, importantMessageIds, messageWindowSize]
   )
   const renderedMessages = messageWindow.messages
   const lastHistoryScrollVersionRef = useRef(0)
@@ -727,9 +864,10 @@ export function ChatView({
       const selected = text.trim()
       if (!selected) return
       setReplyTo({
-        messageId: `${messageId}:selection`,
+        messageId,
         role: "assistant",
         text: selected,
+        selections: [{ messageId, text: selected, comment }],
       })
       setComposerSeed(comment?.trim() ?? "")
     },
@@ -953,6 +1091,8 @@ export function ChatView({
             sessionKey,
             messageId,
             gatewayIndex: msg.gatewayIndex,
+            role: msg.role,
+            context: forkContext ?? { type: "chat" },
           },
         })
         emit("fork:create", {
@@ -1219,6 +1359,8 @@ export function ChatView({
                 onAskSelectedText={
                   msg.role === "assistant" ? askAboutSelectedText : undefined
                 }
+                onReplyTargetClick={focusReplyTarget}
+                referencedTexts={referencedTextsByMessageId.get(msg.messageId)}
                 isPinned={messageActionState.pinnedIds.includes(msg.messageId)}
                 reaction={messageActionState.reactions[msg.messageId]}
                 isGenerating={isGenerating}
@@ -1255,6 +1397,7 @@ export function ChatView({
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
+      focusReplyTarget,
       forkFromMessage,
       getSubagentsForMessage,
       handleEdit,
@@ -1273,6 +1416,7 @@ export function ChatView({
       reactToMessage,
       groupedToolCalls,
       suppressedToolCallMessages,
+      referencedTextsByMessageId,
       renderedMessages.length,
       replyToMessage,
       resolveExecApproval,
@@ -1493,6 +1637,7 @@ export function ChatView({
 
               {statusText && (
                 <div className="mt-4 flex items-center pl-1">
+                  <ProcessStatusIcon tool={liveTool?.tool} />
                   <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
                     {statusText.replace(/\.{3}$/, "")}
                     <span className="thinking-ellipsis" aria-hidden="true" />
@@ -1507,7 +1652,7 @@ export function ChatView({
         itemContent={renderMessageRow}
       />
 
-      <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
+      <div className="relative shrink-0 bg-transparent py-3">
         <AnimatePresence>
           {showJumpToBottom && (
             <motion.div
@@ -1515,28 +1660,28 @@ export function ChatView({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.96 }}
               transition={{ duration: 0.16, ease: "easeOut" }}
-              className="mb-3 flex justify-center"
+              className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-3 flex justify-center"
             >
               <motion.button
                 type="button"
                 aria-label="Scroll to latest message"
                 title="Scroll to latest message"
                 onClick={jumpToLatestMessage}
+                animate={{ y: [0, 5, 0] }}
+                transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
-                  "group flex h-8 w-16 cursor-pointer items-center justify-center",
-                  "bg-transparent text-foreground/80 transition-colors hover:text-foreground",
+                  "group pointer-events-auto inline-flex aspect-square cursor-pointer items-center justify-center rounded-full p-3",
+                  "border border-white/10 bg-[#252529]/80 text-foreground/80 shadow-[0_10px_28px_-18px_rgba(0,0,0,0.9)] backdrop-blur-md transition-colors hover:bg-[#2d2d32]/90 hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
               >
                 <motion.span
                   aria-hidden="true"
-                  animate={{ y: [0, 5, 0] }}
-                  transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
-                  className="flex origin-center scale-x-125 bg-transparent"
+                  className="flex origin-center scale-x-125"
                 >
-                  <MdKeyboardDoubleArrowDown size={30} />
+                  <MdKeyboardDoubleArrowDown size={24} />
                 </motion.span>
               </motion.button>
             </motion.div>

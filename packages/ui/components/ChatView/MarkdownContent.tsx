@@ -156,7 +156,7 @@ function highlightString(text: string, highlightTexts: string[]) {
     parts.push(
       <mark
         key={`${nextIndex}-${matchedText}`}
-        className="rounded-sm bg-blue-400/15 px-1 py-0.5 font-semibold text-sky-50"
+        className="box-decoration-clone rounded-md border border-blue-300/35 bg-blue-400/20 px-1.5 py-0.5 font-semibold text-blue-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_8px_22px_-16px_rgba(59,130,246,0.95)] backdrop-blur-sm"
       >
         {matchedText}
       </mark>,
@@ -193,6 +193,51 @@ function plainTextFromChildren(children: React.ReactNode): string {
   return parts.join("")
 }
 
+function elementText(value: React.ReactNode): string {
+  return React.Children.toArray(value)
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number") return String(child)
+      if (React.isValidElement(child)) {
+        const props = child.props as { children?: React.ReactNode }
+        return elementText(props.children)
+      }
+      return ""
+    })
+    .join("")
+}
+
+function isBlockCodeElement(child: React.ReactElement): boolean {
+  if (child.type !== "code") return false
+  const props = child.props as { className?: string; children?: React.ReactNode }
+  const text = elementText(props.children)
+  return Boolean(props.className) || text.includes("\n") || /[┌┐└┘│─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]/.test(text)
+}
+
+function containsBlockChild(children: React.ReactNode): boolean {
+  return React.Children.toArray(children).some((child) => {
+    if (!React.isValidElement(child)) return false
+    if (child.type === CodeBlock || child.type === MermaidBlock || isBlockCodeElement(child)) return true
+    if (typeof child.type === "string") {
+      return [
+        "blockquote",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "hr",
+        "ol",
+        "pre",
+        "table",
+        "ul",
+      ].includes(child.type)
+    }
+    return false
+  })
+}
+
 function MarkdownParagraph({
   children,
   highlightTexts,
@@ -204,16 +249,17 @@ function MarkdownParagraph({
   const content = highlightTexts?.length
     ? highlightChildren(children, highlightTexts)
     : children
+  const Component = containsBlockChild(content) ? "div" : "p"
 
   return (
-    <p
+    <Component
       className={cn(
         "my-2.5 break-words leading-[1.75] [overflow-wrap:anywhere] first:mt-0 last:mb-0",
         isChatErrorLine(plainText) ? "text-red-300" : "text-foreground/85"
       )}
     >
       {content}
-    </p>
+    </Component>
   )
 }
 
@@ -263,9 +309,9 @@ const mdComponents = {
   h3({ children }: { children?: React.ReactNode }) { return <h3 className="mb-2 mt-4 text-[15px] font-semibold text-foreground first:mt-0">{children}</h3> },
   h4({ children }: { children?: React.ReactNode }) { return <h4 className="mb-1.5 mt-3 text-[14px] font-medium text-foreground first:mt-0">{children}</h4> },
   p({ children }: { children?: React.ReactNode }) { return <MarkdownParagraph>{children}</MarkdownParagraph> },
-  ul({ children }: { children?: React.ReactNode }) { return <ul className="my-2.5 list-disc space-y-1.5 pl-5 text-foreground/85 marker:text-foreground/30">{children}</ul> },
-  ol({ children }: { children?: React.ReactNode }) { return <ol className="my-2.5 list-decimal space-y-2 pl-5 text-foreground/85 marker:text-foreground/50 marker:font-semibold">{children}</ol> },
-  li({ children }: { children?: React.ReactNode }) { return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p]:my-1 [&>ul]:my-1">{children}</li> },
+  ul({ children }: { children?: React.ReactNode }) { return <ul className="my-2.5 list-outside list-disc space-y-1.5 pl-7 text-foreground/85 marker:text-foreground/30">{children}</ul> },
+  ol({ children }: { children?: React.ReactNode }) { return <ol className="my-2.5 list-outside list-decimal space-y-2 pl-8 text-foreground/85 marker:text-foreground/60 marker:font-semibold">{children}</ol> },
+  li({ children }: { children?: React.ReactNode }) { return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p:first-child]:inline [&>p:first-child]:my-0 [&>p]:my-1 [&>ul]:my-1">{children}</li> },
   blockquote({ children }: { children?: React.ReactNode }) { return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{children}</blockquote> },
   hr() { return <hr className="my-5 border-border/25" /> },
   strong({ children }: { children?: React.ReactNode }) { return <strong className="font-semibold text-foreground">{children}</strong> },
@@ -382,7 +428,7 @@ export function MarkdownContent({
         return <MarkdownParagraph highlightTexts={normalizedHighlightTexts}>{children}</MarkdownParagraph>
       },
       li({ children }: { children?: React.ReactNode }) {
-        return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p]:my-1 [&>ul]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</li>
+        return <li className="break-words pl-1 leading-[1.75] [overflow-wrap:anywhere] [&>ol]:my-1 [&>p:first-child]:inline [&>p:first-child]:my-0 [&>p]:my-1 [&>ul]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</li>
       },
       blockquote({ children }: { children?: React.ReactNode }) {
         return <blockquote className="my-3 rounded-r-lg border-l-[3px] border-blue-400/40 bg-blue-400/4 py-2 pl-4 pr-3 text-foreground/70 [&>p]:my-1">{highlightChildren(children, normalizedHighlightTexts)}</blockquote>
