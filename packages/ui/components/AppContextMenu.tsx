@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
-import { LuChevronRight, LuClipboard, LuCopy, LuMoon, LuRefreshCw, LuSun, LuTerminal } from "react-icons/lu"
+import { LuChevronRight, LuClipboard, LuMoon, LuRefreshCw, LuSun, LuTerminal } from "react-icons/lu"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { cn } from "@/lib/utils"
 
@@ -17,34 +17,6 @@ type AppContextMenuProps = {
   onToggleTheme: () => void
   onOpenTerminal: () => void
   themeLabel?: string
-}
-
-function isEditableElement(target: EventTarget | null): target is HTMLInputElement | HTMLTextAreaElement {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
-}
-
-async function copySelection() {
-  const selection = window.getSelection()?.toString() ?? ""
-  if (!selection.trim()) return
-  await navigator.clipboard?.writeText(selection)
-}
-
-async function pasteIntoFocusedElement() {
-  const text = await navigator.clipboard?.readText?.()
-  if (!text) return
-  const active = document.activeElement
-
-  if (isEditableElement(active)) {
-    const start = active.selectionStart ?? active.value.length
-    const end = active.selectionEnd ?? start
-    active.setRangeText(text, start, end, "end")
-    active.dispatchEvent(new Event("input", { bubbles: true }))
-    return
-  }
-
-  if (active instanceof HTMLElement && active.isContentEditable) {
-    document.execCommand("insertText", false, text)
-  }
 }
 
 function MenuRow({
@@ -64,7 +36,7 @@ function MenuRow({
     <button
       type="button"
       onClick={onClick}
-      className="group/menu-row flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground/88 transition-colors hover:bg-white/[0.075]"
+      className="group/menu-row flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-foreground/88 transition-colors hover:bg-white/[0.075]"
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-foreground/52 group-hover/menu-row:text-foreground/78">
         {icon}
@@ -107,8 +79,8 @@ export function useAppContextMenu({
   }, [menu.open])
 
   const position = useMemo(() => {
-    const width = 244
-    const height = toolsOpen ? 210 : 116
+    const width = 220
+    const height = toolsOpen ? 164 : 116
     const margin = 10
     const viewportWidth = typeof window === "undefined" ? width + margin : window.innerWidth
     const viewportHeight = typeof window === "undefined" ? height + margin : window.innerHeight
@@ -139,7 +111,7 @@ export function useAppContextMenu({
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className={cn(GLASS_POPOVER, "w-[244px] overflow-visible rounded-2xl p-1.5 text-foreground")}>
+          <div className={cn(GLASS_POPOVER, "w-[220px] overflow-visible rounded-md p-1.5 text-foreground")}>
             <MenuRow icon={<LuRefreshCw className="size-3.5" />} label="Reload window" hint="Ctrl+R" onClick={() => run(onReload)} />
             <MenuRow icon={themeLabel.toLowerCase().includes("light") ? <LuSun className="size-3.5" /> : <LuMoon className="size-3.5" />} label={themeLabel} onClick={() => run(onToggleTheme)} />
             <div className="my-1 h-px bg-white/10" />
@@ -148,9 +120,7 @@ export function useAppContextMenu({
                 <LuChevronRight className="size-3.5 text-muted-foreground/55" />
               </MenuRow>
               {toolsOpen && (
-                <div className={cn(GLASS_POPOVER, "absolute left-[calc(100%+8px)] top-0 w-44 rounded-2xl p-1.5")}>
-                  <MenuRow icon={<LuCopy className="size-3.5" />} label="Copy" hint="Ctrl+C" onClick={() => run(copySelection)} />
-                  <MenuRow icon={<LuClipboard className="size-3.5" />} label="Paste" hint="Ctrl+V" onClick={() => run(pasteIntoFocusedElement)} />
+                <div className={cn(GLASS_POPOVER, "absolute left-[calc(100%+8px)] top-0 w-40 rounded-md p-1.5")}>
                   <MenuRow icon={<LuTerminal className="size-3.5" />} label="Open terminal" onClick={() => run(onOpenTerminal)} />
                 </div>
               )}
