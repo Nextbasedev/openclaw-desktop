@@ -95,11 +95,8 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchChatBootstrapV2(sessionKey: string, limit = 200): Promise<ChatBootstrapV2> {
-  const params = new URLSearchParams({ sessionKey, limit: String(limit), t: String(Date.now()) })
-  return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
-    cache: "no-store",
-    headers: { "Cache-Control": "no-cache" },
-  })
+  const params = new URLSearchParams({ sessionKey, limit: String(limit) })
+  return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`)
 }
 
 async function replayPatchBacklog(afterCursor: number, onFrame: (frame: StreamFrame) => void) {

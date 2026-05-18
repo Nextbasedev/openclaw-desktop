@@ -224,6 +224,7 @@ function parseExecApproval(
   }
 }
 
+const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 function delay(ms: number) {
@@ -1177,6 +1178,7 @@ export function useChatMessages(
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
+    let loadingTimeout: ReturnType<typeof setTimeout> | null = null
     const mountStartedAtMs = Date.now()
     type GlobalChatSnapshot = Parameters<Parameters<typeof subscribeGlobalChatSession>[1]>[0]
     let pendingV2Snapshot: GlobalChatSnapshot | null = null
@@ -1232,6 +1234,16 @@ export function useChatMessages(
       v2ApplyTimer = setTimeout(flushScheduledV2Apply, 16)
     }
 
+    if (!warmMessages) {
+      loadingTimeout = setTimeout(() => {
+        if (cancelled || bootstrapSettled) return
+        frontendLog("status", "chat.loading-timeout", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs }, "warn")
+        setLoading(false)
+        setMessages([])
+        setStatus("idle")
+      }, CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS)
+    }
+
     const handleBootstrapRecovery = () => {
       frontendLog("stream", "chat.bootstrap-recovery.reload", { sessionKey }, "warn")
       invalidateDedupe(`chat-bootstrap:${sessionKey}`)
@@ -1261,6 +1273,10 @@ export function useChatMessages(
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+          loadingTimeout = null
+        }
         if (cancelled) return
 
         // The /api/chat/bootstrap endpoint is the V2 history source. Do not
@@ -1330,6 +1346,10 @@ export function useChatMessages(
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         }, "error")
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+          loadingTimeout = null
+        }
         if (!cancelled) {
           setLoadError(String(e))
           setLoading(false)
@@ -1342,6 +1362,7 @@ export function useChatMessages(
     return () => {
       frontendLog("chat", "chat.unmount", { sessionKey, instanceId: instanceIdRef.current })
       cancelled = true
+      if (loadingTimeout) clearTimeout(loadingTimeout)
       clearScheduledV2Apply()
       window.removeEventListener("openclaw:chat-bootstrap-recovery", handleBootstrapRecovery)
       unsubscribeStream?.()
