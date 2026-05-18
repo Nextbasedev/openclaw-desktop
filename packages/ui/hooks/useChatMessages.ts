@@ -1636,7 +1636,7 @@ export function useChatMessages(
       })
       const isStopCommand = isStopSlashCommand(trimmed)
       const runsAlongsideGeneration = Boolean(
-        isGenerating && payload.runWhileGenerating
+        isGenerating && payload.runWhileGenerating && !isStopCommand
       )
       sendingGuardRef.current = true
       flushSync(() => {
@@ -1722,12 +1722,7 @@ export function useChatMessages(
           frontendLog("chat", "chat.stop-command.abort-before-send", { sessionKey, status: statusRef.current })
           setStatus("stopping")
           setStatusLabel(null)
-          void abortChatV2({ sessionKey }).catch((error) => {
-            frontendLog("chat", "chat.stop-command.abort-fail", {
-              sessionKey,
-              error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-            }, "warn")
-          })
+          await abortChatV2({ sessionKey })
         } else if (isGenerating && !payload.runWhileGenerating) {
           restartInFlightRef.current = true
           frontendLog("chat", "chat.restart-before-send", { sessionKey, status: statusRef.current })
