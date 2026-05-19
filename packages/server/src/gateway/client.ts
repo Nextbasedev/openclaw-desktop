@@ -114,9 +114,10 @@ export async function ensureGatewayClient(): Promise<OpenClawGatewayClient> {
   }
   try {
     return await connectGateway()
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     throw new Error(
-      "Gateway not connected. Start the OpenClaw Gateway first.",
+      `Gateway not connected. ${message || "Start the OpenClaw Gateway first."}`,
     )
   }
 }

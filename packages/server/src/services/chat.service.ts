@@ -67,23 +67,33 @@ function loadGatewayKey(localKey: string): string | undefined {
   return undefined
 }
 
+function deviceApprovalMessage(rawMessage: string) {
+  const requestId = rawMessage.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0]
+  return [
+    "Desktop Middleware is requesting permission to connect to this OpenClaw instance.",
+    "This can happen after a server reinstall, identity reset, or first-time connection from this machine.",
+    requestId ? `Request ID: ${requestId}` : null,
+    "Only approve if you recognize this server/device. After approving, retry the action.",
+    requestId ? `Approve command: openclaw devices approve ${requestId}` : "Open the Connect page or Gateway device approvals and approve this device.",
+  ].filter(Boolean).join("\n")
+}
+
 function wrapGatewayError(error: unknown): never {
   if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
+    const originalMessage = error.message
+    const msg = originalMessage.toLowerCase()
     if (msg.includes("enoent")) {
       throw new Error(
-        "Gateway config or identity file not found. Run onboarding first.",
+        "Gateway config or stable device identity file was not found. Use Connect once to create/persist the identity, then retry.",
       )
     }
     if (msg.includes("token is missing")) {
       throw new Error(
-        "Gateway authentication token is missing. Re-run onboarding to configure.",
+        "Gateway authentication token is missing. Configure the saved Middleware/OpenClaw connection, then retry.",
       )
     }
-    if (msg.includes("pairing") || msg.includes("not paired") || msg.includes("not registered")) {
-      throw new Error(
-        "Device not paired with gateway. Re-run onboarding to pair this device.",
-      )
+    if (msg.includes("pairing") || msg.includes("not paired") || msg.includes("not registered") || msg.includes("identity mismatch")) {
+      throw new Error(deviceApprovalMessage(originalMessage))
     }
     if (msg.includes("econnrefused")) {
       throw new Error(
