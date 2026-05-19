@@ -1401,6 +1401,54 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("marks sessions_spawn as failed when startup fails before child session links", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "spawn-fail", name: "sessions_spawn", input: { task: "Audit" } }],
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "tool",
+            toolCallId: "spawn-fail",
+            text: "Cannot find module 'avvio' while loading device identity",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-fail", sessionKey: null, status: "failed" },
+    ])
+    expect(getGlobalChatSession("s1")?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "assistant",
+        toolCalls: expect.arrayContaining([
+          expect.objectContaining({ id: "spawn-fail", tool: "sessions_spawn", status: "error" }),
+        ]),
+      }),
+    ]))
+  })
+
 
   test("shows streaming instead of thinking once assistant text is visible and no tools are active", () => {
     seedGlobalChatSession({

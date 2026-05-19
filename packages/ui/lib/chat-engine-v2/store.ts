@@ -280,7 +280,9 @@ function mergeToolResultText(incoming: string | undefined, existing: string | un
 }
 
 function inferToolStatus(text: string): InlineToolCall["status"] {
-  return new RegExp("\\b(error|failed|denied|rejected)\\b", "i").test(text) ? "error" : "success"
+  return new RegExp("\\b(error|failed|failure|exception|traceback|denied|rejected|not found|missing|cannot find module|module_not_found|device identity)\\b", "i").test(text)
+    ? "error"
+    : "success"
 }
 
 function parseExecApproval(text: string): InlineToolCall["approval"] | undefined {

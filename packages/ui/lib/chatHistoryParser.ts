@@ -301,7 +301,7 @@ function inferToolStatus(raw: RawHistoryMessage, resultText: string): InlineTool
     if (parsed.status === "error" || parsed.status === "failed" || parsed.error) return "error"
     if (typeof parsed.exitCode === "number" && Number.isFinite(parsed.exitCode) && parsed.exitCode !== 0) return "error"
   } catch {
-    if (/^\s*(error|failed|exception|traceback)\b/i.test(resultText)) return "error"
+    if (/\b(error|failed|failure|exception|traceback|denied|rejected|not found|missing|cannot find module|module_not_found|device identity)\b/i.test(resultText)) return "error"
   }
   return "success"
 }
