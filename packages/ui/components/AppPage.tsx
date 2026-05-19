@@ -1267,14 +1267,6 @@ function AppShell({
     [activeTopic, handleChatSelect],
   )
 
-  const handleChatClear = useCallback(() => {
-    routeRequestRef.current += 1
-    setPendingPrompt(null)
-    setComposerError(null)
-    clearConversationState()
-    window.history.pushState(null, "", routeUrl("/"))
-  }, [clearConversationState])
-
   const handleTopicClear = useCallback(() => {
     routeRequestRef.current += 1
     setPendingPrompt(null)
@@ -1521,6 +1513,21 @@ function AppShell({
       }
     }
   }, [editorGroups, handleChatSelect, handleNewChat, handleTopicSelect])
+
+  const handleChatClear = useCallback((chatId?: string) => {
+    if (chatId) {
+      const tabId = `chat:${chatId}`
+      if (findTabInGroups(editorGroups, tabId)) {
+        handleEditorTabClose(tabId)
+        return
+      }
+    }
+    routeRequestRef.current += 1
+    setPendingPrompt(null)
+    setComposerError(null)
+    clearConversationState()
+    window.history.pushState(null, "", routeUrl("/"))
+  }, [clearConversationState, editorGroups, handleEditorTabClose])
 
   const handleOpenChatTabWindow = useCallback((tab: EditorTab) => {
     if (tab.kind !== "chat") return

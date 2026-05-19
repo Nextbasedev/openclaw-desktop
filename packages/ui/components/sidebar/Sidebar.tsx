@@ -44,7 +44,7 @@ type SidebarProps = {
   onTopicClear: () => void
   activeChat: ActiveChat | null
   onChatSelect: (chat: ActiveChat) => void
-  onChatClear: () => void
+  onChatClear: (chatId?: string) => void
   onNewChat: () => void
   chatRefreshTrigger?: number
   spaces: Space[]

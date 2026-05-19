@@ -69,7 +69,7 @@ function visibleChatsForSpace(chats: Chat[], spaceId?: string | null) {
 
 export function useChatsData(
   activeChat: ActiveChat | null,
-  onChatClear: () => void,
+  onChatClear: (chatId?: string) => void,
   refreshTrigger = 0,
   spaceId?: string | null,
 ) {
@@ -314,7 +314,7 @@ export function useChatsData(
         await invoke("middleware_chats_archive", {
           input: { chatId },
         })
-        if (activeChat?.id === chatId) onChatClear()
+        if (activeChat?.id === chatId) onChatClear(chatId)
         await loadChats()
         emit("archive:changed")
       } catch (e) {
@@ -409,7 +409,7 @@ export function useChatsData(
         return next
       })
       setDeleteOpen(false)
-      if (activeChat?.id === chatId) onChatClear()
+      if (activeChat?.id === chatId) onChatClear(chatId)
       await loadChats()
     } catch (e) {
       console.error("delete chat failed", e)

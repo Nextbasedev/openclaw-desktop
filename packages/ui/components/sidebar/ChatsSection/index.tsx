@@ -17,7 +17,7 @@ type Props = {
   sectionLabel?: string
   activeChat: ActiveChat | null
   onChatSelect: (chat: ActiveChat) => void
-  onChatClear: () => void
+  onChatClear: (chatId?: string) => void
   onNewChat: () => void
   refreshTrigger?: number
   spaceId?: string | null
