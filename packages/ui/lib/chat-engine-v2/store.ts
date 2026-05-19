@@ -885,7 +885,7 @@ function isUserMessagePatch(frame: PatchFrame) {
 function resetDetachedActivityForNewTurn(state: SessionState) {
   state.pendingTools = state.pendingTools.filter((tool) => tool.status === "running")
   state.spawnedSubagents = state.spawnedSubagents.filter((spawn) =>
-    spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working"
+    spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working" || Boolean(spawn.sessionKey)
   )
 }
 

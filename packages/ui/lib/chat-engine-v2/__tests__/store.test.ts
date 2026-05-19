@@ -1455,6 +1455,40 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("keeps completed linked spawned subagents visible across later turns", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      spawnedSubagents: [
+        {
+          id: "spawn:1",
+          label: "Worker",
+          status: "completed",
+          toolCallId: "spawn-1",
+          sessionKey: "agent:main:subagent:child-1",
+        },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: { id: "u2", role: "user", text: "next turn" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-1", sessionKey: "agent:main:subagent:child-1", status: "completed" },
+    ])
+  })
+
   test("links spawned subagent from sessions_spawn tool result", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",

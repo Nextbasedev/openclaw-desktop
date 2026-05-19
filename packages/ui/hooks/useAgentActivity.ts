@@ -616,6 +616,35 @@ export function useAgentActivity(sessionKey: string | null) {
       setStreamStatus(state.status)
       const liveTurn = liveTurnForSession(sessionKey)
       let changed = false
+
+      for (const sub of state.spawnedSubagents) {
+        const agentId = sub.id || `spawn:${sub.toolCallId}`
+        const phase = sub.status === "failed"
+          ? "error"
+          : sub.status === "completed"
+            ? "done"
+            : "start"
+        const existing = agentsRef.current.get(agentId)
+        const nextAgent: AgentInfo = {
+          ...(existing ?? {
+            runId: agentId,
+            label: sub.label || `sub-${agentId.slice(-6)}`,
+          }),
+          label: existing?.label || sub.label || `sub-${agentId.slice(-6)}`,
+          description: existing?.description || sub.task,
+          phase,
+          sessionKey: sub.sessionKey ?? existing?.sessionKey,
+        }
+        if (JSON.stringify(existing) !== JSON.stringify(nextAgent)) {
+          agentsRef.current.set(agentId, nextAgent)
+          changed = true
+        }
+        if (sub.sessionKey && subKeyToAgentRef.current.get(sub.sessionKey) !== agentId) {
+          subKeyToAgentRef.current.set(sub.sessionKey, agentId)
+          changed = true
+        }
+      }
+
       for (const tool of state.pendingTools) {
         const existing = callMapRef.current.get(tool.id)
         const incoming = activityCallFromInlineTool(tool, {
