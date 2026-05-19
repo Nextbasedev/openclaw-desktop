@@ -1551,6 +1551,7 @@ function AppShell({
         handleEditorTabClose(tabId)
         return
       }
+      if (activeChatRef.current?.id !== chatId) return
     }
     routeRequestRef.current += 1
     setPendingPrompt(null)

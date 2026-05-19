@@ -373,14 +373,14 @@ export function useChatsData(
         await invoke("middleware_chats_archive", {
           input: { chatId },
         })
-        if (activeChat?.id === chatId) onChatClear(chatId)
+        onChatClear(chatId)
         await loadChats()
         emit("archive:changed")
       } catch (e) {
         console.error("archive chat failed", e)
       }
     },
-    [activeChat, onChatClear, loadChats],
+    [onChatClear, loadChats],
   )
 
   const openRename = useCallback((chat: Chat) => {
@@ -468,7 +468,7 @@ export function useChatsData(
         return next
       })
       setDeleteOpen(false)
-      if (activeChat?.id === chatId) onChatClear(chatId)
+      onChatClear(chatId)
       await loadChats()
     } catch (e) {
       console.error("delete chat failed", e)
@@ -476,7 +476,7 @@ export function useChatsData(
     } finally {
       setDeleting(false)
     }
-  }, [deleteTarget, loadChats, activeChat, onChatClear, spaceId])
+  }, [deleteTarget, loadChats, onChatClear, spaceId])
 
   const sortedChatIds = useMemo(() => {
     const activityOrdered = [...chats]
