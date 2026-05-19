@@ -63,8 +63,10 @@ describe("chat fork compatibility command", () => {
     });
     expect(transcriptPath && transcriptPath.length > 0).toBe(true);
     const transcriptLines = fs.readFileSync(transcriptPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
-    expect(transcriptLines.map((line) => line.type)).toEqual(["session", "message", "message"]);
-    expect(transcriptLines.slice(1).map((line) => line.message.text)).toEqual(["one", "two"]);
+    expect(transcriptLines.slice(1)).toMatchObject([
+      { type: "message", id: "msg-1", parentId: null, message: { role: "user", text: "one", content: "one" } },
+      { type: "message", id: "msg-2", parentId: "msg-1", message: { role: "assistant", text: "two", content: "two" } },
+    ]);
     expect(await app.inject({ method: "POST", url: "/api/commands/middleware_chat_fork_history", payload: { input: { sessionKey: body.sessionKey } } }).then((r) => r.json())).toMatchObject({
       isFork: true,
       sourceSessionKey: "agent:main:desktop:source",

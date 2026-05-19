@@ -1030,13 +1030,26 @@ function scanDiscordSessions(context: AppContext, input: CompatRecord = {}) {
   };
 }
 
-function transcriptLineFromHistoryMessage(message: CompatRecord) {
+function transcriptMessageBodyFromHistoryMessage(message: CompatRecord) {
+  const stripped = { ...message };
+  delete stripped.__openclaw;
+  if (stripped.content === undefined && typeof stripped.text === "string") {
+    stripped.content = stripped.text;
+  }
+  return stripped;
+}
+
+function transcriptLineFromHistoryMessage(message: CompatRecord, parentId: string | null) {
   const meta = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as CompatRecord : {};
   const idValue = String(meta.id || message.id || crypto.randomUUID());
   const timestamp = typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : typeof message.timestamp === "string" ? message.timestamp : nowIso();
-  const stripped = { ...message };
-  delete stripped.__openclaw;
-  return JSON.stringify({ type: "message", id: idValue, timestamp, message: stripped });
+  return {
+    type: "message",
+    id: idValue,
+    parentId,
+    timestamp,
+    message: transcriptMessageBodyFromHistoryMessage(message),
+  };
 }
 
 function copyHistoryMessagesToTranscript(transcriptPath: string, messages: CompatRecord[]) {
@@ -1046,7 +1059,13 @@ function copyHistoryMessagesToTranscript(transcriptPath: string, messages: Compa
     if (!line.trim()) return false;
     try { return JSON.parse(line)?.type === "session"; } catch { return false; }
   }) || JSON.stringify({ type: "session", version: 1, id: path.basename(transcriptPath, ".jsonl"), timestamp: nowIso(), cwd: process.cwd() });
-  const lines = [header, ...messages.filter((message) => message && message.role !== "system").map(transcriptLineFromHistoryMessage)];
+  let parentId: string | null = null;
+  const messageLines = messages.filter((message) => message && message.role !== "system").map((message) => {
+    const line = transcriptLineFromHistoryMessage(message, parentId);
+    parentId = line.id;
+    return JSON.stringify(line);
+  });
+  const lines = [header, ...messageLines];
   fs.writeFileSync(transcriptPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
