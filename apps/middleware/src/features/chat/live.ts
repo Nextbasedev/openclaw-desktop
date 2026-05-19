@@ -67,6 +67,36 @@ function readToolResult(value: Record<string, unknown>) {
   return value.result ?? value.output ?? value.content ?? value.text ?? value.message ?? value.value ?? null;
 }
 
+function extractChildSessionKey(value: unknown, depth = 0): string | null {
+  if (depth > 8 || value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        return extractChildSessionKey(JSON.parse(trimmed) as unknown, depth + 1);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = extractChildSessionKey(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!isObject(value)) return null;
+  if (typeof value.childSessionKey === "string" && value.childSessionKey.trim()) return value.childSessionKey.trim();
+  for (const child of Object.values(value)) {
+    const found = extractChildSessionKey(child, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 function firstString(...values: unknown[]) {
   for (const value of values) {
     if (typeof value === "string" && value.length > 0) return value;
@@ -352,6 +382,14 @@ export class ChatLiveIngest {
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
+    if (name === "sessions_spawn" && phase === "result") {
+      const childSessionKey = extractChildSessionKey(tool.resultMeta) ?? extractChildSessionKey(liveResultMeta);
+      if (childSessionKey && childSessionKey !== sessionKey) {
+        void this.ensureSessionSubscribed(childSessionKey)
+          .then(() => this.log.info("subagent.child.subscribe.ready", { parentSessionKey: sessionKey, childSessionKey, toolCallId }))
+          .catch((error) => this.log.warn("subagent.child.subscribe.fail", { parentSessionKey: sessionKey, childSessionKey, toolCallId, ...errorMeta(error) }));
+      }
+    }
   }
 
   private completeOlderRunningToolsBeforeNextStart(sessionKey: string, runId: string, nextToolCallId: string) {
