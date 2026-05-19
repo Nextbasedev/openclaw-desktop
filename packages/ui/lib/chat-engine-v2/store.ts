@@ -279,10 +279,21 @@ function mergeToolResultText(incoming: string | undefined, existing: string | un
   return incoming ?? existing
 }
 
-function inferToolStatus(text: string): InlineToolCall["status"] {
-  return new RegExp("\\b(error|failed|failure|exception|traceback|denied|rejected|not found|missing|cannot find module|module_not_found|device identity)\\b", "i").test(text)
-    ? "error"
-    : "success"
+function inferToolStatus(text: string, source?: unknown): InlineToolCall["status"] {
+  if (source && typeof source === "object" && !Array.isArray(source)) {
+    const record = source as Record<string, unknown>
+    if (record.isError === true || record.error) return "error"
+    const status = record.status
+    if (status === "error" || status === "failed") return "error"
+    const details = record.details
+    if (details && typeof details === "object" && !Array.isArray(details)) {
+      const detailRecord = details as Record<string, unknown>
+      if (detailRecord.status === "error" || detailRecord.status === "failed") return "error"
+      const exitCode = detailRecord.exitCode
+      if (typeof exitCode === "number" && Number.isFinite(exitCode) && exitCode !== 0) return "error"
+    }
+  }
+  return new RegExp("^\\s*(error|failed|failure|exception|traceback|denied|rejected)\\b", "i").test(text) ? "error" : "success"
 }
 
 function parseExecApproval(text: string): InlineToolCall["approval"] | undefined {
@@ -319,7 +330,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
   if (!existing) return false
   const mergedTool: InlineToolCall = {
     ...existing,
-    status: inferToolStatus(params.resultText),
+    status: inferToolStatus(params.resultText, params.source),
     duration: existing.duration ?? formatToolDuration(existing.startedAt, params.createdAtMs),
     completedAt: existing.completedAt ?? params.createdAtMs,
     resultText: mergeToolResultText(params.resultText || undefined, existing.resultText),

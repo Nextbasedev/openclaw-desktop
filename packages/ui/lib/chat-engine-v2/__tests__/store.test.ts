@@ -1401,7 +1401,7 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("marks sessions_spawn as failed when startup fails before child session links", () => {
+  test("marks sessions_spawn as failed from structured tool error metadata", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
       patch: {
@@ -1430,7 +1430,8 @@ describe("global V2 chat engine store", () => {
           message: {
             role: "tool",
             toolCallId: "spawn-fail",
-            text: "Cannot find module 'avvio' while loading device identity",
+            text: "Child session failed before link",
+            status: "error",
           },
         },
       },
