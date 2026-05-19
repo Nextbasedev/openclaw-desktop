@@ -12,6 +12,8 @@ export type Chat = {
   createdAt: string
   updatedAt: string
   pendingFork?: boolean
+  parentSessionKey?: string | null
+  isSubagent?: boolean
 }
 
 export type ActiveChat = {

@@ -9,6 +9,7 @@ import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } 
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import { deleteWarmChatCache } from "@/lib/warmChatCache"
 import { clearCachedChatActivity, getAllCachedChatActivity, subscribeChatActivity } from "@/lib/chatActivityStore"
+import { isSubagentSessionKey } from "@/lib/subagentSession"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -80,6 +81,7 @@ function compareChatsByActivity(a: Chat, b: Chat) {
 function visibleChatsForSpace(chats: Chat[], spaceId?: string | null) {
   return chats.filter((chat) => {
     if (chat.archived) return false
+    if (chat.isSubagent || chat.parentSessionKey || isSubagentSessionKey(chat.sessionKey)) return false
     return !spaceId || chat.spaceId === spaceId
   })
 }

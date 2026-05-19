@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { useChatsData } from "@/hooks/useChatsData"
@@ -40,6 +40,7 @@ export function ChatsSection({
   const [isOpen, setIsOpen] = useState(true)
   const [visibleChatLimit, setVisibleChatLimit] = useState(CHAT_INITIAL_LIMIT)
   const [extraChatsOpen, setExtraChatsOpen] = useState(false)
+  const [expandedChatIds, setExpandedChatIds] = useState<string[]>([])
   const closeTimerRef = useRef<number | null>(null)
   const showList = !collapsible || isOpen
   const {
@@ -61,12 +62,27 @@ export function ChatsSection({
     visibleChatLimit,
     sortedChatIds.length,
   )
-  const hasMoreChats = sortedChatIds.length > effectiveVisibleChatLimit
-  const hasExpandedChats = effectiveVisibleChatLimit > CHAT_INITIAL_LIMIT
-  const visibleExtraChatIds = sortedChatIds.slice(
-    CHAT_INITIAL_LIMIT,
-    effectiveVisibleChatLimit,
+  const topChatIds = sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)
+  const topChatIdSet = useMemo(
+    () => new Set(sortedChatIds.slice(0, CHAT_INITIAL_LIMIT)),
+    [sortedChatIds],
   )
+  const visibleExtraChatIds = expandedChatIds.filter(
+    (id) => sortedChatIds.includes(id) && !topChatIdSet.has(id),
+  )
+  const hiddenExtraChatIds = sortedChatIds
+    .slice(CHAT_INITIAL_LIMIT)
+    .filter((id) => !expandedChatIds.includes(id))
+  const hasMoreChats = hiddenExtraChatIds.length > 0
+  const hasExpandedChats = visibleExtraChatIds.length > 0
+
+  useEffect(() => {
+    setExpandedChatIds((prev) =>
+      prev
+        .filter((id) => sortedChatIds.includes(id) && !topChatIdSet.has(id))
+        .slice(0, Math.max(0, visibleChatLimit - CHAT_INITIAL_LIMIT)),
+    )
+  }, [sortedChatIds, topChatIdSet, visibleChatLimit])
 
   const handleShowMoreChats = () => {
     if (closeTimerRef.current !== null) {
@@ -75,14 +91,22 @@ export function ChatsSection({
     }
 
     setExtraChatsOpen(true)
-    setVisibleChatLimit((currentLimit) =>
-      Math.min(currentLimit + CHAT_LOAD_STEP, sortedChatIds.length),
-    )
+    setExpandedChatIds((current) => {
+      const currentSet = new Set(current)
+      const next = [...current]
+      for (const id of hiddenExtraChatIds) {
+        if (next.length >= current.length + CHAT_LOAD_STEP) break
+        if (!currentSet.has(id)) next.push(id)
+      }
+      setVisibleChatLimit(CHAT_INITIAL_LIMIT + next.length)
+      return next
+    })
   }
 
   const handleShowLessChats = () => {
     setExtraChatsOpen(false)
     closeTimerRef.current = window.setTimeout(() => {
+      setExpandedChatIds([])
       setVisibleChatLimit(CHAT_INITIAL_LIMIT)
       closeTimerRef.current = null
     }, MORE_CHATS_ANIMATION_MS)
@@ -94,6 +118,7 @@ export function ChatsSection({
         <div className="mb-1.5 flex items-center justify-between px-2.5">
           {collapsible ? (
             <button
+              type="button"
               onClick={() => setIsOpen((prev) => !prev)}
               className="flex cursor-pointer items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-foreground"
             >
@@ -112,6 +137,7 @@ export function ChatsSection({
             </span>
           )}
           <button
+            type="button"
             onClick={onNewChat}
             title="New chat"
             className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 transition-colors hover:text-foreground"
@@ -132,6 +158,7 @@ export function ChatsSection({
               <div className="flex flex-col gap-0.5 px-1">
                 {chats.length === 0 && (
                   <button
+                    type="button"
                     onClick={onNewChat}
                     className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/30 px-2.5 py-2 text-left text-[12px] text-muted-foreground/40 transition-colors hover:border-border/50 hover:text-muted-foreground"
                   >
@@ -233,6 +260,7 @@ export function ChatsSection({
                   <div className="mt-0.5 flex items-center gap-1">
                     {hasMoreChats && (
                       <button
+                        type="button"
                         onClick={handleShowMoreChats}
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
                       >
@@ -248,6 +276,7 @@ export function ChatsSection({
                     )}
                     {hasExpandedChats && (
                       <button
+                        type="button"
                         onClick={handleShowLessChats}
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
                       >
@@ -263,6 +292,7 @@ export function ChatsSection({
                     )}
                     {!hasMoreChats && !hasExpandedChats && (
                       <button
+                        type="button"
                         onClick={handleShowMoreChats}
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
                       >

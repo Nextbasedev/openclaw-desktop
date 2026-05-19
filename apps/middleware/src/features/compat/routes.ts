@@ -1624,6 +1624,14 @@ function chatActivityMs(chat: CompatRecord) {
   return Math.max(timeMs(chat.updatedAt), timeMs(chat.lastActiveAt), timeMs(chat.lastMessageAt), timeMs(chat.createdAt));
 }
 
+function isSubagentSessionKeyValue(value: unknown) {
+  return typeof value === "string" && /^agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*:subagent:[^\s"',}\]]+$/.test(value.trim());
+}
+
+function isSubagentRecord(record: CompatRecord) {
+  return isSubagentSessionKeyValue(record.sessionKey ?? record.key) || record.isSubagent === true || typeof record.parentSessionKey === "string";
+}
+
 function sessionForChat(chat: CompatRecord) {
   const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
   if (!sessionKey) return null;
@@ -1647,6 +1655,7 @@ function chatForResponse(chat: CompatRecord) {
 
 function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
   return listBySpace(compatState.chats, spaceId)
+    .filter((chat) => !isSubagentRecord(chat))
     .filter((chat) => typeof archived === "boolean" ? Boolean(chat.archived) === archived : !chat.archived)
     .map(chatForResponse)
     .sort((a, b) => {
@@ -1786,6 +1795,14 @@ async function syncGatewaySessions(context: AppContext) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
       syncedSessionKeys.add(sessionKey);
+      if (isSubagentRecord(row) || isSubagentSessionKeyValue(sessionKey)) {
+        const existingSubagentChatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
+        if (existingSubagentChatIndex >= 0) {
+          compatState.chats[existingSubagentChatIndex] = { ...compatState.chats[existingSubagentChatIndex], deleted: true, archived: true };
+          changed = true;
+        }
+        continue;
+      }
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const rowCreatedAt = optionalTimestampField(row, ["createdAt", "created_at"]);
