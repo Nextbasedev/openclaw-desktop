@@ -321,13 +321,22 @@ export function ChatRow({
   )
 
   const content = disableReorder ? (
-    <div
+    <motion.div
+      layout="position"
+      transition={{
+        layout: {
+          type: "spring",
+          stiffness: 420,
+          damping: 34,
+          mass: 0.85,
+        },
+      }}
       className="group/row relative flex min-w-0 items-center rounded-md"
       style={{ position: "relative" }}
       onContextMenu={handleContextMenu}
     >
       {rowContent}
-    </div>
+    </motion.div>
   ) : (
     <Reorder.Item
       value={chatId}
@@ -336,9 +345,10 @@ export function ChatRow({
       layout="position"
       transition={{
         layout: {
-          type: "tween",
-          duration: 0.15,
-          ease: [0.2, 0, 0, 1],
+          type: "spring",
+          stiffness: 420,
+          damping: 34,
+          mass: 0.85,
         },
       }}
       className={cn(

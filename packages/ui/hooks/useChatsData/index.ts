@@ -47,6 +47,8 @@ const SIDEBAR_CHAT_CACHE_TTL_MS = 1000 * 60
 type ChatActivityEvent = {
   chatId?: string
   sessionKey?: string
+  at?: string
+  lastMessageText?: string | null
 }
 
 type ChatMessageConfirmedEvent = ChatActivityEvent
@@ -96,6 +98,7 @@ export function useChatsData(
   const [deleting, setDeleting] = useState(false)
   const loadSeqRef = useRef(0)
   const currentSpaceIdRef = useRef<string | null | undefined>(spaceId)
+  const refreshTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     currentSpaceIdRef.current = spaceId
@@ -149,6 +152,27 @@ export function useChatsData(
     }
   }, [spaceId])
 
+  const cacheChatsForCurrentSpace = useCallback((nextChats: Chat[]) => {
+    if (!spaceId) return
+    void persistentCacheSet(`project:${spaceId}:chats`, nextChats, {
+      ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
+    })
+    void localSyncSetChats(
+      spaceId,
+      nextChats,
+      undefined,
+      SIDEBAR_CHAT_CACHE_TTL_MS,
+    )
+  }, [spaceId])
+
+  const scheduleSidebarRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) return
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null
+      void loadChats()
+    }, 250)
+  }, [loadChats])
+
   useEffect(() => {
     setChats([])
     setPinnedChats(new Set())
@@ -164,6 +188,15 @@ export function useChatsData(
       unsubscribe()
     }
   }, [loadChats])
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const refreshRunningSessions = () => {
@@ -248,17 +281,43 @@ export function useChatsData(
     const chatId = event?.chatId ?? activeChat?.id
     const sessionKey = event?.sessionKey ?? activeChat?.sessionKey
     if (!chatId && !sessionKey) return
-    const timestamp = new Date().toISOString()
+    const timestamp = event?.at && !Number.isNaN(Date.parse(event.at))
+      ? event.at
+      : new Date().toISOString()
+    const targetId = chatId ?? chats.find((chat) => chat.sessionKey === sessionKey)?.id
+    const knownChat = chats.some((chat) => {
+      const matchesChat = chatId ? chat.id === chatId : false
+      const matchesSession = sessionKey ? chat.sessionKey === sessionKey : false
+      return matchesChat || matchesSession
+    })
     setChats((prev) =>
-      prev.map((c) => {
+      {
+        let matched = false
+        const next = prev.map((c) => {
         const matchesChat = chatId ? c.id === chatId : false
         const matchesSession = sessionKey ? c.sessionKey === sessionKey : false
+        if (matchesChat || matchesSession) matched = true
         return matchesChat || matchesSession
-          ? { ...c, updatedAt: timestamp, lastActiveAt: timestamp, lastMessageAt: timestamp }
+          ? {
+              ...c,
+              updatedAt: timestamp,
+              lastActiveAt: timestamp,
+              lastMessageAt: timestamp,
+              ...(typeof event?.lastMessageText === "string" && event.lastMessageText.trim()
+                ? { lastMessageText: event.lastMessageText }
+                : {}),
+            }
           : c
-      }),
+        })
+        if (matched) cacheChatsForCurrentSpace(next)
+        return next
+      },
     )
-  }, [activeChat])
+    if (targetId) {
+      setChatOrder((prev) => [targetId, ...prev.filter((id) => id !== targetId)])
+    }
+    if (!knownChat) scheduleSidebarRefresh()
+  }, [activeChat, cacheChatsForCurrentSpace, chats, scheduleSidebarRefresh])
 
   useEffect(() => {
     // Generic activity means thinking/tool/model/approval state and should not

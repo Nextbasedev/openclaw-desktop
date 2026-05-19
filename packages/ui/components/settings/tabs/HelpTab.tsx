@@ -3,6 +3,8 @@
 import * as React from "react"
 import { toast } from "react-toastify"
 import { invoke, openExternalUrl } from "@/lib/ipc"
+import { emit } from "@/lib/events"
+import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
 import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
 import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert } from "react-icons/lu"
 
@@ -584,6 +586,8 @@ function SessionMigrationCard({ platform }: { platform: SessionMigrationPlatform
     try {
       const imported = await invoke<SessionMigrationImport>(`middleware_migration_${platform}_import`, { input: { skipAlreadyImported: true } })
       setResult(imported)
+      invalidateMiddlewareStartupBootstrap()
+      emit("sidebar:refresh")
       setScan(await invoke<SessionMigrationScan>(`middleware_migration_${platform}_scan`))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

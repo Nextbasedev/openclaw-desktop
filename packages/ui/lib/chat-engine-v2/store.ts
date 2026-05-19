@@ -3,6 +3,7 @@ import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from 
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
+import { emit } from "../events"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey, isSubagentSessionKey } from "../subagentSession"
 import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
@@ -968,11 +969,36 @@ function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, statu
   return true
 }
 
+function messageTextFromPatch(frame: PatchFrame | undefined) {
+  if (!frame) return null
+  const payload = patchPayload(frame)
+  const message = payload?.message
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    const text = (message as { text?: unknown; content?: unknown }).text ?? (message as { content?: unknown }).content
+    return typeof text === "string" ? text : null
+  }
+  return typeof payload?.text === "string" ? payload.text : null
+}
+
+function patchShouldMoveSidebar(frame: PatchFrame | undefined) {
+  if (!frame) return false
+  if (!frame.patch.sessionKey) return false
+  if (frame.patch.type === "chat.message.remove") return false
+  return frame.patch.type.startsWith("chat.message.")
+}
+
 function notify(sessionKey: string, frame?: PatchFrame) {
   const state = states.get(sessionKey)
   if (!state) return
   cacheBootstrap(sessionKey, state)
   persistWarmSessionSnapshot(sessionKey, state)
+  if (patchShouldMoveSidebar(frame)) {
+    emit("chat:message-confirmed", {
+      sessionKey,
+      at: frame?.patch.createdAtMs ? new Date(frame.patch.createdAtMs).toISOString() : undefined,
+      lastMessageText: messageTextFromPatch(frame),
+    })
+  }
   const callbacks = listeners.get(sessionKey)
   if (!callbacks) return
   const snapshot = cloneState(state)

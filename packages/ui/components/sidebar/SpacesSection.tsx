@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type MouseEvent } from "react"
+import { motion } from "framer-motion"
 import { LuPlus } from "react-icons/lu"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -209,30 +210,36 @@ export function SpacesSection({
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             {quickSpaces.map((space) => (
-              <Tooltip key={space.id} delayDuration={200}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => handleSwitch(space.id)}
-                    onContextMenu={(event) => openContextMenu(event, space)}
-                    aria-label={`Switch to project ${space.name}`}
-                    className="group flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
-                  >
-                    <span
-                      className={cn(
-                        "rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-200 ease-out",
-                        space.id === activeSpace?.id
-                          ? "size-3.5 opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_18px_rgba(103,232,249,0.42)]"
-                          : "size-2 opacity-55 group-hover:size-2.75 group-hover:opacity-90",
-                        gradientForSpace(space),
-                      )}
-                    />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={8} showArrow={false}>
-                  {space.name}
-                </TooltipContent>
-              </Tooltip>
+              <motion.div
+                key={space.id}
+                layout="position"
+                transition={{ layout: { type: "spring", stiffness: 420, damping: 34, mass: 0.85 } }}
+              >
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitch(space.id)}
+                      onContextMenu={(event) => openContextMenu(event, space)}
+                      aria-label={`Switch to project ${space.name}`}
+                      className="group flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                    >
+                      <span
+                        className={cn(
+                          "rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-200 ease-out",
+                          space.id === activeSpace?.id
+                            ? "size-3.5 opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_18px_rgba(103,232,249,0.42)]"
+                            : "size-2 opacity-55 group-hover:size-2.75 group-hover:opacity-90",
+                          gradientForSpace(space),
+                        )}
+                      />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={8} showArrow={false}>
+                    {space.name}
+                  </TooltipContent>
+                </Tooltip>
+              </motion.div>
             ))}
           </div>
         </div>
