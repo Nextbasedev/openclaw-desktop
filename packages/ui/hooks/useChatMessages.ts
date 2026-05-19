@@ -1958,19 +1958,38 @@ export function useChatMessages(
   const handleAbort = useCallback(async () => {
     setStatus("stopping")
     setStatusLabel(null)
+    const linkedSubagentKeys = Array.from(
+      new Set(
+        Array.from(spawnMapRef.current.values())
+          .filter((spawn) => isActiveSubagent(spawn.status) && spawn.sessionKey)
+          .map((spawn) => spawn.sessionKey!)
+      )
+    )
     updateGlobalChatSessionActivity({
       sessionKey,
       status: "stopping",
       statusLabel: null,
     })
     try {
-      await abortChatV2({ sessionKey })
+      const [parentAbort] = await Promise.allSettled([
+        abortChatV2({ sessionKey }),
+        ...linkedSubagentKeys.map((childSessionKey) => abortChatV2({ sessionKey: childSessionKey })),
+      ])
+      if (parentAbort.status === "rejected") throw parentAbort.reason
       pendingToolMapRef.current.clear()
+      spawnMapRef.current = new Map(
+        Array.from(spawnMapRef.current.entries()).map(([toolCallId, spawn]) => [
+          toolCallId,
+          isActiveSubagent(spawn.status) ? { ...spawn, status: "failed" as const } : spawn,
+        ])
+      )
       setPendingTools([])
+      setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
       setStatus("idle")
       updateGlobalChatSessionActivity({
         sessionKey,
         pendingTools: [],
+        spawnedSubagents: Array.from(spawnMapRef.current.values()),
         status: "idle",
         statusLabel: null,
       })
@@ -1983,7 +2002,7 @@ export function useChatMessages(
         statusLabel: null,
       })
     }
-  }, [sessionKey])
+  }, [sessionKey, setSpawnedSubagents])
 
   const handleEdit = useCallback(
     async (userMessageId: string, newText: string) => {
