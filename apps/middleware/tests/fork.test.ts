@@ -79,6 +79,58 @@ describe("chat fork compatibility command", () => {
     await app.close();
   });
 
+  test("prefers the selected message id over gatewayIndex array offsets", async () => {
+    const app = await createApp(config("message-id-before-index"));
+    const context = contextOf(app);
+    const sourceMessages = [
+      { role: "user", text: "first", __openclaw: { id: "msg-1", seq: 10 } },
+      { role: "assistant", text: "first answer", __openclaw: { id: "msg-2", seq: 20 } },
+      { role: "user", text: "next user should not be copied", __openclaw: { id: "msg-3", seq: 30 } },
+    ];
+    const transcriptPath = path.join(os.tmpdir(), `openclaw-fork-mid-${Date.now()}-${Math.random()}.jsonl`);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "chat.history") return { sessionKey: payload?.sessionKey, messages: sourceMessages };
+      if (method === "sessions.create") return { entry: { sessionFile: transcriptPath, sessionId: payload?.key } };
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_fork",
+      payload: { input: { sessionKey: "agent:main:desktop:source", messageId: "msg-2", gatewayIndex: 2 } },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().messages.map((message: { text: string }) => message.text)).toEqual(["first", "first answer"]);
+    await app.close();
+  });
+
+  test("uses gatewayIndex as transcript sequence, not history array offset", async () => {
+    const app = await createApp(config("gateway-index-seq"));
+    const context = contextOf(app);
+    const sourceMessages = [
+      { role: "user", text: "first", __openclaw: { id: "msg-10", seq: 10 } },
+      { role: "assistant", text: "first answer", __openclaw: { id: "msg-20", seq: 20 } },
+      { role: "user", text: "next user should not be copied", __openclaw: { id: "msg-30", seq: 30 } },
+    ];
+    const transcriptPath = path.join(os.tmpdir(), `openclaw-fork-seq-${Date.now()}-${Math.random()}.jsonl`);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "chat.history") return { sessionKey: payload?.sessionKey, messages: sourceMessages };
+      if (method === "sessions.create") return { entry: { sessionFile: transcriptPath, sessionId: payload?.key } };
+      return { ok: true };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_chat_fork",
+      payload: { input: { sessionKey: "agent:main:desktop:source", gatewayIndex: 20 } },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().messages.map((message: { text: string }) => message.text)).toEqual(["first", "first answer"]);
+    await app.close();
+  });
+
   test("returns a bad request when the fork point cannot be found", async () => {
     const app = await createApp(config("missing-message"));
     const context = contextOf(app);

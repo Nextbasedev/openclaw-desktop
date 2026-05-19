@@ -1092,12 +1092,27 @@ function normalizeHistoryForFork(history: CompatRecord) {
   return Array.isArray(history.messages) ? history.messages.filter((message) => message && typeof message === "object" && !Array.isArray(message)) as CompatRecord[] : [];
 }
 
+function messageSeqOf(message: CompatRecord) {
+  const meta = message.__openclaw && typeof message.__openclaw === "object" ? message.__openclaw as CompatRecord : {};
+  const seq = Number(meta.seq ?? message.gatewayIndex ?? message.openclawSeq);
+  return Number.isInteger(seq) && seq >= 0 ? seq : null;
+}
+
 function findForkMessageIndex(messages: CompatRecord[], input: CompatRecord) {
-  const gatewayIndex = Number(input.gatewayIndex);
-  if (Number.isInteger(gatewayIndex) && gatewayIndex >= 0 && gatewayIndex < messages.length) return gatewayIndex;
   const messageId = String(input.messageId ?? "").trim();
-  if (!messageId) return -1;
-  return messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+  if (messageId) {
+    const byId = messages.findIndex((message) => messageIdOf(message) === messageId || message.id === messageId || message.messageId === messageId);
+    if (byId >= 0) return byId;
+  }
+
+  const gatewayIndex = Number(input.gatewayIndex);
+  if (!Number.isInteger(gatewayIndex) || gatewayIndex < 0) return -1;
+  const bySeq = messages.findIndex((message) => messageSeqOf(message) === gatewayIndex);
+  if (bySeq >= 0) return bySeq;
+
+  // Last-resort compatibility for very old histories where the UI only sent an
+  // array offset and the messages have no transcript sequence/id metadata.
+  return messageId ? -1 : gatewayIndex < messages.length ? gatewayIndex : -1;
 }
 
 function sourceChatForSession(sessionKey: string) {
