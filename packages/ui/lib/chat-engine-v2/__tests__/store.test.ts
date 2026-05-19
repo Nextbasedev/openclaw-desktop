@@ -1495,6 +1495,55 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("keeps canonical sessions_spawn result with child link active until child finishes", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: {
+            toolCallId: "spawn-live",
+            name: "sessions_spawn",
+            status: "running",
+            phase: "start",
+            argsMeta: { task: "Audit" },
+            startedAtMs: Date.now(),
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: {
+            toolCallId: "spawn-live",
+            name: "sessions_spawn",
+            status: "success",
+            phase: "result",
+            argsMeta: { task: "Audit" },
+            resultMeta: { childSessionKey: "agent:main:dashboard:child-live" },
+            startedAtMs: Date.now() - 1000,
+            finishedAtMs: Date.now(),
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-live", sessionKey: "agent:main:dashboard:child-live", status: "working" },
+    ])
+  })
+
   test("completes sessions_spawn when result has no child session link", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
