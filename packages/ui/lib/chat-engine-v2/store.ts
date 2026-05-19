@@ -629,11 +629,17 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
       : typeof input.task === "string" && input.task.trim()
         ? input.task.trim().slice(0, 60)
         : "Sub-agent"
+    const isSameCompletedChild = Boolean(
+      existing?.sessionKey &&
+      childSessionKey &&
+      existing.sessionKey === childSessionKey &&
+      (existing.status === "completed" || existing.status === "failed")
+    )
     spawns.set(inline.id, {
       ...(existing ?? { id: `spawn:${inline.id}`, label, task: typeof input.task === "string" ? input.task : undefined, sessionKey: null, toolCallId: inline.id }),
       label: existing?.label ?? label,
       sessionKey: childSessionKey,
-      status: inline.status === "error" ? "failed" : childSessionKey ? "working" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
+      status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
     })
     state.spawnedSubagents = Array.from(spawns.values())
   }

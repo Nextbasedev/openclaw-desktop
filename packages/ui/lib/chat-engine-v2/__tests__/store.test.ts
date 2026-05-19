@@ -1489,6 +1489,46 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("does not downgrade completed linked spawned subagent when spawn result replays", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      spawnedSubagents: [
+        {
+          id: "spawn:spawn-1",
+          label: "Worker",
+          status: "completed",
+          toolCallId: "spawn-1",
+          sessionKey: "agent:main:subagent:child-1",
+        },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: {
+            toolCallId: "spawn-1",
+            name: "sessions_spawn",
+            status: "success",
+            phase: "result",
+            resultMeta: { childSessionKey: "agent:main:subagent:child-1" },
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-1", sessionKey: "agent:main:subagent:child-1", status: "completed" },
+    ])
+  })
+
   test("links spawned subagent from sessions_spawn tool result", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
