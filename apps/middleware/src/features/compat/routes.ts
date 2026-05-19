@@ -421,27 +421,7 @@ function ensureDefaultSpace() {
   return space;
 }
 
-function ensureDefaultFallbackSpace() {
-  const existing = compatState.spaces.find((space) => space.id === DEFAULT_SPACE_ID);
-  if (existing) {
-    if (existing.deleted || existing.archived) {
-      existing.deleted = false;
-      existing.archived = false;
-      existing.updatedAt = nowIso();
-    }
-    if (!existing.name || existing.name === "Default") existing.name = DEFAULT_SPACE_NAME;
-    return String(existing.id);
-  }
-  const timestamp = nowIso();
-  compatState.spaces.push({
-    id: DEFAULT_SPACE_ID,
-    name: DEFAULT_SPACE_NAME,
-    archived: false,
-    deleted: false,
-    sortOrder: 0,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  });
+function defaultFallbackSpaceId() {
   return DEFAULT_SPACE_ID;
 }
 
@@ -1629,7 +1609,7 @@ async function syncGatewaySessions(context: AppContext) {
     compatState.chats = compatState.chats.filter((chat) => !isGatewayOnlySyncedChat(chat));
     let changed = false;
     if (compatState.chats.length !== beforeCleanup) changed = true;
-    const fallbackSpaceId = ensureDefaultFallbackSpace();
+    const fallbackSpaceId = defaultFallbackSpaceId();
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;

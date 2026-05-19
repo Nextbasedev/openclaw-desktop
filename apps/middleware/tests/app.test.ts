@@ -412,7 +412,7 @@ describe("middleware app", () => {
     await app.close();
   });
 
-  test("bootstrap imports Gateway sessions into active space after project creation", async () => {
+  test("bootstrap imports Gateway sessions without a project into the default space", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { connect: unknown; status: unknown; request: unknown } } }).v2Context;
     context.gateway.connect = vi.fn(async () => undefined);
@@ -438,17 +438,28 @@ describe("middleware app", () => {
 
     const createdSpace = await app.inject({ method: "POST", url: "/api/spaces", payload: { name: "New Project" } });
     const activeSpaceId = createdSpace.json().activeSpaceId;
+    await app.inject({ method: "DELETE", url: "/api/spaces/space_default" });
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
 
     expect(bootstrap.statusCode).toBe(200);
     expect(bootstrap.json().activeSpaceId).toBe(activeSpaceId);
-    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Orphan Before Space", sessionKey: "agent:main:desktop:orphan-before-space", spaceId: activeSpaceId }),
+    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:desktop:orphan-before-space" }),
+    ]));
+    expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:desktop:orphan-before-space" }),
+    ]));
+    expect(bootstrap.json().spaces).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "space_default" }),
     ]));
 
-    const oldDefaultChats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
-    expect(oldDefaultChats.json().chats).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ sessionKey: "agent:main:desktop:orphan-before-space" }),
+    const defaultChats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
+    expect(defaultChats.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Orphan Before Space", sessionKey: "agent:main:desktop:orphan-before-space", spaceId: "space_default" }),
+    ]));
+    const defaultSessions = await app.inject({ method: "GET", url: "/api/sessions?spaceId=space_default" });
+    expect(defaultSessions.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:desktop:orphan-before-space", spaceId: "space_default" }),
     ]));
     await app.close();
   });
