@@ -13,7 +13,6 @@ import {
   LuEllipsisVertical,
   LuPenLine,
   LuPin,
-  LuRefreshCw,
   LuArrowUp,
   LuMessageSquarePlus,
   LuDownload,
@@ -484,7 +483,6 @@ export function MessageBubble({
   onReply,
   onPin,
   onDelete,
-  onRegenerate,
   onReact,
   onExport,
   onTextAnimationComplete,
@@ -507,7 +505,6 @@ export function MessageBubble({
   onReply?: (messageId: string) => void
   onPin?: (messageId: string) => void
   onDelete?: (messageId: string) => void
-  onRegenerate?: (messageId: string) => void
   onReact?: (messageId: string, reaction: "up" | "down") => void
   onExport?: (messageId: string) => void
   onTextAnimationComplete?: (messageId: string) => void
@@ -1117,8 +1114,7 @@ export function MessageBubble({
                 <CopyButton text={message.text} />
                 {(onPin ||
                   onReply ||
-                  onFork ||
-                  (onRegenerate && !isGenerating)) && (
+                  onFork) && (
                   <Popover
                     open={popoverOpen}
                     onOpenChange={onPopoverOpenChange}
@@ -1154,16 +1150,6 @@ export function MessageBubble({
                           icon={<LuReply className="size-3.5" />}
                           onClick={() => {
                             onReply(message.messageId)
-                            onPopoverOpenChange?.(false)
-                          }}
-                        />
-                      )}
-                      {onRegenerate && !isGenerating && (
-                        <MenuAction
-                          label="Regenerate"
-                          icon={<LuRefreshCw className="size-3.5" />}
-                          onClick={() => {
-                            onRegenerate(message.messageId)
                             onPopoverOpenChange?.(false)
                           }}
                         />
