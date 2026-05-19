@@ -121,14 +121,51 @@ async function readConfigFile() {
   }
 }
 
+const MIDDLEWARE_IDENTITY_PATH = path.join(os.homedir(), ".openclaw", "middleware", "identity.json");
+const CLI_IDENTITY_PATH = path.join(os.homedir(), ".openclaw", "state", "identity", "device.json");
+
+async function generateIdentity() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }) as string;
+  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+  const raw = derivePublicKeyRaw(publicKeyPem);
+  const deviceId = crypto.createHash("sha256").update(raw).digest("hex");
+  return { deviceId, publicKeyPem, privateKeyPem };
+}
+
 async function readIdentity() {
-  const raw = await fs.readFile(path.join(os.homedir(), ".openclaw", "state", "identity", "device.json"), "utf8");
-  const parsed = JSON.parse(raw) as Record<string, string>;
-  return {
-    deviceId: parsed.deviceId ?? parsed.device_id,
-    publicKeyPem: parsed.publicKeyPem,
-    privateKeyPem: parsed.privateKeyPem,
-  };
+  // Try middleware's own identity first
+  try {
+    const raw = await fs.readFile(MIDDLEWARE_IDENTITY_PATH, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    if (parsed.deviceId && parsed.publicKeyPem && parsed.privateKeyPem) {
+      return {
+        deviceId: parsed.deviceId,
+        publicKeyPem: parsed.publicKeyPem,
+        privateKeyPem: parsed.privateKeyPem,
+      };
+    }
+  } catch {
+    // No middleware identity yet — generate one
+  }
+
+  // Fall back to CLI identity for migration (first run)
+  try {
+    const raw = await fs.readFile(CLI_IDENTITY_PATH, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    if (parsed.deviceId && parsed.publicKeyPem && parsed.privateKeyPem) {
+      // CLI identity exists but we should NOT reuse it — different platform metadata
+      // causes repeated "metadata-upgrade" pairing errors. Generate our own.
+    }
+  } catch {
+    // No CLI identity either
+  }
+
+  // Generate a fresh identity for the middleware
+  const identity = await generateIdentity();
+  await fs.mkdir(path.dirname(MIDDLEWARE_IDENTITY_PATH), { recursive: true });
+  await fs.writeFile(MIDDLEWARE_IDENTITY_PATH, JSON.stringify(identity, null, 2), "utf8");
+  return identity;
 }
 
 function waitOpen(ws: WebSocket, timeoutMs = 15_000) {
