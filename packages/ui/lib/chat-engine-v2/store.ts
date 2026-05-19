@@ -5,7 +5,7 @@ import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { emit } from "../events"
 import { queryKeys } from "../query"
-import { extractSubagentSessionKey, isSubagentSessionKey } from "../subagentSession"
+import { extractSubagentSessionKey } from "../subagentSession"
 import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
@@ -787,45 +787,6 @@ function syncLinkedSubagentStatus(childSessionKey: string, childStatus: StreamSt
     }
   }
 }
-
-function linkDiscoveredSubagent(childSessionKey: string, childStatus: StreamStatus) {
-  const candidates: Array<{ sessionKey: string; state: SessionState; index: number }> = []
-  for (const [sessionKey, state] of states) {
-    if (sessionKey === childSessionKey) continue
-    const index = state.spawnedSubagents.findIndex((spawn) =>
-      !spawn.sessionKey && isActiveSpawnStatus(spawn.status)
-    )
-    if (index >= 0) candidates.push({ sessionKey, state, index })
-  }
-  if (candidates.length === 0) return
-  if (candidates.length > 1) {
-    frontendLog("session", "global-chat-session.subagent-auto-link-ambiguous", {
-      childSessionKey,
-      childStatus,
-      candidates: candidates.map((candidate) => ({
-        parentSessionKey: candidate.sessionKey,
-        cursor: candidate.state.cursor,
-        toolCallId: candidate.state.spawnedSubagents[candidate.index]?.toolCallId,
-      })),
-    }, "debug")
-    return
-  }
-  const candidate = candidates[0]
-  const spawn = candidate.state.spawnedSubagents[candidate.index]
-  candidate.state.spawnedSubagents = candidate.state.spawnedSubagents.map((item, index) =>
-    index === candidate.index
-      ? { ...item, sessionKey: childSessionKey, status: childStatusToSpawnStatus(childStatus) }
-      : item
-  )
-  frontendLog("session", "global-chat-session.subagent-linked-from-child", {
-    parentSessionKey: candidate.sessionKey,
-    childSessionKey,
-    toolCallId: spawn.toolCallId,
-    childStatus,
-  }, "info")
-  notify(candidate.sessionKey)
-}
-
 
 function hasActiveToolOrSubagent(state: SessionState) {
   return (
