@@ -1285,6 +1285,59 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("keeps child subagent messages isolated from the parent chat", () => {
+    const parentUpdates: unknown[] = []
+    const childUpdates: unknown[] = []
+    const unsubscribeParent = subscribeGlobalChatSession("parent-1", (state) => parentUpdates.push(state))
+    const unsubscribeChild = subscribeGlobalChatSession("agent:main:desktop:subagent:child-1", (state) => childUpdates.push(state))
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "parent-1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "parent-1",
+          message: {
+            messageId: "parent-spawn",
+            role: "assistant",
+            content: [{ type: "toolCall", id: "spawn-child", name: "sessions_spawn", input: { task: "Audit" } }],
+          },
+        },
+      },
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "agent:main:desktop:subagent:child-1",
+        createdAtMs: Date.now(),
+        payload: {
+          runStatus: "thinking",
+          statusLabel: "Thinking",
+          message: { messageId: "child-answer", role: "assistant", text: "Child-only progress" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-1")?.messages).toHaveLength(1)
+    expect(getGlobalChatSession("parent-1")?.messages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "Child-only progress" }),
+    ]))
+    expect(getGlobalChatSession("agent:main:desktop:subagent:child-1")?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "Child-only progress" }),
+    ]))
+    expect(parentUpdates).toHaveLength(2)
+    expect(childUpdates).toHaveLength(1)
+
+    unsubscribeParent()
+    unsubscribeChild()
+  })
+
   test("linked spawned subagent completes when child session finishes", () => {
     seedGlobalChatSession({
       sessionKey: "parent-1",
