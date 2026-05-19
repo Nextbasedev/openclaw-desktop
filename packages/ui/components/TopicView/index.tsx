@@ -67,12 +67,30 @@ function clearDraftModelId(draftKey: string) {
   } catch {}
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function setSessionModel(sessionKey: string, modelId: string) {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await invoke("middleware_chat_model_set", {
+        input: { sessionKey, modelId },
+      })
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < 4) await wait(250 * (attempt + 1))
+    }
+  }
+  throw lastError
+}
+
 async function applyDraftModelToSession(sessionKey: string, draftKey: string) {
   const modelId = readDraftModelId(draftKey)?.trim()
   if (!modelId) return
-  await invoke("middleware_chat_model_set", {
-    input: { sessionKey, modelId },
-  })
+  await setSessionModel(sessionKey, modelId)
   clearDraftModelId(draftKey)
 }
 
@@ -94,6 +112,19 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
       })
       .catch(() => setLoading(false))
   }, [topicId, projectId])
+
+  const handleDraftModelSelect = useCallback(async (modelId: string) => {
+    if (!(await checkGatewayOrRedirect())) throw new Error("Middleware connection is not available")
+    const label = topicName || "New Chat"
+    const result = await invoke<{ session: { key: string } }>(
+      "middleware_sessions_create",
+      { input: { projectId, topicId, agentId: "main", label } },
+    )
+    const sessionKey = result.session.key
+    await setSessionModel(sessionKey, modelId)
+    clearDraftModelId(draftModelKey(projectId, topicId))
+    onSessionSelect(sessionKey, label)
+  }, [projectId, topicId, topicName, onSessionSelect])
 
   const handleFirstMessage = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
@@ -149,6 +180,7 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
         <ChatBox
           onSend={handleFirstMessage}
           disabled={sending}
+          onModelSelect={handleDraftModelSelect}
           glowOnMount
           draftKey={draftModelKey(projectId, topicId)}
         />

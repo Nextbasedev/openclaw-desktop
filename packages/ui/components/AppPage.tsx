@@ -92,12 +92,30 @@ function clearDraftModelId(draftKey: string) {
   } catch {}
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function setSessionModel(sessionKey: string, modelId: string) {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await invoke("middleware_chat_model_set", {
+        input: { sessionKey, modelId },
+      })
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < 4) await wait(250 * (attempt + 1))
+    }
+  }
+  throw lastError
+}
+
 async function applyDraftModelToSession(sessionKey: string, draftKey: string) {
   const modelId = readDraftModelId(draftKey)?.trim()
   if (!modelId) return
-  await invoke("middleware_chat_model_set", {
-    input: { sessionKey, modelId },
-  })
+  await setSessionModel(sessionKey, modelId)
   clearDraftModelId(draftKey)
 }
 
@@ -1782,6 +1800,83 @@ function AppShell({
 
   const [quickSending, setQuickSending] = useState(false)
 
+  const ensureDraftSessionForModelSelect = useCallback(async () => {
+    if (!(await checkGatewayOrRedirect())) throw new Error("Middleware connection is not available")
+
+    if (activeTopic) {
+      const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
+        "middleware_sessions_create",
+        {
+          input: {
+            projectId: activeTopic.projectId,
+            topicId: activeTopic.id,
+            agentId: "main",
+            label: activeTopic.name,
+          },
+        },
+      )
+      const sessionKey = sessionKeyFromResponse(sessionResult)
+      if (!sessionKey) throw new Error("New topic session did not return a sessionKey")
+      setPendingPrompt(null)
+      setInitialMessages(undefined)
+      setActiveSessionKey(sessionKey)
+      setActiveSessionTitle(activeTopic.name)
+      return { sessionKey, draftKey: `topic:${activeTopic.projectId}:${activeTopic.id}:draft` }
+    }
+
+    const targetGroupId = editorGroups.focusedGroupId
+    const fallbackName = "New Chat"
+    const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
+      "middleware_chats_create",
+      { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
+    )
+    let sessionKey = sessionKeyFromResponse(result)
+    if (!sessionKey) {
+      const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
+        "middleware_sessions_create",
+        { input: { agentId: "main", label: fallbackName } },
+      )
+      sessionKey = sessionKeyFromResponse(sessionResult)
+      if (sessionKey) {
+        await invoke("middleware_chats_attach_session", {
+          input: { chatId: result.chat.id, sessionKey },
+        })
+      }
+    }
+    if (!sessionKey) throw new Error("New chat did not return a sessionKey")
+
+    setPendingPrompt(null)
+    setInitialMessages(undefined)
+    setActiveTab("chat")
+    setActiveTopic(null)
+    const createdChat = { id: result.chat.id, name: fallbackName, sessionKey }
+    const sessionData = { chat: createdChat, sessionKey, title: fallbackName }
+    resolvedChatCacheRef.current.set(result.chat.id, sessionData)
+    setActiveChat(createdChat)
+    setActiveSessionKey(sessionKey)
+    setActiveSessionTitle(fallbackName)
+    dispatchGroups({
+      type: "ADD_TAB",
+      groupId: targetGroupId,
+      tab: { id: `chat:${result.chat.id}`, title: fallbackName, subtitle: "Chat", kind: "chat", chat: createdChat },
+    })
+    dispatchGroups({
+      type: "SET_SESSION_DATA",
+      groupId: targetGroupId,
+      sessionData,
+    })
+    setChatRefreshTrigger((n) => n + 1)
+    window.history.pushState(null, "", routeUrl(`/${result.chat.id}`))
+    return { sessionKey, draftKey: "new-chat:draft" }
+  }, [activeSpaceId, activeTopic, editorGroups.focusedGroupId])
+
+  const handleDraftModelSelect = useCallback(async (modelId: string) => {
+    const { sessionKey, draftKey } = await ensureDraftSessionForModelSelect()
+    await setSessionModel(sessionKey, modelId)
+    clearDraftModelId(draftKey)
+    emit("chat:activity", { sessionKey })
+  }, [ensureDraftSessionForModelSelect])
+
   const handleQuickSend = useCallback(async (payload: ChatComposerSubmit) => {
     const text = payload.text.trim()
     frontendLog("composer", "quick-send.attempt", {
@@ -2151,6 +2246,7 @@ function AppShell({
                   pendingPrompt={pendingPrompt}
                   composerError={composerError}
                   onTopicQuickSend={handleTopicQuickSend}
+                  onDraftModelSelect={handleDraftModelSelect}
                   onDraftPrompt={handlePromptDraft}
                   onNavigateToChat={handleCronJobNavigate}
                   onForkNavigate={handleForkNavigate}
@@ -2207,6 +2303,7 @@ function AppShell({
                           pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
                           composerError={group.id === editorGroups.focusedGroupId ? composerError : null}
                           onTopicQuickSend={handleTopicQuickSend}
+                          onDraftModelSelect={handleDraftModelSelect}
                           onDraftPrompt={handlePromptDraft}
                           onNavigateToChat={handleCronJobNavigate}
                           onForkNavigate={handleForkNavigate}
@@ -2246,6 +2343,7 @@ function AppShell({
                 pendingPrompt={pendingPrompt}
                 composerError={composerError}
                 onTopicQuickSend={handleTopicQuickSend}
+                onDraftModelSelect={handleDraftModelSelect}
                 onDraftPrompt={handlePromptDraft}
                 onNavigateToChat={handleCronJobNavigate}
                 onForkNavigate={handleForkNavigate}
@@ -2341,6 +2439,7 @@ function MainContent({
   pendingPrompt,
   composerError,
   onTopicQuickSend,
+  onDraftModelSelect,
   onDraftPrompt,
   onNavigateToChat,
   onForkNavigate,
@@ -2372,6 +2471,7 @@ function MainContent({
   pendingPrompt?: string | null
   composerError?: string | null
   onTopicQuickSend?: (payload: ChatComposerSubmit) => void | Promise<void>
+  onDraftModelSelect?: (modelId: string) => void | Promise<void>
   onDraftPrompt?: (prompt: string) => void
   onNavigateToChat?: (chat: ActiveChat) => void | boolean | Promise<void | boolean>
   onForkNavigate?: (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => void
@@ -2456,6 +2556,7 @@ function MainContent({
           errorMessage={composerError}
           onSend={onTopicQuickSend}
           disabled={quickSending}
+          onModelSelect={onDraftModelSelect}
           glowOnMount
           draftKey={`topic:${activeTopic.projectId}:${activeTopic.id}:draft`}
         />
@@ -2475,6 +2576,7 @@ function MainContent({
         errorMessage={composerError}
         onSend={onQuickSend}
         disabled={quickSending}
+        onModelSelect={onDraftModelSelect}
         glowOnMount
         draftKey="new-chat:draft"
         showDraftSpaceBanner

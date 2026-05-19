@@ -3217,11 +3217,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
     const sessionKey = String(body.sessionKey || `agent:${body.agentId || "main"}:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-    void context.gateway.request("sessions.create", {
-      key: sessionKey,
-      agentId: body.agentId || "main",
-      label: gatewaySessionLabel(body.label, sessionKey),
-    }).catch(() => { /* session may already exist or gateway may be offline */ });
+    try {
+      await context.gateway.request("sessions.create", {
+        key: sessionKey,
+        agentId: body.agentId || "main",
+        label: gatewaySessionLabel(body.label, sessionKey),
+      });
+    } catch { /* session may already exist or gateway may be offline */ }
     const session = { id: id("session"), ...body, key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
     compatState.sessions.push(session);
     saveCompatCollection(context, "sessions");
