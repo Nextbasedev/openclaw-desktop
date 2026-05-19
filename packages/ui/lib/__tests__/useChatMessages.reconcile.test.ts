@@ -31,6 +31,17 @@ describe("chat reconcile active-state guards", () => {
     })).toBe(true)
   })
 
+  test("preserves active status when stale reconcile has fewer messages than visible chat", () => {
+    expect(shouldPreserveActiveReconcile({
+      currentStatus: "tool_running",
+      nextStatus: "idle",
+      candidateMessages: [user(), assistant()],
+      runningToolCount: 0,
+      currentMessageCount: 10,
+      freshMessageCount: 6,
+    })).toBe(true)
+  })
+
   test("allows idle reconcile after an answer when no tools are running", () => {
     expect(shouldPreserveActiveReconcile({
       currentStatus: "streaming",

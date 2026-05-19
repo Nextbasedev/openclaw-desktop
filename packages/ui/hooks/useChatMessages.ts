@@ -158,8 +158,15 @@ export function shouldPreserveActiveReconcile(params: {
   nextStatus: StreamStatus | null | undefined
   candidateMessages: ChatMessage[]
   runningToolCount: number
+  currentMessageCount?: number
+  freshMessageCount?: number
 }) {
   if (!isActiveRunStatus(params.currentStatus)) return false
+  if (
+    typeof params.currentMessageCount === "number" &&
+    typeof params.freshMessageCount === "number" &&
+    params.freshMessageCount < params.currentMessageCount
+  ) return true
   if ((params.nextStatus === "idle" || params.nextStatus === "done") && params.runningToolCount > 0) return true
   return !hasAssistantAnswerAfterLatestUserMessage(params.candidateMessages)
 }
@@ -658,11 +665,23 @@ export function useChatMessages(
       const currentStatus = statusRef.current
       const currentMessages = messagesRef.current
       const candidateMessages = freshMessages?.length ? freshMessages : currentMessages
-      const activeWithoutFreshAnswer =
-        isActiveRunStatus(currentStatus) &&
-        !hasAssistantAnswerAfterLatestUserMessage(candidateMessages)
+      const nextStatus = statusFromBackendSession(
+        backendSession?.status,
+        candidateMessages
+      )
+      const runningToolCount = Array.from(pendingToolMapRef.current.values())
+        .filter((tool) => tool.status === "running")
+        .length
+      const preserveActiveReconcile = shouldPreserveActiveReconcile({
+        currentStatus,
+        nextStatus,
+        candidateMessages,
+        runningToolCount,
+        currentMessageCount: currentMessages.length,
+        freshMessageCount: freshMessages?.length ?? 0,
+      })
 
-      if (activeWithoutFreshAnswer) {
+      if (preserveActiveReconcile) {
         // Reconcile is a recovery path, not lifecycle truth. Gateway history can
         // lag behind live patches for a few seconds after send; replacing the
         // local optimistic timeline with that partial history makes the latest
@@ -670,8 +689,10 @@ export function useChatMessages(
         frontendLog("status", "chat.reconcile-preserve-active", {
           sessionKey,
           status: currentStatus,
+          nextStatus,
           freshMessageCount: freshMessages?.length ?? 0,
           currentMessageCount: currentMessages.length,
+          runningToolCount,
           backendStatus: backendSession?.status ?? null,
         })
       } else {
@@ -687,10 +708,6 @@ export function useChatMessages(
             return dedupeChatMessages([...freshMessages, ...keptOptimistic])
           })
         }
-        const nextStatus = statusFromBackendSession(
-          backendSession?.status,
-          candidateMessages
-        )
         if (backendSession?.status || !isActiveRunStatus(nextStatus)) {
           setStatus(nextStatus)
           if (nextStatus === "done" || nextStatus === "idle") {
