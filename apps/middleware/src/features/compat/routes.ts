@@ -1624,9 +1624,29 @@ function chatActivityMs(chat: CompatRecord) {
   return Math.max(timeMs(chat.updatedAt), timeMs(chat.lastActiveAt), timeMs(chat.lastMessageAt), timeMs(chat.createdAt));
 }
 
+function sessionForChat(chat: CompatRecord) {
+  const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+  if (!sessionKey) return null;
+  return compatState.sessions.find((session) => session.sessionKey === sessionKey || session.key === sessionKey) ?? null;
+}
+
+function sessionActivityMs(session: CompatRecord | null) {
+  if (!session) return 0;
+  return Math.max(timeMs(session.updatedAt), timeMs(session.lastActiveAt), timeMs(session.lastMessageAt), timeMs(session.createdAt));
+}
+
+function chatForResponse(chat: CompatRecord) {
+  if (!chat.syncedFromGateway) return chat;
+  const activityMs = sessionActivityMs(sessionForChat(chat));
+  if (activityMs <= 0) return chat;
+  const activityAt = new Date(activityMs).toISOString();
+  return { ...chat, updatedAt: activityAt, lastActiveAt: activityAt, lastMessageAt: activityAt };
+}
+
 function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
   return listBySpace(compatState.chats, spaceId)
     .filter((chat) => typeof archived === "boolean" ? Boolean(chat.archived) === archived : !chat.archived)
+    .map(chatForResponse)
     .sort((a, b) => {
       const activityDiff = chatActivityMs(b) - chatActivityMs(a);
       if (activityDiff !== 0) return activityDiff;
