@@ -107,7 +107,7 @@ export function ModelSelector({ open, onOpenChange }: Props) {
             <button
               type="button"
               onClick={reload}
-              className="rounded-md px-3 py-1 text-[11px] text-foreground/70 hover:bg-foreground/5"
+              className="cursor-pointer rounded-md px-3 py-1 text-[11px] text-foreground/70 hover:bg-foreground/5"
             >
               Retry
             </button>
@@ -124,8 +124,8 @@ export function ModelSelector({ open, onOpenChange }: Props) {
                 handleSelect(`${model.provider}/${model.id}`)
               }
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
-                "transition-colors",
+                "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
+                "transition-colors disabled:cursor-not-allowed",
                 saving && "opacity-50",
                 active
                   ? "bg-foreground/8 text-foreground"

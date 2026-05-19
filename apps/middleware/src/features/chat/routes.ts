@@ -733,20 +733,51 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const parsed = z.object({ sessionKey: z.string().min(1), runId: z.string().optional() }).safeParse(request.body);
     if (!parsed.success) throw new HttpError(400, "Invalid chat abort body", "INVALID_BODY", parsed.error.flatten());
     log.info("abort.start", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId });
-    const result = await context.gateway.request<Record<string, unknown>>("chat.abort", parsed.data, 30_000);
+    void context.gateway.request<Record<string, unknown>>("chat.abort", parsed.data, 30_000).catch((error) => {
+      log.warn("abort.gateway.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
+    });
+    void context.gateway.request<Record<string, unknown>>("sessions.abort", { sessionKey: parsed.data.sessionKey }, 30_000).catch((error) => {
+      log.warn("abort.gateway-session.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
+    });
     const projectedRun = parsed.data.runId
       ? context.runs.getRun(parsed.data.runId) ?? context.runs.findRunByGatewayRunId(parsed.data.runId)
       : context.runs.findLatestPendingRun(parsed.data.sessionKey);
+    let completedTools = 0;
     if (projectedRun) {
       context.runs.updateRunStatus(projectedRun.runId, "aborted", { statusLabel: null });
+      completedTools = context.runs.completeRunningTools(parsed.data.sessionKey, projectedRun.runId, { status: "error", resultMeta: { reason: "aborted" }, updatedAtMs: nowMs() });
       context.messages.upsertSession({
         sessionKey: parsed.data.sessionKey,
         sessionId: context.messages.getSession(parsed.data.sessionKey)?.sessionId ?? null,
         data: { ...objectData(context.messages.getSession(parsed.data.sessionKey)?.data), sessionKey: parsed.data.sessionKey, status: "aborted", statusLabel: null },
       });
+    } else {
+      const existingSession = context.messages.getSession(parsed.data.sessionKey);
+      context.messages.upsertSession({
+        sessionKey: parsed.data.sessionKey,
+        sessionId: existingSession?.sessionId ?? null,
+        data: { ...objectData(existingSession?.data), sessionKey: parsed.data.sessionKey, status: "aborted", statusLabel: null },
+      });
     }
-    log.info("abort.end", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, projectedRunId: projectedRun?.runId, status: typeof result.status === "string" ? result.status : undefined });
-    return { ok: true, ...result };
+    const abortEvent = context.messages.appendProjectionEvent({
+      sessionKey: parsed.data.sessionKey,
+      eventType: "chat.status",
+      payload: canonicalPatchPayload({
+        sessionKey: parsed.data.sessionKey,
+        semanticType: "chat.run.aborted",
+        run: projectedRun ? context.runs.getRun(projectedRun.runId) : null,
+        payload: { completedTools },
+      }),
+    });
+    context.patchBus.broadcast({
+      cursor: abortEvent.cursor,
+      type: abortEvent.eventType,
+      sessionKey: abortEvent.sessionKey,
+      payload: abortEvent.payload,
+      createdAtMs: abortEvent.createdAtMs,
+    });
+    log.info("abort.end", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, projectedRunId: projectedRun?.runId, completedTools });
+    return { ok: true };
   });
 
   app.get("/api/chat/bootstrap", async (request) => {

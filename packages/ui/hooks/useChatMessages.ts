@@ -59,6 +59,7 @@ import {
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
+import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import {
   getWarmChatCache,
   pruneWarmChatCache,
@@ -1606,8 +1607,9 @@ export function useChatMessages(
         hasReplyTo: Boolean(payload.replyTo),
         autonomyMode: payload.autonomyMode,
       })
+      const isStopCommand = isStopSlashCommand(trimmed)
       const runsAlongsideGeneration = Boolean(
-        isGenerating && payload.runWhileGenerating
+        isGenerating && payload.runWhileGenerating && !isStopCommand
       )
       sendingGuardRef.current = true
       flushSync(() => {
@@ -1623,6 +1625,34 @@ export function useChatMessages(
         }
         setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
         doneAfterYieldRef.current = 0
+      }
+
+      if (isGenerating && isStopCommand) {
+        frontendLog("chat", "chat.stop-command.abort-before-send", { sessionKey, status: statusRef.current })
+        setStatus("stopping")
+        setStatusLabel(null)
+        updateGlobalChatSessionActivity({
+          sessionKey,
+          pendingTools: [],
+          status: "stopping",
+          statusLabel: null,
+        })
+        try {
+          await abortChatV2({ sessionKey })
+        } catch (error) {
+          frontendLog("chat", "chat.stop-command.abort-fail", {
+            sessionKey,
+            error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+          }, "warn")
+        }
+        pendingToolMapRef.current.clear()
+        setPendingTools([])
+        updateGlobalChatSessionActivity({
+          sessionKey,
+          pendingTools: [],
+          status: "idle",
+          statusLabel: null,
+        })
       }
 
       const replyTo = payload.replyTo ?? undefined
@@ -1689,7 +1719,7 @@ export function useChatMessages(
       })
       forceScrollToBottom(true)
       try {
-        if (isGenerating && !payload.runWhileGenerating) {
+        if (isGenerating && !isStopCommand && !payload.runWhileGenerating) {
           restartInFlightRef.current = true
           frontendLog("chat", "chat.restart-before-send", { sessionKey, status: statusRef.current })
           setStatus("restarting")
@@ -1928,14 +1958,30 @@ export function useChatMessages(
   const handleAbort = useCallback(async () => {
     setStatus("stopping")
     setStatusLabel(null)
+    updateGlobalChatSessionActivity({
+      sessionKey,
+      status: "stopping",
+      statusLabel: null,
+    })
     try {
-      await invoke("middleware_chat_stop", { input: { sessionKey } })
+      await abortChatV2({ sessionKey })
       pendingToolMapRef.current.clear()
       setPendingTools([])
       setStatus("idle")
+      updateGlobalChatSessionActivity({
+        sessionKey,
+        pendingTools: [],
+        status: "idle",
+        statusLabel: null,
+      })
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
       setStatus("error")
+      updateGlobalChatSessionActivity({
+        sessionKey,
+        status: "error",
+        statusLabel: null,
+      })
     }
   }, [sessionKey])
 
