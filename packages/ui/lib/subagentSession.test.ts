@@ -13,10 +13,11 @@ describe("subagent session key parsing", () => {
     ])
   })
 
-  it("accepts fork-style child session keys returned by sessions_spawn", () => {
-    expect(isSubagentSessionKey("agent:main:desktop:fork-ca8938df-ee10-43c3-af7f-5f07df3a91cd")).toBe(true)
+  it("trusts only explicit childSessionKey for non-subagent-shaped spawned sessions", () => {
+    expect(isSubagentSessionKey("agent:main:desktop:fork-ca8938df-ee10-43c3-af7f-5f07df3a91cd")).toBe(false)
     expect(isSubagentSessionKey("agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340")).toBe(false)
     expect(extractSubagentSessionKey({ childSessionKey: "agent:main:desktop:fork-ca8938df-ee10-43c3-af7f-5f07df3a91cd" })).toBe("agent:main:desktop:fork-ca8938df-ee10-43c3-af7f-5f07df3a91cd")
+    expect(extractSubagentSessionKey('{"childSessionKey":"agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340"}')).toBe("agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340")
     expect(extractSubagentSessionKey('{"sessionKey":"agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340"}')).toBeNull()
   })
 })

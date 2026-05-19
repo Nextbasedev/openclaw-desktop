@@ -1289,7 +1289,7 @@ describe("global V2 chat engine store", () => {
     unsubscribe()
   })
 
-  test("links spawned subagent as soon as child session activity appears", () => {
+  test("does not auto-link spawned subagent from child session shape alone", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
       patch: {
@@ -1322,7 +1322,7 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
-      { toolCallId: "spawn-early", sessionKey: "agent:main:desktop:subagent:child-1", status: "working" },
+      { toolCallId: "spawn-early", sessionKey: null, status: "spawning" },
     ])
   })
 
@@ -1401,11 +1401,35 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("agent:main:desktop:subagent:child-1")?.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ text: "Child-only progress" }),
     ]))
-    expect(parentUpdates).toHaveLength(2)
+    expect(parentUpdates).toHaveLength(1)
     expect(childUpdates).toHaveLength(1)
 
     unsubscribeParent()
     unsubscribeChild()
+  })
+
+
+  test("syncs explicitly linked spawned child status even when child key is a normal session shape", () => {
+    seedGlobalChatSession({
+      sessionKey: "parent-1",
+      messages: [],
+      spawnedSubagents: [{ id: "spawn:1", label: "Worker", status: "working", toolCallId: "spawn-1", sessionKey: "agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340" }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "session.upsert",
+        sessionKey: "agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340",
+        createdAtMs: Date.now(),
+        payload: { status: "done", statusLabel: null },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-1", sessionKey: "agent:main:dashboard:8a493656-ed53-43ce-8d96-530be8385340", status: "completed" },
+    ])
   })
 
   test("linked spawned subagent completes when child session finishes", () => {

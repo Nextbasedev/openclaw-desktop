@@ -1198,10 +1198,7 @@ function handlePatch(frame: PatchFrame) {
     patchCursor: frame.patch.cursor,
     ...loadingFactorSummary(state, frame.patch.type),
   }, "debug")
-  if (isSubagentSessionKey(sessionKey)) {
-    linkDiscoveredSubagent(sessionKey, state.status)
-    syncLinkedSubagentStatus(sessionKey, state.status)
-  }
+  syncLinkedSubagentStatus(sessionKey, state.status)
   if (ACTIVE_STATUSES.has(state.status) || state.pendingTools.some((tool) => tool.status === "running")) {
     frontendLog("status", "chat.loading-factors", {
       sessionKey,
