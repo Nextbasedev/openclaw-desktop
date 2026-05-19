@@ -70,6 +70,25 @@ function authPayload(params: { deviceId: string; scopes: string[]; signedAt: num
   ].join("|");
 }
 
+function deviceApprovalMessage(rawMessage: string) {
+  const requestId = rawMessage.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
+  return [
+    "Desktop Middleware is requesting permission to connect to this OpenClaw instance.",
+    "This can happen after a server reinstall, identity reset, or first-time connection from this machine.",
+    requestId ? `Request ID: ${requestId}` : null,
+    "Only approve if you recognize this server/device. After approving, retry the action.",
+    requestId ? `Approve command: openclaw devices approve ${requestId}` : "Open Gateway device approvals and approve this device.",
+  ].filter(Boolean).join("\n");
+}
+
+function normalizeConnectError(message: string) {
+  const lower = message.toLowerCase();
+  if (lower.includes("pairing") || lower.includes("not paired") || lower.includes("not registered") || lower.includes("identity mismatch")) {
+    return deviceApprovalMessage(message);
+  }
+  return message;
+}
+
 function summarizeGatewayParams(params: Record<string, unknown>) {
   return {
     sessionKey: typeof params.sessionKey === "string" ? params.sessionKey : typeof params.key === "string" ? params.key : undefined,
@@ -305,7 +324,7 @@ export class GatewayClient {
       },
     }));
     const connected = await waitFor(ws, (message) => message.type === "res" && (message as GatewayResponse).id === id, "connect response");
-    if ((connected as GatewayResponse).ok !== true) throw new Error((connected as GatewayResponse).error?.message ?? "Gateway connect rejected");
+    if ((connected as GatewayResponse).ok !== true) throw new Error(normalizeConnectError((connected as GatewayResponse).error?.message ?? "Gateway connect rejected"));
     ws.on("message", this.handleMessage);
     ws.once("close", this.handleDisconnect);
     ws.once("error", this.handleDisconnect);
