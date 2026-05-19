@@ -1592,6 +1592,10 @@ function timestampField(record: CompatRecord, keys: string[]) {
   return stringField(record, keys) ?? nowIso();
 }
 
+function optionalTimestampField(record: CompatRecord, keys: string[]) {
+  return stringField(record, keys);
+}
+
 function timeMs(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string" || !value.trim()) return 0;
@@ -1623,7 +1627,13 @@ function chatActivityMs(chat: CompatRecord) {
 function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
   return listBySpace(compatState.chats, spaceId)
     .filter((chat) => typeof archived === "boolean" ? Boolean(chat.archived) === archived : !chat.archived)
-    .sort((a, b) => chatActivityMs(b) - chatActivityMs(a));
+    .sort((a, b) => {
+      const activityDiff = chatActivityMs(b) - chatActivityMs(a);
+      if (activityDiff !== 0) return activityDiff;
+      const createdDiff = timeMs(b.createdAt) - timeMs(a.createdAt);
+      if (createdDiff !== 0) return createdDiff;
+      return String(a.id ?? a.sessionKey ?? "").localeCompare(String(b.id ?? b.sessionKey ?? ""));
+    });
 }
 
 function latestProjectedMessageActivity(context: AppContext, sessionKey: string) {
@@ -1747,17 +1757,19 @@ async function syncGatewaySessions(context: AppContext) {
     const payload = await context.gateway.request("sessions.list", { limit: 500, includeDerivedTitles: true, includeLastMessage: true }, 10_000);
     const rows = gatewaySessionRows(payload);
     if (rows.length === 0) return;
-    const beforeCleanup = compatState.chats.length;
-    compatState.chats = compatState.chats.filter((chat) => !isGatewayOnlySyncedChat(chat));
     let changed = false;
-    if (compatState.chats.length !== beforeCleanup) changed = true;
+    const syncedSessionKeys = new Set<string>();
     const fallbackSpaceId = ensureDefaultFallbackSpace();
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
+      syncedSessionKeys.add(sessionKey);
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
-      const createdAt = timestampField(row, ["createdAt", "created_at"]);
+      const rowCreatedAt = optionalTimestampField(row, ["createdAt", "created_at"]);
+      const rowActivityAt = optionalTimestampField(row, ["updatedAt", "updated_at", "lastActiveAt", "lastMessageAt"]);
+      const createdAt = rowCreatedAt ?? rowActivityAt ?? nowIso();
+      const activityAt = newestTimestamp(rowActivityAt, createdAt);
       const rowProjectId = row.projectId ?? null;
       const rowTopicId = row.topicId ?? null;
       const rowSpaceId = projectSpaceId(rowProjectId) ?? fallbackSpaceId;
@@ -1774,13 +1786,25 @@ async function syncGatewaySessions(context: AppContext) {
           pinned: false,
           syncedFromGateway: true,
           createdAt,
-          updatedAt: createdAt,
-          lastActiveAt: timestampField(row, ["updatedAt", "updated_at", "lastActiveAt"]) || createdAt,
+          updatedAt: activityAt,
+          lastActiveAt: activityAt,
+          lastMessageAt: activityAt,
         });
         changed = true;
       } else {
         const existing = compatState.chats[chatIndex];
-        const next = { ...existing, name: existing.name || name, spaceId: existing.syncedFromGateway ? rowSpaceId : existing.spaceId, agentId: existing.agentId || agentId };
+        const existingCreatedAt = existing.createdAt || createdAt;
+        const existingActivityAt = newestTimestamp(rowActivityAt, rowCreatedAt, existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existingCreatedAt);
+        const next = {
+          ...existing,
+          name: existing.name || name,
+          spaceId: existing.syncedFromGateway ? rowSpaceId : existing.spaceId,
+          agentId: existing.agentId || agentId,
+          createdAt: existingCreatedAt,
+          updatedAt: existingActivityAt,
+          lastActiveAt: existingActivityAt,
+          lastMessageAt: existingActivityAt,
+        };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.chats[chatIndex] = next;
           changed = true;
@@ -1799,11 +1823,15 @@ async function syncGatewaySessions(context: AppContext) {
           agentId,
           label: name,
           createdAt,
-          updatedAt: createdAt,
+          updatedAt: activityAt,
+          lastActiveAt: activityAt,
+          lastMessageAt: activityAt,
         });
         changed = true;
       } else {
         const existing = compatState.sessions[sessionIndex];
+        const existingCreatedAt = existing.createdAt || createdAt;
+        const existingActivityAt = newestTimestamp(rowActivityAt, rowCreatedAt, existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existingCreatedAt);
         const next = {
           ...existing,
           key: existing.key || sessionKey,
@@ -1813,6 +1841,10 @@ async function syncGatewaySessions(context: AppContext) {
           spaceId: projectSpaceId(existing.projectId ?? rowProjectId) ?? ((existing.projectId ?? rowProjectId) ? existing.spaceId ?? rowSpaceId : rowSpaceId),
           agentId: existing.agentId || agentId,
           label: existing.label || name,
+          createdAt: existingCreatedAt,
+          updatedAt: existingActivityAt,
+          lastActiveAt: existingActivityAt,
+          lastMessageAt: existingActivityAt,
         };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.sessions[sessionIndex] = next;
@@ -1820,6 +1852,13 @@ async function syncGatewaySessions(context: AppContext) {
         }
       }
     }
+    const beforeCleanup = compatState.chats.length;
+    compatState.chats = compatState.chats.filter((chat) => {
+      if (!isGatewayOnlySyncedChat(chat)) return true;
+      const sessionKey = typeof chat.sessionKey === "string" ? chat.sessionKey : "";
+      return syncedSessionKeys.has(sessionKey);
+    });
+    if (compatState.chats.length !== beforeCleanup) changed = true;
     if (changed) saveCompatState(context);
   } catch {
     // Gateway session sync is best-effort; local compat data must still render offline.
