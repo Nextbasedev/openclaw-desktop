@@ -32,6 +32,17 @@ type SpaceMutationResponse = {
   activeSpaceId?: string
 }
 
+const DEFAULT_SPACE_ID = "space_default"
+const DEFAULT_SPACE_NAME = "My Workspace"
+
+function normalizeSpaces(spaces: Space[] = []) {
+  return spaces.map((space) =>
+    space.id === DEFAULT_SPACE_ID
+      ? { ...space, name: DEFAULT_SPACE_NAME, archived: false }
+      : space,
+  )
+}
+
 export function useSpaces() {
   const [spaces, setSpaces] = useState<Space[]>([])
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null)
@@ -39,7 +50,7 @@ export function useSpaces() {
 
   const loadSpacesFresh = useCallback(async () => {
     const result = await invoke<SpacesResponse>("middleware_spaces_list", { input: {} })
-    const nextSpaces = result.spaces || []
+    const nextSpaces = normalizeSpaces(result.spaces || [])
     setSpaces(nextSpaces)
     setActiveSpaceId(result.activeSpaceId || nextSpaces[0]?.id || null)
     return result
@@ -50,7 +61,7 @@ export function useSpaces() {
     try {
       const bootstrap = await loadMiddlewareStartupBootstrap()
       if (bootstrap) {
-        setSpaces(bootstrap.spaces || [])
+        setSpaces(normalizeSpaces(bootstrap.spaces || []))
         setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
       }
       await loadSpacesFresh()
@@ -65,7 +76,7 @@ export function useSpaces() {
 
   useEffect(() => {
     return localSyncSubscribeBootstrap((bootstrap) => {
-      setSpaces(bootstrap.spaces || [])
+      setSpaces(normalizeSpaces(bootstrap.spaces || []))
       setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
     })
   }, [])

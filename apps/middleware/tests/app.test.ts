@@ -438,6 +438,7 @@ describe("middleware app", () => {
 
     const createdSpace = await app.inject({ method: "POST", url: "/api/spaces", payload: { name: "New Project" } });
     const activeSpaceId = createdSpace.json().activeSpaceId;
+    await app.inject({ method: "PATCH", url: "/api/spaces/space_default", payload: { name: "Smoke Job", text: "hello", sessionKey: "agent:main:smoke" } });
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
 
     expect(bootstrap.statusCode).toBe(200);
@@ -451,6 +452,7 @@ describe("middleware app", () => {
     expect(bootstrap.json().spaces).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "space_default", name: "My Workspace" }),
     ]));
+    expect(bootstrap.json().spaces.find((space: { id?: string }) => space.id === "space_default")).not.toHaveProperty("text");
 
     const defaultChats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
     expect(defaultChats.json().chats).toEqual(expect.arrayContaining([

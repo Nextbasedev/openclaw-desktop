@@ -247,6 +247,7 @@ const compatState = {
 
 const DEFAULT_SPACE_ID = "space_default";
 const DEFAULT_SPACE_NAME = "My Workspace";
+const spacePatchFields = new Set(["name", "repoRoot", "projectId", "sortOrder", "archived", "deleted"]);
 
 const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "branches", "pins", "cronJobs", "cronRuns"] as const;
 
@@ -287,9 +288,9 @@ function loadCompatState(context: AppContext) {
   let changed = false;
   compatState.spaces = compatState.spaces.map((space) => {
     if (space.id !== DEFAULT_SPACE_ID) return space;
-    if (typeof space.name === "string" && space.name.trim() && space.name !== "Default") return space;
-    changed = true;
-    return { ...space, name: DEFAULT_SPACE_NAME, updatedAt: nowIso() };
+    const normalized = normalizeDefaultSpace(space);
+    if (JSON.stringify(normalized) !== JSON.stringify(space)) changed = true;
+    return normalized;
   });
   compatState.loadedDbPath = context.config.databasePath;
   if (changed) saveCompatState(context);
@@ -372,6 +373,26 @@ function mergeCompatRecords(collection: CompatCollection, incoming: CompatRecord
   return { imported, updated, skipped };
 }
 
+function normalizeDefaultSpace(space: CompatRecord): CompatRecord {
+  return {
+    id: DEFAULT_SPACE_ID,
+    name: DEFAULT_SPACE_NAME,
+    archived: false,
+    deleted: false,
+    sortOrder: typeof space.sortOrder === "number" ? space.sortOrder : 0,
+    createdAt: typeof space.createdAt === "string" ? space.createdAt : nowIso(),
+    updatedAt: typeof space.updatedAt === "string" ? space.updatedAt : nowIso(),
+  };
+}
+
+function sanitizeSpacePatch(input: CompatRecord) {
+  const patch: CompatRecord = {};
+  for (const key of spacePatchFields) {
+    if (key in input) patch[key] = input[key];
+  }
+  return patch;
+}
+
 function readV1State(sourcePath: string): CompatRecord {
   if (!fs.existsSync(sourcePath)) throw new Error(`v1 SQLite database not found: ${sourcePath}`);
   const db = new Database(sourcePath, { readonly: true, fileMustExist: true });
@@ -424,17 +445,9 @@ function ensureDefaultSpace() {
 function ensureDefaultFallbackSpace() {
   const existing = compatState.spaces.find((space) => space.id === DEFAULT_SPACE_ID);
   if (existing) {
-    let changed = false;
-    if (existing.deleted || existing.archived) {
-      existing.deleted = false;
-      existing.archived = false;
-      changed = true;
-    }
-    if (!existing.name || existing.name === "Default") {
-      existing.name = DEFAULT_SPACE_NAME;
-      changed = true;
-    }
-    if (changed) existing.updatedAt = nowIso();
+    const normalized = normalizeDefaultSpace(existing);
+    Object.keys(existing).forEach((key) => delete existing[key]);
+    Object.assign(existing, normalized);
     return String(existing.id);
   }
   const timestamp = nowIso();
@@ -1789,6 +1802,15 @@ async function deleteCompatChat(context: AppContext, chatId: string) {
 }
 
 async function deleteCompatSpace(context: AppContext, spaceId: string) {
+  if (spaceId === DEFAULT_SPACE_ID) {
+    const existing = compatState.spaces.find((space) => space.id === DEFAULT_SPACE_ID) ?? {};
+    const normalized = normalizeDefaultSpace(existing);
+    const index = compatState.spaces.findIndex((space) => space.id === DEFAULT_SPACE_ID);
+    if (index >= 0) compatState.spaces[index] = normalized;
+    else compatState.spaces.unshift(normalized);
+    saveCompatState(context);
+    return { ok: true, spaceId, activeSpaceId: activeSpaceId(), deletedChatIds: [] };
+  }
   const deletedChatIds = compatState.chats
     .filter((chat) => chat.spaceId === spaceId)
     .map((chat) => typeof chat.id === "string" ? chat.id : null)
@@ -2970,7 +2992,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.patch<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request, reply) => {
-    const space = patchById(compatState.spaces, request.params.spaceId, request.body as CompatRecord);
+    const patch = request.params.spaceId === DEFAULT_SPACE_ID
+      ? { updatedAt: nowIso() }
+      : sanitizeSpacePatch(request.body as CompatRecord);
+    const space = patchById(compatState.spaces, request.params.spaceId, patch);
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
     if (space.archived && compatState.activeSpaceId === space.id) {
       compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
@@ -2982,6 +3007,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/archive", async (request, reply) => {
     const body = (request.body ?? {}) as CompatRecord;
     const archived = body.archived ?? true;
+    if (request.params.spaceId === DEFAULT_SPACE_ID) {
+      const existing = compatState.spaces.find((item) => item.id === DEFAULT_SPACE_ID) ?? {};
+      const space = patchById(compatState.spaces, DEFAULT_SPACE_ID, normalizeDefaultSpace(existing)) ?? normalizeDefaultSpace(existing);
+      saveCompatCollection(context, "spaces");
+      return { ok: true, activeSpaceId: activeSpaceId(), space, archived: false };
+    }
     const space = patchById(compatState.spaces, request.params.spaceId, { archived });
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
     if (archived) archiveChatsForSpace(request.params.spaceId);
@@ -3071,7 +3102,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/rename", async (request, reply) => {
     const body = (request.body ?? {}) as CompatRecord;
-    const space = patchById(compatState.spaces, request.params.spaceId, { name: body.name || "New Space" });
+    const space = patchById(compatState.spaces, request.params.spaceId, { name: request.params.spaceId === DEFAULT_SPACE_ID ? DEFAULT_SPACE_NAME : body.name || "New Space" });
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
     saveCompatCollection(context, "spaces");
     return { space, activeSpaceId: activeSpaceId() };
@@ -3826,7 +3857,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_spaces_update": {
         const spaceId = String(input.spaceId ?? "");
         if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
-        const space = patchById(compatState.spaces, spaceId, input);
+        const patch = spaceId === DEFAULT_SPACE_ID ? { updatedAt: nowIso() } : sanitizeSpacePatch(input);
+        const space = patchById(compatState.spaces, spaceId, patch);
         if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
         if (space.archived && compatState.activeSpaceId === space.id) {
           compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
@@ -3837,7 +3869,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       case "middleware_spaces_rename": {
         const spaceId = String(input.spaceId ?? "");
         if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
-        const space = patchById(compatState.spaces, spaceId, { name: input.name || "New Space" });
+        const space = patchById(compatState.spaces, spaceId, { name: spaceId === DEFAULT_SPACE_ID ? DEFAULT_SPACE_NAME : input.name || "New Space" });
         if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
         saveCompatCollection(context, "spaces");
         return { space, activeSpaceId: activeSpaceId() };
@@ -3846,6 +3878,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const spaceId = String(input.spaceId ?? "");
         if (!spaceId) return reply.code(400).send({ ok: false, error: { message: "spaceId required" } });
         const archived = input.archived ?? true;
+        if (spaceId === DEFAULT_SPACE_ID) {
+          const existing = compatState.spaces.find((item) => item.id === DEFAULT_SPACE_ID) ?? {};
+          const space = patchById(compatState.spaces, DEFAULT_SPACE_ID, normalizeDefaultSpace(existing)) ?? normalizeDefaultSpace(existing);
+          saveCompatState(context);
+          return { ok: true, activeSpaceId: activeSpaceId(), space, archived: false };
+        }
         const space = patchById(compatState.spaces, spaceId, { archived });
         if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
         if (archived) archiveChatsForSpace(spaceId);

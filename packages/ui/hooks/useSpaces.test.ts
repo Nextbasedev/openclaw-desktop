@@ -29,6 +29,7 @@ vi.mock("@/lib/middleware-client", () => ({
 }))
 vi.mock("@/lib/startupBootstrap", () => ({
   invalidateMiddlewareStartupBootstrap: vi.fn(),
+  loadMiddlewareStartupBootstrap: vi.fn(() => Promise.resolve(null)),
 }))
 
 const { useSpaces } = await import("./useSpaces")

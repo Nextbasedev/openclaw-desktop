@@ -67,6 +67,7 @@ describe("useChatsData", () => {
     const backendChat: Chat = {
       id: "chat_backend",
       name: "Backend chat",
+      spaceId: "space_1",
       agentId: "main",
       archived: false,
       pinned: false,
@@ -89,6 +90,6 @@ describe("useChatsData", () => {
       input: { spaceId: "space_1" },
     })
     expect(mocks.stateSets[0]).toContainEqual([backendChat])
-    expect(mocks.localSyncSetChats).toHaveBeenCalledWith("space_1", [backendChat])
+    expect(mocks.localSyncSetChats).toHaveBeenCalledWith("space_1", [backendChat], undefined, expect.any(Number))
   })
 })
