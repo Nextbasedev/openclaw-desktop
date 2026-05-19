@@ -1605,6 +1605,7 @@ async function syncGatewaySessions(context: AppContext) {
     compatState.chats = compatState.chats.filter((chat) => !isGatewayOnlySyncedChat(chat));
     let changed = false;
     if (compatState.chats.length !== beforeCleanup) changed = true;
+    const fallbackSpaceId = activeSpaceId();
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
@@ -1618,7 +1619,7 @@ async function syncGatewaySessions(context: AppContext) {
           id: stableCompatId("chat", sessionKey),
           name,
           sessionKey,
-          spaceId: DEFAULT_SPACE_ID,
+          spaceId: fallbackSpaceId,
           agentId,
           archived: false,
           pinned: false,

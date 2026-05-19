@@ -412,6 +412,47 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("bootstrap imports Gateway sessions into active space after project creation", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { connect: unknown; status: unknown; request: unknown } } }).v2Context;
+    context.gateway.connect = vi.fn(async () => undefined);
+    context.gateway.status = vi.fn(() => ({ connected: true, lastError: null }));
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            {
+              key: "agent:main:desktop:orphan-before-space",
+              label: "Orphan Before Space",
+              agentId: "main",
+              projectId: null,
+              topicId: null,
+              createdAt: "2026-05-19T03:00:00.000Z",
+              updatedAt: "2026-05-19T03:30:00.000Z",
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    const createdSpace = await app.inject({ method: "POST", url: "/api/spaces", payload: { name: "New Project" } });
+    const activeSpaceId = createdSpace.json().activeSpaceId;
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json().activeSpaceId).toBe(activeSpaceId);
+    expect(bootstrap.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Orphan Before Space", sessionKey: "agent:main:desktop:orphan-before-space", spaceId: activeSpaceId }),
+    ]));
+
+    const oldDefaultChats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
+    expect(oldDefaultChats.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:desktop:orphan-before-space" }),
+    ]));
+    await app.close();
+  });
+
   test("compat chats and sessions survive middleware restart", async () => {
     const databasePath = path.join(os.tmpdir(), `openclaw-v2-compat-restart-${Date.now()}-${Math.random()}.sqlite`);
     const restartConfig = testConfig({ databasePath });
