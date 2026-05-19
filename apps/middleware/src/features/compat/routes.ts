@@ -421,6 +421,30 @@ function ensureDefaultSpace() {
   return space;
 }
 
+function ensureDefaultFallbackSpace() {
+  const existing = compatState.spaces.find((space) => space.id === DEFAULT_SPACE_ID);
+  if (existing) {
+    if (existing.deleted || existing.archived) {
+      existing.deleted = false;
+      existing.archived = false;
+      existing.updatedAt = nowIso();
+    }
+    if (!existing.name || existing.name === "Default") existing.name = DEFAULT_SPACE_NAME;
+    return String(existing.id);
+  }
+  const timestamp = nowIso();
+  compatState.spaces.push({
+    id: DEFAULT_SPACE_ID,
+    name: DEFAULT_SPACE_NAME,
+    archived: false,
+    deleted: false,
+    sortOrder: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  return DEFAULT_SPACE_ID;
+}
+
 function activeSpaceId() {
   const current = compatState.spaces.find((space) => space.id === compatState.activeSpaceId && visibleSpace(space));
   if (current) return current.id;
@@ -813,7 +837,7 @@ function startMiddlewareUpdate(input: MiddlewareUpdateInput = {}) {
     state: "running",
     startedAt,
     updatedAt: startedAt,
-    message: `Preparing to update OpenClaw Desktop Middleware from ${branch}`,
+    message: `Starting Middleware update from ${branch}`,
     repoRoot,
     branch,
     logPath: UPDATE_LOG_PATH,
@@ -843,7 +867,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "[$(date -u +%FT%TZ)] Preserving local changes in git stash"
   git stash push -u -m "openclaw-middleware-update-$(date -u +%Y%m%dT%H%M%SZ)" || true
 fi
-write_status running "Checking out $BRANCH"
+write_status running "Pulling latest $BRANCH"
 git checkout -B "$BRANCH" "origin/$BRANCH"
 git reset --hard "origin/$BRANCH"
 if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
@@ -853,11 +877,11 @@ pnpm install --frozen-lockfile
 write_status running "Building middleware"
 echo "[$(date -u +%FT%TZ)] Building middleware"
 pnpm --filter @openclaw/desktop-middleware build
-write_status restarting "Build completed; restarting ${UPDATE_SERVICE_NAME}"
+write_status restarting "Build complete; starting Middleware service"
 echo "[$(date -u +%FT%TZ)] Restarting $SERVICE"
 if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files "$SERVICE.service" >/dev/null 2>&1; then
   systemctl restart "$SERVICE"
-  write_status succeeded "Middleware updated from $BRANCH and restart command completed"
+  write_status succeeded "Middleware updated from $BRANCH and service started"
 else
   write_status failed "systemd service $SERVICE was not found; build succeeded but restart is manual"
   exit 1
@@ -1605,13 +1629,16 @@ async function syncGatewaySessions(context: AppContext) {
     compatState.chats = compatState.chats.filter((chat) => !isGatewayOnlySyncedChat(chat));
     let changed = false;
     if (compatState.chats.length !== beforeCleanup) changed = true;
-    const fallbackSpaceId = activeSpaceId();
+    const fallbackSpaceId = ensureDefaultFallbackSpace();
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const createdAt = timestampField(row, ["createdAt", "created_at"]);
+      const rowProjectId = row.projectId ?? null;
+      const rowTopicId = row.topicId ?? null;
+      const rowSpaceId = projectSpaceId(rowProjectId) ?? fallbackSpaceId;
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
       if (chatIndex < 0) {
@@ -1619,7 +1646,7 @@ async function syncGatewaySessions(context: AppContext) {
           id: stableCompatId("chat", sessionKey),
           name,
           sessionKey,
-          spaceId: fallbackSpaceId,
+          spaceId: rowSpaceId,
           agentId,
           archived: false,
           pinned: false,
@@ -1631,7 +1658,7 @@ async function syncGatewaySessions(context: AppContext) {
         changed = true;
       } else {
         const existing = compatState.chats[chatIndex];
-        const next = { ...existing, name: existing.name || name, agentId: existing.agentId || agentId };
+        const next = { ...existing, name: existing.name || name, spaceId: existing.syncedFromGateway ? rowSpaceId : existing.spaceId, agentId: existing.agentId || agentId };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.chats[chatIndex] = next;
           changed = true;
@@ -1644,8 +1671,9 @@ async function syncGatewaySessions(context: AppContext) {
           id: stableCompatId("session", sessionKey),
           key: sessionKey,
           sessionKey,
-          projectId: row.projectId ?? null,
-          topicId: row.topicId ?? null,
+          projectId: rowProjectId,
+          topicId: rowTopicId,
+          spaceId: rowSpaceId,
           agentId,
           label: name,
           createdAt,
@@ -1654,7 +1682,16 @@ async function syncGatewaySessions(context: AppContext) {
         changed = true;
       } else {
         const existing = compatState.sessions[sessionIndex];
-        const next = { ...existing, key: existing.key || sessionKey, sessionKey, agentId: existing.agentId || agentId, label: existing.label || name };
+        const next = {
+          ...existing,
+          key: existing.key || sessionKey,
+          sessionKey,
+          projectId: existing.projectId ?? rowProjectId,
+          topicId: existing.topicId ?? rowTopicId,
+          spaceId: projectSpaceId(existing.projectId ?? rowProjectId) ?? ((existing.projectId ?? rowProjectId) ? existing.spaceId ?? rowSpaceId : rowSpaceId),
+          agentId: existing.agentId || agentId,
+          label: existing.label || name,
+        };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           compatState.sessions[sessionIndex] = next;
           changed = true;
@@ -1678,6 +1715,24 @@ function visibleSpace(record: CompatRecord) {
 function listBySpace(records: CompatRecord[], spaceId?: unknown) {
   const filterSpaceId = typeof spaceId === "string" && spaceId.trim() ? spaceId : null;
   return records.filter((record) => notDeleted(record) && (!filterSpaceId || record.spaceId === filterSpaceId));
+}
+
+function projectSpaceId(projectId?: unknown) {
+  if (typeof projectId !== "string" || !projectId.trim()) return null;
+  const project = compatState.projects.find((record) => record.id === projectId && notDeleted(record));
+  return typeof project?.spaceId === "string" && project.spaceId.trim() ? project.spaceId : null;
+}
+
+function sessionSpaceId(session: CompatRecord) {
+  if (typeof session.spaceId === "string" && session.spaceId.trim()) return session.spaceId;
+  const fromProject = projectSpaceId(session.projectId);
+  if (fromProject) return fromProject;
+  return DEFAULT_SPACE_ID;
+}
+
+function sessionsForSpace(spaceId?: unknown) {
+  const filterSpaceId = typeof spaceId === "string" && spaceId.trim() ? spaceId : null;
+  return compatState.sessions.filter((session) => notDeleted(session) && (!filterSpaceId || sessionSpaceId(session) === filterSpaceId));
 }
 
 function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord) {
@@ -2877,7 +2932,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       activeSpaceId: spaceId,
       chats: sortedChatsForResponse(spaceId, false),
       projects: listBySpace(compatState.projects, spaceId),
-      sessions: compatState.sessions.filter(notDeleted),
+      sessions: sessionsForSpace(spaceId),
       gateway,
     };
   });
@@ -3116,6 +3171,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return {
       sessions: compatState.sessions.filter((session) =>
         notDeleted(session) &&
+        (!query.spaceId || sessionSpaceId(session) === query.spaceId) &&
         (!query.projectId || session.projectId === query.projectId) &&
         (!query.topicId || session.topicId === query.topicId)
       ),

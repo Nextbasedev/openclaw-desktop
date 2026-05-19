@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { toast } from "react-toastify"
 import { invoke, openExternalUrl } from "@/lib/ipc"
 import { getMiddlewareConnection, isOpenClawConnected, testMiddlewareConnection } from "@/lib/middleware-client"
 import { LuGithub, LuKeyboard, LuExternalLink, LuRefreshCw, LuMessagesSquare, LuCheck, LuCircleAlert } from "react-icons/lu"
@@ -92,6 +93,22 @@ type SessionMigrationImport = {
   failed?: Array<{ sourceSessionKey: string; error: string }>
 }
 
+function middlewareUpdateToastMessage(status: MiddlewareUpdateStatus) {
+  const branch = status.branch ? ` ${status.branch}` : ""
+  if (status.state === "running") return `Updating Middleware${branch}…`
+  if (status.state === "restarting") return "Build complete. Restarting Middleware service…"
+  if (status.state === "succeeded") return "Middleware updated and connected."
+  if (status.state === "failed") return "Middleware update failed."
+  return status.git ? middlewareGitStatusToastMessage(status.git) : "Middleware update status refreshed."
+}
+
+function middlewareGitStatusToastMessage(git: MiddlewareGitStatus) {
+  if ((git.behind ?? 0) > 0) return `Update available: ${git.behind} commit${git.behind === 1 ? "" : "s"} behind ${git.upstream ?? "remote"}.`
+  if (git.remoteSha && git.remoteSha !== git.headSha) return `Update available: ${git.currentBranch ?? "current branch"} → ${git.upstream ?? "remote"}.`
+  if (git.error) return `Middleware status warning: ${git.error}`
+  return "Middleware is up to date."
+}
+
 type V1SqliteMigrationImport = {
   ok: true
   sourcePath: string
@@ -178,8 +195,29 @@ function MiddlewareUpdateCard() {
   const [branches, setBranches] = React.useState<MiddlewareUpdateBranch[]>(() => FALLBACK_UPDATE_BRANCH_OPTIONS.map((name) => ({ name })))
   const [branchesLoading, setBranchesLoading] = React.useState(false)
   const [branchesError, setBranchesError] = React.useState<string | null>(null)
+  const lastToastMessageRef = React.useRef<string | null>(null)
 
   const updateBranch = selectedBranch === "custom" ? customBranch.trim() : selectedBranch
+
+  function updateMiddlewareToast(next: MiddlewareUpdateStatus, options: { done?: boolean } = {}) {
+    const message = next.message || middlewareUpdateToastMessage(next)
+    if (!message || (!options.done && lastToastMessageRef.current === message)) return
+    lastToastMessageRef.current = message
+    if (!toast.isActive("middleware-self-update")) {
+      toast.loading(message, {
+        toastId: "middleware-self-update",
+        autoClose: false,
+        closeOnClick: false,
+      })
+    }
+    toast.update("middleware-self-update", {
+      render: message,
+      type: next.state === "failed" ? "error" : next.state === "succeeded" ? "success" : "info",
+      isLoading: next.state === "running" || next.state === "restarting",
+      autoClose: options.done || next.state === "failed" || next.state === "succeeded" ? 6000 : false,
+      closeOnClick: next.state === "failed" || next.state === "succeeded",
+    })
+  }
 
   async function refreshBranches() {
     setBranchesLoading(true)
@@ -221,6 +259,7 @@ function MiddlewareUpdateCard() {
   async function refreshStatus(branch = updateBranch) {
     const next = await invoke<MiddlewareUpdateStatus>("middleware_self_update_status", { branch })
     setStatus(next)
+    if (busy || next.state === "running" || next.state === "restarting") updateMiddlewareToast(next)
     return next
   }
 
@@ -229,9 +268,21 @@ function MiddlewareUpdateCard() {
     if (/Route not found|404|middleware\/update/i.test(message)) {
       setNeedsManualBootstrap(true)
       setError("This VPS is running an older Middleware that cannot self-update yet. Run the one-time install/update command below, then this button will work for future updates.")
+      toast.update("middleware-self-update", {
+        render: "This Middleware is too old for self-update. Run the one-time install command below.",
+        type: "error",
+        isLoading: false,
+        autoClose: 7000,
+      })
       return
     }
     setError(message)
+    toast.update("middleware-self-update", {
+      render: message,
+      type: "error",
+      isLoading: false,
+      autoClose: 7000,
+    })
   }
 
   async function updateMiddleware() {
@@ -242,20 +293,43 @@ function MiddlewareUpdateCard() {
     try {
       if (!updateBranch) {
         setError("Choose a branch before updating Middleware.")
+        toast.error("Choose a branch before updating Middleware.")
         return
       }
+      lastToastMessageRef.current = null
+      toast.loading(`Starting Middleware update from ${updateBranch}…`, {
+        toastId: "middleware-self-update",
+        autoClose: false,
+        closeOnClick: false,
+      })
       const started = await invoke<MiddlewareUpdateStart>("middleware_self_update", { branch: updateBranch })
       setStatus(started.status)
+      updateMiddlewareToast(started.status)
+      if (!started.accepted) {
+        updateMiddlewareToast(started.status, { done: true })
+        return
+      }
       statusTimer = window.setInterval(() => {
         refreshStatus(updateBranch).catch(() => undefined)
       }, 2_000)
       const connected = await waitForMiddlewareBack()
       if (connected) {
-        setStatus({ state: "succeeded", updatedAt: new Date().toISOString(), message: `Middleware updated from ${updateBranch} and OpenClaw is connected.`, branch: updateBranch })
+        const doneStatus: MiddlewareUpdateStatus = { state: "succeeded", updatedAt: new Date().toISOString(), message: `Middleware updated from ${updateBranch} and OpenClaw is connected.`, branch: updateBranch }
+        setStatus(doneStatus)
+        updateMiddlewareToast(doneStatus, { done: true })
       } else {
         const latest = await refreshStatus(updateBranch).catch(() => null)
         if (!latest || latest.state !== "failed") {
-          setError("Update started, but Middleware did not come back healthy within 90 seconds. Check the VPS service logs.")
+          const timeoutMessage = "Update started, but Middleware did not come back healthy within 90 seconds. Check the VPS service logs."
+          setError(timeoutMessage)
+          toast.update("middleware-self-update", {
+            render: timeoutMessage,
+            type: "error",
+            isLoading: false,
+            autoClose: 7000,
+          })
+        } else {
+          updateMiddlewareToast(latest, { done: true })
         }
       }
     } catch (err) {
