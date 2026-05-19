@@ -167,6 +167,16 @@ function messageSignature(message: ChatMessage) {
   return `${message.role}:${text}`
 }
 
+function isSyntheticMessageId(messageId: string | null | undefined) {
+  return !messageId || messageId.startsWith("msg-") || messageId.startsWith("openclaw:")
+}
+
+function canTextCollapseRepeatedMessages(a: ChatMessage, b: ChatMessage) {
+  if (a.messageId && b.messageId && a.messageId === b.messageId) return true
+  if (!isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
+  return hasSameGatewayIndex(a, b)
+}
+
 function collapseRepeatedBlocks(messages: ChatMessage[]) {
   const result = [...messages]
   let changed = true
@@ -177,9 +187,11 @@ function collapseRepeatedBlocks(messages: ChatMessage[]) {
       for (let start = 0; start + size * 2 <= result.length; start++) {
         let same = true
         for (let offset = 0; offset < size; offset++) {
+          const left = result[start + offset]
+          const right = result[start + size + offset]
           if (
-            messageSignature(result[start + offset]) !==
-            messageSignature(result[start + size + offset])
+            messageSignature(left) !== messageSignature(right) ||
+            !canTextCollapseRepeatedMessages(left, right)
           ) {
             same = false
             break
@@ -211,9 +223,11 @@ function collapseRepeatedRoleBlocks(
     for (let start = 0; start + size * 2 <= roleItems.length; start++) {
       let same = true
       for (let offset = 0; offset < size; offset++) {
+        const left = roleItems[start + offset].message
+        const right = roleItems[start + size + offset].message
         if (
-          messageSignature(roleItems[start + offset].message) !==
-          messageSignature(roleItems[start + size + offset].message)
+          messageSignature(left) !== messageSignature(right) ||
+          !canTextCollapseRepeatedMessages(left, right)
         ) {
           same = false
           break

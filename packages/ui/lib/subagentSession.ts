@@ -1,7 +1,7 @@
 "use client"
 
-export const SUBAGENT_SESSION_KEY_RE = /agent:[^\s"',}\]]+:subagent:[^\s"',}\]]+/g
-const SUBAGENT_SESSION_KEY_EXACT_RE = /^agent:[^\s"',}\]]+:subagent:[^\s"',}\]]+$/
+export const SUBAGENT_SESSION_KEY_RE = /agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*:subagent:[^\s"',}\]]+/g
+const SUBAGENT_SESSION_KEY_EXACT_RE = /^agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*:subagent:[^\s"',}\]]+$/
 
 export function isSubagentSessionKey(
   value: string | null | undefined,

@@ -139,6 +139,7 @@ type Props = {
         topicName: string
       }
     | { type: "chat" }
+  activeSpaceId?: string | null
   onForkNavigate?: (chat: {
     id?: string | null
     name: string
@@ -294,6 +295,7 @@ export function ChatView({
   activeSubagentKey: externalSubagentKey,
   onSubagentOpen,
   forkContext,
+  activeSpaceId,
   onForkNavigate,
   isBackgroundSession = false,
 }: Props) {
@@ -978,6 +980,7 @@ export function ChatView({
         status: "pending",
         requestId,
         name: optimisticName,
+        spaceId: activeSpaceId ?? undefined,
         context: forkContext ?? { type: "chat" },
       })
       const toastId = toast.loading(
@@ -1008,6 +1011,7 @@ export function ChatView({
           sessionKey: result.sessionKey,
           projectId: result.projectId,
           topicId: result.topicId,
+          spaceId: activeSpaceId ?? undefined,
           context: forkContext ?? { type: "chat" },
         })
         toast.update(toastId, {
@@ -1030,6 +1034,7 @@ export function ChatView({
         emit("fork:create", {
           status: "failed",
           requestId,
+          spaceId: activeSpaceId ?? undefined,
           context: forkContext ?? { type: "chat" },
         })
         toast.update(toastId, {
@@ -1041,7 +1046,7 @@ export function ChatView({
         console.error("Fork failed", err)
       }
     },
-    [sessionKey, messages, forkContext, onForkNavigate]
+    [sessionKey, messages, forkContext, activeSpaceId, onForkNavigate]
   )
 
   const exportOneMessage = useCallback(

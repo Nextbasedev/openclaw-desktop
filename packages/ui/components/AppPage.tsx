@@ -1546,6 +1546,8 @@ function AppShell({
 
   const handleChatClear = useCallback((chatId?: string) => {
     if (chatId) {
+      resolvedChatCacheRef.current.delete(chatId)
+      tabDataRef.current.delete(`chat:${chatId}`)
       const tabId = `chat:${chatId}`
       if (findTabInGroups(editorGroups, tabId)) {
         handleEditorTabClose(tabId)
@@ -2326,6 +2328,7 @@ function AppShell({
                           initialMessages={isFocusedActiveSession ? initialMessages : undefined}
                           onFirstMessageSent={isFocusedActiveSession ? handleFirstMessageSent : undefined}
                           forkContext={{ type: "chat" }}
+                          activeSpaceId={activeSpaceId}
                         />
                       )
                     }
@@ -2577,6 +2580,7 @@ function MainContent({
           onSelectTool={onSelectTool}
           initialPrompt={pendingPrompt ?? undefined}
           forkContext={activeTopic ? { type: "topic", projectId: activeTopic.projectId, projectName: activeTopic.projectName, topicId: activeTopic.id, topicName: activeTopic.name } : { type: "chat" }}
+          activeSpaceId={activeSpaceId}
           onForkNavigate={onForkNavigate}
         />
       </div>

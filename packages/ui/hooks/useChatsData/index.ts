@@ -39,6 +39,7 @@ type ForkCreateEvent = {
   name?: string
   chatId?: string
   sessionKey?: string
+  spaceId?: string | null
   context?: { type?: string }
 }
 
@@ -245,6 +246,7 @@ export function useChatsData(
   useEffect(() => {
     return on<ForkCreateEvent>("fork:create", (event) => {
       if (!event || event.context?.type === "topic") return
+      if (event.spaceId && currentSpaceIdRef.current && event.spaceId !== currentSpaceIdRef.current) return
       if (event.status === "pending") {
         const now = new Date().toISOString()
         const placeholder: Chat = {
@@ -253,7 +255,7 @@ export function useChatsData(
           agentId: "main",
           archived: false,
           pinned: false,
-          spaceId: spaceId ?? undefined,
+          spaceId: event.spaceId ?? spaceId ?? undefined,
           createdAt: now,
           updatedAt: now,
           pendingFork: true,
@@ -264,7 +266,7 @@ export function useChatsData(
       }
       if (event.status === "resolved") {
         setChats((prev) => visibleChatsForSpace(prev.map((chat) => chat.id === event.requestId
-          ? { ...chat, id: event.chatId ?? chat.id, name: event.name ?? chat.name, sessionKey: event.sessionKey, pendingFork: false, spaceId: chat.spaceId ?? spaceId ?? undefined, updatedAt: new Date().toISOString() }
+          ? { ...chat, id: event.chatId ?? chat.id, name: event.name ?? chat.name, sessionKey: event.sessionKey, pendingFork: false, spaceId: event.spaceId ?? chat.spaceId ?? spaceId ?? undefined, updatedAt: new Date().toISOString() }
           : chat,
         ), spaceId))
         setChatOrder((prev) => prev.map((id) => id === event.requestId ? event.chatId ?? id : id))

@@ -4036,6 +4036,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const session = {
           id: id("session"),
           sessionKey,
+          spaceId: sessionWriteSpaceId(input),
           projectId: input.projectId || null,
           topicId: input.topicId || null,
           agentId: input.agentId || "main",
@@ -4062,11 +4063,12 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
             label: gatewaySessionLabel(input.name, sessionKey),
           });
         } catch { /* session may already exist */ }
+        const writeSpaceId = sessionWriteSpaceId(input);
         const chat = {
           id: id("chat"),
           name: input.name || "New Chat",
           sessionKey,
-          spaceId: input.spaceId || activeSpaceId(),
+          spaceId: writeSpaceId,
           agentId: input.agentId || "main",
           archived: false,
           pinned: false,
@@ -4078,6 +4080,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           id: id("session"),
           key: sessionKey,
           sessionKey,
+          spaceId: writeSpaceId,
           projectId: input.projectId || null,
           topicId: input.topicId || null,
           agentId: input.agentId || "main",
