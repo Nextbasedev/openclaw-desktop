@@ -83,6 +83,22 @@ describe("SQLite projection", () => {
     ]);
   });
 
+  test("normalizer hides internal subagent completion messages from parent projection", () => {
+    const rows = normalizeHistoryMessages("parent", [
+      { id: "visible-user", role: "user", text: "run the task", __openclaw: { seq: 1 } },
+      {
+        id: "internal-subagent-completion",
+        role: "user",
+        text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nsource: subagent\nSUBAGENT_TOOL_CALL_1\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+        provenance: { kind: "inter_session", sourceSessionKey: "agent:main:subagent:child", sourceTool: "subagent_announce" },
+        __openclaw: { seq: 2 },
+      },
+      { id: "visible-assistant", role: "assistant", text: "done", __openclaw: { seq: 3 } },
+    ], 100, 1);
+
+    expect(rows.map((row) => row.messageId)).toEqual(["visible-user", "visible-assistant"]);
+  });
+
   test("run projection stores send identity and terminal status", () => {
     const db = openDatabase({ databasePath: testDbPath("runs") });
     const repo = new RunRepository(db);

@@ -48,6 +48,13 @@ export function readOpenClawMessageId(message: OpenClawMessage): string | null {
   return typeof id === "string" && id.trim() ? id.trim() : null;
 }
 
+export function isInternalSubagentCompletionMessage(message: OpenClawMessage): boolean {
+  const provenance = message.provenance;
+  if (isObject(provenance) && provenance.sourceTool === "subagent_announce") return true;
+  const text = textFromMessage(message);
+  return text.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") && text.includes("source: subagent");
+}
+
 function readMessageTimestampMs(message: OpenClawMessage, fallbackMs: number): number {
   const value = message.timestamp ?? message.createdAt ?? message.created_at ?? message.updatedAt ?? message.updated_at;
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -65,6 +72,7 @@ function readMessageTimestampMs(message: OpenClawMessage, fallbackMs: number): n
 export function normalizeHistoryMessages(sessionKey: string, messages: unknown[], nowMs = Date.now(), firstFallbackSeq = 1): ProjectedMessage[] {
   return messages
     .filter((message): message is OpenClawMessage => Boolean(message) && typeof message === "object" && !Array.isArray(message))
+    .filter((message) => !isInternalSubagentCompletionMessage(message))
     .map((message, index) => ({
       sessionKey,
       openclawSeq: readOpenClawSeq(message, firstFallbackSeq + index),
