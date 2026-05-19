@@ -230,7 +230,7 @@ export function ToolCallSteps({
 
   if (total === 1) {
     return (
-      <div className="mb-1">
+      <div className="mb-3">
         <button
           type="button"
           className={cn(
@@ -262,7 +262,7 @@ export function ToolCallSteps({
   return (
     <div
       className="transition-all duration-300 ease-out"
-      style={{ marginBottom: open ? 4 : rest > 0 ? 16 : 8 }}
+      style={{ marginBottom: open ? 8 : rest > 0 ? 20 : 12 }}
     >
       <button
         type="button"

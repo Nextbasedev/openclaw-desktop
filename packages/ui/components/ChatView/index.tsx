@@ -1202,7 +1202,7 @@ export function ChatView({
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
             const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
               ? (
-                  <div className="mb-2 max-w-[85%]">
+                  <div className="mb-4 max-w-[85%]">
                     <ToolCallSteps
                       tools={filteredToolCalls}
                       defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
