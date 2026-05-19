@@ -1036,7 +1036,7 @@ function transcriptLineFromHistoryMessage(message: CompatRecord) {
   const timestamp = typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : typeof message.timestamp === "string" ? message.timestamp : nowIso();
   const stripped = { ...message };
   delete stripped.__openclaw;
-  return JSON.stringify({ id: idValue, timestamp, message: stripped });
+  return JSON.stringify({ type: "message", id: idValue, timestamp, message: stripped });
 }
 
 function copyHistoryMessagesToTranscript(transcriptPath: string, messages: CompatRecord[]) {

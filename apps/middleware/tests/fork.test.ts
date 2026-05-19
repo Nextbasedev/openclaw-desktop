@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
@@ -61,6 +62,9 @@ describe("chat fork compatibility command", () => {
       parentSessionKey: "agent:main:desktop:source",
     });
     expect(transcriptPath && transcriptPath.length > 0).toBe(true);
+    const transcriptLines = fs.readFileSync(transcriptPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    expect(transcriptLines.map((line) => line.type)).toEqual(["session", "message", "message"]);
+    expect(transcriptLines.slice(1).map((line) => line.message.text)).toEqual(["one", "two"]);
     expect(await app.inject({ method: "POST", url: "/api/commands/middleware_chat_fork_history", payload: { input: { sessionKey: body.sessionKey } } }).then((r) => r.json())).toMatchObject({
       isFork: true,
       sourceSessionKey: "agent:main:desktop:source",
