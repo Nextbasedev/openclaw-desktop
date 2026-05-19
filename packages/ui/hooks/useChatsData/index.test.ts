@@ -92,4 +92,42 @@ describe("useChatsData", () => {
     expect(mocks.stateSets[0]).toContainEqual([backendChat])
     expect(mocks.localSyncSetChats).toHaveBeenCalledWith("space_1", [backendChat], undefined, expect.any(Number))
   })
+
+  it("only writes chats for the captured request space to cache", async () => {
+    const spaceOneChat: Chat = {
+      id: "chat_space_1",
+      name: "Space 1 chat",
+      spaceId: "space_1",
+      agentId: "main",
+      archived: false,
+      pinned: false,
+      createdAt: "2026-05-10T00:00:00.000Z",
+      updatedAt: "2026-05-10T00:01:00.000Z",
+    }
+    const spaceTwoChat: Chat = {
+      id: "chat_space_2",
+      name: "Space 2 chat",
+      spaceId: "space_2",
+      agentId: "main",
+      archived: false,
+      pinned: false,
+      createdAt: "2026-05-10T00:00:00.000Z",
+      updatedAt: "2026-05-10T00:01:00.000Z",
+    }
+
+    mocks.localSyncGetChats.mockResolvedValue(null)
+    mocks.loadMiddlewareStartupBootstrap.mockResolvedValue(null)
+    mocks.invoke.mockResolvedValue({ chats: [spaceOneChat, spaceTwoChat] })
+
+    const data = useChatsData(null, vi.fn(), 0, "space_1")
+    await data.loadChats()
+
+    expect(mocks.persistentCacheSet).toHaveBeenCalledWith(
+      "project:space_1:chats",
+      [spaceOneChat],
+      expect.any(Object),
+    )
+    expect(mocks.localSyncSetChats).toHaveBeenCalledWith("space_1", [spaceOneChat], undefined, expect.any(Number))
+    expect(mocks.localSyncSetChats).not.toHaveBeenCalledWith("space_1", [spaceOneChat, spaceTwoChat], undefined, expect.any(Number))
+  })
 })

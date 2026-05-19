@@ -134,14 +134,14 @@ export function useChatsData(
         "middleware_chats_list",
         { input: { spaceId: spaceId ?? undefined } },
       )
-      const active = visibleChatsForSpace(result.chats || [], spaceId)
+      const active = visibleChatsForSpace(result.chats || [], requestSpaceId)
       if (!isCurrentRequest()) return
-      if (spaceId) {
-        void persistentCacheSet(`project:${spaceId}:chats`, active, {
+      if (requestSpaceId) {
+        void persistentCacheSet(`project:${requestSpaceId}:chats`, active, {
           ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
         })
         void localSyncSetChats(
-          spaceId,
+          requestSpaceId,
           active,
           undefined,
           SIDEBAR_CHAT_CACHE_TTL_MS,
@@ -149,22 +149,24 @@ export function useChatsData(
       }
       applyChats(active)
     } catch (e) {
-      console.error("[ChatsSection] load chats failed", e)
+      if (isCurrentRequest()) console.error("[ChatsSection] load chats failed", e)
     }
   }, [spaceId])
 
   const cacheChatsForCurrentSpace = useCallback((nextChats: Chat[]) => {
-    if (!spaceId) return
-    void persistentCacheSet(`project:${spaceId}:chats`, nextChats, {
+    const writeSpaceId = currentSpaceIdRef.current
+    if (!writeSpaceId) return
+    const scopedChats = visibleChatsForSpace(nextChats, writeSpaceId)
+    void persistentCacheSet(`project:${writeSpaceId}:chats`, scopedChats, {
       ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
     })
     void localSyncSetChats(
-      spaceId,
-      nextChats,
+      writeSpaceId,
+      scopedChats,
       undefined,
       SIDEBAR_CHAT_CACHE_TTL_MS,
     )
-  }, [spaceId])
+  }, [])
 
   const scheduleSidebarRefresh = useCallback(() => {
     if (refreshTimerRef.current !== null) return
@@ -220,9 +222,9 @@ export function useChatsData(
   useEffect(() => {
     if (!spaceId) return
     const subscriptionSpaceId = spaceId
-    return localSyncSubscribeChats(spaceId, (state) => {
+    return localSyncSubscribeChats(subscriptionSpaceId, (state) => {
       if (currentSpaceIdRef.current !== subscriptionSpaceId) return
-      const active = visibleChatsForSpace(state.chats || [], spaceId)
+      const active = visibleChatsForSpace(state.chats || [], subscriptionSpaceId)
       setChats(active)
       setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
     })

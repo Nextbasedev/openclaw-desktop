@@ -798,7 +798,18 @@ function linkDiscoveredSubagent(childSessionKey: string, childStatus: StreamStat
     if (index >= 0) candidates.push({ sessionKey, state, index })
   }
   if (candidates.length === 0) return
-  candidates.sort((a, b) => b.state.cursor - a.state.cursor)
+  if (candidates.length > 1) {
+    frontendLog("session", "global-chat-session.subagent-auto-link-ambiguous", {
+      childSessionKey,
+      childStatus,
+      candidates: candidates.map((candidate) => ({
+        parentSessionKey: candidate.sessionKey,
+        cursor: candidate.state.cursor,
+        toolCallId: candidate.state.spawnedSubagents[candidate.index]?.toolCallId,
+      })),
+    }, "debug")
+    return
+  }
   const candidate = candidates[0]
   const spawn = candidate.state.spawnedSubagents[candidate.index]
   candidate.state.spawnedSubagents = candidate.state.spawnedSubagents.map((item, index) =>
@@ -1049,7 +1060,7 @@ function stalePatchMatchesPendingTool(state: SessionState, frame: PatchFrame) {
       if (id) ids.push(id)
     }
   }
-  return ids.some((id) => state.pendingTools.some((pending) => pending.id === id) || Boolean(findVisibleToolById(state, id)))
+  return ids.some((id) => state.pendingTools.some((pending) => pending.id === id && pending.status === "running"))
 }
 
 function applyStaleMatchingToolPatch(state: SessionState, frame: PatchFrame) {

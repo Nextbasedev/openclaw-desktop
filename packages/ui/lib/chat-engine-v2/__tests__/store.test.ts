@@ -129,7 +129,7 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
-  test("applies stale result patch to already visible tool rows", () => {
+  test("ignores stale result patch to already visible completed tool rows", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
       cursor: 10,
@@ -159,12 +159,9 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        messageId: "a-tools",
-        toolCalls: [expect.objectContaining({ id: "tool-1", resultText: "late file contents", status: "success" })],
-      }),
-    ]))
+    const tool = getGlobalChatSession("s1")!.messages.find((message) => message.messageId === "a-tools")?.toolCalls?.[0]
+    expect(tool).toMatchObject({ id: "tool-1", status: "success" })
+    expect(tool).not.toHaveProperty("resultText", "late file contents")
   })
 
   test("updates visible tool row from user tool_result content blocks", () => {
@@ -1248,6 +1245,50 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("ignores stale tool result patches for already completed tools", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "run command" },
+        {
+          messageId: "a1",
+          role: "assistant",
+          text: "done",
+          toolCalls: [{ id: "tc-done", tool: "exec", status: "success", resultText: "ok" }],
+        },
+      ],
+      pendingTools: [{ id: "tc-done", tool: "exec", status: "success", resultText: "ok" }],
+    })
+    const updates: unknown[] = []
+    const unsubscribe = subscribeGlobalChatSession("s1", (state) => updates.push(state))
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 9,
+        type: "chat.tool.completed",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          semanticType: "chat.tool.completed",
+          runStatus: "done",
+          toolCall: {
+            toolCallId: "tc-done",
+            name: "exec",
+            status: "completed",
+            resultMeta: "old replay",
+          },
+        },
+      },
+    })
+
+    expect(updates).toHaveLength(1)
+    expect(getGlobalChatSession("s1")?.pendingTools).toEqual([])
+    unsubscribe()
+  })
+
   test("links spawned subagent as soon as child session activity appears", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
@@ -1283,6 +1324,35 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
       { toolCallId: "spawn-early", sessionKey: "agent:main:desktop:subagent:child-1", status: "working" },
     ])
+  })
+
+  test("does not auto-link discovered subagent when multiple parents are possible", () => {
+    seedGlobalChatSession({
+      sessionKey: "parent-1",
+      messages: [],
+      cursor: 10,
+      spawnedSubagents: [{ id: "spawn:1", label: "Worker 1", status: "spawning", toolCallId: "spawn-1", sessionKey: null }],
+    })
+    seedGlobalChatSession({
+      sessionKey: "parent-2",
+      messages: [],
+      cursor: 11,
+      spawnedSubagents: [{ id: "spawn:2", label: "Worker 2", status: "spawning", toolCallId: "spawn-2", sessionKey: null }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 12,
+        type: "chat.status",
+        sessionKey: "agent:main:desktop:subagent:child-1",
+        createdAtMs: Date.now(),
+        payload: { status: "thinking", statusLabel: "Thinking" },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-1")?.spawnedSubagents[0]?.sessionKey).toBeNull()
+    expect(getGlobalChatSession("parent-2")?.spawnedSubagents[0]?.sessionKey).toBeNull()
   })
 
   test("keeps child subagent messages isolated from the parent chat", () => {
