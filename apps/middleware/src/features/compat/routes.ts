@@ -1637,10 +1637,12 @@ function sessionActivityMs(session: CompatRecord | null) {
 
 function chatForResponse(chat: CompatRecord) {
   if (!chat.syncedFromGateway) return chat;
-  const activityMs = sessionActivityMs(sessionForChat(chat));
+  const session = sessionForChat(chat);
+  const activityMs = sessionActivityMs(session);
   if (activityMs <= 0) return chat;
   const activityAt = new Date(activityMs).toISOString();
-  return { ...chat, updatedAt: activityAt, lastActiveAt: activityAt, lastMessageAt: activityAt };
+  const createdAt = typeof session?.createdAt === "string" && session.createdAt.trim() ? session.createdAt : chat.createdAt;
+  return { ...chat, createdAt, updatedAt: activityAt, lastActiveAt: activityAt, lastMessageAt: activityAt };
 }
 
 function sortedChatsForResponse(spaceId?: unknown, archived?: boolean) {
