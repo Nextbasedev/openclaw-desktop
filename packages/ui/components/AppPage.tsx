@@ -338,6 +338,7 @@ function AppShell({
     archiveSpace,
     switchSpace,
     deleteSpace,
+    loading: spacesLoading,
   } = useSpaces()
 
   useEffect(() => {
@@ -628,6 +629,7 @@ function AppShell({
     }
 
     if (route.kind === "chat") {
+      if (!activeSpaceId) return
       const expectedPath = `/${route.chatId}`
       const isCurrentPath = () => getRoutePath() === expectedPath
       setPendingPrompt(null)
@@ -646,7 +648,7 @@ function AppShell({
         if (!isCurrentPath()) return
 
         const found = (chatResult.chats || []).find(
-          (chat) => chat.id === route.chatId && (!activeSpaceId || chat.spaceId === activeSpaceId),
+          (chat) => chat.id === route.chatId && chat.spaceId === activeSpaceId,
         )
         if (!found || found.archived) {
           recoverToDraftRoute()
@@ -657,7 +659,7 @@ function AppShell({
           id: found.id,
           name: found.name,
           sessionKey: found.sessionKey,
-        })
+        }, { activeSpaceId })
         if (!isCurrentPath()) return
 
         resolvedChatCacheRef.current.set(found.id, resolved)
@@ -753,9 +755,11 @@ function AppShell({
   // Restore state from URL on mount
   useEffect(() => {
     if (initialRouteAppliedRef.current) return
+    const route = parseRoute(getRoutePath())
+    if (route.kind === "chat" && (spacesLoading || !activeSpaceId)) return
     initialRouteAppliedRef.current = true
-    void activateRoute(parseRoute(getRoutePath()))
-  }, [activateRoute])
+    void activateRoute(route)
+  }, [activateRoute, activeSpaceId, spacesLoading])
 
   // Handle browser back/forward
   useEffect(() => {
@@ -1024,7 +1028,7 @@ function AppShell({
     }
 
     try {
-      const resolved = await ensureChatSession(chat)
+      const resolved = await ensureChatSession(chat, { activeSpaceId })
       if (routeRequestRef.current !== requestId) return
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
       applyChatSelection(resolved)
@@ -1038,10 +1042,12 @@ function AppShell({
         window.history.pushState(null, "", routeUrl(`/${chat.id}`))
       }
     }
-  }, [editorGroups.focusedGroupId])
+  }, [activeSpaceId, editorGroups.focusedGroupId])
 
   useEffect(() => {
     if (layoutRestoreAttemptedRef.current || spaces.length === 0) return
+    const currentRoute = parseRoute(getRoutePath())
+    if (currentRoute.kind !== "home") return
     layoutRestoreAttemptedRef.current = true
     let cancelled = false
     async function restoreLastWorkspaceLayout() {
@@ -1049,7 +1055,9 @@ function AppShell({
       if (!snapshot || cancelled) return
       const validSpace = snapshot.activeSpaceId
         ? spaces.some((space) => space.id === snapshot.activeSpaceId)
-        : true
+        : false
+      const restoreSpaceId = validSpace ? snapshot.activeSpaceId : activeSpaceId
+      if (!restoreSpaceId) return
       if (snapshot.activeSpaceId && validSpace && snapshot.activeSpaceId !== activeSpaceId) {
         await switchSpace(snapshot.activeSpaceId).catch(() => {})
       }
@@ -1069,7 +1077,7 @@ function AppShell({
       if (chatIds.size > 0) {
         const result = await invoke<{ chats: Array<ActiveChat & { archived?: boolean }> }>(
           "middleware_chats_list",
-          { input: { spaceId: validSpace ? snapshot.activeSpaceId ?? undefined : undefined } },
+          { input: { spaceId: restoreSpaceId } },
         ).catch(() => ({ chats: [] }))
         for (const chat of result.chats || []) {
           if (!chat.archived) chatsById.set(chat.id, chat)
@@ -1144,7 +1152,7 @@ function AppShell({
       const cronJobId = cronJob.cronJobId ?? cronJob.id
       const listResult = await invoke<{
         chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
-      }>("middleware_chats_list", { input: {} }).catch(() => ({ chats: [] }))
+      }>("middleware_chats_list", { input: { spaceId: activeSpaceId ?? undefined } }).catch(() => ({ chats: [] }))
       const chats = listResult.chats.filter((chat) => !chat.archived)
       const directSessionKey = isRealChatSessionKey(cronJob.sessionKey)
         ? cronJob.sessionKey
@@ -1233,7 +1241,7 @@ function AppShell({
       console.error("Failed to navigate to cron job chat", err)
       return false
     }
-  }, [activeChat, activeSessionKey, activeSessionTitle, handleChatSelect])
+  }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, handleChatSelect])
 
   const handleForkNavigate = useCallback(
     (chat: { id?: string | null; name: string; sessionKey: string; projectId?: string | null; topicId?: string | null }) => {
@@ -1669,7 +1677,7 @@ function AppShell({
         setComposerError(null)
       } else {
         dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null, sourceSessionData })
-        ensureChatSession(splitChat)
+        ensureChatSession(splitChat, { activeSpaceId })
           .then((resolved) => {
             resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
             dispatchGroups({
@@ -1690,7 +1698,7 @@ function AppShell({
     } else {
       dispatchGroups({ type: "SPLIT_TAB", tabId: splitTab.id, sessionData: null, sourceSessionData })
     }
-  }, [activeChat, activeSessionKey, activeSessionTitle, editorGroups])
+  }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, editorGroups])
 
   const handleSessionNavigate = useCallback(async (sessionKey?: string) => {
     setConnectAutoOpenEnabled(false)
@@ -1706,7 +1714,7 @@ function AppShell({
     setActiveTab("chat")
 
     try {
-      const target = await resolveSessionNavigationTarget(sessionKey)
+      const target = await resolveSessionNavigationTarget(sessionKey, { activeSpaceId })
       if (!target) {
         handleNewChat()
         return
@@ -1739,7 +1747,7 @@ function AppShell({
       console.error("Failed to navigate to session", err)
       handleNewChat()
     }
-  }, [handleNewChat])
+  }, [activeSpaceId, handleNewChat])
 
   const handlePromptDraft = useCallback((prompt: string) => {
     setConnectAutoOpenEnabled(false)
@@ -1834,12 +1842,12 @@ function AppShell({
     if (!sessionKey) {
       const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
         "middleware_sessions_create",
-        { input: { agentId: "main", label: fallbackName } },
+        { input: { agentId: "main", label: fallbackName, spaceId: activeSpaceId ?? undefined } },
       )
       sessionKey = sessionKeyFromResponse(sessionResult)
       if (sessionKey) {
         await invoke("middleware_chats_attach_session", {
-          input: { chatId: result.chat.id, sessionKey },
+          input: { chatId: result.chat.id, sessionKey, spaceId: activeSpaceId ?? undefined },
         })
       }
     }
@@ -1902,12 +1910,12 @@ function AppShell({
       if (!sessionKey) {
         const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
           "middleware_sessions_create",
-          { input: { agentId: "main", label: fallbackName } },
+          { input: { agentId: "main", label: fallbackName, spaceId: activeSpaceId ?? undefined } },
         )
         sessionKey = sessionKeyFromResponse(sessionResult)
         if (sessionKey) {
           await invoke("middleware_chats_attach_session", {
-            input: { chatId: result.chat.id, sessionKey },
+            input: { chatId: result.chat.id, sessionKey, spaceId: activeSpaceId ?? undefined },
           })
         }
       }

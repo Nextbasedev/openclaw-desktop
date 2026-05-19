@@ -1802,6 +1802,22 @@ function sessionsForSpace(spaceId?: unknown) {
   return compatState.sessions.filter((session) => notDeleted(session) && (!filterSpaceId || sessionSpaceId(session) === filterSpaceId));
 }
 
+function wantsGlobalList(query: CompatRecord) {
+  return query.all === "true" || query.all === true || query.global === "true" || query.global === true;
+}
+
+function listSpaceId(query: CompatRecord) {
+  if (wantsGlobalList(query)) return undefined;
+  return typeof query.spaceId === "string" && query.spaceId.trim() ? query.spaceId : activeSpaceId();
+}
+
+function sessionWriteSpaceId(body: CompatRecord) {
+  if (typeof body.spaceId === "string" && body.spaceId.trim()) return body.spaceId;
+  const fromProject = projectSpaceId(body.projectId);
+  if (fromProject) return fromProject;
+  return activeSpaceId();
+}
+
 function patchById(records: CompatRecord[], idValue: string, patch: CompatRecord) {
   const index = records.findIndex((record) => record.id === idValue);
   if (index < 0) return null;
@@ -3091,8 +3107,9 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     applyProjectedChatActivity(context);
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
+    const spaceId = listSpaceId(query);
     return {
-      chats: sortedChatsForResponse(query.spaceId, archived),
+      chats: sortedChatsForResponse(spaceId, archived),
     };
   });
 
@@ -3100,6 +3117,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
     const sessionKey = String(body.sessionKey || `agent:${body.agentId || "main"}:desktop:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+    const spaceId = sessionWriteSpaceId(body);
     void context.gateway.request("sessions.create", {
       key: sessionKey,
       agentId: body.agentId || "main",
@@ -3109,7 +3127,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       id: id("chat"),
       name: body.name || "New Chat",
       sessionKey,
-      spaceId: body.spaceId || activeSpaceId(),
+      spaceId,
       agentId: body.agentId || "main",
       archived: false,
       pinned: false,
@@ -3123,6 +3141,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       sessionKey,
       projectId: body.projectId || null,
       topicId: body.topicId || null,
+      spaceId,
       agentId: body.agentId || "main",
       label: body.name || "New Chat",
       createdAt: timestamp,
@@ -3177,14 +3196,20 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const sessionKey = body.sessionKey ?? null;
-    let chat = patchById(compatState.chats, request.params.chatId, { sessionKey });
+    const existingChat = compatState.chats.find((item) => item.id === request.params.chatId && notDeleted(item));
+    const spaceId = typeof body.spaceId === "string" && body.spaceId.trim()
+      ? body.spaceId
+      : typeof existingChat?.spaceId === "string" && existingChat.spaceId.trim()
+        ? existingChat.spaceId
+        : sessionWriteSpaceId(body);
+    let chat = patchById(compatState.chats, request.params.chatId, { sessionKey, spaceId });
     if (!chat) {
       const timestamp = nowIso();
       chat = {
         id: request.params.chatId,
         name: body.name || "New Chat",
         sessionKey,
-        spaceId: body.spaceId || activeSpaceId(),
+        spaceId,
         agentId: body.agentId || "main",
         archived: false,
         pinned: false,
@@ -3198,7 +3223,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return { chat };
   });
 
-  app.get("/api/projects", async (request) => ({ projects: listBySpace(compatState.projects, (request.query as CompatRecord).spaceId) }));
+  app.get("/api/projects", async (request) => {
+    const query = request.query as CompatRecord;
+    return { projects: listBySpace(compatState.projects, listSpaceId(query)) };
+  });
   app.post("/api/projects", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
@@ -3253,10 +3281,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get("/api/sessions", async (request) => {
     await syncGatewaySessions(context);
     const query = request.query as CompatRecord;
+    const spaceId = listSpaceId(query);
     return {
       sessions: compatState.sessions.filter((session) =>
         notDeleted(session) &&
-        (!query.spaceId || sessionSpaceId(session) === query.spaceId) &&
+        (!spaceId || sessionSpaceId(session) === spaceId) &&
         (!query.projectId || session.projectId === query.projectId) &&
         (!query.topicId || session.topicId === query.topicId)
       ),
@@ -3273,7 +3302,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         label: gatewaySessionLabel(body.label, sessionKey),
       });
     } catch { /* session may already exist or gateway may be offline */ }
-    const session = { id: id("session"), ...body, key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
+    const session = { id: id("session"), ...body, spaceId: sessionWriteSpaceId(body), key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
     compatState.sessions.push(session);
     saveCompatCollection(context, "sessions");
     return { session };

@@ -148,7 +148,7 @@ async function invokeRemoteMiddleware<T>(
 
   switch (command) {
     case "middleware_projects_list":
-      return middlewareFetch<T>(`/api/projects${queryString({ spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
+      return middlewareFetch<T>(`/api/projects${queryString({ spaceId: input.spaceId ? String(input.spaceId) : undefined, all: input.all ? "true" : undefined })}`)
     case "middleware_projects_create":
       return middlewareFetch<T>("/api/projects", { method: "POST", body: JSON.stringify(input) })
     case "middleware_projects_update":
@@ -168,7 +168,7 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_topics_archive":
       return middlewareFetch<T>(`/api/topics/${input.topicId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_list":
-      return middlewareFetch<T>(`/api/chats${queryString({ archived: input.archived ? "true" : undefined, spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
+      return middlewareFetch<T>(`/api/chats${queryString({ archived: input.archived ? "true" : undefined, spaceId: input.spaceId ? String(input.spaceId) : undefined, all: input.all ? "true" : undefined })}`)
     case "middleware_chats_create":
       return middlewareFetch<T>("/api/chats", { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_update":
@@ -199,6 +199,8 @@ async function invokeRemoteMiddleware<T>(
       const params = new URLSearchParams()
       if (input.projectId) params.set("projectId", String(input.projectId))
       if (input.topicId) params.set("topicId", String(input.topicId))
+      if (input.spaceId) params.set("spaceId", String(input.spaceId))
+      if (input.all) params.set("all", "true")
       const query = params.toString()
       return middlewareFetch<T>(`/api/sessions${query ? `?${query}` : ""}`)
     }

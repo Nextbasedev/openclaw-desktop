@@ -465,6 +465,50 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("chat, project, and session list routes default to the active space instead of global", async () => {
+    const app = await createApp(testConfig());
+
+    const defaultChat = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Default Chat", agentId: "main", spaceId: "space_default" } });
+    const defaultSessionKey = defaultChat.json().chat.sessionKey as string;
+    const defaultProject = await app.inject({ method: "POST", url: "/api/projects", payload: { name: "Default Project", spaceId: "space_default" } });
+
+    const createdSpace = await app.inject({ method: "POST", url: "/api/spaces", payload: { name: "Focused Space" } });
+    const activeSpaceId = createdSpace.json().activeSpaceId as string;
+    const activeChat = await app.inject({ method: "POST", url: "/api/chats", payload: { name: "Active Chat", agentId: "main", spaceId: activeSpaceId } });
+    const activeProject = await app.inject({ method: "POST", url: "/api/projects", payload: { name: "Active Project", spaceId: activeSpaceId } });
+
+    const chats = await app.inject({ method: "GET", url: "/api/chats" });
+    expect(chats.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: activeChat.json().chat.id, spaceId: activeSpaceId }),
+    ]));
+    expect(chats.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: defaultChat.json().chat.id }),
+    ]));
+
+    const sessions = await app.inject({ method: "GET", url: "/api/sessions" });
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: activeChat.json().chat.sessionKey, spaceId: activeSpaceId }),
+    ]));
+    expect(sessions.json().sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: defaultSessionKey }),
+    ]));
+
+    const projects = await app.inject({ method: "GET", url: "/api/projects" });
+    expect(projects.json().projects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: activeProject.json().project.id, spaceId: activeSpaceId }),
+    ]));
+    expect(projects.json().projects).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: defaultProject.json().project.id }),
+    ]));
+
+    const allChats = await app.inject({ method: "GET", url: "/api/chats?all=true" });
+    expect(allChats.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: defaultChat.json().chat.id }),
+      expect.objectContaining({ id: activeChat.json().chat.id }),
+    ]));
+    await app.close();
+  });
+
   test("compat chats and sessions survive middleware restart", async () => {
     const databasePath = path.join(os.tmpdir(), `openclaw-v2-compat-restart-${Date.now()}-${Math.random()}.sqlite`);
     const restartConfig = testConfig({ databasePath });

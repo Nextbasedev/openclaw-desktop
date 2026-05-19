@@ -94,23 +94,36 @@ export function useChatsData(
     null,
   )
   const [deleting, setDeleting] = useState(false)
+  const loadSeqRef = useRef(0)
+  const currentSpaceIdRef = useRef<string | null | undefined>(spaceId)
+
+  useEffect(() => {
+    currentSpaceIdRef.current = spaceId
+  }, [spaceId])
 
   const loadChats = useCallback(async () => {
+    currentSpaceIdRef.current = spaceId
+    const requestSeq = ++loadSeqRef.current
+    const requestSpaceId = spaceId
+    const isCurrentRequest = () => loadSeqRef.current === requestSeq && currentSpaceIdRef.current === requestSpaceId
+    const applyChats = (nextChats: Chat[]) => {
+      if (!isCurrentRequest()) return
+      setChats(nextChats)
+      setPinnedChats(new Set(nextChats.filter((c) => c.pinned).map((c) => c.id)))
+    }
     try {
       const chatCacheKey = spaceId ? `project:${spaceId}:chats` : null
       const localChats = spaceId ? await localSyncGetChats(spaceId) : null
       const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey) : null)
       if (cachedChats) {
         const active = visibleChatsForSpace(cachedChats, spaceId)
-        setChats(active)
-        setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+        applyChats(active)
       }
       const bootstrap = await loadMiddlewareStartupBootstrap()
       if (bootstrap && (!spaceId || bootstrap.activeSpaceId === spaceId)) {
         const active = visibleChatsForSpace(bootstrap.chats || [], spaceId)
         if (active.length > 0) {
-          setChats(active)
-          setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+          applyChats(active)
         }
       }
       const result = await invoke<{ chats: Chat[] }>(
@@ -118,6 +131,7 @@ export function useChatsData(
         { input: { spaceId: spaceId ?? undefined } },
       )
       const active = visibleChatsForSpace(result.chats || [], spaceId)
+      if (!isCurrentRequest()) return
       if (spaceId) {
         void persistentCacheSet(`project:${spaceId}:chats`, active, {
           ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
@@ -129,10 +143,7 @@ export function useChatsData(
           SIDEBAR_CHAT_CACHE_TTL_MS,
         )
       }
-      setChats(active)
-      setPinnedChats(
-        new Set(active.filter((c) => c.pinned).map((c) => c.id)),
-      )
+      applyChats(active)
     } catch (e) {
       console.error("[ChatsSection] load chats failed", e)
     }
@@ -142,6 +153,9 @@ export function useChatsData(
     setChats([])
     setPinnedChats(new Set())
     loadChats()
+    return () => {
+      loadSeqRef.current += 1
+    }
   }, [loadChats, refreshTrigger])
 
   useEffect(() => {
@@ -171,7 +185,9 @@ export function useChatsData(
 
   useEffect(() => {
     if (!spaceId) return
+    const subscriptionSpaceId = spaceId
     return localSyncSubscribeChats(spaceId, (state) => {
+      if (currentSpaceIdRef.current !== subscriptionSpaceId) return
       const active = visibleChatsForSpace(state.chats || [], spaceId)
       setChats(active)
       setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
@@ -204,19 +220,20 @@ export function useChatsData(
           agentId: "main",
           archived: false,
           pinned: false,
+          spaceId: spaceId ?? undefined,
           createdAt: now,
           updatedAt: now,
           pendingFork: true,
         }
-        setChats((prev) => [placeholder, ...prev.filter((chat) => chat.id !== event.requestId)])
+        setChats((prev) => visibleChatsForSpace([placeholder, ...prev.filter((chat) => chat.id !== event.requestId)], spaceId))
         setChatOrder((prev) => [event.requestId, ...prev.filter((id) => id !== event.requestId)])
         return
       }
       if (event.status === "resolved") {
-        setChats((prev) => prev.map((chat) => chat.id === event.requestId
-          ? { ...chat, id: event.chatId ?? chat.id, name: event.name ?? chat.name, sessionKey: event.sessionKey, pendingFork: false, updatedAt: new Date().toISOString() }
+        setChats((prev) => visibleChatsForSpace(prev.map((chat) => chat.id === event.requestId
+          ? { ...chat, id: event.chatId ?? chat.id, name: event.name ?? chat.name, sessionKey: event.sessionKey, pendingFork: false, spaceId: chat.spaceId ?? spaceId ?? undefined, updatedAt: new Date().toISOString() }
           : chat,
-        ))
+        ), spaceId))
         setChatOrder((prev) => prev.map((id) => id === event.requestId ? event.chatId ?? id : id))
         return
       }
@@ -225,7 +242,7 @@ export function useChatsData(
         setChatOrder((prev) => prev.filter((id) => id !== event.requestId))
       }
     })
-  }, [])
+  }, [spaceId])
 
   const bumpChatActivityTime = useCallback((event?: ChatActivityEvent | null) => {
     const chatId = event?.chatId ?? activeChat?.id
