@@ -132,20 +132,6 @@ export function useChatsData(
       setPinnedChats(new Set(nextChats.filter((c) => c.pinned).map((c) => c.id)))
     }
     try {
-      const chatCacheKey = spaceId ? `project:${spaceId}:chats` : null
-      const localChats = spaceId ? await localSyncGetChats(spaceId) : null
-      const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey) : null)
-      if (cachedChats) {
-        const active = visibleChatsForSpace(cachedChats, spaceId)
-        applyChats(active)
-      }
-      const bootstrap = await loadMiddlewareStartupBootstrap()
-      if (bootstrap && (!spaceId || bootstrap.activeSpaceId === spaceId)) {
-        const active = visibleChatsForSpace(bootstrap.chats || [], spaceId)
-        if (active.length > 0) {
-          applyChats(active)
-        }
-      }
       const result = await invoke<{ chats: Chat[] }>(
         "middleware_chats_list",
         { input: { spaceId: spaceId ?? undefined } },
@@ -165,7 +151,14 @@ export function useChatsData(
       }
       applyChats(active)
     } catch (e) {
-      if (isCurrentRequest()) console.error("[ChatsSection] load chats failed", e)
+      if (!isCurrentRequest()) return
+      const chatCacheKey = requestSpaceId ? `project:${requestSpaceId}:chats` : null
+      const localChats = requestSpaceId ? await localSyncGetChats(requestSpaceId).catch(() => null) : null
+      const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey).catch(() => null) : null)
+      const bootstrap = await loadMiddlewareStartupBootstrap().catch(() => null)
+      const fallbackChats = cachedChats ?? (bootstrap && (!requestSpaceId || bootstrap.activeSpaceId === requestSpaceId) ? bootstrap.chats : null)
+      if (fallbackChats) applyChats(visibleChatsForSpace(fallbackChats, requestSpaceId))
+      console.error("[ChatsSection] load chats failed", e)
     }
   }, [spaceId])
 
@@ -241,8 +234,15 @@ export function useChatsData(
     return localSyncSubscribeChats(subscriptionSpaceId, (state) => {
       if (currentSpaceIdRef.current !== subscriptionSpaceId) return
       const active = visibleChatsForSpace(state.chats || [], subscriptionSpaceId)
-      setChats(active)
-      setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+      if (active.length === 0) return
+      setChats((prev) => {
+        // Middleware/API ordering is the sidebar source of truth. Local sync is
+        // only a fallback hydration path, so never let stale local cache reorder
+        // an already-loaded API list.
+        if (prev.length > 0) return prev
+        setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
+        return active
+      })
     })
   }, [spaceId])
 
@@ -499,15 +499,10 @@ export function useChatsData(
     const activityOrdered = [...chats]
       .sort(compareChatsByActivity)
       .map((chat) => chat.id)
-    const knownIds = new Set(activityOrdered)
-    const ordered = [
-      ...chatOrder.filter((id) => knownIds.has(id)),
-      ...activityOrdered.filter((id) => !chatOrder.includes(id)),
-    ]
-    const pinned = ordered.filter((id) => pinnedChats.has(id))
-    const unpinned = ordered.filter((id) => !pinnedChats.has(id))
+    const pinned = activityOrdered.filter((id) => pinnedChats.has(id))
+    const unpinned = activityOrdered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
-  }, [pinnedChats, chats, chatOrder])
+  }, [pinnedChats, chats])
 
   const dialogState: ChatDialogState = {
     renameOpen,
