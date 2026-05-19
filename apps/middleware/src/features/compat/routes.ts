@@ -1794,7 +1794,9 @@ async function syncGatewaySessions(context: AppContext) {
       } else {
         const existing = compatState.chats[chatIndex];
         const existingCreatedAt = existing.createdAt || createdAt;
-        const existingActivityAt = newestTimestamp(rowActivityAt, rowCreatedAt, existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existingCreatedAt);
+        const existingActivityAt = existing.syncedFromGateway && (rowActivityAt || rowCreatedAt)
+          ? newestTimestamp(rowActivityAt, rowCreatedAt, existingCreatedAt)
+          : newestTimestamp(rowActivityAt, rowCreatedAt, existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existingCreatedAt);
         const next = {
           ...existing,
           name: existing.name || name,
