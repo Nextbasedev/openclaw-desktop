@@ -420,13 +420,18 @@ export function useChatsData(
   }, [deleteTarget, loadChats, activeChat, onChatClear, spaceId])
 
   const sortedChatIds = useMemo(() => {
-    const ordered = [...chats]
+    const activityOrdered = [...chats]
       .sort((a, b) => chatActivityTime(b) - chatActivityTime(a))
       .map((chat) => chat.id)
+    const knownIds = new Set(activityOrdered)
+    const ordered = [
+      ...chatOrder.filter((id) => knownIds.has(id)),
+      ...activityOrdered.filter((id) => !chatOrder.includes(id)),
+    ]
     const pinned = ordered.filter((id) => pinnedChats.has(id))
     const unpinned = ordered.filter((id) => !pinnedChats.has(id))
     return [...pinned, ...unpinned]
-  }, [pinnedChats, chats])
+  }, [pinnedChats, chats, chatOrder])
 
   const dialogState: ChatDialogState = {
     renameOpen,

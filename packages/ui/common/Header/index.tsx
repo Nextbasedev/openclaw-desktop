@@ -245,10 +245,7 @@ export function Header({
             return (
               <div
                 key={group.id}
-                className={cn(
-                  "flex min-w-0 flex-1 items-end rounded-t-md transition-colors",
-                  dragOverGroupId === group.id && "bg-white/[0.035] ring-1 ring-inset ring-white/10",
-                )}
+                className="flex min-w-0 flex-1 items-end rounded-t-md"
                 style={
                   isLastGroup && rightClusterWidth > 0
                     ? { paddingRight: rightClusterWidth + 12 }

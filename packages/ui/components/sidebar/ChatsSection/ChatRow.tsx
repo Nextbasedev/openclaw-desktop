@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { createPortal } from "react-dom"
-import { AnimatePresence, motion, Reorder, useDragControls } from "framer-motion"
+import { AnimatePresence, motion, Reorder } from "framer-motion"
 import { Icons } from "@/components/icons"
 import {
   Popover,
@@ -10,7 +10,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { useLongPressDrag } from "@/hooks/useLongPressDrag"
 import { MenuAction } from "../ProjectsSection/MenuAction"
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { formatCompactTime } from "@/utils/formatCompactTime"
@@ -61,8 +60,6 @@ export function ChatRow({
   onDelete,
   disableReorder,
 }: Props) {
-  const controls = useDragControls()
-  const longPress = useLongPressDrag(controls)
   const [dotMenuOpen, setDotMenuOpen] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     open: false,
@@ -334,8 +331,7 @@ export function ChatRow({
   ) : (
     <Reorder.Item
       value={chatId}
-      dragListener={false}
-      dragControls={controls}
+      dragListener={!chat.pendingFork}
       as="div"
       layout="position"
       transition={{
@@ -345,11 +341,13 @@ export function ChatRow({
           ease: [0.2, 0, 0, 1],
         },
       }}
-      className="group/row relative flex min-w-0 items-center rounded-md"
-      style={{ position: "relative", boxShadow: "none" }}
-      whileDrag={{ boxShadow: "none" }}
+      className={cn(
+        "group/row relative flex min-w-0 items-center rounded-md",
+        !chat.pendingFork && "cursor-grab active:cursor-grabbing",
+      )}
+      style={{ position: "relative", zIndex: 1, boxShadow: "none" }}
+      whileDrag={{ zIndex: 40, scale: 1.015, boxShadow: "none" }}
       onContextMenu={handleContextMenu}
-      {...(!chat.pendingFork ? longPress : {})}
     >
       {rowContent}
     </Reorder.Item>
