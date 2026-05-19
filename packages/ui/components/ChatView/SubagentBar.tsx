@@ -25,7 +25,6 @@ function StatusDot({ status }: { status: SpawnedSubagent["status"] }) {
 }
 
 function statusLabel(sub: SpawnedSubagent) {
-  if (!sub.sessionKey && sub.status === "completed") return "linking"
   return subagentStatusLabel(sub.status)
 }
 
@@ -135,13 +134,7 @@ export function SubagentBar({
                   key={sub.id}
                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 transition-colors hover:bg-foreground/[0.03]"
                 >
-                  <StatusDot
-                    status={
-                      !sub.sessionKey && sub.status === "completed"
-                        ? "linking"
-                        : sub.status
-                    }
-                  />
+                  <StatusDot status={sub.status} />
                   <span className="flex-1 truncate text-[12px] text-foreground/70">
                     <span className={cn(sub.status === "failed" ? "text-rose-400" : "text-foreground/80")}>
                       {sub.label}
@@ -165,7 +158,7 @@ export function SubagentBar({
                         : "border border-border/10 text-muted-foreground/30",
                     )}
                   >
-                    {sub.sessionKey ? "Open" : "Linking..."}
+                    {sub.sessionKey ? "Open" : sub.status === "completed" ? "Done" : "Linking..."}
                   </button>
                 </div>
               ))}

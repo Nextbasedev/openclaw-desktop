@@ -113,7 +113,7 @@ export function reduceSubagentLifecycle(
     next.set(event.toolCallId, {
       ...existing,
       childSessionKey,
-      status: event.error ? "failed" : childSessionKey ? "working" : "linking",
+      status: event.error ? "failed" : childSessionKey ? "working" : "completed",
       openEnabled: Boolean(childSessionKey),
     })
     return next
@@ -147,7 +147,7 @@ function normalizeStatus(
   childSessionKey: string | null,
 ): SubagentLifecycleStatus {
   if (status === "completed" || status === "done") {
-    return childSessionKey ? "completed" : "linking"
+    return "completed"
   }
   if (status === "failed" || status === "error") return "failed"
   if (status === "spawning") return "spawning"
@@ -155,5 +155,5 @@ function normalizeStatus(
   if (status === "working" || status === "running") {
     return childSessionKey ? "working" : "linking"
   }
-  return childSessionKey ? "working" : "linking"
+  return childSessionKey ? "working" : "spawning"
 }

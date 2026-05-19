@@ -69,7 +69,7 @@ export function SubagentCard({
                 </button>
               ) : (
                 <p className="mt-0.5 text-[12px] text-muted-foreground/40">
-                  Linking...
+                  {sub.status === "completed" ? "Done" : "Linking..."}
                 </p>
               )}
             </div>

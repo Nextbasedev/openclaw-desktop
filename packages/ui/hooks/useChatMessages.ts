@@ -874,7 +874,7 @@ export function useChatMessages(
                 toolCallId,
               }),
               sessionKey: childKey,
-              status: error ? "failed" : childKey ? "working" : "linking",
+              status: error ? "failed" : childKey ? "working" : "completed",
             })
             break
           }
@@ -984,7 +984,7 @@ export function useChatMessages(
                       ? "failed"
                       : (childKey ?? prev.sessionKey)
                         ? "working"
-                        : "linking",
+                        : "completed",
                 })
               }
             }
