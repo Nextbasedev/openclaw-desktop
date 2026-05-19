@@ -34,8 +34,7 @@ function gradientForSpace(space: Space) {
 }
 
 function getSpaceRank(space: Space) {
-  const updatedAt = Date.parse(space.updatedAt)
-  if (!Number.isNaN(updatedAt)) return updatedAt
+  if (typeof space.sortOrder === "number") return space.sortOrder
 
   const createdAt = Date.parse(space.createdAt)
   if (!Number.isNaN(createdAt)) return createdAt
@@ -53,12 +52,8 @@ export function CollapsedSpacesPopover({
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? null
   const activeSpaceLabel = activeSpace?.name ?? "MySpace"
   const orderedSpaces = useMemo(() => {
-    const inactiveSpaces = [...spaces]
-      .filter((space) => space.id !== activeSpaceId)
-      .sort((a, b) => getSpaceRank(b) - getSpaceRank(a))
-
-    return activeSpace ? [activeSpace, ...inactiveSpaces] : inactiveSpaces
-  }, [activeSpace, activeSpaceId, spaces])
+    return [...spaces].sort((a, b) => getSpaceRank(a) - getSpaceRank(b))
+  }, [spaces])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

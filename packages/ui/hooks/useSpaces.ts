@@ -98,14 +98,7 @@ export function useSpaces() {
       )
   }, [loadSpacesFresh])
 
-  useEffect(() => {
-    const offArchive = on("archive:changed", loadSpacesFresh)
-    const offSidebarRefresh = on("sidebar:refresh", loadSpacesFresh)
-    return () => {
-      offArchive()
-      offSidebarRefresh()
-    }
-  }, [loadSpacesFresh])
+  useEffect(() => on("archive:changed", loadSpacesFresh), [loadSpacesFresh])
 
   const createSpace = useCallback(async (name?: string) => {
     invalidateMiddlewareStartupBootstrap()

@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState, type MouseEvent } from "react"
-import { motion } from "framer-motion"
 import { LuPlus } from "react-icons/lu"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
@@ -43,8 +42,7 @@ function gradientForSpace(space: Space) {
 }
 
 function getSpaceRank(space: Space) {
-  const updatedAt = Date.parse(space.updatedAt)
-  if (!Number.isNaN(updatedAt)) return updatedAt
+  if (typeof space.sortOrder === "number") return space.sortOrder
 
   const createdAt = Date.parse(space.createdAt)
   if (!Number.isNaN(createdAt)) return createdAt
@@ -86,10 +84,7 @@ export function SpacesSection({
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ open: false, x: 0, y: 0, space: null })
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? null
-  const inactiveSpaces = [...spaces]
-    .filter((space) => space.id !== activeSpaceId)
-    .sort((a, b) => getSpaceRank(b) - getSpaceRank(a))
-  const displaySpaces = activeSpace ? [activeSpace, ...inactiveSpaces] : inactiveSpaces
+  const displaySpaces = [...spaces].sort((a, b) => getSpaceRank(a) - getSpaceRank(b))
   const quickSpaces = displaySpaces.slice(0, 4)
   const overflowSpaces = displaySpaces.slice(4)
 
@@ -210,36 +205,30 @@ export function SpacesSection({
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             {quickSpaces.map((space) => (
-              <motion.div
-                key={space.id}
-                layout="position"
-                transition={{ layout: { type: "spring", stiffness: 420, damping: 34, mass: 0.85 } }}
-              >
-                <Tooltip delayDuration={200}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => handleSwitch(space.id)}
-                      onContextMenu={(event) => openContextMenu(event, space)}
-                      aria-label={`Switch to project ${space.name}`}
-                      className="group flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
-                    >
-                      <span
-                        className={cn(
-                          "rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-200 ease-out",
-                          space.id === activeSpace?.id
-                            ? "size-3.5 opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_18px_rgba(103,232,249,0.42)]"
-                            : "size-2 opacity-55 group-hover:size-2.75 group-hover:opacity-90",
-                          gradientForSpace(space),
-                        )}
-                      />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" sideOffset={8} showArrow={false}>
-                    {space.name}
-                  </TooltipContent>
-                </Tooltip>
-              </motion.div>
+              <Tooltip key={space.id} delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitch(space.id)}
+                    onContextMenu={(event) => openContextMenu(event, space)}
+                    aria-label={`Switch to project ${space.name}`}
+                    className="group flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                  >
+                    <span
+                      className={cn(
+                        "rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-200 ease-out",
+                        space.id === activeSpace?.id
+                          ? "size-3.5 opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_0_18px_rgba(103,232,249,0.42)]"
+                          : "size-2 opacity-55 group-hover:size-2.75 group-hover:opacity-90",
+                        gradientForSpace(space),
+                      )}
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={8} showArrow={false}>
+                  {space.name}
+                </TooltipContent>
+              </Tooltip>
             ))}
           </div>
         </div>
