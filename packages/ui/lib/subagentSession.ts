@@ -1,7 +1,7 @@
 "use client"
 
-export const SUBAGENT_SESSION_KEY_RE = /agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*(?::subagent:[^\s"',}\]]+|:fork-[^\s"',}\]]+|:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi
-const SUBAGENT_SESSION_KEY_EXACT_RE = /^agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*(?::subagent:[^\s"',}\]]+|:fork-[^\s"',}\]]+|:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+export const SUBAGENT_SESSION_KEY_RE = /agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*(?::subagent:[^\s"',}\]]+|:fork-[^\s"',}\]]+)/gi
+const SUBAGENT_SESSION_KEY_EXACT_RE = /^agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*(?::subagent:[^\s"',}\]]+|:fork-[^\s"',}\]]+)$/i
 
 export function isSubagentSessionKey(
   value: string | null | undefined,
