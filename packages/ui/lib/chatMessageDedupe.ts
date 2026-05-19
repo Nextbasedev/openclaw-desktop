@@ -147,6 +147,14 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
   if (aText === bText) return true
+
+  // Only collapse prefix-style assistant updates when the backend says both
+  // records are the same transcript slot. Forked/restored histories can contain
+  // many assistant replies whose text starts similarly ("There it is...",
+  // "I fixed..."). Merging those by text prefix makes newer replies replace or
+  // append into earlier answers, which is exactly what fork chats were doing
+  // after bootstrap/reconcile.
+  if (!hasSameGatewayIndex(a, b)) return false
   return aText.length <= bText.length
     ? isAssistantPrefixUpdate(aText, bText)
     : isAssistantPrefixUpdate(bText, aText)

@@ -25,18 +25,28 @@ describe("dedupeChatMessages", () => {
     })
   })
 
-  it("keeps the longer assistant text when stream catches up to cached partial", () => {
+  it("keeps the longer assistant text when stream catches up to the same cached partial", () => {
     const messages = dedupeChatMessages([
-      { messageId: "cached", role: "assistant", text: "Final" },
+      { messageId: "assistant-1", role: "assistant", text: "Final", gatewayIndex: 2 },
       {
-        messageId: "stream",
+        messageId: "assistant-1",
         role: "assistant",
         text: "Final answer with more detail",
+        gatewayIndex: 2,
       },
     ])
 
     expect(messages).toHaveLength(1)
     expect(messages[0].text).toBe("Final answer with more detail")
+  })
+
+  it("keeps distinct assistant fork replies even when the later answer extends the same prefix", () => {
+    const messages = dedupeChatMessages([
+      { messageId: "fork-a1", role: "assistant", text: "I fixed the fork replay issue." },
+      { messageId: "fork-a2", role: "assistant", text: "I fixed the fork replay issue and pushed the update." },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual(["fork-a1", "fork-a2"])
   })
 
   it("does not dedupe different assistant answers", () => {
