@@ -54,13 +54,27 @@ type ChatActivityEvent = {
 
 type ChatMessageConfirmedEvent = ChatActivityEvent
 
+function timeValue(value?: string | null) {
+  if (!value) return 0
+  const parsed = new Date(value).getTime()
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 function chatActivityTime(chat: Chat) {
   return Math.max(
-    new Date(chat.updatedAt || 0).getTime() || 0,
-    new Date(chat.lastActiveAt || 0).getTime() || 0,
-    new Date(chat.lastMessageAt || 0).getTime() || 0,
-    new Date(chat.createdAt || 0).getTime() || 0,
+    timeValue(chat.updatedAt),
+    timeValue(chat.lastActiveAt),
+    timeValue(chat.lastMessageAt),
+    timeValue(chat.createdAt),
   )
+}
+
+function compareChatsByActivity(a: Chat, b: Chat) {
+  const activityDiff = chatActivityTime(b) - chatActivityTime(a)
+  if (activityDiff !== 0) return activityDiff
+  const createdDiff = timeValue(b.createdAt) - timeValue(a.createdAt)
+  if (createdDiff !== 0) return createdDiff
+  return String(a.id || a.sessionKey || "").localeCompare(String(b.id || b.sessionKey || ""))
 }
 
 function visibleChatsForSpace(chats: Chat[], spaceId?: string | null) {
@@ -288,7 +302,6 @@ export function useChatsData(
     const timestamp = event?.at && !Number.isNaN(Date.parse(event.at))
       ? event.at
       : new Date().toISOString()
-    const targetId = chatId ?? chats.find((chat) => chat.sessionKey === sessionKey)?.id
     const knownChat = chats.some((chat) => {
       const matchesChat = chatId ? chat.id === chatId : false
       const matchesSession = sessionKey ? chat.sessionKey === sessionKey : false
@@ -317,9 +330,6 @@ export function useChatsData(
         return next
       },
     )
-    if (targetId) {
-      setChatOrder((prev) => [targetId, ...prev.filter((id) => id !== targetId)])
-    }
     if (!knownChat) scheduleSidebarRefresh()
   }, [activeChat, cacheChatsForCurrentSpace, chats, scheduleSidebarRefresh])
 
@@ -327,7 +337,8 @@ export function useChatsData(
     // Generic activity means thinking/tool/model/approval state and should not
     // reorder the sidebar. Reordering on every activity event caused the active
     // chat to jump while the optimistic user message was still settling.
-    // Confirmed message events below are the intentional jump-to-top trigger.
+    // Confirmed message events update timestamps only; manual drag is the only
+    // source of explicit chatOrder overrides.
     return on<ChatActivityEvent>("chat:activity", () => undefined)
   }, [])
 
@@ -484,7 +495,7 @@ export function useChatsData(
 
   const sortedChatIds = useMemo(() => {
     const activityOrdered = [...chats]
-      .sort((a, b) => chatActivityTime(b) - chatActivityTime(a))
+      .sort(compareChatsByActivity)
       .map((chat) => chat.id)
     const knownIds = new Set(activityOrdered)
     const ordered = [
