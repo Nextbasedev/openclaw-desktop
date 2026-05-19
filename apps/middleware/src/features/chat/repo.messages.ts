@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
-import { normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { isInternalSubagentCompletionMessage, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage, ProjectedMessage, ProjectionEvent } from "./types.js";
 
 function textOf(data: unknown): string {
@@ -272,14 +272,16 @@ export class MessageRepository {
       data_json: string;
       updated_at_ms: number;
     }>;
-    return rows.map((row) => ({
-      sessionKey: row.session_key,
-      openclawSeq: row.openclaw_seq,
-      messageId: row.message_id,
-      role: row.role,
-      data: fromJson(row.data_json),
-      updatedAtMs: row.updated_at_ms,
-    }));
+    return rows
+      .map((row): ProjectedMessage => ({
+        sessionKey: row.session_key,
+        openclawSeq: row.openclaw_seq,
+        messageId: row.message_id,
+        role: row.role,
+        data: fromJson(row.data_json) as OpenClawMessage,
+        updatedAtMs: row.updated_at_ms,
+      }))
+      .filter((row) => !isInternalSubagentCompletionMessage(row.data));
   }
 
   diagnostics() {

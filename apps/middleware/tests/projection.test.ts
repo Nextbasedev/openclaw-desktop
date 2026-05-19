@@ -99,6 +99,37 @@ describe("SQLite projection", () => {
     expect(rows.map((row) => row.messageId)).toEqual(["visible-user", "visible-assistant"]);
   });
 
+  test("message repository hides already-persisted internal subagent completion messages", () => {
+    const db = openDatabase({ databasePath: testDbPath("hide-persisted-subagent-completion") });
+    const repo = new MessageRepository(db);
+    repo.upsertMessages([
+      {
+        sessionKey: "parent",
+        openclawSeq: 1,
+        messageId: "visible-user",
+        role: "user",
+        data: { id: "visible-user", role: "user", text: "run the task" },
+        updatedAtMs: 100,
+      },
+      {
+        sessionKey: "parent",
+        openclawSeq: 2,
+        messageId: "internal-subagent-completion",
+        role: "user",
+        data: {
+          id: "internal-subagent-completion",
+          role: "user",
+          text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nsource: subagent\nSUBAGENT_TOOL_CALL_1\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+          provenance: { kind: "inter_session", sourceSessionKey: "agent:main:subagent:child", sourceTool: "subagent_announce" },
+        },
+        updatedAtMs: 200,
+      },
+    ]);
+
+    expect(repo.listMessages("parent").map((row) => row.messageId)).toEqual(["visible-user"]);
+    db.close();
+  });
+
   test("run projection stores send identity and terminal status", () => {
     const db = openDatabase({ databasePath: testDbPath("runs") });
     const repo = new RunRepository(db);
