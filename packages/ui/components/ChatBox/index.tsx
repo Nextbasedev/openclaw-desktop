@@ -967,9 +967,7 @@ export function ChatBox({
               setModelOpen(false)
               const applyModel = onModelSelect
                 ? onModelSelect(modelId)
-                : invoke("middleware_models_set_default", {
-                    input: { modelId },
-                  }).then(() => reloadModels())
+                : Promise.resolve()
               Promise.resolve(applyModel).catch((error) => {
                 setAttachmentError(
                   error instanceof Error

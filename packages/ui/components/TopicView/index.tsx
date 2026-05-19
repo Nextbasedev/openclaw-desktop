@@ -47,6 +47,35 @@ function formatRelativeTime(dateStr: string): string {
   return `${days}d ago`
 }
 
+function draftModelKey(projectId: string, topicId: string) {
+  return `topic:${projectId}:${topicId}:draft`
+}
+
+function readDraftModelId(draftKey: string): string | null {
+  if (typeof localStorage === "undefined") return null
+  try {
+    return localStorage.getItem(`openclaw-session-model:v1:${draftKey}`)
+  } catch {
+    return null
+  }
+}
+
+function clearDraftModelId(draftKey: string) {
+  if (typeof localStorage === "undefined") return
+  try {
+    localStorage.removeItem(`openclaw-session-model:v1:${draftKey}`)
+  } catch {}
+}
+
+async function applyDraftModelToSession(sessionKey: string, draftKey: string) {
+  const modelId = readDraftModelId(draftKey)?.trim()
+  if (!modelId) return
+  await invoke("middleware_chat_model_set", {
+    input: { sessionKey, modelId },
+  })
+  clearDraftModelId(draftKey)
+}
+
 export function TopicView({ topicId, projectId, topicName, projectName, onSessionSelect }: Props) {
   const [sessions, setSessions] = useState<SessionMapping[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,6 +109,7 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
         { input: { projectId, topicId, agentId: "main", label } },
       )
       const sessionKey = result.session.key
+      await applyDraftModelToSession(sessionKey, draftModelKey(projectId, topicId))
       await invoke("middleware_chat_send", {
         input: {
           sessionKey,
@@ -116,7 +146,12 @@ export function TopicView({ topicId, projectId, topicName, projectName, onSessio
     return (
       <div className="flex min-h-full w-full flex-col items-center justify-center gap-8 py-10">
         <AnimatedGreeting />
-        <ChatBox onSend={handleFirstMessage} disabled={sending} glowOnMount />
+        <ChatBox
+          onSend={handleFirstMessage}
+          disabled={sending}
+          glowOnMount
+          draftKey={draftModelKey(projectId, topicId)}
+        />
         {sendError && (
           <div className="mx-auto w-full max-w-3xl px-4">
             <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-center">

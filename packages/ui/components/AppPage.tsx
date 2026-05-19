@@ -76,6 +76,31 @@ function sessionKeyFromResponse(response: unknown): string | null {
   return data?.session?.key ?? data?.session?.sessionKey ?? data?.chat?.sessionKey ?? data?.sessionKey ?? null
 }
 
+function readDraftModelId(draftKey: string): string | null {
+  if (typeof localStorage === "undefined") return null
+  try {
+    return localStorage.getItem(`openclaw-session-model:v1:${draftKey}`)
+  } catch {
+    return null
+  }
+}
+
+function clearDraftModelId(draftKey: string) {
+  if (typeof localStorage === "undefined") return
+  try {
+    localStorage.removeItem(`openclaw-session-model:v1:${draftKey}`)
+  } catch {}
+}
+
+async function applyDraftModelToSession(sessionKey: string, draftKey: string) {
+  const modelId = readDraftModelId(draftKey)?.trim()
+  if (!modelId) return
+  await invoke("middleware_chat_model_set", {
+    input: { sessionKey, modelId },
+  })
+  clearDraftModelId(draftKey)
+}
+
 function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
   return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
 }
@@ -1793,6 +1818,7 @@ function AppShell({
         }
       }
       if (!sessionKey) throw new Error("New chat did not return a sessionKey")
+      await applyDraftModelToSession(sessionKey, "new-chat:draft")
 
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
@@ -1921,6 +1947,7 @@ function AppShell({
       )
       const sessionKey = sessionKeyFromResponse(sessionResult)
       if (!sessionKey) throw new Error("New topic session did not return a sessionKey")
+      await applyDraftModelToSession(sessionKey, `topic:${activeTopic.projectId}:${activeTopic.id}:draft`)
       const optimisticId = randomId()
       const optimisticMessages: OptimisticMsg[] = [{
         messageId: optimisticId,
