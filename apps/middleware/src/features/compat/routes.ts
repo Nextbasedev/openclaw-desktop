@@ -1794,8 +1794,14 @@ async function syncGatewaySessions(context: AppContext) {
       } else {
         const existing = compatState.chats[chatIndex];
         const existingCreatedAt = existing.createdAt || createdAt;
-        const existingActivityAt = existing.syncedFromGateway && (rowActivityAt || rowCreatedAt)
-          ? newestTimestamp(rowActivityAt, rowCreatedAt, existingCreatedAt)
+        const existingSession = compatState.sessions.find((session) => session.sessionKey === sessionKey || session.key === sessionKey);
+        const sessionActivityAt = existingSession
+          ? newestTimestamp(existingSession.updatedAt, existingSession.lastActiveAt, existingSession.lastMessageAt, existingSession.createdAt)
+          : null;
+        const existingActivityAt = existing.syncedFromGateway
+          ? (rowActivityAt
+            ? newestTimestamp(rowActivityAt, sessionActivityAt, existingCreatedAt)
+            : (sessionActivityAt ?? newestTimestamp(existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existingCreatedAt)))
           : newestTimestamp(rowActivityAt, rowCreatedAt, existing.updatedAt, existing.lastActiveAt, existing.lastMessageAt, existingCreatedAt);
         const next = {
           ...existing,
