@@ -530,6 +530,8 @@ function AppShell({
   const routeRequestRef = useRef(0)
   const previousContentPathRef = useRef("/")
   const settingsPushedRef = useRef(false)
+  const lastChatRouteBySpaceRef = useRef(new Map<string, string>())
+  const pendingSpaceRouteRestoreRef = useRef<{ spaceId: string; path: string | null } | null>(null)
 
   const { resolvedTheme, setTheme } = useTheme()
 
@@ -751,6 +753,20 @@ function AppShell({
       }
     }
   }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute])
+
+  useEffect(() => {
+    if (!activeSpaceId) return
+    const pending = pendingSpaceRouteRestoreRef.current
+    if (!pending || pending.spaceId !== activeSpaceId) return
+    pendingSpaceRouteRestoreRef.current = null
+    const path = pending.path
+    if (path) {
+      window.history.pushState(null, "", routeUrl(path))
+      void activateRoute(parseRoute(path))
+    } else {
+      window.history.pushState(null, "", routeUrl("/"))
+    }
+  }, [activateRoute, activeSpaceId])
 
   // Restore state from URL on mount
   useEffect(() => {
@@ -1294,6 +1310,20 @@ function AppShell({
 
   const handleSpaceSwitch = useCallback(async (spaceId: string) => {
     if (spaceId === activeSpaceId) return
+    if (activeSpaceId) {
+      const route = parseRoute(getRoutePath())
+      if (route.kind === "chat") {
+        lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${route.chatId}`)
+      } else if (route.kind === "topic") {
+        lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${route.projectId}/${route.topicId}`)
+      } else if (activeChat?.id) {
+        lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${activeChat.id}`)
+      } else if (activeTopic?.projectId && activeTopic.id) {
+        lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${activeTopic.projectId}/${activeTopic.id}`)
+      }
+    }
+    const restorePath = lastChatRouteBySpaceRef.current.get(spaceId) ?? null
+    pendingSpaceRouteRestoreRef.current = { spaceId, path: restorePath }
     await switchSpace(spaceId)
     resolvedChatCacheRef.current.clear()
     routeRequestRef.current += 1
@@ -1301,9 +1331,9 @@ function AppShell({
     setComposerError(null)
     clearConversationState()
     setChatRefreshTrigger((n) => n + 1)
-    window.history.pushState(null, "", routeUrl("/"))
+    if (!restorePath) window.history.pushState(null, "", routeUrl("/"))
     emit("sidebar:refresh")
-  }, [activeSpaceId, clearConversationState, switchSpace])
+  }, [activeChat, activeSpaceId, activeTopic, clearConversationState, switchSpace])
 
   const handleSpaceNewChat = useCallback(async (spaceId: string) => {
     if (spaceId !== activeSpaceId) {
