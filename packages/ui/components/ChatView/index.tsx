@@ -129,7 +129,7 @@ type Props = {
   onSelectTool?: (toolCallId: string) => void
   initialPrompt?: string
   activeSubagentKey?: string | null
-  onSubagentOpen?: (key: string | null) => void
+  onSubagentOpen?: (key: string | null, agentId?: string | null) => void
   forkContext?:
     | {
         type: "topic"
@@ -506,6 +506,13 @@ export function ChatView({
     internalSubagentKey ??
     activeSubagent?.sessionKey ??
     null
+  const activeLiveSubagent = activeSubagent
+    ? spawnedSubagents.find(
+        (sub) =>
+          sub.toolCallId === activeSubagent.toolCallId ||
+          (sub.sessionKey && sub.sessionKey === activeSubagent.sessionKey)
+      ) ?? activeSubagent
+    : null
 
   // Only suppress notifications when the main chat for THIS session is visible.
   // If a subagent is open, the user is on another page, or this is a
@@ -580,7 +587,7 @@ export function ChatView({
       })
       setActiveSubagent({ ...sub, sessionKey: sub.sessionKey })
       setInternalSubagentKey(sub.sessionKey)
-      onSubagentOpen?.(sub.sessionKey)
+      onSubagentOpen?.(sub.sessionKey, sub.id || `spawn:${sub.toolCallId}`)
     },
     [onSubagentOpen, sessionKey]
   )
@@ -592,11 +599,11 @@ export function ChatView({
     })
     setActiveSubagent(null)
     setInternalSubagentKey(null)
-    onSubagentOpen?.(null)
+    onSubagentOpen?.(null, null)
   }, [activeSubKey, onSubagentOpen, sessionKey])
 
   const activeSubagentFallbackText = useMemo(() => {
-    if (!activeSubagent || !isSubagentSessionKey(activeSubagent.sessionKey)) {
+    if (!activeLiveSubagent || !isSubagentSessionKey(activeLiveSubagent.sessionKey)) {
       return ""
     }
     const assistantMessages = messages.filter(
@@ -611,10 +618,10 @@ export function ChatView({
             /\bDone\./i.test(message.text)
         ) ?? assistantMessages.at(-1)
     return cleanSubagentReply(resultMessage?.text ?? "")
-  }, [activeSubagent, messages])
+  }, [activeLiveSubagent, messages])
 
   const activeSubagentFallbackPrompt =
-    activeSubagent?.task?.trim() || "Run the delegated sub-agent task."
+    activeLiveSubagent?.task?.trim() || "Run the delegated sub-agent task."
 
   const firstFiredRef = useRef(false)
 
@@ -1302,12 +1309,12 @@ export function ChatView({
     ]
   )
 
-  if (activeSubKey && activeSubagent) {
+  if (activeSubKey && activeLiveSubagent) {
     return (
       <SubagentFullChat
         sessionKey={activeSubKey}
-        label={activeSubagent.label}
-        status={activeSubagent.status}
+        label={activeLiveSubagent.label}
+        status={activeLiveSubagent.status}
         fallbackPrompt={activeSubagentFallbackPrompt}
         fallbackText={activeSubagentFallbackText}
         onBack={closeSubagent}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
 import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
@@ -132,6 +132,10 @@ function activityCallFromInlineTool(
   }
 }
 
+function isLiveStreamStatus(status: string | null | undefined) {
+  return status === "thinking" || status === "tool_running" || status === "streaming"
+}
+
 function previewFromChatMessage(message: ChatMessage): string | undefined {
   const text = cleanUserMessageText(message.text ?? "").replace(/\s+/g, " ").trim()
   if (!text) return undefined
@@ -205,6 +209,10 @@ export function useAgentActivity(sessionKey: string | null) {
   const [agents, setAgents] = useState<Map<string, AgentInfo>>(new Map())
   const [subKeyToAgent, setSubKeyToAgent] = useState<Array<[string, string]>>(
     [],
+  )
+  const subKeyToAgentSignature = useMemo(
+    () => subKeyToAgent.map(([subKey, agentId]) => `${subKey}\u0000${agentId}`).join("\u0001"),
+    [subKeyToAgent],
   )
   const spawnQueueRef = useRef<string[]>([])
   const subKeyToAgentRef = useRef<Map<string, string>>(new Map())
@@ -702,6 +710,86 @@ export function useAgentActivity(sessionKey: string | null) {
     handleStreamResume,
     resetVisibleState,
   ])
+
+  useEffect(() => {
+    if (!sessionKey || subKeyToAgent.length === 0) return
+    let cancelled = false
+
+    const syncChildActivity = (subKey: string, agentId: string) => {
+      if (cancelled) return
+      const state = getGlobalChatSession(subKey)
+      if (!state) return
+
+      let changed = false
+      const currentAgent = agentsRef.current.get(agentId)
+      const nextPhase = isLiveStreamStatus(state.status)
+        ? "start"
+        : state.status === "error"
+          ? "error"
+          : state.status === "done"
+            ? "done"
+            : currentAgent?.phase ?? "start"
+      const nextAgent = {
+        ...(currentAgent ?? {
+          runId: agentId,
+          label: `sub-${agentId.slice(-6)}`,
+        }),
+        phase: nextPhase as AgentInfo["phase"],
+        sessionKey: subKey,
+      }
+      if (JSON.stringify(currentAgent) !== JSON.stringify(nextAgent)) {
+        agentsRef.current.set(agentId, nextAgent)
+        changed = true
+      }
+
+      const liveTurn = liveTurnForSession(subKey)
+      const upsertTool = (tool: InlineToolCall, turn = liveTurn) => {
+        const existing = callMapRef.current.get(tool.id)
+        const incoming = {
+          ...activityCallFromInlineTool(tool, {
+            messageId: liveTurnMessageId(existing?.messageId, turn.messageId),
+            messagePreview: liveTurnPreview(existing?.messagePreview, turn.messagePreview),
+          }),
+          subagentOf: agentId,
+        }
+        const merged = mergeActivityCall(existing, incoming)
+        if (JSON.stringify(existing) !== JSON.stringify(merged)) {
+          callMapRef.current.set(tool.id, merged)
+          changed = true
+        }
+      }
+
+      for (const tool of state.pendingTools) upsertTool(tool)
+
+      let previousUser: ChatMessage | null = null
+      for (const message of state.messages) {
+        if (message.role === "user") {
+          previousUser = message
+          continue
+        }
+        if (message.role !== "assistant" || !message.toolCalls?.length) continue
+        const turn = previousUser
+          ? {
+              messageId: previousUser.messageId,
+              messagePreview: previewFromChatMessage(previousUser),
+            }
+          : liveTurn
+        for (const tool of message.toolCalls) upsertTool(tool, turn)
+      }
+
+      if (changed) syncState()
+    }
+
+    for (const [subKey, agentId] of subKeyToAgent) syncChildActivity(subKey, agentId)
+    const unsubscribers = subKeyToAgent.map(([subKey, agentId]) =>
+      subscribeGlobalChatSession(subKey, () => syncChildActivity(subKey, agentId)),
+    )
+
+    return () => {
+      cancelled = true
+      for (const unsubscribe of unsubscribers) unsubscribe()
+    }
+  }, [sessionKey, subKeyToAgentSignature, syncState])
 
   // Do not poll full chat history while the activity panel is open. The live
   // stream drives activity updates; history is only loaded on panel/session open

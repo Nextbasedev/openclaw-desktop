@@ -792,6 +792,11 @@ function AppShell({
     setFocusedToolCallId(toolCallId)
   }, [inspectorOpen])
 
+  const handleSubagentOpen = useCallback((_sessionKey: string | null, agentId?: string | null) => {
+    if (agentId && !inspectorOpen) setInspectorOpen(true)
+    setActiveAgentId(agentId ?? "root")
+  }, [inspectorOpen])
+
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const setChatModePersisted = useCallback((mode: "simple" | "mission") => {
     setChatMode(mode)
@@ -2301,6 +2306,7 @@ function AppShell({
                   onOpenSkills={() => setActiveTab("skill")}
                   initialMessages={initialMessages}
                   onSelectTool={handleSelectTool}
+                  onSubagentOpen={handleSubagentOpen}
                   pendingPrompt={pendingPrompt}
                   composerError={composerError}
                   onTopicQuickSend={handleTopicQuickSend}
@@ -2329,6 +2335,7 @@ function AppShell({
                           onFirstMessageSent={isFocusedActiveSession ? handleFirstMessageSent : undefined}
                           forkContext={{ type: "chat" }}
                           activeSpaceId={activeSpaceId}
+                          onSubagentOpen={isFocusedActiveSession ? handleSubagentOpen : undefined}
                         />
                       )
                     }
@@ -2359,6 +2366,7 @@ function AppShell({
                           onOpenSkills={() => setActiveTab("skill")}
                           initialMessages={undefined}
                           onSelectTool={handleSelectTool}
+                          onSubagentOpen={handleSubagentOpen}
                           pendingPrompt={group.id === editorGroups.focusedGroupId ? pendingPrompt : null}
                           composerError={group.id === editorGroups.focusedGroupId ? composerError : null}
                           onTopicQuickSend={handleTopicQuickSend}
@@ -2495,6 +2503,7 @@ function MainContent({
   onOpenSkills,
   initialMessages,
   onSelectTool,
+  onSubagentOpen,
   pendingPrompt,
   composerError,
   onTopicQuickSend,
@@ -2527,6 +2536,7 @@ function MainContent({
   onOpenSkills: () => void
   initialMessages?: import("@/components/ChatView/types").ChatMessage[]
   onSelectTool?: (toolCallId: string) => void
+  onSubagentOpen?: (sessionKey: string | null, agentId?: string | null) => void
   pendingPrompt?: string | null
   composerError?: string | null
   onTopicQuickSend?: (payload: ChatComposerSubmit) => void | Promise<void>
@@ -2578,6 +2588,7 @@ function MainContent({
           onFirstMessageSent={activeChat ? onFirstMessageSent : undefined}
           initialMessages={initialMessages}
           onSelectTool={onSelectTool}
+          onSubagentOpen={onSubagentOpen}
           initialPrompt={pendingPrompt ?? undefined}
           forkContext={activeTopic ? { type: "topic", projectId: activeTopic.projectId, projectName: activeTopic.projectName, topicId: activeTopic.id, topicName: activeTopic.name } : { type: "chat" }}
           activeSpaceId={activeSpaceId}
