@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react"
+import { motion } from "framer-motion"
 import {
   VscAdd,
   VscClose,
@@ -293,63 +294,70 @@ export function Header({
                   )}
                 >
                   {visibleTabs.map((tab, tabIndex) => (
-                    <HeaderTab
+                    <motion.div
                       key={tab.id}
-                      tab={tab}
-                      isActive={group.activeTabId === tab.id}
-                      isFocusedGroup={isFocusedGroup}
-                      isDragging={draggingTabId === tab.id}
-                      isDragTarget={dragOverTabId === tab.id}
-                      onSelect={() => onSelectChatTab?.(group.id, tab.id)}
-                      onClose={() => onCloseChatTab?.(tab.id)}
-                      onOpenWindow={
-                        tab.kind === "chat"
-                          ? () => onOpenChatTabWindow?.(tab)
-                          : undefined
-                      }
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData("text/tab-id", tab.id)
-                        event.dataTransfer.setData("text/source-group", group.id)
-                        event.dataTransfer.effectAllowed = "move"
-                        setDraggingTabId(tab.id)
-                      }}
-                      onDragOver={(event) => {
-                        if (!onMoveChatTab) return
-                        if (!event.dataTransfer.types.includes("text/tab-id")) return
-                        event.preventDefault()
-                        event.dataTransfer.dropEffect = "move"
-                        setDragOverGroupId(group.id)
-                        setDragOverTabId(tab.id)
-                      }}
-                      onDrop={(event) => {
-                        if (!onMoveChatTab) return
-                        event.preventDefault()
-                        event.stopPropagation()
-                        const tabId = event.dataTransfer.getData("text/tab-id")
-                        const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
-                        setDraggingTabId(null)
-                        setDragOverGroupId(null)
-                        setDragOverTabId(null)
-                        if (!tabId || !sourceGroupId || tabId === tab.id) return
+                      layout="position"
+                      transition={{ layout: { type: "tween", duration: 0.16, ease: [0.2, 0, 0, 1] } }}
+                      className="shrink-0"
+                      style={{ position: "relative", zIndex: draggingTabId === tab.id ? 60 : group.activeTabId === tab.id ? 30 : 10 }}
+                    >
+                      <HeaderTab
+                        tab={tab}
+                        isActive={group.activeTabId === tab.id}
+                        isFocusedGroup={isFocusedGroup}
+                        isDragging={draggingTabId === tab.id}
+                        isDragTarget={dragOverTabId === tab.id}
+                        onSelect={() => onSelectChatTab?.(group.id, tab.id)}
+                        onClose={() => onCloseChatTab?.(tab.id)}
+                        onOpenWindow={
+                          tab.kind === "chat"
+                            ? () => onOpenChatTabWindow?.(tab)
+                            : undefined
+                        }
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/tab-id", tab.id)
+                          event.dataTransfer.setData("text/source-group", group.id)
+                          event.dataTransfer.effectAllowed = "move"
+                          setDraggingTabId(tab.id)
+                        }}
+                        onDragOver={(event) => {
+                          if (!onMoveChatTab) return
+                          if (!event.dataTransfer.types.includes("text/tab-id")) return
+                          event.preventDefault()
+                          event.dataTransfer.dropEffect = "move"
+                          setDragOverGroupId(group.id)
+                          setDragOverTabId(tab.id)
+                        }}
+                        onDrop={(event) => {
+                          if (!onMoveChatTab) return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          const tabId = event.dataTransfer.getData("text/tab-id")
+                          const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
+                          setDraggingTabId(null)
+                          setDragOverGroupId(null)
+                          setDragOverTabId(null)
+                          if (!tabId || !sourceGroupId || tabId === tab.id) return
 
-                        const rect = event.currentTarget.getBoundingClientRect()
-                        const droppedAfterTarget = event.clientX > rect.left + rect.width / 2
-                        const rawTargetIndex = tabIndex + (droppedAfterTarget ? 1 : 0)
-                        const sourceIndex = sourceGroupId === group.id
-                          ? visibleTabs.findIndex((item) => item.id === tabId)
-                          : -1
-                        const targetIndex = sourceIndex >= 0 && sourceIndex < rawTargetIndex
-                          ? rawTargetIndex - 1
-                          : rawTargetIndex
+                          const rect = event.currentTarget.getBoundingClientRect()
+                          const droppedAfterTarget = event.clientX > rect.left + rect.width / 2
+                          const rawTargetIndex = tabIndex + (droppedAfterTarget ? 1 : 0)
+                          const sourceIndex = sourceGroupId === group.id
+                            ? visibleTabs.findIndex((item) => item.id === tabId)
+                            : -1
+                          const targetIndex = sourceIndex >= 0 && sourceIndex < rawTargetIndex
+                            ? rawTargetIndex - 1
+                            : rawTargetIndex
 
-                        onMoveChatTab(tabId, sourceGroupId, group.id, targetIndex)
-                      }}
-                      onDragEnd={() => {
-                        setDraggingTabId(null)
-                        setDragOverGroupId(null)
-                        setDragOverTabId(null)
-                      }}
-                    />
+                          onMoveChatTab(tabId, sourceGroupId, group.id, targetIndex)
+                        }}
+                        onDragEnd={() => {
+                          setDraggingTabId(null)
+                          setDragOverGroupId(null)
+                          setDragOverTabId(null)
+                        }}
+                      />
+                    </motion.div>
                   ))}
                   {onNewChat && !hasDraftTab && (
                     <button
