@@ -438,7 +438,6 @@ describe("middleware app", () => {
 
     const createdSpace = await app.inject({ method: "POST", url: "/api/spaces", payload: { name: "New Project" } });
     const activeSpaceId = createdSpace.json().activeSpaceId;
-    await app.inject({ method: "DELETE", url: "/api/spaces/space_default" });
     const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
 
     expect(bootstrap.statusCode).toBe(200);
@@ -449,8 +448,8 @@ describe("middleware app", () => {
     expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ sessionKey: "agent:main:desktop:orphan-before-space" }),
     ]));
-    expect(bootstrap.json().spaces).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "space_default" }),
+    expect(bootstrap.json().spaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "space_default", name: "My Workspace" }),
     ]));
 
     const defaultChats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });

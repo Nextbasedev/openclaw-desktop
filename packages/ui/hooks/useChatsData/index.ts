@@ -60,6 +60,13 @@ function chatActivityTime(chat: Chat) {
   )
 }
 
+function visibleChatsForSpace(chats: Chat[], spaceId?: string | null) {
+  return chats.filter((chat) => {
+    if (chat.archived) return false
+    return !spaceId || chat.spaceId === spaceId
+  })
+}
+
 export function useChatsData(
   activeChat: ActiveChat | null,
   onChatClear: () => void,
@@ -94,13 +101,13 @@ export function useChatsData(
       const localChats = spaceId ? await localSyncGetChats(spaceId) : null
       const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey) : null)
       if (cachedChats) {
-        const active = cachedChats.filter((c) => !c.archived)
+        const active = visibleChatsForSpace(cachedChats, spaceId)
         setChats(active)
         setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
       }
       const bootstrap = await loadMiddlewareStartupBootstrap()
       if (bootstrap && (!spaceId || bootstrap.activeSpaceId === spaceId)) {
-        const active = (bootstrap.chats || []).filter((c) => !c.archived)
+        const active = visibleChatsForSpace(bootstrap.chats || [], spaceId)
         if (active.length > 0) {
           setChats(active)
           setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
@@ -110,9 +117,7 @@ export function useChatsData(
         "middleware_chats_list",
         { input: { spaceId: spaceId ?? undefined } },
       )
-      const active = (result.chats || []).filter(
-        (c) => !c.archived,
-      )
+      const active = visibleChatsForSpace(result.chats || [], spaceId)
       if (spaceId) {
         void persistentCacheSet(`project:${spaceId}:chats`, active, {
           ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
@@ -167,7 +172,7 @@ export function useChatsData(
   useEffect(() => {
     if (!spaceId) return
     return localSyncSubscribeChats(spaceId, (state) => {
-      const active = (state.chats || []).filter((c) => !c.archived)
+      const active = visibleChatsForSpace(state.chats || [], spaceId)
       setChats(active)
       setPinnedChats(new Set(active.filter((c) => c.pinned).map((c) => c.id)))
     })

@@ -421,7 +421,32 @@ function ensureDefaultSpace() {
   return space;
 }
 
-function defaultFallbackSpaceId() {
+function ensureDefaultFallbackSpace() {
+  const existing = compatState.spaces.find((space) => space.id === DEFAULT_SPACE_ID);
+  if (existing) {
+    let changed = false;
+    if (existing.deleted || existing.archived) {
+      existing.deleted = false;
+      existing.archived = false;
+      changed = true;
+    }
+    if (!existing.name || existing.name === "Default") {
+      existing.name = DEFAULT_SPACE_NAME;
+      changed = true;
+    }
+    if (changed) existing.updatedAt = nowIso();
+    return String(existing.id);
+  }
+  const timestamp = nowIso();
+  compatState.spaces.unshift({
+    id: DEFAULT_SPACE_ID,
+    name: DEFAULT_SPACE_NAME,
+    archived: false,
+    deleted: false,
+    sortOrder: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
   return DEFAULT_SPACE_ID;
 }
 
@@ -1609,7 +1634,7 @@ async function syncGatewaySessions(context: AppContext) {
     compatState.chats = compatState.chats.filter((chat) => !isGatewayOnlySyncedChat(chat));
     let changed = false;
     if (compatState.chats.length !== beforeCleanup) changed = true;
-    const fallbackSpaceId = defaultFallbackSpaceId();
+    const fallbackSpaceId = ensureDefaultFallbackSpace();
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
