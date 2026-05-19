@@ -1401,6 +1401,46 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("completes sessions_spawn when result has no child session link", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "spawn-complete", name: "sessions_spawn", input: { task: "Audit" } }],
+          },
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "tool",
+            toolCallId: "spawn-complete",
+            text: "Spawn request completed without a child session link",
+          },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-complete", sessionKey: null, status: "completed" },
+    ])
+  })
+
   test("marks sessions_spawn as failed from structured tool error metadata", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",

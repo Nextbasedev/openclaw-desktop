@@ -354,7 +354,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
           ? "failed"
           : (childKey ?? spawn.sessionKey)
             ? "working"
-            : "linking",
+            : "completed",
       }
     })
   }

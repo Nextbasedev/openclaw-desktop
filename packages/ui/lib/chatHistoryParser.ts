@@ -829,7 +829,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             ? "failed"
             : childKey
               ? "working"
-              : "linking"
+              : "completed"
       }
       if (matched.tool === "sessions_yield") {
         const latest = Array.from(subagentByToolId.values())
