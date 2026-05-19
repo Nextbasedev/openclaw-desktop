@@ -612,24 +612,23 @@ function AppShell({
     if (route.kind === "chat") {
       const expectedPath = `/${route.chatId}`
       const isCurrentPath = () => getRoutePath() === expectedPath
-      const cached = resolvedChatCacheRef.current.get(route.chatId)
       setPendingPrompt(null)
       setComposerError(null)
       setActiveTab("chat")
       setActiveTopic(null)
-      setActiveChat(cached?.chat ?? { id: route.chatId, name: "Opening chat..." })
-      setActiveSessionKey(cached?.sessionKey ?? null)
-      setActiveSessionTitle(cached?.title ?? null)
+      setActiveChat({ id: route.chatId, name: "Opening chat..." })
+      setActiveSessionKey(null)
+      setActiveSessionTitle(null)
       setInitialMessages(undefined)
 
       try {
         const chatResult = await invoke<{
-          chats: { id: string; name: string; sessionKey?: string; archived: boolean }[]
-        }>("middleware_chats_list", { input: {} })
+          chats: { id: string; name: string; sessionKey?: string; spaceId?: string; archived: boolean }[]
+        }>("middleware_chats_list", { input: { spaceId: activeSpaceId ?? undefined } })
         if (!isCurrentPath()) return
 
         const found = (chatResult.chats || []).find(
-          (chat) => chat.id === route.chatId,
+          (chat) => chat.id === route.chatId && (!activeSpaceId || chat.spaceId === activeSpaceId),
         )
         if (!found || found.archived) {
           recoverToDraftRoute()
@@ -731,7 +730,7 @@ function AppShell({
         }
       }
     }
-  }, [clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute])
+  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute])
 
   // Restore state from URL on mount
   useEffect(() => {
