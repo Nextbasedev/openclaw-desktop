@@ -656,6 +656,7 @@ const DEFAULT_UPDATE_BRANCH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_BRANCH || "
 const UPDATE_SERVICE_NAME = process.env.OPENCLAW_MIDDLEWARE_SERVICE || "openclaw-middleware";
 const UPDATE_STATUS_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_STATUS || path.join(os.tmpdir(), "openclaw-middleware-update-status.json");
 const UPDATE_LOG_PATH = process.env.OPENCLAW_MIDDLEWARE_UPDATE_LOG || path.join(os.tmpdir(), "openclaw-middleware-update.log");
+const UPDATE_ACTIVE_STALE_MS = 5 * 60 * 1000;
 
 function findMiddlewareRepoRoot() {
   let dir = process.cwd();
@@ -766,8 +767,28 @@ function readMiddlewareUpdateStatus(input: MiddlewareUpdateInput = {}): Middlewa
   } catch {
     status = { state: "idle", updatedAt: nowIso(), branch: DEFAULT_UPDATE_BRANCH, logPath: UPDATE_LOG_PATH };
   }
+  if ((status.state === "running" || status.state === "restarting") && isStaleMiddlewareUpdateStatus(status)) {
+    status = {
+      ...status,
+      state: "succeeded",
+      message: status.state === "restarting"
+        ? "Middleware service is back online after restart."
+        : "Previous Middleware update status was stale; service is online.",
+      updatedAt: nowIso(),
+    };
+    writeMiddlewareUpdateStatus(status);
+  }
   const git = readMiddlewareGitStatus(input.branch || status.branch || DEFAULT_UPDATE_BRANCH);
-  return { ...status, branch: git.targetBranch || status.branch, repoRoot: git.repoRoot || status.repoRoot, git, message: middlewareGitStatusMessage(git) };
+  const statusMessage = status.state === "running" || status.state === "restarting" || status.state === "failed" || status.state === "succeeded"
+    ? status.message
+    : undefined;
+  return { ...status, branch: git.targetBranch || status.branch, repoRoot: git.repoRoot || status.repoRoot, git, message: statusMessage || middlewareGitStatusMessage(git) };
+}
+
+function isStaleMiddlewareUpdateStatus(status: MiddlewareUpdateStatus) {
+  const updatedAtMs = Date.parse(status.updatedAt || "");
+  if (!Number.isFinite(updatedAtMs)) return true;
+  return Date.now() - updatedAtMs > UPDATE_ACTIVE_STALE_MS;
 }
 
 function normalizeMiddlewareUpdateBranch(value: unknown) {
