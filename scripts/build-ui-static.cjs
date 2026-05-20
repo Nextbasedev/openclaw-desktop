@@ -4,11 +4,34 @@ const { spawnSync } = require("node:child_process")
 
 const uiDir = path.resolve(__dirname, "..", "packages", "ui")
 const nextDir = path.join(uiDir, ".next")
+const stashRoot = path.join(uiDir, `.static-build-stash-${process.pid}-${Date.now()}`)
 const stashTargets = [
-  { source: path.join(uiDir, "app", "api"), stash: path.join(uiDir, ".api-stash") },
-  { source: path.join(uiDir, "app", "[slug]"), stash: path.join(uiDir, ".[slug]-stash") },
+  { source: path.join(uiDir, "app", "api"), name: "api" },
+  { source: path.join(uiDir, "app", "[slug]"), name: "slug" },
 ]
 const stashedTargets = []
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function retryFs(action, label, attempts = process.platform === "win32" ? 8 : 3) {
+  let lastError
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return action()
+    } catch (error) {
+      lastError = error
+      const retryable = error && ["EPERM", "EBUSY", "ENOTEMPTY", "EACCES"].includes(error.code)
+      if (!retryable || attempt === attempts) break
+      sleepSync(75 * attempt)
+    }
+  }
+  if (lastError && process.platform === "win32" && ["EPERM", "EBUSY", "EACCES"].includes(lastError.code)) {
+    lastError.message = `${lastError.message}\n\n${label} failed because Windows denied access to a build folder. Close any running Next/dev/Tauri process, editor terminal, Explorer window, or antivirus scan that may be holding packages/ui/app, then retry.`
+  }
+  throw lastError
+}
 
 function quoteWindowsArg(arg) {
   if (!/[ \t"]/u.test(arg)) return arg
@@ -33,10 +56,11 @@ function restore() {
   while (stashedTargets.length > 0) {
     const { source, stash } = stashedTargets.pop()
     if (fs.existsSync(stash)) {
-      fs.rmSync(source, { recursive: true, force: true })
-      fs.renameSync(stash, source)
+      retryFs(() => fs.rmSync(source, { recursive: true, force: true }), `restore cleanup ${source}`)
+      retryFs(() => fs.renameSync(stash, source), `restore ${source}`)
     }
   }
+  retryFs(() => fs.rmSync(stashRoot, { recursive: true, force: true }), `cleanup ${stashRoot}`)
 }
 
 process.on("SIGINT", () => {
@@ -50,12 +74,13 @@ process.on("SIGTERM", () => {
 
 try {
   fs.rmSync(nextDir, { recursive: true, force: true })
+  fs.mkdirSync(stashRoot, { recursive: true })
 
   for (const target of stashTargets) {
     if (!fs.existsSync(target.source)) continue
-    fs.rmSync(target.stash, { recursive: true, force: true })
-    fs.renameSync(target.source, target.stash)
-    stashedTargets.push(target)
+    const stash = path.join(stashRoot, target.name)
+    retryFs(() => fs.renameSync(target.source, stash), `stash ${target.source}`)
+    stashedTargets.push({ source: target.source, stash })
   }
 
   const result = runPnpm(["exec", "next", "build"])
