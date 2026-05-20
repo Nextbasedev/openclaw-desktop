@@ -538,6 +538,37 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("telegram migration scan includes reset archived transcripts for the same topic", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-archive-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const key = "agent:main:telegram:group:-1001:topic:42";
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const currentFile = path.join(sessionsDir, "current-topic-42.jsonl");
+    const archivedFile = path.join(archiveDir, "old-topic-42.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Topic", is_group_chat: true });
+    const line = (id: string, text: string) => JSON.stringify({ type: "message", id, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\n${text}` } });
+    fs.writeFileSync(archivedFile, `${line("a1", "old one")}\n${line("a2", "old two")}\n`);
+    fs.writeFileSync(currentFile, `${line("c1", "current one")}\n${line("c2", "current two")}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [key]: { sessionId: "current", sessionFile: currentFile, chatType: "group", subject: "Group" } }));
+
+    const app = await createApp(testConfig());
+    const scan = await app.inject({ method: "GET", url: "/api/migration/telegram/scan?agentId=main" });
+
+    expect(scan.statusCode).toBe(200);
+    expect(scan.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceSessionKey: key,
+        messageCount: 4,
+        archivedMessageCount: 2,
+        archivedTranscriptFiles: [archivedFile],
+      }),
+    ]));
+    await app.close();
+  });
+
   test("chat messages supports beforeSeq pagination for older messages", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
