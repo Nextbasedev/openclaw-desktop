@@ -209,7 +209,11 @@ export class ChatLiveIngest {
       at: activityAt,
       lastMessageText: textFromMessage(message),
     });
-    const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
+    const associatedRun = this.activateRunIfQueued(
+      this.associatedRunForMessage(sessionKey, message, optimistic?.runId),
+      projectGatewayMessage(message).assistantHasFinalText ? "streaming" : "thinking",
+      projectGatewayMessage(message).assistantHasFinalText ? "Responding" : "Thinking",
+    );
     const gatewayProjection = projectGatewayMessage(message);
     this.projectToolsFromMessage(sessionKey, message, associatedRun, gatewayProjection);
     const assistantHasFinalText = gatewayProjection.assistantHasFinalText;
@@ -293,9 +297,19 @@ export class ChatLiveIngest {
     if (explicitRunId) {
       return this.context.runs.findRunByGatewayRunId(explicitRunId) ?? this.context.runs.getRun(explicitRunId);
     }
-    if (optimisticRunId) return this.context.runs.getRun(optimisticRunId) ?? this.context.runs.findLatestPendingRun(sessionKey);
-    if (message.role === "assistant") return this.context.runs.findLatestPendingRun(sessionKey);
+    if (optimisticRunId) return this.context.runs.getRun(optimisticRunId) ?? this.currentRunForLiveEvent(sessionKey);
+    if (message.role === "assistant") return this.currentRunForLiveEvent(sessionKey);
     return null;
+  }
+
+  private currentRunForLiveEvent(sessionKey: string): ProjectedRun | null {
+    return this.context.runs.findLatestActiveRun(sessionKey) ?? this.context.runs.findOldestQueuedRun(sessionKey);
+  }
+
+  private activateRunIfQueued(run: ProjectedRun | null, status: "thinking" | "streaming" | "tool_running", statusLabel: string | null = null): ProjectedRun | null {
+    if (!run || run.status !== "queued") return run;
+    this.context.runs.updateRunStatus(run.runId, status, { statusLabel });
+    return this.context.runs.getRun(run.runId) ?? run;
   }
 
   private readRunId(message: OpenClawMessage): string | null {
@@ -340,7 +354,11 @@ export class ChatLiveIngest {
     const toolCallId = readToolCallId(data);
     if (!toolCallId) return;
     const gatewayRunId = typeof payload.runId === "string" ? payload.runId : typeof data.runId === "string" ? data.runId : null;
-    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    const run = this.activateRunIfQueued(
+      gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.currentRunForLiveEvent(sessionKey),
+      "tool_running",
+      null,
+    );
     const rawPhase = typeof data.phase === "string" ? data.phase.toLowerCase() : typeof data.status === "string" ? data.status.toLowerCase() : "start";
     const phase = rawPhase === "error" || rawPhase === "failed"
       ? "error"
@@ -441,7 +459,11 @@ export class ChatLiveIngest {
     const sessionKey = firstString(payload.sessionKey, payload.key, data.sessionKey, data.key);
     if (!sessionKey) return;
     const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
-    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    const run = this.activateRunIfQueued(
+      gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.currentRunForLiveEvent(sessionKey),
+      "streaming",
+      "Streaming",
+    );
     if (!run) return;
     const status = firstString(payload.status, data.status, payload.phase, data.phase)?.toLowerCase() ?? null;
     if (status === "final" || status === "done" || status === "completed") {
@@ -470,7 +492,11 @@ export class ChatLiveIngest {
     const sessionKey = firstString(payload.sessionKey, data.sessionKey, payload.key, data.key);
     if (!sessionKey) return;
     const gatewayRunId = firstString(payload.runId, data.runId, payload.id, data.id);
-    const run = gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.context.runs.findLatestPendingRun(sessionKey);
+    const run = this.activateRunIfQueued(
+      gatewayRunId ? this.context.runs.findRunByGatewayRunId(gatewayRunId) ?? this.context.runs.getRun(gatewayRunId) : this.currentRunForLiveEvent(sessionKey),
+      payload.stream === "thinking" ? "thinking" : "tool_running",
+      payload.stream === "thinking" ? "Thinking" : null,
+    );
     if (payload.stream === "item" || payload.stream === "command_output") {
       this.projectAgentToolEvent(sessionKey, gatewayRunId, run?.runId ?? null, payload.stream, data);
       return;

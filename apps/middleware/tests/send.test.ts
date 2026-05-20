@@ -624,12 +624,14 @@ describe("chat send routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, accepted: true, sessionKey: "s1", idempotencyKey: "one", clientMessageId: "client-one" });
     expect(resolveGatewaySend).toBeTypeOf("function");
-    resolveGatewaySend?.({ runId: "r1", status: "started" });
+    const capturedResolveGatewaySend = resolveGatewaySend as ((value: Record<string, unknown>) => void) | null;
+    if (!capturedResolveGatewaySend) throw new Error("Gateway send promise was not captured");
+    capturedResolveGatewaySend({ runId: "r1", status: "started" });
     await waitFor(() => context.runs.getRun("run:one")?.gatewayRunId === "r1");
     await app.close();
   });
 
-  test("marks follow-up send queued until its queue turn starts", async () => {
+  test("marks follow-up send queued while another run is active", async () => {
     const app = await createApp(config("queued-follow-up-status"));
     const context = contextOf(app);
     const patches: Array<{ type: string; payload?: { clientMessageId?: string | null; runStatus?: string; statusLabel?: string | null } }> = [];
@@ -652,8 +654,13 @@ describe("chat send routes", () => {
       expect.objectContaining({ payload: expect.objectContaining({ clientMessageId: "client-two", runStatus: "queued", statusLabel: "Queued" }) }),
     ]));
 
-    resolveFirst?.({ runId: "r1", status: "started" });
-    await waitFor(() => patches.some((patch) => patch.payload?.clientMessageId === "client-two" && patch.payload?.runStatus === "thinking"));
+    const capturedResolveFirst = resolveFirst as ((value: Record<string, unknown>) => void) | null;
+    if (!capturedResolveFirst) throw new Error("First send promise was not captured");
+    capturedResolveFirst({ runId: "r1", status: "started" });
+    await waitFor(() => context.runs.getRun("run:two")?.gatewayRunId === "r2");
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ clientMessageId: "client-two", runStatus: "thinking" }) }),
+    ]));
     await app.close();
   });
 

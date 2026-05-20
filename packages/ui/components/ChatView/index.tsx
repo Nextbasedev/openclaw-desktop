@@ -1402,6 +1402,16 @@ export function ChatView({
                         : "Thinking - waiting for the next event..."
                       : null)
 
+  const hasVisibleTurnStatus = renderedMessages.some((msg, index) => {
+    if (msg.role !== "user" || !msg.turnStatus || msg.turnStatus === "done") return false
+    for (const next of renderedMessages.slice(index + 1)) {
+      if (next.role === "user") break
+      if (next.role === "assistant" && (next.text.trim().length > 0 || (next.toolCalls?.length ?? 0) > 0)) return false
+    }
+    return true
+  })
+  const footerStatusText = liveToolText || !hasVisibleTurnStatus ? statusText : null
+
   if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
   }
@@ -1437,11 +1447,11 @@ export function ChatView({
           glowOnMount
           draftKey={sessionKey}
         />
-        {statusText && (
+        {footerStatusText && (
           <div className="flex items-center pl-1">
             <ProcessStatusIcon tool={liveTool?.tool} />
             <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-              {statusText.replace(/\.{3}$/, "")}
+              {footerStatusText.replace(/\.{3}$/, "")}
               <span className="thinking-ellipsis" aria-hidden="true" />
             </span>
           </div>
@@ -1524,11 +1534,11 @@ export function ChatView({
             )}
           </AnimatePresence>
 
-          {statusText && (
+          {footerStatusText && (
             <div className="mt-4 flex items-center pl-1">
               <ProcessStatusIcon tool={liveTool?.tool} />
               <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                {statusText.replace(/\.{3}$/, "")}
+                {footerStatusText.replace(/\.{3}$/, "")}
                 <span className="thinking-ellipsis" aria-hidden="true" />
               </span>
             </div>

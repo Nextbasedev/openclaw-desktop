@@ -36,6 +36,40 @@ describe("patch replay", () => {
 });
 
 describe("chat live ingest", () => {
+  test("assistant live event uses active run before queued follow-up", async () => {
+    const app = await createApp(config("active-before-queued"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "sessions.messages.subscribe") return { ok: true };
+      return { ok: true };
+    });
+
+    context.runs.upsertRun({ runId: "run-one", sessionKey: "s1", clientMessageId: "client-one", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    context.runs.upsertRun({ runId: "run-two", sessionKey: "s1", clientMessageId: "client-two", status: "queued", statusLabel: "Queued", startedAtMs: 200, updatedAtMs: 200 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 3,
+        message: { role: "assistant", text: "answer one", __openclaw: { id: "assistant-one", seq: 3 } },
+      },
+    });
+
+    expect(context.runs.getRun("run-one")).toMatchObject({ status: "done" });
+    expect(context.runs.getRun("run-two")).toMatchObject({ status: "queued" });
+    const patches = (await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" })).json().patches as Array<{ payload?: unknown }>;
+    expect(patches.at(-1)?.payload).toMatchObject({ runId: "run-one", clientMessageId: "client-one" });
+    await app.close();
+  });
+
   test("assistant final without a run id completes the pending run and canonical bootstrap", async () => {
     const app = await createApp(config("assistant-final-pending-run"));
     const context = contextOf(app);
