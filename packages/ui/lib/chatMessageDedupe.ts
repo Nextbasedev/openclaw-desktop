@@ -259,11 +259,12 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
   return messages
     .map((message, index) => ({ message, index }))
     .sort((a, b) => {
-      const aIndex = a.message.gatewayIndex
-      const bIndex = b.message.gatewayIndex
-      const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
-      const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
-      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
+      // Optimistic follow-up messages are intentionally appended into the
+      // current visible transcript while an older assistant answer may still be
+      // streaming. Preserve arrival order for optimistic rows; otherwise fresh
+      // assistant patch timestamps can sort below/over the user's new question
+      // and make that question appear hidden.
+      if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
 
       const aTime = messageTimeMs(a.message)
       const bTime = messageTimeMs(b.message)
@@ -273,6 +274,12 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       if (aHasTime && bHasTime && a.message.role !== b.message.role) {
         return roleOrder(a.message) - roleOrder(b.message)
       }
+
+      const aIndex = a.message.gatewayIndex
+      const bIndex = b.message.gatewayIndex
+      const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
+      const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
+      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
 
       // Do not let a newly-sent optimistic message jump above older restored
       // history just because the old messages have no createdAt/gatewayIndex.
