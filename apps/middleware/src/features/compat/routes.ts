@@ -491,9 +491,9 @@ function gatewaySessionsIndexPath(agentId = "main") {
 }
 
 function parseTelegramSessionKey(key: string) {
-  const direct = key.match(/^agent:([^:]+):telegram:direct:([^:]+)$/);
+  const direct = key.match(/^agent:([^:]+):telegram:(?:direct|slash):([^:]+)$/);
   if (direct) return { kind: "direct" as const, agentId: direct[1] || "main", userId: direct[2] || "" };
-  const group = key.match(/^agent:([^:]+):telegram:group:([^:]+)(?::topic:(\d+))?$/);
+  const group = key.match(/^agent:([^:]+):telegram:(?:group|channel|supergroup|chat):([^:]+)(?::topic:(\d+))?$/);
   if (group) return { kind: "group" as const, agentId: group[1] || "main", groupId: group[2] || "", topicId: group[3] || null };
   return null;
 }
