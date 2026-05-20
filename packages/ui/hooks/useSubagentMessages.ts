@@ -187,13 +187,14 @@ export function useSubagentMessages(
   const cancelledRef = useRef(false)
   const requestSeqRef = useRef(0)
   const liveCursorRef = useRef(0)
+  const activeSessionKeyRef = useRef<string | null>(null)
 
   const fetchMessages = useCallback(async (key: string, timeoutMs = 6_000) => {
     const requestSeq = ++requestSeqRef.current
     try {
       void timeoutMs
       const history = await fetchChatBootstrapV2(key)
-      if (cancelledRef.current || requestSeq !== requestSeqRef.current) return
+      if (cancelledRef.current || requestSeq !== requestSeqRef.current || activeSessionKeyRef.current !== key) return
       if (liveCursorRef.current > bootstrapCursor(history)) return
       setMessages(parseMessages((history.messages as RawMsg[]) ?? []))
     } catch {}
@@ -201,6 +202,7 @@ export function useSubagentMessages(
 
   useEffect(() => {
     cancelledRef.current = false
+    activeSessionKeyRef.current = sessionKey
     if (timerRef.current) {
       window.clearTimeout(timerRef.current)
       timerRef.current = null

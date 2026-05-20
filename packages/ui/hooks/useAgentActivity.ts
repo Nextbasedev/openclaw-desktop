@@ -17,7 +17,7 @@ import {
   buildTree,
   finalizeStaleRunningActivity,
 } from "@/components/inspector/activity-types"
-import { inferLiveToolStatus, liveToolEventResultText } from "@/lib/liveToolCalls"
+import { inferLiveToolStatus, liveToolEventResultText, liveToolResultText } from "@/lib/liveToolCalls"
 import {
   extractSubagentSessionKey,
   extractSubagentSessionKeys,
@@ -315,10 +315,26 @@ export function useAgentActivity(sessionKey: string | null) {
 
   const processToolEvent = useCallback(
     (data: Record<string, unknown>) => {
-      const toolCallId = data.toolCallId as string | null
-      const name = data.name as string | null
-      const phase = data.phase as string | null
-      const runId = (data.runId as string) ?? undefined
+      const tool = data.toolCall && typeof data.toolCall === "object" && !Array.isArray(data.toolCall)
+        ? data.toolCall as Record<string, unknown>
+        : null
+      const semanticType = typeof data.semanticType === "string" ? data.semanticType : ""
+      const toolCallId =
+        (typeof data.toolCallId === "string" ? data.toolCallId : null) ??
+        (typeof tool?.toolCallId === "string" ? tool.toolCallId : null) ??
+        (typeof tool?.id === "string" ? tool.id : null)
+      const name =
+        (typeof data.name === "string" ? data.name : null) ??
+        (typeof data.toolName === "string" ? data.toolName : null) ??
+        (typeof tool?.name === "string" ? tool.name : null)
+      const rawPhase =
+        (typeof data.phase === "string" ? data.phase : null) ??
+        (typeof tool?.phase === "string" ? tool.phase : null) ??
+        (semanticType.endsWith(".result") ? "result" : semanticType.endsWith(".error") ? "error" : semanticType.endsWith(".started") ? "start" : null)
+      const phase = rawPhase === "started" ? "start" : rawPhase
+      const runId =
+        (typeof data.runId === "string" ? data.runId : undefined) ??
+        (typeof tool?.runId === "string" ? tool.runId : undefined)
       const subagentOf = (data.subagentOf as string) ?? undefined
       if (!toolCallId || !name) return
       const map = callMapRef.current
@@ -334,7 +350,7 @@ export function useAgentActivity(sessionKey: string | null) {
 
       if (name === "sessions_spawn") {
         const args =
-          data.args as Record<string, unknown> | undefined
+          (data.args ?? tool?.argsMeta) as Record<string, unknown> | undefined
         const label =
           (args?.label as string) ??
           (args?.agentId as string) ??
@@ -411,14 +427,14 @@ export function useAgentActivity(sessionKey: string | null) {
       if (phase === "calling" || phase === "start") {
         map.set(toolCallId, mergeActivityCall(existing, {
           ...fallback,
-          input: data.args as Record<string, unknown> | undefined,
+          input: (data.args ?? tool?.argsMeta) as Record<string, unknown> | undefined,
           startedAt: existing?.startedAt ?? Date.now(),
           messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId ?? runId),
           messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
         }))
       } else if (phase === "update") {
         const call = existing ?? fallback
-        const resultText = liveToolEventResultText(data)
+        const resultText = liveToolEventResultText(data) || liveToolResultText(tool?.resultMeta)
         map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
           status: inferLiveToolStatus(phase, resultText, data.isError),
@@ -431,7 +447,7 @@ export function useAgentActivity(sessionKey: string | null) {
         const duration = call.duration && call.status !== "running"
           ? call.duration
           : formatSafeToolDuration(call.startedAt)
-        const resultText = liveToolEventResultText(data)
+        const resultText = liveToolEventResultText(data) || liveToolResultText(tool?.resultMeta)
         const output = resultText || (isToolErrorPhase(phase) ? "Unknown error" : call.output)
         map.set(toolCallId, mergeActivityCall(existing, {
           ...call,
@@ -692,7 +708,12 @@ export function useAgentActivity(sessionKey: string | null) {
     })
     const unsubscribeStream = subscribeChatStream(sessionKey, ({ type, data }) => {
       if (cancelledRef.current) return
-      if (type === "chat.tool") {
+      if (
+        type === "chat.tool" ||
+        type === "chat.tool.started" ||
+        type === "chat.tool.result" ||
+        type === "chat.tool.error"
+      ) {
         processToolEvent(data)
         return
       }
