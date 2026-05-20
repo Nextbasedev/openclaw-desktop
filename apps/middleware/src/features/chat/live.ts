@@ -161,6 +161,23 @@ export class ChatLiveIngest {
     this.log.info("optimistic.user.add", { sessionKey, messageId: message.id, pendingOptimistic: this.optimisticUsers.get(sessionKey)?.length ?? 0 });
   }
 
+  async ensureRecentSessionsSubscribed(limit = 100) {
+    const sessionKeys = this.context.messages.listRecentSessionKeys(limit);
+    if (sessionKeys.length === 0) return { attempted: 0, subscribed: this.subscribed.size };
+    this.log.info("recent-sessions.subscribe.start", { sessionCount: sessionKeys.length, alreadySubscribed: this.subscribed.size });
+    let attempted = 0;
+    for (const sessionKey of sessionKeys) {
+      attempted += 1;
+      try {
+        await this.ensureSessionSubscribed(sessionKey);
+      } catch (error) {
+        this.log.warn("recent-sessions.subscribe.session-fail", { sessionKey, ...errorMeta(error) });
+      }
+    }
+    this.log.info("recent-sessions.subscribe.end", { attempted, subscribed: this.subscribed.size });
+    return { attempted, subscribed: this.subscribed.size };
+  }
+
   diagnostics() {
     return {
       subscribedSessions: [...this.subscribed],
@@ -209,6 +226,10 @@ export class ChatLiveIngest {
     if (!projectedMessage) return;
     const confirmed = optimisticId ? this.context.messages.confirmOptimisticUser(sessionKey, optimisticId, projectedMessage) : null;
     const projection = confirmed ? { upserted: 1, lastSeq: confirmed.openclawSeq } : this.context.messages.upsertMessages(normalized);
+    if (!confirmed && projection.upserted === 0) {
+      this.log.info("message.replay.noop", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: projectedMessage.openclawSeq });
+      return;
+    }
     const emittedMessage = confirmed?.data ?? message;
     const emittedSeq = confirmed?.openclawSeq ?? projectedMessage.openclawSeq;
     const activityAt = new Date(projectedMessage.updatedAtMs).toISOString();

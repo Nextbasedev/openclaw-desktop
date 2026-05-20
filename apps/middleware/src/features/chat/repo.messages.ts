@@ -284,6 +284,16 @@ export class MessageRepository {
       .filter((row) => !isInternalSubagentCompletionMessage(row.data));
   }
 
+  listRecentSessionKeys(limit = 100): string[] {
+    const rows = this.db.prepare(`
+      SELECT session_key
+      FROM v2_sessions
+      ORDER BY updated_at_ms DESC
+      LIMIT @limit
+    `).all({ limit: Math.max(1, Math.min(500, Math.floor(limit))) }) as Array<{ session_key: string }>;
+    return rows.map((row) => row.session_key).filter(Boolean);
+  }
+
   diagnostics() {
     return this.db.prepare(`
       SELECT

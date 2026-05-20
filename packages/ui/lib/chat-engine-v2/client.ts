@@ -112,71 +112,101 @@ async function replayPatchBacklog(afterCursor: number, onFrame: (frame: StreamFr
 
 export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFrame) => void): () => void {
   if (typeof window === "undefined") return () => undefined
-  const startCursor = Math.max(0, afterCursor)
-  const url = new URL(`${getMiddlewareUrl()}/api/stream/ws`)
-  url.searchParams.set("afterCursor", String(startCursor))
-  const wsUrl = url.toString().replace(/^http/, "ws")
-  frontendLog("stream", "patch-stream.start", { url: sanitizeUrlForLog(wsUrl), afterCursor: startCursor })
-  const ws = new WebSocket(wsUrl)
-  let backlogReplay: Promise<void> | null = null
-  const liveBuffer: StreamFrame[] = []
-  ws.onopen = () => {
-    frontendLog("stream", "patch-stream.open", { url: sanitizeUrlForLog(wsUrl), afterCursor: startCursor })
-  }
-  ws.onerror = () => {
-    frontendLog("stream", "patch-stream.error", { url: sanitizeUrlForLog(wsUrl), afterCursor: startCursor }, "error")
-  }
-  ws.onclose = (event) => {
-    frontendLog("stream", "patch-stream.close", { url: sanitizeUrlForLog(wsUrl), code: event.code, clean: event.wasClean }, event.wasClean ? "info" : "warn")
-  }
-  ws.onmessage = (event) => {
-    try {
-      const frame = JSON.parse(String(event.data)) as StreamFrame
-      frontendLog("stream", "patch-stream.event", {
-        frameType: frame.type,
-        cursor: frame.type === "patch" ? frame.patch.cursor : undefined,
-        patchType: frame.type === "patch" ? frame.patch.type : undefined,
-        sessionKey: frame.type === "patch" ? frame.patch.sessionKey : undefined,
-        replayCount: frame.type === "hello" ? frame.replayCount : undefined,
-        replayHasMore: frame.type === "hello" ? frame.replayHasMore : undefined,
-      }, "debug")
-      if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
-        frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: startCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
-        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery"))
-        onFrame(frame)
-        return
-      }
-      if (frame.type === "hello" && frame.replayHasMore) {
-        frontendLog("stream", "patch-stream.backlog.start", { afterCursor: startCursor, replayCount: frame.replayCount }, "debug")
-        backlogReplay = replayPatchBacklog(startCursor, onFrame)
-          .then(() => {
-            frontendLog("stream", "patch-stream.backlog.end", { bufferedEvents: liveBuffer.length }, "debug")
-            backlogReplay = null
-            for (const buffered of liveBuffer.splice(0)) onFrame(buffered)
+  let closedByCaller = false
+  let reconnectTimer: number | null = null
+  let ws: WebSocket | null = null
+  let cursor = Math.max(0, afterCursor)
+  let reconnectAttempt = 0
+
+  const connect = () => {
+    if (closedByCaller) return
+    const connectionCursor = cursor
+    const url = new URL(`${getMiddlewareUrl()}/api/stream/ws`)
+    url.searchParams.set("afterCursor", String(connectionCursor))
+    const wsUrl = url.toString().replace(/^http/, "ws")
+    frontendLog("stream", reconnectAttempt === 0 ? "patch-stream.start" : "patch-stream.reconnect", {
+      url: sanitizeUrlForLog(wsUrl),
+      afterCursor: connectionCursor,
+      attempt: reconnectAttempt,
+    })
+    const socket = new WebSocket(wsUrl)
+    ws = socket
+    let backlogReplay: Promise<void> | null = null
+    const liveBuffer: StreamFrame[] = []
+
+    socket.onopen = () => {
+      reconnectAttempt = 0
+      frontendLog("stream", "patch-stream.open", { url: sanitizeUrlForLog(wsUrl), afterCursor: connectionCursor }, "debug")
+    }
+    socket.onerror = () => {
+      frontendLog("stream", "patch-stream.error", { url: sanitizeUrlForLog(wsUrl), afterCursor: connectionCursor }, "error")
+    }
+    socket.onclose = (event) => {
+      frontendLog("stream", "patch-stream.close", { url: sanitizeUrlForLog(wsUrl), code: event.code, clean: event.wasClean, closedByCaller }, event.wasClean || closedByCaller ? "info" : "warn")
+      if (closedByCaller) return
+      reconnectAttempt += 1
+      const delayMs = Math.min(10_000, 500 * 2 ** Math.min(5, reconnectAttempt - 1))
+      frontendLog("stream", "patch-stream.reconnect-scheduled", { afterCursor: cursor, attempt: reconnectAttempt, delayMs }, "warn")
+      reconnectTimer = window.setTimeout(connect, delayMs)
+    }
+    socket.onmessage = (event) => {
+      try {
+        const frame = JSON.parse(String(event.data)) as StreamFrame
+        if (frame.type === "patch") cursor = Math.max(cursor, frame.patch.cursor)
+        frontendLog("stream", "patch-stream.event", {
+          frameType: frame.type,
+          cursor: frame.type === "patch" ? frame.patch.cursor : undefined,
+          patchType: frame.type === "patch" ? frame.patch.type : undefined,
+          sessionKey: frame.type === "patch" ? frame.patch.sessionKey : undefined,
+          replayCount: frame.type === "hello" ? frame.replayCount : undefined,
+          replayHasMore: frame.type === "hello" ? frame.replayHasMore : undefined,
+        }, "debug")
+        if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
+          frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: connectionCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
+          window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery"))
+          onFrame(frame)
+          return
+        }
+        if (frame.type === "hello" && frame.replayHasMore) {
+          frontendLog("stream", "patch-stream.backlog.start", { afterCursor: connectionCursor, replayCount: frame.replayCount }, "debug")
+          backlogReplay = replayPatchBacklog(connectionCursor, (replayed) => {
+            if (replayed.type === "patch") cursor = Math.max(cursor, replayed.patch.cursor)
+            onFrame(replayed)
           })
-          .catch((error) => {
-            backlogReplay = null
-            frontendLog("stream", "patch-stream.backlog.error", {
-              error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-            }, "error")
-          })
+            .then(() => {
+              frontendLog("stream", "patch-stream.backlog.end", { bufferedEvents: liveBuffer.length }, "debug")
+              backlogReplay = null
+              for (const buffered of liveBuffer.splice(0)) onFrame(buffered)
+            })
+            .catch((error) => {
+              backlogReplay = null
+              frontendLog("stream", "patch-stream.backlog.error", {
+                error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+              }, "error")
+            })
+          onFrame(frame)
+          return
+        }
+        if (backlogReplay && frame.type === "patch") {
+          liveBuffer.push(frame)
+          return
+        }
         onFrame(frame)
-        return
+      } catch (error) {
+        frontendLog("stream", "patch-stream.malformed-event", {
+          error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+        }, "warn")
       }
-      if (backlogReplay && frame.type === "patch") {
-        liveBuffer.push(frame)
-        return
-      }
-      onFrame(frame)
-    } catch (error) {
-      frontendLog("stream", "patch-stream.malformed-event", {
-        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-      }, "warn")
     }
   }
+
+  connect()
+
   return () => {
-    frontendLog("stream", "patch-stream.unsubscribe", { url: sanitizeUrlForLog(wsUrl) }, "debug")
-    ws.close()
+    closedByCaller = true
+    if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    frontendLog("stream", "patch-stream.unsubscribe", { afterCursor: cursor }, "debug")
+    ws?.close()
   }
 }
 

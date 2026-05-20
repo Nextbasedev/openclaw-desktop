@@ -778,9 +778,9 @@ function isActiveSpawnStatus(status: SpawnedSubagent["status"]) {
 
 function childStatusToSpawnStatus(status: StreamStatus): SpawnedSubagent["status"] {
   if (status === "error") return "failed"
-  if (status === "done") return "completed"
+  if (status === "done" || status === "idle" || status === "connected") return "completed"
   // A child message/bootstrap can arrive before the child status patch. Once we
-  // have seen child activity, stop showing the parent as stuck in "linking".
+  // have seen active child activity, stop showing the parent as stuck in "linking".
   return "working"
 }
 

@@ -2080,6 +2080,37 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("marks linked subagent idle bootstrap as completed instead of working", () => {
+    seedGlobalChatSession({
+      sessionKey: "parent",
+      cursor: 10,
+      status: "done",
+      messages: [{ messageId: "a1", role: "assistant", text: "done" }],
+      spawnedSubagents: [{
+        id: "spawn:tool-1",
+        label: "research",
+        status: "working",
+        toolCallId: "tool-1",
+        sessionKey: "child",
+      }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.bootstrap",
+        sessionKey: "child",
+        createdAtMs: 11,
+        payload: { runStatus: "idle", status: null, activeRun: null },
+      },
+    })
+
+    expect(getGlobalChatSession("parent")?.spawnedSubagents).toEqual([
+      expect.objectContaining({ toolCallId: "tool-1", status: "completed" }),
+    ])
+  })
+
   test("clears streaming loader when final assistant text arrives without a separate done status", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

@@ -126,6 +126,9 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
     const client = { id, socket, connectedAtMs: Date.now(), lastSentCursor: afterCursor };
     context.patchBus.addClient(client);
     log.info("stream.connect", { clientId: id, afterCursor });
+    void context.chatLive.ensureRecentSessionsSubscribed(100)
+      .then((result) => log.info("stream.recent-subscriptions.ready", { clientId: id, ...result }))
+      .catch((error) => log.warn("stream.recent-subscriptions.fail", { clientId: id, error: error instanceof Error ? error.message : String(error) }));
     const replay = listPatchesAfter(context, afterCursor, 1001);
     const replayHasMore = replay.length > 1000;
     const replayWindow = replay.slice(0, 1000);
