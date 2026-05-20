@@ -110,6 +110,11 @@ function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): 
   return merged
 }
 
+
+function activityCallKey(sessionKey: string | null | undefined, toolCallId: string) {
+  return sessionKey ? `${sessionKey}::${toolCallId}` : toolCallId
+}
+
 function activityInputFromInline(input: unknown): Record<string, unknown> | undefined {
   if (input == null) return undefined
   if (typeof input === "object" && !Array.isArray(input)) return input as Record<string, unknown>
@@ -294,11 +299,12 @@ export function useAgentActivity(sessionKey: string | null) {
         let changed = false
         for (const rawCall of combinedCalls) {
           const call = phase === "completed" ? finalizeActivityCall(rawCall) : rawCall
-          const existing = callMapRef.current.get(call.id)
+          const key = activityCallKey(subKey, call.id)
+          const existing = callMapRef.current.get(key)
           call.subagentOf = agentId
           const merged = mergeActivityCall(existing, call)
           if (JSON.stringify(existing) !== JSON.stringify(merged)) {
-            callMapRef.current.set(call.id, merged)
+            callMapRef.current.set(key, merged)
             changed = true
           }
         }
@@ -532,10 +538,11 @@ export function useAgentActivity(sessionKey: string | null) {
           const name = typeof record.name === "string" ? record.name : null
           if (!toolCallId || !name) continue
 
-          const existing = callMapRef.current.get(toolCallId)
+          const key = activityCallKey(sessionKey, toolCallId)
+          const existing = callMapRef.current.get(key)
           const liveTurn = liveTurnForSession(sessionKey)
           const status = record.isError === true || record.status === "error" ? "error" : existing?.status ?? "running"
-          callMapRef.current.set(toolCallId, mergeActivityCall(existing, {
+          callMapRef.current.set(key, mergeActivityCall(existing, {
             id: toolCallId,
             tool: name,
             status,
@@ -634,7 +641,8 @@ export function useAgentActivity(sessionKey: string | null) {
           ? finalizeStaleRunningActivity(parsed.calls, parsed.agents)
           : parsed
         for (const call of reconciled.calls) {
-          callMapRef.current.set(call.id, mergeActivityCall(callMapRef.current.get(call.id), call))
+          const key = activityCallKey(sessionKey, call.id)
+          callMapRef.current.set(key, mergeActivityCall(callMapRef.current.get(key), call))
         }
         for (const [id, info] of reconciled.agents) {
           agentsRef.current.set(id, info)
@@ -706,14 +714,15 @@ export function useAgentActivity(sessionKey: string | null) {
       }
 
       for (const tool of state.pendingTools) {
-        const existing = callMapRef.current.get(tool.id)
+        const key = activityCallKey(sessionKey, tool.id)
+        const existing = callMapRef.current.get(key)
         const incoming = activityCallFromInlineTool(tool, {
           messageId: liveTurnMessageId(existing?.messageId, liveTurn.messageId),
           messagePreview: liveTurnPreview(existing?.messagePreview, liveTurn.messagePreview),
         })
         const merged = mergeActivityCall(existing, incoming)
         if (JSON.stringify(existing) !== JSON.stringify(merged)) {
-          callMapRef.current.set(tool.id, merged)
+          callMapRef.current.set(key, merged)
           changed = true
         }
       }
@@ -731,14 +740,15 @@ export function useAgentActivity(sessionKey: string | null) {
             }
           : liveTurn
         for (const tool of message.toolCalls) {
-          const existing = callMapRef.current.get(tool.id)
+          const key = activityCallKey(sessionKey, tool.id)
+          const existing = callMapRef.current.get(key)
           const incoming = activityCallFromInlineTool(tool, {
             messageId: liveTurnMessageId(existing?.messageId, turn.messageId),
             messagePreview: liveTurnPreview(existing?.messagePreview, turn.messagePreview),
           })
           const merged = mergeActivityCall(existing, incoming)
           if (JSON.stringify(existing) !== JSON.stringify(merged)) {
-            callMapRef.current.set(tool.id, merged)
+            callMapRef.current.set(key, merged)
             changed = true
           }
         }
@@ -801,7 +811,8 @@ export function useAgentActivity(sessionKey: string | null) {
       const liveTurn = liveTurnForSession(subKey)
       const upsertTool = (tool: InlineToolCall, turn = liveTurn) => {
         const normalizedTool = childLooksComplete ? finalizeInlineToolForCompletedChild(tool) : tool
-        const existing = callMapRef.current.get(normalizedTool.id)
+        const key = activityCallKey(subKey, normalizedTool.id)
+        const existing = callMapRef.current.get(key)
         const incoming = {
           ...activityCallFromInlineTool(normalizedTool, {
             messageId: liveTurnMessageId(existing?.messageId, turn.messageId),
@@ -811,7 +822,7 @@ export function useAgentActivity(sessionKey: string | null) {
         }
         const merged = mergeActivityCall(existing, incoming)
         if (JSON.stringify(existing) !== JSON.stringify(merged)) {
-          callMapRef.current.set(tool.id, merged)
+          callMapRef.current.set(key, merged)
           changed = true
         }
       }
