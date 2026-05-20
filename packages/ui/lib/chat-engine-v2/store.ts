@@ -912,13 +912,6 @@ function hasAssistantAnswerAfterLatestUser(state: SessionState) {
   return false
 }
 
-function hasPendingOptimisticUserWithoutAnswer(state: SessionState) {
-  const latestUserIndex = latestUserMessageIndex(state)
-  if (latestUserIndex < 0) return false
-  const latestUser = state.messages[latestUserIndex]
-  return Boolean(latestUser?.role === "user" && latestUser.isOptimistic && !hasAssistantAnswerAfterLatestUser(state))
-}
-
 function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
   // Legacy/corrupt-stream fallback only. In the normal middleware contract,
   // run completion is authoritative via canonical runStatus/chat.run.* patches.
@@ -975,10 +968,6 @@ function shouldFinalizeOnAssistantFinalText(state: SessionState, frame: PatchFra
   if (!ACTIVE_STATUSES.has(state.status)) return false
   if (!isAssistantFinalTextMessage(frame)) return false
   if (hasActiveToolOrSubagent(state)) return false
-  // A follow-up sent while the previous assistant answer is still streaming is
-  // optimistic until Gateway echoes it. Do not let the previous answer's final
-  // text clear the visible loading state for that pending follow-up.
-  if (hasPendingOptimisticUserWithoutAnswer(state)) return false
   return true
 }
 
@@ -1011,7 +1000,6 @@ function isBareDoneStatusPatch(frame: PatchFrame, status: StreamStatus) {
 function shouldDeferBareDoneStatus(state: SessionState, frame: PatchFrame, status: StreamStatus) {
   if (!isBareDoneStatusPatch(frame, status)) return false
   if (!ACTIVE_STATUSES.has(state.status)) return false
-  if (hasPendingOptimisticUserWithoutAnswer(state)) return true
   if (!state.activityStartedAtMs) return false
   if (Date.now() - state.activityStartedAtMs > PREMATURE_DONE_GRACE_MS) return false
   if (latestUserMessageIndex(state) < 0) return false

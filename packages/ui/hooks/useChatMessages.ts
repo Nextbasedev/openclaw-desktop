@@ -1721,15 +1721,17 @@ export function useChatMessages(
           sessionKey,
           messages: optimisticMessages,
           cursor: v2CursorRef.current,
-          status: "thinking",
-          statusLabel: "Thinking",
+          status: runsAlongsideGeneration ? statusRef.current : "thinking",
+          statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
           pendingTools: Array.from(pendingToolMapRef.current.values()),
           spawnedSubagents: Array.from(spawnMapRef.current.values()),
           queryClient,
         })
-        markOptimisticChatActivity(sessionKey)
-        setStatus("thinking")
-        setStatusLabel("Thinking")
+        if (!runsAlongsideGeneration) {
+          markOptimisticChatActivity(sessionKey)
+          setStatus("thinking")
+          setStatusLabel("Thinking")
+        }
       })
       forceScrollToBottom(true)
       try {
@@ -1764,8 +1766,8 @@ export function useChatMessages(
           sessionKey,
           messages: ackMessages,
           cursor: v2CursorRef.current,
-          status: "thinking",
-          statusLabel: "Thinking",
+          status: runsAlongsideGeneration ? statusRef.current : "thinking",
+          statusLabel: runsAlongsideGeneration ? normalizeStatusLabelForStatus(statusRef.current, statusLabel) : "Thinking",
           pendingTools: Array.from(pendingToolMapRef.current.values()),
           spawnedSubagents: Array.from(spawnMapRef.current.values()),
           queryClient,
