@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../../app.js";
@@ -22,6 +25,120 @@ const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
+
+
+function readJsonlRecords(file: string, maxLines?: number): Record<string, unknown>[] {
+  try {
+    const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
+    const selected = typeof maxLines === "number" && maxLines >= 0 ? lines.slice(0, maxLines) : lines;
+    return selected.map((line) => JSON.parse(line) as Record<string, unknown>);
+  } catch { return []; }
+}
+
+function transcriptMessagesFromJsonl(file: string, maxLines?: number): OpenClawMessage[] {
+  return readJsonlRecords(file, maxLines)
+    .filter((line) => line?.type === "message" || (line.message && typeof line.message === "object"))
+    .map((line): OpenClawMessage => {
+      const message = (line.message && typeof line.message === "object") ? line.message as OpenClawMessage : line as OpenClawMessage;
+      return { ...message, timestamp: message.timestamp ?? line.timestamp, __openclaw: { id: typeof line.id === "string" ? line.id : undefined, seq: typeof line.seq === "number" ? line.seq : undefined } };
+    })
+    .filter((message) => typeof message.role === "string");
+}
+
+function parseJsonBlock(text: string, label: string): Record<string, unknown> | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`${escaped}:\\s*` + "```json\\s*([\\s\\S]*?)\\s*```", "i"));
+  if (!match) return null;
+  try { return JSON.parse(match[1] || "") as Record<string, unknown>; } catch { return null; }
+}
+
+function firstHistoryIdentity(messages: unknown[], sessionKey: string) {
+  for (const message of messages) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
+    const text = textFromMessage(message as OpenClawMessage);
+    const conversation = parseJsonBlock(text, "Conversation info (untrusted metadata)");
+    if (conversation) {
+      const chatId = String(conversation.chat_id || "").replace(/^telegram:/, "").trim();
+      const topicId = conversation.topic_id === undefined || conversation.topic_id === null ? null : String(conversation.topic_id);
+      if (chatId) return { kind: "conversation", channel: String(conversation.chat_id || "").startsWith("telegram:") ? "telegram" : "unknown", chatId, topicId };
+    }
+    const sender = parseJsonBlock(text, "Sender (untrusted metadata)");
+    if (sender) {
+      const senderId = String(sender.id || sender.username || sender.name || "").trim();
+      if (senderId) return { kind: "sender", senderId, desktopOnly: sessionKey.includes(":desktop:") };
+    }
+  }
+  return sessionKey.includes(":desktop:") ? { kind: "desktop", senderId: "openclaw-control-ui", desktopOnly: true } : null;
+}
+
+function identitiesMatch(a: ReturnType<typeof firstHistoryIdentity>, b: ReturnType<typeof firstHistoryIdentity>) {
+  if (!a || !b) return false;
+  if (a.kind === "conversation" || b.kind === "conversation") {
+    return a.kind === "conversation" && b.kind === "conversation" && a.channel === b.channel && a.chatId === b.chatId && (a.topicId ?? null) === (b.topicId ?? null);
+  }
+  if ((a.kind === "sender" || a.kind === "desktop") && (b.kind === "sender" || b.kind === "desktop")) return a.senderId === b.senderId && Boolean(a.desktopOnly) === Boolean(b.desktopOnly);
+  return false;
+}
+
+function archiveSessionIdFromFile(file: string) {
+  const match = path.basename(file).match(/^(.*?)\.jsonl\.(?:reset|deleted)\.\d{4}-\d{2}-\d{2}T/);
+  return match?.[1] || null;
+}
+
+function agentIdFromSessionKey(sessionKey: string) {
+  const match = sessionKey.match(/^agent:([^:]+):/);
+  return match?.[1] || "main";
+}
+
+function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; messages: unknown[] }) {
+  const current = params.sessionFile ? path.resolve(params.sessionFile) : "";
+  const agentId = agentIdFromSessionKey(params.sessionKey);
+  const sessionsDir = current ? path.dirname(current) : path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions");
+  const candidateDirs = Array.from(new Set([sessionsDir, path.join(sessionsDir, "archive"), path.join(sessionsDir, "archives")].map((dir) => path.resolve(dir))));
+  const currentIdentity = firstHistoryIdentity(params.messages, params.sessionKey);
+  const files = candidateDirs.flatMap((dir) => {
+    try {
+      return fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => path.join(dir, entry.name));
+    } catch { return [] as string[]; }
+  });
+  const archiveSuffixRe = /\.jsonl\.(?:reset|deleted)\.\d{4}-\d{2}-\d{2}T/;
+  return files
+    .filter((file) => archiveSuffixRe.test(path.basename(file)))
+    .filter((file) => path.resolve(file) !== current)
+    .filter((file) => {
+      const archivedSessionId = archiveSessionIdFromFile(file);
+      if (params.sessionId && archivedSessionId === params.sessionId && !current) return true;
+      if (!currentIdentity) return params.sessionId ? archivedSessionId === params.sessionId : false;
+      const archivedMessages = transcriptMessagesFromJsonl(file, 80);
+      const archivedIdentity = firstHistoryIdentity(archivedMessages, params.sessionKey);
+      return identitiesMatch(currentIdentity, archivedIdentity);
+    })
+    .sort((a, b) => {
+      const aMs = fs.statSync(a, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+      const bMs = fs.statSync(b, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+      return aMs - bMs || a.localeCompare(b);
+    });
+}
+
+function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
+  const archivedFiles = archivedHistoryTranscriptFiles({
+    sessionKey,
+    sessionId: history.sessionId ?? null,
+    sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+    messages: history.messages ?? [],
+  });
+  let upserted = 0;
+  for (const file of archivedFiles) {
+    const archivedSessionId = archiveSessionIdFromFile(file);
+    if (archivedSessionId && archivedSessionId === history.sessionId && history.sessionFile) continue;
+    const archivedMessages = transcriptMessagesFromJsonl(file);
+    if (archivedMessages.length === 0) continue;
+    const segment = context.messages.ensureActiveSegment({ sessionKey, sessionId: archivedSessionId, sessionFile: file, resetReason: "archived_transcript" });
+    const normalized = normalizeHistoryMessages(sessionKey, archivedMessages);
+    upserted += context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq }).upserted;
+  }
+  return { fileCount: archivedFiles.length, upserted };
+}
 
 function lastMessageIsAssistantText(messages: unknown[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -799,6 +916,8 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
+    const archivedProjection = persistArchivedHistorySegments(context, sessionKey, history);
+    if (archivedProjection.fileCount > 0) log.info("bootstrap.archived-history.persist", { sessionKey, archivedFiles: archivedProjection.fileCount, upserted: archivedProjection.upserted });
     const existingSession = context.messages.getSession(sessionKey);
     const segment = context.messages.ensureActiveSegment({
       sessionKey,
