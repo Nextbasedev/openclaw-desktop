@@ -38,11 +38,22 @@ const hasToolCallOnly = (p) => {
 };
 
 async function currentCursor() {
-  const data = await req('GET', '/api/patches?afterCursor=0&limit=1');
-  if (typeof data.latestCursor === 'number') return data.latestCursor;
-  if (typeof data.cursor === 'number') return data.cursor;
-  const recent = await req('GET', '/api/patches?afterCursor=0&limit=5000');
-  return Math.max(0, ...(recent.patches || []).map((p) => p.cursor || 0));
+  try {
+    const diagnostics = await req('GET', '/api/diagnostics');
+    const latest = diagnostics?.projection?.latestCursor;
+    if (typeof latest === 'number' && Number.isFinite(latest)) return latest;
+  } catch {
+    // Older middleware may not expose diagnostics; fall back to paging.
+  }
+  let cursor = 0;
+  for (let i = 0; i < 200; i++) {
+    const data = await req('GET', `/api/patches?afterCursor=${cursor}&limit=1000`);
+    const patches = data.patches || [];
+    if (!patches.length) return cursor;
+    cursor = Math.max(cursor, ...patches.map((p) => p.cursor || 0));
+    if (!data.hasMore) return cursor;
+  }
+  return cursor;
 }
 
 let cursor = Number(process.env.START_CURSOR || await currentCursor());
