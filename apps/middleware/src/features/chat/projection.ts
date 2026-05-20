@@ -1,4 +1,5 @@
 import type { AppContext } from "../../app.js";
+import { normalizePatchSemanticType } from "./message-semantics.js";
 import type { ProjectedRun, ProjectedToolCall, RunStatus } from "./repo.runs.js";
 
 export const CHAT_PROJECTION_VERSION = 3;
@@ -63,39 +64,6 @@ export function toolCallProjection(tool: ProjectedToolCall) {
   };
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function messageText(value: unknown): string {
-  if (!isObject(value)) return "";
-  if (typeof value.text === "string") return value.text;
-  const content = value.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content.map((block) => {
-    if (typeof block === "string") return block;
-    if (isObject(block) && typeof block.text === "string") return block.text;
-    return "";
-  }).join("");
-}
-
-function hasToolCallBlock(value: unknown): boolean {
-  if (!isObject(value) || !Array.isArray(value.content)) return false;
-  return value.content.some((block) => {
-    if (!isObject(block)) return false;
-    return block.type === "toolCall" || block.type === "tool_use" || block.type === "tool_call" || block.type === "toolUse";
-  });
-}
-
-function canonicalSemanticType(semanticType: string, payload?: Record<string, unknown>) {
-  const message = payload?.message;
-  if (semanticType === "chat.assistant.final" && hasToolCallBlock(message) && !messageText(message).trim()) {
-    return "chat.message.upsert";
-  }
-  return semanticType;
-}
-
 export function canonicalPatchPayload(params: {
   sessionKey: string;
   semanticType: string;
@@ -107,7 +75,7 @@ export function canonicalPatchPayload(params: {
   legacyStatusLabel?: unknown;
 }) {
   const status = params.run?.status ?? canonicalRunStatusFromLegacy(params.legacyStatus);
-  const semanticType = canonicalSemanticType(params.semanticType, params.payload);
+  const semanticType = normalizePatchSemanticType(params.semanticType, params.payload);
   return {
     projectionVersion: CHAT_PROJECTION_VERSION,
     semanticType,

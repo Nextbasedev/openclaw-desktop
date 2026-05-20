@@ -4,6 +4,7 @@ import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
+import { classifyChatMessageSemanticType, toolCallBlocks } from "./message-semantics.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
@@ -32,22 +33,6 @@ function lastMessageIsAssistantText(messages: unknown[]) {
     return role === "assistant" && text.length > 0;
   }
   return false;
-}
-
-function toolCallBlocks(content: unknown) {
-  if (!Array.isArray(content)) return [];
-  return content.filter((block): block is Record<string, unknown> => {
-    if (!block || typeof block !== "object" || Array.isArray(block)) return false;
-    return block.type === "toolCall" || block.type === "tool_use" || block.type === "tool_call" || block.type === "toolUse";
-  });
-}
-
-function semanticTypeForMessage(role: string, message: Record<string, unknown>) {
-  if (role === "user") return "chat.user.confirmed";
-  if (role !== "assistant") return "chat.message.upsert";
-  return textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0
-    ? "chat.assistant.final"
-    : "chat.message.upsert";
 }
 
 function readToolCallId(value: Record<string, unknown>) {
@@ -621,7 +606,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   log.info("history.patch.skip_stale_for_current_run", { sessionKey: input.sessionKey, messageSeq: projected.openclawSeq, role: projected.role, runId, optimisticSeq, currentUserRepresented: currentHistory.currentUserRepresented });
                   continue;
                 }
-                const semanticType = semanticTypeForMessage(projected.role, projected.data as Record<string, unknown>);
+                const semanticType = classifyChatMessageSemanticType(projected.role, projected.data as Record<string, unknown>);
                 const historyEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
                   eventType: "chat.message.upsert",

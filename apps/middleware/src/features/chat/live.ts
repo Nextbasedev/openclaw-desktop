@@ -2,6 +2,7 @@ import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
+import { classifyChatMessageSemanticType, messageHasToolCall, messageHasVisibleText, toolCallBlocks } from "./message-semantics.js";
 import type { OpenClawMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
@@ -31,22 +32,6 @@ function contentFactorSummary(message: Record<string, unknown>) {
     toolCallCount,
     isToolResult: message.role === "tool" || message.role === "tool_result" || message.role === "toolResult",
   };
-}
-
-function toolCallBlocks(content: unknown) {
-  if (!Array.isArray(content)) return [];
-  return content.filter((block): block is Record<string, unknown> => {
-    if (!isObject(block)) return false;
-    return block.type === "toolCall" || block.type === "tool_use" || block.type === "tool_call" || block.type === "toolUse";
-  });
-}
-
-function semanticTypeForMessage(role: string, message: OpenClawMessage) {
-  if (role === "user") return "chat.user.confirmed";
-  if (role !== "assistant") return "chat.message.upsert";
-  return textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0
-    ? "chat.assistant.final"
-    : "chat.message.upsert";
 }
 
 function toolResultBlocks(content: unknown) {
@@ -252,8 +237,8 @@ export class ChatLiveIngest {
     });
     const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
-    const assistantHasToolCalls = projectedMessage.role === "assistant" && toolCallBlocks(message.content).length > 0;
-    const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && !assistantHasToolCalls;
+    const assistantHasToolCalls = projectedMessage.role === "assistant" && messageHasToolCall(message);
+    const assistantHasFinalText = projectedMessage.role === "assistant" && messageHasVisibleText(message) && !assistantHasToolCalls;
     const hadDetachedSubagentToolsBeforeFinal = assistantHasFinalText && isSubagentSessionKey(sessionKey)
       ? this.context.runs.listToolCalls(sessionKey).some((tool) => !tool.runId && tool.status === "running")
       : false;
@@ -698,7 +683,7 @@ export class ChatLiveIngest {
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
       for (const projected of projection.changedMessages) {
         this.ingestToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run);
-        const semanticType = semanticTypeForMessage(projected.role, projected.data as OpenClawMessage);
+        const semanticType = classifyChatMessageSemanticType(projected.role, projected.data as OpenClawMessage);
         const event = this.context.messages.appendProjectionEvent({
           sessionKey,
           eventType: "chat.message.upsert",
