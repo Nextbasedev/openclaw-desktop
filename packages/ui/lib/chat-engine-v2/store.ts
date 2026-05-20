@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { ChatMessage, InlineToolCall, SpawnedSubagent, StreamStatus } from "../../components/ChatView/types"
-import { dedupeChatMessages } from "../chatMessageDedupe"
+import { dedupeChatMessages, sameUserMessage } from "../chatMessageDedupe"
 import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { emit } from "../events"
@@ -73,6 +73,21 @@ function cloneState(state: SessionState): SessionState {
 
 function defaultState(): SessionState {
   return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false }
+}
+
+function mergeLocalOptimisticMessages(canonicalMessages: ChatMessage[], currentMessages: ChatMessage[]) {
+  const optimisticMessages = currentMessages.filter(
+    (message) =>
+      message.isOptimistic &&
+      !canonicalMessages.some(
+        (canonical) =>
+          canonical.messageId === message.messageId ||
+          (canonical.role === "user" && message.role === "user" && sameUserMessage(canonical, message))
+      )
+  )
+  return optimisticMessages.length
+    ? dedupeChatMessages([...canonicalMessages, ...optimisticMessages])
+    : canonicalMessages
 }
 
 function normalizedSpawnText(value: string | null | undefined) {
@@ -1268,9 +1283,12 @@ export function seedGlobalChatSession(params: {
   const state = getOrCreate(params.sessionKey)
   const incomingCursor = params.cursor ?? 0
   const hadNewerLiveState = state.cursor > incomingCursor && state.messages.length > 0
+  const seededMessages = hadNewerLiveState
+    ? params.messages
+    : mergeLocalOptimisticMessages(params.messages, state.messages)
   state.messages = hadNewerLiveState
-    ? dedupeChatMessages([...params.messages, ...state.messages])
-    : dedupeChatMessages(params.messages)
+    ? dedupeChatMessages([...seededMessages, ...state.messages])
+    : dedupeChatMessages(seededMessages)
   state.cursor = Math.max(state.cursor, incomingCursor)
   if (params.status && !hadNewerLiveState) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
