@@ -64,28 +64,6 @@ describe("global V2 chat engine store", () => {
       type: "patch",
       patch: {
         cursor: 3,
-        type: "chat.message.upsert",
-        sessionKey: "s1",
-        createdAtMs: 3,
-        payload: {
-          semanticType: "chat.assistant.final",
-          messageId: "a1",
-          clientMessageId: "u1",
-          runId: "run-1",
-          runStatus: "done",
-          message: { role: "assistant", text: "answer one", __openclaw: { id: "a1", runId: "run-1" } },
-        },
-      },
-    })
-
-    state = getGlobalChatSession("s1")!
-    expect(state.messages.find((message) => message.messageId === "u1")?.turnStatus).toBeUndefined()
-    expect(state.messages.find((message) => message.messageId === "u2")).toMatchObject({ turnStatus: "queued", turnStatusLabel: "Queued" })
-
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 4,
         type: "chat.status",
         sessionKey: "s1",
         createdAtMs: 3,

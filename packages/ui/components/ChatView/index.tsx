@@ -130,7 +130,7 @@ function TurnStatusInline({ status, label }: { status: NonNullable<ChatMessage["
         ? (label || "Message failed")
         : (label || "Thinking")
   return (
-    <div className="mt-2 mb-2 flex items-center pl-1 text-muted-foreground">
+    <div className="mb-2 flex items-center pl-1 text-muted-foreground">
       <ProcessStatusIcon />
       <span className={cn(
         "text-[13px] font-medium tracking-[-0.01em]",
@@ -1167,7 +1167,17 @@ export function ChatView({
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
       const isLast = index === renderedMessages.length - 1
-      const showTurnStatus = msg.role === "user" && Boolean(msg.turnStatus) && msg.turnStatus !== "done"
+      let hasAnswerBeforeNextUser = false
+      if (msg.role === "user") {
+        for (const next of renderedMessages.slice(index + 1)) {
+          if (next.role === "user") break
+          if (next.role === "assistant" && (next.text.trim().length > 0 || (next.toolCalls?.length ?? 0) > 0)) {
+            hasAnswerBeforeNextUser = true
+            break
+          }
+        }
+      }
+      const showTurnStatus = msg.role === "user" && Boolean(msg.turnStatus) && msg.turnStatus !== "done" && !hasAnswerBeforeNextUser
       const showPending =
         isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
       const isActivelyStreaming =
@@ -1233,6 +1243,9 @@ export function ChatView({
               defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
             />
           )}
+          {showTurnStatus && msg.turnStatus && (
+            <TurnStatusInline status={msg.turnStatus} label={msg.turnStatusLabel} />
+          )}
           {(() => {
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
             const toolSteps = msg.role === "assistant" && filteredToolCalls && filteredToolCalls.length > 0
@@ -1281,9 +1294,6 @@ export function ChatView({
             ) : null
             return <>{toolSteps}{bubble}</>
           })()}
-          {showTurnStatus && msg.turnStatus && (
-            <TurnStatusInline status={msg.turnStatus} label={msg.turnStatusLabel} />
-          )}
           {msg.role === "user" && userSubagents.length > 0 && (
             <div className="mt-3">
               <SubagentCard subagents={userSubagents} onOpen={openSubagent} />
@@ -1392,9 +1402,14 @@ export function ChatView({
                         : "Thinking - waiting for the next event..."
                       : null)
 
-  const hasVisibleTurnStatus = renderedMessages.some((msg) =>
-    msg.role === "user" && Boolean(msg.turnStatus) && msg.turnStatus !== "done"
-  )
+  const hasVisibleTurnStatus = renderedMessages.some((msg, index) => {
+    if (msg.role !== "user" || !msg.turnStatus || msg.turnStatus === "done") return false
+    for (const next of renderedMessages.slice(index + 1)) {
+      if (next.role === "user") break
+      if (next.role === "assistant" && (next.text.trim().length > 0 || (next.toolCalls?.length ?? 0) > 0)) return false
+    }
+    return true
+  })
   const footerStatusText = liveToolText || !hasVisibleTurnStatus ? statusText : null
 
   if (loading && messages.length === 0) {
