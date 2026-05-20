@@ -1,4 +1,4 @@
-import type { ChatMessage, StreamStatus } from "../../components/ChatView/types"
+import type { ChatMessage, StreamStatus, TurnStatus } from "../../components/ChatView/types"
 import { cleanUserMessageText, parseChatHistory } from "../chatHistoryParser"
 import { dedupeChatMessages } from "../chatMessageDedupe"
 import type { PatchFrame, PatchPayloadV2 } from "./types"
@@ -53,6 +53,51 @@ function patchMessageSeq(frame: PatchFrame): number | undefined {
     if (typeof seq === "number" && Number.isFinite(seq)) return Math.floor(seq)
   }
   return undefined
+}
+
+function turnStatusFromPatch(frame: PatchFrame): { status: TurnStatus; label: string | null; messageId: string | null; runId: string | null; idempotencyKey: string | null } | null {
+  const payload = patchPayload(frame)
+  if (!payload) return null
+  const rawStatus = payload.runStatus ?? payload.status
+  const status = rawStatus === "queued" || rawStatus === "thinking" || rawStatus === "streaming" || rawStatus === "error" || rawStatus === "done"
+    ? rawStatus
+    : rawStatus === "tool_running"
+      ? "streaming"
+      : null
+  if (!status) return null
+  const messageId = typeof payload.clientMessageId === "string" && payload.clientMessageId.trim()
+    ? payload.clientMessageId.trim()
+    : typeof payload.messageId === "string" && payload.messageId.trim()
+      ? payload.messageId.trim()
+      : null
+  const runId = typeof payload.runId === "string" && payload.runId.trim() ? payload.runId.trim() : null
+  const idempotencyKey = typeof payload.idempotencyKey === "string" && payload.idempotencyKey.trim() ? payload.idempotencyKey.trim() : null
+  if (!messageId && !runId && !idempotencyKey) return null
+  const label = typeof payload.statusLabel === "string" && payload.statusLabel.trim() ? payload.statusLabel.trim() : null
+  return { status, label, messageId, runId, idempotencyKey }
+}
+
+function applyTurnStatusToMessages(messages: ChatMessage[], frame: PatchFrame): ChatMessage[] {
+  const turn = turnStatusFromPatch(frame)
+  if (!turn) return messages
+  let changed = false
+  const next = messages.map((message) => {
+    if (message.role !== "user") return message
+    const matches =
+      (turn.messageId && message.messageId === turn.messageId) ||
+      (turn.runId && message.runId === turn.runId) ||
+      (turn.idempotencyKey && message.idempotencyKey === turn.idempotencyKey)
+    if (!matches) return message
+    changed = true
+    return {
+      ...message,
+      turnStatus: turn.status === "done" ? undefined : turn.status,
+      turnStatusLabel: turn.status === "done" ? null : turn.label,
+      runId: message.runId ?? turn.runId,
+      idempotencyKey: message.idempotencyKey ?? turn.idempotencyKey,
+    }
+  })
+  return changed ? next : messages
 }
 
 function shouldAnimateAssistantTextPatch(frame: PatchFrame, message: ChatMessage): boolean {
@@ -238,7 +283,7 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     }
   }
   const message = patchMessage(frame)
-  if (!message) return { ...state, cursor: frame.patch.cursor }
+  if (!message) return { ...state, cursor: frame.patch.cursor, messages: applyTurnStatusToMessages(state.messages, frame) }
   const parsed = parseChatHistory([message]).messages
   const optimisticId = patchOptimisticId(frame)
   const payload = patchPayload(frame)
@@ -250,7 +295,17 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   const normalized = canonicalMessageId
     ? withSeq.map((item) =>
       item.role === "user"
-        ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null }
+        ? {
+            ...item,
+            messageId: canonicalMessageId,
+            isOptimistic: false,
+            sendStatus: undefined,
+            sendError: null,
+            turnStatus: turnStatusFromPatch(frame)?.status === "done" ? undefined : (turnStatusFromPatch(frame)?.status ?? item.turnStatus),
+            turnStatusLabel: turnStatusFromPatch(frame)?.status === "done" ? null : (turnStatusFromPatch(frame)?.label ?? item.turnStatusLabel),
+            runId: item.runId ?? turnStatusFromPatch(frame)?.runId,
+            idempotencyKey: item.idempotencyKey ?? turnStatusFromPatch(frame)?.idempotencyKey,
+          }
         : withSeq.length === 1
           ? { ...item, messageId: canonicalMessageId }
           : item
@@ -277,8 +332,9 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
       ? { ...item, animateText: true }
       : item
   )
+  const merged = dedupeChatMessages(mergeToolOnlyAssistantMessages(baseMessages, animated, frame))
   return {
     cursor: frame.patch.cursor,
-    messages: dedupeChatMessages(mergeToolOnlyAssistantMessages(baseMessages, animated, frame)),
+    messages: applyTurnStatusToMessages(merged, frame),
   }
 }

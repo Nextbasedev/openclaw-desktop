@@ -629,6 +629,34 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("marks follow-up send queued until its queue turn starts", async () => {
+    const app = await createApp(config("queued-follow-up-status"));
+    const context = contextOf(app);
+    const patches: Array<{ type: string; payload?: { clientMessageId?: string | null; runStatus?: string; statusLabel?: string | null } }> = [];
+    vi.spyOn(context.patchBus, "broadcast").mockImplementation((patch) => { patches.push(patch as (typeof patches)[number]); });
+    let resolveFirst: ((value: Record<string, unknown>) => void) | null = null;
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method !== "chat.send") return method === "chat.history" ? { messages: [] } : { ok: true };
+      if (params?.idempotencyKey === "one") {
+        return await new Promise<Record<string, unknown>>((resolve) => { resolveFirst = resolve; });
+      }
+      return { runId: "r2", status: "started" };
+    });
+
+    const first = await app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "first", idempotencyKey: "one", clientMessageId: "client-one" } });
+    expect(first.statusCode).toBe(200);
+    await waitFor(() => typeof resolveFirst === "function");
+    const second = await app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "second", idempotencyKey: "two", clientMessageId: "client-two" } });
+    expect(second.statusCode).toBe(200);
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ clientMessageId: "client-two", runStatus: "queued", statusLabel: "Queued" }) }),
+    ]));
+
+    resolveFirst?.({ runId: "r1", status: "started" });
+    await waitFor(() => patches.some((patch) => patch.payload?.clientMessageId === "client-two" && patch.payload?.runStatus === "thinking"));
+    await app.close();
+  });
+
   test("serializes sends per session", async () => {
     const app = await createApp(config("queue"));
     const context = contextOf(app);

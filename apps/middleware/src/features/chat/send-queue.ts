@@ -20,6 +20,10 @@ export class SessionSendQueue {
     }
   }
 
+  hasPending(sessionKey: string) {
+    return this.tails.has(sessionKey);
+  }
+
   pendingSessions() {
     return this.tails.size;
   }
