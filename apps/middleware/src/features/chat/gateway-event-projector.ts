@@ -80,10 +80,16 @@ export function projectGatewayMessage(message: OpenClawMessage | Record<string, 
   const toolEvents = extractToolEventsFromMessage(message);
 
   if (isToolResultMessage) {
+    const hasAddressableToolResult = toolEvents.length > 0;
+    const hasVisibleStandaloneResult = messageHasVisibleText(message);
     return {
       role,
       semanticType: "chat.tool.result",
-      emitMessagePatch: false,
+      // Tool results with a toolCallId update the canonical tool row via
+      // chat.tool.result patches. Standalone tool-result text, such as exec
+      // approval prompts without a toolCallId, still needs a message patch so
+      // live clients can render it before the next bootstrap.
+      emitMessagePatch: !hasAddressableToolResult && hasVisibleStandaloneResult,
       assistantHasToolCalls,
       assistantHasFinalText: false,
       isToolResultMessage,

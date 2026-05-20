@@ -714,6 +714,45 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("broadcasts standalone tool result text as a live message patch", async () => {
+    const app = await createApp(config("standalone-tool-result-message"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 3,
+        message: {
+          role: "tool",
+          text: "Approval required (id exec-1, full approval-1)",
+          __openclaw: { id: "tool-result-standalone", seq: 3 },
+        },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { semanticType?: string; message?: { text?: string } } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          semanticType: "chat.tool.result",
+          message: expect.objectContaining({ text: "Approval required (id exec-1, full approval-1)" }),
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("broadcasts live detached tool calls for subagent sessions", async () => {
     const app = await createApp(config("subagent-detached-live-tools"));
     const context = contextOf(app);
