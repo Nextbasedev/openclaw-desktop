@@ -365,8 +365,10 @@ export class ChatLiveIngest {
     }
     const liveResultValue = data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details;
     const liveResultMeta = this.safeResultMeta(liveResultValue);
+    const existingTool = this.context.runs.getToolCall(sessionKey, toolCallId);
     const isCompletionOnlyResult = phase === "result" && liveResultValue === undefined;
-    const awaitingResultMeta = isCompletionOnlyResult ? this.awaitingToolResultMeta("gateway_stripped_live_result") : null;
+    const shouldMarkAwaitingResult = isCompletionOnlyResult && (!existingTool?.resultMeta || this.isAwaitingToolResultMeta(existingTool.resultMeta));
+    const awaitingResultMeta = shouldMarkAwaitingResult ? this.awaitingToolResultMeta("gateway_stripped_live_result") : null;
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
       toolCallId,
@@ -375,8 +377,12 @@ export class ChatLiveIngest {
       name,
       phase,
       argsMeta: isObject(data.args) ? data.args : null,
-      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : isCompletionOnlyResult ? awaitingResultMeta : liveResultMeta,
+      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : shouldMarkAwaitingResult ? awaitingResultMeta : liveResultMeta,
     });
+    if ((phase === "start" || phase === "calling") && tool.status !== "running") {
+      this.log.info("tool.replayed-start.skip-terminal", { sessionKey, toolCallId, requestedPhase: phase, existingPhase: tool.phase, status: tool.status });
+      return;
+    }
     if (tool.status === "running" && !tool.runId && !isSubagentSessionKey(sessionKey)) {
       this.log.warn("tool.detached-running-ignored", { sessionKey, toolCallId, phase, name, fallbackRunId: run?.runId ?? null });
       return;
@@ -402,8 +408,8 @@ export class ChatLiveIngest {
       }),
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
-    this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status, awaitingResult: isCompletionOnlyResult });
-    if (isCompletionOnlyResult) {
+    this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status, awaitingResult: shouldMarkAwaitingResult });
+    if (shouldMarkAwaitingResult) {
       this.scheduleHistoryBackfill(sessionKey, tool.runId ?? run?.runId ?? gatewayRunId, "gateway_stripped_live_tool_result");
     }
     if (tool.name === "sessions_spawn" && phase === "result") {
@@ -760,6 +766,10 @@ export class ChatLiveIngest {
       source: "gateway_live_tool_result",
       reason,
     };
+  }
+
+  private isAwaitingToolResultMeta(value: unknown) {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).awaitingResult === true);
   }
 
   private safeResultMeta(value: unknown, depth = 0): unknown {

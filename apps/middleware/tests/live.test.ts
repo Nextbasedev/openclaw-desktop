@@ -408,6 +408,97 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("does not emit started patches for replayed terminal tool-call blocks", async () => {
+    const app = await createApp(config("terminal-tool-start-replay"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertToolCall({
+      sessionKey: "agent:main:subagent:child-1",
+      toolCallId: "tool-live",
+      name: "web_fetch",
+      phase: "result",
+      status: "success",
+      resultMeta: { awaitingResult: true, reason: "subagent_next_tool_started_after_missing_result_event" },
+      startedAtMs: 100,
+      updatedAtMs: 200,
+      finishedAtMs: 200,
+    });
+
+    await context.chatLive.ensureSessionSubscribed("agent:main:subagent:child-1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "agent:main:subagent:child-1",
+        messageSeq: 3,
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "tool-live", name: "web_fetch", input: { url: "https://example.com" } }],
+          __openclaw: { id: "assistant-tool-replay", seq: 3 },
+        },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { status?: string } } }>;
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.started",
+        payload: expect.objectContaining({ toolCallId: "tool-live" }),
+      }),
+    ]));
+    await app.close();
+  });
+
+  test("stripped live result does not overwrite existing real tool output", async () => {
+    const app = await createApp(config("stripped-result-preserves-real-output"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "tool_running", statusLabel: "web_fetch", startedAtMs: 100, updatedAtMs: 100 });
+    context.runs.upsertToolCall({
+      sessionKey: "s1",
+      runId: "run-1",
+      toolCallId: "tool-live",
+      name: "web_fetch",
+      phase: "result",
+      status: "success",
+      resultMeta: [{ type: "text", text: { url: "https://example.com", status: 200 } }],
+      startedAtMs: 100,
+      updatedAtMs: 200,
+      finishedAtMs: 200,
+    });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        data: { phase: "result", toolCallId: "tool-live", name: "web_fetch" },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-live")?.resultMeta).toEqual([{ type: "text", text: { url: "https://example.com", status: 200 } }]);
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const resultPatch = (replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { awaitingResult?: boolean; resultMeta?: unknown } } }>).find((patch) => patch.type === "chat.tool.result" && patch.payload?.toolCallId === "tool-live");
+    expect(resultPatch?.payload?.toolCall?.resultMeta).toEqual([{ type: "text", text: { url: "https://example.com", status: 200 } }]);
+    expect(resultPatch?.payload?.toolCall?.awaitingResult).toBeUndefined();
+    await app.close();
+  });
+
   test("preserves live session.tool partial output for response tool rendering", async () => {
     const app = await createApp(config("session-tool-partial-output"));
     const context = contextOf(app);
