@@ -41,6 +41,14 @@ function toolCallBlocks(content: unknown) {
   });
 }
 
+function semanticTypeForMessage(role: string, message: OpenClawMessage) {
+  if (role === "user") return "chat.user.confirmed";
+  if (role !== "assistant") return "chat.message.upsert";
+  return textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0
+    ? "chat.assistant.final"
+    : "chat.message.upsert";
+}
+
 function toolResultBlocks(content: unknown) {
   if (!Array.isArray(content)) return [];
   return content.filter((block): block is Record<string, unknown> => {
@@ -690,7 +698,7 @@ export class ChatLiveIngest {
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
       for (const projected of projection.changedMessages) {
         this.ingestToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run);
-        const semanticType = projected.role === "assistant" ? "chat.assistant.final" : projected.role === "user" ? "chat.user.confirmed" : "chat.message.upsert";
+        const semanticType = semanticTypeForMessage(projected.role, projected.data as OpenClawMessage);
         const event = this.context.messages.appendProjectionEvent({
           sessionKey,
           eventType: "chat.message.upsert",

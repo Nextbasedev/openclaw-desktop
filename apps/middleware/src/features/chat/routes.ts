@@ -42,6 +42,14 @@ function toolCallBlocks(content: unknown) {
   });
 }
 
+function semanticTypeForMessage(role: string, message: Record<string, unknown>) {
+  if (role === "user") return "chat.user.confirmed";
+  if (role !== "assistant") return "chat.message.upsert";
+  return textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0
+    ? "chat.assistant.final"
+    : "chat.message.upsert";
+}
+
 function readToolCallId(value: Record<string, unknown>) {
   const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
@@ -613,7 +621,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   log.info("history.patch.skip_stale_for_current_run", { sessionKey: input.sessionKey, messageSeq: projected.openclawSeq, role: projected.role, runId, optimisticSeq, currentUserRepresented: currentHistory.currentUserRepresented });
                   continue;
                 }
-                const semanticType = projected.role === "assistant" ? "chat.assistant.final" : projected.role === "user" ? "chat.user.confirmed" : "chat.message.upsert";
+                const semanticType = semanticTypeForMessage(projected.role, projected.data as Record<string, unknown>);
                 const historyEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
                   eventType: "chat.message.upsert",
