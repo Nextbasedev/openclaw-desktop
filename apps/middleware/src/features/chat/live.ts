@@ -252,6 +252,9 @@ export class ChatLiveIngest {
       // still arrive later and should be the only user-visible result.
       this.completeRunningToolsWithPatches(sessionKey, associatedRun.runId);
       this.scheduleHistoryBackfill(sessionKey, associatedRun.runId, "assistant_final_after_tool_calls");
+    } else if (assistantHasFinalText && isSubagentSessionKey(sessionKey)) {
+      this.completeDetachedSubagentToolsWithPatches(sessionKey, "subagent_assistant_final_after_tool_calls");
+      this.scheduleHistoryBackfill(sessionKey, null, "subagent_assistant_final_after_tool_calls");
     }
     if (projectedMessage.role === "assistant" && associatedRun && !this.context.runs.hasRunningTools(sessionKey, associatedRun.runId)) {
       this.context.runs.updateRunStatus(associatedRun.runId, "done", { statusLabel: null });
@@ -372,6 +375,8 @@ export class ChatLiveIngest {
     const name = typeof data.name === "string" ? data.name : typeof data.toolName === "string" ? data.toolName : "unknown";
     if ((phase === "start" || phase === "calling") && run?.runId) {
       this.completeOlderRunningToolsBeforeNextStart(sessionKey, run.runId, toolCallId);
+    } else if ((phase === "start" || phase === "calling") && isSubagentSessionKey(sessionKey)) {
+      this.completeDetachedSubagentToolsWithPatches(sessionKey, "subagent_next_tool_started_after_missing_result_event", toolCallId);
     }
     const liveResultMeta = this.safeResultMeta(data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details);
     const tool = this.context.runs.upsertToolCall({
@@ -495,6 +500,48 @@ export class ChatLiveIngest {
         createdAtMs: event.createdAtMs,
       });
       this.log.info("tool.inferred-result.broadcast", { sessionKey, runId, toolCallId: tool.toolCallId, cursor: event.cursor });
+    }
+  }
+
+  private completeDetachedSubagentToolsWithPatches(sessionKey: string, reason: string, nextToolCallId?: string) {
+    const now = Date.now();
+    const runningTools = this.context.runs
+      .listToolCalls(sessionKey)
+      .filter((tool) => !tool.runId && tool.status === "running" && tool.toolCallId !== nextToolCallId && (!nextToolCallId || now - tool.startedAtMs > 750));
+    if (runningTools.length === 0) return;
+    for (const runningTool of runningTools) {
+      const tool = this.context.runs.upsertToolCall({
+        sessionKey,
+        runId: null,
+        toolCallId: runningTool.toolCallId,
+        messageId: runningTool.messageId,
+        name: runningTool.name,
+        phase: "result",
+        status: "success",
+        argsMeta: runningTool.argsMeta,
+        resultMeta: runningTool.resultMeta,
+        updatedAtMs: now,
+        finishedAtMs: now,
+      });
+      const event = this.context.messages.appendProjectionEvent({
+        sessionKey,
+        eventType: "chat.tool.result",
+        payload: canonicalPatchPayload({
+          sessionKey,
+          semanticType: "chat.tool.result",
+          run: null,
+          tool,
+          payload: { sessionKey, toolCallId: tool.toolCallId, reason },
+        }),
+      });
+      this.context.patchBus.broadcast({
+        cursor: event.cursor,
+        type: event.eventType,
+        sessionKey: event.sessionKey,
+        payload: event.payload,
+        createdAtMs: event.createdAtMs,
+      });
+      this.log.info("tool.detached-subagent-inferred-result.broadcast", { sessionKey, toolCallId: tool.toolCallId, reason, nextToolCallId: nextToolCallId ?? null, cursor: event.cursor });
     }
   }
 

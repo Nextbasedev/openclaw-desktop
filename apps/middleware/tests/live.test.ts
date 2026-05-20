@@ -529,6 +529,64 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("assistant final completes detached subagent tool calls", async () => {
+    const app = await createApp(config("subagent-detached-tools-complete"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    const sessionKey = "agent:main:subagent:child-2";
+    await context.chatLive.ensureSessionSubscribed(sessionKey);
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey,
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tool-1", name: "web_fetch", input: { url: "https://example.com" } }],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey,
+        messageSeq: 3,
+        message: {
+          role: "assistant",
+          text: "Fetched and summarized.",
+          __openclaw: { id: "assistant-final", seq: 3 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall(sessionKey, "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      status: "success",
+      phase: "result",
+      runId: null,
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.result",
+        sessionKey,
+        payload: expect.objectContaining({ toolCallId: "tool-1" }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("derives tool activity from assistant tool-call blocks when session.tool is absent", async () => {
     const app = await createApp(config("message-tool-blocks"));
     const context = contextOf(app);
