@@ -4,11 +4,12 @@ import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
-import { classifyChatMessageSemanticType, toolCallBlocks } from "./message-semantics.js";
+import { classifyGatewayMessageSemanticType, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
 import type { ProjectedRun } from "./repo.runs.js";
+import type { OpenClawMessage } from "./types.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
@@ -30,23 +31,9 @@ function lastMessageIsAssistantText(messages: unknown[]) {
     const role = typeof data.role === "string" ? data.role : null;
     const text = textFromMessage(data).trim();
     if (!role && !text) continue;
-    return role === "assistant" && text.length > 0;
+    return projectGatewayMessage(data).assistantHasFinalText;
   }
   return false;
-}
-
-function readToolCallId(value: Record<string, unknown>) {
-  const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
-  return typeof id === "string" && id.trim() ? id.trim() : null;
-}
-
-function readToolName(value: Record<string, unknown>) {
-  const name = value.name ?? value.toolName ?? value.tool_name ?? value.tool;
-  return typeof name === "string" && name.trim() ? name.trim() : null;
-}
-
-function readToolArgs(value: Record<string, unknown>) {
-  return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
 }
 
 function safeResultMeta(value: unknown, depth = 0): unknown {
@@ -118,7 +105,7 @@ function inferToolResultFromHistory(messages: unknown[], messageIndex: number, t
         };
       }
     }
-    if (data.role === "assistant" && textFromMessage(data).trim()) {
+    if (projectGatewayMessage(data).assistantHasFinalText) {
       return {
         status: "success" as const,
         finishedAtMs: historyTimestampMs(data),
@@ -137,9 +124,10 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
     if (data.role !== "assistant") return;
     const openclaw = objectData(data.__openclaw);
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
-    for (const block of toolCallBlocks(data.content)) {
-      const toolCallId = readToolCallId(block);
-      const name = readToolName(block);
+    for (const toolEvent of projectGatewayMessage(data).toolEvents) {
+      if (toolEvent.phase !== "calling" && toolEvent.phase !== "start") continue;
+      const toolCallId = toolEvent.toolCallId;
+      const name = toolEvent.name;
       if (!toolCallId || !name) continue;
       const existingTool = context.runs.getToolCall(sessionKey, toolCallId);
       if (existingTool?.runId && existingTool.runId !== run?.runId) continue;
@@ -159,7 +147,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
         name,
         phase: result ? "result" : "calling",
         status: result?.status,
-        argsMeta: readToolArgs(block),
+        argsMeta: toolEvent.args,
         resultMeta: result?.resultMeta,
         startedAtMs: historyTimestampMs(data) ?? undefined,
         finishedAtMs: result?.finishedAtMs ?? undefined,
@@ -250,13 +238,7 @@ function messageFactorSummary(messages: unknown[]) {
     if (role === "assistant") assistantCount += 1;
     else if (role === "user") userCount += 1;
     else if (role === "tool" || role === "tool_result" || role === "toolResult") toolResultCount += 1;
-    const content = message.content;
-    if (Array.isArray(content)) {
-      toolCallCount += content.filter((block) => {
-        const item = objectData(block);
-        return item.type === "toolCall" || item.type === "tool_use";
-      }).length;
-    }
+    toolCallCount += projectGatewayMessage(message).toolEvents.filter((event) => event.phase === "calling" || event.phase === "start").length;
   }
   return {
     total: messages.length,
@@ -606,7 +588,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   log.info("history.patch.skip_stale_for_current_run", { sessionKey: input.sessionKey, messageSeq: projected.openclawSeq, role: projected.role, runId, optimisticSeq, currentUserRepresented: currentHistory.currentUserRepresented });
                   continue;
                 }
-                const semanticType = classifyChatMessageSemanticType(projected.role, projected.data as Record<string, unknown>);
+                const gatewayProjection = projectGatewayMessage(projected.data as Record<string, unknown>);
+                context.chatLive.projectToolsFromMessage(input.sessionKey, projected.data as OpenClawMessage, context.runs.getRun(runId), gatewayProjection);
+                if (!gatewayProjection.emitMessagePatch) {
+                  log.info("history.patch.skip_tool_result", { sessionKey: input.sessionKey, messageSeq: projected.openclawSeq, role: projected.role, runId });
+                  continue;
+                }
+                const semanticType = classifyGatewayMessageSemanticType(projected.role, projected.data as Record<string, unknown>);
                 const historyEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,
                   eventType: "chat.message.upsert",
@@ -823,6 +811,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const inferenceRun = activeRun ?? latestRun;
     const inferredToolCount = inferBootstrapToolCalls(context, sessionKey, messages, inferenceRun ?? null, bootstrapCompleted);
     if (inferredToolCount > 0) log.info("bootstrap.tools.inferred", { sessionKey, inferredToolCount, runId: inferenceRun?.runId ?? null, completed: bootstrapCompleted });
+    if (activeRun && context.runs.hasRunningTools(sessionKey, activeRun.runId)) {
+      context.runs.updateRunStatus(activeRun.runId, "tool_running", { statusLabel: context.runs.listRunningToolCalls(sessionKey, activeRun.runId)[0]?.name ?? activeRun.statusLabel ?? null });
+    }
 
     if (activeRun) {
       const finalizedPreRunTools = context.runs.completeRunningToolsStartedBefore(sessionKey, activeRun.runId, activeRun.startedAtMs - 1000, {

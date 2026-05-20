@@ -2,7 +2,7 @@ import type { AppContext } from "../../app.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
 import type { GatewayEvent } from "../gateway/client.js";
 import { messageTextMatchesSent, normalizeHistoryMessages, normalizeMessageText, textFromMessage } from "./message-normalizer.js";
-import { classifyChatMessageSemanticType, messageHasToolCall, messageHasVisibleText, toolCallBlocks } from "./message-semantics.js";
+import { classifyGatewayMessageSemanticType, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import type { OpenClawMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
@@ -32,32 +32,6 @@ function contentFactorSummary(message: Record<string, unknown>) {
     toolCallCount,
     isToolResult: message.role === "tool" || message.role === "tool_result" || message.role === "toolResult",
   };
-}
-
-function toolResultBlocks(content: unknown) {
-  if (!Array.isArray(content)) return [];
-  return content.filter((block): block is Record<string, unknown> => {
-    if (!isObject(block)) return false;
-    return block.type === "toolResult" || block.type === "tool_result" || block.type === "tool_result_block";
-  });
-}
-
-function readToolCallId(value: Record<string, unknown>) {
-  const id = value.toolCallId ?? value.id ?? value.tool_call_id ?? value.toolUseId ?? value.tool_use_id;
-  return typeof id === "string" && id.trim() ? id.trim() : null;
-}
-
-function readToolName(value: Record<string, unknown>) {
-  const name = value.name ?? value.toolName ?? value.tool_name ?? value.tool;
-  return typeof name === "string" && name.trim() ? name.trim() : null;
-}
-
-function readToolArgs(value: Record<string, unknown>) {
-  return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
-}
-
-function readToolResult(value: Record<string, unknown>) {
-  return value.result ?? value.output ?? value.content ?? value.text ?? value.message ?? value.value ?? null;
 }
 
 function extractChildSessionKey(value: unknown, depth = 0): string | null {
@@ -236,9 +210,9 @@ export class ChatLiveIngest {
       lastMessageText: textFromMessage(message),
     });
     const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
-    this.ingestToolsFromMessage(sessionKey, message, associatedRun);
-    const assistantHasToolCalls = projectedMessage.role === "assistant" && messageHasToolCall(message);
-    const assistantHasFinalText = projectedMessage.role === "assistant" && messageHasVisibleText(message) && !assistantHasToolCalls;
+    const gatewayProjection = projectGatewayMessage(message);
+    this.projectToolsFromMessage(sessionKey, message, associatedRun, gatewayProjection);
+    const assistantHasFinalText = gatewayProjection.assistantHasFinalText;
     const hadDetachedSubagentToolsBeforeFinal = assistantHasFinalText && isSubagentSessionKey(sessionKey)
       ? this.context.runs.listToolCalls(sessionKey).some((tool) => !tool.runId && tool.status === "running")
       : false;
@@ -287,6 +261,10 @@ export class ChatLiveIngest {
       runStatus: runForPatch?.status,
     });
     const emitMessagePatch = () => {
+      if (!gatewayProjection.emitMessagePatch && !optimisticId) {
+        this.log.info("message.patch.skip_tool_result", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: emittedSeq });
+        return;
+      }
       const patch = this.context.messages.appendProjectionEvent({
         sessionKey,
         eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
@@ -294,9 +272,7 @@ export class ChatLiveIngest {
           sessionKey,
           semanticType: optimisticId
             ? "chat.user.confirmed"
-            : assistantHasFinalText
-              ? "chat.assistant.final"
-              : "chat.message.upsert",
+            : gatewayProjection.semanticType,
           run: runForPatch,
           messageId: confirmed?.messageId ?? projectedMessage.messageId,
           payload: {
@@ -554,51 +530,22 @@ export class ChatLiveIngest {
     }
   }
 
-  private ingestToolsFromMessage(sessionKey: string, message: OpenClawMessage, run: ProjectedRun | null) {
+  projectToolsFromMessage(sessionKey: string, message: OpenClawMessage, run: ProjectedRun | null, projection = projectGatewayMessage(message)) {
     const openclaw = isObject(message.__openclaw) ? message.__openclaw as Record<string, unknown> : {};
     const messageId = typeof openclaw.id === "string" ? openclaw.id : typeof message.id === "string" ? message.id : null;
-    for (const block of toolCallBlocks(message.content)) {
-      const toolCallId = readToolCallId(block);
-      const name = readToolName(block);
-      if (!toolCallId || !name) continue;
+    for (const event of projection.toolEvents) {
+      const name = event.name ?? readToolName(message as unknown as Record<string, unknown>) ?? "unknown";
       this.handleSessionTool({
         sessionKey,
         runId: run?.gatewayRunId ?? run?.runId,
         messageId,
-        toolCallId,
+        toolCallId: event.toolCallId,
         name,
-        phase: "calling",
-        args: readToolArgs(block),
+        phase: event.phase,
+        args: event.args,
+        result: event.result,
       });
     }
-
-    for (const block of toolResultBlocks(message.content)) {
-      const toolCallId = readToolCallId(block);
-      if (!toolCallId) continue;
-      this.handleSessionTool({
-        sessionKey,
-        runId: run?.gatewayRunId ?? run?.runId,
-        messageId,
-        toolCallId,
-        name: readToolName(block) ?? readToolName(message as unknown as Record<string, unknown>) ?? "unknown",
-        phase: block.is_error === true || block.isError === true ? "error" : "result",
-        result: readToolResult(block),
-      });
-    }
-
-    const role = message.role;
-    if (role !== "tool" && role !== "toolResult" && role !== "tool_result") return;
-    const topLevelToolCallId = readToolCallId(message as unknown as Record<string, unknown>);
-    if (!topLevelToolCallId) return;
-    this.handleSessionTool({
-      sessionKey,
-      runId: run?.gatewayRunId ?? run?.runId,
-      messageId,
-      toolCallId: topLevelToolCallId,
-      name: readToolName(message as unknown as Record<string, unknown>) ?? "unknown",
-      phase: "result",
-      result: message.content ?? message.text ?? null,
-    });
   }
 
   private handleChatEvent(payload: unknown) {
@@ -682,8 +629,13 @@ export class ChatLiveIngest {
       const projection = this.context.messages.upsertMessages(normalized);
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
       for (const projected of projection.changedMessages) {
-        this.ingestToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run);
-        const semanticType = classifyChatMessageSemanticType(projected.role, projected.data as OpenClawMessage);
+        const gatewayProjection = projectGatewayMessage(projected.data as OpenClawMessage);
+        this.projectToolsFromMessage(sessionKey, projected.data as OpenClawMessage, run, gatewayProjection);
+        if (!gatewayProjection.emitMessagePatch) {
+          this.log.info("history.backfill.message-patch.skip_tool_result", { sessionKey, role: projected.role, messageId: projected.messageId, messageSeq: projected.openclawSeq });
+          continue;
+        }
+        const semanticType = classifyGatewayMessageSemanticType(projected.role, projected.data as OpenClawMessage);
         const event = this.context.messages.appendProjectionEvent({
           sessionKey,
           eventType: "chat.message.upsert",

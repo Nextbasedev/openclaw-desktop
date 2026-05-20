@@ -971,4 +971,256 @@ describe("chat live ingest", () => {
   });
 
 
+  test("assistant thinking plus tool-call blocks never become assistant final in live patches", async () => {
+    const app = await createApp(config("thinking-toolcall-not-final-live"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", text: "I need to inspect the file first." },
+            { type: "toolCall", id: "tool-1", name: "read", input: { path: "README.md" } },
+          ],
+          __openclaw: { id: "assistant-thinking-tools", seq: 2 },
+        },
+      },
+    });
+
+    expect(context.runs.getRun("run-1")).toMatchObject({ status: "tool_running", statusLabel: "read" });
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.statusCode).toBe(200);
+    const patches = replay.json().patches as Array<{ type: string; payload?: { semanticType?: string; messageId?: string } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          messageId: "assistant-thinking-tools",
+          semanticType: "chat.message.upsert",
+        }),
+      }),
+      expect.objectContaining({
+        type: "chat.tool.started",
+        payload: expect.objectContaining({ toolCallId: "tool-1" }),
+      }),
+    ]));
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          messageId: "assistant-thinking-tools",
+          semanticType: "chat.assistant.final",
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
+  test("canonical bootstrap does not reinterpret tool-call-only assistant history as final text", async () => {
+    const app = await createApp(config("bootstrap-toolcall-only-not-final"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", text: "inspect README", __openclaw: { id: "u1", seq: 1 } },
+            {
+              role: "assistant",
+              content: [
+                { type: "thinking", text: "Reading first." },
+                { type: "toolCall", id: "tool-1", name: "read", input: { path: "README.md" } },
+              ],
+              __openclaw: { id: "a-tools", seq: 2 },
+            },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: now, updatedAtMs: now });
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "tool_running",
+      activeRun: expect.objectContaining({ runId: "run-1", status: "tool_running" }),
+      messages: expect.arrayContaining([
+        expect.objectContaining({ role: "assistant", __openclaw: expect.objectContaining({ id: "a-tools" }) }),
+      ]),
+      toolCalls: [expect.objectContaining({ toolCallId: "tool-1", name: "read", status: "running" })],
+    });
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ semanticType: "chat.assistant.final", messageId: "a-tools" }) }),
+    ]));
+    await app.close();
+  });
+
+  test("subagent child read tool result patch is emitted before child final text", async () => {
+    const app = await createApp(config("subagent-read-result-before-final"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    const sessionKey = "agent:main:subagent:child-read";
+    await context.chatLive.ensureSessionSubscribed(sessionKey);
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey,
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "read-1", name: "read", input: { path: "README.md" } }],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey,
+        messageSeq: 3,
+        message: {
+          role: "tool",
+          toolCallId: "read-1",
+          text: "README contents",
+          __openclaw: { id: "tool-result", seq: 3 },
+        },
+      },
+    });
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey,
+        messageSeq: 4,
+        message: {
+          role: "assistant",
+          text: "The README says hello.",
+          __openclaw: { id: "assistant-final", seq: 4 },
+        },
+      },
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; sessionKey: string; payload?: { toolCallId?: string; semanticType?: string; message?: { text?: string }; toolCall?: { resultMeta?: unknown } } }>;
+    const resultIndex = patches.findIndex((patch) => patch.type === "chat.tool.result" && patch.sessionKey === sessionKey && patch.payload?.toolCallId === "read-1");
+    const finalIndex = patches.findIndex((patch) => patch.type === "chat.message.upsert" && patch.sessionKey === sessionKey && patch.payload?.semanticType === "chat.assistant.final" && patch.payload.message?.text === "The README says hello.");
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(finalIndex).toBeGreaterThan(resultIndex);
+    expect(patches[resultIndex]?.payload?.toolCall?.resultMeta).toBe("README contents");
+    await app.close();
+  });
+
+  test("duplicate replayed tool-call turns do not create tool-call-only assistant finals", async () => {
+    const app = await createApp(config("duplicate-toolcall-replay-no-final"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("s1");
+    const toolTurn = {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "tool-1", name: "read", input: { path: "README.md" } }],
+      __openclaw: { id: "assistant-tools", seq: 2 },
+    };
+    listener({ type: "event", event: "session.message", payload: { sessionKey: "s1", messageSeq: 2, message: toolTurn } });
+    listener({ type: "event", event: "session.message", payload: { sessionKey: "s1", messageSeq: 2, message: toolTurn } });
+    listener({ type: "event", event: "session.message", payload: { sessionKey: "s1", messageSeq: 3, message: { role: "assistant", text: "Done.", __openclaw: { id: "assistant-final", seq: 3 } } } });
+    listener({ type: "event", event: "session.message", payload: { sessionKey: "s1", messageSeq: 2, message: { ...toolTurn, __openclaw: { id: "assistant-tools-replayed", seq: 2 } } } });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { semanticType?: string; messageId?: string } }>;
+    const toolOnlyFinals = patches.filter((patch) => patch.type === "chat.message.upsert" && patch.payload?.semanticType === "chat.assistant.final" && (patch.payload.messageId === "assistant-tools" || patch.payload.messageId === "assistant-tools-replayed"));
+    expect(toolOnlyFinals).toHaveLength(0);
+    expect(patches.filter((patch) => patch.type === "chat.message.upsert" && patch.payload?.semanticType === "chat.assistant.final" && patch.payload.messageId === "assistant-final")).toHaveLength(1);
+    await app.close();
+  });
+
+  test("main parent receives session_status and sessions_spawn tool result patches", async () => {
+    const app = await createApp(config("parent-control-tool-results"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "parent-1", status: "thinking", statusLabel: "Thinking", startedAtMs: 100, updatedAtMs: 100 });
+    await context.chatLive.ensureSessionSubscribed("parent-1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "parent-1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "status-1", name: "session_status", input: {} },
+            { type: "toolCall", id: "spawn-1", name: "sessions_spawn", input: { task: "Audit", label: "Auditor" } },
+          ],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+    listener({ type: "event", event: "session.message", payload: { sessionKey: "parent-1", messageSeq: 3, message: { role: "tool", toolCallId: "status-1", text: JSON.stringify({ model: "gpt-5.5", reasoning: "off" }), __openclaw: { id: "status-result", seq: 3 } } } });
+    listener({ type: "event", event: "session.message", payload: { sessionKey: "parent-1", messageSeq: 4, message: { role: "tool", toolCallId: "spawn-1", text: JSON.stringify({ childSessionKey: "agent:main:subagent:child-1" }), __openclaw: { id: "spawn-result", seq: 4 } } } });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; sessionKey: string; payload?: { toolCallId?: string; toolCall?: { name?: string; status?: string; resultMeta?: unknown } } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.result",
+        sessionKey: "parent-1",
+        payload: expect.objectContaining({
+          toolCallId: "status-1",
+          toolCall: expect.objectContaining({ name: "session_status", status: "success", resultMeta: expect.objectContaining({ model: "gpt-5.5" }) }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "chat.tool.result",
+        sessionKey: "parent-1",
+        payload: expect.objectContaining({
+          toolCallId: "spawn-1",
+          toolCall: expect.objectContaining({ name: "sessions_spawn", status: "success", resultMeta: expect.objectContaining({ childSessionKey: "agent:main:subagent:child-1" }) }),
+        }),
+      }),
+    ]));
+    await app.close();
+  });
+
+
 });
