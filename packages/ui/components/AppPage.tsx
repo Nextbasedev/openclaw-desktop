@@ -644,24 +644,41 @@ function AppShell({
       setInitialMessages(undefined)
 
       try {
+        type RouteChatRecord = { id: string; name: string; sessionKey?: string; spaceId?: string; archived: boolean }
         const chatResult = await invoke<{
-          chats: { id: string; name: string; sessionKey?: string; spaceId?: string; archived: boolean }[]
+          chats: RouteChatRecord[]
         }>("middleware_chats_list", { input: { spaceId: activeSpaceId ?? undefined } })
         if (!isCurrentPath()) return
 
-        const found = (chatResult.chats || []).find(
+        let found = (chatResult.chats || []).find(
           (chat) => chat.id === route.chatId && chat.spaceId === activeSpaceId,
         )
+        if (!found) {
+          const allChatResult = await invoke<{ chats: RouteChatRecord[] }>(
+            "middleware_chats_list",
+            { input: {} },
+          )
+          if (!isCurrentPath()) return
+          found = (allChatResult.chats || []).find(
+            (chat) => chat.id === route.chatId,
+          )
+        }
         if (!found || found.archived) {
           recoverToDraftRoute()
           return
+        }
+
+        const targetSpaceId = found.spaceId ?? activeSpaceId
+        if (targetSpaceId && targetSpaceId !== activeSpaceId) {
+          await switchSpace(targetSpaceId)
+          if (!isCurrentPath()) return
         }
 
         const resolved = await ensureChatSession({
           id: found.id,
           name: found.name,
           sessionKey: found.sessionKey,
-        }, { activeSpaceId })
+        }, { activeSpaceId: targetSpaceId })
         if (!isCurrentPath()) return
 
         resolvedChatCacheRef.current.set(found.id, resolved)
@@ -752,7 +769,7 @@ function AppShell({
         }
       }
     }
-  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute])
+  }, [activeSpaceId, clearConversationState, editorGroups.focusedGroupId, recoverToDraftRoute, switchSpace])
 
   useEffect(() => {
     if (!activeSpaceId) return
