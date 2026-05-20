@@ -24,9 +24,19 @@ export function registerDiagnosticsCollector(name: string, collector: Diagnostic
   }
 }
 
+const DIAGNOSTICS_SANITIZE_DEPTH_OFFSET = -6
+
+function sanitizeForDiagnostics(value: unknown) {
+  // Debug bundles are already explicitly copied by the user, so keep them
+  // readable. The default log sanitizer intentionally collapses deep objects
+  // around depth 3 for routine log lines, which made diagnostics show [Object]
+  // right where the useful nested state lived.
+  return sanitizeForLog(value, "", DIAGNOSTICS_SANITIZE_DEPTH_OFFSET)
+}
+
 function safeCollector(name: string, collector: DiagnosticsCollector, input: DiagnosticsInput) {
   try {
-    return sanitizeForLog(collector(input) ?? null)
+    return sanitizeForDiagnostics(collector(input) ?? null)
   } catch (error) {
     return {
       collector: name,
@@ -175,7 +185,7 @@ export function collectDiagnostics(input: DiagnosticsInput) {
     baseCollectors[name] = safeCollector(name, collector, input)
   }
   const warnings = detectWarnings(allEntries)
-  return sanitizeForLog({
+  return sanitizeForDiagnostics({
     schema: "OPENCLAW_DIAGNOSTICS_V1",
     generatedAt: new Date().toISOString(),
     metadata: {
