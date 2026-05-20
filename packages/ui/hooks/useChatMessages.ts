@@ -1699,7 +1699,6 @@ export function useChatMessages(
           messageText
         )
       }
-      const optimisticTurnStatus = runsAlongsideGeneration ? "queued" : "thinking"
       const optimisticMessage: ChatMessage = {
         messageId: optimisticId,
         role: "user" as const,
@@ -1708,10 +1707,6 @@ export function useChatMessages(
         isOptimistic: true,
         sendStatus: "sending",
         sendError: null,
-        turnStatus: optimisticTurnStatus,
-        turnStatusLabel: optimisticTurnStatus === "queued" ? "Queued" : "Thinking",
-        runId: `run:${chatSendIdempotencyKey(sessionKey, optimisticId)}`,
-        idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         retryPayload: payload,
         replyTo,
         attachments: messageAttachments,
@@ -1801,8 +1796,6 @@ export function useChatMessages(
                   isOptimistic: true,
                   sendStatus: "failed",
                   sendError: message,
-                  turnStatus: "error",
-                  turnStatusLabel: message,
                   retryPayload: payload,
                 }
               : m

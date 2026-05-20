@@ -121,28 +121,6 @@ function ProcessStatusIcon({ tool }: { tool?: string | null }) {
   )
 }
 
-function TurnStatusInline({ status, label }: { status: NonNullable<ChatMessage["turnStatus"]>; label?: string | null }) {
-  const text = status === "queued"
-    ? "Queued - waiting for earlier answer"
-    : status === "streaming"
-      ? "Responding"
-      : status === "error"
-        ? (label || "Message failed")
-        : (label || "Thinking")
-  return (
-    <div className="mb-2 flex items-center pl-1 text-muted-foreground">
-      <ProcessStatusIcon />
-      <span className={cn(
-        "text-[13px] font-medium tracking-[-0.01em]",
-        status === "error" ? "text-red-400" : "thinking-shimmer"
-      )}>
-        {text}
-        {status !== "error" && <span className="thinking-ellipsis" aria-hidden="true" />}
-      </span>
-    </div>
-  )
-}
-
 type Props = {
   sessionKey: string
   sessionTitle?: string
@@ -1167,17 +1145,6 @@ export function ChatView({
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
       const isLast = index === renderedMessages.length - 1
-      let hasAnswerBeforeNextUser = false
-      if (msg.role === "user") {
-        for (const next of renderedMessages.slice(index + 1)) {
-          if (next.role === "user") break
-          if (next.role === "assistant" && (next.text.trim().length > 0 || (next.toolCalls?.length ?? 0) > 0)) {
-            hasAnswerBeforeNextUser = true
-            break
-          }
-        }
-      }
-      const showTurnStatus = msg.role === "user" && Boolean(msg.turnStatus) && msg.turnStatus !== "done" && !hasAnswerBeforeNextUser
       const showPending =
         isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
       const isActivelyStreaming =
@@ -1242,9 +1209,6 @@ export function ChatView({
               text={msg.reasoningText}
               defaultOpen={lastTwoAssistantIds.has(msg.messageId)}
             />
-          )}
-          {showTurnStatus && msg.turnStatus && (
-            <TurnStatusInline status={msg.turnStatus} label={msg.turnStatusLabel} />
           )}
           {(() => {
             const assistantHasText = msg.role === "assistant" && msg.text.trim().length > 0
@@ -1334,7 +1298,7 @@ export function ChatView({
       reactToMessage,
       groupedToolCalls,
       suppressedToolCallMessages,
-      renderedMessages,
+      renderedMessages.length,
       replyToMessage,
       resolveExecApproval,
       retrySend,

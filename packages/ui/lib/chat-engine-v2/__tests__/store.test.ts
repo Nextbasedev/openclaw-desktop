@@ -19,68 +19,6 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
-  test("tracks queued follow-up turn status by client message id", () => {
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 1,
-        type: "chat.message.upsert",
-        sessionKey: "s1",
-        createdAtMs: 1,
-        payload: {
-          semanticType: "chat.user.created",
-          messageId: "u1",
-          clientMessageId: "u1",
-          runId: "run-1",
-          runStatus: "thinking",
-          statusLabel: "Thinking",
-          message: { role: "user", text: "first", __openclaw: { id: "u1", runId: "run-1" } },
-        },
-      },
-    })
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 2,
-        type: "chat.message.upsert",
-        sessionKey: "s1",
-        createdAtMs: 2,
-        payload: {
-          semanticType: "chat.user.created",
-          messageId: "u2",
-          clientMessageId: "u2",
-          runId: "run-2",
-          runStatus: "queued",
-          statusLabel: "Queued",
-          message: { role: "user", text: "second", __openclaw: { id: "u2", runId: "run-2" } },
-        },
-      },
-    })
-
-    let state = getGlobalChatSession("s1")!
-    expect(state.messages.find((message) => message.messageId === "u2")).toMatchObject({ turnStatus: "queued", turnStatusLabel: "Queued" })
-
-    ingestGlobalChatPatchForTests({
-      type: "patch",
-      patch: {
-        cursor: 3,
-        type: "chat.status",
-        sessionKey: "s1",
-        createdAtMs: 3,
-        payload: {
-          semanticType: "chat.run.status",
-          clientMessageId: "u2",
-          runId: "run-2",
-          runStatus: "thinking",
-          statusLabel: "Thinking",
-        },
-      },
-    })
-
-    state = getGlobalChatSession("s1")!
-    expect(state.messages.find((message) => message.messageId === "u2")).toMatchObject({ turnStatus: "thinking", turnStatusLabel: "Thinking" })
-  })
-
   test("does not resurrect a completed chat from an old running tool replay", () => {
     vi.setSystemTime(new Date("2026-05-15T08:30:00.000Z"))
     const oldStartedAt = Date.now() - 48 * 60 * 60 * 1000

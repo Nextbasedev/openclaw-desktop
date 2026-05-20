@@ -85,8 +85,6 @@ export type ReplyTo = {
   }>
 }
 
-export type TurnStatus = "queued" | "thinking" | "streaming" | "done" | "error"
-
 export type ChatMessage = {
   messageId: string
   role: "user" | "assistant"
@@ -98,10 +96,6 @@ export type ChatMessage = {
   isOptimistic?: boolean
   sendStatus?: "sending" | "failed"
   sendError?: string | null
-  turnStatus?: TurnStatus
-  turnStatusLabel?: string | null
-  runId?: string | null
-  idempotencyKey?: string | null
   retryPayload?: ChatComposerSubmit
   animateText?: boolean
   reasoningText?: string

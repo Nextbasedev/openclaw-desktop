@@ -100,8 +100,6 @@ export type RawHistoryMessage = {
   __openclaw?: {
     id?: string
     seq?: number
-    runId?: string
-    idempotencyKey?: string
   }
   role?: string
   text?: string
@@ -710,10 +708,6 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           usage: item.usage,
           stopReason: item.stopReason,
           isOptimistic: Boolean(item.isOptimistic || item.__clientOptimistic),
-          turnStatus: item.isOptimistic || item.__clientOptimistic ? "thinking" : undefined,
-          turnStatusLabel: item.isOptimistic || item.__clientOptimistic ? "Thinking" : undefined,
-          runId: item.__openclaw?.runId ?? null,
-          idempotencyKey: item.__openclaw?.idempotencyKey ?? null,
           replyTo: reply?.replyTo,
           gatewayIndex: openclawSeq(item),
           attachments,

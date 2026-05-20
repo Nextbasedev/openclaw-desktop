@@ -368,15 +368,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const nowIso = new Date().toISOString();
     const runId = localRunId(input.idempotencyKey);
     const clientMessageId = input.clientMessageId || `client:${input.idempotencyKey}`;
-    const acceptedRunStatus = context.sendQueue.hasPending(input.sessionKey) ? "queued" : "thinking";
-    const acceptedRunStatusLabel = acceptedRunStatus === "queued" ? "Queued" : "Thinking";
     context.runs.upsertRun({
       runId,
       sessionKey: input.sessionKey,
       clientMessageId,
       idempotencyKey: input.idempotencyKey,
-      status: acceptedRunStatus,
-      statusLabel: acceptedRunStatusLabel,
+      status: "thinking",
+      statusLabel: "Thinking",
       startedAtMs: sendStartedAtMs,
       updatedAtMs: Date.now(),
     });
@@ -450,14 +448,14 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         sessionKey: input.sessionKey,
         sessionId: existingSession?.sessionId ?? null,
         status: "running",
-        statusLabel: acceptedRunStatusLabel,
+        statusLabel: "Thinking",
         lastActiveAt: nowIso,
         lastMessageAt: nowIso,
         lastMessageText: prepared.message,
       },
       updatedAtMs: optimisticCreatedAtMs,
     });
-    log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: "running", statusLabel: acceptedRunStatusLabel });
+    log.info("session.status.persist", { sessionKey: input.sessionKey, sessionId: existingSession?.sessionId ?? null, status: "running", statusLabel: "Thinking" });
     const statusEvent = context.messages.appendProjectionEvent({
       sessionKey: input.sessionKey,
       eventType: "chat.status",
@@ -465,12 +463,12 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         sessionKey: input.sessionKey,
         semanticType: "chat.run.status",
         run: optimisticRun,
-        legacyStatus: acceptedRunStatus,
-        legacyStatusLabel: acceptedRunStatusLabel,
+        legacyStatus: "thinking",
+        legacyStatusLabel: "Thinking",
         payload: {
           sessionKey: input.sessionKey,
-          status: acceptedRunStatus,
-          statusLabel: acceptedRunStatusLabel,
+          status: "thinking",
+          statusLabel: "Thinking",
           optimistic: true,
           idempotencyKey: input.idempotencyKey,
           runId,
@@ -484,52 +482,12 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       payload: statusEvent.payload,
       createdAtMs: statusEvent.createdAtMs,
     });
-    log.info("status.broadcast", { sessionKey: input.sessionKey, type: statusEvent.eventType, cursor: statusEvent.cursor, status: acceptedRunStatus, idempotencyKey: input.idempotencyKey });
+    log.info("status.broadcast", { sessionKey: input.sessionKey, type: statusEvent.eventType, cursor: statusEvent.cursor, status: "thinking", idempotencyKey: input.idempotencyKey });
 
 
     void context.sendQueue.run(input.sessionKey, async () => {
       log.info("send.queue.enter", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs), accepted: true });
           try {
-            if (acceptedRunStatus === "queued") {
-              context.runs.upsertRun({
-                runId,
-                sessionKey: input.sessionKey,
-                clientMessageId,
-                idempotencyKey: input.idempotencyKey,
-                status: "thinking",
-                statusLabel: "Thinking",
-                startedAtMs: sendStartedAtMs,
-                updatedAtMs: Date.now(),
-              });
-              const queuedRun = context.runs.getRun(runId);
-              const queuedStartEvent = context.messages.appendProjectionEvent({
-                sessionKey: input.sessionKey,
-                eventType: "chat.status",
-                payload: canonicalPatchPayload({
-                  sessionKey: input.sessionKey,
-                  semanticType: "chat.run.status",
-                  run: queuedRun,
-                  legacyStatus: "thinking",
-                  legacyStatusLabel: "Thinking",
-                  payload: {
-                    sessionKey: input.sessionKey,
-                    status: "thinking",
-                    statusLabel: "Thinking",
-                    idempotencyKey: input.idempotencyKey,
-                    clientMessageId,
-                    runId,
-                  },
-                }),
-              });
-              context.patchBus.broadcast({
-                cursor: queuedStartEvent.cursor,
-                type: queuedStartEvent.eventType,
-                sessionKey: queuedStartEvent.sessionKey,
-                payload: queuedStartEvent.payload,
-                createdAtMs: queuedStartEvent.createdAtMs,
-              });
-              log.info("status.broadcast", { sessionKey: input.sessionKey, type: queuedStartEvent.eventType, cursor: queuedStartEvent.cursor, status: "thinking", idempotencyKey: input.idempotencyKey, queued: true });
-            }
             const gatewaySendStartedAtMs = nowMs();
             log.info("gateway.chat.send.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, gatewayAttachmentCount: prepared.attachments?.length ?? 0, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });
             const result = await context.gateway.request<Record<string, unknown>>("chat.send", {
