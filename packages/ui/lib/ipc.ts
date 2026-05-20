@@ -147,6 +147,22 @@ async function invokeRemoteMiddleware<T>(
   }
 
   switch (command) {
+    case "middleware_connect_status": {
+      const health = await middlewareFetch<{
+        gateway?: { connected?: boolean; gatewayUrl?: string; lastError?: string | null }
+        openclaw?: { connected?: boolean; gatewayUrl?: string }
+      }>("/health", { headers: { "Cache-Control": "no-cache" }, timeoutMs: 3_000 })
+      const connected = health.openclaw?.connected === true || health.gateway?.connected === true
+      return {
+        gatewayConfigured: true,
+        gatewayUrl: health.gateway?.gatewayUrl ?? health.openclaw?.gatewayUrl ?? null,
+        gatewayToken: "configured",
+        hasConnection: connected,
+        hasIdentity: true,
+        status: connected ? "connected" : "disconnected",
+        error: health.gateway?.lastError ?? null,
+      } as T
+    }
     case "middleware_projects_list":
       return middlewareFetch<T>(`/api/projects${queryString({ spaceId: input.spaceId ? String(input.spaceId) : undefined, all: input.all ? "true" : undefined })}`)
     case "middleware_projects_create":

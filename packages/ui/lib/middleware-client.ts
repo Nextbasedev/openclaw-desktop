@@ -163,12 +163,25 @@ export function initMiddlewareConnectionCrossWindowSync() {
   })
 }
 
-export async function middlewareFetch<T>(path: string, init: RequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
+const DEFAULT_MIDDLEWARE_FETCH_TIMEOUT_MS = 8_000
+const CONNECTION_PROBE_TIMEOUT_MS = 3_000
+
+type MiddlewareRequestInit = RequestInit & { timeoutMs?: number }
+
+function timeoutSignal(timeoutMs: number) {
+  const controller = new AbortController()
+  const timer = globalThis.setTimeout(() => controller.abort(new Error(`Middleware request timed out after ${timeoutMs}ms`)), timeoutMs)
+  return { signal: controller.signal, clear: () => globalThis.clearTimeout(timer) }
+}
+
+export async function middlewareFetch<T>(path: string, init: MiddlewareRequestInit = {}, connection = getMiddlewareConnection()): Promise<T> {
   if (!connection) throw new Error("Middleware connection is not configured")
   const startedAt = performance.now()
   const method = (init.method ?? "GET").toUpperCase()
   const token = connection.token.trim()
   const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connection.url))
+  const timeout = init.signal ? null : timeoutSignal(init.timeoutMs ?? DEFAULT_MIDDLEWARE_FETCH_TIMEOUT_MS)
+  const { timeoutMs: _timeoutMs, ...fetchInit } = init
   frontendLog("api", "middleware.fetch.start", {
     method,
     path: sanitizeUrlForLog(path),
@@ -177,7 +190,8 @@ export async function middlewareFetch<T>(path: string, init: RequestInit = {}, c
   }, "debug")
   try {
     const response = await fetch(`${url}${path}`, {
-      ...init,
+      ...fetchInit,
+      signal: init.signal ?? timeout?.signal,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { "Authorization": `Bearer ${token}` } : {}),
@@ -207,6 +221,8 @@ export async function middlewareFetch<T>(path: string, init: RequestInit = {}, c
       error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
     }, "error")
     throw error
+  } finally {
+    timeout?.clear()
   }
 }
 
@@ -218,10 +234,8 @@ export async function testMiddlewareConnection(input: MiddlewareConnection): Pro
   const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(input.url))
   frontendLog("connection", "middleware.connect.start", { url: sanitizeUrlForLog(url), hasToken: Boolean(input.token.trim()) })
   try {
-    const healthRes = await fetch(`${url}/health`, { headers: { "Cache-Control": "no-cache" } })
-    if (!healthRes.ok) throw new Error(`Middleware health failed (${healthRes.status})`)
-    const health = await healthRes.json() as MiddlewareHealth
-    await middlewareFetch("/api/version", {}, { url, token: input.token.trim() })
+    const health = await middlewareFetch<MiddlewareHealth>("/health", { headers: { "Cache-Control": "no-cache" }, timeoutMs: CONNECTION_PROBE_TIMEOUT_MS }, { url, token: "" })
+    await middlewareFetch("/api/version", { timeoutMs: CONNECTION_PROBE_TIMEOUT_MS }, { url, token: input.token.trim() })
     frontendLog("connection", "middleware.connect.success", {
       url: sanitizeUrlForLog(url),
       service: health.service,

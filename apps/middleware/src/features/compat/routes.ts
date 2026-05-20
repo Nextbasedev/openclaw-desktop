@@ -1785,6 +1785,10 @@ function gatewaySessionRows(payload: unknown): CompatRecord[] {
 
 async function syncGatewaySessions(context: AppContext) {
   try {
+    // Startup/bootstrap should never block on establishing Gateway auth. If the
+    // socket is not already connected, return cached/local chats immediately;
+    // connect_status/connect_bootstrap can kick the Gateway connect in background.
+    if (!context.gateway.status().connected) return;
     const payload = await context.gateway.request("sessions.list", { limit: 500, includeDerivedTitles: true, includeLastMessage: true }, 10_000);
     const rows = gatewaySessionRows(payload);
     if (rows.length === 0) return;
@@ -3054,9 +3058,24 @@ function dailyUsage(days: number) {
   return { range: { days }, daily, days: usage.days, source: usage.source, unavailable: usage.unavailable };
 }
 
-async function connectGatewayForStatus(context: AppContext) {
+function kickGatewayConnect(context: AppContext) {
+  void context.gateway.connect().catch(() => {
+    // status() carries lastError; callers should still get a usable payload.
+  });
+}
+
+async function connectGatewayForStatus(context: AppContext, options: { wait?: boolean; timeoutMs?: number } = {}) {
+  const wait = options.wait === true;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  if (!wait) {
+    kickGatewayConnect(context);
+    return context.gateway.status();
+  }
   try {
-    await context.gateway.connect();
+    await Promise.race([
+      context.gateway.connect(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Gateway connect status timeout")), timeoutMs)),
+    ]);
   } catch {
     // status() below carries lastError; callers should still get a usable payload.
   }
@@ -3990,7 +4009,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       }
       case "middleware_connect_test": {
         const startedAt = Date.now();
-        const gateway = await connectGatewayForStatus(context);
+        const gateway = await connectGatewayForStatus(context, { wait: true, timeoutMs: 5_000 });
         return { ready: gateway.connected, latencyMs: Date.now() - startedAt, error: gateway.lastError ?? null };
       }
       case "middleware_connect_reset":
