@@ -291,8 +291,8 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
-  test("infers missing result for previous sequential tool when the next tool starts", async () => {
-    const app = await createApp(config("sequential-tool-missing-result"));
+  test("does not infer missing result for previous sequential tool when the next tool starts", async () => {
+    const app = await createApp(config("sequential-tool-no-inferred-result"));
     const context = contextOf(app);
     let listener: (event: GatewayEvent) => void = () => undefined;
     vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
@@ -321,16 +321,79 @@ describe("chat live ingest", () => {
       },
     });
 
-    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({ status: "success", phase: "result" });
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({ status: "running", phase: "calling" });
     expect(context.runs.getToolCall("s1", "tool-2")).toMatchObject({ status: "running", phase: "start", name: "read" });
 
     const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
-    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { resultMeta?: unknown } } }>;
-    const inferredResultIndex = patches.findIndex((patch) => patch.type === "chat.tool.result" && patch.payload?.toolCallId === "tool-1");
-    const nextStartIndex = patches.findIndex((patch) => patch.type === "chat.tool.started" && patch.payload?.toolCallId === "tool-2");
-    expect(inferredResultIndex).toBeGreaterThanOrEqual(0);
-    expect(nextStartIndex).toBeGreaterThan(inferredResultIndex);
-    expect(patches[inferredResultIndex]?.payload?.toolCall?.resultMeta).toEqual(expect.objectContaining({ awaitingResult: true }));
+    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string } }>;
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.result",
+        payload: expect.objectContaining({ toolCallId: "tool-1" }),
+      }),
+    ]));
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.started",
+        payload: expect.objectContaining({ toolCallId: "tool-2" }),
+      }),
+    ]));
+    await app.close();
+  });
+
+  test("projects Gateway agent command_output deltas as live tool output", async () => {
+    const app = await createApp(config("agent-command-output-live"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "agent:main:subagent:child-1", gatewayRunId: "gw-child-1", status: "tool_running", statusLabel: "exec", startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("agent:main:subagent:child-1");
+    listener({
+      type: "event",
+      event: "agent",
+      payload: {
+        sessionKey: "agent:main:subagent:child-1",
+        runId: "gw-child-1",
+        stream: "item",
+        data: { kind: "tool", phase: "start", toolCallId: "tool-exec", name: "exec", title: "exec printf" },
+      },
+    });
+    listener({
+      type: "event",
+      event: "agent",
+      payload: {
+        sessionKey: "agent:main:subagent:child-1",
+        runId: "gw-child-1",
+        stream: "command_output",
+        data: { phase: "delta", toolCallId: "tool-exec", name: "exec", output: "gateway_subagent_probe_result" },
+      },
+    });
+
+    expect(context.runs.getToolCall("agent:main:subagent:child-1", "tool-exec")).toMatchObject({
+      status: "running",
+      phase: "update",
+      resultMeta: "gateway_subagent_probe_result",
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    const patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; phase?: string; output?: unknown; toolCall?: { status?: string; resultMeta?: unknown } } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.update",
+        payload: expect.objectContaining({
+          toolCallId: "tool-exec",
+          phase: "update",
+          output: "gateway_subagent_probe_result",
+          toolCall: expect.objectContaining({ status: "running", resultMeta: "gateway_subagent_probe_result" }),
+        }),
+      }),
+    ]));
     await app.close();
   });
 
@@ -424,7 +487,7 @@ describe("chat live ingest", () => {
       name: "web_fetch",
       phase: "result",
       status: "success",
-      resultMeta: { awaitingResult: true, reason: "subagent_next_tool_started_after_missing_result_event" },
+      resultMeta: { awaitingResult: true, reason: "gateway_agent_item_end_pending_history_result" },
       startedAtMs: 100,
       updatedAtMs: 200,
       finishedAtMs: 200,
@@ -537,7 +600,7 @@ describe("chat live ingest", () => {
     const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
     expect(replay.json().patches).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        type: "chat.tool.started",
+        type: "chat.tool.update",
         payload: expect.objectContaining({
           toolCall: expect.objectContaining({ resultMeta: { stdout: "live output", stderr: "" } }),
         }),
@@ -694,15 +757,15 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
-  test("assistant final completes detached subagent tool calls", async () => {
-    const app = await createApp(config("subagent-detached-tools-complete"));
+  test("assistant final does not fabricate detached subagent tool success", async () => {
+    const app = await createApp(config("subagent-detached-tools-no-fake-complete"));
     const context = contextOf(app);
     let listener: (event: GatewayEvent) => void = () => undefined;
     vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
       listener = cb;
       return () => true;
     });
-    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+    const request = vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
 
     const sessionKey = "agent:main:subagent:child-2";
     await context.chatLive.ensureSessionSubscribed(sessionKey);
@@ -736,18 +799,22 @@ describe("chat live ingest", () => {
 
     expect(context.runs.getToolCall(sessionKey, "tool-1")).toMatchObject({
       toolCallId: "tool-1",
-      status: "success",
-      phase: "result",
+      status: "running",
+      phase: "calling",
       runId: null,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 950));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(request).toHaveBeenCalledWith("chat.history", expect.objectContaining({ sessionKey }));
     const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
-    const patches = replay.json().patches as Array<{ type: string; sessionKey: string; cursor: number; payload?: { toolCallId?: string; semanticType?: string; message?: { text?: string } } }>;
-    const resultIndex = patches.findIndex((patch) => patch.type === "chat.tool.result" && patch.sessionKey === sessionKey && patch.payload?.toolCallId === "tool-1");
-    const finalIndex = patches.findIndex((patch) => patch.type === "chat.message.upsert" && patch.sessionKey === sessionKey && patch.payload?.semanticType === "chat.assistant.final" && patch.payload.message?.text === "Fetched and summarized.");
-    expect(resultIndex).toBeGreaterThanOrEqual(0);
-    expect(finalIndex).toBeGreaterThan(resultIndex);
+    const patches = replay.json().patches as Array<{ type: string; sessionKey: string; payload?: { toolCallId?: string } }>;
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.result",
+        sessionKey,
+        payload: expect.objectContaining({ toolCallId: "tool-1" }),
+      }),
+    ]));
     await app.close();
   });
 
@@ -821,14 +888,30 @@ describe("chat live ingest", () => {
         sessionKey: "s1",
         messageSeq: 3,
         message: {
-          role: "assistant",
-          text: "Done — I read the file.",
-          __openclaw: { id: "assistant-final", seq: 3 },
+          role: "toolResult",
+          toolCallId: "tool-1",
+          toolName: "read",
+          content: [{ type: "text", text: "file contents" }],
+          __openclaw: { id: "tool-result", seq: 3 },
         },
       },
     });
 
-    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({ status: "success", phase: "result" });
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 4,
+        message: {
+          role: "assistant",
+          text: "Done — I read the file.",
+          __openclaw: { id: "assistant-final", seq: 4 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-1")).toMatchObject({ status: "success", phase: "result", resultMeta: [{ type: "text", text: "file contents" }] });
     expect(context.runs.getRun("run-1")).toMatchObject({ status: "done", statusLabel: null });
 
     listener({

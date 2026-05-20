@@ -2,7 +2,7 @@ import { textFromMessage } from "./message-normalizer.js";
 import type { OpenClawMessage } from "./types.js";
 
 export type GatewayMessageSemanticType = "chat.user.confirmed" | "chat.assistant.final" | "chat.message.upsert" | "chat.tool.result";
-export type GatewayToolPhase = "start" | "calling" | "result" | "error";
+export type GatewayToolPhase = "start" | "calling" | "update" | "result" | "error";
 
 export type GatewayProjectedToolEvent = {
   toolCallId: string;

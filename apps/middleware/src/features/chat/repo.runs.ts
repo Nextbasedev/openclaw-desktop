@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { fromJson, toJson } from "../../db/json.js";
 
 export type RunStatus = "queued" | "thinking" | "streaming" | "tool_running" | "done" | "error" | "aborted";
-export type ToolPhase = "start" | "calling" | "result" | "error";
+export type ToolPhase = "start" | "calling" | "update" | "result" | "error";
 export type ToolStatus = "running" | "success" | "error";
 
 const STALE_DETACHED_TOOL_MS = 5 * 60 * 1000;
