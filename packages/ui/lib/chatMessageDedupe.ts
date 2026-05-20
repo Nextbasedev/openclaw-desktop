@@ -93,6 +93,10 @@ function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
   )
 }
 
+function lacksGatewayIndex(message: ChatMessage) {
+  return typeof message.gatewayIndex !== "number" || !Number.isFinite(message.gatewayIndex)
+}
+
 function isAssistantErrorLike(message: ChatMessage) {
   if (message.role !== "assistant") return false
   if (isStandaloneChatErrorText(message.text)) return true
@@ -137,6 +141,7 @@ function isAssistantPrefixUpdate(shorter: string, longer: string) {
 
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
+  if (hasOverlappingToolCalls(a, b)) return true
   if (hasDifferentGatewayIndex(a, b)) return false
   if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
     return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
@@ -144,7 +149,6 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   const aText = stripNoReplyLines(a.text)
   const bText = stripNoReplyLines(b.text)
   if (a.messageId === b.messageId) return true
-  if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
   if (aText === bText) return true
 
@@ -154,7 +158,7 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   // "I fixed..."). Merging those by text prefix makes newer replies replace or
   // append into earlier answers, which is exactly what fork chats were doing
   // after bootstrap/reconcile.
-  if (!hasSameGatewayIndex(a, b)) return false
+  if (!hasSameGatewayIndex(a, b) && !(lacksGatewayIndex(a) && lacksGatewayIndex(b))) return false
   return aText.length <= bText.length
     ? isAssistantPrefixUpdate(aText, bText)
     : isAssistantPrefixUpdate(bText, aText)
@@ -173,6 +177,7 @@ function isSyntheticMessageId(messageId: string | null | undefined) {
 
 function canTextCollapseRepeatedMessages(a: ChatMessage, b: ChatMessage) {
   if (a.messageId && b.messageId && a.messageId === b.messageId) return true
+  if (lacksGatewayIndex(a) && lacksGatewayIndex(b)) return true
   if (!isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
   return hasSameGatewayIndex(a, b)
 }

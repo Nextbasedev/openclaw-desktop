@@ -58,6 +58,31 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(2)
   })
 
+  it("collapses replayed tool-only assistant rows with the same tool call id across gateway indexes", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "tool-row-live",
+        role: "assistant",
+        text: "",
+        gatewayIndex: 289,
+        toolCalls: [{ id: "call_UXxKQqrIlZ8HFIBlH7lxh3JX|fc_056b8003e87b069a016a0decb8e76c8191b5656c0b853c9e2c", tool: "exec", status: "running" }],
+      },
+      {
+        messageId: "tool-row-backfill",
+        role: "assistant",
+        text: "",
+        gatewayIndex: 290,
+        toolCalls: [{ id: "call_UXxKQqrIlZ8HFIBlH7lxh3JX|fc_056b8003e87b069a016a0decb8e76c8191b5656c0b853c9e2c", tool: "exec", status: "success", duration: "0.4s" }],
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      messageId: "tool-row-backfill",
+      toolCalls: [{ id: "call_UXxKQqrIlZ8HFIBlH7lxh3JX|fc_056b8003e87b069a016a0decb8e76c8191b5656c0b853c9e2c", status: "success", duration: "0.4s" }],
+    })
+  })
+
   it("keeps newly sent timestamped messages below restored untimed history", () => {
     const messages = dedupeChatMessages([
       { messageId: "u-old", role: "user", text: "previous question" },
