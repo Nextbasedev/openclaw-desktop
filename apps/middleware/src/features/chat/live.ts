@@ -244,7 +244,8 @@ export class ChatLiveIngest {
     });
     const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
-    const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
+    const assistantHasToolCalls = projectedMessage.role === "assistant" && toolCallBlocks(message.content).length > 0;
+    const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && !assistantHasToolCalls;
     const hadDetachedSubagentToolsBeforeFinal = assistantHasFinalText && isSubagentSessionKey(sessionKey)
       ? this.context.runs.listToolCalls(sessionKey).some((tool) => !tool.runId && tool.status === "running")
       : false;
@@ -298,7 +299,11 @@ export class ChatLiveIngest {
         eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
         payload: canonicalPatchPayload({
           sessionKey,
-          semanticType: optimisticId ? "chat.user.confirmed" : projectedMessage.role === "assistant" ? "chat.assistant.final" : "chat.message.upsert",
+          semanticType: optimisticId
+            ? "chat.user.confirmed"
+            : assistantHasFinalText
+              ? "chat.assistant.final"
+              : "chat.message.upsert",
           run: runForPatch,
           messageId: confirmed?.messageId ?? projectedMessage.messageId,
           payload: {

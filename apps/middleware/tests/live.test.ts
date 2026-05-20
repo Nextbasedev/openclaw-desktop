@@ -622,6 +622,26 @@ describe("chat live ingest", () => {
     });
     expect(context.runs.getRun("run-1")).toMatchObject({ status: "tool_running", statusLabel: "read" });
 
+    const toolTurnPatches = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(toolTurnPatches.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          messageId: "assistant-tools",
+          semanticType: "chat.message.upsert",
+        }),
+      }),
+    ]));
+    expect(toolTurnPatches.json().patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({
+          messageId: "assistant-tools",
+          semanticType: "chat.assistant.final",
+        }),
+      }),
+    ]));
+
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
     expect(bootstrap.json()).toMatchObject({
       runStatus: "tool_running",
