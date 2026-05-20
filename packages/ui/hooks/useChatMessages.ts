@@ -1401,12 +1401,25 @@ export function useChatMessages(
         spawnMapRef.current = new Map(canonicalSpawns.map((spawn) => [spawn.toolCallId, spawn]))
         const canonicalStatus = streamStatusFromCanonicalRun(runStatus)
         const canonicalLabel = normalizeStatusLabelForStatus(canonicalStatus, canonicalStatusLabel)
+        const shouldPreserveInitialOptimisticMessages =
+          hasInitial &&
+          canonicalMessages.length === 0 &&
+          messagesRef.current.length > 0
+        const seedMessages = shouldPreserveInitialOptimisticMessages
+          ? messagesRef.current
+          : canonicalMessages
+        const seedStatus = shouldPreserveInitialOptimisticMessages
+          ? statusRef.current
+          : canonicalStatus
+        const seedStatusLabel = shouldPreserveInitialOptimisticMessages
+          ? normalizeStatusLabelForStatus(statusRef.current, statusLabel)
+          : canonicalLabel
         seedGlobalChatSession({
           sessionKey,
-          messages: canonicalMessages,
+          messages: seedMessages,
           cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-          status: canonicalStatus,
-          statusLabel: canonicalLabel,
+          status: seedStatus,
+          statusLabel: seedStatusLabel,
           pendingTools: inlineTools,
           spawnedSubagents: canonicalSpawns,
           queryClient,
@@ -1414,12 +1427,12 @@ export function useChatMessages(
         const globalAfterSeed = getGlobalChatSession(sessionKey)
         const displayMessages = globalAfterSeed?.messages.length
           ? globalAfterSeed.messages
-          : canonicalMessages
+          : seedMessages
         void setWarmChatCache(sessionKey, {
           messages: displayMessages,
           cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-          runStatus: runStatus ?? canonicalStatus,
-          statusLabel: canonicalLabel,
+          runStatus: runStatus ?? seedStatus,
+          statusLabel: seedStatusLabel,
           activeRunSummary: activeRun ? {
             runId: activeRun.runId,
             status: activeRun.status,
@@ -1436,17 +1449,17 @@ export function useChatMessages(
         setMessages(displayMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
-        setStatus(canonicalStatus)
-        setStatusLabel(canonicalLabel)
-        if (isActiveRunStatus(canonicalStatus)) markOptimisticChatActivity(sessionKey, canonicalLabel)
+        setStatus(seedStatus)
+        setStatusLabel(seedStatusLabel)
+        if (isActiveRunStatus(seedStatus)) markOptimisticChatActivity(sessionKey, seedStatusLabel)
         else clearCachedChatActivity(sessionKey)
         setLoading(false)
         setHistoryLoadVersion((value) => value + 1)
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,
-          status: canonicalStatus,
-          statusLabel: canonicalLabel,
+          status: seedStatus,
+          statusLabel: seedStatusLabel,
           cursor: bootstrapCursor,
           pendingToolCount: inlineTools.length,
           spawnedSubagentCount: canonicalSpawns.length,

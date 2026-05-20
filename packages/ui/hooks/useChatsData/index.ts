@@ -115,6 +115,7 @@ export function useChatsData(
   const [deleting, setDeleting] = useState(false)
   const loadSeqRef = useRef(0)
   const currentSpaceIdRef = useRef<string | null | undefined>(spaceId)
+  const previousSpaceIdRef = useRef<string | null | undefined>(spaceId)
   const refreshTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -186,13 +187,17 @@ export function useChatsData(
   }, [loadChats])
 
   useEffect(() => {
-    setChats([])
-    setPinnedChats(new Set())
+    const spaceChanged = previousSpaceIdRef.current !== spaceId
+    previousSpaceIdRef.current = spaceId
+    if (spaceChanged) {
+      setChats([])
+      setPinnedChats(new Set())
+    }
     loadChats()
     return () => {
       loadSeqRef.current += 1
     }
-  }, [loadChats, refreshTrigger])
+  }, [loadChats, refreshTrigger, spaceId])
 
   useEffect(() => {
     const unsubscribe = on("sidebar:refresh", loadChats)
