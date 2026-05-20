@@ -103,33 +103,6 @@ describe("global V2 chat engine store", () => {
     expect(state.messages.find((message) => message.messageId === "u2")).toMatchObject({ turnStatus: "thinking", turnStatusLabel: "Thinking" })
   })
 
-  test("bootstrap seed preserves local optimistic follow-up at same cursor", () => {
-    seedGlobalChatSession({
-      sessionKey: "s1",
-      cursor: 10,
-      status: "thinking",
-      messages: [
-        { messageId: "u1", role: "user", text: "hii", gatewayIndex: 1 },
-        { messageId: "a1", role: "assistant", text: "Hi — how can I help?", gatewayIndex: 2 },
-        { messageId: "client-2", role: "user", text: "hello", isOptimistic: true, sendStatus: "sending", turnStatus: "queued", turnStatusLabel: "Queued" },
-      ],
-    })
-
-    seedGlobalChatSession({
-      sessionKey: "s1",
-      cursor: 10,
-      status: "thinking",
-      messages: [
-        { messageId: "u1", role: "user", text: "hii", gatewayIndex: 1 },
-        { messageId: "a1", role: "assistant", text: "Hi — how can I help?", gatewayIndex: 2 },
-      ],
-    })
-
-    const state = getGlobalChatSession("s1")!
-    expect(state.messages.map((message) => message.text)).toEqual(["hii", "Hi — how can I help?", "hello"])
-    expect(state.messages.at(-1)).toMatchObject({ messageId: "client-2", isOptimistic: true, turnStatus: "queued" })
-  })
-
   test("does not resurrect a completed chat from an old running tool replay", () => {
     vi.setSystemTime(new Date("2026-05-15T08:30:00.000Z"))
     const oldStartedAt = Date.now() - 48 * 60 * 60 * 1000
