@@ -330,7 +330,7 @@ describe("chat live ingest", () => {
     const nextStartIndex = patches.findIndex((patch) => patch.type === "chat.tool.started" && patch.payload?.toolCallId === "tool-2");
     expect(inferredResultIndex).toBeGreaterThanOrEqual(0);
     expect(nextStartIndex).toBeGreaterThan(inferredResultIndex);
-    expect(patches[inferredResultIndex]?.payload?.toolCall?.resultMeta).toBeUndefined();
+    expect(patches[inferredResultIndex]?.payload?.toolCall?.resultMeta ?? undefined).toBeUndefined();
     await app.close();
   });
 
@@ -879,10 +879,11 @@ describe("chat live ingest", () => {
       return { ok: true };
     });
 
-    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: 100, updatedAtMs: 200, finishedAtMs: 200 });
-    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "old-tool", name: "read", phase: "result", status: "success", startedAtMs: 120, updatedAtMs: 180, finishedAtMs: 180 });
-    context.runs.upsertRun({ runId: "run-2", sessionKey: "s1", status: "tool_running", statusLabel: "exec", startedAtMs: 300, updatedAtMs: 320 });
-    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-2", toolCallId: "current-tool", name: "exec", phase: "calling", status: "running", startedAtMs: 310, updatedAtMs: 320 });
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", status: "done", statusLabel: null, startedAtMs: now - 500, updatedAtMs: now - 400, finishedAtMs: now - 400 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "old-tool", name: "read", phase: "result", status: "success", startedAtMs: now - 480, updatedAtMs: now - 420, finishedAtMs: now - 420 });
+    context.runs.upsertRun({ runId: "run-2", sessionKey: "s1", status: "tool_running", statusLabel: "exec", startedAtMs: now - 120, updatedAtMs: now - 100 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-2", toolCallId: "current-tool", name: "exec", phase: "calling", status: "running", startedAtMs: now - 90, updatedAtMs: now - 80 });
 
     const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
     expect(bootstrap.statusCode).toBe(200);

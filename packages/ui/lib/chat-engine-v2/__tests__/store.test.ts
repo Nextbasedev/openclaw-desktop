@@ -1662,6 +1662,78 @@ describe("global V2 chat engine store", () => {
     )
   })
 
+  test("deduped repeated spawn can still complete the selected linked child", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      spawnedSubagents: [
+        {
+          id: "spawn:ui-1",
+          label: "ui-automation",
+          task: "UI automation",
+          status: "working",
+          toolCallId: "ui-1",
+          sessionKey: "agent:main:subagent:ui-1",
+        },
+        {
+          id: "spawn:ui-2",
+          label: "ui-automation",
+          task: "UI automation",
+          status: "completed",
+          toolCallId: "ui-2",
+          sessionKey: "agent:main:subagent:ui-2",
+        },
+      ],
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { label: "ui-automation", status: "working", sessionKey: "agent:main:subagent:ui-1" },
+    ])
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      spawnedSubagents: [
+        {
+          id: "spawn:ui-1",
+          label: "ui-automation",
+          task: "UI automation",
+          status: "working",
+          toolCallId: "ui-1",
+          sessionKey: "agent:main:subagent:ui-1",
+        },
+        {
+          id: "spawn:ui-1",
+          label: "ui-automation",
+          task: "UI automation",
+          status: "completed",
+          toolCallId: "ui-1",
+          sessionKey: "agent:main:subagent:ui-1",
+        },
+      ],
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { label: "ui-automation", status: "completed", sessionKey: "agent:main:subagent:ui-1" },
+    ])
+  })
+
+  test("dedupes same explicit label even when repeated task wording differs", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [],
+      spawnedSubagents: [
+        { id: "spawn:a", label: "ui-automation", task: "Stand by for UI automation work", status: "working", toolCallId: "a", sessionKey: "agent:main:subagent:a" },
+        { id: "spawn:b", label: "ui-automation", task: "Prepare to handle browser/UI automation work", status: "working", toolCallId: "b", sessionKey: "agent:main:subagent:b" },
+      ],
+    })
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toHaveLength(1)
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
+      { label: "ui-automation", status: "working" },
+    ])
+  })
+
   test("completes sessions_spawn when result has no child session link", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",

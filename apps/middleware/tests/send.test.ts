@@ -522,8 +522,9 @@ describe("chat send routes", () => {
     const app = await createApp(config("bootstrap-canonical-shape"));
     const context = contextOf(app);
     context.messages.upsertSession({ sessionKey: "s1", sessionId: "sid-1", data: { sessionKey: "s1", status: "running", statusLabel: "Thinking" } });
-    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", clientMessageId: "client-1", idempotencyKey: "idem-1", gatewayRunId: "gateway-run-1", status: "tool_running", statusLabel: "web_search", startedAtMs: 100, updatedAtMs: 200 });
-    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "tool-1", name: "web_search", phase: "start", argsMeta: { keys: ["q"] }, startedAtMs: 150, updatedAtMs: 175 });
+    const now = Date.now();
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", clientMessageId: "client-1", idempotencyKey: "idem-1", gatewayRunId: "gateway-run-1", status: "tool_running", statusLabel: "web_search", startedAtMs: now - 100, updatedAtMs: now - 50 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "tool-1", name: "web_search", phase: "start", argsMeta: { keys: ["q"] }, startedAtMs: now - 90, updatedAtMs: now - 75 });
     vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
       if (method === "chat.history") return { sessionKey: "s1", sessionId: "sid-1", messages: [{ role: "user", text: "hello", __openclaw: { id: "u1", seq: 1 } }] };
       return { ok: true };
@@ -539,7 +540,7 @@ describe("chat send routes", () => {
       sessionId: "sid-1",
       runStatus: "tool_running",
       statusLabel: "web_search",
-      activeRun: { runId: "run-1", gatewayRunId: "gateway-run-1", status: "tool_running", startedAtMs: 100 },
+      activeRun: { runId: "run-1", gatewayRunId: "gateway-run-1", status: "tool_running", startedAtMs: now - 100 },
       tools: [{ toolCallId: "tool-1", id: "tool-1", runId: "run-1", name: "web_search", status: "running", argsMeta: { keys: ["q"] } }],
       toolCalls: [{ toolCallId: "tool-1" }],
       cursor: expect.any(Number),

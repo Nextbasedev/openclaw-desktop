@@ -96,9 +96,11 @@ function spawnDedupeKey(spawn: SpawnedSubagent) {
   const task = normalizedSpawnText(spawn.task)
   // The same requested child can be represented by several transient
   // sessions_spawn tool ids as live assistant/message patches are replayed.
-  // For user-visible background agents, prefer the requested identity over the
-  // transient tool id so "ui-automation" does not appear three times.
-  if (isMeaningfulSpawnLabel(spawn.label)) return `label:${label}|task:${task}`
+  // For user-visible background agents, prefer the explicit requested label
+  // over transient tool ids or prompt text. Real bundles showed the same
+  // `ui-automation` child repeated with slightly different task wording, so
+  // label+task still over-counted.
+  if (isMeaningfulSpawnLabel(spawn.label)) return `label:${label}`
   if (task) return `task:${task}`
   if (spawn.sessionKey) return `session:${spawn.sessionKey}`
   return `tool:${spawn.toolCallId}`
@@ -107,11 +109,14 @@ function spawnDedupeKey(spawn: SpawnedSubagent) {
 function mergeSpawn(existing: SpawnedSubagent, incoming: SpawnedSubagent): SpawnedSubagent {
   const existingRank = spawnStatusRank(existing.status)
   const incomingRank = spawnStatusRank(incoming.status)
-  const preferIncoming = incomingRank > existingRank || (
-    incomingRank === existingRank &&
-    !existing.sessionKey &&
-    Boolean(incoming.sessionKey)
-  )
+  const sameLinkedChild = Boolean(existing.sessionKey && incoming.sessionKey && existing.sessionKey === incoming.sessionKey)
+  const incomingTerminalForSameChild = sameLinkedChild && (incoming.status === "completed" || incoming.status === "failed")
+  const preferIncoming = incomingTerminalForSameChild ||
+    incomingRank > existingRank || (
+      incomingRank === existingRank &&
+      !existing.sessionKey &&
+      Boolean(incoming.sessionKey)
+    )
   const primary = preferIncoming ? incoming : existing
   const secondary = preferIncoming ? existing : incoming
   return {
