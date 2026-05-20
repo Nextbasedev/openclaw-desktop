@@ -486,6 +486,49 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("broadcasts live detached tool calls for subagent sessions", async () => {
+    const app = await createApp(config("subagent-detached-live-tools"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    await context.chatLive.ensureSessionSubscribed("agent:main:subagent:child-1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "agent:main:subagent:child-1",
+        messageSeq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tool-1", name: "web_fetch", input: { url: "https://example.com" } }],
+          __openclaw: { id: "assistant-tools", seq: 2 },
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("agent:main:subagent:child-1", "tool-1")).toMatchObject({
+      toolCallId: "tool-1",
+      name: "web_fetch",
+      status: "running",
+      runId: null,
+    });
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.json().patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.started",
+        sessionKey: "agent:main:subagent:child-1",
+        payload: expect.objectContaining({ toolCallId: "tool-1" }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("derives tool activity from assistant tool-call blocks when session.tool is absent", async () => {
     const app = await createApp(config("message-tool-blocks"));
     const context = contextOf(app);

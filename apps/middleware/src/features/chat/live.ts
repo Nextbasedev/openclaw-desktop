@@ -104,6 +104,10 @@ function firstString(...values: unknown[]) {
   return null;
 }
 
+function isSubagentSessionKey(sessionKey: string) {
+  return sessionKey.includes(":subagent:");
+}
+
 function textFromLiveValue(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
@@ -380,9 +384,12 @@ export class ChatLiveIngest {
       argsMeta: isObject(data.args) ? data.args : null,
       resultMeta: phase === "error" ? this.safeResultMeta(data.error) : liveResultMeta,
     });
-    if (tool.status === "running" && !tool.runId) {
+    if (tool.status === "running" && !tool.runId && !isSubagentSessionKey(sessionKey)) {
       this.log.warn("tool.detached-running-ignored", { sessionKey, toolCallId, phase, name, fallbackRunId: run?.runId ?? null });
       return;
+    }
+    if (tool.status === "running" && !tool.runId) {
+      this.log.info("tool.detached-subagent-live", { sessionKey, toolCallId, phase, name });
     }
     const associatedRun = tool.runId ? this.context.runs.getRun(tool.runId) : null;
     if (associatedRun) {
