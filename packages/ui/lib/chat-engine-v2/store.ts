@@ -74,6 +74,65 @@ function defaultState(): SessionState {
   return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false }
 }
 
+function normalizedSpawnText(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase()
+}
+
+function spawnStatusRank(status: SpawnedSubagent["status"]) {
+  if (status === "working") return 4
+  if (status === "linking") return 3
+  if (status === "spawning") return 2
+  if (status === "failed") return 1
+  return 0
+}
+
+function isMeaningfulSpawnLabel(label: string) {
+  const normalized = normalizedSpawnText(label)
+  return Boolean(normalized && normalized !== "sub-agent" && !normalized.startsWith("sub-"))
+}
+
+function spawnDedupeKey(spawn: SpawnedSubagent) {
+  const label = normalizedSpawnText(spawn.label)
+  const task = normalizedSpawnText(spawn.task)
+  // The same requested child can be represented by several transient
+  // sessions_spawn tool ids as live assistant/message patches are replayed.
+  // For user-visible background agents, prefer the requested identity over the
+  // transient tool id so "ui-automation" does not appear three times.
+  if (isMeaningfulSpawnLabel(spawn.label)) return `label:${label}|task:${task}`
+  if (task) return `task:${task}`
+  if (spawn.sessionKey) return `session:${spawn.sessionKey}`
+  return `tool:${spawn.toolCallId}`
+}
+
+function mergeSpawn(existing: SpawnedSubagent, incoming: SpawnedSubagent): SpawnedSubagent {
+  const existingRank = spawnStatusRank(existing.status)
+  const incomingRank = spawnStatusRank(incoming.status)
+  const preferIncoming = incomingRank > existingRank || (
+    incomingRank === existingRank &&
+    !existing.sessionKey &&
+    Boolean(incoming.sessionKey)
+  )
+  const primary = preferIncoming ? incoming : existing
+  const secondary = preferIncoming ? existing : incoming
+  return {
+    ...primary,
+    label: primary.label || secondary.label,
+    task: primary.task || secondary.task,
+    sessionKey: primary.sessionKey || secondary.sessionKey,
+    toolCallId: primary.toolCallId || secondary.toolCallId,
+  }
+}
+
+export function dedupeSpawnedSubagents(spawns: SpawnedSubagent[]) {
+  const byKey = new Map<string, SpawnedSubagent>()
+  for (const spawn of spawns) {
+    const key = spawnDedupeKey(spawn)
+    const existing = byKey.get(key)
+    byKey.set(key, existing ? mergeSpawn(existing, spawn) : spawn)
+  }
+  return Array.from(byKey.values())
+}
+
 function getOrCreate(sessionKey: string): SessionState {
   const existing = states.get(sessionKey)
   if (existing) return existing
@@ -346,7 +405,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
 
   if (existing.tool === "sessions_spawn") {
     const childKey = extractSubagentSessionKey(params.source) ?? extractSubagentSessionKey(params.resultText)
-    state.spawnedSubagents = state.spawnedSubagents.map((spawn) => {
+    state.spawnedSubagents = dedupeSpawnedSubagents(state.spawnedSubagents.map((spawn) => {
       if (spawn.toolCallId !== existing.id) return spawn
       return {
         ...spawn,
@@ -357,7 +416,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
             ? "working"
             : "completed",
       }
-    })
+    }))
   }
   return true
 }
@@ -649,7 +708,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
       sessionKey: childSessionKey,
       status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
     })
-    state.spawnedSubagents = Array.from(spawns.values())
+    state.spawnedSubagents = dedupeSpawnedSubagents(Array.from(spawns.values()))
   }
   return true
 }
@@ -768,7 +827,7 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
   }
 
   state.pendingTools = Array.from(pending.values())
-  state.spawnedSubagents = Array.from(spawns.values())
+  state.spawnedSubagents = dedupeSpawnedSubagents(Array.from(spawns.values()))
   promoteRunningToolStatus(state)
 }
 
@@ -796,7 +855,7 @@ function syncLinkedSubagentStatus(childSessionKey: string, childStatus: StreamSt
       return { ...spawn, status }
     })
     if (changed) {
-      parent.spawnedSubagents = next
+      parent.spawnedSubagents = dedupeSpawnedSubagents(next)
       notify(parentKey)
     }
   }
@@ -898,9 +957,9 @@ function isUserMessagePatch(frame: PatchFrame) {
 
 function resetDetachedActivityForNewTurn(state: SessionState) {
   state.pendingTools = state.pendingTools.filter((tool) => tool.status === "running")
-  state.spawnedSubagents = state.spawnedSubagents.filter((spawn) =>
+  state.spawnedSubagents = dedupeSpawnedSubagents(state.spawnedSubagents.filter((spawn) =>
     spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working" || Boolean(spawn.sessionKey)
-  )
+  ))
 }
 
 function isAssistantFinalTextMessage(frame: PatchFrame) {
@@ -1235,7 +1294,7 @@ export function seedGlobalChatSession(params: {
     if (params.status) state.deferredDoneUntilAssistant = false
     if (params.pendingTools) state.pendingTools = params.pendingTools
     if (params.status) finalizeActiveToolsForTerminalStatus(state, params.status)
-    if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
+    if (params.spawnedSubagents) state.spawnedSubagents = dedupeSpawnedSubagents(params.spawnedSubagents)
   }
   globalCursor = Math.max(globalCursor, state.cursor)
   cacheBootstrap(params.sessionKey, state)
@@ -1261,7 +1320,7 @@ export function updateGlobalChatSessionActivity(params: {
 }) {
   const state = getOrCreate(params.sessionKey)
   if (params.pendingTools) state.pendingTools = params.pendingTools
-  if (params.spawnedSubagents) state.spawnedSubagents = params.spawnedSubagents
+  if (params.spawnedSubagents) state.spawnedSubagents = dedupeSpawnedSubagents(params.spawnedSubagents)
   if (params.status) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
@@ -1302,11 +1361,11 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
     )
     attachDetachedToolsToLatestAssistant(state, state.pendingTools)
     state.pendingTools = []
-    state.spawnedSubagents = state.spawnedSubagents.map((spawn) =>
+    state.spawnedSubagents = dedupeSpawnedSubagents(state.spawnedSubagents.map((spawn) =>
       spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working"
         ? { ...spawn, status: "failed" }
         : spawn
-    )
+    ))
     frontendLog("status", "global-chat-session.stale-active-reset", {
       sessionKey,
       from: previousStatus,

@@ -58,7 +58,7 @@ import {
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
+import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import {
   getWarmChatCache,
@@ -538,8 +538,9 @@ export function useChatMessages(
     updateGlobalChatSessionActivity({ sessionKey, pendingTools: next })
   }, [sessionKey])
   const setSpawnedSubagents = useCallback((next: SpawnedSubagent[]) => {
-    setLocalSpawnedSubagents(next)
-    updateGlobalChatSessionActivity({ sessionKey, spawnedSubagents: next })
+    const deduped = dedupeSpawnedSubagents(next)
+    setLocalSpawnedSubagents(deduped)
+    updateGlobalChatSessionActivity({ sessionKey, spawnedSubagents: deduped })
   }, [sessionKey])
   const subagentPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const doneAfterYieldRef = useRef(0)
@@ -587,8 +588,10 @@ export function useChatMessages(
 
   const upsertSpawn = useCallback((spawn: SpawnedSubagent) => {
     spawnMapRef.current.set(spawn.toolCallId, spawn)
-    setSpawnedSubagents(Array.from(spawnMapRef.current.values()))
-  }, [])
+    const deduped = dedupeSpawnedSubagents(Array.from(spawnMapRef.current.values()))
+    spawnMapRef.current = new Map(deduped.map((item) => [item.toolCallId, item]))
+    setSpawnedSubagents(deduped)
+  }, [setSpawnedSubagents])
 
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current

@@ -1618,6 +1618,50 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
+  test("dedupes repeated sessions_spawn patches for the same requested child", () => {
+    for (const [cursor, toolCallId, childSessionKey] of [
+      [1, "spawn-ui-1", "agent:main:subagent:ui-1"],
+      [2, "spawn-flow-1", "agent:main:subagent:flow-1"],
+      [3, "spawn-ui-2", "agent:main:subagent:ui-2"],
+      [4, "spawn-flow-2", "agent:main:subagent:flow-2"],
+      [5, "spawn-ui-3", "agent:main:subagent:ui-3"],
+      [6, "spawn-flow-3", "agent:main:subagent:flow-3"],
+    ] as const) {
+      const isUi = toolCallId.includes("ui")
+      ingestGlobalChatPatchForTests({
+        type: "patch",
+        patch: {
+          cursor,
+          type: "chat.tool.result",
+          sessionKey: "s1",
+          createdAtMs: Date.now(),
+          payload: {
+            sessionKey: "s1",
+            toolCall: {
+              toolCallId,
+              name: "sessions_spawn",
+              status: "success",
+              phase: "result",
+              argsMeta: {
+                label: isUi ? "ui-automation" : "agentic-workflow",
+                task: isUi ? "UI automation" : "Agentic workflow",
+              },
+              resultMeta: { childSessionKey },
+            },
+          },
+        },
+      })
+    }
+
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toHaveLength(2)
+    expect(getGlobalChatSession("s1")?.spawnedSubagents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "ui-automation", status: "working" }),
+        expect.objectContaining({ label: "agentic-workflow", status: "working" }),
+      ]),
+    )
+  })
+
   test("completes sessions_spawn when result has no child session link", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
