@@ -245,6 +245,9 @@ export class ChatLiveIngest {
     const associatedRun = this.associatedRunForMessage(sessionKey, message, optimistic?.runId);
     this.ingestToolsFromMessage(sessionKey, message, associatedRun);
     const assistantHasFinalText = projectedMessage.role === "assistant" && textFromMessage(message).trim().length > 0 && toolCallBlocks(message.content).length === 0;
+    const hadDetachedSubagentToolsBeforeFinal = assistantHasFinalText && isSubagentSessionKey(sessionKey)
+      ? this.context.runs.listToolCalls(sessionKey).some((tool) => !tool.runId && tool.status === "running")
+      : false;
     if (assistantHasFinalText && associatedRun) {
       // This is only a lifecycle inference: the gateway did not send a real
       // tool result event before final assistant text. Mark the tool complete so
@@ -289,32 +292,40 @@ export class ChatLiveIngest {
       runId: runForPatch?.runId ?? optimistic?.runId,
       runStatus: runForPatch?.status,
     });
-    const patch = this.context.messages.appendProjectionEvent({
-      sessionKey,
-      eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
-      payload: canonicalPatchPayload({
+    const emitMessagePatch = () => {
+      const patch = this.context.messages.appendProjectionEvent({
         sessionKey,
-        semanticType: optimisticId ? "chat.user.confirmed" : projectedMessage.role === "assistant" ? "chat.assistant.final" : "chat.message.upsert",
-        run: runForPatch,
-        messageId: confirmed?.messageId ?? projectedMessage.messageId,
-        payload: {
+        eventType: optimisticId ? "chat.message.confirmed" : "chat.message.upsert",
+        payload: canonicalPatchPayload({
           sessionKey,
-          message: emittedMessage,
-          ...(optimisticId ? { optimisticId, gatewayMessageId: projectedMessage.messageId } : {}),
-          ...(runForPatch?.runId ? { runId: runForPatch.runId } : optimistic?.runId ? { runId: optimistic.runId } : {}),
-          messageSeq: emittedSeq,
-          lastSeq: projection.lastSeq,
-        },
-      }),
-    });
-    this.context.patchBus.broadcast({
-      cursor: patch.cursor,
-      type: patch.eventType,
-      sessionKey: patch.sessionKey,
-      payload: patch.payload,
-      createdAtMs: patch.createdAtMs,
-    });
-    this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, ingestDurationMs: Date.now() - receivedAtMs });
+          semanticType: optimisticId ? "chat.user.confirmed" : projectedMessage.role === "assistant" ? "chat.assistant.final" : "chat.message.upsert",
+          run: runForPatch,
+          messageId: confirmed?.messageId ?? projectedMessage.messageId,
+          payload: {
+            sessionKey,
+            message: emittedMessage,
+            ...(optimisticId ? { optimisticId, gatewayMessageId: projectedMessage.messageId } : {}),
+            ...(runForPatch?.runId ? { runId: runForPatch.runId } : optimistic?.runId ? { runId: optimistic.runId } : {}),
+            messageSeq: emittedSeq,
+            lastSeq: projection.lastSeq,
+          },
+        }),
+      });
+      this.context.patchBus.broadcast({
+        cursor: patch.cursor,
+        type: patch.eventType,
+        sessionKey: patch.sessionKey,
+        payload: patch.payload,
+        createdAtMs: patch.createdAtMs,
+      });
+      this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, ingestDurationMs: Date.now() - receivedAtMs, delayed: hadDetachedSubagentToolsBeforeFinal });
+    };
+    if (hadDetachedSubagentToolsBeforeFinal) {
+      this.log.info("assistant.final.delay-for-subagent-tools", { sessionKey, messageId: projectedMessage.messageId });
+      setTimeout(emitMessagePatch, 900);
+      return;
+    }
+    emitMessagePatch();
   }
 
   private associatedRunForMessage(sessionKey: string, message: OpenClawMessage, optimisticRunId?: string | null) {

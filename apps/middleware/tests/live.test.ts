@@ -576,14 +576,13 @@ describe("chat live ingest", () => {
       runId: null,
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 950));
     const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
-    expect(replay.json().patches).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        type: "chat.tool.result",
-        sessionKey,
-        payload: expect.objectContaining({ toolCallId: "tool-1" }),
-      }),
-    ]));
+    const patches = replay.json().patches as Array<{ type: string; sessionKey: string; cursor: number; payload?: { toolCallId?: string; semanticType?: string; message?: { text?: string } } }>;
+    const resultIndex = patches.findIndex((patch) => patch.type === "chat.tool.result" && patch.sessionKey === sessionKey && patch.payload?.toolCallId === "tool-1");
+    const finalIndex = patches.findIndex((patch) => patch.type === "chat.message.upsert" && patch.sessionKey === sessionKey && patch.payload?.semanticType === "chat.assistant.final" && patch.payload.message?.text === "Fetched and summarized.");
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(finalIndex).toBeGreaterThan(resultIndex);
     await app.close();
   });
 
