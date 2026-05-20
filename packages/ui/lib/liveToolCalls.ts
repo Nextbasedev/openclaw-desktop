@@ -1,7 +1,24 @@
 import type { ContentBlock, InlineToolCall } from "../components/ChatView/types"
 import { extractText } from "../components/ChatView/utils"
 
+export function isInferredFallbackToolResult(result: unknown): boolean {
+  if (!result) return false
+  if (typeof result === "object" && !Array.isArray(result)) {
+    const record = result as { inferred?: unknown; reason?: unknown }
+    return record.inferred === true && typeof record.reason === "string"
+  }
+  if (typeof result !== "string") return false
+  const trimmed = result.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return isInferredFallbackToolResult(JSON.parse(trimmed) as unknown)
+  } catch {
+    return false
+  }
+}
+
 export function liveToolResultText(result: unknown) {
+  if (isInferredFallbackToolResult(result)) return ""
   if (typeof result === "string" || Array.isArray(result)) {
     return extractText(result as ContentBlock[] | string | undefined)
   }

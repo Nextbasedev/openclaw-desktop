@@ -4,6 +4,7 @@ import { dedupeChatMessages } from "../chatMessageDedupe"
 import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { emit } from "../events"
+import { isInferredFallbackToolResult } from "../liveToolCalls"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
 import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
@@ -322,25 +323,9 @@ function toolResultBlockText(block: Record<string, unknown>) {
   return textFromUnknown(block.result ?? block.output ?? block.content ?? block.text ?? block.message ?? block.value)
 }
 
-function isInferredFallbackToolResultText(value: unknown) {
-  if (!value) return false
-  if (typeof value === "object" && !Array.isArray(value)) {
-    const record = value as { inferred?: unknown; reason?: unknown }
-    return record.inferred === true && typeof record.reason === "string"
-  }
-  if (typeof value !== "string") return false
-  const trimmed = value.trim()
-  if (!trimmed.startsWith("{")) return false
-  try {
-    return isInferredFallbackToolResultText(JSON.parse(trimmed) as unknown)
-  } catch {
-    return false
-  }
-}
-
 function mergeToolResultText(incoming: string | undefined, existing: string | undefined) {
-  if (!incoming || isInferredFallbackToolResultText(incoming)) return existing
-  if (!existing || isInferredFallbackToolResultText(existing)) return incoming
+  if (!incoming || isInferredFallbackToolResult(incoming)) return existing
+  if (!existing || isInferredFallbackToolResult(existing)) return incoming
   return incoming ?? existing
 }
 
@@ -611,10 +596,10 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
     startedAt: realEpochMs(tool.startedAtMs),
     completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
-    resultText: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResultText(tool.resultMeta)
+    resultText: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResult(tool.resultMeta)
       ? undefined
       : textFromUnknown(tool.resultMeta),
-    approval: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResultText(tool.resultMeta)
+    approval: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResult(tool.resultMeta)
       ? undefined
       : parseExecApproval(textFromUnknown(tool.resultMeta)),
   }

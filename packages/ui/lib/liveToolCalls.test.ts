@@ -34,4 +34,9 @@ describe("live tool call event helpers", () => {
     expect(output).toBe("done")
     expect(inferLiveToolStatus("result", output, false)).toBe("success")
   })
+
+  it("suppresses inferred fallback result metadata", () => {
+    expect(liveToolResultText({ inferred: true, reason: "assistant_final_after_tool_calls" })).toBe("")
+    expect(liveToolResultText('{"inferred":true,"reason":"next_tool_started_after_missing_result_event"}')).toBe("")
+  })
 })
