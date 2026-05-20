@@ -11,7 +11,7 @@ import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyP
 import { openPatchStreamV2 } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
 
-type SessionState = {
+export type SessionState = {
   cursor: number
   messages: ChatMessage[]
   status: StreamStatus
@@ -635,6 +635,14 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
       existing.sessionKey === childSessionKey &&
       (existing.status === "completed" || existing.status === "failed")
     )
+    if (isSameCompletedChild && childSessionKey && inline.status !== "error") {
+      frontendLog("status", "subagent.replay-downgrade-prevented", {
+        toolCallId: inline.id,
+        childSessionKey,
+        existingStatus: existing?.status,
+        incomingToolStatus: inline.status,
+      }, "warn")
+    }
     spawns.set(inline.id, {
       ...(existing ?? { id: `spawn:${inline.id}`, label, task: typeof input.task === "string" ? input.task : undefined, sessionKey: null, toolCallId: inline.id }),
       label: existing?.label ?? label,
@@ -1312,6 +1320,13 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
 export function getGlobalChatSession(sessionKey: string): SessionState | null {
   const state = states.get(sessionKey)
   return state ? cloneState(state) : null
+}
+
+export function getAllGlobalChatSessions(): Array<{ sessionKey: string; state: SessionState }> {
+  return Array.from(states.entries()).map(([sessionKey, state]) => ({
+    sessionKey,
+    state: cloneState(state),
+  }))
 }
 
 export function subscribeGlobalChatSession(sessionKey: string, listener: Listener) {

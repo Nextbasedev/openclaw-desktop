@@ -19,6 +19,7 @@ import {
   type LogLevel,
   type LogSource,
 } from "@/lib/clientLogs"
+import { collectDiagnostics } from "@/lib/diagnostics"
 import { VscOutput, VscRefresh, VscTrash, VscCopy } from "react-icons/vsc"
 
 function isTauriRuntime(): boolean {
@@ -201,9 +202,19 @@ export function LogsDialog({
       sourceFilter: source,
       search: search.trim() || null,
     }
+    const diagnostics = collectDiagnostics({
+      frontendEntries: frontendSnapshot,
+      backendEntries: backendSnapshot,
+      backendPath,
+      backendError,
+      sourceFilter: source,
+      search: search.trim() || null,
+    })
     const text = [
       "OPENCLAW_DESKTOP_DEBUG_BUNDLE_V1",
       JSON.stringify(metadata, null, 2),
+      "--- DIAGNOSTICS ---",
+      JSON.stringify(diagnostics, null, 2),
       "--- LOGS ---",
       ...lastEntries.map(
         (e) =>
