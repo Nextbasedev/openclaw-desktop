@@ -46,4 +46,13 @@ describe("live tool call event helpers", () => {
     expect(isAwaitingLiveToolResult(JSON.stringify(meta))).toBe(true)
     expect(liveToolResultText(meta)).toBe("")
   })
+
+  it("renders structured tool result blocks when text is an object", () => {
+    const output = liveToolResultText([
+      { type: "text", text: { url: "https://example.com", status: 200, title: "Example" } },
+    ])
+
+    expect(output).toContain("https://example.com")
+    expect(output).toContain("Example")
+  })
 })

@@ -1,6 +1,32 @@
 import type { ContentBlock, InlineToolCall } from "../components/ChatView/types"
 import { extractText } from "../components/ChatView/utils"
 
+function stringifyToolValue(value: unknown): string {
+  if (value === undefined || value === null) return ""
+  if (typeof value === "string") return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function extractToolResultText(value: unknown): string {
+  const text = extractText(value as ContentBlock[] | string | undefined)
+  if (text.trim()) return text
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (!item || typeof item !== "object") return stringifyToolValue(item)
+        const record = item as Record<string, unknown>
+        return stringifyToolValue(record.text ?? record.content ?? record.output ?? record.result ?? record.message ?? record.value ?? item)
+      })
+      .filter((item) => item.trim().length > 0)
+      .join("\n")
+  }
+  return stringifyToolValue(value)
+} 
+
 export function isAwaitingLiveToolResult(result: unknown): boolean {
   if (!result) return false
   if (typeof result === "object" && !Array.isArray(result)) {
@@ -35,15 +61,8 @@ export function isInferredFallbackToolResult(result: unknown): boolean {
 
 export function liveToolResultText(result: unknown) {
   if (isInferredFallbackToolResult(result) || isAwaitingLiveToolResult(result)) return ""
-  if (typeof result === "string" || Array.isArray(result)) {
-    return extractText(result as ContentBlock[] | string | undefined)
-  }
   if (result === undefined || result === null) return ""
-  try {
-    return JSON.stringify(result, null, 2)
-  } catch {
-    return String(result)
-  }
+  return extractToolResultText(result)
 }
 
 export function liveToolEventResultText(eventData: Record<string, unknown>) {
