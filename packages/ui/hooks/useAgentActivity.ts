@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { subscribeChatStream } from "@/lib/chatStream"
+import { fetchChatBootstrapV2, type ToolCallProjectionV2 } from "@/lib/chat-engine-v2/client"
 import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
 import { getCachedChatSessionMessages } from "@/lib/chatSessionStore"
 import { cleanUserMessageText } from "@/lib/chatHistoryParser"
@@ -132,6 +133,32 @@ function activityCallFromInlineTool(
   }
 }
 
+function activityCallFromProjectionTool(tool: ToolCallProjectionV2): ToolCall | null {
+  const id = typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+    ? tool.toolCallId
+    : typeof tool.id === "string" && tool.id.trim()
+      ? tool.id
+      : null
+  if (!id) return null
+  const phase = typeof tool.phase === "string" ? tool.phase : ""
+  const status: ToolCall["status"] = tool.status === "error" || phase === "error" || phase === "failed"
+    ? "error"
+    : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
+      ? "success"
+      : "running"
+  const output = liveToolResultText(tool.resultMeta)
+  return {
+    id,
+    tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
+    status,
+    input: activityInputFromInline(tool.argsMeta),
+    output: output || undefined,
+    startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
+    completedAt: typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
+    messageId: typeof tool.messageId === "string" ? tool.messageId : undefined,
+  }
+}
+
 function isLiveStreamStatus(status: string | null | undefined) {
   return status === "thinking" || status === "tool_running" || status === "streaming"
 }
@@ -248,21 +275,24 @@ export function useAgentActivity(sessionKey: string | null) {
   const fetchSubagentHistory = useCallback(
     async (subKey: string, agentId: string) => {
       try {
-        const subHistory = await invoke<{
-          messages: RawHistoryMessage[]
-        }>(
-          "middleware_chat_history",
-          { input: { sessionKey: subKey, timeoutMs: 5_000 } },
-        )
-        const subParsed = parseHistoryToolCalls(
-          subHistory.messages ?? [],
-        )
+        const bootstrap = await fetchChatBootstrapV2(subKey)
+        const subMessages = (bootstrap.messages ?? []) as RawHistoryMessage[]
+        const subParsed = parseHistoryToolCalls(subMessages)
+        const callsById = new Map(subParsed.calls.map((call) => [call.id, call]))
+        const projectionTools = (bootstrap.toolCalls ?? bootstrap.tools ?? [])
+        for (const projectedTool of projectionTools) {
+          const call = activityCallFromProjectionTool(projectedTool)
+          if (!call) continue
+          const existing = callsById.get(call.id)
+          callsById.set(call.id, mergeActivityCall(existing, call))
+        }
+        const combinedCalls = Array.from(callsById.values())
         const phase = inferChildHistoryPhase(
-          subHistory.messages ?? [],
-          subParsed.calls,
+          subMessages,
+          combinedCalls,
         )
         let changed = false
-        for (const rawCall of subParsed.calls) {
+        for (const rawCall of combinedCalls) {
           const call = phase === "completed" ? finalizeActivityCall(rawCall) : rawCall
           const existing = callMapRef.current.get(call.id)
           call.subagentOf = agentId
