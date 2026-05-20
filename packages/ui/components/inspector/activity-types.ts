@@ -44,6 +44,8 @@ export interface AgentInfo {
 type ContentBlock = {
   type?: string
   id?: string
+  toolCallId?: string
+  tool_call_id?: string
   tool_use_id?: string
   toolUseId?: string
   name?: string
@@ -53,6 +55,9 @@ type ContentBlock = {
   text?: string
   content?: string
   output?: string
+  result?: unknown
+  message?: unknown
+  value?: unknown
   is_error?: boolean
   isError?: boolean
   status?: unknown
@@ -64,7 +69,11 @@ export type RawHistoryMessage = {
   id?: string
   role?: string
   toolCallId?: string
+  tool_call_id?: string
+  toolUseId?: string
+  tool_use_id?: string
   toolName?: string
+  tool_name?: string
   content?: string | ContentBlock[]
   text?: string
   details?: unknown
@@ -100,7 +109,7 @@ function isToolResultBlock(block: ContentBlock): boolean {
 }
 
 function toolBlockId(block: ContentBlock): string | undefined {
-  return block.id || block.tool_use_id || block.toolUseId
+  return block.toolCallId || block.tool_call_id || block.toolUseId || block.tool_use_id || block.id
 }
 
 function toolBlockArgs(block: ContentBlock): unknown {
@@ -108,7 +117,7 @@ function toolBlockArgs(block: ContentBlock): unknown {
 }
 
 function toolResultBlockText(block: ContentBlock): string {
-  const value = block.text ?? block.content ?? block.output
+  const value = block.result ?? block.output ?? block.text ?? block.content ?? block.message ?? block.value
   if (typeof value === "string") return value
   if (value != null) {
     try { return JSON.stringify(value, null, 2) } catch { return String(value) }
@@ -329,8 +338,10 @@ export function parseHistoryToolCalls(
       const resultText = resultTextFromMessage(msg)
       const status = resultStatus(msg, resultText)
 
-      const matched = msg.toolCallId
-        ? pendingById.get(msg.toolCallId) ?? { id: msg.toolCallId, name: msg.toolName ?? "unknown", args: null }
+      const messageToolCallId = msg.toolCallId || msg.tool_call_id || msg.toolUseId || msg.tool_use_id
+      const messageToolName = msg.toolName || msg.tool_name
+      const matched = messageToolCallId
+        ? pendingById.get(messageToolCallId) ?? { id: messageToolCallId, name: messageToolName ?? "unknown", args: null }
         : pendingCalls.shift()
       if (matched) {
         pendingById.delete(matched.id)

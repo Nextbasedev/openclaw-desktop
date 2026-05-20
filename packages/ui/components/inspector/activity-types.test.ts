@@ -107,4 +107,34 @@ describe("activity stale running reconciliation", () => {
     expect(nodes[0].status).toBe("success")
     expect(nodes[0].children?.[0]?.status).toBe("success")
   })
+
+  it("captures tool_result output that uses canonical tool_use_id fields", () => {
+    const parsed = parseHistoryToolCalls([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "tool-1",
+            name: "web_fetch",
+            input: { url: "https://github.com/hoppscotch/hoppscotch" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        tool_use_id: "tool-1",
+        tool_name: "web_fetch",
+        content: "# Hoppscotch\nOpen source API development ecosystem.",
+      },
+    ])
+
+    expect(parsed.calls).toHaveLength(1)
+    expect(parsed.calls[0]).toMatchObject({
+      id: "tool-1",
+      tool: "web_fetch",
+      status: "success",
+      output: "# Hoppscotch\nOpen source API development ecosystem.",
+    })
+  })
 })

@@ -56,30 +56,33 @@ function readToolArgs(value: Record<string, unknown>) {
   return value.arguments ?? value.input ?? value.args ?? value.argsMeta ?? null;
 }
 
-function compactResultMeta(value: unknown) {
+function safeResultMeta(value: unknown, depth = 0): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
       try {
         const parsed = JSON.parse(trimmed) as unknown;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return compactResultMeta(parsed);
+        if ((parsed && typeof parsed === "object") || Array.isArray(parsed)) return safeResultMeta(parsed, depth + 1);
       } catch {
-        // Fall through to compact string metadata.
+        // Fall through to preserving the raw string output.
       }
     }
-    return { type: "string", length: value.length };
+    return value.length > 20_000 ? `${value.slice(0, 20_000)}\n…[truncated ${value.length - 20_000} chars]` : value;
   }
-  if (Array.isArray(value)) return { type: "array", length: value.length };
+  if (Array.isArray(value)) {
+    if (depth >= 4) return { type: "array", length: value.length };
+    return value.slice(0, 50).map((item) => safeResultMeta(item, depth + 1));
+  }
   if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return {
-      type: "object",
-      keys: Object.keys(record).slice(0, 20),
-      ...(typeof record.childSessionKey === "string" ? { childSessionKey: record.childSessionKey } : {}),
-    };
+    if (depth >= 4) return { type: "object", keys: Object.keys(value as Record<string, unknown>).slice(0, 20) };
+    const result: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>).slice(0, 50)) {
+      result[key] = safeResultMeta(child, depth + 1);
+    }
+    return result;
   }
-  return { type: typeof value };
+  return value;
 }
 
 function historyTimestampMs(message: Record<string, unknown>): number | null {
@@ -118,7 +121,7 @@ function inferToolResultFromHistory(messages: unknown[], messageIndex: number, t
         return {
           status: "success" as const,
           finishedAtMs: historyTimestampMs(data),
-          resultMeta: compactResultMeta(data.result ?? data.text ?? data.content),
+          resultMeta: safeResultMeta(data.result ?? data.output ?? data.text ?? data.content ?? data.message ?? data.value),
         };
       }
     }

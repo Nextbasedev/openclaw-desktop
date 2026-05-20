@@ -605,6 +605,42 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("bootstrap preserves real historical tool result output", async () => {
+    const app = await createApp(config("bootstrap-tool-result-output"));
+    const context = contextOf(app);
+    vi.spyOn(context.gateway, "onEvent").mockImplementation(() => () => true);
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          sessionId: "session-1",
+          status: "done",
+          messages: [
+            { role: "user", text: "fetch it", __openclaw: { id: "u1", seq: 1 } },
+            { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "web_fetch", input: { url: "https://github.com/hoppscotch/hoppscotch", maxChars: 3000 } }], __openclaw: { id: "a-tools", seq: 2 } },
+            { role: "toolResult", tool_use_id: "tool-1", tool_name: "web_fetch", content: "# Hoppscotch\nOpen source API development ecosystem.", __openclaw: { id: "tool-result", seq: 3 } },
+            { role: "assistant", text: "Found Hoppscotch.", __openclaw: { id: "a-final", seq: 4 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/chat/bootstrap?sessionKey=s1" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json()).toMatchObject({
+      runStatus: "done",
+      activeRun: null,
+      toolCalls: [expect.objectContaining({
+        toolCallId: "tool-1",
+        name: "web_fetch",
+        status: "success",
+        resultMeta: "# Hoppscotch\nOpen source API development ecosystem.",
+      })],
+    });
+    await app.close();
+  });
+
   test("canonical bootstrap finalizes stale active run even when a newer done run exists", async () => {
     const app = await createApp(config("bootstrap-finalizes-stale-active-run"));
     const context = contextOf(app);
