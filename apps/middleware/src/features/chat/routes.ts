@@ -12,7 +12,7 @@ import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
 import { buildChatBootstrapSnapshot, canonicalPatchPayload } from "./projection.js";
 import type { ProjectedRun } from "./repo.runs.js";
-import type { OpenClawMessage } from "./types.js";
+import type { OpenClawMessage, ProjectedMessage } from "./types.js";
 
 const bootstrapQuery = z.object({
   sessionKey: z.string().min(1),
@@ -91,6 +91,7 @@ function agentIdFromSessionKey(sessionKey: string) {
 }
 
 function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; messages: unknown[] }) {
+  if (!params.sessionFile && params.messages.length === 0) return [];
   const current = params.sessionFile ? path.resolve(params.sessionFile) : "";
   const agentId = agentIdFromSessionKey(params.sessionKey);
   const sessionsDir = current ? path.dirname(current) : path.join(os.homedir(), ".openclaw", "agents", agentId, "sessions");
@@ -120,6 +121,27 @@ function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?
     });
 }
 
+function serializeProjectedMessage(message: ProjectedMessage) {
+  const data = message.data && typeof message.data === "object" && !Array.isArray(message.data)
+    ? message.data
+    : {};
+  const existingOpenClaw = data.__openclaw && typeof data.__openclaw === "object" && !Array.isArray(data.__openclaw)
+    ? data.__openclaw
+    : {};
+  return {
+    ...data,
+    role: typeof data.role === "string" ? data.role : message.role ?? "assistant",
+    messageId: typeof data.messageId === "string" ? data.messageId : message.messageId ?? undefined,
+    __openclaw: {
+      ...existingOpenClaw,
+      id: typeof existingOpenClaw.id === "string" ? existingOpenClaw.id : message.messageId ?? undefined,
+      seq: message.openclawSeq,
+      gatewaySeq: message.gatewaySeq ?? (typeof existingOpenClaw.seq === "number" ? existingOpenClaw.seq : null),
+      segmentId: message.segmentId ?? null,
+    },
+  } as OpenClawMessage;
+}
+
 function persistArchivedHistorySegments(context: AppContext, sessionKey: string, history: ChatHistoryResponse) {
   const archivedFiles = archivedHistoryTranscriptFiles({
     sessionKey,
@@ -133,7 +155,8 @@ function persistArchivedHistorySegments(context: AppContext, sessionKey: string,
     if (archivedSessionId && archivedSessionId === history.sessionId && history.sessionFile) continue;
     const archivedMessages = transcriptMessagesFromJsonl(file);
     if (archivedMessages.length === 0) continue;
-    const segment = context.messages.ensureActiveSegment({ sessionKey, sessionId: archivedSessionId, sessionFile: file, resetReason: "archived_transcript" });
+    const archiveMtimeMs = fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? null;
+    const segment = context.messages.ensureArchivedSegment({ sessionKey, sessionId: archivedSessionId, sessionFile: file, resetReason: "archived_transcript", startedAtMs: archiveMtimeMs });
     const normalized = normalizeHistoryMessages(sessionKey, archivedMessages);
     upserted += context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq }).upserted;
   }
@@ -940,7 +963,10 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-    log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq });
+    const resequence = archivedProjection.fileCount > 0 ? context.messages.resequenceSessionMessages(sessionKey) : { changedMessages: 0, changedSegments: 0 };
+    const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
+    if (resequence.changedMessages > 0 || resequence.changedSegments > 0) log.info("bootstrap.messages.resequence", { sessionKey, changedMessages: resequence.changedMessages, changedSegments: resequence.changedSegments });
+    log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: bootstrapLastSeq });
 
     const latestRun = context.runs.latestRun(sessionKey);
     const activeRun = context.runs.findLatestPendingRun(sessionKey);
@@ -989,13 +1015,13 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       }
     }
 
-    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }).map((message) => message.data);
+    const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }).map(serializeProjectedMessage);
     log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: parsed.data.limit ?? 1000 });
     await context.chatLive.ensureSessionSubscribed(sessionKey);
     const event = context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: projection.lastSeq },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq },
     });
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: true } });
 
@@ -1006,7 +1032,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messages: projectedMessages,
       messageCount: projectedMessages.length,
       cursor: event.cursor,
-      projection: { upserted: projection.upserted, lastSeq: projection.lastSeq, liveSubscribed: true },
+      projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: true },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
   });
@@ -1037,7 +1063,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         openclawSeq: message.openclawSeq,
         messageId: message.messageId,
         role: message.role,
-        data: message.data,
+        gatewaySeq: message.gatewaySeq,
+        segmentId: message.segmentId,
+        data: serializeProjectedMessage(message),
         updatedAtMs: message.updatedAtMs,
       })),
       messageCount: messages.length,

@@ -410,6 +410,8 @@ function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
 function projectedPageRowsToRawMessages(
   rows: Array<{
     openclawSeq: number
+    gatewaySeq?: number | null
+    segmentId?: string | null
     messageId: string | null
     role: string | null
     data: unknown
@@ -431,6 +433,8 @@ function projectedPageRowsToRawMessages(
           ...existingOpenClaw,
           id: typeof existingOpenClaw.id === "string" ? existingOpenClaw.id : row.messageId ?? undefined,
           seq: row.openclawSeq,
+          gatewaySeq: typeof row.gatewaySeq === "number" ? row.gatewaySeq : typeof existingOpenClaw.seq === "number" ? existingOpenClaw.seq : null,
+          segmentId: typeof row.segmentId === "string" ? row.segmentId : null,
         },
       } as RawMessage
     })

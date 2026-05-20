@@ -585,18 +585,23 @@ describe("middleware app", () => {
     fs.writeFileSync(currentFile, `${line("c1", "current dashboard message")}\n`);
 
     const app = await createApp(testConfig());
-    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;
     context.gateway.request = vi.fn(async (method: string) => {
       if (method === "chat.history") return { sessionKey, sessionId: "current-dash", sessionFile: currentFile, messages: [{ role: "user", content: content("current dashboard message"), __openclaw: { id: "c1", seq: 1 } }] };
       return {};
     });
 
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
 
     expect(res.statusCode).toBe(200);
-    const messages = res.json().messages as Array<{ content?: string }>;
-    expect(messages.map((message) => String(message.content || "")).join("\n")).toContain("old dashboard message");
-    expect(messages.map((message) => String(message.content || "")).join("\n")).toContain("current dashboard message");
+    expect(secondRes.statusCode).toBe(200);
+    const messages = secondRes.json().messages as Array<{ content?: string }>;
+    const text = messages.map((message) => String(message.content || "")).join("\n");
+    expect(text).toContain("old dashboard message");
+    expect(text).toContain("current dashboard message");
+    expect(messages.filter((message) => String(message.content || "").includes("old dashboard message"))).toHaveLength(1);
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_chat_segments WHERE session_key = ? AND reset_reason = 'archived_transcript'").get(sessionKey)).toMatchObject({ count: 1 });
     await app.close();
   });
 
