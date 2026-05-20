@@ -720,7 +720,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     void context.gateway.request<Record<string, unknown>>("chat.abort", parsed.data, 30_000).catch((error) => {
       log.warn("abort.gateway.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
     });
-    void context.gateway.request<Record<string, unknown>>("sessions.abort", { sessionKey: parsed.data.sessionKey }, 30_000).catch((error) => {
+    void context.gateway.request<Record<string, unknown>>("sessions.abort", { key: parsed.data.sessionKey }, 30_000).catch((error) => {
       log.warn("abort.gateway-session.fail", { sessionKey: parsed.data.sessionKey, runId: parsed.data.runId, ...errorMeta(error) });
     });
     const projectedRun = parsed.data.runId

@@ -192,7 +192,17 @@ export class ChatLiveIngest {
     const payloadSeq = typeof payload.messageSeq === "number" && Number.isFinite(payload.messageSeq) && payload.messageSeq > 0
       ? Math.floor(payload.messageSeq)
       : null;
-    const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
+    const nextSeq = this.context.messages.nextMessageSeq(sessionKey);
+    const role = typeof (message as { role?: unknown }).role === "string" ? (message as { role: string }).role : null;
+    // During interrupt/restart flows, Gateway can echo assistant/tool messages
+    // with a stale transcript seq from before the newly inserted optimistic
+    // user message. If we trust that seq, the assistant row renders above the
+    // user's latest question. Existing-message updates are still de-duped by id
+    // in the repository, so only clamp brand-new assistant/tool messages forward.
+    const messageSeq = role === "assistant" && payloadSeq !== null && payloadSeq < nextSeq
+      ? nextSeq
+      : payloadSeq ?? nextSeq;
+    const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), messageSeq);
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
     const confirmed = optimisticId ? this.context.messages.confirmOptimisticUser(sessionKey, optimisticId, projectedMessage) : null;
