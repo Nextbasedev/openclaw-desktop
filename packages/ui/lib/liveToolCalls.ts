@@ -1,6 +1,22 @@
 import type { ContentBlock, InlineToolCall } from "../components/ChatView/types"
 import { extractText } from "../components/ChatView/utils"
 
+export function isAwaitingLiveToolResult(result: unknown): boolean {
+  if (!result) return false
+  if (typeof result === "object" && !Array.isArray(result)) {
+    const record = result as { awaitingResult?: unknown; reason?: unknown }
+    return record.awaitingResult === true
+  }
+  if (typeof result !== "string") return false
+  const trimmed = result.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return isAwaitingLiveToolResult(JSON.parse(trimmed) as unknown)
+  } catch {
+    return false
+  }
+}
+
 export function isInferredFallbackToolResult(result: unknown): boolean {
   if (!result) return false
   if (typeof result === "object" && !Array.isArray(result)) {
@@ -18,7 +34,7 @@ export function isInferredFallbackToolResult(result: unknown): boolean {
 }
 
 export function liveToolResultText(result: unknown) {
-  if (isInferredFallbackToolResult(result)) return ""
+  if (isInferredFallbackToolResult(result) || isAwaitingLiveToolResult(result)) return ""
   if (typeof result === "string" || Array.isArray(result)) {
     return extractText(result as ContentBlock[] | string | undefined)
   }

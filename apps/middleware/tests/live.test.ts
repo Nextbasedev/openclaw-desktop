@@ -330,7 +330,81 @@ describe("chat live ingest", () => {
     const nextStartIndex = patches.findIndex((patch) => patch.type === "chat.tool.started" && patch.payload?.toolCallId === "tool-2");
     expect(inferredResultIndex).toBeGreaterThanOrEqual(0);
     expect(nextStartIndex).toBeGreaterThan(inferredResultIndex);
-    expect(patches[inferredResultIndex]?.payload?.toolCall?.resultMeta ?? undefined).toBeUndefined();
+    expect(patches[inferredResultIndex]?.payload?.toolCall?.resultMeta).toEqual(expect.objectContaining({ awaitingResult: true }));
+    await app.close();
+  });
+
+  test("marks stripped live session.tool results as awaiting history output", async () => {
+    const app = await createApp(config("stripped-session-tool-result"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    const request = vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method === "sessions.messages.subscribe") return { ok: true };
+      if (method === "chat.history") {
+        return {
+          sessionKey: "s1",
+          messages: [
+            { role: "toolResult", toolCallId: "tool-live", content: [{ type: "text", text: "real output from history" }], __openclaw: { id: "tool-result-1", seq: 2 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+
+    context.runs.upsertRun({ runId: "run-1", sessionKey: "s1", gatewayRunId: "gw-run-1", status: "tool_running", statusLabel: "read", startedAtMs: 100, updatedAtMs: 100 });
+    context.runs.upsertToolCall({ sessionKey: "s1", runId: "run-1", toolCallId: "tool-live", name: "read", phase: "calling", status: "running", argsMeta: { path: "README.md" }, startedAtMs: 100, updatedAtMs: 100 });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: "s1",
+        runId: "gw-run-1",
+        data: {
+          phase: "result",
+          toolCallId: "tool-live",
+          name: "read",
+        },
+      },
+    });
+
+    expect(context.runs.getToolCall("s1", "tool-live")).toMatchObject({
+      status: "success",
+      resultMeta: expect.objectContaining({ awaitingResult: true, reason: "gateway_stripped_live_result" }),
+    });
+
+    let replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    let patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { awaitingResult?: boolean; resultMeta?: unknown } } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.result",
+        payload: expect.objectContaining({
+          toolCallId: "tool-live",
+          toolCall: expect.objectContaining({ awaitingResult: true, resultMeta: expect.objectContaining({ awaitingResult: true }) }),
+        }),
+      }),
+    ]));
+
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(request).toHaveBeenCalledWith("chat.history", expect.objectContaining({ sessionKey: "s1" }));
+    expect(context.runs.getToolCall("s1", "tool-live")).toMatchObject({ resultMeta: [{ type: "text", text: "real output from history" }] });
+
+    replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    patches = replay.json().patches as Array<{ type: string; payload?: { toolCallId?: string; toolCall?: { awaitingResult?: boolean; resultMeta?: unknown } } }>;
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.tool.result",
+        payload: expect.objectContaining({
+          toolCallId: "tool-live",
+          toolCall: expect.objectContaining({ resultMeta: [{ type: "text", text: "real output from history" }] }),
+        }),
+      }),
+    ]));
     await app.close();
   });
 

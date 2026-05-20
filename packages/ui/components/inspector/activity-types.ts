@@ -14,6 +14,7 @@ export interface ToolCall {
   duration?: string
   input?: Record<string, unknown>
   output?: string
+  awaitingOutput?: boolean
   startedAt?: number
   completedAt?: number
   messageId?: string

@@ -45,6 +45,7 @@ export type InlineToolCall = {
   completedAt?: number
   input?: unknown
   resultText?: string
+  awaitingResult?: boolean
   approval?: {
     id: string
     slug?: string

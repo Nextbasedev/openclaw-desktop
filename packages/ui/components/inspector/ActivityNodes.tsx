@@ -125,8 +125,9 @@ export function ToolCallRow({
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const waitingForOutput = call.status === "running" && !call.output
-  const showEmptyState = call.status !== "running" && Boolean(call.input) && !call.output
-  const hasDetails = call.input || call.output || waitingForOutput || showEmptyState
+  const syncingOutput = call.status !== "running" && call.awaitingOutput === true && !call.output
+  const showEmptyState = call.status !== "running" && Boolean(call.input) && !call.output && !syncingOutput
+  const hasDetails = call.input || call.output || waitingForOutput || syncingOutput || showEmptyState
   const dot = DOT_COLORS[call.status]
   const isError = call.status === "error"
   const [renderDetails, setRenderDetails] = useState(open)
@@ -223,7 +224,7 @@ export function ToolCallRow({
                   </pre>
                 </div>
                 )}
-                {call.input && (call.output || waitingForOutput || showEmptyState) && (
+                {call.input && (call.output || waitingForOutput || syncingOutput || showEmptyState) && (
                   <div className="h-px bg-white/6" />
                 )}
                 {call.output ? (
@@ -250,6 +251,10 @@ export function ToolCallRow({
                 ) : waitingForOutput ? (
                   <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
                     Waiting for this tool to return output...
+                  </div>
+                ) : syncingOutput ? (
+                  <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
+                    Tool finished — output is syncing...
                   </div>
                 ) : showEmptyState ? (
                   <div className="px-5 py-4 text-[12px] text-muted-foreground/60">

@@ -24,6 +24,8 @@ export type ToolCallProjectionV2 = {
   status?: "running" | "success" | "error" | string
   argsMeta?: unknown
   resultMeta?: unknown
+  awaitingResult?: boolean
+  resultSource?: string
   startedAtMs?: number
   finishedAtMs?: number | null
   updatedAtMs?: number

@@ -46,7 +46,12 @@ export function activeRunProjection(run: ProjectedRun | null) {
   };
 }
 
+function isAwaitingToolResultMeta(value: unknown) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).awaitingResult === true);
+}
+
 export function toolCallProjection(tool: ProjectedToolCall) {
+  const awaitingResult = isAwaitingToolResultMeta(tool.resultMeta);
   return {
     toolCallId: tool.toolCallId,
     id: tool.toolCallId,
@@ -58,6 +63,7 @@ export function toolCallProjection(tool: ProjectedToolCall) {
     status: tool.status,
     argsMeta: tool.argsMeta,
     resultMeta: tool.resultMeta,
+    ...(awaitingResult ? { awaitingResult: true, resultSource: "gateway_stripped_live_result" } : {}),
     startedAtMs: tool.startedAtMs,
     finishedAtMs: tool.finishedAtMs,
     updatedAtMs: tool.updatedAtMs,

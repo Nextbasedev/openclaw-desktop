@@ -363,7 +363,10 @@ export class ChatLiveIngest {
     } else if ((phase === "start" || phase === "calling") && isSubagentSessionKey(sessionKey)) {
       this.completeDetachedSubagentToolsWithPatches(sessionKey, "subagent_next_tool_started_after_missing_result_event", toolCallId);
     }
-    const liveResultMeta = this.safeResultMeta(data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details);
+    const liveResultValue = data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details;
+    const liveResultMeta = this.safeResultMeta(liveResultValue);
+    const isCompletionOnlyResult = phase === "result" && liveResultValue === undefined;
+    const awaitingResultMeta = isCompletionOnlyResult ? this.awaitingToolResultMeta("gateway_stripped_live_result") : null;
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
       toolCallId,
@@ -372,7 +375,7 @@ export class ChatLiveIngest {
       name,
       phase,
       argsMeta: isObject(data.args) ? data.args : null,
-      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : liveResultMeta,
+      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : isCompletionOnlyResult ? awaitingResultMeta : liveResultMeta,
     });
     if (tool.status === "running" && !tool.runId && !isSubagentSessionKey(sessionKey)) {
       this.log.warn("tool.detached-running-ignored", { sessionKey, toolCallId, phase, name, fallbackRunId: run?.runId ?? null });
@@ -395,12 +398,15 @@ export class ChatLiveIngest {
         semanticType: phase === "error" ? "chat.tool.error" : phase === "result" ? "chat.tool.result" : "chat.tool.started",
         run: patchRun,
         tool,
-        payload: { sessionKey, toolCall: tool },
+        payload: { sessionKey },
       }),
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
-    this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status });
-    if (name === "sessions_spawn" && phase === "result") {
+    this.log.info("tool.persist", { sessionKey, toolCallId, runId: tool.runId, phase: tool.phase, status: tool.status, awaitingResult: isCompletionOnlyResult });
+    if (isCompletionOnlyResult) {
+      this.scheduleHistoryBackfill(sessionKey, tool.runId ?? run?.runId ?? gatewayRunId, "gateway_stripped_live_tool_result");
+    }
+    if (tool.name === "sessions_spawn" && phase === "result") {
       const childSessionKey = extractChildSessionKey(tool.resultMeta) ?? extractChildSessionKey(liveResultMeta);
       if (childSessionKey && childSessionKey !== sessionKey) {
         void this.ensureSessionSubscribed(childSessionKey)
@@ -426,10 +432,9 @@ export class ChatLiveIngest {
         phase: "result",
         status: "success",
         argsMeta: runningTool.argsMeta,
-        // Only infer completion/status before the next tool starts. Do not write
-        // fallback result metadata; otherwise the UI can show the placeholder as
-        // output until refresh rebuilds from the real persisted tool result.
-        resultMeta: runningTool.resultMeta,
+        // Only infer completion/status before the next tool starts. Mark this
+        // as awaiting real output so UI does not show an empty success state.
+        resultMeta: runningTool.resultMeta ?? this.awaitingToolResultMeta("next_tool_started_after_missing_result_event"),
         updatedAtMs: now,
         finishedAtMs: now,
       });
@@ -461,7 +466,7 @@ export class ChatLiveIngest {
     if (runningTools.length === 0) return;
     this.context.runs.completeRunningTools(sessionKey, runId, {
       status: "success",
-      resultMeta: params.resultMeta,
+      resultMeta: params.resultMeta ?? this.awaitingToolResultMeta("assistant_final_after_tool_calls"),
     });
     for (const runningTool of runningTools) {
       const tool = this.context.runs.getToolCall(sessionKey, runningTool.toolCallId);
@@ -504,7 +509,7 @@ export class ChatLiveIngest {
         phase: "result",
         status: "success",
         argsMeta: runningTool.argsMeta,
-        resultMeta: runningTool.resultMeta,
+        resultMeta: runningTool.resultMeta ?? this.awaitingToolResultMeta(reason),
         updatedAtMs: now,
         finishedAtMs: now,
       });
@@ -746,6 +751,15 @@ export class ChatLiveIngest {
     });
     this.context.patchBus.broadcast({ cursor: patch.cursor, type: patch.eventType, sessionKey: patch.sessionKey, payload: patch.payload, createdAtMs: patch.createdAtMs });
     this.log.info("status.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status: run.status, statusLabel: run.statusLabel, semanticType });
+  }
+
+  private awaitingToolResultMeta(reason: string) {
+    return {
+      awaitingResult: true,
+      completionInferred: true,
+      source: "gateway_live_tool_result",
+      reason,
+    };
   }
 
   private safeResultMeta(value: unknown, depth = 0): unknown {

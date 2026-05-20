@@ -106,6 +106,7 @@ function mergeActivityCall(existing: ToolCall | undefined, incoming: ToolCall): 
   if (existing.startedAt && !incoming.startedAt) merged.startedAt = existing.startedAt
   if (existing.output && !incoming.output) merged.output = existing.output
   if (incoming.output && incoming.output !== existing.output) merged.output = incoming.output
+  merged.awaitingOutput = incoming.output ? false : (incoming.awaitingOutput ?? existing.awaitingOutput)
   if (existing.status === "error" || incoming.status === "error") merged.status = "error"
   return merged
 }
@@ -132,6 +133,7 @@ function activityCallFromInlineTool(
     duration: tool.duration,
     input: activityInputFromInline(tool.input),
     output: tool.resultText,
+    awaitingOutput: tool.awaitingResult === true && !tool.resultText,
     startedAt: tool.startedAt,
     messageId: turn.messageId,
     messagePreview: turn.messagePreview,
@@ -152,12 +154,14 @@ function activityCallFromProjectionTool(tool: ToolCallProjectionV2): ToolCall | 
       ? "success"
       : "running"
   const output = liveToolResultText(tool.resultMeta)
+  const awaitingOutput = tool.awaitingResult === true && !output
   return {
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
     input: activityInputFromInline(tool.argsMeta),
     output: output || undefined,
+    awaitingOutput,
     startedAt: typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
     completedAt: typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
     messageId: typeof tool.messageId === "string" ? tool.messageId : undefined,

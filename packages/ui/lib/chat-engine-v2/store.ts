@@ -4,7 +4,7 @@ import { dedupeChatMessages } from "../chatMessageDedupe"
 import { isStandaloneChatErrorText } from "../chatErrorText"
 import { frontendLog } from "../clientLogs"
 import { emit } from "../events"
-import { isInferredFallbackToolResult } from "../liveToolCalls"
+import { isAwaitingLiveToolResult, isInferredFallbackToolResult } from "../liveToolCalls"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
 import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
@@ -164,6 +164,7 @@ function inlineToolToProjection(sessionKey: string, tool: InlineToolCall): ToolC
     status: tool.status,
     argsMeta: tool.input,
     resultMeta: tool.resultText,
+    awaitingResult: tool.awaitingResult,
     startedAtMs: tool.startedAt,
     finishedAtMs: tool.completedAt,
   }
@@ -384,6 +385,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
     duration: existing.duration ?? formatToolDuration(existing.startedAt, params.createdAtMs),
     completedAt: existing.completedAt ?? params.createdAtMs,
     resultText: mergeToolResultText(params.resultText || undefined, existing.resultText),
+    awaitingResult: params.resultText ? false : existing.awaitingResult,
     approval: params.resultText ? (parseExecApproval(params.resultText) ?? existing.approval) : existing.approval,
   }
   if (pendingIndex >= 0) {
@@ -455,6 +457,7 @@ function mergeToolCalls(existing: InlineToolCall[] | undefined, incoming: Inline
       duration: tool.duration ?? current.duration,
       startedAt: tool.startedAt ?? current.startedAt,
       completedAt: tool.completedAt ?? current.completedAt,
+      awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? current.awaitingResult),
     })
   }
   return Array.from(merged.values())
@@ -498,6 +501,7 @@ function updateToolInMessages(state: SessionState, tool: InlineToolCall) {
         startedAt: tool.startedAt ?? existing.startedAt,
         completedAt: tool.completedAt ?? existing.completedAt,
         resultText: mergeToolResultText(tool.resultText, existing.resultText),
+        awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing.awaitingResult),
         approval: tool.approval ?? existing.approval,
       }
     })
@@ -585,10 +589,13 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
     : tool.status === "success" || phase === "result" || phase === "done" || phase === "complete" || phase === "completed" || phase === "success"
       ? "success"
       : "running"
+  const awaitingResult = tool.awaitingResult === true || isAwaitingLiveToolResult(tool.resultMeta)
+  const hasRealResultMeta = tool.resultMeta !== undefined && tool.resultMeta !== null && !isInferredFallbackToolResult(tool.resultMeta) && !isAwaitingLiveToolResult(tool.resultMeta)
   return {
     id,
     tool: typeof tool.name === "string" && tool.name.trim() ? tool.name : "unknown",
     status,
+    awaitingResult,
     duration: formatToolDuration(
       typeof tool.startedAtMs === "number" ? tool.startedAtMs : undefined,
       typeof tool.finishedAtMs === "number" ? tool.finishedAtMs : undefined,
@@ -596,12 +603,8 @@ function toolProjectionToInline(tool: ToolCallProjectionV2): InlineToolCall | nu
     startedAt: realEpochMs(tool.startedAtMs),
     completedAt: realEpochMs(tool.finishedAtMs),
     input: tool.argsMeta,
-    resultText: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResult(tool.resultMeta)
-      ? undefined
-      : textFromUnknown(tool.resultMeta),
-    approval: tool.resultMeta === undefined || tool.resultMeta === null || isInferredFallbackToolResult(tool.resultMeta)
-      ? undefined
-      : parseExecApproval(textFromUnknown(tool.resultMeta)),
+    resultText: hasRealResultMeta ? textFromUnknown(tool.resultMeta) : undefined,
+    approval: hasRealResultMeta ? parseExecApproval(textFromUnknown(tool.resultMeta)) : undefined,
   }
 }
 
