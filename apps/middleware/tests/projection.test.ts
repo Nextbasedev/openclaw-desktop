@@ -72,6 +72,29 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("session id changes create a new history segment without overwriting old messages", () => {
+    const db = openDatabase({ databasePath: testDbPath("segments-reset") });
+    const repo = new MessageRepository(db);
+
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "user", text: "old user", __openclaw: { id: "old-u", seq: 1 } },
+      { role: "assistant", text: "old assistant", __openclaw: { id: "old-a", seq: 2 } },
+    ]), { sessionId: "sid-old" });
+
+    repo.upsertMessages(normalizeHistoryMessages("s1", [
+      { role: "user", text: "new user", __openclaw: { id: "new-u", seq: 1 } },
+      { role: "assistant", text: "new assistant", __openclaw: { id: "new-a", seq: 2 } },
+    ]), { sessionId: "sid-new" });
+
+    const rows = repo.listMessages("s1");
+    expect(rows.map((row) => row.data.text)).toEqual(["old user", "old assistant", "new user", "new assistant"]);
+    expect(rows.map((row) => row.openclawSeq)).toEqual([1, 2, 3, 4]);
+    expect(rows.map((row) => row.gatewaySeq)).toEqual([1, 2, 1, 2]);
+    expect(repo.listMessages("s1", { latest: true, limit: 2 }).map((row) => row.data.text)).toEqual(["new user", "new assistant"]);
+    expect(db.prepare("SELECT count(*) AS count FROM v2_chat_segments WHERE session_key = ?").get("s1")).toMatchObject({ count: 2 });
+    db.close();
+  });
+
   test("normalizer preserves message id fields and explicit fallback seq", () => {
     const rows = normalizeHistoryMessages("s1", [
       { id: "gateway-a", role: "assistant", text: "a" },

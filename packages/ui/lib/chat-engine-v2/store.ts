@@ -1267,7 +1267,18 @@ export function seedGlobalChatSession(params: {
   if (params.queryClient) queryClientRef = params.queryClient
   const state = getOrCreate(params.sessionKey)
   const incomingCursor = params.cursor ?? 0
-  const hadNewerLiveState = state.cursor > incomingCursor && state.messages.length > 0
+  const hasLiveState = ACTIVE_STATUSES.has(state.status) || hasActiveToolOrSubagent(state)
+  const incomingIsTerminal = Boolean(params.status && !ACTIVE_STATUSES.has(params.status))
+  const incomingDropsMessages = params.messages.length < state.messages.length
+  const incomingToolIds = new Set((params.pendingTools ?? []).map((tool) => tool.id))
+  const incomingDropsRunningTool = state.pendingTools.some((tool) => tool.status === "running" && !incomingToolIds.has(tool.id))
+  const hasNewerCursor = state.cursor > incomingCursor && state.messages.length > 0
+  const hasSameCursorLiveState = state.cursor === incomingCursor &&
+    state.messages.length > 0 &&
+    hasLiveState &&
+    incomingIsTerminal &&
+    (incomingDropsMessages || incomingDropsRunningTool)
+  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState
   state.messages = hadNewerLiveState
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)

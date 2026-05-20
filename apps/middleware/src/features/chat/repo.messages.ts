@@ -23,6 +23,62 @@ function isOptimisticConflict(existing: { message_id: string | null; role: strin
 export class MessageRepository {
   constructor(private readonly db: Database.Database) {}
 
+  getActiveSegment(sessionKey: string): { segmentId: string; sessionKey: string; sessionId: string | null; segmentIndex: number; baseSeq: number } | null {
+    const row = this.db.prepare(`
+      SELECT segment_id, session_key, session_id, segment_index, base_seq
+      FROM v2_chat_segments
+      WHERE session_key = @sessionKey AND is_active = 1
+      ORDER BY segment_index DESC
+      LIMIT 1
+    `).get({ sessionKey }) as { segment_id: string; session_key: string; session_id: string | null; segment_index: number; base_seq: number } | undefined;
+    if (!row) return null;
+    return { segmentId: row.segment_id, sessionKey: row.session_key, sessionId: row.session_id, segmentIndex: row.segment_index, baseSeq: row.base_seq };
+  }
+
+  ensureActiveSegment(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; resetReason?: string | null }) {
+    const sessionId = params.sessionId ?? null;
+    const existing = this.getActiveSegment(params.sessionKey);
+    if (existing && (!sessionId || existing.sessionId === sessionId)) return existing;
+    if (existing && !existing.sessionId && sessionId) {
+      const now = Date.now();
+      this.db.prepare(`
+        UPDATE v2_chat_segments
+        SET session_id = @sessionId, session_file = COALESCE(@sessionFile, session_file), updated_at_ms = @now
+        WHERE segment_id = @segmentId
+      `).run({ segmentId: existing.segmentId, sessionId, sessionFile: params.sessionFile ?? null, now });
+      return { ...existing, sessionId };
+    }
+
+    const now = Date.now();
+    const maxSeqRow = this.db.prepare(`SELECT max(openclaw_seq) AS maxSeq FROM v2_messages WHERE session_key = @sessionKey`).get({ sessionKey: params.sessionKey }) as { maxSeq?: number | null } | undefined;
+    const maxSegmentRow = this.db.prepare(`SELECT max(segment_index) AS maxIndex FROM v2_chat_segments WHERE session_key = @sessionKey`).get({ sessionKey: params.sessionKey }) as { maxIndex?: number | null } | undefined;
+    const nextIndex = Math.max(-1, Number(maxSegmentRow?.maxIndex ?? -1)) + 1;
+    const baseSeq = existing ? Math.max(0, Number(maxSeqRow?.maxSeq ?? 0)) : 0;
+    const segmentId = `${params.sessionKey}::segment::${sessionId ?? "unknown"}::${nextIndex}`;
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE v2_chat_segments
+        SET is_active = 0, ended_at_ms = COALESCE(ended_at_ms, @now), updated_at_ms = @now
+        WHERE session_key = @sessionKey AND is_active = 1
+      `).run({ sessionKey: params.sessionKey, now });
+      this.db.prepare(`
+        INSERT INTO v2_chat_segments(segment_id, session_key, session_id, session_file, segment_index, base_seq, started_at_ms, reset_reason, is_active, created_at_ms, updated_at_ms)
+        VALUES (@segmentId, @sessionKey, @sessionId, @sessionFile, @segmentIndex, @baseSeq, @now, @resetReason, 1, @now, @now)
+      `).run({
+        segmentId,
+        sessionKey: params.sessionKey,
+        sessionId,
+        sessionFile: params.sessionFile ?? null,
+        segmentIndex: nextIndex,
+        baseSeq,
+        resetReason: params.resetReason ?? (existing ? "session_id_changed" : "initial"),
+        now,
+      });
+    });
+    tx();
+    return { segmentId, sessionKey: params.sessionKey, sessionId, segmentIndex: nextIndex, baseSeq };
+  }
+
   getSession(sessionKey: string): { sessionKey: string; sessionId: string | null; data: unknown; updatedAtMs: number } | null {
     const row = this.db.prepare(`
       SELECT session_key, session_id, data_json, updated_at_ms
@@ -47,14 +103,18 @@ export class MessageRepository {
       dataJson: toJson(session.data),
       updatedAtMs: session.updatedAtMs ?? Date.now(),
     });
+    if (session.sessionId !== undefined) this.ensureActiveSegment({ sessionKey: session.sessionKey, sessionId: session.sessionId });
   }
 
-  upsertMessages(messages: ProjectedMessage[]) {
+  upsertMessages(messages: ProjectedMessage[], opts: { segmentId?: string | null; sessionId?: string | null; baseSeq?: number } = {}) {
     if (messages.length === 0) return { upserted: 0, lastSeq: 0, changedMessages: [] as ProjectedMessage[] };
     const insert = this.db.prepare(`
-      INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
-      VALUES (@sessionKey, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
+      INSERT INTO v2_messages(session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms)
+      VALUES (@sessionKey, @segmentId, @sessionId, @gatewaySeq, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
       ON CONFLICT(session_key, openclaw_seq) DO UPDATE SET
+        segment_id = COALESCE(excluded.segment_id, v2_messages.segment_id),
+        session_id = COALESCE(excluded.session_id, v2_messages.session_id),
+        gateway_seq = COALESCE(excluded.gateway_seq, v2_messages.gateway_seq),
         message_id = excluded.message_id,
         role = excluded.role,
         data_json = excluded.data_json,
@@ -69,6 +129,14 @@ export class MessageRepository {
       SELECT openclaw_seq
       FROM v2_messages
       WHERE session_key = @sessionKey AND message_id = @messageId
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+      LIMIT 1
+    `);
+    const existingByGatewayId = this.db.prepare(`
+      SELECT openclaw_seq
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND json_extract(data_json, '$.__openclaw.gatewayId') = @messageId
       LIMIT 1
     `);
     const maxSeq = this.db.prepare(`
@@ -91,10 +159,20 @@ export class MessageRepository {
     const tx = this.db.transaction((rows: ProjectedMessage[]) => {
       let lastSeq = 0;
       const changedMessages: ProjectedMessage[] = [];
+      const activeSegment = opts.segmentId
+        ? this.getActiveSegment(rows[0]!.sessionKey)
+        : this.ensureActiveSegment({ sessionKey: rows[0]!.sessionKey, sessionId: opts.sessionId ?? rows[0]!.sessionId ?? null });
+      const resolvedSegmentId = opts.segmentId ?? activeSegment?.segmentId ?? null;
+      const resolvedSessionId = opts.sessionId ?? activeSegment?.sessionId ?? rows[0]?.sessionId ?? null;
+      const baseSeq = opts.baseSeq ?? activeSegment?.baseSeq ?? 0;
       for (const message of rows) {
-        let openclawSeq = message.openclawSeq;
+        const gatewaySeq = message.gatewaySeq ?? message.openclawSeq;
+        let openclawSeq = resolvedSegmentId ? baseSeq + gatewaySeq : message.openclawSeq;
+        const segmentId = message.segmentId ?? resolvedSegmentId;
+        const sessionId = message.sessionId ?? resolvedSessionId;
         const idMatch = message.messageId
-          ? existingById.get({ sessionKey: message.sessionKey, messageId: message.messageId }) as { openclaw_seq: number } | undefined
+          ? (existingById.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
+            ?? (existingByGatewayId.get({ sessionKey: message.sessionKey, messageId: message.messageId }) as { openclaw_seq: number } | undefined)
           : undefined;
         if (idMatch?.openclaw_seq) openclawSeq = idMatch.openclaw_seq;
 
@@ -104,7 +182,7 @@ export class MessageRepository {
         }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
         if (!idMatch && existing && isOptimisticConflict(existing, message)) {
           const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
-          const nextSeq = Math.max(message.openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
+          const nextSeq = Math.max(openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
           if (openclawSeq > 1 && existing.role === "user" && message.role === "assistant" && isOptimisticData(fromJson(existing.data_json))) {
             moveSeq.run({ sessionKey: message.sessionKey, oldSeq: openclawSeq, newSeq: nextSeq });
             existing = undefined;
@@ -116,10 +194,13 @@ export class MessageRepository {
 
         const dataJson = toJson(message.data);
         const changed = !existing || existing.message_id !== message.messageId || existing.role !== message.role || existing.data_json !== dataJson;
-        const storedMessage = openclawSeq === message.openclawSeq ? message : { ...message, openclawSeq };
+        const storedMessage = openclawSeq === message.openclawSeq && !segmentId ? message : { ...message, segmentId, sessionId, gatewaySeq, openclawSeq };
         if (changed) {
           insert.run({
             sessionKey: message.sessionKey,
+            segmentId,
+            sessionId,
+            gatewaySeq,
             openclawSeq,
             messageId: message.messageId,
             role: message.role,
@@ -147,16 +228,23 @@ export class MessageRepository {
   }
 
   insertOptimisticMessage(message: ProjectedMessage) {
+    const activeSegment = this.getActiveSegment(message.sessionKey);
     this.db.prepare(`
-      INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
-      VALUES (@sessionKey, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
+      INSERT INTO v2_messages(session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms)
+      VALUES (@sessionKey, @segmentId, @sessionId, @gatewaySeq, @openclawSeq, @messageId, @role, @dataJson, @updatedAtMs)
       ON CONFLICT(session_key, openclaw_seq) DO UPDATE SET
+        segment_id = COALESCE(excluded.segment_id, v2_messages.segment_id),
+        session_id = COALESCE(excluded.session_id, v2_messages.session_id),
+        gateway_seq = COALESCE(excluded.gateway_seq, v2_messages.gateway_seq),
         message_id = excluded.message_id,
         role = excluded.role,
         data_json = excluded.data_json,
         updated_at_ms = excluded.updated_at_ms
     `).run({
       sessionKey: message.sessionKey,
+      segmentId: message.segmentId ?? activeSegment?.segmentId ?? null,
+      sessionId: message.sessionId ?? activeSegment?.sessionId ?? null,
+      gatewaySeq: message.gatewaySeq ?? null,
       openclawSeq: message.openclawSeq,
       messageId: message.messageId,
       role: message.role,
@@ -248,9 +336,9 @@ export class MessageRepository {
     const limit = Math.max(1, Math.min(1000, opts.limit ?? 200));
     const beforeSeq = opts.beforeSeq ?? null;
     const rows = this.db.prepare(beforeSeq !== null ? `
-      SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
       FROM (
-        SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+        SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
         FROM v2_messages
         WHERE session_key = @sessionKey
           AND openclaw_seq > @afterSeq
@@ -260,9 +348,9 @@ export class MessageRepository {
       )
       ORDER BY openclaw_seq ASC
     ` : opts.latest ? `
-      SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
       FROM (
-        SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+        SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
         FROM v2_messages
         WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
         ORDER BY openclaw_seq DESC
@@ -270,13 +358,16 @@ export class MessageRepository {
       )
       ORDER BY openclaw_seq ASC
     ` : `
-      SELECT session_key, openclaw_seq, message_id, role, data_json, updated_at_ms
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
       FROM v2_messages
       WHERE session_key = @sessionKey AND openclaw_seq > @afterSeq
       ORDER BY openclaw_seq ASC
       LIMIT @limit
     `).all({ sessionKey, afterSeq: opts.afterSeq ?? 0, beforeSeq, limit }) as Array<{
       session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
       openclaw_seq: number;
       message_id: string | null;
       role: string | null;
@@ -286,6 +377,9 @@ export class MessageRepository {
     return rows
       .map((row): ProjectedMessage => ({
         sessionKey: row.session_key,
+        segmentId: row.segment_id,
+        sessionId: row.session_id,
+        gatewaySeq: row.gateway_seq,
         openclawSeq: row.openclaw_seq,
         messageId: row.message_id,
         role: row.role,

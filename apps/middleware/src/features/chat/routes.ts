@@ -161,6 +161,7 @@ function inferBootstrapToolCalls(context: AppContext, sessionKey: string, messag
 type ChatHistoryResponse = {
   sessionKey?: string;
   sessionId?: string;
+  sessionFile?: string;
   messages?: unknown[];
   status?: string;
   thinkingLevel?: string;
@@ -534,10 +535,16 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               const confirmedUser = gatewayUserEcho
                 ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
                 : null;
+              const segment = context.messages.ensureActiveSegment({
+                sessionKey: input.sessionKey,
+                sessionId: history.sessionId ?? context.messages.getSession(input.sessionKey)?.sessionId ?? null,
+                sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+              });
               const currentUserSeq = confirmedUser?.openclawSeq ?? gatewayUserEcho?.openclawSeq ?? null;
+              const currentGatewayUserSeq = gatewayUserEcho?.openclawSeq ?? null;
               currentHistory = {
                 currentUserRepresented: Boolean(gatewayUserEcho),
-                assistantAfterCurrentUser: currentUserSeq !== null && normalized.some((message) => message.role === "assistant" && message.openclawSeq > currentUserSeq),
+                assistantAfterCurrentUser: currentGatewayUserSeq !== null && normalized.some((message) => message.role === "assistant" && message.openclawSeq > currentGatewayUserSeq),
               };
               if (confirmedUser) {
                 log.info("optimistic.user.confirmed", {
@@ -554,7 +561,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
                   ? normalized.filter((message) => message !== gatewayUserEcho)
                   : normalized;
               const projection = normalizedToUpsert.length > 0
-                ? context.messages.upsertMessages(normalizedToUpsert)
+                ? context.messages.upsertMessages(normalizedToUpsert, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq })
                 : { upserted: 0, lastSeq: context.messages.nextMessageSeq(input.sessionKey) - 1, changedMessages: [] };
               log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, historyMaxSeq, optimisticSeq, confirmedOptimistic: Boolean(confirmedUser), currentUserRepresented: currentHistory.currentUserRepresented, assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser, skippedStalePreSendHistory: isStalePreSendHistory });
               if (confirmedUser) {
@@ -793,6 +800,11 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
     const existingSession = context.messages.getSession(sessionKey);
+    const segment = context.messages.ensureActiveSegment({
+      sessionKey,
+      sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
+      sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+    });
     const sessionData: Record<string, unknown> = {
       ...objectData(existingSession?.data),
       sessionKey,
@@ -808,7 +820,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       data: sessionData,
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
-    const projection = context.messages.upsertMessages(normalized);
+    const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq });
 
     const latestRun = context.runs.latestRun(sessionKey);

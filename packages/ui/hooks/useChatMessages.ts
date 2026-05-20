@@ -51,6 +51,7 @@ import {
 import {
   abortChatV2,
   fetchChatBootstrapV2,
+  fetchChatMessagesV2,
   sendChatV2,
   type ActiveRunV2,
   type RunStatusV2,
@@ -241,6 +242,8 @@ function parseExecApproval(
 const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
+const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
+const CHAT_OLDER_PAGE_LIMIT = 80
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -261,7 +264,7 @@ async function fetchChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData & { v2Cursor?: number }> {
   const [freshHistory, branchData] = await Promise.all([
-    fetchChatBootstrapV2(sessionKey).then((result) => ({
+    fetchChatBootstrapV2(sessionKey, CHAT_BOOTSTRAP_MESSAGE_LIMIT).then((result) => ({
       source: result.source,
       projectionVersion: result.projectionVersion ?? result.projection?.version,
       messages: result.messages,
@@ -404,6 +407,49 @@ function hydrateCachedAttachments(sessionKey: string, messages: ChatMessage[]) {
   })
 }
 
+function projectedPageRowsToRawMessages(
+  rows: Array<{
+    openclawSeq: number
+    messageId: string | null
+    role: string | null
+    data: unknown
+  }>
+): RawMessage[] {
+  return rows
+    .map((row) => {
+      const data = row.data && typeof row.data === "object" && !Array.isArray(row.data)
+        ? (row.data as Record<string, unknown>)
+        : {}
+      const existingOpenClaw = data.__openclaw && typeof data.__openclaw === "object" && !Array.isArray(data.__openclaw)
+        ? (data.__openclaw as Record<string, unknown>)
+        : {}
+      return {
+        ...data,
+        role: typeof data.role === "string" ? data.role : row.role ?? "assistant",
+        messageId: typeof data.messageId === "string" ? data.messageId : row.messageId ?? undefined,
+        __openclaw: {
+          ...existingOpenClaw,
+          id: typeof existingOpenClaw.id === "string" ? existingOpenClaw.id : row.messageId ?? undefined,
+          seq: row.openclawSeq,
+        },
+      } as RawMessage
+    })
+}
+
+function firstLoadedGatewayIndex(messages: ChatMessage[]) {
+  for (const message of messages) {
+    if (typeof message.gatewayIndex === "number" && Number.isFinite(message.gatewayIndex)) {
+      return Math.floor(message.gatewayIndex)
+    }
+  }
+  return null
+}
+
+function canLoadOlderThanFirstMessage(messages: ChatMessage[]) {
+  const firstSeq = firstLoadedGatewayIndex(messages)
+  return firstSeq !== null && firstSeq > 1
+}
+
 function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | undefined) {
   return {
     count: attachments?.length ?? 0,
@@ -454,6 +500,8 @@ export function useChatMessages(
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
   const [historyLoadVersion, setHistoryLoadVersion] = useState(0)
+  const [hasOlderMessages, setHasOlderMessages] = useState(false)
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -1218,6 +1266,8 @@ export function useChatMessages(
 
     setLoadError(null)
     setErrorMessage(null)
+    setHasOlderMessages(false)
+    setLoadingOlderMessages(false)
     seenIds.current.clear()
 
     if (warmMessages) {
@@ -1225,6 +1275,12 @@ export function useChatMessages(
         seenIds.current.add(message.messageId)
       }
       setLoading(false)
+      setHasOlderMessages(
+        !hasInitial && (
+          canLoadOlderThanFirstMessage(warmMessages) ||
+          Boolean(cachedBootstrap?.messageCount && cachedBootstrap.messageCount > warmMessages.length)
+        )
+      )
       setMessages(warmMessages)
       const warmStatus = useCachedGlobal && cachedGlobal?.status
         ? cachedGlobal.status
@@ -1255,6 +1311,7 @@ export function useChatMessages(
       else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
     } else {
       setLoading(true)
+      setHasOlderMessages(false)
       setMessages([])
       setStatus("idle")
     }
@@ -1323,6 +1380,10 @@ export function useChatMessages(
 
         if (typeof cached.entry.cursor === "number") v2CursorRef.current = cached.entry.cursor
         setLoading(false)
+        setHasOlderMessages(
+          canLoadOlderThanFirstMessage(cachedMessages) ||
+          Boolean(cached.entry.messageCount && cached.entry.messageCount > cachedMessages.length)
+        )
         suppressNextWarmPersistRef.current = true
         setMessages(cachedMessages)
         setStatus(effectiveStatus)
@@ -1446,6 +1507,10 @@ export function useChatMessages(
             error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
           }, "warn")
         })
+        setHasOlderMessages(
+          canLoadOlderThanFirstMessage(displayMessages) ||
+          Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
+        )
         setMessages(displayMessages)
         setLocalPendingTools(inlineTools)
         setLocalSpawnedSubagents(canonicalSpawns)
@@ -2277,12 +2342,63 @@ export function useChatMessages(
     )
   }, [])
 
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingOlderMessages || !hasOlderMessages) return
+    const beforeSeq = firstLoadedGatewayIndex(messagesRef.current)
+    if (beforeSeq === null || beforeSeq <= 1) {
+      setHasOlderMessages(false)
+      return
+    }
+
+    const el = scrollContainerRef.current
+    const previousScrollHeight = el?.scrollHeight ?? 0
+    const previousScrollTop = el?.scrollTop ?? 0
+    setLoadingOlderMessages(true)
+    try {
+      const page = await fetchChatMessagesV2({
+        sessionKey,
+        beforeSeq,
+        limit: CHAT_OLDER_PAGE_LIMIT,
+      })
+      const olderMessages = hydrateCachedAttachments(
+        sessionKey,
+        parseChatHistory(projectedPageRowsToRawMessages(page.messages)).messages
+      )
+      if (olderMessages.length === 0) {
+        setHasOlderMessages(false)
+        return
+      }
+      setMessages((current) => dedupeChatMessages([...olderMessages, ...current]))
+      setHasOlderMessages(
+        page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
+        canLoadOlderThanFirstMessage(olderMessages)
+      )
+      requestAnimationFrame(() => {
+        const nextEl = scrollContainerRef.current
+        if (!nextEl) return
+        const delta = nextEl.scrollHeight - previousScrollHeight
+        nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
+      })
+    } catch (error) {
+      frontendLog("chat", "chat.load-older.fail", {
+        sessionKey,
+        beforeSeq,
+        error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+      }, "warn")
+    } finally {
+      setLoadingOlderMessages(false)
+    }
+  }, [hasOlderMessages, loadingOlderMessages, sessionKey, setMessages])
+
   return {
     messages,
     status,
     statusLabel,
     loading,
     historyLoadVersion,
+    hasOlderMessages,
+    loadingOlderMessages,
+    loadOlderMessages,
     loadError,
     errorMessage,
     isSending,

@@ -305,6 +305,9 @@ export function ChatView({
     statusLabel,
     loading,
     historyLoadVersion,
+    hasOlderMessages,
+    loadingOlderMessages,
+    loadOlderMessages,
     loadError,
     errorMessage,
     isSending,
@@ -1471,7 +1474,20 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto"
       >
-        <div className="mx-auto max-w-3xl px-4 pt-8" />
+        <div className="mx-auto max-w-3xl px-4 pt-8">
+          {hasOlderMessages && (
+            <div className="mb-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => void loadOlderMessages()}
+                disabled={loadingOlderMessages}
+                className="rounded-full border border-border/40 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-border hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+              >
+                {loadingOlderMessages ? "Loading older…" : "Load older messages"}
+              </button>
+            </div>
+          )}
+        </div>
         {renderedMessages.map((msg, index) => (
           <div key={msg.messageId} className="contents">
             {renderMessageRow(index, msg)}

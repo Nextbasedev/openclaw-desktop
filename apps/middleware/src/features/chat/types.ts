@@ -5,6 +5,9 @@ export type OpenClawMessage = Record<string, unknown> & {
 
 export type ProjectedMessage = {
   sessionKey: string;
+  segmentId?: string | null;
+  sessionId?: string | null;
+  gatewaySeq?: number | null;
   openclawSeq: number;
   messageId: string | null;
   role: string | null;

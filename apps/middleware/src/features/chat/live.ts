@@ -10,6 +10,7 @@ import { canonicalPatchPayload } from "./projection.js";
 type ChatHistoryResponse = {
   sessionKey?: string;
   sessionId?: string;
+  sessionFile?: string;
   messages?: unknown[];
   status?: string;
 };
@@ -561,7 +562,12 @@ export class ChatLiveIngest {
       const messages = history.messages ?? [];
       if (!messages.length) return;
       const normalized = normalizeHistoryMessages(sessionKey, messages);
-      const projection = this.context.messages.upsertMessages(normalized);
+      const segment = this.context.messages.ensureActiveSegment({
+        sessionKey,
+        sessionId: history.sessionId ?? this.context.messages.getSession(sessionKey)?.sessionId ?? null,
+        sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
+      });
+      const projection = this.context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
       const run = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey) ?? this.context.runs.latestRun(sessionKey);
       for (const projected of projection.changedMessages) {
         const gatewayProjection = projectGatewayMessage(projected.data as OpenClawMessage);
