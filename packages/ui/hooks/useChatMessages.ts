@@ -1612,7 +1612,11 @@ export function useChatMessages(
     async (payload: ChatComposerSubmit, retryMessageId?: string) => {
       const trimmed = payload.text.trim()
       const hasAttachments = (payload.attachments?.length ?? 0) > 0
-      if ((!trimmed && !hasAttachments) || sendingGuardRef.current) return false
+      const isStopCommand = isStopSlashCommand(trimmed)
+      const runsAlongsideGeneration = Boolean(
+        isGenerating && payload.runWhileGenerating && !isStopCommand
+      )
+      if ((!trimmed && !hasAttachments) || (sendingGuardRef.current && !runsAlongsideGeneration)) return false
       frontendLog("composer", "chat.send.start", {
         sessionKey,
         retry: Boolean(retryMessageId),
@@ -1623,11 +1627,7 @@ export function useChatMessages(
         hasReplyTo: Boolean(payload.replyTo),
         autonomyMode: payload.autonomyMode,
       })
-      const isStopCommand = isStopSlashCommand(trimmed)
-      const runsAlongsideGeneration = Boolean(
-        isGenerating && payload.runWhileGenerating && !isStopCommand
-      )
-      sendingGuardRef.current = true
+      if (!runsAlongsideGeneration) sendingGuardRef.current = true
       flushSync(() => {
         setIsSending(true)
         setErrorMessage(null)
@@ -1803,7 +1803,7 @@ export function useChatMessages(
         )
         return false
       } finally {
-        sendingGuardRef.current = false
+        if (!runsAlongsideGeneration) sendingGuardRef.current = false
         setIsSending(false)
         frontendLog("composer", "chat.send.settled", { sessionKey, optimisticId })
       }

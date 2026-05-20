@@ -19,6 +19,14 @@ function contextOf(app: Awaited<ReturnType<typeof createApp>>): AppContext {
   return (app as typeof app & { v2Context: AppContext }).v2Context;
 }
 
+async function waitFor(condition: () => boolean, timeoutMs = 500) {
+  const started = Date.now();
+  while (!condition()) {
+    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -602,6 +610,25 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("accepts send before Gateway chat.send finishes", async () => {
+    const app = await createApp(config("accept-before-gateway"));
+    const context = contextOf(app);
+    let resolveGatewaySend: ((value: Record<string, unknown>) => void) | null = null;
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string) => {
+      if (method !== "chat.send") return { ok: true };
+      return await new Promise<Record<string, unknown>>((resolve) => {
+        resolveGatewaySend = resolve;
+      });
+    });
+    const res = await app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "first", idempotencyKey: "one", clientMessageId: "client-one" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, accepted: true, sessionKey: "s1", idempotencyKey: "one", clientMessageId: "client-one" });
+    expect(resolveGatewaySend).toBeTypeOf("function");
+    resolveGatewaySend?.({ runId: "r1", status: "started" });
+    await waitFor(() => context.runs.getRun("run:one")?.gatewayRunId === "r1");
+    await app.close();
+  });
+
   test("serializes sends per session", async () => {
     const app = await createApp(config("queue"));
     const context = contextOf(app);
@@ -616,6 +643,7 @@ describe("chat send routes", () => {
     const first = app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "first", idempotencyKey: "one" } });
     const second = app.inject({ method: "POST", url: "/api/chat/send", payload: { sessionKey: "s1", text: "second", idempotencyKey: "two" } });
     await Promise.all([first, second]);
+    await waitFor(() => order.length === 4);
     expect(order).toEqual(["start:one", "end:one", "start:two", "end:two"]);
     await app.close();
   });

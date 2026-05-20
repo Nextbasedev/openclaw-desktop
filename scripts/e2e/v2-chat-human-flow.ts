@@ -47,8 +47,13 @@ const html = `<!doctype html>
       const text = m.text || blocks.map((b) => b.text || '').join('') || m.content || '';
       return [text, toolText].filter(Boolean).join(' ');
     }
+    function seqOf(m) {
+      const seq = Number(m && (m.__openclaw?.seq || m.messageSeq || m.seq));
+      return Number.isFinite(seq) ? seq : Number.MAX_SAFE_INTEGER;
+    }
     function render() {
       messagesEl.innerHTML = '';
+      messages.sort((a, b) => seqOf(a) - seqOf(b));
       for (const message of messages) {
         const div = document.createElement('div');
         div.className = 'message ' + (message.role || 'unknown');
