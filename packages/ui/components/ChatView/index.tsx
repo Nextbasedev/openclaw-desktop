@@ -1256,18 +1256,7 @@ export function ChatView({
                 }
               />
             ) : null
-            return (
-              <>
-                {toolSteps}
-                {bubble}
-                {msg.role === "user" && msg.sendStatus === "sending" && (
-                  <div className="mt-2 flex max-w-[85%] items-center gap-2 text-xs text-muted-foreground">
-                    <TypingDots />
-                    <span>Waiting for this message…</span>
-                  </div>
-                )}
-              </>
-            )
+            return <>{toolSteps}{bubble}</>
           })()}
           {msg.role === "user" && userSubagents.length > 0 && (
             <div className="mt-3">
