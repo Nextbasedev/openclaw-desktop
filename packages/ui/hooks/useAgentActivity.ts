@@ -142,6 +142,19 @@ function previewFromChatMessage(message: ChatMessage): string | undefined {
   return text.length > 72 ? `${text.slice(0, 72)}…` : text
 }
 
+function chatMessageHasAssistantOutput(messages: ChatMessage[]): boolean {
+  return messages.some((message) => message.role === "assistant" && message.text.trim().length > 0)
+}
+
+function finalizeInlineToolForCompletedChild(tool: InlineToolCall): InlineToolCall {
+  if (tool.status !== "running") return tool
+  return {
+    ...tool,
+    status: "success",
+    duration: tool.duration ?? formatSafeToolDuration(tool.startedAt),
+  }
+}
+
 function hasAssistantOutput(messages: RawHistoryMessage[]): boolean {
   return messages.some((message) => {
     if (message.role !== "assistant") return false
@@ -244,8 +257,13 @@ export function useAgentActivity(sessionKey: string | null) {
         const subParsed = parseHistoryToolCalls(
           subHistory.messages ?? [],
         )
+        const phase = inferChildHistoryPhase(
+          subHistory.messages ?? [],
+          subParsed.calls,
+        )
         let changed = false
-        for (const call of subParsed.calls) {
+        for (const rawCall of subParsed.calls) {
+          const call = phase === "completed" ? finalizeActivityCall(rawCall) : rawCall
           const existing = callMapRef.current.get(call.id)
           call.subagentOf = agentId
           const merged = mergeActivityCall(existing, call)
@@ -254,10 +272,6 @@ export function useAgentActivity(sessionKey: string | null) {
             changed = true
           }
         }
-        const phase = inferChildHistoryPhase(
-          subHistory.messages ?? [],
-          subParsed.calls,
-        )
         if (phase) {
           const currentAgent = agentsRef.current.get(agentId)
           agentsRef.current.set(agentId, {
@@ -706,44 +720,9 @@ export function useAgentActivity(sessionKey: string | null) {
       if (cancelledRef.current) return
       syncGlobalActivity()
     })
-    const unsubscribeStream = subscribeChatStream(sessionKey, ({ type, data }) => {
-      if (cancelledRef.current) return
-      if (
-        type === "chat.tool" ||
-        type === "chat.tool.started" ||
-        type === "chat.tool.result" ||
-        type === "chat.tool.error"
-      ) {
-        processToolEvent(data)
-        return
-      }
-      if (type === "chat.status") {
-        const state = (data.state as string) ?? null
-        setStreamStatus(state)
-        if (state === "done" || state === "error") {
-          handleStreamDone()
-        } else if (
-          state === "thinking" ||
-          state === "tool_running" ||
-          state === "streaming"
-        ) {
-          handleStreamResume()
-        }
-        return
-      }
-      if (type === "chat.agent") {
-        processAgentEvent(data)
-        return
-      }
-      if (type === "chat.message") {
-        processMessage(data)
-      }
-    })
-
     return () => {
       cancelledRef.current = true
       unsubscribeGlobalSession()
-      unsubscribeStream()
       if (doneTimerRef.current) {
         clearTimeout(doneTimerRef.current)
         doneTimerRef.current = null
@@ -751,13 +730,8 @@ export function useAgentActivity(sessionKey: string | null) {
     }
   }, [
     sessionKey,
-    processToolEvent,
-    processAgentEvent,
-    processMessage,
     syncState,
     fetchSubagentHistory,
-    handleStreamDone,
-    handleStreamResume,
     resetVisibleState,
   ])
 
@@ -772,11 +746,13 @@ export function useAgentActivity(sessionKey: string | null) {
 
       let changed = false
       const currentAgent = agentsRef.current.get(agentId)
+      const childLooksComplete = state.status === "done" ||
+        ((state.status === "idle" || state.status === "connected") && chatMessageHasAssistantOutput(state.messages))
       const nextPhase = isLiveStreamStatus(state.status)
         ? "start"
         : state.status === "error"
           ? "error"
-          : state.status === "done"
+          : childLooksComplete
             ? "done"
             : currentAgent?.phase ?? "start"
       const nextAgent = {
@@ -794,9 +770,10 @@ export function useAgentActivity(sessionKey: string | null) {
 
       const liveTurn = liveTurnForSession(subKey)
       const upsertTool = (tool: InlineToolCall, turn = liveTurn) => {
-        const existing = callMapRef.current.get(tool.id)
+        const normalizedTool = childLooksComplete ? finalizeInlineToolForCompletedChild(tool) : tool
+        const existing = callMapRef.current.get(normalizedTool.id)
         const incoming = {
-          ...activityCallFromInlineTool(tool, {
+          ...activityCallFromInlineTool(normalizedTool, {
             messageId: liveTurnMessageId(existing?.messageId, turn.messageId),
             messagePreview: liveTurnPreview(existing?.messagePreview, turn.messagePreview),
           }),
