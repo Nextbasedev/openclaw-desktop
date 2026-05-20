@@ -185,6 +185,33 @@ function assertBundledServerEntrypoint() {
   }
 }
 
+function assertBundledRuntimeDependencies() {
+  const packageJsonPath = path.join(bundledServerDir, "package.json")
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"))
+  const dependencies = Object.keys(packageJson.dependencies ?? {})
+  const required = new Set([
+    ...dependencies,
+    // Fastify loads avvio internally; keep this explicit because a stale bundle
+    // previously shipped without it and only failed on customer machines.
+    "avvio",
+  ])
+  const missing = []
+
+  for (const name of required) {
+    try {
+      require.resolve(name, { paths: [bundledServerDir] })
+    } catch {
+      missing.push(name)
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Bundled middleware is missing runtime dependencies: ${missing.join(", ")}`,
+    )
+  }
+}
+
 function updateServerPackageJson() {
   const packageJsonPath = path.join(bundledServerDir, "package.json")
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"))
@@ -226,6 +253,7 @@ function main() {
   assertBundledServerEntrypoint()
   updateServerPackageJson()
   rebuildTopLevelNodeModules()
+  assertBundledRuntimeDependencies()
 
   fs.mkdirSync(bundledNodeDir, { recursive: true })
   fs.copyFileSync(process.execPath, bundledNodePath)
