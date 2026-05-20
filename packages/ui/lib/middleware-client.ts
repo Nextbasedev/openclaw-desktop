@@ -60,6 +60,36 @@ function trimTrailingSlash(value: string) {
   return value.trim().replace(/\/+$/, "")
 }
 
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && Boolean((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__)
+}
+
+function backendModeForUrl(url: string): "local" | "remote" {
+  try {
+    return isLoopbackHost(new URL(url).hostname) ? "local" : "remote"
+  } catch {
+    return "remote"
+  }
+}
+
+async function setDesktopBackendMode(mode: "local" | "remote") {
+  if (!isTauriRuntime()) return
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    await invoke("set_backend_mode", { mode })
+    frontendLog("connection", "desktop.backend-mode.synced", { mode }, "debug")
+  } catch (error) {
+    frontendLog("connection", "desktop.backend-mode.sync-fail", {
+      mode,
+      error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
+    }, "warn")
+  }
+}
+
+function syncDesktopBackendMode(connection = getMiddlewareConnection()) {
+  void setDesktopBackendMode(connection ? backendModeForUrl(connection.url) : "local")
+}
+
 export function getMiddlewareConnection(): MiddlewareConnection | null {
   if (typeof window === "undefined") return null
   const url = localStorage.getItem(URL_KEY)?.trim() ?? ""
@@ -85,6 +115,7 @@ export function saveMiddlewareConnection(input: MiddlewareConnection) {
   localStorage.setItem(URL_KEY, next.url)
   localStorage.setItem(TOKEN_KEY, next.token)
   localStorage.setItem("jarvis.gatewayActive", "true")
+  syncDesktopBackendMode(next)
   if (workspaceChanged) {
     clearWorkspaceScopeCache()
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: next.url } }))
@@ -101,6 +132,7 @@ export function clearMiddlewareConnection() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.setItem("jarvis.gatewayActive", "false")
   clearWorkspaceScopeCache()
+  syncDesktopBackendMode(null)
   if (previous) {
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: previous.url } }))
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: null } }))
@@ -117,6 +149,8 @@ export function initMiddlewareConnectionCrossWindowSync() {
 
     const current = getMiddlewareConnection()
     clearWorkspaceScopeCache()
+
+    syncDesktopBackendMode(current)
 
     if (!current) {
       window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: event.oldValue ?? null } }))
@@ -215,6 +249,10 @@ export async function claimMiddlewarePairing(input: { url: string; code: string 
   const body = text ? JSON.parse(text) : null
   if (!response.ok) throw new Error(body?.error?.message ?? `Pairing failed (${response.status})`)
   return { ok: true, url: trimTrailingSlash(body.url || url), token: String(body.token ?? ""), mode: body.mode }
+}
+
+if (typeof window !== "undefined") {
+  window.setTimeout(() => syncDesktopBackendMode(), 0)
 }
 
 export async function detectLocalMiddleware(urls = LOCAL_MIDDLEWARE_URLS): Promise<MiddlewarePairingResult | null> {

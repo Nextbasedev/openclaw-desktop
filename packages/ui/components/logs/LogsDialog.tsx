@@ -20,6 +20,7 @@ import {
   type LogSource,
 } from "@/lib/clientLogs"
 import { collectDiagnostics } from "@/lib/diagnostics"
+import { getMiddlewareConnection, middlewareFetch } from "@/lib/middleware-client"
 import { VscOutput, VscRefresh, VscTrash, VscCopy } from "react-icons/vsc"
 
 function isTauriRuntime(): boolean {
@@ -34,8 +35,19 @@ type SourceFilter = "all" | LogSource
 type BackendLogResponse = {
   path: string
   content: string
-  size: number
-  truncated: boolean
+  size?: number
+  truncated?: boolean
+  source?: string
+  entries?: number
+}
+
+function safeLogSource(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.protocol}//${parsed.host}`
+  } catch {
+    return url.replace(/\?.*$/, "")
+  }
 }
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
@@ -95,11 +107,32 @@ export function LogsDialog({
   const loadBackend = useCallback(async (): Promise<LogEntry[]> => {
     setBackendLoading(true)
     setBackendError(null)
+
+    const connection = getMiddlewareConnection()
+    if (connection) {
+      const sourceLabel = `remote:${safeLogSource(connection.url)}`
+      try {
+        const res = await middlewareFetch<BackendLogResponse>("/api/logs?limit=1000")
+        const entries = parseBackendLog(res.content)
+        setBackendPath(`${sourceLabel}/api/logs`)
+        setBackend(entries)
+        return entries
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setBackendPath(sourceLabel)
+        setBackendError(`Remote middleware logs unavailable from ${sourceLabel}: ${message}`)
+        setBackend([])
+        return []
+      } finally {
+        setBackendLoading(false)
+      }
+    }
+
     if (!isTauriRuntime()) {
       setBackend([])
       setBackendPath(null)
       setBackendError(
-        "Backend log file is only available in the desktop app.",
+        "Backend log file is only available in the desktop app when no remote Middleware is connected.",
       )
       setBackendLoading(false)
       return []
@@ -191,13 +224,31 @@ export function LogsDialog({
     const backendSnapshot = latestBackend
     const allEntries = [...frontendSnapshot, ...backendSnapshot].sort((a, b) => a.timestamp - b.timestamp)
     const lastEntries = allEntries.slice(-800)
+    const connection = getMiddlewareConnection()
+    const activeMiddlewareUrl = connection ? safeLogSource(connection.url) : null
+    const activeMiddlewareMode = activeMiddlewareUrl && /^(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])/i.test(activeMiddlewareUrl)
+      ? "local"
+      : activeMiddlewareUrl
+        ? "remote"
+        : null
+    const effectiveBackendPath = connection ? `remote:${activeMiddlewareUrl}/api/logs` : backendPath
+    const remoteDiagnostics = connection
+      ? await middlewareFetch<Record<string, unknown>>("/api/diagnostics", { headers: { "Cache-Control": "no-cache" } }).catch((err) => ({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }))
+      : null
     const metadata = {
       generatedAt: new Date().toISOString(),
       href: typeof window !== "undefined" ? window.location.href : null,
       userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      activeMiddleware: connection
+        ? { mode: activeMiddlewareMode, url: activeMiddlewareUrl, hasToken: Boolean(connection.token) }
+        : null,
+      backendLogSource: connection ? "remote-middleware" : "local-tauri-log",
       frontendEntries: frontendSnapshot.length,
       backendEntries: backendSnapshot.length,
-      backendPath,
+      backendPath: effectiveBackendPath,
       backendError,
       sourceFilter: source,
       search: search.trim() || null,
@@ -205,7 +256,7 @@ export function LogsDialog({
     const diagnostics = collectDiagnostics({
       frontendEntries: frontendSnapshot,
       backendEntries: backendSnapshot,
-      backendPath,
+      backendPath: effectiveBackendPath,
       backendError,
       sourceFilter: source,
       search: search.trim() || null,
@@ -215,6 +266,8 @@ export function LogsDialog({
       JSON.stringify(metadata, null, 2),
       "--- DIAGNOSTICS ---",
       JSON.stringify(diagnostics, null, 2),
+      "--- MIDDLEWARE DIAGNOSTICS ---",
+      JSON.stringify(remoteDiagnostics, null, 2),
       "--- LOGS ---",
       ...lastEntries.map(
         (e) =>

@@ -43,12 +43,14 @@ pub fn run() {
   #[cfg(not(target_os = "windows"))]
   let builder = builder.invoke_handler(tauri::generate_handler![
     backend::read_backend_log,
+    backend::set_backend_mode,
     open_external_url,
   ]);
 
   #[cfg(target_os = "windows")]
   let builder = builder.invoke_handler(tauri::generate_handler![
     backend::read_backend_log,
+    backend::set_backend_mode,
     windows_toast::show_reply_notification,
     open_external_url,
   ]);

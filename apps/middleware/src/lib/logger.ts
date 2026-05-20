@@ -33,6 +33,33 @@ export type LogMeta = Record<string, unknown>;
 
 type LogLevel = "info" | "warn" | "error";
 
+type BufferedLogEntry = {
+  timestampMs: number;
+  level: LogLevel;
+  scope: string;
+  event: string;
+  line: string;
+};
+
+const LOG_BUFFER_LIMIT = 1000;
+const logBuffer: BufferedLogEntry[] = [];
+
+function unixTimestampSeconds(timestampMs = Date.now()) {
+  return Math.floor(timestampMs / 1000);
+}
+
+function pushLogEntry(entry: BufferedLogEntry) {
+  logBuffer.push(entry);
+  if (logBuffer.length > LOG_BUFFER_LIMIT) {
+    logBuffer.splice(0, logBuffer.length - LOG_BUFFER_LIMIT);
+  }
+}
+
+export function getRecentLogLines(limit = LOG_BUFFER_LIMIT): string[] {
+  const safeLimit = Math.max(1, Math.min(LOG_BUFFER_LIMIT, Math.floor(limit)));
+  return logBuffer.slice(-safeLimit).map((entry) => `[${unixTimestampSeconds(entry.timestampMs)}] ${entry.line}`);
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -90,6 +117,7 @@ export function createLogger(scope: string) {
     const sanitized = meta === undefined ? undefined : redactLogValue(meta);
     const suffix = sanitized === undefined ? "" : ` ${JSON.stringify(sanitized)}`;
     const line = `[mw:${scope}] ${event}${suffix}`;
+    pushLogEntry({ timestampMs: Date.now(), level, scope, event, line });
     if (level === "error") console.error(line);
     else if (level === "warn") console.warn(line);
     else console.log(line);
