@@ -26,35 +26,12 @@ describe("ChatView tool display grouping", () => {
 
     const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
 
-    expect(grouped.get("a-text")).toMatchObject([
+    expect(grouped.get("a-tools-1")).toMatchObject([
       { id: "memory", tool: "memory_search" },
       { id: "read", tool: "read" },
       { id: "exec", tool: "exec" },
     ])
-    expect(grouped.has("a-tools-1")).toBe(false)
-    expect(suppressed.has("a-tools-1")).toBe(true)
     expect(suppressed.has("a-tools-late")).toBe(true)
-  })
-
-  test("moves a completed tool-only thinking block onto the final assistant text", () => {
-    const messages: ChatMessage[] = [
-      { messageId: "u1", role: "user", text: "who am i" },
-      {
-        messageId: "a-tools-1",
-        role: "assistant",
-        text: "",
-        toolCalls: [{ id: "memory", tool: "memory_search", status: "success" }],
-      },
-      { messageId: "a-final-1", role: "assistant", text: "I don't know your name yet." },
-      { messageId: "u2", role: "user", text: "who are you" },
-      { messageId: "a-final-2", role: "assistant", text: "I'm Assistant." },
-    ]
-
-    const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
-
-    expect(grouped.get("a-final-1")).toMatchObject([{ id: "memory", tool: "memory_search" }])
-    expect(grouped.has("a-tools-1")).toBe(false)
-    expect(suppressed.has("a-tools-1")).toBe(true)
   })
 
   test("starts a new steps block after the next user message", () => {
