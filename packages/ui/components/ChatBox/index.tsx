@@ -178,12 +178,15 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
-  const canSendWhileGenerating = Boolean(
+  const canRunCommandWhileGenerating = Boolean(
     isGenerating &&
     input.trim().startsWith("/") &&
     attachments.length === 0 &&
     !replyTo &&
     canRunSlashCommandWhileGenerating(input, commands)
+  )
+  const showSendWhileGenerating = Boolean(
+    isGenerating && (input.trim().length > 0 || attachments.length > 0)
   )
   const {
     state: voiceState,
@@ -579,7 +582,7 @@ export function ChatBox({
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
           : undefined,
-      runWhileGenerating: canSendWhileGenerating,
+      runWhileGenerating: canRunCommandWhileGenerating,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
@@ -943,7 +946,7 @@ export function ChatBox({
               handleUploadClick()
             }}
             isGenerating={isGenerating}
-            canSendWhileGenerating={canSendWhileGenerating}
+            canSendWhileGenerating={showSendWhileGenerating}
             onAbort={onAbort}
             webSearchEnabled={webSearchEnabled}
             onWebSearchDisable={() => setWebSearchEnabled(false)}

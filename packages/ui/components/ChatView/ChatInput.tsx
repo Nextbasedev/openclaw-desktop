@@ -20,6 +20,7 @@ type Props = {
 
 export function ChatInput({ input, onChange, onSend, onAbort, isSending, isGenerating, isFocused, onFocus, onBlur }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const hasInput = input.trim().length > 0
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current
@@ -57,7 +58,7 @@ export function ChatInput({ input, onChange, onSend, onAbort, isSending, isGener
         style={{ minHeight: "22px", maxHeight: "200px" }}
       />
 
-      {isGenerating ? (
+      {isGenerating && !hasInput ? (
         <button
           onClick={onAbort}
           title="Stop generating"
@@ -68,11 +69,11 @@ export function ChatInput({ input, onChange, onSend, onAbort, isSending, isGener
       ) : (
         <button
           onClick={onSend}
-          disabled={!input.trim() || isSending}
+          disabled={!hasInput || isSending}
           title="Send (Enter)"
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all",
-            input.trim() && !isSending
+            hasInput && !isSending
               ? "cursor-pointer bg-foreground text-background"
               : "cursor-not-allowed bg-foreground/15 text-background/40",
           )}
