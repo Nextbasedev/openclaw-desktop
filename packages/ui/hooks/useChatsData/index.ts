@@ -297,56 +297,47 @@ export function useChatsData(
     })
   }, [spaceId])
 
-  const bumpChatActivityTime = useCallback((event?: ChatActivityEvent | null) => {
+  const updateChatPreviewWithoutReorder = useCallback((event?: ChatActivityEvent | null) => {
     const chatId = event?.chatId ?? activeChat?.id
     const sessionKey = event?.sessionKey ?? activeChat?.sessionKey
     if (!chatId && !sessionKey) return
-    const timestamp = event?.at && !Number.isNaN(Date.parse(event.at))
-      ? event.at
-      : new Date().toISOString()
     const knownChat = chats.some((chat) => {
       const matchesChat = chatId ? chat.id === chatId : false
       const matchesSession = sessionKey ? chat.sessionKey === sessionKey : false
       return matchesChat || matchesSession
     })
-    setChats((prev) =>
-      {
+
+    if (typeof event?.lastMessageText === "string" && event.lastMessageText.trim()) {
+      setChats((prev) => {
         let matched = false
         const next = prev.map((c) => {
-        const matchesChat = chatId ? c.id === chatId : false
-        const matchesSession = sessionKey ? c.sessionKey === sessionKey : false
-        if (matchesChat || matchesSession) matched = true
-        return matchesChat || matchesSession
-          ? {
-              ...c,
-              updatedAt: timestamp,
-              lastActiveAt: timestamp,
-              lastMessageAt: timestamp,
-              ...(typeof event?.lastMessageText === "string" && event.lastMessageText.trim()
-                ? { lastMessageText: event.lastMessageText }
-                : {}),
-            }
-          : c
+          const matchesChat = chatId ? c.id === chatId : false
+          const matchesSession = sessionKey ? c.sessionKey === sessionKey : false
+          if (matchesChat || matchesSession) matched = true
+          return matchesChat || matchesSession
+            ? { ...c, lastMessageText: event.lastMessageText }
+            : c
         })
         if (matched) cacheChatsForCurrentSpace(next)
         return next
-      },
-    )
+      })
+    }
+
     if (!knownChat) scheduleSidebarRefresh()
   }, [activeChat, cacheChatsForCurrentSpace, chats, scheduleSidebarRefresh])
 
   useEffect(() => {
     // Generic activity means thinking/tool/model/approval state and should not
-    // reorder the sidebar. Reordering on every activity event caused the active
-    // chat to jump while the optimistic user message was still settling.
-    // Confirmed message events update timestamps only; manual drag is the only
-    // source of explicit chatOrder overrides.
+    // reorder the sidebar.
     return on<ChatActivityEvent>("chat:activity", () => undefined)
   }, [])
 
   useEffect(() => {
-    return on<ChatMessageConfirmedEvent>("chat:message-confirmed", bumpChatActivityTime)
-  }, [bumpChatActivityTime])
+    // Keep live preview text fresh, but do not mutate activity timestamps here.
+    // The sidebar order should stay stable while the user is chatting; a full
+    // reload/API refresh can still sort by persisted last activity time.
+    return on<ChatMessageConfirmedEvent>("chat:message-confirmed", updateChatPreviewWithoutReorder)
+  }, [updateChatPreviewWithoutReorder])
 
   useEffect(() => {
     if (renameOpen)
