@@ -35,15 +35,37 @@ export function mergeToolCallsForDisplay(
 export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
   const grouped = new Map<string, InlineToolCall[]>()
   const suppressed = new Set<string>()
-  let firstToolMessageId: string | null = null
-  let collected: InlineToolCall[] = []
+  let block: ChatMessage[] = []
 
   function flush() {
-    if (firstToolMessageId && collected.length > 0) {
-      grouped.set(firstToolMessageId, collected)
+    if (block.length === 0) return
+    const toolMessages = block.filter((message) => message.toolCalls?.length)
+    if (toolMessages.length === 0) {
+      block = []
+      return
     }
-    firstToolMessageId = null
-    collected = []
+
+    const textTarget = block.find(
+      (message) => message.role === "assistant" && message.text.trim().length > 0
+    )
+    const fallbackToolTarget = toolMessages[0]
+    const target = textTarget ?? fallbackToolTarget
+    const collected = toolMessages.reduce<InlineToolCall[]>(
+      (acc, message) => mergeToolCalls(acc, message.toolCalls ?? []),
+      []
+    )
+
+    grouped.set(target.messageId, collected)
+    for (const message of toolMessages) {
+      if (message.messageId === target.messageId) continue
+      if (!message.text.trim()) suppressed.add(message.messageId)
+    }
+    if (textTarget) {
+      for (const message of toolMessages) {
+        if (!message.text.trim()) suppressed.add(message.messageId)
+      }
+    }
+    block = []
   }
 
   for (const message of messages) {
@@ -51,14 +73,7 @@ export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
       flush()
       continue
     }
-    if (message.role !== "assistant" || !message.toolCalls?.length) continue
-
-    if (!firstToolMessageId) {
-      firstToolMessageId = message.messageId
-    } else {
-      suppressed.add(message.messageId)
-    }
-    collected = mergeToolCalls(collected, message.toolCalls)
+    if (message.role === "assistant") block.push(message)
   }
 
   flush()
