@@ -178,15 +178,12 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
-  const canRunCommandWhileGenerating = Boolean(
-    isGenerating &&
-    input.trim().startsWith("/") &&
-    attachments.length === 0 &&
-    !replyTo &&
-    canRunSlashCommandWhileGenerating(input, commands)
-  )
   const showSendWhileGenerating = Boolean(
     isGenerating && (input.trim().length > 0 || attachments.length > 0)
+  )
+  const canSendWithoutInterruptingGeneration = Boolean(
+    showSendWhileGenerating &&
+    (!input.trim().startsWith("/") || canRunSlashCommandWhileGenerating(input, commands))
   )
   const {
     state: voiceState,
@@ -582,7 +579,7 @@ export function ChatBox({
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
           : undefined,
-      runWhileGenerating: canRunCommandWhileGenerating,
+      runWhileGenerating: canSendWithoutInterruptingGeneration,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
@@ -592,32 +589,13 @@ export function ChatBox({
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
-    if (isGenerating) {
-      dispatchComposer({ type: "restart_start", payload })
-      try {
-        frontendLog("composer", "composer.restart-send.start", {
-          attachmentCount: payload.attachments?.length ?? 0,
-          textLength: payload.text.length,
-        })
-        await onSend?.(payload)
-        frontendLog("composer", "composer.restart-send.success", {})
-        dispatchComposer({ type: "send_success" })
-        clearAttachments()
-        setAttachmentError(null)
-        setSlashMenuOpen(false)
-      } catch {
-        frontendLog("composer", "composer.restart-send.fail", {}, "error")
-        setInput(payload.text)
-        dispatchComposer({
-          type: "send_failed",
-          error: "Message failed to send. Try again.",
-        })
-        setAttachmentError("Message failed to send. Try again.")
-        requestAnimationFrame(() => {
-          textareaRef.current?.focus()
-          autoResize()
-        })
-      }
+    if (isGenerating && !payload.runWhileGenerating) {
+      setInput(payload.text)
+      setAttachmentError("Wait for the current response to finish, or send a normal follow-up message.")
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        autoResize()
+      })
       return
     }
     dispatchComposer({ type: "send_start", payload, generating: false })

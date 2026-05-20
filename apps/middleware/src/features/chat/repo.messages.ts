@@ -76,6 +76,11 @@ export class MessageRepository {
       FROM v2_messages
       WHERE session_key = @sessionKey
     `);
+    const moveSeq = this.db.prepare(`
+      UPDATE v2_messages
+      SET openclaw_seq = @newSeq
+      WHERE session_key = @sessionKey AND openclaw_seq = @oldSeq
+    `);
     const offset = this.db.prepare(`
       INSERT INTO v2_gateway_offsets(session_key, last_openclaw_seq, updated_at_ms)
       VALUES (@sessionKey, @lastSeq, @updatedAtMs)
@@ -99,8 +104,14 @@ export class MessageRepository {
         }) as { message_id: string | null; role: string | null; data_json: string } | undefined;
         if (!idMatch && existing && isOptimisticConflict(existing, message)) {
           const row = maxSeq.get({ sessionKey: message.sessionKey }) as { maxSeq?: number | null } | undefined;
-          openclawSeq = Math.max(message.openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
-          existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
+          const nextSeq = Math.max(message.openclawSeq, Number(row?.maxSeq ?? 0)) + 1;
+          if (openclawSeq > 1 && existing.role === "user" && message.role === "assistant" && isOptimisticData(fromJson(existing.data_json))) {
+            moveSeq.run({ sessionKey: message.sessionKey, oldSeq: openclawSeq, newSeq: nextSeq });
+            existing = undefined;
+          } else {
+            openclawSeq = nextSeq;
+            existing = existingAtSeq.get({ sessionKey: message.sessionKey, openclawSeq }) as typeof existing;
+          }
         }
 
         const dataJson = toJson(message.data);
