@@ -432,6 +432,14 @@ function messageFactorSummary(messages: unknown[]) {
   };
 }
 
+const execPolicyBody = z.union([
+  z.null(),
+  z.object({
+    security: z.enum(["allowlist", "full"]).optional(),
+    ask: z.enum(["off", "on-miss", "always"]).optional(),
+  }).strict(),
+]);
+
 const sendBody = z.object({
   sessionKey: z.string().min(1),
   text: z.string().optional(),
@@ -443,7 +451,7 @@ const sendBody = z.object({
   timeoutMs: z.coerce.number().int().positive().optional(),
   agentId: z.string().optional(),
   label: z.string().optional(),
-  execPolicy: z.unknown().optional(),
+  execPolicy: execPolicyBody.optional(),
   replyTo: z.unknown().optional(),
   autonomyMode: z.unknown().optional(),
 }).passthrough();
@@ -524,14 +532,21 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
 
     if (input.execPolicy !== undefined) {
-      const rawPolicy = input.execPolicy && typeof input.execPolicy === "object" ? input.execPolicy as { security?: unknown; ask?: unknown } : null;
-      const execSecurity = rawPolicy?.security === "allowlist" || rawPolicy?.security === "full" ? rawPolicy.security : null;
-      const execAsk = rawPolicy?.ask === "off" || rawPolicy?.ask === "on-miss" || rawPolicy?.ask === "always" ? rawPolicy.ask : null;
-      log.info("session.patch.start", { sessionKey: input.sessionKey, execSecurity, execAsk, clearingPolicy: input.execPolicy === null });
-      await context.gateway.request("sessions.patch", input.execPolicy === null
+      const patch = input.execPolicy === null
         ? { key: input.sessionKey, execSecurity: null, execAsk: null }
-        : { key: input.sessionKey, execSecurity, execAsk });
-      log.info("session.patch.end", { sessionKey: input.sessionKey, execSecurity, execAsk });
+        : {
+            key: input.sessionKey,
+            ...(input.execPolicy.security !== undefined ? { execSecurity: input.execPolicy.security } : {}),
+            ...(input.execPolicy.ask !== undefined ? { execAsk: input.execPolicy.ask } : {}),
+          };
+      log.info("session.patch.start", {
+        sessionKey: input.sessionKey,
+        hasExecSecurity: Object.prototype.hasOwnProperty.call(patch, "execSecurity"),
+        hasExecAsk: Object.prototype.hasOwnProperty.call(patch, "execAsk"),
+        clearingPolicy: input.execPolicy === null,
+      });
+      await context.gateway.request("sessions.patch", patch);
+      log.info("session.patch.end", { sessionKey: input.sessionKey });
     }
 
     log.info("send.accept.start", { sessionKey: input.sessionKey, idempotencyKey: input.idempotencyKey, elapsedSinceRequestMs: elapsedMs(sendStartedAtMs) });

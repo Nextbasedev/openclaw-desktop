@@ -328,47 +328,56 @@ export class GatewayClient {
     if (!token) throw new Error("OpenClaw gateway token is missing");
     const identity = await readIdentity();
     const ws = new WebSocket(gatewayUrl);
-    this.log.info("socket.open.start", { gatewayUrl: safeUrlForLog(gatewayUrl) });
-    await waitOpen(ws);
-    this.log.info("socket.open.end", { gatewayUrl: safeUrlForLog(gatewayUrl) });
-    const challenge = await waitFor(ws, (message) => message.type === "event" && message.event === "connect.challenge", "connect.challenge");
-    const payload = (challenge as GatewayEvent).payload as { nonce?: string } | undefined;
-    const nonce = payload?.nonce;
-    if (!nonce) throw new Error("Gateway connect.challenge missing nonce");
-    this.log.info("auth.challenge", { hasNonce: true });
-    const signedAt = Date.now();
-    const scopes = DEFAULT_SCOPES;
-    const signature = sign(identity.privateKeyPem, authPayload({ deviceId: identity.deviceId, scopes, signedAt, token, nonce }));
-    const id = crypto.randomUUID();
-    ws.send(JSON.stringify({
-      type: "req",
-      id,
-      method: "connect",
-      params: {
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-        client: CLIENT,
-        auth: { token },
-        caps: ["chat", "sessions", "cron"],
-        scopes,
-        device: {
-          id: identity.deviceId,
-          publicKey: base64UrlEncode(derivePublicKeyRaw(identity.publicKeyPem)),
-          signature,
-          signedAt,
-          nonce,
+    let connectedSocket = false;
+    try {
+      this.log.info("socket.open.start", { gatewayUrl: safeUrlForLog(gatewayUrl) });
+      await waitOpen(ws);
+      this.log.info("socket.open.end", { gatewayUrl: safeUrlForLog(gatewayUrl) });
+      const challenge = await waitFor(ws, (message) => message.type === "event" && message.event === "connect.challenge", "connect.challenge");
+      const payload = (challenge as GatewayEvent).payload as { nonce?: string } | undefined;
+      const nonce = payload?.nonce;
+      if (!nonce) throw new Error("Gateway connect.challenge missing nonce");
+      this.log.info("auth.challenge", { hasNonce: true });
+      const signedAt = Date.now();
+      const scopes = DEFAULT_SCOPES;
+      const signature = sign(identity.privateKeyPem, authPayload({ deviceId: identity.deviceId, scopes, signedAt, token, nonce }));
+      const id = crypto.randomUUID();
+      ws.send(JSON.stringify({
+        type: "req",
+        id,
+        method: "connect",
+        params: {
+          minProtocol: PROTOCOL_VERSION,
+          maxProtocol: PROTOCOL_VERSION,
+          client: CLIENT,
+          auth: { token },
+          caps: ["chat", "sessions", "cron"],
+          scopes,
+          device: {
+            id: identity.deviceId,
+            publicKey: base64UrlEncode(derivePublicKeyRaw(identity.publicKeyPem)),
+            signature,
+            signedAt,
+            nonce,
+          },
         },
-      },
-    }));
-    const connected = await waitFor(ws, (message) => message.type === "res" && (message as GatewayResponse).id === id, "connect response");
-    if ((connected as GatewayResponse).ok !== true) throw new Error(normalizeConnectError((connected as GatewayResponse).error?.message ?? "Gateway connect rejected"));
-    ws.on("message", this.handleMessage);
-    ws.once("close", this.handleDisconnect);
-    ws.once("error", this.handleDisconnect);
-    this.ws = ws;
-    this.connectedAtMs = Date.now();
-    this.lastError = null;
-    this.log.info("auth.connected", { connectedAtMs: this.connectedAtMs, listenerCount: this.listeners.size });
+      }));
+      const connected = await waitFor(ws, (message) => message.type === "res" && (message as GatewayResponse).id === id, "connect response");
+      if ((connected as GatewayResponse).ok !== true) throw new Error(normalizeConnectError((connected as GatewayResponse).error?.message ?? "Gateway connect rejected"));
+      ws.on("message", this.handleMessage);
+      ws.once("close", this.handleDisconnect);
+      ws.once("error", this.handleDisconnect);
+      this.ws = ws;
+      connectedSocket = true;
+      this.connectedAtMs = Date.now();
+      this.lastError = null;
+      this.log.info("auth.connected", { connectedAtMs: this.connectedAtMs, listenerCount: this.listeners.size });
+    } catch (error) {
+      if (!connectedSocket) {
+        try { ws.close(); } catch { /* noop */ }
+      }
+      throw error;
+    }
   }
 
   private handleMessage = (raw: WebSocket.RawData) => {
