@@ -1881,7 +1881,8 @@ async function syncGatewaySessions(context: AppContext) {
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
-      if (isSubagentRecord(row) || isSubagentSessionKeyValue(sessionKey)) {
+      const isDesktopSession = isDesktopSessionKey(sessionKey);
+      if (!isDesktopSession && (isSubagentRecord(row) || isSubagentSessionKeyValue(sessionKey))) {
         const existingSubagentChatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
         if (existingSubagentChatIndex >= 0) {
           compatState.chats[existingSubagentChatIndex] = { ...compatState.chats[existingSubagentChatIndex], deleted: true, archived: true };
@@ -1889,7 +1890,7 @@ async function syncGatewaySessions(context: AppContext) {
         }
         continue;
       }
-      if (!isDesktopSessionKey(sessionKey)) continue;
+      if (!isDesktopSession) continue;
       syncedSessionKeys.add(sessionKey);
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";

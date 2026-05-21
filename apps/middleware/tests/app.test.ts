@@ -395,6 +395,14 @@ describe("middleware app", () => {
               updatedAt: "2026-05-13T05:30:00.000Z",
             },
             {
+              key: "agent:main:desktop:migrated-telegram-123",
+              label: "Migrated Telegram Topic",
+              agentId: "main",
+              parentSessionKey: "agent:main:telegram:group:-1001:topic:42",
+              createdAt: "2026-05-13T05:45:00.000Z",
+              updatedAt: "2026-05-13T05:50:00.000Z",
+            },
+            {
               key: "agent:main:telegram:group:-1001:topic:42",
               label: "Telegram Topic",
               agentId: "main",
@@ -418,8 +426,17 @@ describe("middleware app", () => {
     expect(bootstrap.statusCode).toBe(200);
     expect(bootstrap.json().chats).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Shared Chat", sessionKey: "agent:main:desktop:shared", spaceId: "space_default" }),
+      expect.objectContaining({ name: "Migrated Telegram Topic", sessionKey: "agent:main:desktop:migrated-telegram-123", spaceId: "space_default" }),
     ]));
     expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
+      expect.objectContaining({ sessionKey: "agent:main:discord:guild:1:channel:2" }),
+    ]));
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Shared Chat", sessionKey: "agent:main:desktop:shared", spaceId: "space_default" }),
+      expect.objectContaining({ label: "Migrated Telegram Topic", sessionKey: "agent:main:desktop:migrated-telegram-123", spaceId: "space_default" }),
+    ]));
+    expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
       expect.objectContaining({ sessionKey: "agent:main:discord:guild:1:channel:2" }),
     ]));
@@ -427,6 +444,7 @@ describe("middleware app", () => {
     const chats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
     expect(chats.json().chats).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Shared Chat", sessionKey: "agent:main:desktop:shared" }),
+      expect.objectContaining({ name: "Migrated Telegram Topic", sessionKey: "agent:main:desktop:migrated-telegram-123" }),
     ]));
     expect(chats.json().chats).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
