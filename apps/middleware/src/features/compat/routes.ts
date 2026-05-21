@@ -1801,6 +1801,16 @@ function isGatewayOnlySyncedSession(session: CompatRecord) {
   return Boolean(sessionKey && !isDesktopSessionKey(sessionKey) && session.id === stableCompatId("session", sessionKey));
 }
 
+function activeTopicById(topicId: unknown) {
+  return typeof topicId === "string" && topicId.trim()
+    ? compatState.topics.find((topic) => topic.id === topicId && notDeleted(topic)) ?? null
+    : null;
+}
+
+function activeProjectId(projectId: unknown) {
+  return typeof projectId === "string" && projectId.trim() && projectSpaceId(projectId) ? projectId : null;
+}
+
 function touchCompatChatActivity(context: AppContext, input: { sessionKey: string; at?: string; lastMessageText?: string | null }) {
   loadCompatState(context);
   const sessionKey = input.sessionKey.trim();
@@ -1884,6 +1894,7 @@ async function syncGatewaySessions(context: AppContext) {
     if (rows.length === 0) return;
     let changed = false;
     const syncedSessionKeys = new Set<string>();
+    const projectScopedGatewayKeys = new Set<string>();
     const fallbackSpaceId = ensureDefaultFallbackSpace();
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
@@ -1907,10 +1918,23 @@ async function syncGatewaySessions(context: AppContext) {
       const activityAt = newestTimestamp(rowActivityAt, createdAt);
       const rowProjectId = row.projectId ?? null;
       const rowTopicId = row.topicId ?? null;
-      const rowSpaceId = projectSpaceId(rowProjectId) ?? fallbackSpaceId;
+      const existingSessionForKey = compatState.sessions.find((session) => (session.sessionKey === sessionKey || session.key === sessionKey) && notDeleted(session));
+      const existingTopic = activeTopicById(existingSessionForKey?.topicId);
+      const rowTopic = activeTopicById(rowTopicId);
+      const sessionTopicId = existingTopic?.id ?? rowTopic?.id ?? null;
+      const sessionProjectId = activeProjectId(existingSessionForKey?.projectId)
+        ?? (existingTopic ? activeProjectId(existingTopic.projectId) : null)
+        ?? activeProjectId(rowProjectId)
+        ?? (rowTopic ? activeProjectId(rowTopic.projectId) : null);
+      const isProjectScopedSession = Boolean(sessionProjectId || sessionTopicId);
+      const rowSpaceId = projectSpaceId(sessionProjectId) ?? projectSpaceId(rowProjectId) ?? existingSessionForKey?.spaceId ?? fallbackSpaceId;
+      if (isProjectScopedSession) projectScopedGatewayKeys.add(sessionKey);
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
-      if (chatIndex < 0) {
+      if (isProjectScopedSession && chatIndex >= 0 && isGatewayOnlySyncedChat(compatState.chats[chatIndex])) {
+        compatState.chats[chatIndex] = { ...compatState.chats[chatIndex], deleted: true, archived: true, updatedAt: activityAt };
+        changed = true;
+      } else if (!isProjectScopedSession && chatIndex < 0) {
         compatState.chats.push({
           id: stableCompatId("chat", sessionKey),
           name,
@@ -1926,7 +1950,7 @@ async function syncGatewaySessions(context: AppContext) {
           lastMessageAt: activityAt,
         });
         changed = true;
-      } else {
+      } else if (!isProjectScopedSession && chatIndex >= 0) {
         const existing = compatState.chats[chatIndex];
         const existingCreatedAt = existing.createdAt || createdAt;
         const existingSession = compatState.sessions.find((session) => session.sessionKey === sessionKey || session.key === sessionKey);
@@ -1960,8 +1984,8 @@ async function syncGatewaySessions(context: AppContext) {
           id: stableCompatId("session", sessionKey),
           key: sessionKey,
           sessionKey,
-          projectId: rowProjectId,
-          topicId: rowTopicId,
+          projectId: sessionProjectId,
+          topicId: sessionTopicId,
           spaceId: rowSpaceId,
           agentId,
           label: name,
@@ -1999,7 +2023,7 @@ async function syncGatewaySessions(context: AppContext) {
     compatState.chats = compatState.chats.filter((chat) => {
       if (!isGatewayOnlySyncedChat(chat)) return true;
       const sessionKey = typeof chat.sessionKey === "string" ? chat.sessionKey : "";
-      return syncedSessionKeys.has(sessionKey);
+      return syncedSessionKeys.has(sessionKey) && !projectScopedGatewayKeys.has(sessionKey);
     });
     if (compatState.chats.length !== beforeCleanup) changed = true;
     const beforeSessionCleanup = compatState.sessions.length;
@@ -3563,8 +3587,13 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         label: gatewaySessionLabel(body.label, sessionKey),
       });
     } catch { /* session may already exist or gateway may be offline */ }
-    const session = { id: id("session"), ...body, spaceId: sessionWriteSpaceId(body), key: sessionKey, sessionKey, createdAt: timestamp, updatedAt: timestamp };
-    compatState.sessions.push(session);
+    const existingIndex = compatState.sessions.findIndex((session) => session.sessionKey === sessionKey || session.key === sessionKey);
+    const sessionPatch = { ...body, spaceId: sessionWriteSpaceId(body), key: sessionKey, sessionKey, updatedAt: timestamp };
+    const session = existingIndex >= 0
+      ? { ...compatState.sessions[existingIndex], ...sessionPatch, createdAt: compatState.sessions[existingIndex].createdAt || timestamp, deleted: false }
+      : { id: id("session"), ...sessionPatch, createdAt: timestamp };
+    if (existingIndex >= 0) compatState.sessions[existingIndex] = session;
+    else compatState.sessions.push(session);
     saveCompatCollection(context, "sessions");
     return { session };
   });
