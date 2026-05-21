@@ -473,7 +473,7 @@ function isMissingApprovalError(error: unknown) {
  */
 export async function prewarmArchivedHistory(context: AppContext, sessionKey: string) {
   try {
-    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 }, 30_000);
+    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 }, 10_000);
     if (!history) return { ok: false, reason: "no-history" };
     const result = persistArchivedHistorySegments(context, sessionKey, history);
     return { ok: true, ...result };

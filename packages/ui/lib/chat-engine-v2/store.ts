@@ -51,7 +51,14 @@ function normalizeStatusLabel(status: StreamStatus, label: string | null | undef
 
 const states = new Map<string, SessionState>()
 const listeners = new Map<string, Set<Listener>>()
-const PATCH_CURSOR_STORAGE_KEY = "openclaw:patchCursor"
+function patchCursorStorageKey() {
+  // Scope by middleware URL so different backends/restarts don't collide
+  try {
+    const url = localStorage.getItem("openclaw.middleware.url")?.trim()
+      || localStorage.getItem("openclaw.middleware.v2.url")?.trim()
+    return `openclaw:patchCursor:${url || "default"}`
+  } catch { return "openclaw:patchCursor:default" }
+}
 let globalCursor = 0
 let unsubscribeStream: (() => void) | null = null
 let queryClientRef: QueryClient | null = null
@@ -1237,13 +1244,13 @@ function handlePatch(frame: PatchFrame) {
 }
 
 function persistGlobalCursor() {
-  try { localStorage.setItem(PATCH_CURSOR_STORAGE_KEY, String(globalCursor)) } catch { /* noop — storage full or unavailable */ }
+  try { localStorage.setItem(patchCursorStorageKey(), String(globalCursor)) } catch { /* noop — storage full or unavailable */ }
 }
 
 function restoreGlobalCursor() {
   try {
-    const saved = Number(localStorage.getItem(PATCH_CURSOR_STORAGE_KEY) || "0")
-    if (Number.isFinite(saved) && saved > 0) globalCursor = Math.max(globalCursor, saved)
+    const saved = Number(localStorage.getItem(patchCursorStorageKey()) || "0")
+    if (Number.isSafeInteger(saved) && saved > 0) globalCursor = Math.max(globalCursor, saved)
   } catch { /* noop */ }
 }
 
