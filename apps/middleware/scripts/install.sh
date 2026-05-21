@@ -48,6 +48,9 @@ Pairing code: $PAIRING_CODE
 Start explicitly with:
   cd $APP_DIR && HOST=$HOST PORT=$PORT MIDDLEWARE_PAIRING_CODE=$PAIRING_CODE MIDDLEWARE_TOKEN=$TOKEN pnpm --filter @openclaw/desktop-middleware start
 
+Install as a Linux systemd user service:
+  cd $APP_DIR && HOST=$HOST PORT=$PORT MIDDLEWARE_PAIRING_CODE=$PAIRING_CODE MIDDLEWARE_TOKEN=$TOKEN apps/middleware/scripts/install-systemd-user.sh
+
 Smoke test after starting:
   cd $APP_DIR && MIDDLEWARE_TEST_URL=http://127.0.0.1:$PORT pnpm --filter @openclaw/desktop-middleware smoke
 EOF

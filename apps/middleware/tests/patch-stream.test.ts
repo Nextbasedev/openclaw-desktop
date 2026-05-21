@@ -41,6 +41,28 @@ function waitForMessage(ws: WebSocket): Promise<any> {
 }
 
 describe("patch stream", () => {
+  test("cron SSE stream emits ready event and closes cleanly", async () => {
+    const app = await createApp(config("cron-sse"));
+    apps.push(app);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("missing server address");
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${address.port}/api/stream/cron`, { signal: controller.signal });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") || "").toContain("text/event-stream");
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("missing cron SSE reader");
+    const first = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout waiting for cron.ready")), 5_000)),
+    ]);
+    const text = new TextDecoder().decode(first.value);
+    expect(text).toContain("event: cron.ready");
+    controller.abort();
+    await reader.cancel().catch(() => undefined);
+  });
+
   test("listPatchesAfter replays only newer projection events", async () => {
     const app = await createApp(config("replay"));
     apps.push(app);
