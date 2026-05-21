@@ -52,6 +52,20 @@ function parseJsonBlock(text: string, label: string): Record<string, unknown> | 
   try { return JSON.parse(match[1] || "") as Record<string, unknown>; } catch { return null; }
 }
 
+function identityFromSessionKey(sessionKey: string) {
+  const parts = sessionKey.split(":");
+  const channel = parts[2];
+  if (channel === "telegram") {
+    const kind = parts[3];
+    const chatId = parts[4];
+    const topicId = parts[5] === "topic" && parts[6] ? parts[6] : null;
+    if ((kind === "group" || kind === "channel" || kind === "direct" || kind === "private") && chatId) {
+      return { kind: "conversation" as const, channel: "telegram", chatId, topicId };
+    }
+  }
+  return sessionKey.includes(":desktop:") ? { kind: "desktop" as const, senderId: "openclaw-control-ui", desktopOnly: true } : null;
+}
+
 function firstHistoryIdentity(messages: unknown[], sessionKey: string) {
   for (const message of messages) {
     if (!message || typeof message !== "object" || Array.isArray(message)) continue;
@@ -68,7 +82,7 @@ function firstHistoryIdentity(messages: unknown[], sessionKey: string) {
       if (senderId) return { kind: "sender", senderId, desktopOnly: sessionKey.includes(":desktop:") };
     }
   }
-  return sessionKey.includes(":desktop:") ? { kind: "desktop", senderId: "openclaw-control-ui", desktopOnly: true } : null;
+  return identityFromSessionKey(sessionKey);
 }
 
 function identitiesMatch(a: ReturnType<typeof firstHistoryIdentity>, b: ReturnType<typeof firstHistoryIdentity>) {

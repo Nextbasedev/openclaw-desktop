@@ -569,6 +569,36 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("telegram chat bootstrap falls back to session key identity for archived transcripts", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-bootstrap-archive-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const sessionKey = "agent:main:telegram:group:-1001:topic:42";
+    const archivedFile = path.join(archiveDir, "old-topic-42.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Topic", is_group_chat: true });
+    const archivedContent = `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\nold topic message`;
+    fs.writeFileSync(archivedFile, `${JSON.stringify({ type: "message", id: "a1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: archivedContent } })}\n`);
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "chat.history") return { sessionKey, sessionId: "current-topic-42", messages: [{ role: "user", content: "current topic message", __openclaw: { id: "c1", seq: 1 } }] };
+      return {};
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+
+    expect(res.statusCode).toBe(200);
+    const messages = res.json().messages as Array<{ content?: string }>;
+    const text = messages.map((message) => String(message.content || "")).join("\n");
+    expect(text).toContain("old topic message");
+    expect(text).toContain("current topic message");
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_archive_imports WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 1 });
+    await app.close();
+  });
+
   test("desktop chat bootstrap includes archived reset transcripts", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-desktop-archive-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
