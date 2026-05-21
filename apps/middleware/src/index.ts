@@ -39,9 +39,10 @@ function startGatewayAutoConnect(context: AppContext) {
   };
 }
 
+const context = (app as typeof app & { v2Context?: AppContext }).v2Context;
+let stopGatewayAutoConnect: (() => void) | null = null;
+app.addHook("onClose", async () => { stopGatewayAutoConnect?.(); });
 log.info("listen.start", { host: config.host, port: config.port });
 await app.listen({ host: config.host, port: config.port });
 log.info("listen.end", { host: config.host, port: config.port });
-const context = (app as typeof app & { v2Context?: AppContext }).v2Context;
-const stopGatewayAutoConnect = context ? startGatewayAutoConnect(context) : null;
-if (stopGatewayAutoConnect) app.addHook("onClose", async () => stopGatewayAutoConnect());
+if (context) stopGatewayAutoConnect = startGatewayAutoConnect(context);

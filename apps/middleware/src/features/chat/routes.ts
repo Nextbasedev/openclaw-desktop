@@ -467,6 +467,21 @@ function isMissingApprovalError(error: unknown) {
   return /approval/i.test(message) && /(not found|missing|unknown|no pending|no such)/i.test(message);
 }
 
+/**
+ * Pre-warm archived history for a session so the first bootstrap doesn't
+ * block on importing archive files. Call after telegram/discord import.
+ */
+export async function prewarmArchivedHistory(context: AppContext, sessionKey: string) {
+  try {
+    const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 200 }, 10_000);
+    if (!history) return { ok: false, reason: "no-history" };
+    const result = persistArchivedHistorySegments(context, sessionKey, history);
+    return { ok: true, ...result };
+  } catch {
+    return { ok: false, reason: "error" };
+  }
+}
+
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
   const log = createLogger("chat-route");
 

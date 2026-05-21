@@ -7,6 +7,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
+import { prewarmArchivedHistory } from "../chat/routes.js";
 import {
   getActiveSkills,
   getSkillEnabledMap,
@@ -1576,6 +1577,10 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
         chatId = id("chat");
         compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
       }
+      // Fire-and-forget pre-warm: don't block the import loop since each
+      // prewarm can take seconds. The first chat open will still be fast
+      // if prewarm finishes in the background before the user clicks.
+      void prewarmArchivedHistory(context, desktopSessionKey).catch(() => { /* non-fatal */ });
       imported.push({ sourceSessionKey: session.sourceSessionKey, desktopSessionKey, chatId, projectId, topicId, spaceId: targetSpaceId, name: label, copiedMessages: sourceMessages.filter((message) => message.role !== "system").length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], transcriptPath });
     } catch (error) {
       failed.push({ sourceSessionKey: session.sourceSessionKey, error: error instanceof Error ? error.message : String(error) });
@@ -1901,7 +1906,34 @@ function isDesktopSessionKey(sessionKey: string) {
   return /^agent:[^:]+:desktop(?::|$)/.test(sessionKey);
 }
 
+let syncGatewaySessionsCache: { promise: Promise<void>; expiresAtMs: number } | null = null;
+const SYNC_GATEWAY_CACHE_TTL_MS = 5_000;
+
+/** Clear the syncGatewaySessions cache. Exported for test isolation. */
+export function clearSyncGatewaySessionsCache() { syncGatewaySessionsCache = null; }
+
 async function syncGatewaySessions(context: AppContext) {
+  // Don't cache if Gateway is disconnected — no-op results should not
+  // suppress a real sync when Gateway reconnects moments later.
+  if (!context.gateway.status().connected) {
+    return syncGatewaySessionsUncached(context);
+  }
+  // Deduplicate concurrent calls: reuse the same promise within a short TTL
+  // window. Multiple routes (/api/chats, /api/bootstrap) call this on every
+  // request, each triggering a 600-2500ms Gateway sessions.list call.
+  const now = Date.now();
+  if (syncGatewaySessionsCache && now < syncGatewaySessionsCache.expiresAtMs) {
+    return syncGatewaySessionsCache.promise;
+  }
+  const promise = syncGatewaySessionsUncached(context);
+  const cached = { promise, expiresAtMs: now + SYNC_GATEWAY_CACHE_TTL_MS };
+  syncGatewaySessionsCache = cached;
+  // Only clear on error if this is still the active cache entry
+  promise.catch(() => { if (syncGatewaySessionsCache === cached) syncGatewaySessionsCache = null; });
+  return promise;
+}
+
+async function syncGatewaySessionsUncached(context: AppContext) {
   try {
     // Startup/bootstrap should never block on establishing Gateway auth. If the
     // socket is not already connected, return cached/local chats immediately;
