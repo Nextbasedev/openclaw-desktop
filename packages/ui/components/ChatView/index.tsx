@@ -64,6 +64,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
+const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
+
 type StatusIconMeta = {
   icon: IconType
   className: string
@@ -305,6 +307,9 @@ export function ChatView({
     statusLabel,
     loading,
     historyLoadVersion,
+    hasOlderMessages,
+    loadingOlderMessages,
+    loadOlderMessages,
     loadError,
     errorMessage,
     isSending,
@@ -932,9 +937,23 @@ export function ChatView({
     const el = scrollContainerRef.current
     if (el) {
       setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+      if (
+        hasOlderMessages &&
+        !loadingOlderMessages &&
+        el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
+      ) {
+        void loadOlderMessages()
+      }
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [onScroll, scrollContainerRef, activePopoverId])
+  }, [
+    activePopoverId,
+    hasOlderMessages,
+    loadOlderMessages,
+    loadingOlderMessages,
+    onScroll,
+    scrollContainerRef,
+  ])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
@@ -945,7 +964,22 @@ export function ChatView({
     const el = scrollContainerRef.current
     if (!el) return
     setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
-  }, [isGenerating, renderedMessages.length, scrollContainerRef])
+    if (
+      hasOlderMessages &&
+      !loadingOlderMessages &&
+      el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX &&
+      el.scrollHeight <= el.clientHeight + AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
+    ) {
+      void loadOlderMessages()
+    }
+  }, [
+    hasOlderMessages,
+    isGenerating,
+    loadOlderMessages,
+    loadingOlderMessages,
+    renderedMessages.length,
+    scrollContainerRef,
+  ])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1471,7 +1505,13 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto"
       >
-        <div className="mx-auto max-w-3xl px-4 pt-8" />
+        <div className="mx-auto max-w-3xl px-4 pt-8">
+          {loadingOlderMessages && (
+            <div className="mb-4 flex justify-center text-xs text-muted-foreground">
+              Loading earlier messages…
+            </div>
+          )}
+        </div>
         {renderedMessages.map((msg, index) => (
           <div key={msg.messageId} className="contents">
             {renderMessageRow(index, msg)}

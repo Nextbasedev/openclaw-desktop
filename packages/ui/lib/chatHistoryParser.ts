@@ -100,6 +100,8 @@ export type RawHistoryMessage = {
   __openclaw?: {
     id?: string
     seq?: number
+    gatewaySeq?: number | null
+    segmentId?: string | null
   }
   role?: string
   text?: string

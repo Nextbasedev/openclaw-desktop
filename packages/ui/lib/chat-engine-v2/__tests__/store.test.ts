@@ -91,6 +91,69 @@ describe("global V2 chat engine store", () => {
     ]))
   })
 
+  test("session cursor reset bootstrap preserves previous transcript messages", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 42,
+      status: "done",
+      messages: [
+        { messageId: "u-old", role: "user", text: "old question" },
+        { messageId: "a-old", role: "assistant", text: "old answer" },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 0,
+      status: "thinking",
+      messages: [
+        { messageId: "u-new", role: "user", text: "new question after reset" },
+      ],
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      cursor: 42,
+      status: "done",
+      messages: [
+        { messageId: "u-new", text: "new question after reset" },
+        { messageId: "u-old", text: "old question" },
+        { messageId: "a-old", text: "old answer" },
+      ],
+    })
+  })
+
+  test("same-cursor stale bootstrap cannot wipe live messages and tools", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tool-live", tool: "exec", status: "running", startedAt: 1_000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "question" },
+        { messageId: "a-live", role: "assistant", text: "partial live answer" },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "done",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "question" },
+      ],
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tool-live", status: "running" }],
+      messages: expect.arrayContaining([
+        expect.objectContaining({ messageId: "a-live", text: "partial live answer" }),
+      ]),
+    })
+  })
+
   test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

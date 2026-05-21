@@ -176,7 +176,7 @@ describe("chat send routes", () => {
       messageCount: 2,
       messages: [
         { role: "user", text: "pending user", __openclaw: { id: "client-ui-1" } },
-        { role: "assistant", text: "assistant arrived before user echo", __openclaw: { id: "assistant-seq-1", seq: 1 } },
+        { role: "assistant", text: "assistant arrived before user echo", __openclaw: { id: "assistant-seq-1", seq: 2, gatewaySeq: 1 } },
       ],
     });
     await app.close();
@@ -624,7 +624,8 @@ describe("chat send routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, accepted: true, sessionKey: "s1", idempotencyKey: "one", clientMessageId: "client-one" });
     expect(resolveGatewaySend).toBeTypeOf("function");
-    resolveGatewaySend?.({ runId: "r1", status: "started" });
+    const completeGatewaySend = resolveGatewaySend as unknown as ((value: Record<string, unknown>) => void);
+    completeGatewaySend({ runId: "r1", status: "started" });
     await waitFor(() => context.runs.getRun("run:one")?.gatewayRunId === "r1");
     await app.close();
   });

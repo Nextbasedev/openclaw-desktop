@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import { loadEnv, type MiddlewareConfig } from "../src/config/env.js";
+import { migrateDatabase } from "../src/db/migrate.js";
 import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
 
 function testConfig(overrides: Partial<MiddlewareConfig> = {}): MiddlewareConfig {
@@ -535,6 +536,276 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "GET", url: "/api/chat/bootstrap" });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ ok: false, error: { code: "INVALID_QUERY" } });
+    await app.close();
+  });
+
+  test("telegram migration scan includes reset archived transcripts for the same topic", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-archive-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const key = "agent:main:telegram:group:-1001:topic:42";
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const currentFile = path.join(sessionsDir, "current-topic-42.jsonl");
+    const archivedFile = path.join(archiveDir, "old-topic-42.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Topic", is_group_chat: true });
+    const line = (id: string, text: string) => JSON.stringify({ type: "message", id, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\n${text}` } });
+    fs.writeFileSync(archivedFile, `${line("a1", "old one")}\n${line("a2", "old two")}\n`);
+    fs.writeFileSync(currentFile, `${line("c1", "current one")}\n${line("c2", "current two")}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [key]: { sessionId: "current", sessionFile: currentFile, chatType: "group", subject: "Group" } }));
+
+    const app = await createApp(testConfig());
+    const scan = await app.inject({ method: "GET", url: "/api/migration/telegram/scan?agentId=main" });
+
+    expect(scan.statusCode).toBe(200);
+    expect(scan.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceSessionKey: key,
+        messageCount: 4,
+        archivedMessageCount: 2,
+        archivedTranscriptFiles: [archivedFile],
+      }),
+    ]));
+    await app.close();
+  });
+
+  test("telegram chat bootstrap falls back to session key identity for archived transcripts", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-bootstrap-archive-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const sessionKey = "agent:main:telegram:group:-1001:topic:42";
+    const archivedFile = path.join(archiveDir, "old-topic-42.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Topic", is_group_chat: true });
+    const archivedContent = `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\nold topic message`;
+    fs.writeFileSync(archivedFile, `${JSON.stringify({ type: "message", id: "a1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: archivedContent } })}\n`);
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "chat.history") return { sessionKey, sessionId: "current-topic-42", messages: [{ role: "user", content: "current topic message", __openclaw: { id: "c1", seq: 1 } }] };
+      return {};
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+
+    expect(res.statusCode).toBe(200);
+    const messages = res.json().messages as Array<{ content?: string }>;
+    const text = messages.map((message) => String(message.content || "")).join("\n");
+    expect(text).toContain("old topic message");
+    expect(text).toContain("current topic message");
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_archive_imports WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 1 });
+    await app.close();
+  });
+
+  test("chat bootstrap imports same-session archives into separate file-keyed segments", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-archive-same-session-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const sessionKey = "agent:main:desktop:same-session";
+    const currentFile = path.join(sessionsDir, "current.jsonl");
+    const archivedFileA = path.join(archiveDir, "same-old.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const archivedFileB = path.join(archiveDir, "same-old.jsonl.reset.2026-05-20T01-00-00.000Z");
+    const sender = JSON.stringify({ id: "openclaw-control-ui", name: "Jarvis Middleware" });
+    const content = (text: string) => `Sender (untrusted metadata):\n\`\`\`json\n${sender}\n\`\`\`\n\n${text}`;
+    const line = (id: string, text: string) => JSON.stringify({ type: "message", id, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: content(text) } });
+    fs.writeFileSync(archivedFileA, `${line("a1", "first archive message")}\n`);
+    fs.writeFileSync(archivedFileB, `${line("b1", "second archive message")}\n`);
+    fs.writeFileSync(currentFile, `${line("c1", "current message")}\n`);
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "chat.history") return { sessionKey, sessionId: "current", sessionFile: currentFile, messages: [{ role: "user", content: content("current message"), __openclaw: { id: "c1", seq: 1 } }] };
+      return {};
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+
+    expect(res.statusCode).toBe(200);
+    const text = (res.json().messages as Array<{ content?: string }>).map((message) => String(message.content || "")).join("\n");
+    expect(text).toContain("first archive message");
+    expect(text).toContain("second archive message");
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_archive_imports WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 2 });
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_chat_segments WHERE session_key = ? AND reset_reason = 'archived_transcript'").get(sessionKey)).toMatchObject({ count: 2 });
+    await app.close();
+  });
+
+  test("chat bootstrap keeps valid JSONL records when one archive line is malformed", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-malformed-jsonl-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const sessionKey = "agent:main:desktop:malformed";
+    const currentFile = path.join(sessionsDir, "current.jsonl");
+    const archivedFile = path.join(archiveDir, "old.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const sender = JSON.stringify({ id: "openclaw-control-ui", name: "Jarvis Middleware" });
+    const content = (text: string) => `Sender (untrusted metadata):\n\`\`\`json\n${sender}\n\`\`\`\n\n${text}`;
+    const line = (id: string, text: string) => JSON.stringify({ type: "message", id, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: content(text) } });
+    fs.writeFileSync(archivedFile, `${line("a1", "valid archived message")}\n{bad-json\n`);
+    fs.writeFileSync(currentFile, `${line("c1", "current message")}\n`);
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "chat.history") return { sessionKey, sessionId: "current", sessionFile: currentFile, messages: [{ role: "user", content: content("current message"), __openclaw: { id: "c1", seq: 1 } }] };
+      return {};
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json().messages as Array<{ content?: string }>).map((message) => String(message.content || "")).join("\n")).toContain("valid archived message");
+    await app.close();
+  });
+
+  test("migration assigns legacy unsegmented messages before archive resequence", () => {
+    const dbPath = path.join(os.tmpdir(), `openclaw-legacy-backfill-${Date.now()}-${Math.random()}.sqlite`);
+    const db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE v2_messages (session_key TEXT NOT NULL, openclaw_seq INTEGER NOT NULL, message_id TEXT, role TEXT, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, PRIMARY KEY (session_key, openclaw_seq));
+      INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
+      VALUES ('s1', 1, 'legacy-1', 'user', '{"role":"user","text":"legacy"}', 1);
+    `);
+
+    migrateDatabase(db);
+
+    expect(db.prepare("SELECT count(*) AS count FROM v2_messages WHERE segment_id IS NULL").get()).toMatchObject({ count: 0 });
+    expect(db.prepare("SELECT gateway_seq FROM v2_messages WHERE session_key = 's1' AND openclaw_seq = 1").get()).toMatchObject({ gateway_seq: 1 });
+    expect(db.prepare("SELECT count(*) AS count FROM v2_chat_segments WHERE session_key = 's1' AND reset_reason = 'legacy_unsegmented'").get()).toMatchObject({ count: 1 });
+    db.close();
+  });
+
+  test("migration preserves gateway seq invariant when reusing an existing active segment", () => {
+    const dbPath = path.join(os.tmpdir(), `openclaw-legacy-backfill-existing-${Date.now()}-${Math.random()}.sqlite`);
+    const db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE v2_messages (session_key TEXT NOT NULL, openclaw_seq INTEGER NOT NULL, message_id TEXT, role TEXT, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, segment_id TEXT, session_id TEXT, gateway_seq INTEGER, PRIMARY KEY (session_key, openclaw_seq));
+      CREATE TABLE v2_chat_segments (segment_id TEXT PRIMARY KEY, session_key TEXT NOT NULL, session_id TEXT, session_file TEXT, segment_index INTEGER NOT NULL, base_seq INTEGER NOT NULL DEFAULT 0, started_at_ms INTEGER NOT NULL, ended_at_ms INTEGER, reset_reason TEXT, is_active INTEGER NOT NULL DEFAULT 1, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL, UNIQUE(session_key, segment_index));
+      INSERT INTO v2_chat_segments(segment_id, session_key, segment_index, base_seq, started_at_ms, is_active, created_at_ms, updated_at_ms)
+      VALUES ('seg-active', 's1', 1, 10, 1, 1, 1, 1);
+      INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
+      VALUES ('s1', 11, 'legacy-11', 'user', '{"role":"user","text":"legacy"}', 1);
+    `);
+
+    migrateDatabase(db);
+
+    expect(db.prepare("SELECT segment_id, gateway_seq FROM v2_messages WHERE session_key = 's1' AND openclaw_seq = 11").get()).toMatchObject({ segment_id: "seg-active", gateway_seq: 1 });
+    db.close();
+  });
+
+  test("optimistic confirmation does not delete archived global seq on gateway reset", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: AppContext }).v2Context;
+    const archived = context.messages.ensureArchivedSegment({ sessionKey: "s1", sessionId: "old", sessionFile: "/tmp/old.jsonl", startedAtMs: 1 });
+    context.messages.upsertMessages(normalizeHistoryMessages("s1", [{ role: "user", text: "old archived", __openclaw: { id: "old-1", seq: 1 } }]), { segmentId: archived.segmentId, sessionId: archived.sessionId, baseSeq: archived.baseSeq });
+    const active = context.messages.ensureActiveSegment({ sessionKey: "s1", sessionId: "current" });
+    context.messages.insertOptimisticMessage({ sessionKey: "s1", segmentId: active.segmentId, sessionId: active.sessionId, openclawSeq: 2, messageId: "client-1", role: "user", data: { role: "user", text: "new message", __clientOptimistic: true }, updatedAtMs: Date.now() });
+
+    const confirmed = context.messages.confirmOptimisticUser("s1", "client-1", normalizeHistoryMessages("s1", [{ role: "user", text: "new message", __openclaw: { id: "gateway-1", seq: 1 } }])[0]!);
+
+    expect(confirmed?.openclawSeq).toBe(2);
+    expect(context.messages.listMessages("s1", { limit: 10 }).map((message) => message.messageId)).toContain("old-1");
+    await app.close();
+  });
+
+  test("desktop chat bootstrap includes archived reset transcripts", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-desktop-archive-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const sessionKey = "agent:main:desktop:dash";
+    const currentFile = path.join(sessionsDir, "current-dash.jsonl");
+    const archivedFile = path.join(archiveDir, "old-dash.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const sender = JSON.stringify({ label: "Jarvis Middleware (openclaw-control-ui)", id: "openclaw-control-ui", name: "Jarvis Middleware" });
+    const content = (text: string) => `Sender (untrusted metadata):\n\`\`\`json\n${sender}\n\`\`\`\n\n${text}`;
+    const line = (id: string, text: string) => JSON.stringify({ type: "message", id, timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: content(text) } });
+    fs.writeFileSync(archivedFile, `${line("a1", "old dashboard message")}\n`);
+    fs.writeFileSync(currentFile, `${line("c1", "current dashboard message")}\n`);
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "chat.history") return { sessionKey, sessionId: "current-dash", sessionFile: currentFile, messages: [{ role: "user", content: content("current dashboard message"), __openclaw: { id: "c1", seq: 1 } }] };
+      return {};
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+
+    expect(res.statusCode).toBe(200);
+    expect(secondRes.statusCode).toBe(200);
+    const messages = secondRes.json().messages as Array<{ content?: string }>;
+    const text = messages.map((message) => String(message.content || "")).join("\n");
+    expect(text).toContain("old dashboard message");
+    expect(text).toContain("current dashboard message");
+    expect(messages.filter((message) => String(message.content || "").includes("old dashboard message"))).toHaveLength(1);
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_chat_segments WHERE session_key = ? AND reset_reason = 'archived_transcript'").get(sessionKey)).toMatchObject({ count: 1 });
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_archive_imports WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 1 });
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_messages WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 2 });
+
+    fs.appendFileSync(archivedFile, `${line("a2", "newer archived dashboard message")}\n`);
+    const newerMtime = new Date(Date.now() + 10_000);
+    fs.utimesSync(archivedFile, newerMtime, newerMtime);
+    const thirdRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    expect(thirdRes.statusCode).toBe(200);
+    const thirdMessages = thirdRes.json().messages as Array<{ content?: string; __openclaw?: { seq?: number; gatewaySeq?: number | null; segmentId?: string | null } }>;
+    const thirdText = thirdMessages.map((message) => String(message.content || "")).join("\n");
+    expect(thirdText).toContain("old dashboard message");
+    expect(thirdText).toContain("newer archived dashboard message");
+    expect(thirdText).toContain("current dashboard message");
+    expect(thirdMessages.filter((message) => String(message.content || "").includes("old dashboard message"))).toHaveLength(1);
+    expect(thirdMessages.map((message) => message.__openclaw?.seq)).toEqual([1, 2, 3]);
+    expect(thirdMessages.map((message) => message.__openclaw?.gatewaySeq)).toEqual([1, 2, 1]);
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_archive_imports WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 1 });
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_messages WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 3 });
+    await app.close();
+  });
+
+  test("archived tool-call history is imported as messages without resurrecting active tools", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-desktop-archive-tools-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    const archiveDir = path.join(sessionsDir, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    const sessionKey = "agent:main:desktop:tools";
+    const currentFile = path.join(sessionsDir, "current-tools.jsonl");
+    const archivedFile = path.join(archiveDir, "old-tools.jsonl.reset.2026-05-20T00-00-00.000Z");
+    const sender = JSON.stringify({ label: "Jarvis Middleware (openclaw-control-ui)", id: "openclaw-control-ui", name: "Jarvis Middleware" });
+    const content = (text: string) => `Sender (untrusted metadata):\n\`\`\`json\n${sender}\n\`\`\`\n\n${text}`;
+    const archivedAssistant = JSON.stringify({
+      type: "message",
+      id: "archived-assistant-tool",
+      timestamp: "2026-05-20T00:00:00.000Z",
+      message: { role: "assistant", content: [{ type: "thinking", text: "older thought" }, { type: "toolCall", id: "old-tool", name: "web_fetch", input: { url: "https://example.com" } }] },
+    });
+    const archivedToolResult = JSON.stringify({
+      type: "message",
+      id: "archived-tool-result",
+      timestamp: "2026-05-20T00:00:01.000Z",
+      message: { role: "toolResult", content: [{ type: "toolResult", toolCallId: "old-tool", result: "older result" }] },
+    });
+    const currentLine = JSON.stringify({ type: "message", id: "current-user", timestamp: "2026-05-20T00:01:00.000Z", message: { role: "user", content: content("current plain message") } });
+    fs.writeFileSync(archivedFile, `${archivedAssistant}\n${archivedToolResult}\n`);
+    fs.writeFileSync(currentFile, `${currentLine}\n`);
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> }, db: Database.Database } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "chat.history") return { sessionKey, sessionId: "current-tools", sessionFile: currentFile, messages: [{ role: "user", content: content("current plain message"), __openclaw: { id: "current-user", seq: 1 } }] };
+      return {};
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    expect(res.statusCode).toBe(200);
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_messages WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 3 });
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_tool_calls WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 0 });
     await app.close();
   });
 

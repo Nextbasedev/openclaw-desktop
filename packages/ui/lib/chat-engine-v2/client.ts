@@ -99,6 +99,38 @@ export async function fetchChatBootstrapV2(sessionKey: string, limit = 200): Pro
   return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`)
 }
 
+export type ChatMessagesPageV2 = {
+  ok: boolean
+  source?: string
+  sessionKey: string
+  messages: Array<{
+    sessionKey: string
+    openclawSeq: number
+    gatewaySeq?: number | null
+    segmentId?: string | null
+    messageId: string | null
+    role: string | null
+    data: unknown
+    updatedAtMs: number
+  }>
+  messageCount: number
+}
+
+export async function fetchChatMessagesV2(input: {
+  sessionKey: string
+  beforeSeq?: number
+  afterSeq?: number
+  limit?: number
+}): Promise<ChatMessagesPageV2> {
+  const params = new URLSearchParams({
+    sessionKey: input.sessionKey,
+    limit: String(input.limit ?? 80),
+  })
+  if (typeof input.beforeSeq === "number") params.set("beforeSeq", String(input.beforeSeq))
+  if (typeof input.afterSeq === "number") params.set("afterSeq", String(input.afterSeq))
+  return fetchJson<ChatMessagesPageV2>(`/api/chat/messages?${params.toString()}`)
+}
+
 async function replayPatchBacklog(afterCursor: number, onFrame: (frame: StreamFrame) => void) {
   let cursor = Math.max(0, afterCursor)
   for (let i = 0; i < 25; i++) {
