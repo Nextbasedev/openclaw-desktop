@@ -826,13 +826,19 @@ describe("global V2 chat engine store", () => {
       },
     })
 
-    expect(getGlobalChatSession("s1")?.pendingTools).toMatchObject([
-      {
-        id: "tc-approval",
-        status: "success",
-        approval: { id: "approval-456", slug: "exec-123", command: "touch /tmp/x", allowedDecisions: ["allow-once", "deny"] },
-      },
-    ])
+    const state = getGlobalChatSession("s1")
+    // With the duplicate-tool-card fix, completed tools are removed from
+    // pendingTools once written to message history. Verify the tool is
+    // correctly stored in the assistant message's toolCalls instead.
+    const assistantMsg = state?.messages.find((m) => m.role === "assistant")
+    const toolInMessage = assistantMsg?.toolCalls?.find((t) => t.id === "tc-approval")
+    expect(toolInMessage).toMatchObject({
+      id: "tc-approval",
+      status: "success",
+      approval: { id: "approval-456", slug: "exec-123", command: "touch /tmp/x", allowedDecisions: ["allow-once", "deny"] },
+    })
+    // Should no longer be in pendingTools since it was written to the message
+    expect(state?.pendingTools.find((t) => t.id === "tc-approval")).toBeUndefined()
   })
 
   test("keeps live canonical tool partial output while the tool is running", () => {
@@ -2341,5 +2347,195 @@ describe("global V2 chat engine store", () => {
     expect(cached.history.messages).toMatchObject([{ messageId: "a1", text: "cached globally" }])
     expect(cached.history.sessionStatus).toBe("done")
     expect(cached.v2Cursor).toBe(9)
+  })
+
+  // --- Bug 1: Duplicate tool card prevention ---
+
+  test("completed canonical tool is removed from pendingTools when written to message", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tc-1", tool: "exec", status: "running", startedAt: Date.now() - 1000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "run it" },
+        { messageId: "a1", role: "assistant", text: "", toolCalls: [{ id: "tc-1", tool: "exec", status: "running" }] },
+      ],
+    })
+
+    // Canonical tool result patch
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: { toolCallId: "tc-1", name: "exec", phase: "result", status: "success", startedAtMs: Date.now() - 1000, finishedAtMs: Date.now() },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    // Tool should be removed from pendingTools
+    expect(state?.pendingTools.find((t) => t.id === "tc-1")).toBeUndefined()
+    // Tool should be updated in message toolCalls
+    const assistantMsg = state?.messages.find((m) => m.messageId === "a1")
+    expect(assistantMsg?.toolCalls?.find((t) => t.id === "tc-1")?.status).toBe("success")
+  })
+
+  test("completed canonical tool stays in pendingTools when no message exists yet", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tc-orphan", tool: "read", status: "running", startedAt: Date.now() - 500 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "check this" },
+        // No assistant message yet — tool result arrives before message
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.tool.result",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: { toolCallId: "tc-orphan", name: "read", phase: "result", status: "success", startedAtMs: Date.now() - 500, finishedAtMs: Date.now() },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    // Tool should remain in pendingTools since it couldn't be written to a message
+    expect(state?.pendingTools.find((t) => t.id === "tc-orphan")).toBeDefined()
+    expect(state?.pendingTools.find((t) => t.id === "tc-orphan")?.status).toBe("success")
+  })
+
+  test("tool result via applyToolResultById removes completed tool from pendingTools when in message", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tc-2", tool: "write", status: "running", startedAt: Date.now() - 2000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "write file" },
+        { messageId: "a1", role: "assistant", text: "", toolCalls: [{ id: "tc-2", tool: "write", status: "running" }] },
+      ],
+    })
+
+    // Tool result arrives as a tool_result message (not canonical toolCall patch)
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            role: "tool",
+            toolCallId: "tc-2",
+            content: "File written successfully",
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.pendingTools.find((t) => t.id === "tc-2")).toBeUndefined()
+    expect(state?.messages.find((m) => m.messageId === "a1")?.toolCalls?.find((t) => t.id === "tc-2")?.status).toBe("success")
+  })
+
+  test("running tool stays in pendingTools until result arrives", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tc-run", tool: "exec", status: "running", startedAt: Date.now() }],
+      messages: [
+        { messageId: "u1", role: "user", text: "go" },
+        { messageId: "a1", role: "assistant", text: "", toolCalls: [{ id: "tc-run", tool: "exec", status: "running" }] },
+      ],
+    })
+
+    // Another tool starts — no result for tc-run yet
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.tool.started",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          toolCall: { toolCallId: "tc-new", name: "read", phase: "calling", status: "running", startedAtMs: Date.now() },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.pendingTools.find((t) => t.id === "tc-run")?.status).toBe("running")
+    expect(state?.pendingTools.find((t) => t.id === "tc-new")?.status).toBe("running")
+  })
+
+  test("awaitingResult tool stays visible through UI filter", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tc-approval", tool: "exec", status: "running", awaitingResult: true, startedAt: Date.now() }],
+      messages: [
+        { messageId: "u1", role: "user", text: "deploy" },
+      ],
+    })
+
+    const state = getGlobalChatSession("s1")
+    const filtered = state?.pendingTools.filter((t) => t.status === "running" || t.awaitingResult)
+    expect(filtered?.find((t) => t.id === "tc-approval")).toBeDefined()
+  })
+
+  test("terminal done with leftover completed tools in pendingTools clears them", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "streaming",
+      pendingTools: [
+        { id: "tc-done-1", tool: "exec", status: "success", duration: "1.0s" },
+        { id: "tc-done-2", tool: "read", status: "success", duration: "0.5s" },
+      ],
+      messages: [
+        { messageId: "u1", role: "user", text: "go" },
+        { messageId: "a1", role: "assistant", text: "done" },
+      ],
+    })
+
+    // Done status arrives
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.status",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          runStatus: "done",
+          status: "done",
+          statusLabel: null,
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.status).toBe("done")
+    expect(state?.pendingTools).toEqual([])
   })
 })

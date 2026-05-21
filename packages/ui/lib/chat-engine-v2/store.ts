@@ -393,7 +393,12 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
     next[pendingIndex] = mergedTool
     state.pendingTools = next
   }
-  updateToolInMessages(state, mergedTool)
+  const writtenToMessage = updateToolInMessages(state, mergedTool)
+  // Remove completed tools from pendingTools once persisted in message
+  // history to prevent duplicate tool card rendering.
+  if (pendingIndex >= 0 && (mergedTool.status === "success" || mergedTool.status === "error") && writtenToMessage) {
+    state.pendingTools = state.pendingTools.filter((t) => t.id !== mergedTool.id)
+  }
 
   if (existing.tool === "sessions_spawn") {
     const childKey = extractSubagentSessionKey(params.source) ?? extractSubagentSessionKey(params.resultText)
@@ -664,7 +669,15 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   })
   const mergedTool = pending.get(inline.id) ?? inline
   state.pendingTools = Array.from(pending.values())
-  updateToolInMessages(state, mergedTool)
+  const writtenToMessage = updateToolInMessages(state, mergedTool)
+  // Remove completed tools from pendingTools once they are persisted in a
+  // message's toolCalls. This prevents the UI from rendering the same tool
+  // card twice (once in message history, once as a live pending tool).
+  // If the tool has not been written to any message yet, keep it in
+  // pendingTools so finalizeActiveToolsForTerminalStatus can attach it later.
+  if ((inline.status === "success" || inline.status === "error") && writtenToMessage) {
+    state.pendingTools = state.pendingTools.filter((t) => t.id !== inline.id)
+  }
   if (inline.status === "running") {
     promoteRunningToolStatus(state, inline.tool)
   }
