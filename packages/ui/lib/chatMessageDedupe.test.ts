@@ -4,42 +4,41 @@ import { dedupeChatMessages } from "./chatMessageDedupe"
 import type { ChatMessage } from "../components/ChatView/types"
 
 describe("dedupeChatMessages", () => {
-  it("renders history in chronological chat order even when loaded out of order", () => {
+  it("renders projected history by global seq even when segment timestamps move backward", () => {
     const messages: ChatMessage[] = [
       {
-        messageId: "u-new",
+        messageId: "u-current",
         role: "user",
-        text: "How are you?",
+        text: "current segment",
         createdAt: "2026-05-14T10:39:00.000Z",
-        gatewayIndex: 2,
+        gatewayIndex: 70,
       },
       {
-        messageId: "a-new",
+        messageId: "a-current",
         role: "assistant",
-        text: "Doing well.",
+        text: "current answer",
         createdAt: "2026-05-14T10:39:01.000Z",
-        gatewayIndex: 3,
+        gatewayIndex: 71,
       },
       {
-        messageId: "u-old",
+        messageId: "u-archive",
         role: "user",
-        text: "hello",
-        createdAt: "2026-05-14T09:35:00.000Z",
-        gatewayIndex: 10,
+        text: "archived segment",
+        createdAt: "2026-05-14T10:20:00.000Z",
+        gatewayIndex: 68,
       },
       {
-        messageId: "a-old",
+        messageId: "a-archive",
         role: "assistant",
-        text: "Workspace is deactivated.",
-        createdAt: "2026-05-14T09:35:01.000Z",
-        gatewayIndex: 11,
-        stopReason: "error",
+        text: "archived answer",
+        createdAt: "2026-05-14T10:20:01.000Z",
+        gatewayIndex: 69,
       },
     ]
 
     assert.deepEqual(
       dedupeChatMessages(messages).map((message) => message.messageId),
-      ["u-old", "a-old", "u-new", "a-new"],
+      ["u-archive", "a-archive", "u-current", "a-current"],
     )
   })
 
