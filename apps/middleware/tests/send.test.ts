@@ -614,6 +614,39 @@ describe("chat send routes", () => {
     await app.close();
   });
 
+  test("partial execPolicy only patches explicitly provided fields", async () => {
+    const app = await createApp(config("partial-exec-policy"));
+    const context = contextOf(app);
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    vi.spyOn(context.gateway, "request").mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      calls.push({ method, params: params ?? {} });
+      return method === "chat.send" ? { runId: "r1" } : { ok: true };
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", execPolicy: { security: "allowlist" } },
+    });
+    expect(res.statusCode).toBe(200);
+    const patchCall = calls.find((call) => call.method === "sessions.patch");
+    expect(patchCall?.params).toEqual({ key: "s1", execSecurity: "allowlist" });
+    await app.close();
+  });
+
+  test("rejects invalid execPolicy instead of clearing policy fields", async () => {
+    const app = await createApp(config("invalid-exec-policy"));
+    const context = contextOf(app);
+    const gatewayRequest = vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: { sessionKey: "s1", text: "hello", idempotencyKey: "stable-key", execPolicy: { security: "invalid" } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(gatewayRequest).not.toHaveBeenCalledWith("sessions.patch", expect.anything());
+    await app.close();
+  });
+
   test("accepts send before Gateway chat.send finishes", async () => {
     const app = await createApp(config("accept-before-gateway"));
     const context = contextOf(app);

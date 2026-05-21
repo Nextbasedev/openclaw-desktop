@@ -53,10 +53,15 @@ describe("patch stream", () => {
     expect(res.headers.get("content-type") || "").toContain("text/event-stream");
     const reader = res.body?.getReader();
     if (!reader) throw new Error("missing cron SSE reader");
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     const first = await Promise.race([
       reader.read(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout waiting for cron.ready")), 5_000)),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("timeout waiting for cron.ready")), 5_000);
+        timeout.unref?.();
+      }),
     ]);
+    if (timeout) clearTimeout(timeout);
     const text = new TextDecoder().decode(first.value);
     expect(text).toContain("event: cron.ready");
     controller.abort();

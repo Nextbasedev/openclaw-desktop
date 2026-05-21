@@ -6,27 +6,42 @@ const config = loadEnv();
 const log = createLogger("server");
 const app = await createApp(config);
 
-function startGatewayAutoConnect() {
-  const context = (app as typeof app & { v2Context?: AppContext }).v2Context;
-  if (!context) return;
+function startGatewayAutoConnect(context: AppContext) {
+  let stopped = false;
   let attempt = 0;
-  const connect = () => {
-    attempt += 1;
-    const delayMs = Math.min(60_000, attempt <= 1 ? 0 : 1_000 * 2 ** Math.min(attempt - 2, 5));
-    setTimeout(() => {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const retryDelayMs = () => Math.min(60_000, 1_000 * 2 ** Math.min(Math.max(0, attempt - 1), 6));
+  const schedule = (delayMs: number) => {
+    if (stopped) return;
+    timer = setTimeout(() => {
+      timer = null;
+      if (stopped) return;
+      attempt += 1;
       log.info("gateway.autoconnect.start", { attempt });
       void context.gateway.connect()
-        .then(() => log.info("gateway.autoconnect.ready", { attempt, connected: context.gateway.status().connected }))
+        .then(() => {
+          if (!stopped) log.info("gateway.autoconnect.ready", { attempt, connected: context.gateway.status().connected });
+        })
         .catch((error) => {
-          log.warn("gateway.autoconnect.fail", { attempt, nextRetryMs: Math.min(60_000, 1_000 * 2 ** Math.min(attempt - 1, 5)), ...errorMeta(error) });
-          connect();
+          if (stopped) return;
+          const nextRetryMs = retryDelayMs();
+          log.warn("gateway.autoconnect.fail", { attempt, nextRetryMs, ...errorMeta(error) });
+          schedule(nextRetryMs);
         });
-    }, delayMs).unref?.();
+    }, delayMs);
+    timer.unref?.();
   };
-  connect();
+  schedule(0);
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
 }
 
 log.info("listen.start", { host: config.host, port: config.port });
 await app.listen({ host: config.host, port: config.port });
 log.info("listen.end", { host: config.host, port: config.port });
-startGatewayAutoConnect();
+const context = (app as typeof app & { v2Context?: AppContext }).v2Context;
+const stopGatewayAutoConnect = context ? startGatewayAutoConnect(context) : null;
+if (stopGatewayAutoConnect) app.addHook("onClose", async () => stopGatewayAutoConnect());
