@@ -1528,7 +1528,7 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
     const label = parsed.kind === "group"
-      ? String(session.topicName || session.proposedName || "Telegram import")
+      ? String(session.proposedName || session.topicName || "Telegram import")
       : String(session.proposedName || "Telegram import");
     if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: label, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true }); continue; }
     try {
@@ -1794,6 +1794,13 @@ function isGatewayOnlySyncedChat(chat: CompatRecord) {
   return Boolean(sessionKey && chat.id === stableCompatId("chat", sessionKey));
 }
 
+function isGatewayOnlySyncedSession(session: CompatRecord) {
+  const sessionKey = typeof session.sessionKey === "string" && session.sessionKey.trim()
+    ? session.sessionKey.trim()
+    : (typeof session.key === "string" && session.key.trim() ? session.key.trim() : null);
+  return Boolean(sessionKey && !isDesktopSessionKey(sessionKey) && session.id === stableCompatId("session", sessionKey));
+}
+
 function touchCompatChatActivity(context: AppContext, input: { sessionKey: string; at?: string; lastMessageText?: string | null }) {
   loadCompatState(context);
   const sessionKey = input.sessionKey.trim();
@@ -1995,6 +2002,15 @@ async function syncGatewaySessions(context: AppContext) {
       return syncedSessionKeys.has(sessionKey);
     });
     if (compatState.chats.length !== beforeCleanup) changed = true;
+    const beforeSessionCleanup = compatState.sessions.length;
+    compatState.sessions = compatState.sessions.filter((session) => {
+      if (!isGatewayOnlySyncedSession(session)) return true;
+      const sessionKey = typeof session.sessionKey === "string" && session.sessionKey.trim()
+        ? session.sessionKey.trim()
+        : (typeof session.key === "string" ? session.key.trim() : "");
+      return syncedSessionKeys.has(sessionKey);
+    });
+    if (compatState.sessions.length !== beforeSessionCleanup) changed = true;
     if (changed) saveCompatState(context);
   } catch {
     // Gateway session sync is best-effort; local compat data must still render offline.
