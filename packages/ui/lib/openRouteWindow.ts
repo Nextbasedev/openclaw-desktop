@@ -1,15 +1,25 @@
 import { routeUrl } from "@/lib/app-router"
 
-function absoluteRouteUrl(path: string) {
-  if (typeof window === "undefined") return routeUrl(path)
-  return new URL(routeUrl(path), window.location.href).toString()
+function newWindowId() {
+  const random = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  return `window-${random}`
 }
 
-function routeWindowUrl(path: string) {
-  const url = routeUrl(path)
-  if (url.startsWith("/#")) return `/?openclawNativeChrome=1${url.slice(1)}`
-  const separator = url.includes("?") ? "&" : "?"
-  return `${url}${separator}openclawNativeChrome=1`
+function withWindowParams(url: string, params: Record<string, string | boolean>) {
+  const [beforeHash, hash = ""] = url.split("#", 2)
+  const separator = beforeHash.includes("?") ? "&" : "?"
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) query.set(key, String(value))
+  return `${beforeHash}${separator}${query.toString()}${hash ? `#${hash}` : ""}`
+}
+
+export function routeWindowUrl(path: string, windowId = newWindowId(), nativeChrome = false) {
+  return withWindowParams(routeUrl(path), {
+    ...(nativeChrome ? { openclawNativeChrome: true } : {}),
+    openclawWindowId: windowId,
+  })
 }
 
 function isMacPlatform() {
@@ -20,14 +30,17 @@ function isMacPlatform() {
 }
 
 export async function openRouteInNewWindow(path: string, title = "OpenClaw") {
-  const url = absoluteRouteUrl(path)
+  const windowId = newWindowId()
+  const url = typeof window === "undefined"
+    ? routeWindowUrl(path, windowId)
+    : new URL(routeWindowUrl(path, windowId), window.location.href).toString()
 
   if (typeof window !== "undefined" && window.__TAURI_INTERNALS__) {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow")
     const label = `openclaw-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`
     const useNativeWindowChrome = isMacPlatform()
     const win = new WebviewWindow(label, {
-      url: useNativeWindowChrome ? routeWindowUrl(path) : routeUrl(path),
+      url: routeWindowUrl(path, windowId, useNativeWindowChrome),
       title,
       width: 1280,
       height: 860,
