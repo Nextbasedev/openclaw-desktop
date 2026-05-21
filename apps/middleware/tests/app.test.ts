@@ -191,6 +191,29 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("deleting an imported Telegram desktop chat does not delete the source Telegram session", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async () => ({ ok: true }));
+    const sourceSessionKey = "agent:main:telegram:group:-1001:topic:42";
+    const desktopSessionKey = "agent:main:desktop:migrated-telegram-safe-delete";
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/chats",
+      payload: { name: "Imported Telegram", agentId: "main", sessionKey: desktopSessionKey },
+    });
+    const chatId = createRes.json().chat.id as string;
+
+    const deleteRes = await app.inject({ method: "DELETE", url: `/api/chats/${chatId}` });
+
+    expect(deleteRes.statusCode).toBe(200);
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.delete", { key: desktopSessionKey, deleteTranscript: true }, 2_000);
+    expect(context.gateway.request).not.toHaveBeenCalledWith("sessions.delete", { key: sourceSessionKey, deleteTranscript: true }, 2_000);
+    expect(context.gateway.request.mock.calls.some(([method, payload]) => method === "sessions.delete" && payload?.key === sourceSessionKey)).toBe(false);
+    await app.close();
+  });
+
   test("voice settings commands read/write config and provider access", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-settings-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
