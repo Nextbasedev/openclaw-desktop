@@ -34,8 +34,10 @@ export type AppContext = {
   startedAtMs: number;
 };
 
+export const MIDDLEWARE_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
+
 export async function createApp(config: MiddlewareConfig) {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, bodyLimit: MIDDLEWARE_BODY_LIMIT_BYTES });
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
     const raw = typeof body === "string" ? body.trim() : "";
