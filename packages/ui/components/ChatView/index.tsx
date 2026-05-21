@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -727,7 +727,7 @@ export function ChatView({
   const renderedMessages = visibleAllMessages
   const lastHistoryScrollVersionRef = useRef(0)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isBackgroundSession) return
     if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
     if (renderedMessages.length === 0) return

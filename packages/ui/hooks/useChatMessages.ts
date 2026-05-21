@@ -504,6 +504,9 @@ export function useChatMessages(
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
   const [historyLoadVersion, setHistoryLoadVersion] = useState(0)
+  const markHistoryLoaded = useCallback(() => {
+    setHistoryLoadVersion((value) => value + 1)
+  }, [])
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -1224,7 +1227,7 @@ export function useChatMessages(
               ]
             })
           }
-          scrollToBottom(true)
+          scrollToBottom(false)
           break
         }
         case "chat.error":
@@ -1286,6 +1289,7 @@ export function useChatMessages(
         )
       )
       setMessages(warmMessages)
+      markHistoryLoaded()
       const warmStatus = useCachedGlobal && cachedGlobal?.status
         ? cachedGlobal.status
         : cachedBootstrap?.runStatus
@@ -1390,6 +1394,7 @@ export function useChatMessages(
         )
         suppressNextWarmPersistRef.current = true
         setMessages(cachedMessages)
+        markHistoryLoaded()
         setStatus(effectiveStatus)
         setStatusLabel(effectiveLabel)
         if (cached.entry.pendingTools?.length) {
@@ -1523,7 +1528,7 @@ export function useChatMessages(
         if (isActiveRunStatus(seedStatus)) markOptimisticChatActivity(sessionKey, seedStatusLabel)
         else clearCachedChatActivity(sessionKey)
         setLoading(false)
-        setHistoryLoadVersion((value) => value + 1)
+        markHistoryLoaded()
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,
@@ -1538,7 +1543,6 @@ export function useChatMessages(
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
-        forceScrollToBottom(false)
 
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
@@ -1599,10 +1603,10 @@ export function useChatMessages(
     handleStreamEvent,
     initialMessageKey,
     initialMessages,
-    forceScrollToBottom,
     streamGeneration,
     queryClient,
     reconcileActiveRun,
+    markHistoryLoaded,
   ])
 
   useEffect(() => {
