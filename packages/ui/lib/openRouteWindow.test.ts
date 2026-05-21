@@ -29,7 +29,7 @@ describe("openRouteWindow", () => {
       "/?openclawWindowId=window-test#/chat-1",
     )
     expect(routeWindowUrl("/chat-1", "window-test", true)).toBe(
-      "/?openclawNativeChrome=true&openclawWindowId=window-test#/chat-1",
+      "/?openclawNativeChrome=1&openclawWindowId=window-test#/chat-1",
     )
   })
 })

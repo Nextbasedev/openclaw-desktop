@@ -17,7 +17,7 @@ function withWindowParams(url: string, params: Record<string, string | boolean>)
 
 export function routeWindowUrl(path: string, windowId = newWindowId(), nativeChrome = false) {
   return withWindowParams(routeUrl(path), {
-    ...(nativeChrome ? { openclawNativeChrome: true } : {}),
+    ...(nativeChrome ? { openclawNativeChrome: "1" } : {}),
     openclawWindowId: windowId,
   })
 }

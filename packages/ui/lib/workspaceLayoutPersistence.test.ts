@@ -22,14 +22,16 @@ function createStorage() {
 function mockWindow(search = "", name = "") {
   const sessionStorage = createStorage()
   const localStorage = createStorage()
+  const location = { search }
   vi.stubGlobal("window", {
-    location: { search },
+    location,
     sessionStorage,
     localStorage,
     name,
   })
   vi.stubGlobal("localStorage", localStorage)
   vi.stubGlobal("sessionStorage", sessionStorage)
+  return { location, sessionStorage, localStorage }
 }
 
 function snapshot(): WorkspaceLayoutSnapshot {
@@ -64,6 +66,16 @@ describe("workspace layout persistence", () => {
 
   it("uses a URL-provided id for secondary window cache keys", () => {
     mockWindow("?openclawWindowId=window-test")
+
+    expect(currentWorkspaceLayoutWindowId()).toBe("window-test")
+    expect(workspaceLayoutCacheKey()).toBe("workspace:last-layout:v1:window-test")
+  })
+
+  it("keeps using the URL-provided id after query params disappear", () => {
+    const { location } = mockWindow("?openclawWindowId=window-test")
+
+    expect(currentWorkspaceLayoutWindowId()).toBe("window-test")
+    location.search = ""
 
     expect(currentWorkspaceLayoutWindowId()).toBe("window-test")
     expect(workspaceLayoutCacheKey()).toBe("workspace:last-layout:v1:window-test")
