@@ -17,7 +17,12 @@ Domain-specific rules that code MUST follow:
 - **[lessons/README.md](lessons/README.md)** — Post-incident learnings with template
 
 ## Skills
-- **[pr-review](skills/pr-review/SKILL.md)** — Three-agent parallel PR review
+Repeatable workflows for AI agents:
+- **[feature-plan](skills/feature-plan/SKILL.md)** — Research and plan features (produces implementation doc)
+- **[feature-build](skills/feature-build/SKILL.md)** — Implement features (branch, code, test, self-review)
+- **[feature-review](skills/feature-review/SKILL.md)** — Three-agent parallel branch review (before PR)
+- **[feature-ship](skills/feature-ship/SKILL.md)** — Create PR and ship (after review)
+- **[pr-review](skills/pr-review/SKILL.md)** — Three-agent parallel PR review (on existing PRs)
 
 ## Archive
 - **[archive/](archive/)** — Historical documentation (pre-2026-05-21, preserved for reference)
