@@ -1523,7 +1523,22 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
     if (!parsed) continue;
     if (skipAlreadyImported && session.alreadyImported) {
       const repaired = repairImportedSessionSpace("telegram", session.sourceSessionKey, targetSpaceId);
-      skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired });
+      // Repair missing chat entries for previously imported group topics
+      // that only had session + topic but no chat (pre-fix imports).
+      let repairedChat = false;
+      if (parsed.kind === "group") {
+        const hasChat = compatState.chats.some((chat) => chat.importedFrom?.sourceSessionKey === session.sourceSessionKey);
+        if (!hasChat) {
+          const existingSession = compatState.sessions.find((s) => s.importedFrom?.sourceSessionKey === session.sourceSessionKey);
+          if (existingSession?.sessionKey) {
+            const chatId = id("chat");
+            const timestamp = nowIso();
+            compatState.chats.push({ id: chatId, name: existingSession.label || session.proposedName || "Telegram import", sessionKey: existingSession.sessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId: existingSession.projectId ?? null, topicId: existingSession.topicId ?? null, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
+            repairedChat = true;
+          }
+        }
+      }
+      skipped.push({ sourceSessionKey: session.sourceSessionKey, reason: "already_imported", repairedSpace: repaired, repairedChat });
       continue;
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
@@ -1554,6 +1569,9 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
         topicId = id("topic");
         compatState.topics.push({ id: topicId, projectId, name: label, archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } });
         compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
+        // Also create a chat entry so group topics appear in the sidebar chat list
+        chatId = id("chat");
+        compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId, topicId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
       } else {
         chatId = id("chat");
         compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
@@ -3302,13 +3320,16 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     await syncGatewaySessions(context);
     applyProjectedChatActivity(context);
     const spaceId = activeSpaceId();
+    const projects = listBySpace(compatState.projects, spaceId);
+    const projectIds = new Set(projects.map((project) => project.id).filter(Boolean));
     return {
       ok: true,
       service: "openclaw-middleware",
       spaces: compatState.spaces.filter(visibleSpace),
       activeSpaceId: spaceId,
       chats: sortedChatsForResponse(spaceId, false),
-      projects: listBySpace(compatState.projects, spaceId),
+      projects,
+      topics: compatState.topics.filter((topic) => notDeleted(topic) && projectIds.has(topic.projectId)),
       sessions: sessionsForSpace(spaceId),
       gateway,
     };
