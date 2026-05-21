@@ -270,8 +270,7 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       const bTime = messageTimeMs(b.message)
       const aHasTime = typeof aTime === "number"
       const bHasTime = typeof bTime === "number"
-      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
-      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
+      if (aHasTime && bHasTime && aTime === bTime && a.message.role !== b.message.role) {
         return roleOrder(a.message) - roleOrder(b.message)
       }
 
@@ -280,6 +279,11 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
       const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
       if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
+
+      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
+      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
 
       // Do not let a newly-sent optimistic message jump above older restored
       // history just because the old messages have no createdAt/gatewayIndex.

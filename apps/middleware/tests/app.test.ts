@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -394,6 +395,28 @@ describe("middleware app", () => {
               createdAt: "2026-05-13T05:00:00.000Z",
               updatedAt: "2026-05-13T05:30:00.000Z",
             },
+            {
+              key: "agent:main:desktop:migrated-telegram-123",
+              label: "Migrated Telegram Topic",
+              agentId: "main",
+              parentSessionKey: "agent:main:telegram:group:-1001:topic:42",
+              createdAt: "2026-05-13T05:45:00.000Z",
+              updatedAt: "2026-05-13T05:50:00.000Z",
+            },
+            {
+              key: "agent:main:telegram:group:-1001:topic:42",
+              label: "Telegram Topic",
+              agentId: "main",
+              createdAt: "2026-05-13T06:00:00.000Z",
+              updatedAt: "2026-05-13T06:30:00.000Z",
+            },
+            {
+              key: "agent:main:discord:guild:1:channel:2",
+              label: "Discord Channel",
+              agentId: "main",
+              createdAt: "2026-05-13T07:00:00.000Z",
+              updatedAt: "2026-05-13T07:30:00.000Z",
+            },
           ],
         };
       }
@@ -404,12 +427,70 @@ describe("middleware app", () => {
     expect(bootstrap.statusCode).toBe(200);
     expect(bootstrap.json().chats).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Shared Chat", sessionKey: "agent:main:desktop:shared", spaceId: "space_default" }),
+      expect.objectContaining({ name: "Migrated Telegram Topic", sessionKey: "agent:main:desktop:migrated-telegram-123", spaceId: "space_default" }),
+    ]));
+    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
+      expect.objectContaining({ sessionKey: "agent:main:discord:guild:1:channel:2" }),
+    ]));
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Shared Chat", sessionKey: "agent:main:desktop:shared", spaceId: "space_default" }),
+      expect.objectContaining({ label: "Migrated Telegram Topic", sessionKey: "agent:main:desktop:migrated-telegram-123", spaceId: "space_default" }),
+    ]));
+    expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
+      expect.objectContaining({ sessionKey: "agent:main:discord:guild:1:channel:2" }),
     ]));
 
     const chats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
     expect(chats.json().chats).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Shared Chat", sessionKey: "agent:main:desktop:shared" }),
+      expect.objectContaining({ name: "Migrated Telegram Topic", sessionKey: "agent:main:desktop:migrated-telegram-123" }),
     ]));
+    expect(chats.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
+      expect.objectContaining({ sessionKey: "agent:main:discord:guild:1:channel:2" }),
+    ]));
+    await app.close();
+  });
+
+  test("bootstrap removes stale gateway-only non-desktop sessions from old syncs", async () => {
+    const config = testConfig();
+    const first = await createApp(config);
+    await first.close();
+
+    const staleTelegramKey = "agent:main:telegram:group:-1001:topic:42";
+    const staleDesktopKey = "agent:main:desktop:local-stale";
+    const stableId = (prefix: string, value: string) => `${prefix}_${crypto.createHash("sha1").update(value).digest("hex").slice(0, 16)}`;
+    const db = new Database(config.databasePath);
+    const timestamp = Date.now();
+    const save = db.prepare("INSERT INTO v2_compat_state(key, data_json, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET data_json = excluded.data_json, updated_at_ms = excluded.updated_at_ms");
+    save.run("spaces", JSON.stringify([{ id: "space_default", name: "My Workspace", archived: false }]), timestamp);
+    save.run("activeSpaceId", JSON.stringify("space_default"), timestamp);
+    save.run("chats", JSON.stringify([
+      { id: stableId("chat", staleTelegramKey), name: "Old Telegram", sessionKey: staleTelegramKey, spaceId: "space_default" },
+      { id: stableId("chat", staleDesktopKey), name: "Local Desktop", sessionKey: staleDesktopKey, spaceId: "space_default" },
+    ]), timestamp);
+    save.run("sessions", JSON.stringify([
+      { id: stableId("session", staleTelegramKey), key: staleTelegramKey, sessionKey: staleTelegramKey, label: "Old Telegram", spaceId: "space_default" },
+      { id: stableId("session", staleDesktopKey), key: staleDesktopKey, sessionKey: staleDesktopKey, label: "Local Desktop", spaceId: "space_default" },
+    ]), timestamp);
+    db.close();
+
+    const app = await createApp(config);
+    const context = (app as typeof app & { v2Context: { gateway: { connect: unknown; status: unknown; request: unknown } } }).v2Context;
+    context.gateway.connect = vi.fn(async () => undefined);
+    context.gateway.status = vi.fn(() => ({ connected: true, lastError: null }));
+    context.gateway.request = vi.fn(async (method: string) => method === "sessions.list" ? { sessions: [{ key: staleDesktopKey, label: "Local Desktop", agentId: "main" }] } : {});
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([expect.objectContaining({ sessionKey: staleTelegramKey })]));
+    expect(bootstrap.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ sessionKey: staleTelegramKey })]));
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ sessionKey: staleDesktopKey })]));
+
+    const sessions = await app.inject({ method: "GET", url: "/api/sessions" });
+    expect(sessions.json().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({ sessionKey: staleTelegramKey })]));
+    expect(sessions.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ sessionKey: staleDesktopKey })]));
     await app.close();
   });
 
@@ -566,6 +647,82 @@ describe("middleware app", () => {
         archivedMessageCount: 2,
         archivedTranscriptFiles: [archivedFile],
       }),
+    ]));
+    await app.close();
+  });
+
+  test("telegram group import names the desktop session from the topic name", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-topic-import-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const key = "agent:main:telegram:group:-1001:topic:42";
+    const currentFile = path.join(sessionsDir, "current-topic-42.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-topic.jsonl");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Desktop task B", is_group_chat: true });
+    const line = JSON.stringify({ type: "message", id: "c1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\nplease implement this very long request that should not become the imported chat name` } });
+    fs.writeFileSync(currentFile, `${line}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [key]: { sessionId: "current", sessionFile: currentFile, chatType: "group", subject: "Group" } }));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      return {};
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
+
+    expect(res.statusCode).toBe(200);
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({ label: "Desktop task B" }), 30_000);
+    expect(res.json().imported).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    const project = bootstrap.json().projects.find((item: { name?: string; id?: string }) => item.name === "Group");
+    expect(project).toBeTruthy();
+    const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
+    expect(topics.json().topics).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B" })]));
+    await app.close();
+  });
+
+  test("telegram group import keeps duplicate topic names unique", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-duplicate-topic-import-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const keyA = "agent:main:telegram:group:-1001:topic:42";
+    const keyB = "agent:main:telegram:group:-1001:topic:43";
+    const fileA = path.join(sessionsDir, "topic-42.jsonl");
+    const fileB = path.join(sessionsDir, "topic-43.jsonl");
+    const targetA = path.join(sessionsDir, "imported-topic-42.jsonl");
+    const targetB = path.join(sessionsDir, "imported-topic-43.jsonl");
+    const metaA = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "General", is_group_chat: true });
+    const metaB = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "43", group_subject: "Group", topic_name: "General", is_group_chat: true });
+    fs.writeFileSync(fileA, `${JSON.stringify({ type: "message", id: "a1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${metaA}\n\`\`\`\n\nfirst topic` } })}\n`);
+    fs.writeFileSync(fileB, `${JSON.stringify({ type: "message", id: "b1", timestamp: "2026-05-20T00:01:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${metaB}\n\`\`\`\n\nsecond topic` } })}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({
+      [keyA]: { sessionId: "current-a", sessionFile: fileA, chatType: "group", subject: "Group" },
+      [keyB]: { sessionId: "current-b", sessionFile: fileB, chatType: "group", subject: "Group" },
+    }));
+
+    const app = await createApp(testConfig());
+    const labels: unknown[] = [];
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") {
+        labels.push(params?.label);
+        return { payload: { entry: { sessionFile: labels.length === 1 ? targetA : targetB } }, label: params?.label };
+      }
+      return {};
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [keyA, keyB], skipAlreadyImported: false } });
+
+    expect(res.statusCode).toBe(200);
+    expect(labels).toEqual(["General", "General (2)"]);
+    expect(res.json().imported).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "General" }),
+      expect.objectContaining({ name: "General (2)" }),
     ]));
     await app.close();
   });

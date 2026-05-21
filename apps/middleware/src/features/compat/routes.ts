@@ -1021,9 +1021,12 @@ function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
     const archivedTranscriptFiles = sourceSessionFile ? archivedTelegramTranscriptFiles(sourceSessionFile, parsed) : [];
     const messages = [...archivedTranscriptFiles, sourceSessionFile].filter(Boolean).flatMap((file) => transcriptMessagesFromJsonl(file));
     const telegramMeta = telegramMetaFromMessages(messages);
+    const topicName = parsed.kind === "group"
+      ? (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId))
+      : undefined;
     const fallback = parsed.kind === "direct"
       ? (telegramMeta?.sender || "Telegram direct")
-      : (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId));
+      : (topicName || telegramTopicFallback(entry, parsed.topicId));
     const preview = lastUserMessagePreview(messages);
     const proposedName = uniqueName(parsed.kind === "group" ? fallback : (preview ? preview.slice(0, 45).trim() : fallback), usedNames);
     return {
@@ -1040,7 +1043,7 @@ function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
       groupId: parsed.kind === "group" ? parsed.groupId : undefined,
       groupName: parsed.kind === "group" ? (telegramMeta?.groupSubject || telegramGroupName(entry, parsed.groupId)) : undefined,
       topicId: parsed.kind === "group" ? parsed.topicId : undefined,
-      topicName: parsed.kind === "group" ? proposedName : undefined,
+      topicName: parsed.kind === "group" ? topicName : undefined,
       alreadyImported: importedKeys.has(sourceSessionKey),
     };
   }).filter(Boolean) as CompatRecord[];
@@ -1524,10 +1527,12 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       continue;
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
-    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: session.proposedName, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true }); continue; }
+    const label = parsed.kind === "group"
+      ? String(session.proposedName || session.topicName || "Telegram import")
+      : String(session.proposedName || "Telegram import");
+    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: label, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true }); continue; }
     try {
       const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`;
-      const label = session.proposedName || "Telegram import";
       const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label, parentSessionKey: session.sourceSessionKey }, 30_000);
       const transcriptPath = created?.payload?.entry?.sessionFile || created?.entry?.sessionFile;
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
@@ -1789,6 +1794,13 @@ function isGatewayOnlySyncedChat(chat: CompatRecord) {
   return Boolean(sessionKey && chat.id === stableCompatId("chat", sessionKey));
 }
 
+function isGatewayOnlySyncedSession(session: CompatRecord) {
+  const sessionKey = typeof session.sessionKey === "string" && session.sessionKey.trim()
+    ? session.sessionKey.trim()
+    : (typeof session.key === "string" && session.key.trim() ? session.key.trim() : null);
+  return Boolean(sessionKey && !isDesktopSessionKey(sessionKey) && session.id === stableCompatId("session", sessionKey));
+}
+
 function touchCompatChatActivity(context: AppContext, input: { sessionKey: string; at?: string; lastMessageText?: string | null }) {
   loadCompatState(context);
   const sessionKey = input.sessionKey.trim();
@@ -1857,6 +1869,10 @@ function gatewaySessionRows(payload: unknown): CompatRecord[] {
   return Array.isArray(rows) ? rows.filter((row): row is CompatRecord => Boolean(row) && typeof row === "object" && !Array.isArray(row)) : [];
 }
 
+function isDesktopSessionKey(sessionKey: string) {
+  return /^agent:[^:]+:desktop(?::|$)/.test(sessionKey);
+}
+
 async function syncGatewaySessions(context: AppContext) {
   try {
     // Startup/bootstrap should never block on establishing Gateway auth. If the
@@ -1872,8 +1888,8 @@ async function syncGatewaySessions(context: AppContext) {
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
-      syncedSessionKeys.add(sessionKey);
-      if (isSubagentRecord(row) || isSubagentSessionKeyValue(sessionKey)) {
+      const isDesktopSession = isDesktopSessionKey(sessionKey);
+      if (!isDesktopSession && (isSubagentRecord(row) || isSubagentSessionKeyValue(sessionKey))) {
         const existingSubagentChatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
         if (existingSubagentChatIndex >= 0) {
           compatState.chats[existingSubagentChatIndex] = { ...compatState.chats[existingSubagentChatIndex], deleted: true, archived: true };
@@ -1881,6 +1897,8 @@ async function syncGatewaySessions(context: AppContext) {
         }
         continue;
       }
+      if (!isDesktopSession) continue;
+      syncedSessionKeys.add(sessionKey);
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const rowCreatedAt = optionalTimestampField(row, ["createdAt", "created_at"]);
@@ -1984,6 +2002,15 @@ async function syncGatewaySessions(context: AppContext) {
       return syncedSessionKeys.has(sessionKey);
     });
     if (compatState.chats.length !== beforeCleanup) changed = true;
+    const beforeSessionCleanup = compatState.sessions.length;
+    compatState.sessions = compatState.sessions.filter((session) => {
+      if (!isGatewayOnlySyncedSession(session)) return true;
+      const sessionKey = typeof session.sessionKey === "string" && session.sessionKey.trim()
+        ? session.sessionKey.trim()
+        : (typeof session.key === "string" ? session.key.trim() : "");
+      return syncedSessionKeys.has(sessionKey);
+    });
+    if (compatState.sessions.length !== beforeSessionCleanup) changed = true;
     if (changed) saveCompatState(context);
   } catch {
     // Gateway session sync is best-effort; local compat data must still render offline.
