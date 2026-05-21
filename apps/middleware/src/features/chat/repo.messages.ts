@@ -87,6 +87,61 @@ export class MessageRepository {
     return { segmentId, sessionKey: params.sessionKey, sessionId, segmentIndex: nextIndex, baseSeq };
   }
 
+  archiveImportForFile(params: { sessionKey: string; filePath: string }) {
+    const row = this.db.prepare(`
+      SELECT session_key, file_path, file_mtime_ms, file_size, segment_id, message_count, imported_at_ms
+      FROM v2_archive_imports
+      WHERE session_key = @sessionKey AND file_path = @filePath
+    `).get(params) as {
+      session_key: string;
+      file_path: string;
+      file_mtime_ms: number;
+      file_size: number;
+      segment_id: string;
+      message_count: number;
+      imported_at_ms: number;
+    } | undefined;
+    if (!row) return null;
+    return {
+      sessionKey: row.session_key,
+      filePath: row.file_path,
+      fileMtimeMs: row.file_mtime_ms,
+      fileSize: row.file_size,
+      segmentId: row.segment_id,
+      messageCount: row.message_count,
+      importedAtMs: row.imported_at_ms,
+    };
+  }
+
+  isArchiveImportFresh(params: { sessionKey: string; filePath: string; fileMtimeMs: number; fileSize: number }) {
+    const row = this.archiveImportForFile(params);
+    if (!row) return false;
+    return row.fileMtimeMs === params.fileMtimeMs && row.fileSize === params.fileSize;
+  }
+
+  recordArchiveImport(params: { sessionKey: string; filePath: string; fileMtimeMs: number; fileSize: number; segmentId: string; messageCount: number }) {
+    this.db.prepare(`
+      INSERT INTO v2_archive_imports(session_key, file_path, file_mtime_ms, file_size, segment_id, message_count, imported_at_ms)
+      VALUES (@sessionKey, @filePath, @fileMtimeMs, @fileSize, @segmentId, @messageCount, @now)
+      ON CONFLICT(session_key, file_path) DO UPDATE SET
+        file_mtime_ms = excluded.file_mtime_ms,
+        file_size = excluded.file_size,
+        segment_id = excluded.segment_id,
+        message_count = excluded.message_count,
+        imported_at_ms = excluded.imported_at_ms
+    `).run({ ...params, now: Date.now() });
+  }
+
+  messageCountForSegment(segmentId: string) {
+    const row = this.db.prepare(`SELECT count(*) AS count FROM v2_messages WHERE segment_id = @segmentId`).get({ segmentId }) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
+  deleteMessagesForSegment(segmentId: string) {
+    const result = this.db.prepare(`DELETE FROM v2_messages WHERE segment_id = @segmentId`).run({ segmentId });
+    return Number(result.changes ?? 0);
+  }
+
   ensureActiveSegment(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; resetReason?: string | null }) {
     const sessionId = params.sessionId ?? null;
     const existing = this.getActiveSegment(params.sessionKey);

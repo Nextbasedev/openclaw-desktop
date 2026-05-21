@@ -150,17 +150,42 @@ function persistArchivedHistorySegments(context: AppContext, sessionKey: string,
     messages: history.messages ?? [],
   });
   let upserted = 0;
+  let importedFiles = 0;
+  let skippedFiles = 0;
+  let changedFiles = 0;
   for (const file of archivedFiles) {
     const archivedSessionId = archiveSessionIdFromFile(file);
     if (archivedSessionId && archivedSessionId === history.sessionId && history.sessionFile) continue;
+    const archiveStat = fs.statSync(file, { throwIfNoEntry: false });
+    if (!archiveStat) continue;
+    const filePath = path.resolve(file);
+    const fileMtimeMs = Math.round(archiveStat.mtimeMs);
+    const fileSize = archiveStat.size;
+    const existingSegment = context.messages.getSegmentForTranscript({ sessionKey, sessionId: archivedSessionId, sessionFile: filePath, active: false });
+    const existingImport = context.messages.archiveImportForFile({ sessionKey, filePath });
+    if (existingImport && existingImport.fileMtimeMs === fileMtimeMs && existingImport.fileSize === fileSize && existingSegment && context.messages.messageCountForSegment(existingSegment.segmentId) >= existingImport.messageCount) {
+      skippedFiles += 1;
+      continue;
+    }
+    const existingMessageCount = existingSegment ? context.messages.messageCountForSegment(existingSegment.segmentId) : 0;
+    if (!existingImport && existingSegment && existingMessageCount > 0) {
+      context.messages.recordArchiveImport({ sessionKey, filePath, fileMtimeMs, fileSize, segmentId: existingSegment.segmentId, messageCount: existingMessageCount });
+      skippedFiles += 1;
+      continue;
+    }
     const archivedMessages = transcriptMessagesFromJsonl(file);
     if (archivedMessages.length === 0) continue;
-    const archiveMtimeMs = fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? null;
-    const segment = context.messages.ensureArchivedSegment({ sessionKey, sessionId: archivedSessionId, sessionFile: file, resetReason: "archived_transcript", startedAtMs: archiveMtimeMs });
+    const segment = context.messages.ensureArchivedSegment({ sessionKey, sessionId: archivedSessionId, sessionFile: filePath, resetReason: "archived_transcript", startedAtMs: fileMtimeMs });
+    const staleImport = existingImport;
+    if (staleImport) context.messages.deleteMessagesForSegment(segment.segmentId);
     const normalized = normalizeHistoryMessages(sessionKey, archivedMessages);
-    upserted += context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq }).upserted;
+    const importBaseSeq = staleImport ? context.messages.nextMessageSeq(sessionKey) - 1 : segment.baseSeq;
+    upserted += context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: importBaseSeq }).upserted;
+    context.messages.recordArchiveImport({ sessionKey, filePath, fileMtimeMs, fileSize, segmentId: segment.segmentId, messageCount: normalized.length });
+    importedFiles += 1;
+    if (staleImport) changedFiles += 1;
   }
-  return { fileCount: archivedFiles.length, upserted };
+  return { fileCount: archivedFiles.length, importedFiles, skippedFiles, changedFiles, upserted, changed: importedFiles > 0 || changedFiles > 0 };
 }
 
 function lastMessageIsAssistantText(messages: unknown[]) {
@@ -940,7 +965,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
     const archivedProjection = persistArchivedHistorySegments(context, sessionKey, history);
-    if (archivedProjection.fileCount > 0) log.info("bootstrap.archived-history.persist", { sessionKey, archivedFiles: archivedProjection.fileCount, upserted: archivedProjection.upserted });
+    if (archivedProjection.fileCount > 0) log.info("bootstrap.archived-history.persist", { sessionKey, archivedFiles: archivedProjection.fileCount, importedFiles: archivedProjection.importedFiles, skippedFiles: archivedProjection.skippedFiles, changedFiles: archivedProjection.changedFiles, upserted: archivedProjection.upserted });
     const existingSession = context.messages.getSession(sessionKey);
     const segment = context.messages.ensureActiveSegment({
       sessionKey,
@@ -963,7 +988,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-    const resequence = archivedProjection.fileCount > 0 ? context.messages.resequenceSessionMessages(sessionKey) : { changedMessages: 0, changedSegments: 0 };
+    const resequence = archivedProjection.changed ? context.messages.resequenceSessionMessages(sessionKey) : { changedMessages: 0, changedSegments: 0 };
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
     if (resequence.changedMessages > 0 || resequence.changedSegments > 0) log.info("bootstrap.messages.resequence", { sessionKey, changedMessages: resequence.changedMessages, changedSegments: resequence.changedSegments });
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: bootstrapLastSeq });
