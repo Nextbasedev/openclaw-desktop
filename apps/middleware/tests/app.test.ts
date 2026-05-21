@@ -9,6 +9,7 @@ import type { AppContext } from "../src/app.js";
 import { loadEnv, type MiddlewareConfig } from "../src/config/env.js";
 import { migrateDatabase } from "../src/db/migrate.js";
 import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
+import { clearSyncGatewaySessionsCache } from "../src/features/compat/routes.js";
 
 function testConfig(overrides: Partial<MiddlewareConfig> = {}): MiddlewareConfig {
   return {
@@ -23,6 +24,7 @@ function testConfig(overrides: Partial<MiddlewareConfig> = {}): MiddlewareConfig
 
 afterEach(() => {
   vi.restoreAllMocks();
+  clearSyncGatewaySessionsCache();
 });
 
 describe("middleware app", () => {
@@ -642,6 +644,8 @@ describe("middleware app", () => {
     const topicId = topic.json().topic.id;
     await app.inject({ method: "POST", url: "/api/sessions", payload: { sessionKey, projectId, topicId, label: "Topic B" } });
 
+    // Clear the sync cache so the second bootstrap re-evaluates compat state
+    clearSyncGatewaySessionsCache();
     const secondBootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
 
     expect(secondBootstrap.json().chats).not.toEqual(expect.arrayContaining([

@@ -51,6 +51,7 @@ function normalizeStatusLabel(status: StreamStatus, label: string | null | undef
 
 const states = new Map<string, SessionState>()
 const listeners = new Map<string, Set<Listener>>()
+const PATCH_CURSOR_STORAGE_KEY = "openclaw:patchCursor"
 let globalCursor = 0
 let unsubscribeStream: (() => void) | null = null
 let queryClientRef: QueryClient | null = null
@@ -1235,9 +1236,21 @@ function handlePatch(frame: PatchFrame) {
   notify(sessionKey, frame)
 }
 
+function persistGlobalCursor() {
+  try { localStorage.setItem(PATCH_CURSOR_STORAGE_KEY, String(globalCursor)) } catch { /* noop — storage full or unavailable */ }
+}
+
+function restoreGlobalCursor() {
+  try {
+    const saved = Number(localStorage.getItem(PATCH_CURSOR_STORAGE_KEY) || "0")
+    if (Number.isFinite(saved) && saved > 0) globalCursor = Math.max(globalCursor, saved)
+  } catch { /* noop */ }
+}
+
 function handleFrame(frame: StreamFrame) {
   if (frame.type !== "patch") return
   handlePatch(frame)
+  persistGlobalCursor()
 }
 
 export function ensureGlobalChatEngine(queryClient?: QueryClient) {
@@ -1246,6 +1259,9 @@ export function ensureGlobalChatEngine(queryClient?: QueryClient) {
     sweepInterval = setInterval(() => sweepStaleGlobalChatSessions(), 60_000)
     frontendLog("session", "global-chat-engine.sweep.start", { intervalMs: 60_000 }, "debug")
   }
+  // Restore cursor from localStorage so page reloads / tab switches
+  // don't replay the entire patch history from cursor 0.
+  restoreGlobalCursor()
   for (const state of states.values()) {
     globalCursor = Math.max(globalCursor, state.cursor)
   }
