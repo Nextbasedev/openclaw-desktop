@@ -1554,6 +1554,9 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
         topicId = id("topic");
         compatState.topics.push({ id: topicId, projectId, name: label, archived: false, pinned: false, unreadCount: 0, sortOrder: Date.now(), createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey, groupId: parsed.groupId, topicId: parsed.topicId } });
         compatState.sessions.push({ id: stableCompatId("session", desktopSessionKey), key: desktopSessionKey, sessionKey: desktopSessionKey, label, agentId: parsed.agentId, status: "idle", hidden: false, spaceId: targetSpaceId, projectId, topicId, createdAt: timestamp, updatedAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
+        // Also create a chat entry so group topics appear in the sidebar chat list
+        chatId = id("chat");
+        compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, projectId, topicId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
       } else {
         chatId = id("chat");
         compatState.chats.push({ id: chatId, name: label, sessionKey: desktopSessionKey, agentId: parsed.agentId, spaceId: targetSpaceId, archived: false, pinned: false, createdAt: timestamp, updatedAt: timestamp, lastActiveAt: timestamp, importedFrom: { kind: "telegram", sourceSessionKey: session.sourceSessionKey } });
@@ -3309,6 +3312,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       activeSpaceId: spaceId,
       chats: sortedChatsForResponse(spaceId, false),
       projects: listBySpace(compatState.projects, spaceId),
+      topics: compatState.topics.filter((topic) => notDeleted(topic)),
       sessions: sessionsForSpace(spaceId),
       gateway,
     };
