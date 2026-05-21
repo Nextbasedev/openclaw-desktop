@@ -547,6 +547,57 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("gateway sync removes previously mirrored ghost chats for topic sessions", async () => {
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { connect: unknown; status: unknown; request: unknown } } }).v2Context;
+    const sessionKey = "agent:main:desktop:topic-ghost";
+    context.gateway.connect = vi.fn(async () => undefined);
+    context.gateway.status = vi.fn(() => ({ connected: true, lastError: null }));
+    context.gateway.request = vi.fn(async (method: string) => {
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            {
+              key: sessionKey,
+              label: "Ghost Topic Session",
+              agentId: "main",
+              projectId: null,
+              topicId: null,
+              createdAt: "2026-05-21T09:00:00.000Z",
+              updatedAt: "2026-05-21T09:30:00.000Z",
+            },
+          ],
+        };
+      }
+      return { session: { key: sessionKey, sessionKey } };
+    });
+
+    const firstBootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(firstBootstrap.json().chats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey, name: "Ghost Topic Session" }),
+    ]));
+
+    const project = await app.inject({ method: "POST", url: "/api/projects", payload: { name: "Project B", spaceId: "space_default" } });
+    const projectId = project.json().project.id;
+    const topic = await app.inject({ method: "POST", url: "/api/topics", payload: { projectId, name: "Topic B" } });
+    const topicId = topic.json().topic.id;
+    await app.inject({ method: "POST", url: "/api/sessions", payload: { sessionKey, projectId, topicId, label: "Topic B" } });
+
+    const secondBootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+
+    expect(secondBootstrap.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey }),
+    ]));
+    expect(secondBootstrap.json().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey, projectId, topicId, label: "Topic B" }),
+    ]));
+    const defaultChats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
+    expect(defaultChats.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey }),
+    ]));
+    await app.close();
+  });
+
   test("bootstrap imports Gateway sessions without a project into the default space", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { connect: unknown; status: unknown; request: unknown } } }).v2Context;
