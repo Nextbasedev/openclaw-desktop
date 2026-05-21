@@ -176,7 +176,7 @@ describe("chat send routes", () => {
       messageCount: 2,
       messages: [
         { role: "user", text: "pending user", __openclaw: { id: "client-ui-1" } },
-        { role: "assistant", text: "assistant arrived before user echo", __openclaw: { id: "assistant-seq-1", seq: 1 } },
+        { role: "assistant", text: "assistant arrived before user echo", __openclaw: { id: "assistant-seq-1", seq: 2, gatewaySeq: 1 } },
       ],
     });
     await app.close();

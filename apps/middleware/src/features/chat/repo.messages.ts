@@ -35,6 +35,113 @@ export class MessageRepository {
     return { segmentId: row.segment_id, sessionKey: row.session_key, sessionId: row.session_id, segmentIndex: row.segment_index, baseSeq: row.base_seq };
   }
 
+  getSegmentForTranscript(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; active?: boolean | null }) {
+    const row = this.db.prepare(`
+      SELECT segment_id, session_key, session_id, segment_index, base_seq
+      FROM v2_chat_segments
+      WHERE session_key = @sessionKey
+        AND (@active IS NULL OR is_active = @active)
+        AND (
+          (@sessionFile IS NOT NULL AND session_file = @sessionFile)
+          OR (@sessionId IS NOT NULL AND session_id = @sessionId)
+        )
+      ORDER BY
+        CASE WHEN @sessionFile IS NOT NULL AND session_file = @sessionFile THEN 0 ELSE 1 END,
+        segment_index DESC
+      LIMIT 1
+    `).get({
+      sessionKey: params.sessionKey,
+      sessionId: params.sessionId ?? null,
+      sessionFile: params.sessionFile ?? null,
+      active: params.active === null || params.active === undefined ? null : params.active ? 1 : 0,
+    }) as { segment_id: string; session_key: string; session_id: string | null; segment_index: number; base_seq: number } | undefined;
+    if (!row) return null;
+    return { segmentId: row.segment_id, sessionKey: row.session_key, sessionId: row.session_id, segmentIndex: row.segment_index, baseSeq: row.base_seq };
+  }
+
+  ensureArchivedSegment(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; resetReason?: string | null; startedAtMs?: number | null }) {
+    const existing = this.getSegmentForTranscript({ ...params, active: false });
+    if (existing) return existing;
+
+    const now = Date.now();
+    const maxSeqRow = this.db.prepare(`SELECT max(openclaw_seq) AS maxSeq FROM v2_messages WHERE session_key = @sessionKey`).get({ sessionKey: params.sessionKey }) as { maxSeq?: number | null } | undefined;
+    const maxSegmentRow = this.db.prepare(`SELECT max(segment_index) AS maxIndex FROM v2_chat_segments WHERE session_key = @sessionKey`).get({ sessionKey: params.sessionKey }) as { maxIndex?: number | null } | undefined;
+    const nextIndex = Math.max(-1, Number(maxSegmentRow?.maxIndex ?? -1)) + 1;
+    const baseSeq = Math.max(0, Number(maxSeqRow?.maxSeq ?? 0));
+    const sessionId = params.sessionId ?? null;
+    const segmentId = `${params.sessionKey}::segment::${sessionId ?? "archived"}::${nextIndex}`;
+    this.db.prepare(`
+      INSERT INTO v2_chat_segments(segment_id, session_key, session_id, session_file, segment_index, base_seq, started_at_ms, ended_at_ms, reset_reason, is_active, created_at_ms, updated_at_ms)
+      VALUES (@segmentId, @sessionKey, @sessionId, @sessionFile, @segmentIndex, @baseSeq, @startedAtMs, @now, @resetReason, 0, @now, @now)
+    `).run({
+      segmentId,
+      sessionKey: params.sessionKey,
+      sessionId,
+      sessionFile: params.sessionFile ?? null,
+      segmentIndex: nextIndex,
+      baseSeq,
+      startedAtMs: params.startedAtMs ?? now,
+      resetReason: params.resetReason ?? "archived_transcript",
+      now,
+    });
+    return { segmentId, sessionKey: params.sessionKey, sessionId, segmentIndex: nextIndex, baseSeq };
+  }
+
+  archiveImportForFile(params: { sessionKey: string; filePath: string }) {
+    const row = this.db.prepare(`
+      SELECT session_key, file_path, file_mtime_ms, file_size, segment_id, message_count, imported_at_ms
+      FROM v2_archive_imports
+      WHERE session_key = @sessionKey AND file_path = @filePath
+    `).get(params) as {
+      session_key: string;
+      file_path: string;
+      file_mtime_ms: number;
+      file_size: number;
+      segment_id: string;
+      message_count: number;
+      imported_at_ms: number;
+    } | undefined;
+    if (!row) return null;
+    return {
+      sessionKey: row.session_key,
+      filePath: row.file_path,
+      fileMtimeMs: row.file_mtime_ms,
+      fileSize: row.file_size,
+      segmentId: row.segment_id,
+      messageCount: row.message_count,
+      importedAtMs: row.imported_at_ms,
+    };
+  }
+
+  isArchiveImportFresh(params: { sessionKey: string; filePath: string; fileMtimeMs: number; fileSize: number }) {
+    const row = this.archiveImportForFile(params);
+    if (!row) return false;
+    return row.fileMtimeMs === params.fileMtimeMs && row.fileSize === params.fileSize;
+  }
+
+  recordArchiveImport(params: { sessionKey: string; filePath: string; fileMtimeMs: number; fileSize: number; segmentId: string; messageCount: number }) {
+    this.db.prepare(`
+      INSERT INTO v2_archive_imports(session_key, file_path, file_mtime_ms, file_size, segment_id, message_count, imported_at_ms)
+      VALUES (@sessionKey, @filePath, @fileMtimeMs, @fileSize, @segmentId, @messageCount, @now)
+      ON CONFLICT(session_key, file_path) DO UPDATE SET
+        file_mtime_ms = excluded.file_mtime_ms,
+        file_size = excluded.file_size,
+        segment_id = excluded.segment_id,
+        message_count = excluded.message_count,
+        imported_at_ms = excluded.imported_at_ms
+    `).run({ ...params, now: Date.now() });
+  }
+
+  messageCountForSegment(segmentId: string) {
+    const row = this.db.prepare(`SELECT count(*) AS count FROM v2_messages WHERE segment_id = @segmentId`).get({ segmentId }) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
+  deleteMessagesForSegment(segmentId: string) {
+    const result = this.db.prepare(`DELETE FROM v2_messages WHERE segment_id = @segmentId`).run({ segmentId });
+    return Number(result.changes ?? 0);
+  }
+
   ensureActiveSegment(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; resetReason?: string | null }) {
     const sessionId = params.sessionId ?? null;
     const existing = this.getActiveSegment(params.sessionKey);
@@ -52,8 +159,10 @@ export class MessageRepository {
     const now = Date.now();
     const maxSeqRow = this.db.prepare(`SELECT max(openclaw_seq) AS maxSeq FROM v2_messages WHERE session_key = @sessionKey`).get({ sessionKey: params.sessionKey }) as { maxSeq?: number | null } | undefined;
     const maxSegmentRow = this.db.prepare(`SELECT max(segment_index) AS maxIndex FROM v2_chat_segments WHERE session_key = @sessionKey`).get({ sessionKey: params.sessionKey }) as { maxIndex?: number | null } | undefined;
-    const nextIndex = Math.max(-1, Number(maxSegmentRow?.maxIndex ?? -1)) + 1;
-    const baseSeq = existing ? Math.max(0, Number(maxSeqRow?.maxSeq ?? 0)) : 0;
+    const maxSegmentIndex = maxSegmentRow?.maxIndex;
+    const hasAnySegment = maxSegmentIndex !== null && maxSegmentIndex !== undefined;
+    const nextIndex = Math.max(-1, Number(maxSegmentIndex ?? -1)) + 1;
+    const baseSeq = existing || hasAnySegment ? Math.max(0, Number(maxSeqRow?.maxSeq ?? 0)) : 0;
     const segmentId = `${params.sessionKey}::segment::${sessionId ?? "unknown"}::${nextIndex}`;
     const tx = this.db.transaction(() => {
       this.db.prepare(`
@@ -216,6 +325,69 @@ export class MessageRepository {
     });
     const result = tx(messages) as { lastSeq: number; changedMessages: ProjectedMessage[] };
     return { upserted: result.changedMessages.length, lastSeq: result.lastSeq, changedMessages: result.changedMessages };
+  }
+
+  resequenceSessionMessages(sessionKey: string) {
+    const segments = this.db.prepare(`
+      SELECT segment_id, segment_index, is_active, started_at_ms
+      FROM v2_chat_segments
+      WHERE session_key = @sessionKey
+      ORDER BY is_active ASC, started_at_ms ASC, segment_index ASC
+    `).all({ sessionKey }) as Array<{ segment_id: string; segment_index: number; is_active: number; started_at_ms: number }>;
+    if (segments.length === 0) return { changedMessages: 0, changedSegments: 0 };
+
+    const messagesForSegment = this.db.prepare(`
+      SELECT rowid AS rowid, openclaw_seq, gateway_seq
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND segment_id = @segmentId
+      ORDER BY COALESCE(gateway_seq, openclaw_seq) ASC, openclaw_seq ASC
+    `);
+    const updateMessageTemp = this.db.prepare(`
+      UPDATE v2_messages
+      SET openclaw_seq = @tempSeq
+      WHERE rowid = @rowid
+    `);
+    const updateMessageFinal = this.db.prepare(`
+      UPDATE v2_messages
+      SET openclaw_seq = @openclawSeq
+      WHERE rowid = @rowid
+    `);
+    const updateSegmentTemp = this.db.prepare(`
+      UPDATE v2_chat_segments
+      SET segment_index = @tempIndex, base_seq = @baseSeq, updated_at_ms = @now
+      WHERE segment_id = @segmentId
+    `);
+    const updateSegmentFinal = this.db.prepare(`
+      UPDATE v2_chat_segments
+      SET segment_index = @segmentIndex, updated_at_ms = @now
+      WHERE segment_id = @segmentId
+    `);
+
+    const tx = this.db.transaction(() => {
+      const now = Date.now();
+      const plannedMessages: Array<{ rowid: number; oldSeq: number; newSeq: number }> = [];
+      let nextSeq = 1;
+      let changedSegments = 0;
+      segments.forEach((segment, index) => {
+        const baseSeq = nextSeq - 1;
+        if (segment.segment_index !== index) changedSegments += 1;
+        updateSegmentTemp.run({ segmentId: segment.segment_id, tempIndex: -(index + 1), baseSeq, now });
+        const rows = messagesForSegment.all({ sessionKey, segmentId: segment.segment_id }) as Array<{ rowid: number; openclaw_seq: number; gateway_seq: number | null }>;
+        for (const row of rows) {
+          plannedMessages.push({ rowid: row.rowid, oldSeq: row.openclaw_seq, newSeq: nextSeq });
+          nextSeq += 1;
+        }
+      });
+      plannedMessages.forEach((row, index) => updateMessageTemp.run({ rowid: row.rowid, tempSeq: -(index + 1) }));
+      let changedMessages = 0;
+      plannedMessages.forEach((row) => {
+        if (row.oldSeq !== row.newSeq) changedMessages += 1;
+        updateMessageFinal.run({ rowid: row.rowid, openclawSeq: row.newSeq });
+      });
+      segments.forEach((segment, index) => updateSegmentFinal.run({ segmentId: segment.segment_id, segmentIndex: index, now }));
+      return { changedMessages, changedSegments };
+    });
+    return tx() as { changedMessages: number; changedSegments: number };
   }
 
   nextMessageSeq(sessionKey: string): number {

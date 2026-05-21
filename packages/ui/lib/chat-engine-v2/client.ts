@@ -106,6 +106,8 @@ export type ChatMessagesPageV2 = {
   messages: Array<{
     sessionKey: string
     openclawSeq: number
+    gatewaySeq?: number | null
+    segmentId?: string | null
     messageId: string | null
     role: string | null
     data: unknown
