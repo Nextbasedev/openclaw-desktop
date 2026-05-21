@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createApp } from "../src/app.js";
+import { createApp, MIDDLEWARE_BODY_LIMIT_BYTES } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import { loadEnv, type MiddlewareConfig } from "../src/config/env.js";
 import { migrateDatabase } from "../src/db/migrate.js";
@@ -49,6 +49,42 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "GET", url: "/api/system/info" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, port: 8787 });
+    await app.close();
+  });
+
+  test("accepts attachment-sized JSON payloads above Fastify default body limit", async () => {
+    const app = await createApp(testConfig());
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      payload: {
+        sessionKey: "",
+        idempotencyKey: "",
+        text: "x".repeat(1_200_000),
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ ok: false, error: { code: "INVALID_BODY" } });
+    await app.close();
+  });
+
+  test("returns a clear payload-too-large error above middleware body limit", async () => {
+    const app = await createApp(testConfig());
+    const body = JSON.stringify({ text: "x".repeat(MIDDLEWARE_BODY_LIMIT_BYTES + 1) });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat/send",
+      headers: { "content-type": "application/json" },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(413);
+    expect(res.json()).toMatchObject({
+      ok: false,
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Payload too large. Attachments must be 25 MB or smaller.",
+      },
+    });
     await app.close();
   });
 
