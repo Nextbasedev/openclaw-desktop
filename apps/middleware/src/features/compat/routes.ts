@@ -1021,9 +1021,12 @@ function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
     const archivedTranscriptFiles = sourceSessionFile ? archivedTelegramTranscriptFiles(sourceSessionFile, parsed) : [];
     const messages = [...archivedTranscriptFiles, sourceSessionFile].filter(Boolean).flatMap((file) => transcriptMessagesFromJsonl(file));
     const telegramMeta = telegramMetaFromMessages(messages);
+    const topicName = parsed.kind === "group"
+      ? (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId))
+      : undefined;
     const fallback = parsed.kind === "direct"
       ? (telegramMeta?.sender || "Telegram direct")
-      : (telegramMeta?.topicName || telegramTopicFallback(entry, parsed.topicId));
+      : (topicName || telegramTopicFallback(entry, parsed.topicId));
     const preview = lastUserMessagePreview(messages);
     const proposedName = uniqueName(parsed.kind === "group" ? fallback : (preview ? preview.slice(0, 45).trim() : fallback), usedNames);
     return {
@@ -1040,7 +1043,7 @@ function scanTelegramSessions(context: AppContext, input: CompatRecord = {}) {
       groupId: parsed.kind === "group" ? parsed.groupId : undefined,
       groupName: parsed.kind === "group" ? (telegramMeta?.groupSubject || telegramGroupName(entry, parsed.groupId)) : undefined,
       topicId: parsed.kind === "group" ? parsed.topicId : undefined,
-      topicName: parsed.kind === "group" ? proposedName : undefined,
+      topicName: parsed.kind === "group" ? topicName : undefined,
       alreadyImported: importedKeys.has(sourceSessionKey),
     };
   }).filter(Boolean) as CompatRecord[];
@@ -1524,10 +1527,12 @@ async function importTelegramSessions(context: AppContext, input: CompatRecord =
       continue;
     }
     const sourceMessages = telegramSourceMessagesForSession(session);
-    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: session.proposedName, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true }); continue; }
+    const label = parsed.kind === "group"
+      ? String(session.topicName || session.proposedName || "Telegram import")
+      : String(session.proposedName || "Telegram import");
+    if (dryRun) { imported.push({ sourceSessionKey: session.sourceSessionKey, name: label, copiedMessages: sourceMessages.length, archivedTranscriptFiles: session.archivedTranscriptFiles ?? [], dryRun: true }); continue; }
     try {
       const desktopSessionKey = `agent:${parsed.agentId}:desktop:migrated-telegram-${crypto.randomUUID()}`;
-      const label = session.proposedName || "Telegram import";
       const created = await context.gateway.request<CompatRecord>("sessions.create", { key: desktopSessionKey, agentId: parsed.agentId, label, parentSessionKey: session.sourceSessionKey }, 30_000);
       const transcriptPath = created?.payload?.entry?.sessionFile || created?.entry?.sessionFile;
       if (typeof transcriptPath !== "string" || !transcriptPath) throw new Error("sessions.create did not return entry.sessionFile");
