@@ -570,6 +570,40 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("telegram group import names the desktop session from the topic name", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-topic-import-"));
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    const sessionsDir = path.join(home, ".openclaw", "agents", "main", "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const key = "agent:main:telegram:group:-1001:topic:42";
+    const currentFile = path.join(sessionsDir, "current-topic-42.jsonl");
+    const targetFile = path.join(sessionsDir, "imported-topic.jsonl");
+    const meta = JSON.stringify({ chat_id: "telegram:-1001", topic_id: "42", group_subject: "Group", topic_name: "Desktop task B", is_group_chat: true });
+    const line = JSON.stringify({ type: "message", id: "c1", timestamp: "2026-05-20T00:00:00.000Z", message: { role: "user", content: `Conversation info (untrusted metadata):\n\`\`\`json\n${meta}\n\`\`\`\n\nplease implement this very long request that should not become the imported chat name` } });
+    fs.writeFileSync(currentFile, `${line}\n`);
+    fs.writeFileSync(path.join(sessionsDir, "sessions.json"), JSON.stringify({ [key]: { sessionId: "current", sessionFile: currentFile, chatType: "group", subject: "Group" } }));
+
+    const app = await createApp(testConfig());
+    const context = (app as typeof app & { v2Context: { gateway: { request: ReturnType<typeof vi.fn> } } }).v2Context;
+    context.gateway.request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.create") return { payload: { entry: { sessionFile: targetFile } }, label: params?.label };
+      return {};
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/migration/telegram/import", payload: { sourceSessionKeys: [key], skipAlreadyImported: false } });
+
+    expect(res.statusCode).toBe(200);
+    expect(context.gateway.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({ label: "Desktop task B" }), 30_000);
+    expect(res.json().imported).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    const project = bootstrap.json().projects.find((item: { name?: string; id?: string }) => item.name === "Group");
+    expect(project).toBeTruthy();
+    const topics = await app.inject({ method: "GET", url: `/api/topics?projectId=${project.id}` });
+    expect(topics.json().topics).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Desktop task B" })]));
+    expect(bootstrap.json().sessions).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Desktop task B" })]));
+    await app.close();
+  });
+
   test("telegram chat bootstrap falls back to session key identity for archived transcripts", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-bootstrap-archive-"));
     vi.spyOn(os, "homedir").mockReturnValue(home);
