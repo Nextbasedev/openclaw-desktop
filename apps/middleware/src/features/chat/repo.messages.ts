@@ -452,23 +452,29 @@ export class MessageRepository {
     const gatewaySeq = gatewayMessage.gatewaySeq ?? gatewayMessage.openclawSeq;
     const projectedGatewaySeq = segmentId && activeSegment?.segmentId === segmentId ? activeSegment.baseSeq + gatewaySeq : null;
 
-    if (gatewayMessage.messageId && gatewayMessage.messageId !== optimisticId) {
-      this.db.prepare(`
-        DELETE FROM v2_messages
-        WHERE session_key = @sessionKey
-          AND message_id = @gatewayMessageId
-          AND (@segmentId IS NULL OR segment_id IS @segmentId)
-      `).run({ sessionKey, gatewayMessageId: gatewayMessage.messageId, segmentId });
-    }
-    if (projectedGatewaySeq !== null) {
-      this.db.prepare(`
-        DELETE FROM v2_messages
-        WHERE session_key = @sessionKey
-          AND segment_id IS @segmentId
-          AND openclaw_seq = @projectedGatewaySeq
-          AND message_id IS NOT @optimisticId
-      `).run({ sessionKey, segmentId, projectedGatewaySeq, optimisticId });
-    }
+    const deleteGatewayDuplicate = this.db.prepare(`
+      DELETE FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND message_id = @gatewayMessageId
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+    `);
+    const deleteProjectedDuplicate = this.db.prepare(`
+      DELETE FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND segment_id IS @segmentId
+        AND openclaw_seq = @projectedGatewaySeq
+        AND message_id IS NOT @optimisticId
+    `);
+    const updateOptimistic = this.db.prepare(`
+      UPDATE v2_messages
+      SET segment_id = COALESCE(@segmentId, segment_id),
+          session_id = COALESCE(@sessionId, session_id),
+          gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
+          role = @role,
+          data_json = @dataJson,
+          updated_at_ms = @updatedAtMs
+      WHERE session_key = @sessionKey AND message_id = @optimisticId
+    `);
 
     const data = {
       ...gatewayMessage.data,
@@ -492,25 +498,25 @@ export class MessageRepository {
       data,
       updatedAtMs: gatewayMessage.updatedAtMs,
     };
-    this.db.prepare(`
-      UPDATE v2_messages
-      SET segment_id = COALESCE(@segmentId, segment_id),
-          session_id = COALESCE(@sessionId, session_id),
-          gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
-          role = @role,
-          data_json = @dataJson,
-          updated_at_ms = @updatedAtMs
-      WHERE session_key = @sessionKey AND message_id = @optimisticId
-    `).run({
-      sessionKey,
-      optimisticId,
-      segmentId,
-      sessionId,
-      gatewaySeq,
-      role: confirmed.role,
-      dataJson: toJson(confirmed.data),
-      updatedAtMs: confirmed.updatedAtMs,
+    const tx = this.db.transaction(() => {
+      if (gatewayMessage.messageId && gatewayMessage.messageId !== optimisticId) {
+        deleteGatewayDuplicate.run({ sessionKey, gatewayMessageId: gatewayMessage.messageId, segmentId });
+      }
+      if (projectedGatewaySeq !== null) {
+        deleteProjectedDuplicate.run({ sessionKey, segmentId, projectedGatewaySeq, optimisticId });
+      }
+      updateOptimistic.run({
+        sessionKey,
+        optimisticId,
+        segmentId,
+        sessionId,
+        gatewaySeq,
+        role: confirmed.role,
+        dataJson: toJson(confirmed.data),
+        updatedAtMs: confirmed.updatedAtMs,
+      });
     });
+    tx();
     return confirmed;
   }
 

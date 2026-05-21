@@ -92,7 +92,7 @@ function backfillLegacyMessageSegments(db: Database.Database) {
   if (sessions.length === 0) return;
 
   const activeSegment = db.prepare(`
-    SELECT segment_id
+    SELECT segment_id, base_seq
     FROM v2_chat_segments
     WHERE session_key = @sessionKey AND is_active = 1
     ORDER BY segment_index DESC
@@ -106,7 +106,7 @@ function backfillLegacyMessageSegments(db: Database.Database) {
   const updateMessages = db.prepare(`
     UPDATE v2_messages
     SET segment_id = @segmentId,
-        gateway_seq = COALESCE(gateway_seq, openclaw_seq)
+        gateway_seq = COALESCE(gateway_seq, openclaw_seq - @baseSeq)
     WHERE session_key = @sessionKey AND segment_id IS NULL
   `);
 
@@ -114,15 +114,17 @@ function backfillLegacyMessageSegments(db: Database.Database) {
     const now = Date.now();
     for (const session of sessions) {
       const sessionKey = session.session_key;
-      const active = activeSegment.get({ sessionKey }) as { segment_id: string } | undefined;
+      const active = activeSegment.get({ sessionKey }) as { segment_id: string; base_seq: number } | undefined;
       let segmentId = active?.segment_id;
+      let baseSeq = Number(active?.base_seq ?? 0);
       if (!segmentId) {
         const maxRow = maxSegment.get({ sessionKey }) as { max_index?: number | null } | undefined;
         const segmentIndex = Math.max(-1, Number(maxRow?.max_index ?? -1)) + 1;
         segmentId = `${sessionKey}::segment::legacy::${segmentIndex}`;
+        baseSeq = 0;
         insertSegment.run({ segmentId, sessionKey, segmentIndex, now });
       }
-      updateMessages.run({ segmentId, sessionKey });
+      updateMessages.run({ segmentId, sessionKey, baseSeq });
     }
   });
   tx();

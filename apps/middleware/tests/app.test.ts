@@ -681,6 +681,24 @@ describe("middleware app", () => {
     db.close();
   });
 
+  test("migration preserves gateway seq invariant when reusing an existing active segment", () => {
+    const dbPath = path.join(os.tmpdir(), `openclaw-legacy-backfill-existing-${Date.now()}-${Math.random()}.sqlite`);
+    const db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE v2_messages (session_key TEXT NOT NULL, openclaw_seq INTEGER NOT NULL, message_id TEXT, role TEXT, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, segment_id TEXT, session_id TEXT, gateway_seq INTEGER, PRIMARY KEY (session_key, openclaw_seq));
+      CREATE TABLE v2_chat_segments (segment_id TEXT PRIMARY KEY, session_key TEXT NOT NULL, session_id TEXT, session_file TEXT, segment_index INTEGER NOT NULL, base_seq INTEGER NOT NULL DEFAULT 0, started_at_ms INTEGER NOT NULL, ended_at_ms INTEGER, reset_reason TEXT, is_active INTEGER NOT NULL DEFAULT 1, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL, UNIQUE(session_key, segment_index));
+      INSERT INTO v2_chat_segments(segment_id, session_key, segment_index, base_seq, started_at_ms, is_active, created_at_ms, updated_at_ms)
+      VALUES ('seg-active', 's1', 1, 10, 1, 1, 1, 1);
+      INSERT INTO v2_messages(session_key, openclaw_seq, message_id, role, data_json, updated_at_ms)
+      VALUES ('s1', 11, 'legacy-11', 'user', '{"role":"user","text":"legacy"}', 1);
+    `);
+
+    migrateDatabase(db);
+
+    expect(db.prepare("SELECT segment_id, gateway_seq FROM v2_messages WHERE session_key = 's1' AND openclaw_seq = 11").get()).toMatchObject({ segment_id: "seg-active", gateway_seq: 1 });
+    db.close();
+  });
+
   test("optimistic confirmation does not delete archived global seq on gateway reset", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: AppContext }).v2Context;
