@@ -54,3 +54,20 @@ Chat opens
 - Persist timer debounces writes (avoids thrashing during streaming)
 - Cache cleared/updated on session switch, send, bootstrap
 - `suppressNextWarmPersist` flag prevents double-writes after programmatic updates
+
+## Patch Stream Cursor
+
+- `globalCursor` persisted to localStorage, scoped by middleware URL
+- On page reload/tab switch, stream resumes from saved cursor (not 0)
+- Key format: `openclaw:patchCursor:<middlewareUrl>`
+- Validated with `Number.isSafeInteger` on restore
+- If middleware restarts and cursor resets, bootstrap recovery handles the gap
+
+## Tool Card Rendering
+
+- `pendingTools` = live tools for the current run only
+- Completed tools (success/error) are removed from `pendingTools` once written to a message's `toolCalls`
+- If no message exists yet to attach to, completed tools stay in `pendingTools` until `finalizeActiveToolsForTerminalStatus`
+- UI filters `pendingTools` to only show `running` or `awaitingResult` tools, PLUS completed tools not yet in message history
+- `mergeToolCallsForDisplay()` deduplicates: skips live tools already completed in base message history
+- Never render the same tool card twice (once in message history, once as live pending)

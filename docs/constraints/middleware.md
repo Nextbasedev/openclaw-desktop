@@ -60,3 +60,26 @@ POST /api/chat/send
 - Fastify error handler maps `FST_ERR_CTP_BODY_TOO_LARGE` → `PAYLOAD_TOO_LARGE`
 - Gateway request failures during send are caught and broadcast as error status patches
 - History load failures after send are warn-logged and ignored (non-fatal)
+
+## Gateway Session Sync Cache
+
+- `syncGatewaySessions()` has a 5s TTL promise cache
+- Concurrent `/api/chats`, `/api/bootstrap` calls share one `sessions.list` response
+- Cache is NOT populated when Gateway is disconnected (no-op results bypass cache)
+- Error cleanup checks cache identity before clearing (avoids clearing a newer entry)
+- `clearSyncGatewaySessionsCache()` exported for test isolation
+- Tests must call it in `afterEach` and between sequential bootstrap assertions
+
+## Telegram Import
+
+- Group topics create: project + topic + session + chat entry
+- Direct messages create: chat entry only
+- `prewarmArchivedHistory()` fires in background (fire-and-forget, 10s timeout) after import
+- Re-import of already-imported sessions repairs missing chat entries for old group imports
+- Bootstrap response includes `topics` array (space-scoped through active-space projects)
+
+## Startup
+
+- `onClose` hooks must be registered BEFORE `app.listen()` (Fastify constraint)
+- Gateway autoconnect starts AFTER `listen` succeeds, with retry/backoff
+- Autoconnect cancellation registered via pre-listen `onClose` hook
