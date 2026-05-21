@@ -1199,7 +1199,7 @@ export function ChatView({
       const suppressAssistantActions =
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
-      const filteredPending = toolCallsWithoutSpawn(pendingTools)
+      const filteredPending = toolCallsWithoutSpawn(pendingTools).filter((t) => t.status === "running" || t.awaitingResult)
       const messageToolCalls =
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
           ? []

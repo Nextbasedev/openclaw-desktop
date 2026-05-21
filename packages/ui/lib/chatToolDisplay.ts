@@ -29,7 +29,17 @@ export function mergeToolCallsForDisplay(
   base?: InlineToolCall[],
   live?: InlineToolCall[]
 ) {
-  return mergeToolCalls(base ?? [], live ?? [])
+  // Skip live tools that are already completed in the base (message history)
+  // to prevent the same tool card from appearing twice.
+  const baseIds = new Map((base ?? []).map((tool) => [tool.id, tool]))
+  const filteredLive = (live ?? []).filter((tool) => {
+    const existing = baseIds.get(tool.id)
+    if (!existing) return true
+    // If the base already has this tool as completed, don't merge the live version
+    if (existing.status === "success" || existing.status === "error") return false
+    return true
+  })
+  return mergeToolCalls(base ?? [], filteredLive)
 }
 
 export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
