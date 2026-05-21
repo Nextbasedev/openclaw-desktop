@@ -1,7 +1,8 @@
 # OCPlatform Desktop Documentation
 
 ## Start Here
-- **[AGENTS.md](../AGENTS.md)** — Architecture, invariants, constraints, patterns. Read first.
+- **[DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md)** — How to work on this codebase with AI. Read this first if you're new.
+- **[AGENTS.md](../AGENTS.md)** — Architecture, invariants, constraints, patterns. Your AI reads this automatically.
 - **[CLAUDE.md](../CLAUDE.md)** — Claude Code specific guidance
 
 ## Constraints (for AI agents)
