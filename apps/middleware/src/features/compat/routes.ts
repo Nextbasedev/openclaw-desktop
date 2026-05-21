@@ -1907,10 +1907,17 @@ async function syncGatewaySessions(context: AppContext) {
       const activityAt = newestTimestamp(rowActivityAt, createdAt);
       const rowProjectId = row.projectId ?? null;
       const rowTopicId = row.topicId ?? null;
-      const rowSpaceId = projectSpaceId(rowProjectId) ?? fallbackSpaceId;
+      const existingSessionForKey = compatState.sessions.find((session) => session.sessionKey === sessionKey || session.key === sessionKey);
+      const sessionProjectId = existingSessionForKey?.projectId ?? rowProjectId;
+      const sessionTopicId = existingSessionForKey?.topicId ?? rowTopicId;
+      const isProjectScopedSession = Boolean(sessionProjectId || sessionTopicId);
+      const rowSpaceId = projectSpaceId(sessionProjectId) ?? projectSpaceId(rowProjectId) ?? existingSessionForKey?.spaceId ?? fallbackSpaceId;
 
       const chatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
-      if (chatIndex < 0) {
+      if (isProjectScopedSession && chatIndex >= 0 && isGatewayOnlySyncedChat(compatState.chats[chatIndex])) {
+        compatState.chats[chatIndex] = { ...compatState.chats[chatIndex], deleted: true, archived: true, updatedAt: activityAt };
+        changed = true;
+      } else if (!isProjectScopedSession && chatIndex < 0) {
         compatState.chats.push({
           id: stableCompatId("chat", sessionKey),
           name,
@@ -1926,7 +1933,7 @@ async function syncGatewaySessions(context: AppContext) {
           lastMessageAt: activityAt,
         });
         changed = true;
-      } else {
+      } else if (!isProjectScopedSession && chatIndex >= 0) {
         const existing = compatState.chats[chatIndex];
         const existingCreatedAt = existing.createdAt || createdAt;
         const existingSession = compatState.sessions.find((session) => session.sessionKey === sessionKey || session.key === sessionKey);
@@ -1960,8 +1967,8 @@ async function syncGatewaySessions(context: AppContext) {
           id: stableCompatId("session", sessionKey),
           key: sessionKey,
           sessionKey,
-          projectId: rowProjectId,
-          topicId: rowTopicId,
+          projectId: sessionProjectId,
+          topicId: sessionTopicId,
           spaceId: rowSpaceId,
           agentId,
           label: name,
