@@ -25,6 +25,17 @@ CREATE INDEX IF NOT EXISTS idx_v2_chat_segments_active ON v2_chat_segments(sessi
 CREATE TABLE IF NOT EXISTS v2_messages (session_key TEXT NOT NULL, openclaw_seq INTEGER NOT NULL, message_id TEXT, role TEXT, data_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, PRIMARY KEY (session_key, openclaw_seq));
 CREATE INDEX IF NOT EXISTS idx_v2_messages_session_seq ON v2_messages(session_key, openclaw_seq);
 CREATE INDEX IF NOT EXISTS idx_v2_messages_session_message_id ON v2_messages(session_key, message_id) WHERE message_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS v2_archive_imports (
+  session_key TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_mtime_ms INTEGER NOT NULL,
+  file_size INTEGER NOT NULL,
+  segment_id TEXT NOT NULL,
+  message_count INTEGER NOT NULL,
+  imported_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (session_key, file_path)
+);
+CREATE INDEX IF NOT EXISTS idx_v2_archive_imports_session_key ON v2_archive_imports(session_key);
 CREATE TABLE IF NOT EXISTS v2_runs (
   run_id TEXT PRIMARY KEY,
   session_key TEXT NOT NULL,
