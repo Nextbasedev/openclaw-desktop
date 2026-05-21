@@ -31,7 +31,9 @@ function readJsonlRecords(file: string, maxLines?: number): Record<string, unkno
   try {
     const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
     const selected = typeof maxLines === "number" && maxLines >= 0 ? lines.slice(0, maxLines) : lines;
-    return selected.map((line) => JSON.parse(line) as Record<string, unknown>);
+    return selected.flatMap((line) => {
+      try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; }
+    });
   } catch { return []; }
 }
 
@@ -708,18 +710,19 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
             });
             let currentHistory: { currentUserRepresented: boolean; assistantAfterCurrentUser: boolean } | null = null;
             if (history?.messages?.length) {
-              const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
-              const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, message.openclawSeq), 0);
-              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && message.openclawSeq >= optimisticSeq && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
-              const confirmedUser = gatewayUserEcho
-                ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
-                : null;
               const segment = context.messages.ensureActiveSegment({
                 sessionKey: input.sessionKey,
                 sessionId: history.sessionId ?? context.messages.getSession(input.sessionKey)?.sessionId ?? null,
                 sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null,
               });
-              const currentUserSeq = confirmedUser?.openclawSeq ?? gatewayUserEcho?.openclawSeq ?? null;
+              const normalized = normalizeHistoryMessages(input.sessionKey, history.messages);
+              const projectSeq = (message: ProjectedMessage) => segment.baseSeq + (message.gatewaySeq ?? message.openclawSeq);
+              const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, projectSeq(message)), 0);
+              const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && projectSeq(message) >= optimisticSeq && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
+              const confirmedUser = gatewayUserEcho
+                ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
+                : null;
+              const currentUserSeq = confirmedUser?.openclawSeq ?? (gatewayUserEcho ? projectSeq(gatewayUserEcho) : null);
               const currentGatewayUserSeq = gatewayUserEcho?.openclawSeq ?? null;
               currentHistory = {
                 currentUserRepresented: Boolean(gatewayUserEcho),

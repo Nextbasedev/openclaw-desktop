@@ -82,6 +82,52 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
 }
 
+function backfillLegacyMessageSegments(db: Database.Database) {
+  const sessions = db.prepare(`
+    SELECT session_key, min(openclaw_seq) AS min_seq, max(openclaw_seq) AS max_seq
+    FROM v2_messages
+    WHERE segment_id IS NULL
+    GROUP BY session_key
+  `).all() as Array<{ session_key: string; min_seq: number | null; max_seq: number | null }>;
+  if (sessions.length === 0) return;
+
+  const activeSegment = db.prepare(`
+    SELECT segment_id
+    FROM v2_chat_segments
+    WHERE session_key = @sessionKey AND is_active = 1
+    ORDER BY segment_index DESC
+    LIMIT 1
+  `);
+  const maxSegment = db.prepare(`SELECT max(segment_index) AS max_index FROM v2_chat_segments WHERE session_key = @sessionKey`);
+  const insertSegment = db.prepare(`
+    INSERT INTO v2_chat_segments(segment_id, session_key, session_id, session_file, segment_index, base_seq, started_at_ms, reset_reason, is_active, created_at_ms, updated_at_ms)
+    VALUES (@segmentId, @sessionKey, NULL, NULL, @segmentIndex, 0, @now, 'legacy_unsegmented', 1, @now, @now)
+  `);
+  const updateMessages = db.prepare(`
+    UPDATE v2_messages
+    SET segment_id = @segmentId,
+        gateway_seq = COALESCE(gateway_seq, openclaw_seq)
+    WHERE session_key = @sessionKey AND segment_id IS NULL
+  `);
+
+  const tx = db.transaction(() => {
+    const now = Date.now();
+    for (const session of sessions) {
+      const sessionKey = session.session_key;
+      const active = activeSegment.get({ sessionKey }) as { segment_id: string } | undefined;
+      let segmentId = active?.segment_id;
+      if (!segmentId) {
+        const maxRow = maxSegment.get({ sessionKey }) as { max_index?: number | null } | undefined;
+        const segmentIndex = Math.max(-1, Number(maxRow?.max_index ?? -1)) + 1;
+        segmentId = `${sessionKey}::segment::legacy::${segmentIndex}`;
+        insertSegment.run({ segmentId, sessionKey, segmentIndex, now });
+      }
+      updateMessages.run({ segmentId, sessionKey });
+    }
+  });
+  tx();
+}
+
 export function migrateDatabase(db: Database.Database) {
   db.exec(schema);
   addColumnIfMissing(db, "v2_messages", "segment_id", "segment_id TEXT");
@@ -94,6 +140,7 @@ export function migrateDatabase(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_v2_messages_session_id ON v2_messages(session_id) WHERE session_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_v2_tool_calls_segment_id ON v2_tool_calls(segment_id) WHERE segment_id IS NOT NULL;
   `);
+  backfillLegacyMessageSegments(db);
   db.prepare(`INSERT INTO v2_meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(SCHEMA_VERSION));
 }
 
