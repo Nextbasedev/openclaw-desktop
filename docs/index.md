@@ -6,6 +6,7 @@
 
 ## Constraints (for AI agents)
 Domain-specific rules that code MUST follow:
+- **[api-routes.md](constraints/api-routes.md)** — Complete route inventory (core, compat, terminal, migration)
 - **[middleware.md](constraints/middleware.md)** — Body limits, send pipeline, patch bus, timeouts
 - **[chat-engine.md](constraints/chat-engine.md)** — Message ordering, dedup, history parsing, streaming
 - **[ui-scroll.md](constraints/ui-scroll.md)** — Scroll behavior rules, layout effects
