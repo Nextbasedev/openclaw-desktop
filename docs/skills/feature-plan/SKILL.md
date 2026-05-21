@@ -1,141 +1,86 @@
 ---
 name: feature-plan
-description: Research and plan new OCPlatform Desktop features. Produces a comprehensive implementation document in docs/. Covers requirement analysis, codebase research, edge cases, assumptions, and risk assessment. NOT for implementation — use feature-build after planning.
+description: Plan a feature or fix for openclaw-desktop. Read the code, trace the problem, write an implementation doc.
 ---
 
 # Feature Plan
 
-Research and produce an implementation document for a new OCPlatform Desktop feature.
+## When to Use
+Someone describes a bug or feature. You need to understand the code before touching it.
 
-## Packages
+## Step 1: Read the Brain
 
-| Package | Purpose |
-|---------|---------|
-| `apps/middleware` | Fastify middleware service (chat, compat, gateway, skills, patches) |
-| `packages/ui` | Next.js 16 frontend (components, hooks, lib) |
-| `packages/desktop` | Tauri 2.0 Rust shell (IPC, native chrome, bundled middleware) |
-| `packages/shared` | Shared Zod schemas and types |
-| `packages/server` | Legacy Express.js backend (~40 services) |
-| `packages/middleware` | Legacy Gateway WebSocket client |
+Read `AGENTS.md`. Then read whichever `docs/constraints/*.md` files match the area:
+- Chat messages → `chat-engine.md`
+- Middleware routes → `middleware.md` + `api-routes.md`
+- Scroll/UI behavior → `ui-scroll.md`
+- Sessions/windows → `sessions.md`
+- Gateway events → `gateway.md`
 
-## Step 0: Read Codebase Brain (MANDATORY)
+Check `docs/lessons/` for past bugs in the same area.
 
-Before researching anything, read these files:
+## Step 2: Trace the Code
 
-1. **`AGENTS.md`** — architecture, invariants, anti-patterns. Ensures the plan doesn't violate existing constraints.
-2. **Relevant `docs/constraints/*.md`** — based on which domain the feature touches:
+Don't guess. Read the actual files.
 
-| Feature touches... | Read this constraint file |
-|---|---|
-| Chat send, attachments, patch bus, body limits | `docs/constraints/middleware.md` |
-| Message ordering, dedup, history, streaming | `docs/constraints/chat-engine.md` |
-| Scroll behavior, layout effects | `docs/constraints/ui-scroll.md` |
-| Session sync, imports, window isolation | `docs/constraints/sessions.md` |
-| Gateway protocol, events, timeouts | `docs/constraints/gateway.md` |
-| API endpoints, route inventory | `docs/constraints/api-routes.md` |
-
-3. **`docs/lessons/`** — scan for lessons related to the area. Prevents planning features that repeat past mistakes.
-
-## Workflow
-
-### 1. Understand Requirements
-
-Ask clarifying questions if the feature is ambiguous. Establish:
-- What the feature does (user-facing behavior)
-- Which packages are affected (middleware, UI, desktop, shared)
-- Whether it touches the Gateway protocol or only local middleware
-
-### 2. Research Existing Code
-
-Trace the feature across all affected packages:
-
+**For middleware bugs:**
 ```bash
-# Search across all packages
-grep -rn "<keyword>" apps/middleware/src/ packages/ui/ packages/shared/src/ --include="*.ts" --include="*.tsx"
+# Find the route
+grep -n "app.post\|app.get" apps/middleware/src/features/chat/routes.ts | head -20
+
+# Trace the function
+grep -rn "functionName" apps/middleware/src/ --include='*.ts' | head -20
 ```
 
-For each affected area, understand:
-- **Middleware**: Route handling, gateway forwarding, patch projection, SQLite schema
-- **UI**: Component tree, hooks, state management, chat engine patches
-- **Shared**: Zod schemas, type contracts
-- **Desktop**: Tauri IPC, native chrome, bundled middleware
+**For UI bugs:**
+```bash
+# Find the component/hook
+grep -rn "keyword" packages/ui/hooks/ packages/ui/components/ packages/ui/lib/ --include='*.ts' --include='*.tsx' | head -30
+```
 
-Read full files, not just grep hits. Understand the surrounding context.
+**For compat layer bugs:**
+```bash
+# This file is 4500 lines — be specific
+grep -n "case \"middleware_keyword\|/api/keyword" apps/middleware/src/features/compat/routes.ts | head -20
+```
 
-### 3. Check Existing Patterns
+Read full functions, not just grep hits. Follow imports. Check what calls what.
 
-Find how similar features were implemented. Look at:
-- Chat send pipeline (for message-related features)
-- Compat layer commands (for legacy API compatibility)
-- Patch bus events (for real-time UI updates)
-- Session management (for session-related features)
+## Step 3: Identify the Root Cause
 
-### 4. Identify Edge Cases
+Before proposing a fix, answer:
+- What is the current behavior? (trace it in code)
+- What should the behavior be?
+- Where exactly does it break? (file + line)
+- What else touches this code path?
 
-For every feature, explicitly address:
-- What happens on failure (gateway down, timeout, invalid input)?
-- Impact on warm cache and bootstrap
-- Impact on multi-window isolation
-- Impact on optimistic message lifecycle
-- Backward compatibility with compat layer
-- Impact on message ordering (openclaw_seq)
+## Step 4: Write the Plan
 
-### 5. List Assumptions
-
-Explicitly state every assumption. Examples:
-- "We assume the gateway echoes user messages in chat.history within 30s"
-- "We assume middleware body limit (25 MB) is sufficient for this payload"
-- "We assume the compat layer doesn't need updating for this feature"
-
-### 6. Write Implementation Document
-
-Save to `docs/<FEATURE-NAME>.md`. Structure:
+Save to `docs/<name>.md`:
 
 ```markdown
-# Feature: <Name>
+# <Title>
 
-## Overview
-What this feature does and why.
+## Problem
+What's broken and why, with file:line references.
 
-## Current State
-How things work today (what exists, what's missing).
+## Current Flow
+How the code works today (trace the actual path).
 
-## Architecture / Data Flow
-ASCII flow diagram showing the full request/data path.
+## Proposed Fix
+What to change, in which files, in what order.
 
-## Implementation Plan
-### Package 1: Middleware
-- File changes with line-level detail
-### Package 2: UI
-...
+## Files to Change
+- `apps/middleware/src/features/chat/routes.ts` — what changes
+- `packages/ui/hooks/useChatMessages.ts` — what changes
 
-## Breaking Changes
-Any breaking changes and how they're handled.
+## Risks
+What could break. Check against docs/constraints/.
 
-## Edge Cases
-Numbered list with resolution for each.
-
-## Assumptions
-Numbered list — every assumption explicitly stated.
-
-## Risk Assessment
-Table: Risk | Likelihood | Impact | Mitigation
-
-## Testing Strategy
-How to verify (typecheck, unit tests, manual testing).
+## Testing
+How to verify: which typecheck, which tests, what to check manually.
 ```
 
-### 7. Report
+## Step 5: Stop
 
-Summarize:
-- Number of packages affected
-- Key design decisions made
-- Open questions (if any)
-- Top risks
-
-## Hard Rules
-
-- Always read `AGENTS.md` + relevant constraint files FIRST (Step 0)
-- Always list assumptions — "no assumptions" is never true
-- Implementation doc goes in `docs/`, not temp directories
-- Do NOT start implementation — that's `feature-build`
+Don't implement. That's `feature-build`.

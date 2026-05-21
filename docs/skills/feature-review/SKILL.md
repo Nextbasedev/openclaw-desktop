@@ -1,126 +1,80 @@
 ---
 name: feature-review
-description: Review a feature implementation branch before PR creation. Spawns 3 parallel review agents (code quality, regression risk, better alternatives) plus a coordinator with false positive filtering. Use AFTER testing is complete.
+description: Three-agent parallel code review on a branch or PR for openclaw-desktop.
 ---
 
 # Feature Review
 
-Run a parallel 3-agent code review on a feature branch diff, without creating a PR.
-
 ## When to Use
+PR is created or branch is ready. Run before merge.
 
-- After testing is complete
-- After back-and-forth fixes are done
-- Before creating a PR (use `feature-ship` after review fixes are applied)
-
-## Workflow
-
-### 0. Read Codebase Brain
-
-Read `AGENTS.md` and relevant `docs/constraints/*.md` files based on which domain the changes touch. Include key invariants and constraints in agent task prompts.
-
-### 1. Gather Diff
+## Step 1: Gather Context
 
 ```bash
-BRANCH=$(git branch --show-current)
-BASE=dev-2-temp  # or whatever the target branch is
-git diff ${BASE}..${BRANCH} > /tmp/branch-${BRANCH}-diff.patch
-git diff ${BASE}..${BRANCH} --stat
-git diff ${BASE}..${BRANCH} --name-only
+# For a PR
+gh pr diff <PR> --repo Nextbasedev/openclaw-desktop > /tmp/pr-<PR>-diff.patch
+gh pr diff <PR> --repo Nextbasedev/openclaw-desktop --name-only > /tmp/pr-<PR>-files.txt
+
+# For a branch (no PR yet)
+git diff dev-2-temp..<branch> > /tmp/branch-diff.patch
+git diff dev-2-temp..<branch> --name-only > /tmp/branch-files.txt
 ```
 
-### 2. Gather Full File Context
+**Read every changed file in full.** Sub-agents can't access the repo.
 
-Read the **full content** of every changed file — not just diff hunks. Sub-agents have no repo access.
+**Read upstream code too.** If the diff calls `markHistoryLoaded()`, read where that's defined and what else calls it.
 
-Additionally, gather upstream context:
-- Imports, constants, and functions referenced by the changed code
-- Relevant type definitions and configs
-- Relevant constraint files from `docs/constraints/`
+**Read the relevant constraint files** from `docs/constraints/`.
 
-### 3. Build Architecture Brief
+## Step 2: Build Context Doc
 
-Write a context doc (~200-500 words) explaining:
-- What the system does at a high level
-- How the changed files fit into the architecture
-- The execution flow the changes affect
-- Key design decisions that might look like bugs to someone unfamiliar
+Write a context doc with:
+- Architecture brief (200-500 words) — what the system does, how changed files fit in
+- Full diff
+- Full content of every changed file
+- Upstream context (imports, functions, types referenced by changed code)
+- System constraints from `AGENTS.md` and `docs/constraints/`
 
-### 4. Extract System Constraints
+This doc is what sub-agents will read. Quality here = quality of review.
 
-From `AGENTS.md` and `docs/constraints/*.md`, build a constraints section for agent prompts:
+## Step 3: Spawn 3 Reviewers
 
-```markdown
-## System Constraints (verify all changes against these)
-- Messages ordered by openclaw_seq, not timestamp
-- Optimistic messages must be confirmed or failed — never orphaned
-- Middleware body limit: 25 MB (MIDDLEWARE_BODY_LIMIT_BYTES)
-- Per-window layout isolation via openclawWindowId
-- Scroll-to-bottom only on user intent or initial open
-- Warm cache is bounded preview, not source of truth
-- (add domain-specific constraints)
-```
+**Agent 1: Code Quality**
+- Naming, error handling, unclear logic, magic values
+- Severity: 🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Minor
+- Each issue: what code does, what's wrong, runtime behavior, confidence
 
-### 5. Spawn 3 Parallel Review Agents
+**Agent 2: Regression Risk**
+- Side effects, removed behavior, null checks, race conditions
+- "WILL break" vs "COULD break if" vs "MIGHT break in theory"
+- Check changed code against constraints
+- Don't flag things handled by try/catch or guards
 
-All agents receive: full diff, full changed files, upstream context, architecture brief, constraints.
+**Agent 3: Better Alternatives**
+- Better approaches with trade-offs
+- "Should do now" vs "consider later"
+- Match scope to PR size
 
-#### Agent 1: Code Quality
-- Naming, error handling, unclear logic, inconsistent patterns, magic values
-- Severity: 🔴 Critical, 🟠 High, 🟡 Medium, 🟢 Minor
-- For each issue: what code does, what's wrong, runtime behavior, confidence
+## Step 4: Filter Results
 
-#### Agent 2: Regression Risk
-- Side effects, removed behavior, null checks, type changes, API breaks, race conditions
-- Distinguish "WILL break" vs "COULD break if" vs "MIGHT break in theory"
-- Check system constraints against every call
-- Check default parameter changes when functions are swapped
-- Do NOT flag risks handled by try/catch, fallbacks, or guards
+After all 3 finish, verify every finding against the actual code:
 
-#### Agent 3: Better Alternatives
-- Genuinely better approaches with concrete trade-offs
-- Scope proportionally to change size
-- Distinguish "should do now" vs "consider for future"
+1. **Trace the runtime path.** Does the bug actually happen?
+2. **Check for guards.** Does surrounding code handle it?
+3. **Check who controls the input.** Internal = trusted.
 
-### 6. Spawn Coordinator
+Common false positives in this codebase:
+- Warm cache being incomplete → by design, not a bug
+- Optimistic message getting replaced → that's the confirm lifecycle
+- `scrollToBottom(false)` not scrolling → it checks `isAtBottomRef`, intentional
+- Compat layer duplicating v2 routes → legacy compatibility, intentional
+- History load failure being caught → non-fatal by design
+- Gateway send returning "done" early → middleware waits for history, not send response
 
-- Waits for all 3 agent results
-- Cross-validates findings, filters false positives using architecture context
-- Creates summary with Critical Issues + Verdict (`APPROVE` / `NEEDS_CHANGES` / `BLOCK`)
-- Creates fix plan with numbered steps by priority
+## Step 5: Report
 
-### 7. False Positive Filter (MANDATORY)
-
-After coordinator, review every finding using full codebase access:
-1. **Who controls this input?** Operator-controlled = trusted.
-2. **What actually happens at runtime?** Trace the path.
-3. **Does surrounding code handle this?** Check for guards agents couldn't see.
-4. **Is the scenario realistic?** 3 implausible conditions = speculative, not critical.
-
-Mark each: Confirmed, Downgraded, or False Positive.
-
-### 8. Apply Fixes
-
-After review owner decides which fixes to apply:
-1. Implement the fixes
-2. Compile check (`pnpm --filter <package> typecheck`)
-3. Test (`pnpm --filter <package> test`)
-4. Commit and push
-
-Do NOT apply fixes autonomously — wait for instructions.
-
-## Common False Positive Patterns
-
-Include in agent prompts:
-1. **Warm cache vs projection** — warm cache being imprecise is by design
-2. **Optimistic message replacement** — gateway echo replaces optimistic, not a data loss
-3. **Non-smooth scroll** — `scrollToBottom(false)` respecting isAtBottom is intentional
-4. **Compat layer duplication** — legacy routes intentionally mirror v2 routes
-5. **Error suppression in gateway calls** — history load failures are warn-logged, not thrown
-
-## Hard Rules
-
-- Never create a PR from this skill — that's `feature-ship`
-- Never apply review fixes without explicit instruction
-- Always include full file contents for sub-agents (not just diff hunks)
-- Context gathering quality determines review quality — spend time here
+Deliver:
+- Verdict: `APPROVE` / `NEEDS_CHANGES` / `BLOCK`
+- Issues by severity with file:line references
+- Dismissed findings with reasoning
+- Fix suggestions if `NEEDS_CHANGES`

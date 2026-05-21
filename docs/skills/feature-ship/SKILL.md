@@ -1,101 +1,82 @@
 ---
 name: feature-ship
-description: Create a PR for a completed and reviewed OCPlatform Desktop feature. Use when asked to "create PR", "ship it", or "open PR" AFTER testing and review are complete. Hard rule — never merge without explicit permission.
+description: Create a PR and ship a completed openclaw-desktop feature or fix.
 ---
 
 # Feature Ship
 
-Create a pull request for a completed, tested, and reviewed feature branch.
+## When to Use
+Code is done, tests pass, review is clean. Time to create the PR.
 
-## Prerequisites
-
-- Feature implemented (`feature-build`) ✅
-- Testing completed ✅
-- Branch review completed (`feature-review`) ✅
-- Review fixes applied per instructions ✅
-
-## Workflow
-
-### 1. Pre-Flight Checks
+## Step 1: Pre-Flight
 
 ```bash
-BRANCH=$(git branch --show-current)
-BASE=dev-2-temp  # or target branch
-
-# Verify on feature branch
-echo "Branch: $BRANCH"
-
-# Check diff
-git diff ${BASE}..${BRANCH} --stat
-
-# Compile checks
+# Make sure tests and types pass
 pnpm --filter @openclaw/desktop-middleware typecheck
-pnpm --filter ui typecheck
-
-# Tests
 pnpm --filter @openclaw/desktop-middleware test -- --runInBand
-
-# Build
+pnpm --filter ui typecheck
 pnpm --filter ui build
 ```
 
-### 2. Create PR
+Only run what you changed. Middleware-only fix? Skip UI checks.
+
+## Step 2: Create PR
 
 ```bash
 gh pr create \
-  --base ${BASE} \
-  --head ${BRANCH} \
-  --title "<type>: <concise description>" \
-  --body-file /tmp/pr-body.md \
-  --repo Nextbasedev/openclaw-desktop
+  --repo Nextbasedev/openclaw-desktop \
+  --base dev-2-temp \
+  --head fix/<branch-name> \
+  --title "<what changed>" \
+  --body "## Summary
+<1-2 sentences>
+
+## Changes
+- <bullet per logical change>
+
+## Verification
+- pnpm --filter @openclaw/desktop-middleware typecheck ✅
+- pnpm --filter @openclaw/desktop-middleware test ✅
+- pnpm --filter ui typecheck ✅
+- pnpm --filter ui build ✅"
 ```
 
-#### PR Title Format
+Base branch: usually `dev-2-temp` or `fix/pr33-segment-followups` if stacking on another fix.
 
-Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
+Title style (from actual PRs):
+- `Fix per-window chat layout restore`
+- `Fix chat initial scroll behavior`
+- `Raise chat attachment payload limit`
+- `Fix stale synced session cleanup`
 
-#### PR Description
+## Step 3: If Review Requested
 
-Use `.github/PULL_REQUEST_TEMPLATE.md` as the base. Fill in:
-- Summary of changes
-- Key changes (bullet list)
-- Which `docs/constraints/` files were checked
-- Verification steps run (typecheck, test, build)
-- Lessons added (if bug fix)
+Run `feature-review` skill on the PR. Fix issues, push, comment the fix on the PR.
 
-### 3. Report
+```bash
+# Comment issue
+gh pr comment <PR> --repo Nextbasedev/openclaw-desktop --body "Review found: <issue>"
 
-Provide:
-- PR URL
-- Number of commits
-- Files changed summary
-- Ready for review
+# After fixing
+git add <files> && git commit -m "<fix description>" && git push
 
-### 4. Wait for Merge Permission
+# Comment fix
+gh pr comment <PR> --repo Nextbasedev/openclaw-desktop --body "Fixed: <what was done>"
+```
 
-**HARD RULE: Never merge without explicit permission.**
+## Step 4: Wait
+
+**Never merge without explicit permission.**
 
 When told to merge:
 ```bash
-gh pr merge <PR_NUMBER> --repo Nextbasedev/openclaw-desktop --squash --delete-branch
+gh pr merge <PR> --repo Nextbasedev/openclaw-desktop --squash --delete-branch
 ```
 
-Verify:
-```bash
-gh pr view <PR_NUMBER> --repo Nextbasedev/openclaw-desktop --json state -q .state
-```
+## Step 5: Post-Merge
 
-### 5. Post-Merge
-
-After merge:
-- **If this PR fixed a bug:** add a lesson to `docs/lessons/README.md`
-- **If this PR introduced a new constraint:** verify it was added to `docs/constraints/`
-- Clean up temp review files (`.review-pr*`, `/tmp/pr-*`)
-
-## Hard Rules
-
-- **Never merge without explicit "merge it" / "go ahead" or similar**
-- Never create a PR without prior testing and review
-- Always include verification results in PR description
-- Always include which constraints from `docs/constraints/` were checked
-- PR description should be self-contained — reviewer shouldn't need external context
+If this PR fixed a bug, add a lesson to `docs/lessons/README.md`:
+- What broke
+- Root cause (file:line)
+- Fix (PR number)
+- Which constraint it validates
