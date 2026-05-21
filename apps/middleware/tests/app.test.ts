@@ -394,6 +394,20 @@ describe("middleware app", () => {
               createdAt: "2026-05-13T05:00:00.000Z",
               updatedAt: "2026-05-13T05:30:00.000Z",
             },
+            {
+              key: "agent:main:telegram:group:-1001:topic:42",
+              label: "Telegram Topic",
+              agentId: "main",
+              createdAt: "2026-05-13T06:00:00.000Z",
+              updatedAt: "2026-05-13T06:30:00.000Z",
+            },
+            {
+              key: "agent:main:discord:guild:1:channel:2",
+              label: "Discord Channel",
+              agentId: "main",
+              createdAt: "2026-05-13T07:00:00.000Z",
+              updatedAt: "2026-05-13T07:30:00.000Z",
+            },
           ],
         };
       }
@@ -405,10 +419,18 @@ describe("middleware app", () => {
     expect(bootstrap.json().chats).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Shared Chat", sessionKey: "agent:main:desktop:shared", spaceId: "space_default" }),
     ]));
+    expect(bootstrap.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
+      expect.objectContaining({ sessionKey: "agent:main:discord:guild:1:channel:2" }),
+    ]));
 
     const chats = await app.inject({ method: "GET", url: "/api/chats?spaceId=space_default" });
     expect(chats.json().chats).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Shared Chat", sessionKey: "agent:main:desktop:shared" }),
+    ]));
+    expect(chats.json().chats).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionKey: "agent:main:telegram:group:-1001:topic:42" }),
+      expect.objectContaining({ sessionKey: "agent:main:discord:guild:1:channel:2" }),
     ]));
     await app.close();
   });

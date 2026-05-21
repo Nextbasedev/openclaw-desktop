@@ -1862,6 +1862,10 @@ function gatewaySessionRows(payload: unknown): CompatRecord[] {
   return Array.isArray(rows) ? rows.filter((row): row is CompatRecord => Boolean(row) && typeof row === "object" && !Array.isArray(row)) : [];
 }
 
+function isDesktopSessionKey(sessionKey: string) {
+  return /^agent:[^:]+:desktop(?::|$)/.test(sessionKey);
+}
+
 async function syncGatewaySessions(context: AppContext) {
   try {
     // Startup/bootstrap should never block on establishing Gateway auth. If the
@@ -1877,7 +1881,6 @@ async function syncGatewaySessions(context: AppContext) {
     for (const row of rows) {
       const sessionKey = stringField(row, ["key", "sessionKey"]);
       if (!sessionKey) continue;
-      syncedSessionKeys.add(sessionKey);
       if (isSubagentRecord(row) || isSubagentSessionKeyValue(sessionKey)) {
         const existingSubagentChatIndex = compatState.chats.findIndex((chat) => chat.sessionKey === sessionKey);
         if (existingSubagentChatIndex >= 0) {
@@ -1886,6 +1889,8 @@ async function syncGatewaySessions(context: AppContext) {
         }
         continue;
       }
+      if (!isDesktopSessionKey(sessionKey)) continue;
+      syncedSessionKeys.add(sessionKey);
       const name = labelFromGatewaySession(row, sessionKey);
       const agentId = stringField(row, ["agentId", "agent_id"]) ?? "main";
       const rowCreatedAt = optionalTimestampField(row, ["createdAt", "created_at"]);
