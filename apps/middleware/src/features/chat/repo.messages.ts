@@ -36,6 +36,17 @@ export class MessageRepository {
   }
 
   getSegmentForTranscript(params: { sessionKey: string; sessionId?: string | null; sessionFile?: string | null; active?: boolean | null }) {
+    if (params.active === false && params.sessionFile) {
+      const row = this.db.prepare(`
+        SELECT segment_id, session_key, session_id, segment_index, base_seq
+        FROM v2_chat_segments
+        WHERE session_key = @sessionKey AND is_active = 0 AND session_file = @sessionFile
+        ORDER BY segment_index DESC
+        LIMIT 1
+      `).get({ sessionKey: params.sessionKey, sessionFile: params.sessionFile }) as { segment_id: string; session_key: string; session_id: string | null; segment_index: number; base_seq: number } | undefined;
+      if (!row) return null;
+      return { segmentId: row.segment_id, sessionKey: row.session_key, sessionId: row.session_id, segmentIndex: row.segment_index, baseSeq: row.base_seq };
+    }
     const row = this.db.prepare(`
       SELECT segment_id, session_key, session_id, segment_index, base_seq
       FROM v2_chat_segments
@@ -245,6 +256,7 @@ export class MessageRepository {
       SELECT openclaw_seq
       FROM v2_messages
       WHERE session_key = @sessionKey
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
         AND json_extract(data_json, '$.__openclaw.gatewayId') = @messageId
       LIMIT 1
     `);
@@ -281,7 +293,7 @@ export class MessageRepository {
         const sessionId = message.sessionId ?? resolvedSessionId;
         const idMatch = message.messageId
           ? (existingById.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
-            ?? (existingByGatewayId.get({ sessionKey: message.sessionKey, messageId: message.messageId }) as { openclaw_seq: number } | undefined)
+            ?? (existingByGatewayId.get({ sessionKey: message.sessionKey, messageId: message.messageId, segmentId }) as { openclaw_seq: number } | undefined)
           : undefined;
         if (idMatch?.openclaw_seq) openclawSeq = idMatch.openclaw_seq;
 
@@ -427,23 +439,42 @@ export class MessageRepository {
 
   confirmOptimisticUser(sessionKey: string, optimisticId: string, gatewayMessage: ProjectedMessage) {
     const existing = this.db.prepare(`
-      SELECT openclaw_seq, data_json
+      SELECT openclaw_seq, segment_id, session_id, data_json
       FROM v2_messages
       WHERE session_key = @sessionKey AND message_id = @optimisticId
       LIMIT 1
-    `).get({ sessionKey, optimisticId }) as { openclaw_seq: number; data_json: string } | undefined;
+    `).get({ sessionKey, optimisticId }) as { openclaw_seq: number; segment_id: string | null; session_id: string | null; data_json: string } | undefined;
     if (!existing) return null;
 
-    if (gatewayMessage.messageId && gatewayMessage.messageId !== optimisticId) {
-      this.db.prepare(`
-        DELETE FROM v2_messages
-        WHERE session_key = @sessionKey AND message_id = @gatewayMessageId
-      `).run({ sessionKey, gatewayMessageId: gatewayMessage.messageId });
-    }
-    this.db.prepare(`
+    const activeSegment = this.getActiveSegment(sessionKey);
+    const segmentId = existing.segment_id ?? gatewayMessage.segmentId ?? activeSegment?.segmentId ?? null;
+    const sessionId = existing.session_id ?? gatewayMessage.sessionId ?? activeSegment?.sessionId ?? null;
+    const gatewaySeq = gatewayMessage.gatewaySeq ?? gatewayMessage.openclawSeq;
+    const projectedGatewaySeq = segmentId && activeSegment?.segmentId === segmentId ? activeSegment.baseSeq + gatewaySeq : null;
+
+    const deleteGatewayDuplicate = this.db.prepare(`
       DELETE FROM v2_messages
-      WHERE session_key = @sessionKey AND openclaw_seq = @gatewaySeq AND message_id IS NOT @optimisticId
-    `).run({ sessionKey, gatewaySeq: gatewayMessage.openclawSeq, optimisticId });
+      WHERE session_key = @sessionKey
+        AND message_id = @gatewayMessageId
+        AND (@segmentId IS NULL OR segment_id IS @segmentId)
+    `);
+    const deleteProjectedDuplicate = this.db.prepare(`
+      DELETE FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND segment_id IS @segmentId
+        AND openclaw_seq = @projectedGatewaySeq
+        AND message_id IS NOT @optimisticId
+    `);
+    const updateOptimistic = this.db.prepare(`
+      UPDATE v2_messages
+      SET segment_id = COALESCE(@segmentId, segment_id),
+          session_id = COALESCE(@sessionId, session_id),
+          gateway_seq = COALESCE(@gatewaySeq, gateway_seq),
+          role = @role,
+          data_json = @dataJson,
+          updated_at_ms = @updatedAtMs
+      WHERE session_key = @sessionKey AND message_id = @optimisticId
+    `);
 
     const data = {
       ...gatewayMessage.data,
@@ -453,27 +484,39 @@ export class MessageRepository {
         ...(gatewayMessage.data.__openclaw ?? {}),
         id: optimisticId,
         gatewayId: gatewayMessage.messageId,
-        gatewaySeq: gatewayMessage.openclawSeq,
+        gatewaySeq,
+        segmentId,
       },
     } as OpenClawMessage;
     const confirmed: ProjectedMessage = {
       ...gatewayMessage,
+      segmentId,
+      sessionId,
+      gatewaySeq,
       openclawSeq: existing.openclaw_seq,
       messageId: optimisticId,
       data,
       updatedAtMs: gatewayMessage.updatedAtMs,
     };
-    this.db.prepare(`
-      UPDATE v2_messages
-      SET role = @role, data_json = @dataJson, updated_at_ms = @updatedAtMs
-      WHERE session_key = @sessionKey AND message_id = @optimisticId
-    `).run({
-      sessionKey,
-      optimisticId,
-      role: confirmed.role,
-      dataJson: toJson(confirmed.data),
-      updatedAtMs: confirmed.updatedAtMs,
+    const tx = this.db.transaction(() => {
+      if (gatewayMessage.messageId && gatewayMessage.messageId !== optimisticId) {
+        deleteGatewayDuplicate.run({ sessionKey, gatewayMessageId: gatewayMessage.messageId, segmentId });
+      }
+      if (projectedGatewaySeq !== null) {
+        deleteProjectedDuplicate.run({ sessionKey, segmentId, projectedGatewaySeq, optimisticId });
+      }
+      updateOptimistic.run({
+        sessionKey,
+        optimisticId,
+        segmentId,
+        sessionId,
+        gatewaySeq,
+        role: confirmed.role,
+        dataJson: toJson(confirmed.data),
+        updatedAtMs: confirmed.updatedAtMs,
+      });
     });
+    tx();
     return confirmed;
   }
 

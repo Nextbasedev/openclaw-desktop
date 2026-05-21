@@ -484,7 +484,9 @@ function readJsonlFile(file: string, maxLines?: number) {
   try {
     const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
     const selected = typeof maxLines === "number" && maxLines >= 0 ? lines.slice(0, maxLines) : lines;
-    return selected.map((line) => JSON.parse(line) as CompatRecord);
+    return selected.flatMap((line) => {
+      try { return [JSON.parse(line) as CompatRecord]; } catch { return []; }
+    });
   } catch { return [] as CompatRecord[]; }
 }
 
