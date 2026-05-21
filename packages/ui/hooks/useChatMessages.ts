@@ -503,7 +503,9 @@ export function useChatMessages(
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
-  const [historyLoadVersion, setHistoryLoadVersion] = useState(0)
+  const [historyLoadVersion, setHistoryLoadVersion] = useState(() =>
+    initialWarmMessages?.length ? 1 : 0
+  )
   const markHistoryLoaded = useCallback(() => {
     setHistoryLoadVersion((value) => value + 1)
   }, [])

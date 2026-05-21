@@ -754,6 +754,7 @@ export function ChatView({
       window.clearTimeout(settleTimer)
     }
   }, [
+    bottomRef,
     historyLoadVersion,
     isBackgroundSession,
     renderedMessages.length,
