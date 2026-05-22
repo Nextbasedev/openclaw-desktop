@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { AppContext } from "../../app.js";
 import { HttpError } from "../../lib/errors.js";
 import { createLogger, errorMeta } from "../../lib/logger.js";
-import { messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
+import { cleanMessageDisplayText, messageTextMatchesSent, normalizeHistoryMessages, textFromMessage } from "./message-normalizer.js";
 import { classifyGatewayMessageSemanticType, projectGatewayMessage, readToolCallId, readToolName } from "./gateway-event-projector.js";
 import { prepareMessageAndAttachments } from "./attachments.js";
 import type { RunStatus } from "./repo.runs.js";
@@ -137,17 +137,33 @@ function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?
     });
 }
 
+function cleanSerializedMessageData(data: Record<string, unknown>, role: string) {
+  if (role !== "user") return data;
+  const next = { ...data };
+  if (typeof next.text === "string") next.text = cleanMessageDisplayText(next.text);
+  if (typeof next.content === "string") next.content = cleanMessageDisplayText(next.content);
+  if (Array.isArray(next.content)) {
+    next.content = next.content.map((block) => {
+      if (!block || typeof block !== "object" || Array.isArray(block) || typeof (block as Record<string, unknown>).text !== "string") return block;
+      return { ...block, text: cleanMessageDisplayText((block as Record<string, unknown>).text as string) };
+    });
+  }
+  return next;
+}
+
 function serializeProjectedMessage(message: ProjectedMessage) {
   const data = message.data && typeof message.data === "object" && !Array.isArray(message.data)
     ? message.data
     : {};
-  const existingOpenClaw = data.__openclaw && typeof data.__openclaw === "object" && !Array.isArray(data.__openclaw)
-    ? data.__openclaw
+  const role = typeof data.role === "string" ? data.role : message.role ?? "assistant";
+  const cleanedData = cleanSerializedMessageData(data, role);
+  const existingOpenClaw: Record<string, unknown> = cleanedData.__openclaw && typeof cleanedData.__openclaw === "object" && !Array.isArray(cleanedData.__openclaw)
+    ? cleanedData.__openclaw as Record<string, unknown>
     : {};
   return {
-    ...data,
-    role: typeof data.role === "string" ? data.role : message.role ?? "assistant",
-    messageId: typeof data.messageId === "string" ? data.messageId : message.messageId ?? undefined,
+    ...cleanedData,
+    role,
+    messageId: typeof cleanedData.messageId === "string" ? cleanedData.messageId : message.messageId ?? undefined,
     __openclaw: {
       ...existingOpenClaw,
       id: typeof existingOpenClaw.id === "string" ? existingOpenClaw.id : message.messageId ?? undefined,
