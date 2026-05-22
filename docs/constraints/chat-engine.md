@@ -67,6 +67,10 @@ Chat opens
   cursor 0 and temporarily overwrite active chat state.
 - Replayed `chat.bootstrap` / tool patches are not the source of truth for the
   active chat when a fresher `/api/chat/bootstrap` cursor is already known.
+- Replayed metadata-only `chat.bootstrap` patches with zero messages must not
+  make the UI treat a session as authoritatively empty. Only real
+  `/api/chat/bootstrap` query data or persisted warm/bootstrap cache may use the
+  known-empty fast path; patch-stream placeholders are cursor/activity hints.
 
 ## Tool Card Rendering
 

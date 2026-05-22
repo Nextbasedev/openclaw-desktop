@@ -84,6 +84,22 @@ POST /api/chat/send
 - `clearSyncGatewaySessionsCache()` exported for test isolation
 - Tests must call it in `afterEach` and between sequential bootstrap assertions
 
+## Chat Bootstrap Performance
+
+- `/api/chat/bootstrap` is the critical path for opening/restoring a chat and
+  must return projected visible messages quickly.
+- Do not synchronously import archived transcript files or resequence thousands
+  of messages in the bootstrap response path. Schedule archive import/resequence
+  in a guarded background job instead.
+- Do not await `sessions.messages.subscribe`/live subscription from bootstrap;
+  subscribe in the background so slow Gateway subscription calls cannot block
+  visible history.
+- Guard background archive projection per session so refresh/tab restore cannot
+  start duplicate archive imports for the same chat.
+- If a background archive projection changes visible history, emit a session
+  patch/recovery signal so an already-open chat refetches instead of staying on
+  the first bootstrap snapshot.
+
 ## Telegram Import
 
 - Group topics create: project + topic + session + chat entry
