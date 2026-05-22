@@ -2,6 +2,8 @@ export const CHAT_PROJECTION_VERSION = 3
 
 export type RunStatusV2 = "idle" | "queued" | "thinking" | "streaming" | "tool_running" | "done" | "error" | "aborted"
 
+export type HistoryCoverageV2 = "none" | "metadata" | "full"
+
 export type ActiveRunV2 = {
   runId: string
   gatewayRunId?: string | null
@@ -42,6 +44,8 @@ export type ChatBootstrapV2 = {
   runStatus?: RunStatusV2 | string
   statusLabel?: string | null
   activeRun?: ActiveRunV2 | null
+  historyCoverage?: HistoryCoverageV2
+  fullMessagesIncluded?: boolean
   messages: MessageProjectionV2[]
   messageCount: number
   tools?: ToolCallProjectionV2[]
@@ -70,6 +74,10 @@ export type PatchPayloadV2 = {
   status?: RunStatusV2 | string | null
   statusLabel?: string | null
   activeRun?: ActiveRunV2 | null
+  historyCoverage?: HistoryCoverageV2
+  fullMessagesIncluded?: boolean
+  messageCount?: number
+  lastSeq?: number
   toolCallId?: string
   toolCall?: ToolCallProjectionV2
   text?: string | null
@@ -110,6 +118,8 @@ export type CachedChatBootstrapV2 = {
   runStatus?: RunStatusV2 | string
   statusLabel?: string | null
   activeRun?: ActiveRunV2 | null
+  historyCoverage?: HistoryCoverageV2
+  fullMessagesIncluded?: boolean
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]
   branchData?: unknown

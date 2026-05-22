@@ -1210,7 +1210,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const event = context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
-      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq },
+      payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false },
     });
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 

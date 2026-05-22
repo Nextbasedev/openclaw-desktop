@@ -19,6 +19,113 @@ afterEach(() => {
 })
 
 describe("global V2 chat engine store", () => {
+  test("metadata-only bootstrap replay is not authoritative empty history", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 945,
+        type: "chat.bootstrap",
+        sessionKey: "s-empty-replay",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s-empty-replay",
+          messageCount: 0,
+          lastSeq: 0,
+          historyCoverage: "metadata",
+          fullMessagesIncluded: false,
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s-empty-replay")!
+    expect(state.cursor).toBe(945)
+    expect(state.messages).toEqual([])
+    expect(state.messageCount).toBe(0)
+    expect(state.historyCoverage).toBe("metadata")
+  })
+
+  test("full bootstrap seed hydrates messages after metadata-only empty replay", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 945,
+        type: "chat.bootstrap",
+        sessionKey: "s-hydrate",
+        createdAtMs: Date.now(),
+        payload: { sessionKey: "s-hydrate", messageCount: 0, fullMessagesIncluded: false },
+      },
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-hydrate",
+      cursor: 944,
+      historyCoverage: "full",
+      messageCount: 2,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "question" },
+        { messageId: "a1", role: "assistant", text: "answer" },
+      ],
+    })
+
+    const state = getGlobalChatSession("s-hydrate")!
+    expect(state.cursor).toBe(945)
+    expect(state.historyCoverage).toBe("full")
+    expect(state.messageCount).toBe(2)
+    expect(state.messages).toEqual([
+      expect.objectContaining({ messageId: "u1", text: "question" }),
+      expect.objectContaining({ messageId: "a1", text: "answer" }),
+    ])
+  })
+
+  test("full empty bootstrap seed is authoritative empty history", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-full-empty",
+      cursor: 20,
+      historyCoverage: "full",
+      messageCount: 0,
+      status: "idle",
+      messages: [],
+    })
+
+    const state = getGlobalChatSession("s-full-empty")!
+    expect(state.cursor).toBe(20)
+    expect(state.messages).toEqual([])
+    expect(state.messageCount).toBe(0)
+    expect(state.historyCoverage).toBe("full")
+  })
+
+  test("metadata-only bootstrap replay does not downgrade full history", () => {
+    seedGlobalChatSession({
+      sessionKey: "s-no-downgrade",
+      cursor: 10,
+      historyCoverage: "full",
+      messageCount: 2,
+      status: "done",
+      messages: [
+        { messageId: "u1", role: "user", text: "question" },
+        { messageId: "a1", role: "assistant", text: "answer" },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.bootstrap",
+        sessionKey: "s-no-downgrade",
+        createdAtMs: Date.now(),
+        payload: { sessionKey: "s-no-downgrade", messageCount: 0, fullMessagesIncluded: false },
+      },
+    })
+
+    const state = getGlobalChatSession("s-no-downgrade")!
+    expect(state.cursor).toBe(11)
+    expect(state.historyCoverage).toBe("full")
+    expect(state.messageCount).toBe(2)
+    expect(state.messages).toHaveLength(2)
+  })
+
   test("does not resurrect a completed chat from an old running tool replay", () => {
     vi.setSystemTime(new Date("2026-05-15T08:30:00.000Z"))
     const oldStartedAt = Date.now() - 48 * 60 * 60 * 1000

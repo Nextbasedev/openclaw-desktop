@@ -10,11 +10,13 @@ import { extractSubagentSessionKey } from "../subagentSession"
 import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
-import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
+import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type HistoryCoverageV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
 
 export type SessionState = {
   cursor: number
   messages: ChatMessage[]
+  historyCoverage: HistoryCoverageV2
+  messageCount: number | null
   status: StreamStatus
   statusLabel: string | null
   pendingTools: InlineToolCall[]
@@ -70,6 +72,8 @@ function cloneState(state: SessionState): SessionState {
   return {
     cursor: state.cursor,
     messages: state.messages,
+    historyCoverage: state.historyCoverage,
+    messageCount: state.messageCount,
     status: state.status,
     statusLabel: state.statusLabel,
     pendingTools: state.pendingTools,
@@ -81,7 +85,7 @@ function cloneState(state: SessionState): SessionState {
 }
 
 function defaultState(): SessionState {
-  return { cursor: 0, messages: [], status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false }
+  return { cursor: 0, messages: [], historyCoverage: "none", messageCount: null, status: "idle", statusLabel: null, pendingTools: [], spawnedSubagents: [], lastPatchAtMs: 0, activityStartedAtMs: 0, deferredDoneUntilAssistant: false }
 }
 
 function normalizedSpawnText(value: string | null | undefined) {
@@ -190,7 +194,9 @@ function cacheBootstrap(sessionKey: string, state: SessionState) {
       source: cached.source ?? "middleware-projection",
       projectionVersion: cached.projectionVersion ?? CHAT_PROJECTION_VERSION,
       messages: state.messages,
-      messageCount: state.messages.length,
+      messageCount: state.messageCount ?? state.messages.length,
+      historyCoverage: state.historyCoverage,
+      fullMessagesIncluded: state.historyCoverage === "full",
       cursor,
       v2Cursor: cursor,
       runStatus: state.status,
@@ -221,7 +227,7 @@ function persistWarmSessionSnapshot(sessionKey: string, state: SessionState) {
       runStatus: snapshot.status,
       statusLabel: normalizeStatusLabel(snapshot.status, snapshot.statusLabel),
       pendingTools: snapshot.pendingTools,
-      messageCount: snapshot.messages.length,
+      messageCount: snapshot.messageCount ?? snapshot.messages.length,
     }).catch((error) => {
       frontendLog("chat", "warm-cache.live-persist.fail", {
         sessionKey,
@@ -1080,6 +1086,8 @@ function loadingFactorSummary(state: SessionState, patchType: string) {
     status: state.status,
     statusLabel: state.statusLabel,
     messageCount: state.messages.length,
+    authoritativeMessageCount: state.messageCount,
+    historyCoverage: state.historyCoverage,
     pendingToolCount: state.pendingTools.length,
     runningToolCount: state.pendingTools.filter((tool) => tool.status === "running").length,
     spawnedSubagentCount: state.spawnedSubagents.length,
@@ -1134,6 +1142,37 @@ function applyStaleMatchingToolPatch(state: SessionState, frame: PatchFrame) {
     status: state.status,
   }, "debug")
   return true
+}
+
+
+function payloadMessageCount(payload: PatchPayloadV2 | null) {
+  return typeof payload?.messageCount === "number" && Number.isFinite(payload.messageCount)
+    ? payload.messageCount
+    : null
+}
+
+function applyHistoryCoverageFromPatch(state: SessionState, frame: PatchFrame, payload: PatchPayloadV2 | null) {
+  const hasMessagePayload = Boolean(payload?.message)
+  const messageCount = payloadMessageCount(payload)
+  if (frame.patch.type === "chat.bootstrap") {
+    const fullMessagesIncluded = payload?.fullMessagesIncluded === true
+    const coverage: HistoryCoverageV2 = fullMessagesIncluded ? "full" : "metadata"
+    if (coverage === "full" || state.historyCoverage !== "full") {
+      state.historyCoverage = coverage
+      state.messageCount = messageCount ?? (fullMessagesIncluded ? state.messages.length : state.messageCount)
+    } else if (messageCount !== null && state.messageCount === null) {
+      state.messageCount = messageCount
+    }
+    return
+  }
+  if (hasMessagePayload && state.historyCoverage === "none") {
+    state.historyCoverage = "metadata"
+    state.messageCount = Math.max(messageCount ?? state.messages.length, state.messages.length)
+  } else if (messageCount !== null && state.messageCount === null) {
+    state.messageCount = messageCount
+  } else if (hasMessagePayload) {
+    state.messageCount = Math.max(state.messageCount ?? 0, state.messages.length)
+  }
 }
 
 function handlePatch(frame: PatchFrame) {
@@ -1212,6 +1251,7 @@ function handlePatch(frame: PatchFrame) {
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
   state.messages = next.messages
+  applyHistoryCoverageFromPatch(state, frame, payload)
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyReasoningFromPatch(state, frame)
   carryReasoningToFinalAssistant(state, frame)
@@ -1311,11 +1351,15 @@ export function seedGlobalChatSession(params: {
   statusLabel?: string | null
   pendingTools?: InlineToolCall[]
   spawnedSubagents?: SpawnedSubagent[]
+  messageCount?: number | null
+  historyCoverage?: HistoryCoverageV2
   queryClient?: QueryClient
 }) {
   if (params.queryClient) queryClientRef = params.queryClient
   const state = getOrCreate(params.sessionKey)
   const incomingCursor = params.cursor ?? 0
+  const incomingHistoryCoverage = params.historyCoverage ?? "full"
+  const incomingMessageCount = params.messageCount ?? params.messages.length
   const hasLiveState = ACTIVE_STATUSES.has(state.status) || hasActiveToolOrSubagent(state)
   const incomingIsTerminal = Boolean(params.status && !ACTIVE_STATUSES.has(params.status))
   const incomingDropsMessages = params.messages.length < state.messages.length
@@ -1332,6 +1376,10 @@ export function seedGlobalChatSession(params: {
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)
   state.cursor = Math.max(state.cursor, incomingCursor)
+  if (!hadNewerLiveState || incomingHistoryCoverage === "full") {
+    state.historyCoverage = incomingHistoryCoverage
+    state.messageCount = incomingMessageCount
+  }
   if (params.status && !hadNewerLiveState) {
     const wasActive = ACTIVE_STATUSES.has(state.status)
     state.status = params.status
@@ -1354,12 +1402,14 @@ export function seedGlobalChatSession(params: {
   frontendLog("session", "global-chat-session.seed", {
     sessionKey: params.sessionKey,
     messageCount: state.messages.length,
+    authoritativeMessageCount: state.messageCount,
     cursor: state.cursor,
     incomingCursor,
     preservedNewerLiveState: hadNewerLiveState,
     status: state.status,
     pendingToolCount: state.pendingTools.length,
     spawnedSubagentCount: state.spawnedSubagents.length,
+    historyCoverage: state.historyCoverage,
   }, "debug")
   notify(params.sessionKey)
 }
@@ -1393,6 +1443,8 @@ export function updateGlobalChatSessionActivity(params: {
     statusLabel: state.statusLabel,
     pendingToolCount: state.pendingTools.length,
     spawnedSubagentCount: state.spawnedSubagents.length,
+    historyCoverage: state.historyCoverage,
+    messageCount: state.messageCount,
   }, "debug")
   notify(params.sessionKey)
 }
