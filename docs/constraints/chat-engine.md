@@ -71,6 +71,10 @@ Chat opens
   make the UI treat a session as authoritatively empty. Only real
   `/api/chat/bootstrap` query data or persisted warm/bootstrap cache may use the
   known-empty fast path; patch-stream placeholders are cursor/activity hints.
+- When older-history pagination prepends messages locally, update the global
+  chat session/cache too. Otherwise later non-message patches can notify
+  subscribers with the shorter bootstrap/global snapshot and wipe the older
+  messages from the visible chat.
 
 ## Tool Card Rendering
 

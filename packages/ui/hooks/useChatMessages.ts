@@ -2539,7 +2539,24 @@ export function useChatMessages(
         setHasOlderMessages(false)
         return
       }
-      setMessages((current) => dedupeChatMessages([...olderMessages, ...current]))
+      setMessages((current) => {
+        const merged = dedupeChatMessages([...olderMessages, ...current])
+        // Keep the global patch-stream session in sync with paginated history.
+        // Otherwise the next non-message patch (for example chat.tool.update)
+        // notifies subscribers with the shorter bootstrap/global snapshot and
+        // wipes the locally prepended older messages back out of the UI.
+        seedGlobalChatSession({
+          sessionKey,
+          messages: merged,
+          cursor: v2CursorRef.current,
+          status: statusRef.current,
+          statusLabel,
+          pendingTools: Array.from(pendingToolMapRef.current.values()),
+          spawnedSubagents: Array.from(spawnMapRef.current.values()),
+          queryClient,
+        })
+        return merged
+      })
       setHasOlderMessages(
         page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
@@ -2559,7 +2576,7 @@ export function useChatMessages(
     } finally {
       setLoadingOlderMessages(false)
     }
-  }, [hasOlderMessages, loadingOlderMessages, sessionKey, setMessages])
+  }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])
 
   return {
     messages,
