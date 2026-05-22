@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
+import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 
 export type ModelEntry = {
   id: string
@@ -55,6 +56,8 @@ let cachedModels: ModelEntry[] | null = null
 let cachedCurrent: string | null = null
 let cachedConnectionKey: string | null = null
 
+const MODELS_REQUEST_TTL_MS = 3_000
+
 function currentMiddlewareConnectionKey(): string | null {
   if (typeof window === "undefined") return null
   const url = localStorage.getItem("openclaw.middleware.url")?.trim() ?? ""
@@ -62,7 +65,12 @@ function currentMiddlewareConnectionKey(): string | null {
   return url ? `${url}|${token ? "token" : "no-token"}` : null
 }
 
+function modelsRequestKey(connectionKey: string | null) {
+  return `models:${connectionKey ?? "default"}`
+}
+
 function clearModelsCache() {
+  invalidateDedupe("models:")
   cachedModels = null
   cachedCurrent = null
   cachedConnectionKey = null
@@ -90,19 +98,24 @@ export function useModels() {
     const connectionKey = currentMiddlewareConnectionKey()
     if (cachedConnectionKey !== connectionKey) {
       clearModelsCache()
+      cachedConnectionKey = connectionKey
       fetched.current = false
       setModels([])
       setCurrentModel(null)
     }
     if (!force && fetched.current && cachedModels) return
+    if (force) invalidateDedupe(modelsRequestKey(connectionKey))
     fetched.current = true
     setError(null)
     setLoading(true)
     try {
-      const res = await invoke<ModelsResponse>("middleware_models_list", {
-        input: {},
-      })
-      const normalized = normalizeModelsResponse(res)
+      const normalized = await dedupeRequest(
+        modelsRequestKey(connectionKey),
+        async () => normalizeModelsResponse(await invoke<ModelsResponse>("middleware_models_list", {
+          input: {},
+        })),
+        { ttlMs: MODELS_REQUEST_TTL_MS },
+      )
       cachedModels = normalized.models
       cachedCurrent = normalized.currentModel
       cachedConnectionKey = connectionKey

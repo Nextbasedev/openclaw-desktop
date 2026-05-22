@@ -28,6 +28,7 @@ import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-route
 import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
+import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
@@ -796,21 +797,27 @@ function AppShell({
 
       try {
         type RouteChatRecord = { id: string; name: string; sessionKey?: string; spaceId?: string; archived: boolean }
-        const chatResult = await invoke<{
-          chats: RouteChatRecord[]
-        }>("middleware_chats_list", { input: { spaceId: activeSpaceId ?? undefined } })
+        const cachedChats = await loadCachedChatsForSpace(activeSpaceId)
         if (!isCurrentPath()) return
 
-        let found = (chatResult.chats || []).find(
+        const cachedFound = (cachedChats || []).find(
+          (chat) => chat.id === route.chatId && chat.spaceId === activeSpaceId,
+        ) as RouteChatRecord | undefined
+        const chatResult = await fetchChatsForSpace(activeSpaceId)
+        if (!isCurrentPath()) return
+
+        let found = chatResult.find(
           (chat) => chat.id === route.chatId && chat.spaceId === activeSpaceId,
         )
-        if (!found) {
-          const allChatResult = await invoke<{ chats: RouteChatRecord[] }>(
-            "middleware_chats_list",
-            { input: {} },
-          )
+        if (!found && cachedFound) {
+          const allChatResult = await fetchChatsForSpace(null)
           if (!isCurrentPath()) return
-          found = (allChatResult.chats || []).find(
+          found = allChatResult.find((chat) => chat.id === route.chatId)
+        }
+        if (!found && !cachedFound) {
+          const allChatResult = await fetchChatsForSpace(null)
+          if (!isCurrentPath()) return
+          found = allChatResult.find(
             (chat) => chat.id === route.chatId,
           )
         }
@@ -1998,9 +2005,11 @@ function AppShell({
         { input: { text } },
       )
       const finalName = isWeakChatName(name) ? fallbackName : name
+      invalidateChatListCache(activeSpaceId)
       await invoke("middleware_chats_rename", {
         input: { chatId: chat.id, name: finalName },
       })
+      invalidateChatListCache(activeSpaceId)
       setActiveChat((prev) => prev ? { ...prev, name: finalName } : prev)
       setActiveSessionTitle(finalName)
       if (chat.sessionKey) {
@@ -2015,16 +2024,18 @@ function AppShell({
     } catch (err) {
       const fallbackName = fallbackChatNameFromText(text)
       try {
+        invalidateChatListCache(activeSpaceId)
         await invoke("middleware_chats_rename", {
           input: { chatId: chat.id, name: fallbackName },
         })
+        invalidateChatListCache(activeSpaceId)
         setActiveChat((prev) => prev ? { ...prev, name: fallbackName } : prev)
         setActiveSessionTitle(fallbackName)
         setChatRefreshTrigger((n) => n + 1)
       } catch {}
       console.error("Auto-naming chat failed", err)
     }
-  }, [])
+  }, [activeSpaceId])
 
   const handleSessionResolved = useCallback((key: string, title: string) => {
     setActiveSessionKey(key)
@@ -2063,10 +2074,12 @@ function AppShell({
 
     const targetGroupId = editorGroups.focusedGroupId
     const fallbackName = "New Chat"
+    invalidateChatListCache(activeSpaceId)
     const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
       "middleware_chats_create",
       { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
     )
+    invalidateChatListCache(activeSpaceId)
     let sessionKey = sessionKeyFromResponse(result)
     if (!sessionKey) {
       const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
@@ -2075,9 +2088,11 @@ function AppShell({
       )
       sessionKey = sessionKeyFromResponse(sessionResult)
       if (sessionKey) {
+        invalidateChatListCache(activeSpaceId)
         await invoke("middleware_chats_attach_session", {
           input: { chatId: result.chat.id, sessionKey, spaceId: activeSpaceId ?? undefined },
         })
+        invalidateChatListCache(activeSpaceId)
       }
     }
     if (!sessionKey) throw new Error("New chat did not return a sessionKey")
@@ -2131,10 +2146,12 @@ function AppShell({
     try {
       const targetGroupId = editorGroups.focusedGroupId
       const fallbackName = fallbackChatNameFromText(text)
+      invalidateChatListCache(activeSpaceId)
       const result = await invoke<{ chat: { id: string; name: string; sessionKey?: string | null }; session?: { key?: string; sessionKey?: string } }>(
         "middleware_chats_create",
         { input: { name: fallbackName, spaceId: activeSpaceId, agentId: "main" } },
       )
+      invalidateChatListCache(activeSpaceId)
       let sessionKey = sessionKeyFromResponse(result)
       if (!sessionKey) {
         const sessionResult = await invoke<{ session: { key?: string; sessionKey?: string } }>(
@@ -2143,9 +2160,11 @@ function AppShell({
         )
         sessionKey = sessionKeyFromResponse(sessionResult)
         if (sessionKey) {
+          invalidateChatListCache(activeSpaceId)
           await invoke("middleware_chats_attach_session", {
             input: { chatId: result.chat.id, sessionKey, spaceId: activeSpaceId ?? undefined },
           })
+          invalidateChatListCache(activeSpaceId)
         }
       }
       if (!sessionKey) throw new Error("New chat did not return a sessionKey")
@@ -2206,9 +2225,11 @@ function AppShell({
           { input: { text } },
         )
         const finalName = isWeakChatName(name) ? fallbackName : name
+        invalidateChatListCache(activeSpaceId)
         await invoke("middleware_chats_rename", {
           input: { chatId: result.chat.id, name: finalName },
         })
+        invalidateChatListCache(activeSpaceId)
         const renamedChat = { ...createdChat, name: finalName }
         resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
         setActiveChat((prev) =>

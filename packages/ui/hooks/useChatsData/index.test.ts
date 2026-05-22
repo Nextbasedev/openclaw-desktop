@@ -48,12 +48,14 @@ vi.mock("@/lib/middleware-client", () => ({
   MIDDLEWARE_CONNECTION_CHANGED_EVENT: "middleware-connection-changed",
 }))
 
+const { clearDedupeForTests } = await import("@/lib/requestDedupe")
 const { useChatsData } = await import("./index")
 
 describe("useChatsData", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.stateSets.length = 0
+    clearDedupeForTests()
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => (key === "jarvis.gatewayActive" ? "true" : null),
     })
@@ -91,6 +93,31 @@ describe("useChatsData", () => {
     })
     expect(mocks.stateSets[0]).toContainEqual([backendChat])
     expect(mocks.localSyncSetChats).toHaveBeenCalledWith("space_1", [backendChat], undefined, expect.any(Number))
+  })
+
+  it("does not fetch all chats while active space is unresolved", async () => {
+    const cachedChat: Chat = {
+      id: "chat_cached",
+      name: "Cached chat",
+      spaceId: "space_1",
+      agentId: "main",
+      archived: false,
+      pinned: false,
+      createdAt: "2026-05-10T00:00:00.000Z",
+      updatedAt: "2026-05-10T00:01:00.000Z",
+    }
+
+    mocks.loadMiddlewareStartupBootstrap.mockResolvedValue({
+      spaces: [{ id: "space_1", name: "Space 1" }],
+      activeSpaceId: "space_1",
+      chats: [cachedChat],
+    })
+
+    const data = useChatsData(null, vi.fn(), 0, null)
+    await data.loadChats()
+
+    expect(mocks.invoke).not.toHaveBeenCalledWith("middleware_chats_list", expect.anything())
+    expect(mocks.stateSets[0]).toContainEqual([cachedChat])
   })
 
   it("only writes chats for the captured request space to cache", async () => {
