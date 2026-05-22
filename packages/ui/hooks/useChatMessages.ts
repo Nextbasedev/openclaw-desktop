@@ -1373,16 +1373,20 @@ export function useChatMessages(
       )
       setMessages(warmMessages)
       markHistoryLoaded()
-      const warmStatus = useCachedGlobal && cachedGlobal?.status
-        ? cachedGlobal.status
-        : cachedBootstrap?.runStatus
-          ? streamStatusFromCanonicalRun(cachedBootstrap.runStatus)
-          : (cachedBootstrap?.history.sessionStatus
-            ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages)
-            : inferRestoredChatStatus(warmMessages, statusRef.current))
-      const warmStatusLabel = useCachedGlobal
-        ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
-        : normalizeStatusLabelForStatus(warmStatus, cachedBootstrap?.statusLabel)
+      const warmStatus: StreamStatus = seededMessages
+        ? "thinking"
+        : useCachedGlobal && cachedGlobal?.status
+          ? cachedGlobal.status
+          : cachedBootstrap?.runStatus
+            ? streamStatusFromCanonicalRun(cachedBootstrap.runStatus)
+            : (cachedBootstrap?.history.sessionStatus
+              ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages)
+              : inferRestoredChatStatus(warmMessages, statusRef.current))
+      const warmStatusLabel = seededMessages
+        ? "Thinking"
+        : useCachedGlobal
+          ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
+          : normalizeStatusLabelForStatus(warmStatus, cachedBootstrap?.statusLabel)
       setStatus(warmStatus)
       setStatusLabel(warmStatusLabel)
       setErrorMessage(warmStatus === "error" ? warmStatusLabel : null)
@@ -1393,16 +1397,16 @@ export function useChatMessages(
           : typeof cachedBootstrap?.v2Cursor === "number"
             ? cachedBootstrap.v2Cursor
             : undefined
-      if (!useCachedGlobal && typeof warmCursor === "number") {
+      if (seededMessages || (!useCachedGlobal && typeof warmCursor === "number")) {
         seedGlobalChatSession({
           sessionKey,
           messages: warmMessages,
-          cursor: warmCursor,
+          cursor: typeof warmCursor === "number" ? warmCursor : v2CursorRef.current,
           status: warmStatus,
           statusLabel: warmStatusLabel,
-          pendingTools: cachedBootstrap?.tools?.map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool)) ?? [],
+          pendingTools: seededMessages ? [] : cachedBootstrap?.tools?.map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool)) ?? [],
           messageCount: cachedBootstrap?.messageCount ?? warmMessages.length,
-          historyCoverage: isKnownEmptyBootstrap(cachedBootstrap) || cachedBootstrap?.historyCoverage === "full" ? "full" : "metadata",
+          historyCoverage: seededMessages ? "metadata" : isKnownEmptyBootstrap(cachedBootstrap) || cachedBootstrap?.historyCoverage === "full" ? "full" : "metadata",
           queryClient,
         })
       }
