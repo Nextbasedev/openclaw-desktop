@@ -1261,7 +1261,6 @@ export function useChatMessages(
     })
     const seededMessages =
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
-    ensureGlobalChatEngine(queryClient)
     const cachedGlobal = getGlobalChatSession(sessionKey)
     const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
     const useCachedGlobal = Boolean(
@@ -1303,10 +1302,29 @@ export function useChatMessages(
           : (cachedBootstrap?.history.sessionStatus
             ? statusFromBackendSession(cachedBootstrap.history.sessionStatus, warmMessages)
             : inferRestoredChatStatus(warmMessages, statusRef.current))
-      setStatus(warmStatus)
-      setStatusLabel(useCachedGlobal
+      const warmStatusLabel = useCachedGlobal
         ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
-        : normalizeStatusLabelForStatus(warmStatus, cachedBootstrap?.statusLabel))
+        : normalizeStatusLabelForStatus(warmStatus, cachedBootstrap?.statusLabel)
+      setStatus(warmStatus)
+      setStatusLabel(warmStatusLabel)
+      const warmCursor = useCachedGlobal && typeof cachedGlobal?.cursor === "number"
+        ? cachedGlobal.cursor
+        : typeof cachedBootstrap?.cursor === "number"
+          ? cachedBootstrap.cursor
+          : typeof cachedBootstrap?.v2Cursor === "number"
+            ? cachedBootstrap.v2Cursor
+            : undefined
+      if (!useCachedGlobal && typeof warmCursor === "number") {
+        seedGlobalChatSession({
+          sessionKey,
+          messages: warmMessages,
+          cursor: warmCursor,
+          status: warmStatus,
+          statusLabel: warmStatusLabel,
+          pendingTools: cachedBootstrap?.tools?.map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool)) ?? [],
+          queryClient,
+        })
+      }
       const warmTerminal = warmStatus === "done" || warmStatus === "idle" || warmStatus === "error"
       if (warmTerminal) {
         pendingToolMapRef.current.clear()
@@ -1353,6 +1371,7 @@ export function useChatMessages(
       spawnMapRef.current.clear()
       setSpawnedSubagents([])
     }
+    ensureGlobalChatEngine(queryClient)
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     oldestLoadedSeqRef.current = null
@@ -1394,6 +1413,17 @@ export function useChatMessages(
           : normalizeStatusLabelForStatus(effectiveStatus, cached.entry.statusLabel)
 
         if (typeof cached.entry.cursor === "number") v2CursorRef.current = cached.entry.cursor
+        if (typeof cached.entry.cursor === "number") {
+          seedGlobalChatSession({
+            sessionKey,
+            messages: cachedMessages,
+            cursor: cached.entry.cursor,
+            status: effectiveStatus,
+            statusLabel: effectiveLabel,
+            pendingTools: cached.entry.pendingTools ?? [],
+            queryClient,
+          })
+        }
         setLoading(false)
         setHasOlderMessages(
           canLoadOlderThanFirstMessage(cachedMessages) ||

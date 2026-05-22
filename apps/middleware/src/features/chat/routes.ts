@@ -749,14 +749,23 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               const projectSeq = (message: ProjectedMessage) => segment.baseSeq + (message.gatewaySeq ?? message.openclawSeq);
               const historyMaxSeq = normalized.reduce((max, message) => Math.max(max, projectSeq(message)), 0);
               const gatewayUserEcho = [...normalized].reverse().find((message) => message.role === "user" && projectSeq(message) >= optimisticSeq && messageTextMatchesSent(textFromMessage(message.data), prepared.message));
+              const gatewayUserEchoMatch = gatewayUserEcho ? "text" : null;
               const confirmedUser = gatewayUserEcho
                 ? context.messages.confirmOptimisticUser(input.sessionKey, clientMessageId, gatewayUserEcho)
                 : null;
-              const currentUserSeq = confirmedUser?.openclawSeq ?? (gatewayUserEcho ? projectSeq(gatewayUserEcho) : null);
+              const liveConfirmedUser = !confirmedUser ? context.messages.findMessageById(input.sessionKey, clientMessageId) : null;
+              const liveConfirmedCurrentUserSeq = liveConfirmedUser?.role === "user" && liveConfirmedUser.data.__clientOptimistic === false
+                ? liveConfirmedUser.openclawSeq
+                : null;
+              const currentUserSeq = confirmedUser?.openclawSeq ?? (gatewayUserEcho ? projectSeq(gatewayUserEcho) : liveConfirmedCurrentUserSeq);
               const currentGatewayUserSeq = gatewayUserEcho?.openclawSeq ?? null;
               currentHistory = {
-                currentUserRepresented: Boolean(gatewayUserEcho),
-                assistantAfterCurrentUser: currentGatewayUserSeq !== null && normalized.some((message) => message.role === "assistant" && message.openclawSeq > currentGatewayUserSeq),
+                currentUserRepresented: Boolean(gatewayUserEcho) || liveConfirmedCurrentUserSeq !== null,
+                assistantAfterCurrentUser: currentGatewayUserSeq !== null
+                  ? normalized.some((message) => message.role === "assistant" && message.openclawSeq > currentGatewayUserSeq)
+                  : liveConfirmedCurrentUserSeq !== null
+                    ? normalized.some((message) => message.role === "assistant" && projectSeq(message) > liveConfirmedCurrentUserSeq)
+                    : false,
               };
               if (confirmedUser) {
                 log.info("optimistic.user.confirmed", {
@@ -775,7 +784,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
               const projection = normalizedToUpsert.length > 0
                 ? context.messages.upsertMessages(normalizedToUpsert, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq })
                 : { upserted: 0, lastSeq: context.messages.nextMessageSeq(input.sessionKey) - 1, changedMessages: [] };
-              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, historyMaxSeq, optimisticSeq, confirmedOptimistic: Boolean(confirmedUser), currentUserRepresented: currentHistory.currentUserRepresented, assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser, skippedStalePreSendHistory: isStalePreSendHistory });
+              log.info("history.persist", { sessionKey: input.sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: projection.lastSeq, historyMaxSeq, optimisticSeq, confirmedOptimistic: Boolean(confirmedUser), currentUserRepresented: currentHistory.currentUserRepresented, assistantAfterCurrentUser: currentHistory.assistantAfterCurrentUser, gatewayUserEchoMatch, skippedStalePreSendHistory: isStalePreSendHistory });
               if (confirmedUser) {
                 const confirmedEvent = context.messages.appendProjectionEvent({
                   sessionKey: input.sessionKey,

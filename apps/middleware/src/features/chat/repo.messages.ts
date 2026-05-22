@@ -527,6 +527,37 @@ export class MessageRepository {
     `).run({ sessionKey, messageId }).changes;
   }
 
+  findMessageById(sessionKey: string, messageId: string): ProjectedMessage | null {
+    const row = this.db.prepare(`
+      SELECT session_key, segment_id, session_id, gateway_seq, openclaw_seq, message_id, role, data_json, updated_at_ms
+      FROM v2_messages
+      WHERE session_key = @sessionKey AND message_id = @messageId
+      LIMIT 1
+    `).get({ sessionKey, messageId }) as {
+      session_key: string;
+      segment_id: string | null;
+      session_id: string | null;
+      gateway_seq: number | null;
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+      updated_at_ms: number;
+    } | undefined;
+    if (!row) return null;
+    return {
+      sessionKey: row.session_key,
+      segmentId: row.segment_id,
+      sessionId: row.session_id,
+      gatewaySeq: row.gateway_seq ?? undefined,
+      openclawSeq: row.openclaw_seq,
+      messageId: row.message_id,
+      role: row.role,
+      data: fromJson(row.data_json) as OpenClawMessage,
+      updatedAtMs: row.updated_at_ms,
+    };
+  }
+
   appendProjectionEvent(params: { sessionKey?: string | null; eventType: string; payload: unknown; createdAtMs?: number }): ProjectionEvent {
     const createdAtMs = params.createdAtMs ?? Date.now();
     const info = this.db.prepare(`
