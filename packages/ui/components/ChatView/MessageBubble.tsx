@@ -537,7 +537,7 @@ export function MessageBubble({
     isRevealing: isRevealingAssistantError,
   } = useStreamingText(
     assistantErrorText,
-    isAssistantError && (isActivelyStreaming || message.animateText),
+    isAssistantError && Boolean(isActivelyStreaming),
     () => onTextAnimationComplete?.(message.messageId)
   )
   const shouldAnimateSend = isUser && message.isOptimistic
@@ -901,7 +901,7 @@ export function MessageBubble({
                 <MarkdownContent
                   text={message.text}
                   embeds={message.embeds}
-                  streaming={isActivelyStreaming || message.animateText}
+                  streaming={Boolean(isActivelyStreaming)}
                   highlightTexts={referencedTexts}
                   onRevealComplete={() =>
                     onTextAnimationComplete?.(message.messageId)
