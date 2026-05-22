@@ -1303,8 +1303,15 @@ function handlePatch(frame: PatchFrame) {
       sessionKey,
       patchCursor: frame.patch.cursor,
       messageCount: payload.messageCount,
+      recoveryScoped: true,
     })
-    window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery"))
+    window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
+      detail: {
+        sessionKey,
+        reason: "archive-import",
+        cursor: frame.patch.cursor,
+      },
+    }))
   }
   notify(sessionKey, frame)
 }

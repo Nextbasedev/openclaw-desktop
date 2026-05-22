@@ -27,6 +27,7 @@ import { invoke } from "@/lib/ipc"
 import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
 import { frontendLog } from "@/lib/clientLogs"
+import { currentChatWindowId, logChatViewInvariant } from "@/lib/chatTimelineDiagnostics"
 import { toast } from "react-toastify"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
 import {
@@ -341,6 +342,9 @@ export function ChatView({
   // don't leave dangling listeners behind.
   const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
   const lastRunErrorToastRef = useRef<string | null>(null)
+  const viewGenerationRef = useRef(0)
+  const windowIdRef = useRef<string | null>(null)
+  if (windowIdRef.current === null) windowIdRef.current = currentChatWindowId()
 
   useEffect(() => {
     const setup = async () => {
@@ -534,15 +538,21 @@ export function ChatView({
   })
 
   useEffect(() => {
+    const viewGeneration = viewGenerationRef.current + 1
+    viewGenerationRef.current = viewGeneration
     frontendLog("chat", "chat-view.mount", {
       sessionKey,
       sessionTitle,
       isBackgroundSession,
+      windowId: windowIdRef.current,
+      viewGeneration,
     })
     return () =>
       frontendLog("chat", "chat-view.unmount", {
         sessionKey,
         isBackgroundSession,
+        windowId: windowIdRef.current,
+        viewGeneration,
       })
   }, [isBackgroundSession, sessionKey, sessionTitle])
 
@@ -561,6 +571,8 @@ export function ChatView({
         messageCount: messages.length,
         pendingToolCount: pendingTools.length,
         spawnedSubagentCount: spawnedSubagents.length,
+        windowId: windowIdRef.current,
+        viewGeneration: viewGenerationRef.current,
       },
       "debug"
     )
@@ -576,6 +588,18 @@ export function ChatView({
     status,
     statusLabel,
   ])
+
+  useEffect(() => {
+    logChatViewInvariant({
+      windowId: windowIdRef.current,
+      viewGeneration: viewGenerationRef.current,
+      activeSessionKey: sessionKey,
+      renderedSessionKey: sessionKey,
+      messageListSessionKey: sessionKey,
+      messageCount: messages.length,
+      reason: "chat-view-render",
+    })
+  }, [messages.length, sessionKey])
 
   useEffect(() => {
     setComposerSeed(initialPrompt ?? "")

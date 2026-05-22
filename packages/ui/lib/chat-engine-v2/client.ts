@@ -1,4 +1,5 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
+import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
@@ -195,7 +196,24 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
         }, "debug")
         if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
           frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: connectionCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
-          window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery"))
+          logChatStreamRecoveryDecision({
+            targetSessionKey: null,
+            activeSessionKey: null,
+            renderedSessionKey: null,
+            cursor: connectionCursor,
+            willApply: true,
+            reason: frame.replayWindowExceeded ? "replay-window-exceeded" : "stream-hello-recovery",
+            extra: {
+              replayCount: frame.replayCount,
+              replayHasMore: frame.replayHasMore,
+            },
+          })
+          window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
+            detail: {
+              reason: frame.replayWindowExceeded ? "replay-window-exceeded" : "stream-hello-recovery",
+              cursor: connectionCursor,
+            },
+          }))
           onFrame(frame)
           return
         }

@@ -22,6 +22,13 @@ import {
 } from "@/lib/chatActivityStore"
 import { emit } from "@/lib/events"
 import { frontendLog, redactText } from "@/lib/clientLogs"
+import {
+  currentChatWindowId,
+  logChatApplyDecision,
+  logChatRequestStaleSkip,
+  logChatStreamRecoveryDecision,
+  recoveryDetailFromEvent,
+} from "@/lib/chatTimelineDiagnostics"
 import { subscribeChatStream } from "@/lib/chatStream"
 import {
   cacheAttachments,
@@ -526,6 +533,9 @@ export function useChatMessages(
       : "idle"
   )
   const instanceIdRef = useRef(randomId())
+  const viewGenerationRef = useRef(0)
+  const windowIdRef = useRef<string | null>(null)
+  if (windowIdRef.current === null) windowIdRef.current = currentChatWindowId()
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
     () => initialWarmMessages ? dedupeChatMessages(initialWarmMessages) : []
   )
@@ -1291,11 +1301,15 @@ export function useChatMessages(
 
   useEffect(() => {
     let cancelled = false
+    const viewGeneration = viewGenerationRef.current + 1
+    viewGenerationRef.current = viewGeneration
     frontendLog("chat", "chat.mount", {
       sessionKey,
       hasInitialMessages: Boolean(initialMessages?.length),
       initialMessageCount: initialMessages?.length ?? 0,
       instanceId: instanceIdRef.current,
+      windowId: windowIdRef.current,
+      viewGeneration,
     })
     const seededMessages =
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
@@ -1545,8 +1559,23 @@ export function useChatMessages(
       }
     }
 
-    const handleBootstrapRecovery = () => {
-      frontendLog("stream", "chat.bootstrap-recovery.reload", { sessionKey }, "warn")
+    const handleBootstrapRecovery = (event: Event) => {
+      const detail = recoveryDetailFromEvent(event)
+      const targetSessionKey = detail?.sessionKey ?? null
+      const appliesToSession = !targetSessionKey || targetSessionKey === sessionKey
+      logChatStreamRecoveryDecision({
+        windowId: windowIdRef.current,
+        instanceId: instanceIdRef.current,
+        viewGeneration,
+        targetSessionKey,
+        activeSessionKey: sessionKey,
+        renderedSessionKey: sessionKey,
+        cursor: detail?.cursor ?? null,
+        willApply: appliesToSession,
+        reason: appliesToSession ? (detail?.reason ?? "global-recovery") : "non-matching-session",
+      })
+      if (!appliesToSession) return
+      frontendLog("stream", "chat.bootstrap-recovery.reload", { sessionKey, detail, windowId: windowIdRef.current, viewGeneration }, "warn")
       invalidateDedupe(`chat-bootstrap:${sessionKey}`)
       void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
       setStreamGeneration((value) => value + 1)
@@ -1555,7 +1584,7 @@ export function useChatMessages(
 
     async function init() {
       const bootstrapStartedAtMs = Date.now()
-      frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs })
+      frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs, windowId: windowIdRef.current, viewGeneration })
       try {
         const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
@@ -1579,7 +1608,20 @@ export function useChatMessages(
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
         void fetchChatBranchData(sessionKey).then((latestBranchData) => {
-          if (cancelled) return
+          if (cancelled || viewGenerationRef.current !== viewGeneration) {
+            logChatRequestStaleSkip({
+              windowId: windowIdRef.current,
+              instanceId: instanceIdRef.current,
+              viewGeneration,
+              source: "side-metadata",
+              targetSessionKey: sessionKey,
+              activeSessionKey: sessionKey,
+              renderedSessionKey: sessionKey,
+              requestGeneration: viewGeneration,
+              reason: cancelled ? "branch-data-cancelled" : "view-generation-changed",
+            })
+            return
+          }
           queryClient.setQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey), (current) => {
             if (!current) return current
             return { ...current, branchData: latestBranchData }
@@ -1594,7 +1636,21 @@ export function useChatMessages(
           clearTimeout(loadingTimeout)
           loadingTimeout = null
         }
-        if (cancelled) return
+        if (cancelled || viewGenerationRef.current !== viewGeneration) {
+          logChatRequestStaleSkip({
+            windowId: windowIdRef.current,
+            instanceId: instanceIdRef.current,
+            viewGeneration,
+            source: "bootstrap",
+            targetSessionKey: sessionKey,
+            activeSessionKey: sessionKey,
+            renderedSessionKey: sessionKey,
+            cursor: bootstrapCursor ?? null,
+            requestGeneration: viewGeneration,
+            reason: cancelled ? "effect-cancelled" : "view-generation-changed",
+          })
+          return
+        }
 
         // The /api/chat/bootstrap endpoint is the V2 history source. Do not
         // require projection metadata here: brand-new empty chats and older
@@ -1604,6 +1660,24 @@ export function useChatMessages(
         // Seed oldest loaded seq from RAW bootstrap messages (before parsing)
         // to avoid the merged gatewayIndex drift from parseChatHistory.
         const rawBootstrapMessages = (bootstrapMessages as RawMessage[]) || []
+        logChatApplyDecision({
+          windowId: windowIdRef.current,
+          instanceId: instanceIdRef.current,
+          viewGeneration,
+          source: "bootstrap",
+          targetSessionKey: sessionKey,
+          activeSessionKey: sessionKey,
+          renderedSessionKey: sessionKey,
+          cursor: bootstrapCursor ?? null,
+          requestGeneration: viewGeneration,
+          willApply: true,
+          reason: "fresh-bootstrap-current-generation",
+          extra: {
+            rawMessageCount: rawBootstrapMessages.length,
+            canonicalMessageCount,
+            runStatus,
+          },
+        })
         const rawBootstrapSeqs = rawBootstrapMessages
           .map((m) => m.__openclaw?.seq)
           .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
@@ -1691,12 +1765,27 @@ export function useChatMessages(
           projectionVersion,
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+          windowId: windowIdRef.current,
+          viewGeneration,
         })
 
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
           (state) => {
-            if (cancelled) return
+            if (cancelled || viewGenerationRef.current !== viewGeneration) {
+              logChatRequestStaleSkip({
+                windowId: windowIdRef.current,
+                instanceId: instanceIdRef.current,
+                viewGeneration,
+                source: "patch",
+                targetSessionKey: sessionKey,
+                activeSessionKey: sessionKey,
+                renderedSessionKey: sessionKey,
+                cursor: state.cursor,
+                reason: cancelled ? "subscription-cancelled" : "view-generation-changed",
+              })
+              return
+            }
             v2CursorRef.current = state.cursor
             pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
             spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
@@ -1737,7 +1826,7 @@ export function useChatMessages(
     init()
 
     return () => {
-      frontendLog("chat", "chat.unmount", { sessionKey, instanceId: instanceIdRef.current })
+      frontendLog("chat", "chat.unmount", { sessionKey, instanceId: instanceIdRef.current, windowId: windowIdRef.current, viewGeneration })
       cancelled = true
       if (loadingTimeout) clearTimeout(loadingTimeout)
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
@@ -2507,6 +2596,7 @@ export function useChatMessages(
     // parseChatHistory merges consecutive assistant messages and updates
     // gatewayIndex to the latest seq, which causes beforeSeq to point to
     // data already loaded → pagination gets stuck.
+    const requestGeneration = viewGenerationRef.current
     const beforeSeq = oldestLoadedSeqRef.current ?? firstLoadedGatewayIndex(messagesRef.current)
     if (beforeSeq === null || beforeSeq <= 1) {
       setHasOlderMessages(false)
@@ -2522,6 +2612,36 @@ export function useChatMessages(
         sessionKey,
         beforeSeq,
         limit: CHAT_OLDER_PAGE_LIMIT,
+      })
+      if (viewGenerationRef.current !== requestGeneration) {
+        logChatRequestStaleSkip({
+          windowId: windowIdRef.current,
+          instanceId: instanceIdRef.current,
+          viewGeneration: requestGeneration,
+          source: "messages",
+          targetSessionKey: sessionKey,
+          activeSessionKey: sessionKey,
+          renderedSessionKey: sessionKey,
+          cursor: v2CursorRef.current,
+          requestGeneration,
+          reason: "view-generation-changed",
+          extra: { beforeSeq, returnedMessageCount: page.messages.length },
+        })
+        return
+      }
+      logChatApplyDecision({
+        windowId: windowIdRef.current,
+        instanceId: instanceIdRef.current,
+        viewGeneration: requestGeneration,
+        source: "messages",
+        targetSessionKey: sessionKey,
+        activeSessionKey: sessionKey,
+        renderedSessionKey: sessionKey,
+        cursor: v2CursorRef.current,
+        requestGeneration,
+        willApply: true,
+        reason: "older-page-current-generation",
+        extra: { beforeSeq, returnedMessageCount: page.messages.length },
       })
       // Track the actual oldest raw seq from the API response
       const rawSeqs = page.messages.map((m) => m.openclawSeq).filter((v): v is number => typeof v === "number" && Number.isFinite(v))
