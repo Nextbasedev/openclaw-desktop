@@ -95,6 +95,56 @@ describe("global V2 chat engine store", () => {
     expect(state.historyCoverage).toBe("full")
   })
 
+  test("paginated older history seed preserves partial coverage and survives later non-message patches", () => {
+    const seen: number[] = []
+    seedGlobalChatSession({
+      sessionKey: "s-paginated",
+      cursor: 100,
+      historyCoverage: "metadata",
+      messageCount: 50,
+      status: "done",
+      messages: [
+        { messageId: "u45", role: "user", text: "recent question", gatewayIndex: 45 },
+        { messageId: "a46", role: "assistant", text: "recent answer", gatewayIndex: 46 },
+      ],
+    })
+    const unsubscribe = subscribeGlobalChatSession("s-paginated", (state) => {
+      seen.push(state.messages.length)
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s-paginated",
+      cursor: 100,
+      historyCoverage: "metadata",
+      messageCount: 50,
+      status: "done",
+      messages: [
+        { messageId: "u43", role: "user", text: "older question", gatewayIndex: 43 },
+        { messageId: "a44", role: "assistant", text: "older answer", gatewayIndex: 44 },
+        { messageId: "u45", role: "user", text: "recent question", gatewayIndex: 45 },
+        { messageId: "a46", role: "assistant", text: "recent answer", gatewayIndex: 46 },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 101,
+        type: "chat.tool.update",
+        sessionKey: "s-paginated",
+        createdAtMs: Date.now(),
+        payload: { sessionKey: "s-paginated", messageCount: 2 },
+      },
+    })
+
+    const state = getGlobalChatSession("s-paginated")!
+    expect(state.messages.map((message) => message.messageId)).toEqual(["u43", "a44", "u45", "a46"])
+    expect(state.messageCount).toBe(50)
+    expect(state.historyCoverage).toBe("metadata")
+    expect(seen.at(-1)).toBe(4)
+    unsubscribe()
+  })
+
   test("metadata-only bootstrap replay does not downgrade full history", () => {
     seedGlobalChatSession({
       sessionKey: "s-no-downgrade",

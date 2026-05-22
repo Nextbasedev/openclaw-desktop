@@ -36,6 +36,13 @@ Lessons listed newest-first.
 
 ---
 
+### 2026-05-22 — Older history pagination and global patch state
+- **Bug:** Scrolling to the top could show only the latest short window/tool-call card and keep “Loading earlier messages…” visible.
+- **Root cause:** Older pagination prepended messages only to local hook state; later patch-stream updates notified from the shorter global session and overwrote the expanded list.
+- **Fix:** Seed the global chat session/cache with the merged older+current message list after pagination succeeds.
+- **Constraint:** Chat-engine pagination/global state (`docs/constraints/chat-engine.md`).
+- **Files:** `packages/ui/hooks/useChatMessages.ts`
+
 ### 2026-05-22 — Chat refresh bootstrap performance
 - **Bug:** Refreshing with several restored tabs could show no data/startup aborts; switching tabs could show a non-empty chat as empty for several seconds.
 - **Root cause:** `/api/chat/bootstrap` synchronously imported archived transcripts/resequenced thousands of messages and awaited live subscription; UI treated zero-message global sessions created by metadata-only replayed `chat.bootstrap` patches as authoritative empty state.
