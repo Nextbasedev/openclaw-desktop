@@ -1190,6 +1190,34 @@ function AppShell({
     setActiveTab("chat")
     setActiveTopic(null)
     setInitialMessages(undefined)
+    const provisionalTitle = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
+    const provisionalSessionKey = isRealChatSessionKey(chat.sessionKey) ? chat.sessionKey : null
+    setActiveChat(chat)
+    setActiveSessionKey(provisionalSessionKey)
+    setActiveSessionTitle(provisionalTitle)
+    dispatchGroups({
+      type: "ADD_TAB",
+      tab: {
+        id: `chat:${chat.id}`,
+        title: provisionalTitle,
+        subtitle: "Chat",
+        kind: "chat",
+        chat,
+      },
+    })
+    dispatchGroups({
+      type: "SET_SESSION_DATA",
+      groupId: editorGroups.focusedGroupId,
+      sessionData: provisionalSessionKey
+        ? { chat, sessionKey: provisionalSessionKey, title: provisionalTitle }
+        : null,
+    })
+    const pushChatRoute = (chatId: string) => {
+      const nextUrl = routeUrl(`/${chatId}`)
+      if (getRoutePath() === `/${chatId}`) return
+      window.history.pushState(null, "", nextUrl)
+    }
+    pushChatRoute(chat.id)
 
     const applyChatSelection = (selection: SessionData) => {
       setActiveChat(selection.chat)
@@ -1210,7 +1238,7 @@ function AppShell({
         groupId: editorGroups.focusedGroupId,
         sessionData: selection,
       })
-      window.history.pushState(null, "", routeUrl(`/${selection.chat.id}`))
+      pushChatRoute(selection.chat.id)
     }
 
     const cached = resolvedChatCacheRef.current.get(chat.id)
@@ -1235,7 +1263,7 @@ function AppShell({
         setActiveChat(chat)
         setActiveSessionKey(null)
         setActiveSessionTitle(null)
-        window.history.pushState(null, "", routeUrl(`/${chat.id}`))
+        pushChatRoute(chat.id)
       }
     }
   }, [activeSpaceId, editorGroups.focusedGroupId])
