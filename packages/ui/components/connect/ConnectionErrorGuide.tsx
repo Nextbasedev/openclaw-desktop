@@ -145,29 +145,23 @@ function getErrorGuide(
 
     case "identity_mismatch":
       return {
-        title: "Device Identity Mismatch",
+        title: "Connection Needs Approval",
         variant: "destructive",
         description:
-          "This device's identity (ED25519 key pair) does not match what the gateway expects. This typically happens when the gateway was restarted or the device identity was regenerated on one side but not the other.",
+          "Desktop Middleware is requesting permission to connect to this OpenClaw instance. This can happen after a server reinstall, identity reset, or first-time connection from this machine.",
         steps: [
-          "Delete the local device identity file so a fresh one will be generated",
-          "Click \"Test Connection\" again — the app will create a new identity automatically",
-          "If the problem persists, restart the gateway to clear its device registry",
+          "Do not delete the local identity unless you intentionally want to reset this device",
+          "Approve the pending device only if you recognize this server/device",
+          "After approval, click Test Connection again",
         ],
         commands: [
           {
-            label: "Delete identity (PowerShell)",
-            command:
-              'Remove-Item "$env:USERPROFILE\\.openclaw\\state\\identity\\device.json"',
+            label: "List pending devices",
+            command: "openclaw devices list",
           },
           {
-            label: "Delete identity (macOS/Linux)",
-            command:
-              "rm ~/.openclaw/state/identity/device.json",
-          },
-          {
-            label: "Then restart the gateway",
-            command: "openclaw gateway restart",
+            label: "Approve a recognized request",
+            command: "openclaw devices approve <request-id>",
           },
         ],
       }
@@ -371,25 +365,23 @@ function getErrorGuide(
 
     case "device_not_registered":
       return {
-        title: "Device Not Registered",
+        title: "Device Approval Required",
         variant: "destructive",
         description:
-          "This device is not recognized by the gateway. The device may need to be paired or re-registered.",
+          "This Middleware identity is stable but has not been approved by the Gateway yet. Approve it once, then retry the connection.",
         steps: [
-          "Delete the local device identity so a new one is generated",
-          'Click "Test Connection" to create a fresh identity and register with the gateway',
-          "If the gateway requires manual device approval, check its admin panel",
+          "Keep the local identity file — deleting it creates another new device",
+          "Approve the pending request only if you recognize this server/device",
+          'Click "Test Connection" again after approval',
         ],
         commands: [
           {
-            label: "Delete identity (PowerShell)",
-            command:
-              'Remove-Item "$env:USERPROFILE\\.openclaw\\state\\identity\\device.json"',
+            label: "List pending devices",
+            command: "openclaw devices list",
           },
           {
-            label: "Delete identity (macOS/Linux)",
-            command:
-              "rm ~/.openclaw/state/identity/device.json",
+            label: "Approve a recognized request",
+            command: "openclaw devices approve <request-id>",
           },
         ],
       }

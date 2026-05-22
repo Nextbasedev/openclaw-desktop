@@ -44,13 +44,40 @@ const DOT_COLORS: Record<ToolCallStatus, string> = {
 }
 
 function formatTime(ts?: number): string {
-  if (!ts) return ""
-  const d = new Date(ts)
+  const startedAt = validStartedAt(ts)
+  if (!startedAt) return ""
+  const d = new Date(startedAt)
   return d.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   })
+}
+
+function formatElapsed(ms: number) {
+  if (!Number.isFinite(ms) || ms < 0 || ms > 30 * 60 * 1000) return undefined
+  const seconds = Math.max(0, ms) / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function validStartedAt(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  const now = Date.now()
+  if (value < 1_700_000_000_000 || value > now + 5 * 60 * 1000) return undefined
+  return value
+}
+
+function useRunningDuration(call: ToolCall) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (call.status !== "running" || !validStartedAt(call.startedAt) || call.duration) return
+    const id = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(id)
+  }, [call.duration, call.startedAt, call.status])
+  if (call.duration) return call.duration
+  const startedAt = validStartedAt(call.startedAt)
+  if (call.status === "running" && startedAt) return formatElapsed(now - startedAt)
+  return undefined
 }
 
 function compactValue(value: unknown, depth = 0): unknown {
@@ -98,13 +125,15 @@ export function ToolCallRow({
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const waitingForOutput = call.status === "running" && !call.output
-  const showEmptyState = call.status !== "running" && Boolean(call.input) && !call.output
-  const hasDetails = call.input || call.output || waitingForOutput || showEmptyState
+  const syncingOutput = call.status !== "running" && call.awaitingOutput === true && !call.output
+  const showEmptyState = call.status !== "running" && Boolean(call.input) && !call.output && !syncingOutput
+  const hasDetails = call.input || call.output || waitingForOutput || syncingOutput || showEmptyState
   const dot = DOT_COLORS[call.status]
   const isError = call.status === "error"
   const [renderDetails, setRenderDetails] = useState(open)
   const inputText = useMemo(() => renderDetails && call.input ? formatInput(call.input) : "", [call.input, renderDetails])
   const outputText = useMemo(() => renderDetails && call.output ? truncateOutput(call.output) : "", [call.output, renderDetails])
+  const duration = useRunningDuration(call)
 
   useEffect(() => {
     if (open) {
@@ -146,7 +175,7 @@ export function ToolCallRow({
         </span>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] tabular-nums text-muted-foreground">
-          {call.duration && <span>{call.duration}</span>}
+          {duration && <span>{duration}</span>}
           <span>{formatTime(call.startedAt)}</span>
           {hasDetails && (
             <VscChevronDown
@@ -195,7 +224,7 @@ export function ToolCallRow({
                   </pre>
                 </div>
                 )}
-                {call.input && (call.output || waitingForOutput || showEmptyState) && (
+                {call.input && (call.output || waitingForOutput || syncingOutput || showEmptyState) && (
                   <div className="h-px bg-white/6" />
                 )}
                 {call.output ? (
@@ -222,6 +251,10 @@ export function ToolCallRow({
                 ) : waitingForOutput ? (
                   <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
                     Waiting for this tool to return output...
+                  </div>
+                ) : syncingOutput ? (
+                  <div className="px-5 py-4 text-[12px] text-[#93C5FD]/75">
+                    Tool finished — output is syncing...
                   </div>
                 ) : showEmptyState ? (
                   <div className="px-5 py-4 text-[12px] text-muted-foreground/60">

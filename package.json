@@ -4,7 +4,8 @@
   "private": true,
   "description": "OpenClaw Desktop — Neural Operations Center",
   "scripts": {
-    "dev": "node scripts/run-ui-dev.cjs",
+    "dev": "node scripts/run-dev.cjs",
+    "dev:ui": "node scripts/run-ui-dev.cjs",
     "dev:tauri": "pnpm --filter desktop tauri dev",
     "build": "pnpm --filter ui build",
     "build:tauri": "pnpm --filter desktop tauri build",

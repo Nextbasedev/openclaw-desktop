@@ -19,6 +19,8 @@ import {
   type LogLevel,
   type LogSource,
 } from "@/lib/clientLogs"
+import { collectDiagnostics } from "@/lib/diagnostics"
+import { getMiddlewareConnection, middlewareFetch } from "@/lib/middleware-client"
 import { VscOutput, VscRefresh, VscTrash, VscCopy } from "react-icons/vsc"
 
 function isTauriRuntime(): boolean {
@@ -33,8 +35,19 @@ type SourceFilter = "all" | LogSource
 type BackendLogResponse = {
   path: string
   content: string
-  size: number
-  truncated: boolean
+  size?: number
+  truncated?: boolean
+  source?: string
+  entries?: number
+}
+
+function safeLogSource(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.protocol}//${parsed.host}`
+  } catch {
+    return url.replace(/\?.*$/, "")
+  }
 }
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
@@ -72,6 +85,7 @@ export function LogsDialog({
   const [backendPath, setBackendPath] = useState<string | null>(null)
   const [backendError, setBackendError] = useState<string | null>(null)
   const [backendLoading, setBackendLoading] = useState(false)
+  const [copyNotice, setCopyNotice] = useState<string | null>(null)
 
   const [source, setSource] = useState<SourceFilter>("all")
   const [activeLevels, setActiveLevels] = useState<Set<LogLevel>>(
@@ -90,27 +104,51 @@ export function LogsDialog({
     return subscribeFrontendEntries(setFrontend)
   }, [])
 
-  const loadBackend = useCallback(async () => {
+  const loadBackend = useCallback(async (): Promise<LogEntry[]> => {
     setBackendLoading(true)
     setBackendError(null)
+
+    const connection = getMiddlewareConnection()
+    if (connection) {
+      const sourceLabel = `remote:${safeLogSource(connection.url)}`
+      try {
+        const res = await middlewareFetch<BackendLogResponse>("/api/logs?limit=1000")
+        const entries = parseBackendLog(res.content)
+        setBackendPath(`${sourceLabel}/api/logs`)
+        setBackend(entries)
+        return entries
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setBackendPath(sourceLabel)
+        setBackendError(`Remote middleware logs unavailable from ${sourceLabel}: ${message}`)
+        setBackend([])
+        return []
+      } finally {
+        setBackendLoading(false)
+      }
+    }
+
     if (!isTauriRuntime()) {
       setBackend([])
       setBackendPath(null)
       setBackendError(
-        "Backend log file is only available in the desktop app.",
+        "Backend log file is only available in the desktop app when no remote Middleware is connected.",
       )
       setBackendLoading(false)
-      return
+      return []
     }
     try {
       const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
       const res = await tauriInvoke<BackendLogResponse>("read_backend_log")
+      const entries = parseBackendLog(res.content)
       setBackendPath(res.path)
-      setBackend(parseBackendLog(res.content))
+      setBackend(entries)
+      return entries
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setBackendError(message)
       setBackend([])
+      return []
     } finally {
       setBackendLoading(false)
     }
@@ -174,8 +212,75 @@ export function LogsDialog({
       .join("\n")
     try {
       await navigator.clipboard.writeText(text)
-    } catch {}
+      setCopyNotice(`Copied ${filtered.length} filtered log lines`)
+    } catch {
+      setCopyNotice("Copy failed")
+    }
   }, [filtered])
+
+  const handleCopyDebugBundle = useCallback(async () => {
+    const latestBackend = isTauriRuntime() ? await loadBackend() : backend
+    const frontendSnapshot = getFrontendEntries()
+    const backendSnapshot = latestBackend
+    const allEntries = [...frontendSnapshot, ...backendSnapshot].sort((a, b) => a.timestamp - b.timestamp)
+    const lastEntries = allEntries.slice(-800)
+    const connection = getMiddlewareConnection()
+    const activeMiddlewareUrl = connection ? safeLogSource(connection.url) : null
+    const activeMiddlewareMode = activeMiddlewareUrl && /^(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])/i.test(activeMiddlewareUrl)
+      ? "local"
+      : activeMiddlewareUrl
+        ? "remote"
+        : null
+    const effectiveBackendPath = connection ? `remote:${activeMiddlewareUrl}/api/logs` : backendPath
+    const remoteDiagnostics = connection
+      ? await middlewareFetch<Record<string, unknown>>("/api/diagnostics", { headers: { "Cache-Control": "no-cache" } }).catch((err) => ({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }))
+      : null
+    const metadata = {
+      generatedAt: new Date().toISOString(),
+      href: typeof window !== "undefined" ? window.location.href : null,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      activeMiddleware: connection
+        ? { mode: activeMiddlewareMode, url: activeMiddlewareUrl, hasToken: Boolean(connection.token) }
+        : null,
+      backendLogSource: connection ? "remote-middleware" : "local-tauri-log",
+      frontendEntries: frontendSnapshot.length,
+      backendEntries: backendSnapshot.length,
+      backendPath: effectiveBackendPath,
+      backendError,
+      sourceFilter: source,
+      search: search.trim() || null,
+    }
+    const diagnostics = collectDiagnostics({
+      frontendEntries: frontendSnapshot,
+      backendEntries: backendSnapshot,
+      backendPath: effectiveBackendPath,
+      backendError,
+      sourceFilter: source,
+      search: search.trim() || null,
+    })
+    const text = [
+      "OPENCLAW_DESKTOP_DEBUG_BUNDLE_V1",
+      JSON.stringify(metadata, null, 2),
+      "--- DIAGNOSTICS ---",
+      JSON.stringify(diagnostics, null, 2),
+      "--- MIDDLEWARE DIAGNOSTICS ---",
+      JSON.stringify(remoteDiagnostics, null, 2),
+      "--- LOGS ---",
+      ...lastEntries.map(
+        (e) =>
+          `${new Date(e.timestamp).toISOString()} [${e.level.toUpperCase()}] ${e.source}: ${e.message}`,
+      ),
+    ].join("\n")
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyNotice(`Copied debug bundle (${lastEntries.length} log lines)`)
+    } catch {
+      setCopyNotice("Debug bundle copy failed")
+    }
+  }, [backend, backendError, backendPath, loadBackend, search, source])
 
   const stats = useMemo(() => {
     let errors = 0
@@ -300,6 +405,14 @@ export function LogsDialog({
               />
             </button>
             <button
+              onClick={handleCopyDebugBundle}
+              title="Copy debug bundle for Cozy"
+              className="flex items-center gap-1.5 rounded-md border border-[#00D492]/25 bg-[#00D492]/10 px-2.5 py-1 text-[11px] font-medium text-[#00D492] transition-colors hover:bg-[#00D492]/15 cursor-pointer"
+            >
+              <VscCopy className="size-3.5" />
+              Copy debug bundle
+            </button>
+            <button
               onClick={handleCopy}
               title="Copy filtered logs"
               className="flex size-7 items-center justify-center rounded-md border border-white/8 bg-white/2 text-muted-foreground transition-colors hover:bg-white/6 hover:text-foreground cursor-pointer"
@@ -353,9 +466,12 @@ export function LogsDialog({
             />
             Auto-scroll
           </label>
-          <span className="tabular-nums">
-            {filtered.length} / {merged.length} entries
-          </span>
+          <div className="flex items-center gap-3">
+            {copyNotice && <span className="text-[#00D492]">{copyNotice}</span>}
+            <span className="tabular-nums">
+              {filtered.length} / {merged.length} entries
+            </span>
+          </div>
         </div>
       </div>
     </div>,

@@ -34,6 +34,7 @@ const EXISTING_BACKEND_WAIT: Duration = Duration::from_secs(30);
 const EXISTING_BACKEND_WAIT: Duration = Duration::from_secs(1);
 const BACKEND_LOG_NAME: &str = "middleware.log";
 const BUNDLED_TOKEN_NAME: &str = "middleware-token";
+const BACKEND_MODE_NAME: &str = "middleware-backend-mode";
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -68,6 +69,11 @@ impl Drop for WindowsJobObject {
 
 pub fn ensure_backend(app: &AppHandle) -> Result<(), String> {
   let log_path = resolve_log_path(app);
+
+  if is_remote_backend_mode(app) {
+    append_backend_log(&log_path, "Remote middleware mode active; skipping local bundled middleware startup");
+    return Ok(());
+  }
 
   if wait_for_existing_backend(EXISTING_BACKEND_WAIT, &log_path) {
     append_backend_log(&log_path, "Detected middleware already listening on :8787");
@@ -214,6 +220,9 @@ fn start_backend_monitor(app: AppHandle, log_path: PathBuf) {
 
   thread::spawn(move || loop {
     thread::sleep(Duration::from_secs(5));
+    if is_remote_backend_mode(&app) {
+      continue;
+    }
     if is_backend_healthy() {
       continue;
     }
@@ -357,7 +366,18 @@ fn resolve_server_dir(app: &AppHandle, log_path: &Path) -> Result<PathBuf, Strin
     );
 
     if candidate.exists() {
-      return Ok(candidate.clone());
+      let entry_path = candidate.join("dist").join("index.js");
+      if entry_path.exists() {
+        return Ok(candidate.clone());
+      }
+      append_backend_log(
+        log_path,
+        &format!(
+          "Skipping bundled middleware candidate {} because {} is missing",
+          candidate.display(),
+          entry_path.display()
+        ),
+      );
     }
   }
 
@@ -379,6 +399,43 @@ fn resolve_log_path(app: &AppHandle) -> PathBuf {
   }
 
   std::env::temp_dir().join(format!("jarvis-{BACKEND_LOG_NAME}"))
+}
+
+fn resolve_backend_mode_path(app: &AppHandle) -> Option<PathBuf> {
+  app.path().app_config_dir().ok().map(|dir| dir.join(BACKEND_MODE_NAME))
+}
+
+fn read_backend_mode(app: &AppHandle) -> String {
+  let Some(path) = resolve_backend_mode_path(app) else { return "local".to_string(); };
+  fs::read_to_string(path).unwrap_or_default().trim().to_lowercase()
+}
+
+fn is_remote_backend_mode(app: &AppHandle) -> bool {
+  read_backend_mode(app) == "remote"
+}
+
+#[tauri::command]
+pub fn set_backend_mode(app: AppHandle, mode: String) -> Result<(), String> {
+  let normalized = mode.trim().to_lowercase();
+  if normalized != "local" && normalized != "remote" {
+    return Err("Backend mode must be 'local' or 'remote'".to_string());
+  }
+
+  let path = resolve_backend_mode_path(&app)
+    .ok_or_else(|| "Failed to resolve app config dir".to_string())?;
+  if let Some(parent) = path.parent() {
+    fs::create_dir_all(parent)
+      .map_err(|err| format!("Failed to create backend mode directory: {err}"))?;
+  }
+  fs::write(&path, &normalized)
+    .map_err(|err| format!("Failed to write backend mode {}: {err}", path.display()))?;
+
+  let log_path = resolve_log_path(&app);
+  append_backend_log(&log_path, &format!("Desktop backend mode set to {normalized}"));
+  if normalized == "remote" {
+    stop_backend(&app);
+  }
+  Ok(())
 }
 
 #[cfg(target_os = "windows")]

@@ -1,7 +1,7 @@
-// openclaw header design
 "use client"
 
-import { useEffect, useRef, useState, type DragEvent, type CSSProperties } from "react"
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react"
+import { motion } from "framer-motion"
 import {
   VscAdd,
   VscClose,
@@ -11,13 +11,8 @@ import {
   VscSplitHorizontal,
   VscTerminal,
 } from "react-icons/vsc"
+import { LuExternalLink } from "react-icons/lu"
 import { Icons } from "@/components/icons"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { cn } from "@/lib/utils"
 import { TrafficLights } from "@/components/TrafficLights"
 import { WindowControls } from "@/components/WindowControls"
@@ -25,8 +20,11 @@ import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
 import { invoke } from "@/lib/ipc"
+import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 
 type VersionInfo = {
   version: string
@@ -46,14 +44,15 @@ type HeaderProps = {
   sidebarOpen?: boolean
   onToggleSidebar?: () => void
   sidebarReservedWidth?: number
-  inspectorReservedWidth?: number
   editorGroups?: EditorGroupsState | null
   onSelectChatTab?: (groupId: "group-1" | "group-2", tabId: string) => void
   onCloseChatTab?: (id: string) => void
+  onOpenChatTabWindow?: (tab: EditorTab) => void
   onMoveChatTab?: (
     tabId: string,
     sourceGroupId: "group-1" | "group-2",
     targetGroupId: "group-1" | "group-2",
+    targetIndex?: number,
   ) => void
   onNewChat?: (groupId?: "group-1" | "group-2") => void
   showSplitButton?: boolean
@@ -63,7 +62,7 @@ type HeaderProps = {
   onOpenSettings?: () => void
   onOpenNotifications?: () => void
   onOpenLogs?: () => void
-  showWorkspaceControls?: boolean
+  useNativeWindowChrome?: boolean
   onNavigateToChat?: (
     chat: ActiveChat,
   ) => void | boolean | Promise<void | boolean>
@@ -71,6 +70,25 @@ type HeaderProps = {
 
 const DEFAULT_USER: HeaderUser = {
   name: "OpenClaw",
+}
+
+function isWindowDragExcludedTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return true
+  return Boolean(
+    target.closest(
+      [
+        "button",
+        "a",
+        "input",
+        "textarea",
+        "select",
+        "[role='button']",
+        "[contenteditable='true']",
+        "[draggable='true']",
+        "[data-window-drag-exclude='true']",
+      ].join(","),
+    ),
+  )
 }
 
 export function Header({
@@ -84,10 +102,10 @@ export function Header({
   sidebarOpen = true,
   onToggleSidebar,
   sidebarReservedWidth = 0,
-  inspectorReservedWidth = 0,
   editorGroups = null,
   onSelectChatTab,
   onCloseChatTab,
+  onOpenChatTabWindow,
   onMoveChatTab,
   onNewChat,
   showSplitButton = false,
@@ -97,7 +115,7 @@ export function Header({
   onOpenSettings,
   onOpenNotifications,
   onOpenLogs,
-  showWorkspaceControls = true,
+  useNativeWindowChrome = false,
   onNavigateToChat,
 }: HeaderProps) {
   const platform = usePlatform()
@@ -107,6 +125,8 @@ export function Header({
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
   const [dragOverGroupId, setDragOverGroupId] = useState<"group-1" | "group-2" | null>(null)
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -128,8 +148,8 @@ export function Header({
 
   const isMac = platform === "macos"
   const isWindows = platform === "windows" || platform === "linux"
-  const showTrafficLights = isTauri && isMac
-  const showWindowControls = isTauri && isWindows
+  const showTrafficLights = isTauri && isMac && !useNativeWindowChrome
+  const showWindowControls = isTauri && isWindows && !useNativeWindowChrome
 
   useEffect(() => {
     const el = rightClusterRef.current
@@ -141,25 +161,25 @@ export function Header({
     return () => ro.disconnect()
   }, [])
 
-  const hasVisibleTabs = editorGroups?.groups.some((g) => {
-    const hasRealTab = g.tabs.some((t) => t.kind !== "draft")
-    return hasRealTab || editorGroups.groups.length > 1
-  })
+  const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
-  const rightReservedWidth = inspectorOpen
-    ? Math.max(0, inspectorReservedWidth)
-    : 0
-  const tabsAreaStyle = {
-    "--header-right-reserve": `${rightReservedWidth}px`,
-    ...(isSplitTabs
-      ? {
-          gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
-        }
-      : {}),
-  } as CSSProperties
+
+  const handleHeaderMouseDown = async (event: MouseEvent<HTMLElement>) => {
+    if (!isTauri || useNativeWindowChrome || event.button !== 0) return
+    if (isWindowDragExcludedTarget(event.target)) return
+
+    try {
+      event.preventDefault()
+      const { getCurrentWindow } = await import("@tauri-apps/api/window")
+      await getCurrentWindow().startDragging()
+    } catch {
+      // Browser/dev mode or unsupported platform: keep normal header behavior.
+    }
+  }
 
   return (
     <header
+      onMouseDown={handleHeaderMouseDown}
       className={cn(
         "relative z-50 flex h-11 shrink-0 items-center",
         "bg-[#151515]",
@@ -167,11 +187,9 @@ export function Header({
         className,
       )}
     >
-      {isTauri && (
+      {isTauri && !useNativeWindowChrome && (
         <div data-tauri-drag-region className="absolute inset-0 z-0" />
       )}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-px bg-border/50" />
-
       {/* Left: app identity */}
       <div
         className="relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3"
@@ -199,12 +217,18 @@ export function Header({
       {hasVisibleTabs && editorGroups ? (
         <div
           className={cn(
-            "relative z-10 min-w-0 flex-1 self-stretch pt-2 md:mr-[var(--header-right-reserve)]",
+            "relative z-10 min-w-0 flex-1 self-stretch pt-2",
             isSplitTabs
               ? "grid grid-cols-2 items-end"
               : "flex items-end",
           )}
-          style={tabsAreaStyle}
+          style={
+            isSplitTabs
+              ? {
+                  gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
+                }
+              : undefined
+          }
         >
           {isSplitTabs && (
             <div
@@ -213,23 +237,17 @@ export function Header({
             />
           )}
           {editorGroups.groups.map((group, groupIndex) => {
-            const hasRealTab = group.tabs.some((t) => t.kind !== "draft")
             const hasDraftTab = group.tabs.some((t) => t.kind === "draft")
-            const visibleTabs = group.tabs.filter(
-              (t) => t.kind !== "draft" || hasRealTab || editorGroups.groups.length > 1,
-            )
+            const visibleTabs = group.tabs
             if (visibleTabs.length === 0) return null
             const isFocusedGroup = group.id === editorGroups.focusedGroupId
             const isLastGroup = groupIndex === editorGroups.groups.length - 1
             return (
               <div
                 key={group.id}
-                className={cn(
-                  "flex min-w-0 flex-1 items-end rounded-t-md transition-colors",
-                  dragOverGroupId === group.id && "bg-white/[0.035] ring-1 ring-inset ring-white/10",
-                )}
+                className="flex min-w-0 flex-1 items-end rounded-t-md"
                 style={
-                  isLastGroup && rightClusterWidth > 0 && rightReservedWidth === 0
+                  isLastGroup && rightClusterWidth > 0
                     ? { paddingRight: rightClusterWidth + 12 }
                     : undefined
                 }
@@ -250,6 +268,8 @@ export function Header({
                   const tabId = event.dataTransfer.getData("text/tab-id")
                   const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
                   setDragOverGroupId(null)
+                  setDragOverTabId(null)
+                  setDraggingTabId(null)
                   if (!tabId || !sourceGroupId || sourceGroupId === group.id) return
                   onMoveChatTab(tabId, sourceGroupId, group.id)
                 }}
@@ -270,21 +290,71 @@ export function Header({
                       : "px-0",
                   )}
                 >
-                  {visibleTabs.map((tab) => (
-                    <HeaderTab
+                  {visibleTabs.map((tab, tabIndex) => (
+                    <motion.div
                       key={tab.id}
-                      tab={tab}
-                      isActive={group.activeTabId === tab.id}
-                      isFocusedGroup={isFocusedGroup}
-                      onSelect={() => onSelectChatTab?.(group.id, tab.id)}
-                      onClose={() => onCloseChatTab?.(tab.id)}
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData("text/tab-id", tab.id)
-                        event.dataTransfer.setData("text/source-group", group.id)
-                        event.dataTransfer.effectAllowed = "move"
-                      }}
-                      onDragEnd={() => setDragOverGroupId(null)}
-                    />
+                      layout="position"
+                      transition={{ layout: { type: "tween", duration: 0.16, ease: [0.2, 0, 0, 1] } }}
+                      className="shrink-0"
+                      style={{ position: "relative", zIndex: draggingTabId === tab.id ? 60 : group.activeTabId === tab.id ? 30 : 10 }}
+                    >
+                      <HeaderTab
+                        tab={tab}
+                        isActive={group.activeTabId === tab.id}
+                        isFocusedGroup={isFocusedGroup}
+                        isDragging={draggingTabId === tab.id}
+                        isDragTarget={dragOverTabId === tab.id}
+                        onSelect={() => onSelectChatTab?.(group.id, tab.id)}
+                        onClose={() => onCloseChatTab?.(tab.id)}
+                        onOpenWindow={
+                          tab.kind === "chat"
+                            ? () => onOpenChatTabWindow?.(tab)
+                            : undefined
+                        }
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/tab-id", tab.id)
+                          event.dataTransfer.setData("text/source-group", group.id)
+                          event.dataTransfer.effectAllowed = "move"
+                          setDraggingTabId(tab.id)
+                        }}
+                        onDragOver={(event) => {
+                          if (!onMoveChatTab) return
+                          if (!event.dataTransfer.types.includes("text/tab-id")) return
+                          event.preventDefault()
+                          event.dataTransfer.dropEffect = "move"
+                          setDragOverGroupId(group.id)
+                          setDragOverTabId(tab.id)
+                        }}
+                        onDrop={(event) => {
+                          if (!onMoveChatTab) return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          const tabId = event.dataTransfer.getData("text/tab-id")
+                          const sourceGroupId = event.dataTransfer.getData("text/source-group") as "group-1" | "group-2"
+                          setDraggingTabId(null)
+                          setDragOverGroupId(null)
+                          setDragOverTabId(null)
+                          if (!tabId || !sourceGroupId || tabId === tab.id) return
+
+                          const rect = event.currentTarget.getBoundingClientRect()
+                          const droppedAfterTarget = event.clientX > rect.left + rect.width / 2
+                          const rawTargetIndex = tabIndex + (droppedAfterTarget ? 1 : 0)
+                          const sourceIndex = sourceGroupId === group.id
+                            ? visibleTabs.findIndex((item) => item.id === tabId)
+                            : -1
+                          const targetIndex = sourceIndex >= 0 && sourceIndex < rawTargetIndex
+                            ? rawTargetIndex - 1
+                            : rawTargetIndex
+
+                          onMoveChatTab(tabId, sourceGroupId, group.id, targetIndex)
+                        }}
+                        onDragEnd={() => {
+                          setDraggingTabId(null)
+                          setDragOverGroupId(null)
+                          setDragOverTabId(null)
+                        }}
+                      />
+                    </motion.div>
                   ))}
                   {onNewChat && !hasDraftTab && (
                     <button
@@ -310,10 +380,10 @@ export function Header({
       )}
 
       {/* Right: action icons — absolute so they don't shrink the tab area */}
-      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2 border-b border-border/50", showWindowControls ? "pr-0" : "pr-3")}>
+      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
-            {showWorkspaceControls && showSplitButton && (
+            {showSplitButton && (
               <button
                 type="button"
                 aria-label={
@@ -335,84 +405,82 @@ export function Header({
               </button>
             )}
 
-            {showWorkspaceControls && (
-              <>
-                <button
-                  type="button"
-                  data-testid="toggle-sidebar"
-                  aria-label={
-                    sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-                  }
-                  title={
-                    sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
-                  }
-                  onClick={onToggleSidebar}
-                  className={cn(
-                    "flex size-7 items-center justify-center rounded-md",
-                    "cursor-pointer transition-colors",
-                    sidebarOpen
-                      ? "bg-transparent text-foreground"
-                      : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-                  )}
-                >
-                  <VscLayoutSidebarLeft className="size-4" />
-                </button>
-
-                <button
-                  type="button"
-                  aria-label="Toggle inspector panel"
-                  title="Toggle inspector panel"
-                  onClick={onToggleInspector}
-                  className={cn(
-                    "flex size-7 items-center justify-center rounded-md",
-                    "cursor-pointer transition-colors",
-                    inspectorOpen
-                      ? "bg-transparent text-foreground"
-                      : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-                  )}
-                >
-                  <VscLayoutSidebarRight className="size-4" />
-                </button>
-
-                <button
-                  type="button"
-                  aria-label="Toggle terminal"
-                  title="Toggle terminal"
-                  onClick={onToggleTerminal}
-                  className={cn(
-                    "flex size-7 items-center justify-center rounded-md",
-                    "cursor-pointer transition-colors",
-                    terminalOpen
-                      ? "bg-transparent text-foreground"
-                      : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-                  )}
-                >
-                  <VscTerminal className="size-4" />
-                </button>
-              </>
-            )}
-
-            <button
-              type="button"
-              aria-label="Open logs"
-              title="Open logs"
-              onClick={onOpenLogs}
-              className={cn(
-                "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
-                "cursor-pointer transition-colors",
-                "text-muted-foreground hover:text-foreground",
-              )}
+            <HeaderActionTooltip
+              label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
-              <VscOutput className="size-3.5" />
-              Logs
-            </button>
+              <button
+                type="button"
+                data-testid="toggle-sidebar"
+                aria-label={
+                  sidebarOpen ? "Collapse sidebar" : "Expand sidebar"
+                }
+                onClick={onToggleSidebar}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  sidebarOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscLayoutSidebarLeft className="size-4" />
+              </button>
+            </HeaderActionTooltip>
 
-            {showWorkspaceControls && (
-              <NotificationPopover
-                onViewAll={onOpenNotifications}
-                onNavigateToChat={onNavigateToChat}
-              />
-            )}
+            <HeaderActionTooltip label="Toggle inspector panel">
+              <button
+                type="button"
+                aria-label="Toggle inspector panel"
+                onClick={onToggleInspector}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  inspectorOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscLayoutSidebarRight className="size-4" />
+              </button>
+            </HeaderActionTooltip>
+
+            <HeaderActionTooltip label="Toggle terminal">
+              <button
+                type="button"
+                aria-label="Toggle terminal"
+                onClick={onToggleTerminal}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md",
+                  "cursor-pointer transition-colors",
+                  terminalOpen
+                    ? "bg-transparent text-foreground"
+                    : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+                )}
+              >
+                <VscTerminal className="size-4" />
+              </button>
+            </HeaderActionTooltip>
+
+            <HeaderActionTooltip label="Open logs">
+              <button
+                type="button"
+                aria-label="Open logs"
+                onClick={onOpenLogs}
+                className={cn(
+                  "mx-1 flex items-center gap-1.5 rounded-md border border-border/40 px-2 py-1 text-[11px]",
+                  "cursor-pointer transition-colors",
+                  "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <VscOutput className="size-3.5" />
+                Logs
+              </button>
+            </HeaderActionTooltip>
+
+            <NotificationPopover
+              onViewAll={onOpenNotifications}
+              onNavigateToChat={onNavigateToChat}
+            />
             <HeaderIconButton
               icon={Icons.Settings}
               label="Settings"
@@ -441,21 +509,50 @@ function HeaderIconButton({
   active?: boolean
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={cn(
-        "flex size-7 items-center justify-center rounded-md",
-        "cursor-pointer transition-colors group/icon",
-        active
-          ? "bg-transparent text-foreground"
-          : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
-      )}
-    >
-      <Icon size={16} strokeWidth={1.5} className="size-4" />
-    </button>
+    <HeaderActionTooltip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className={cn(
+          "flex size-7 items-center justify-center rounded-md",
+          "cursor-pointer transition-colors group/icon",
+          active
+            ? "bg-transparent text-foreground"
+            : "bg-transparent text-[#A3A3A9] hover:text-[#C6C6CC] dark:text-[#A3A3A9] dark:hover:text-[#D3D3D9]",
+        )}
+      >
+        <Icon size={16} strokeWidth={1.5} className="size-4" />
+      </button>
+    </HeaderActionTooltip>
+  )
+}
+
+function HeaderActionTooltip({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        collisionPadding={12}
+        showArrow={false}
+        className={cn(
+          GLASS_POPOVER,
+          "max-w-[420px] whitespace-normal break-words border-transparent bg-[var(--glass-bg)] px-3 py-1.5 text-[12px] font-medium text-foreground",
+          "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+        )}
+      >
+        <span className="block whitespace-normal break-words">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -463,96 +560,161 @@ function HeaderTab({
   tab,
   isActive,
   isFocusedGroup = true,
+  isDragging = false,
+  isDragTarget = false,
   onSelect,
   onClose,
+  onOpenWindow,
   onDragStart,
+  onDragOver,
+  onDrop,
   onDragEnd,
 }: {
   tab: EditorTab
   isActive: boolean
   isFocusedGroup?: boolean
+  isDragging?: boolean
+  isDragTarget?: boolean
   onSelect: () => void
   onClose: () => void
-  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onOpenWindow?: () => void
+  onDragStart?: (event: DragEvent<HTMLElement>) => void
+  onDragOver?: (event: DragEvent<HTMLElement>) => void
+  onDrop?: (event: DragEvent<HTMLElement>) => void
   onDragEnd?: () => void
 }) {
   const activeAndFocused = isActive && isFocusedGroup
-  const tooltipLabel = `${tab.subtitle} / ${tab.title}`
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          draggable
-          aria-label={tooltipLabel}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onClick={onSelect}
-          className={cn(
-            "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-pointer items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity] duration-200",
-            activeAndFocused
-              ? "z-20 border-white/10 bg-background text-foreground shadow-[0_1px_0_0_var(--background),0_-6px_16px_rgba(0,0,0,0.2)]"
-              : isActive
-                ? "z-10 border-white/8 bg-background/72 text-foreground/74 shadow-[0_1px_0_0_var(--background)]"
-                : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
-          )}
-        >
-          <div
+  const tabLabel = `${tab.subtitle} / ${tab.title}`
+  const openTabWindow = () => {
+    if (onOpenWindow) {
+      onOpenWindow()
+      return
+    }
+    if (tab.kind === "chat" && tab.chat?.id) {
+      void openRouteInNewWindow(`/${tab.chat.id}`, tab.title)
+    }
+  }
+  const tabButton = (
+    <div
+      role="button"
+      tabIndex={0}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      onDoubleClick={(event) => {
+        if (tab.kind !== "chat") return
+        event.preventDefault()
+        event.stopPropagation()
+        openTabWindow()
+      }}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+      className={cn(
+        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-grab items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200 active:cursor-grabbing",
+        isDragging && "opacity-45",
+        isDragTarget && !isDragging && "-translate-y-px ring-1 ring-inset ring-white/15",
+        activeAndFocused
+          ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
+          : isActive
+            ? "z-10 overflow-visible border-transparent bg-background/72 text-foreground/74 shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
+            : "border-transparent bg-transparent text-foreground/56 hover:bg-white/[0.045] hover:text-foreground/78 dark:border-transparent dark:bg-transparent dark:text-white/58 dark:hover:bg-white/[0.055] dark:hover:text-white/80",
+      )}
+    >
+      <div
+        className={cn(
+          "relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full",
+          isActive
+            ? "bg-foreground/[0.055] text-foreground/58 dark:bg-white/[0.055] dark:text-white/62"
+            : "bg-transparent text-foreground/34 dark:text-white/38",
+        )}
+      >
+        {tab.kind === "topic" ? (
+          <Icons.Project
+            size={12}
+            strokeWidth={1.7}
+            className="size-3.5"
+          />
+        ) : (
+          <Icons.Chat
+            size={12}
+            strokeWidth={1.7}
+            className="size-3.5"
+          />
+        )}
+      </div>
+      <div className="relative z-10 min-w-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          <span
             className={cn(
-              "relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full",
+              "truncate text-[10.5px]",
               isActive
-                ? "bg-foreground/[0.055] text-foreground/58 dark:bg-white/[0.055] dark:text-white/62"
-                : "bg-transparent text-foreground/34 dark:text-white/38",
+                ? "text-foreground/34 dark:text-white/36"
+                : "text-foreground/24 dark:text-white/26",
             )}
           >
-            {tab.kind === "topic" ? (
-              <Icons.Project
-                size={12}
-                strokeWidth={1.7}
-                className="size-3.5"
-              />
-            ) : (
-              <Icons.Chat
-                size={12}
-                strokeWidth={1.7}
-                className="size-3.5"
-              />
+            {tab.subtitle}
+          </span>
+          <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">
+            /
+          </span>
+          <span
+            className={cn(
+              "truncate text-[11.5px] font-medium",
+              activeAndFocused
+                ? "text-foreground/88 dark:text-white/90"
+                : isActive
+                  ? "text-foreground/68 dark:text-white/70"
+                  : "text-foreground/62 dark:text-white/64",
             )}
-          </div>
-          <div className="relative z-10 min-w-0 flex-1 overflow-hidden">
-            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-              <span
-                className={cn(
-                  "truncate text-[10.5px]",
-                  isActive
-                    ? "text-foreground/34 dark:text-white/36"
-                    : "text-foreground/24 dark:text-white/26",
-                )}
-              >
-                {tab.subtitle}
-              </span>
-              <span className="shrink-0 text-[10px] text-foreground/20 dark:text-white/20">
-                /
-              </span>
-              <span
-                className={cn(
-                  "truncate text-[11.5px] font-medium",
-                  activeAndFocused
-                    ? "text-foreground/88 dark:text-white/90"
-                    : isActive
-                      ? "text-foreground/68 dark:text-white/70"
-                      : "text-foreground/62 dark:text-white/64",
-                )}
-              >
-                {tab.title}
-              </span>
-            </div>
-          </div>
+          >
+            {tab.title}
+          </span>
+        </div>
+      </div>
+      {tab.kind === "chat" && (
+        <div
+          className={cn(
+            "relative z-10 ml-0.5 flex shrink-0 items-center gap-0.5 transition-opacity group-hover:opacity-100",
+            isActive ? "opacity-100" : "opacity-0",
+          )}
+        >
           <span
             role="button"
             tabIndex={0}
-            aria-label={`Close ${tooltipLabel}`}
+            aria-label="Open as new window"
+            title="Open as new window"
+            onClick={(e) => {
+              e.stopPropagation()
+              openTabWindow()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                e.stopPropagation()
+                openTabWindow()
+              }
+            }}
+            className={cn(
+              "flex size-5 cursor-pointer items-center justify-center rounded-md transition-colors",
+              isActive
+                ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+                : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+            )}
+          >
+            <LuExternalLink className="size-3.5" />
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label="Close tab"
+            title="Close tab"
             onClick={(e) => {
               e.stopPropagation()
               onClose()
@@ -565,8 +727,7 @@ function HeaderTab({
               }
             }}
             className={cn(
-              "relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
-              isActive ? "opacity-100" : "opacity-0",
+              "flex size-5 cursor-pointer items-center justify-center rounded-md transition-colors",
               isActive
                 ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
                 : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
@@ -574,18 +735,68 @@ function HeaderTab({
           >
             <VscClose className="size-3.5" />
           </span>
-        </button>
+        </div>
+      )}
+      {tab.kind !== "chat" && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation()
+            onClose()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              e.stopPropagation()
+              onClose()
+            }
+          }}
+          className={cn(
+            "cursor-pointer relative z-10 ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-md transition-colors group-hover:opacity-100",
+            isActive ? "opacity-100" : "opacity-0",
+            isActive
+              ? "text-foreground/36 hover:bg-foreground/[0.06] hover:text-foreground/72 dark:text-white/36 dark:hover:bg-white/[0.06] dark:hover:text-white/72"
+              : "text-foreground/28 hover:bg-foreground/[0.05] hover:text-foreground/58 dark:text-white/28 dark:hover:bg-white/[0.05] dark:hover:text-white/58",
+          )}
+        >
+          <VscClose className="size-3.5" />
+        </span>
+      )}
+    </div>
+  )
+
+  return (
+    <HeaderTooltip label={tabLabel}>
+      {tabButton}
+    </HeaderTooltip>
+  )
+}
+
+function HeaderTooltip({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>
+        <div className="shrink-0">{children}</div>
       </TooltipTrigger>
       <TooltipContent
         side="bottom"
+        align="center"
         sideOffset={8}
+        collisionPadding={12}
         showArrow={false}
         className={cn(
-          GLASS_POPOVER,
-          "border-transparent bg-[var(--glass-bg)] max-w-[min(420px,calc(100vw-24px))] px-3 py-1.5 text-[12px] font-medium text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+          "max-w-[min(420px,calc(100vw-24px))] rounded-md border border-white/[0.08] bg-[#1B1B1D]/88 px-2.5 py-1 text-[12px] font-medium text-foreground backdrop-blur-xl",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.28)]",
         )}
       >
-        <span className="block min-w-0 truncate">{tooltipLabel}</span>
+        <span className="block break-words whitespace-normal">{label}</span>
       </TooltipContent>
     </Tooltip>
   )

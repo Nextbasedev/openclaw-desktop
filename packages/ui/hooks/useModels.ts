@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { invoke } from "@/lib/ipc"
+import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
+import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 
 export type ModelEntry = {
   id: string
@@ -52,6 +54,27 @@ function normalizeModelsResponse(response: ModelsResponse): { models: ModelEntry
 
 let cachedModels: ModelEntry[] | null = null
 let cachedCurrent: string | null = null
+let cachedConnectionKey: string | null = null
+
+const MODELS_REQUEST_TTL_MS = 3_000
+
+function currentMiddlewareConnectionKey(): string | null {
+  if (typeof window === "undefined") return null
+  const url = localStorage.getItem("openclaw.middleware.url")?.trim() ?? ""
+  const token = localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
+  return url ? `${url}|${token ? "token" : "no-token"}` : null
+}
+
+function modelsRequestKey(connectionKey: string | null) {
+  return `models:${connectionKey ?? "default"}`
+}
+
+function clearModelsCache() {
+  invalidateDedupe("models:")
+  cachedModels = null
+  cachedCurrent = null
+  cachedConnectionKey = null
+}
 
 export function isActiveModel(
   current: string | null,
@@ -72,17 +95,30 @@ export function useModels() {
   const fetched = useRef(false)
 
   const load = useCallback(async (force = false) => {
+    const connectionKey = currentMiddlewareConnectionKey()
+    if (cachedConnectionKey !== connectionKey) {
+      clearModelsCache()
+      cachedConnectionKey = connectionKey
+      fetched.current = false
+      setModels([])
+      setCurrentModel(null)
+    }
     if (!force && fetched.current && cachedModels) return
+    if (force) invalidateDedupe(modelsRequestKey(connectionKey))
     fetched.current = true
     setError(null)
     setLoading(true)
     try {
-      const res = await invoke<ModelsResponse>("middleware_models_list", {
-        input: {},
-      })
-      const normalized = normalizeModelsResponse(res)
+      const normalized = await dedupeRequest(
+        modelsRequestKey(connectionKey),
+        async () => normalizeModelsResponse(await invoke<ModelsResponse>("middleware_models_list", {
+          input: {},
+        })),
+        { ttlMs: MODELS_REQUEST_TTL_MS },
+      )
       cachedModels = normalized.models
       cachedCurrent = normalized.currentModel
+      cachedConnectionKey = connectionKey
       setModels(cachedModels)
       setCurrentModel(cachedCurrent)
     } catch (err) {
@@ -93,6 +129,23 @@ export function useModels() {
 
   useEffect(() => {
     void load(false)
+  }, [load])
+
+  useEffect(() => {
+    function handleConnectionChange() {
+      clearModelsCache()
+      fetched.current = false
+      setModels([])
+      setCurrentModel(null)
+      void load(true)
+    }
+
+    window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, handleConnectionChange)
+    window.addEventListener("openclaw:middleware-connected", handleConnectionChange)
+    return () => {
+      window.removeEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, handleConnectionChange)
+      window.removeEventListener("openclaw:middleware-connected", handleConnectionChange)
+    }
   }, [load])
 
   const ensureLoaded = useCallback(() => load(false), [load])

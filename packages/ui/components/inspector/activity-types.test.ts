@@ -2,6 +2,58 @@ import { describe, expect, it } from "vitest"
 import { buildTree, finalizeStaleRunningActivity, parseHistoryToolCalls } from "./activity-types"
 
 describe("activity stale running reconciliation", () => {
+  it("normalizes history timestamps and suppresses impossible activity durations", () => {
+    const parsed = parseHistoryToolCalls([
+      {
+        role: "assistant",
+        timestamp: 1_778_674_262,
+        content: [
+          {
+            type: "toolCall",
+            id: "tool-1",
+            name: "session_status",
+            args: {},
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "session_status",
+        timestamp: 1_778_674_268,
+        content: [{ type: "text", text: "ok" }],
+      },
+    ])
+
+    expect(parsed.calls[0].startedAt).toBe(1_778_674_262_000)
+    expect(parsed.calls[0].duration).toBe("6.0s")
+
+    const stale = parseHistoryToolCalls([
+      {
+        role: "assistant",
+        timestamp: 1_778_600_000_000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tool-2",
+            name: "session_status",
+            args: {},
+            duration: "66662s",
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-2",
+        toolName: "session_status",
+        timestamp: 1_778_666_662_000,
+        content: [{ type: "text", text: "ok" }],
+      },
+    ])
+
+    expect(stale.calls[0].duration).toBeUndefined()
+  })
+
   it("marks unresolved historical tool calls as success when backend session is idle", () => {
     const parsed = parseHistoryToolCalls([
       {
@@ -54,5 +106,35 @@ describe("activity stale running reconciliation", () => {
 
     expect(nodes[0].status).toBe("success")
     expect(nodes[0].children?.[0]?.status).toBe("success")
+  })
+
+  it("captures tool_result output that uses canonical tool_use_id fields", () => {
+    const parsed = parseHistoryToolCalls([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "tool-1",
+            name: "web_fetch",
+            input: { url: "https://github.com/hoppscotch/hoppscotch" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        tool_use_id: "tool-1",
+        tool_name: "web_fetch",
+        content: "# Hoppscotch\nOpen source API development ecosystem.",
+      },
+    ])
+
+    expect(parsed.calls).toHaveLength(1)
+    expect(parsed.calls[0]).toMatchObject({
+      id: "tool-1",
+      tool: "web_fetch",
+      status: "success",
+      output: "# Hoppscotch\nOpen source API development ecosystem.",
+    })
   })
 })

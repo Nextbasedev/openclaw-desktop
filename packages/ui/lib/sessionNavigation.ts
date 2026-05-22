@@ -8,6 +8,7 @@ type SessionRecord = {
   hidden: boolean
   projectId?: string
   topicId?: string
+  spaceId?: string
 }
 
 type ChatRecord = {
@@ -15,6 +16,7 @@ type ChatRecord = {
   name: string
   sessionKey?: string
   archived: boolean
+  spaceId?: string
 }
 
 type ProjectRecord = {
@@ -44,15 +46,21 @@ export type SessionNavigationTarget =
       title: string
     }
 
-async function createStandaloneSession(label: string) {
-  const result = await invoke<{ session: { key: string } }>(
-    "middleware_sessions_create",
-    { input: { agentId: "main", label } },
-  )
-  return result.session.key
+type SessionNavigationOptions = {
+  activeSpaceId?: string | null
 }
 
-export async function ensureChatSession(chat: ActiveChat) {
+async function createStandaloneSession(label: string, options: SessionNavigationOptions = {}) {
+  const result = await invoke<{ session: { key?: string; sessionKey?: string } }>(
+    "middleware_sessions_create",
+    { input: { agentId: "main", label, spaceId: options.activeSpaceId ?? undefined } },
+  )
+  const sessionKey = result.session.key ?? result.session.sessionKey
+  if (!sessionKey) throw new Error("Session creation did not return a sessionKey")
+  return sessionKey
+}
+
+export async function ensureChatSession(chat: ActiveChat, options: SessionNavigationOptions = {}) {
   if (chat.sessionKey) {
     return {
       chat,
@@ -61,9 +69,9 @@ export async function ensureChatSession(chat: ActiveChat) {
     }
   }
 
-  const sessionKey = await createStandaloneSession(chat.name)
+  const sessionKey = await createStandaloneSession(chat.name, options)
   await invoke("middleware_chats_attach_session", {
-    input: { chatId: chat.id, sessionKey },
+    input: { chatId: chat.id, sessionKey, spaceId: options.activeSpaceId ?? undefined },
   })
 
   return {
@@ -73,10 +81,10 @@ export async function ensureChatSession(chat: ActiveChat) {
   }
 }
 
-async function findSession(sessionKey: string) {
+async function findSession(sessionKey: string, options: SessionNavigationOptions) {
   const result = await invoke<{ sessions: SessionRecord[] }>(
     "middleware_sessions_list",
-    { input: { includeExisting: true } },
+    { input: { includeExisting: true, spaceId: options.activeSpaceId ?? undefined } },
   )
   return (result.sessions || []).find(
     (session) => session.key === sessionKey && !session.hidden,
@@ -86,10 +94,11 @@ async function findSession(sessionKey: string) {
 async function resolveTopic(
   projectId: string,
   topicId: string,
+  options: SessionNavigationOptions,
 ): Promise<ActiveTopic | null> {
   const projectResult = await invoke<{ projects: ProjectRecord[] }>(
     "middleware_projects_list",
-    { input: {} },
+    { input: { spaceId: options.activeSpaceId ?? undefined } },
   )
   const project = (projectResult.projects || []).find(
     (item) => item.id === projectId && !item.archived,
@@ -113,9 +122,9 @@ async function resolveTopic(
   }
 }
 
-async function findChatBySessionKey(sessionKey: string) {
+async function findChatBySessionKey(sessionKey: string, options: SessionNavigationOptions) {
   const result = await invoke<{ chats: ChatRecord[] }>("middleware_chats_list", {
-    input: {},
+    input: { spaceId: options.activeSpaceId ?? undefined },
   })
   const chat = (result.chats || []).find(
     (item) => !item.archived && item.sessionKey === sessionKey,
@@ -129,8 +138,8 @@ async function findChatBySessionKey(sessionKey: string) {
   } satisfies ActiveChat
 }
 
-async function ensureChatForSession(session: SessionRecord) {
-  const existingChat = await findChatBySessionKey(session.key)
+async function ensureChatForSession(session: SessionRecord, options: SessionNavigationOptions) {
+  const existingChat = await findChatBySessionKey(session.key, options)
   if (existingChat) {
     return {
       kind: "chat" as const,
@@ -147,6 +156,7 @@ async function ensureChatForSession(session: SessionRecord) {
       input: {
         name: label,
         sessionKey: session.key,
+        spaceId: options.activeSpaceId ?? session.spaceId ?? undefined,
       },
     },
   )
@@ -165,12 +175,13 @@ async function ensureChatForSession(session: SessionRecord) {
 
 export async function resolveSessionNavigationTarget(
   sessionKey: string,
+  options: SessionNavigationOptions = {},
 ): Promise<SessionNavigationTarget | null> {
-  const session = await findSession(sessionKey)
+  const session = await findSession(sessionKey, options)
   if (!session) return null
 
   if (session.projectId && session.topicId) {
-    const topic = await resolveTopic(session.projectId, session.topicId)
+    const topic = await resolveTopic(session.projectId, session.topicId, options)
     if (topic) {
       return {
         kind: "topic",
@@ -181,5 +192,5 @@ export async function resolveSessionNavigationTarget(
     }
   }
 
-  return ensureChatForSession(session)
+  return ensureChatForSession(session, options)
 }

@@ -14,6 +14,7 @@ export interface ToolCall {
   duration?: string
   input?: Record<string, unknown>
   output?: string
+  awaitingOutput?: boolean
   startedAt?: number
   completedAt?: number
   messageId?: string
@@ -44,6 +45,8 @@ export interface AgentInfo {
 type ContentBlock = {
   type?: string
   id?: string
+  toolCallId?: string
+  tool_call_id?: string
   tool_use_id?: string
   toolUseId?: string
   name?: string
@@ -53,6 +56,9 @@ type ContentBlock = {
   text?: string
   content?: string
   output?: string
+  result?: unknown
+  message?: unknown
+  value?: unknown
   is_error?: boolean
   isError?: boolean
   status?: unknown
@@ -64,7 +70,11 @@ export type RawHistoryMessage = {
   id?: string
   role?: string
   toolCallId?: string
+  tool_call_id?: string
+  toolUseId?: string
+  tool_use_id?: string
   toolName?: string
+  tool_name?: string
   content?: string | ContentBlock[]
   text?: string
   details?: unknown
@@ -100,7 +110,7 @@ function isToolResultBlock(block: ContentBlock): boolean {
 }
 
 function toolBlockId(block: ContentBlock): string | undefined {
-  return block.id || block.tool_use_id || block.toolUseId
+  return block.toolCallId || block.tool_call_id || block.toolUseId || block.tool_use_id || block.id
 }
 
 function toolBlockArgs(block: ContentBlock): unknown {
@@ -108,7 +118,7 @@ function toolBlockArgs(block: ContentBlock): unknown {
 }
 
 function toolResultBlockText(block: ContentBlock): string {
-  const value = block.text ?? block.content ?? block.output
+  const value = block.result ?? block.output ?? block.text ?? block.content ?? block.message ?? block.value
   if (typeof value === "string") return value
   if (value != null) {
     try { return JSON.stringify(value, null, 2) } catch { return String(value) }
@@ -132,7 +142,11 @@ function objectValue(value: unknown, key: string): unknown {
 }
 
 function messageTimestampMs(msg: RawHistoryMessage): number | undefined {
-  if (typeof msg.timestamp === "number" && Number.isFinite(msg.timestamp)) return msg.timestamp
+  if (typeof msg.timestamp === "number" && Number.isFinite(msg.timestamp)) {
+    return msg.timestamp < 10_000_000_000
+      ? Math.round(msg.timestamp * 1000)
+      : Math.round(msg.timestamp)
+  }
   if (msg.createdAt) {
     const parsed = Date.parse(msg.createdAt)
     if (Number.isFinite(parsed)) return parsed
@@ -141,9 +155,25 @@ function messageTimestampMs(msg: RawHistoryMessage): number | undefined {
 }
 
 function formatDuration(ms: number | undefined): string | undefined {
-  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return undefined
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0 || ms > 30 * 60 * 1000) return undefined
   if (ms < 100) return "0.1s"
-  return `${(ms / 1000).toFixed(1)}s`
+  const seconds = ms / 1000
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`
+}
+
+function blockDurationMs(block: ContentBlock): number | undefined {
+  if (typeof block.durationMs === "number" && Number.isFinite(block.durationMs)) return block.durationMs
+  if (typeof block.duration !== "string") return undefined
+  const match = block.duration.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|second|seconds)$/i)
+  if (!match) return undefined
+  const value = Number(match[1])
+  if (!Number.isFinite(value)) return undefined
+  return match[2].toLowerCase() === "ms" ? value : value * 1000
+}
+
+function blockDuration(block: ContentBlock): string | undefined {
+  const durationMs = blockDurationMs(block)
+  return durationMs !== undefined ? formatDuration(durationMs) : undefined
 }
 
 function resultDurationMs(msg: RawHistoryMessage, resultText: string): number | undefined {
@@ -262,7 +292,7 @@ export function parseHistoryToolCalls(
             name: b.name ?? "unknown",
             args: toolBlockArgs(b),
             startedAt,
-            duration: b.duration,
+            duration: blockDuration(b),
             status: b.is_error === true || b.isError === true || b.status === "error" ? "error" : undefined,
             messageId: latestUserMessageId ?? msg.id,
             messageIndex: latestUserMessageIndex ?? messageIndex,
@@ -309,8 +339,10 @@ export function parseHistoryToolCalls(
       const resultText = resultTextFromMessage(msg)
       const status = resultStatus(msg, resultText)
 
-      const matched = msg.toolCallId
-        ? pendingById.get(msg.toolCallId) ?? { id: msg.toolCallId, name: msg.toolName ?? "unknown", args: null }
+      const messageToolCallId = msg.toolCallId || msg.tool_call_id || msg.toolUseId || msg.tool_use_id
+      const messageToolName = msg.toolName || msg.tool_name
+      const matched = messageToolCallId
+        ? pendingById.get(messageToolCallId) ?? { id: messageToolCallId, name: messageToolName ?? "unknown", args: null }
         : pendingCalls.shift()
       if (matched) {
         pendingById.delete(matched.id)

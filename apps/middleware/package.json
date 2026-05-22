@@ -8,29 +8,23 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:api": "node scripts/test-api.cjs",
-    "load:test:tabs": "node scripts/load-test-tabs.cjs",
-    "load:test:streams": "node scripts/load-test-streams.cjs",
-    "load:test:tab-burst": "node scripts/load-test-tab-burst.cjs",
-    "load:test:reliability": "node scripts/load-test-reliability.cjs"
+    "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/sensible": "^6.0.3",
+    "@fastify/websocket": "^11.2.0",
+    "avvio": "^9.2.0",
     "better-sqlite3": "^11.9.1",
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
+    "fastify": "^5.6.2",
     "node-pty": "^1.1.0",
     "ws": "^8.20.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.2",
     "@types/node": "^25.5.0",
-    "@types/supertest": "^6.0.2",
     "@types/ws": "^8.18.1",
-    "supertest": "^7.1.0",
     "tsx": "^4.20.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.15"

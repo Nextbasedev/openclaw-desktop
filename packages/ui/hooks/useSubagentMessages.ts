@@ -2,8 +2,10 @@
 
 import { randomId } from "@/lib/id"
 import { useState, useEffect, useRef, useCallback } from "react"
-import { invoke } from "@/lib/ipc"
 import { cleanUserMessageText } from "@/lib/chatHistoryParser"
+import { fetchChatBootstrapV2 } from "@/lib/chat-engine-v2/client"
+import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
+import type { ChatMessage, InlineToolCall } from "@/components/ChatView/types"
 
 export type SubagentToolCall = {
   id: string
@@ -30,9 +32,11 @@ type ContentBlock = {
 
 type RawMsg = {
   id?: string
+  messageId?: string
   role?: string
   content?: string | ContentBlock[]
   text?: string
+  toolCalls?: InlineToolCall[]
 }
 
 function extractText(content?: string | ContentBlock[]): string {
@@ -79,6 +83,15 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
         (b) => b.type === "toolCall" || b.type === "tool_use",
       )
 
+      for (const tool of msg.toolCalls ?? []) {
+        if (HIDDEN_TOOLS.has(tool.tool)) continue
+        pendingToolCalls.push({
+          id: tool.id ?? randomId(),
+          name: tool.tool ?? "unknown",
+          status: tool.status ?? "success",
+        })
+      }
+
       for (const b of tcBlocks) {
         if (HIDDEN_TOOLS.has(b.name ?? "")) continue
         const tc: SubagentToolCall = {
@@ -109,10 +122,10 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
               ...pendingToolCalls,
             ]
           }
-          lastEntry.id = msg.id ?? lastEntry.id
+          lastEntry.id = msg.id ?? msg.messageId ?? lastEntry.id
         } else {
           result.push({
-            id: msg.id ?? randomId(),
+            id: msg.id ?? msg.messageId ?? randomId(),
             role: "assistant",
             text: text ?? "",
             toolCalls:
@@ -150,6 +163,20 @@ function parseMessages(raw: RawMsg[]): SubagentMessage[] {
   return result
 }
 
+function parseChatMessages(messages: ChatMessage[]): SubagentMessage[] {
+  return parseMessages(messages.map((message) => ({
+    id: message.messageId,
+    messageId: message.messageId,
+    role: message.role,
+    text: message.text,
+    toolCalls: message.toolCalls,
+  })))
+}
+
+function bootstrapCursor(history: Awaited<ReturnType<typeof fetchChatBootstrapV2>>) {
+  return history.cursor ?? history.projection?.cursor ?? 0
+}
+
 export function useSubagentMessages(
   sessionKey: string | null,
   isLive: boolean,
@@ -159,21 +186,23 @@ export function useSubagentMessages(
   const timerRef = useRef<number | null>(null)
   const cancelledRef = useRef(false)
   const requestSeqRef = useRef(0)
+  const liveCursorRef = useRef(0)
+  const activeSessionKeyRef = useRef<string | null>(null)
 
   const fetchMessages = useCallback(async (key: string, timeoutMs = 6_000) => {
     const requestSeq = ++requestSeqRef.current
     try {
-      const history = await invoke<{ messages: RawMsg[] }>(
-        "middleware_chat_history",
-        { input: { sessionKey: key, timeoutMs } },
-      )
-      if (cancelledRef.current || requestSeq !== requestSeqRef.current) return
-      setMessages(parseMessages(history.messages ?? []))
+      void timeoutMs
+      const history = await fetchChatBootstrapV2(key)
+      if (cancelledRef.current || requestSeq !== requestSeqRef.current || activeSessionKeyRef.current !== key) return
+      if (liveCursorRef.current > bootstrapCursor(history)) return
+      setMessages(parseMessages((history.messages as RawMsg[]) ?? []))
     } catch {}
   }, [])
 
   useEffect(() => {
     cancelledRef.current = false
+    activeSessionKeyRef.current = sessionKey
     if (timerRef.current) {
       window.clearTimeout(timerRef.current)
       timerRef.current = null
@@ -187,6 +216,14 @@ export function useSubagentMessages(
       return
     }
 
+    liveCursorRef.current = getGlobalChatSession(sessionKey)?.cursor ?? 0
+    const unsubscribe = subscribeGlobalChatSession(sessionKey, (state) => {
+      if (cancelledRef.current) return
+      liveCursorRef.current = Math.max(liveCursorRef.current, state.cursor)
+      setMessages(parseChatMessages(state.messages))
+      setLoading(false)
+    })
+
     setLoading(true)
     fetchMessages(sessionKey, 6_000).finally(() => {
       if (!cancelledRef.current) setLoading(false)
@@ -198,6 +235,7 @@ export function useSubagentMessages(
 
     return () => {
       cancelledRef.current = true
+      unsubscribe()
       if (timerRef.current) {
         window.clearTimeout(timerRef.current)
         timerRef.current = null

@@ -460,60 +460,6 @@ export async function connectToOpenClawGateway(options: ConnectOptions): Promise
 
   let connectResponse = await waitForResponse(ws, connectId)
 
-  if (
-    !connectResponse.ok &&
-    connectResponse.error?.code === "NOT_PAIRED"
-  ) {
-    ws.close()
-    const retryWs = new NodeWebSocket(gatewayUrl, { headers: { origin } })
-    await waitForOpen(retryWs)
-
-    const retryChallenge = await new Promise<{ nonce: string }>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        retryWs.removeEventListener("message", onMsg)
-        reject(new Error("timeout waiting for connect.challenge (retry)"))
-      }, 10_000)
-      const onMsg = (event: MessageEvent) => {
-        const parsed = parseSocketMessage(event)
-        if (!isConnectChallenge(parsed)) return
-        clearTimeout(timeout)
-        retryWs.removeEventListener("message", onMsg)
-        resolve(parsed.payload)
-      }
-      retryWs.addEventListener("message", onMsg)
-    })
-
-    void retryChallenge
-
-    const retryId = crypto.randomUUID()
-    retryWs.send(JSON.stringify({
-      type: "req",
-      id: retryId,
-      method: "connect",
-      params: {
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-        client: { ...client, mode: "backend" },
-        auth: { token },
-        caps,
-        scopes: options.scopes,
-      },
-    }))
-
-    connectResponse = await waitForResponse(retryWs, retryId)
-
-    if (!connectResponse.ok) {
-      retryWs.close()
-      throw new Error(connectResponse.error?.message ?? "OpenClaw connect failed")
-    }
-
-    const retryHello = connectResponse.payload as
-      | { server?: GatewayServerInfo }
-      | undefined
-
-    return buildClient(retryWs, gatewayUrl, retryHello?.server)
-  }
-
   if (!connectResponse.ok) {
     ws.close()
     throw new Error(connectResponse.error?.message ?? "OpenClaw connect failed")

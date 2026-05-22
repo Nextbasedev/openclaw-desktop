@@ -12,9 +12,12 @@ import { useChatComposerAttachments } from "@/hooks/useChatComposerAttachments"
 import { isActiveModel, useModels } from "@/hooks/useModels"
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder"
 import { invoke } from "@/lib/ipc"
+import { frontendLog } from "@/lib/clientLogs"
 import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import { GlassDialog } from "@/components/ui/GlassDialog"
-import { LuX } from "react-icons/lu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
+import { LuChevronDown, LuSparkles, LuX } from "react-icons/lu"
 import {
   execPolicyForAutonomyMode,
   stripComposerAttachment,
@@ -22,6 +25,7 @@ import {
   type ChatComposerSubmit,
 } from "@/lib/chatAttachments"
 import type { ReplyTo } from "@/components/ChatView/types"
+import type { Space } from "@/types/space"
 import { composerReducer, initialComposerState } from "@/lib/composerState"
 import { clampCommandIndex } from "@/lib/slashCommandFilter"
 import {
@@ -61,10 +65,28 @@ type Props = {
   onAbort?: () => void
   replyTo?: ReplyTo | null
   onCancelReply?: () => void
-  onRemoveReplySelection?: (index: number) => void
   onModelSelect?: (modelId: string) => void | Promise<void>
   modelSwitching?: boolean
   glowOnMount?: boolean
+  draftKey?: string | null
+  showDraftSpaceBanner?: boolean
+  spaces?: Space[]
+  activeSpaceId?: string | null
+  onSpaceSelect?: (spaceId: string) => void | Promise<void>
+  onOpenSkills?: () => void
+}
+
+const SPACE_DOT_GRADIENTS = [
+  "from-cyan-300 via-sky-400 to-violet-500",
+  "from-violet-300 via-fuchsia-400 to-pink-500",
+  "from-emerald-300 via-teal-400 to-cyan-500",
+  "from-amber-200 via-orange-400 to-rose-500",
+  "from-rose-300 via-pink-400 to-fuchsia-500",
+]
+
+function spaceGradient(space: Space) {
+  const seed = [...space.id].reduce((total, char) => total + char.charCodeAt(0), 0)
+  return SPACE_DOT_GRADIENTS[seed % SPACE_DOT_GRADIENTS.length]
 }
 
 export function ChatBox({
@@ -77,18 +99,29 @@ export function ChatBox({
   historyMessages = [],
   replyTo,
   onCancelReply,
-  onRemoveReplySelection,
   onModelSelect,
   modelSwitching = false,
   glowOnMount = false,
+  draftKey = null,
+  showDraftSpaceBanner = false,
+  spaces = [],
+  activeSpaceId = null,
+  onSpaceSelect,
+  onOpenSkills,
 }: Props) {
-  const [input, setInput] = React.useState(initialPrompt ?? "")
+  const draftStorageKey = draftKey ? `openclaw-composer-draft:v1:${draftKey}` : null
+  const [input, setInput] = React.useState(() => {
+    if (initialPrompt != null) return initialPrompt
+    if (!draftStorageKey || typeof localStorage === "undefined") return ""
+    try { return localStorage.getItem(draftStorageKey) ?? "" } catch { return "" }
+  })
   const [webSearchEnabled, setWebSearchEnabled] = React.useState(false)
   const [plusOpen, setPlusOpen] = React.useState(false)
   const [modelOpen, setModelOpen] = React.useState(false)
-  const [sessionModelId, setSessionModelId] = React.useState<string | null>(
-    null
-  )
+  const [sessionModelId, setSessionModelId] = React.useState<string | null>(() => {
+    if (!draftKey || typeof localStorage === "undefined") return null
+    try { return localStorage.getItem(`openclaw-session-model:v1:${draftKey}`) } catch { return null }
+  })
   const [isFocused, setIsFocused] = React.useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = React.useState(false)
   const [voiceSetupOpen, setVoiceSetupOpen] = React.useState(false)
@@ -101,6 +134,7 @@ export function ChatBox({
     composerReducer,
     initialComposerState
   )
+  const lastComposerPhaseRef = React.useRef(composerState.phase)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const {
     commands,
@@ -114,6 +148,8 @@ export function ChatBox({
     error: modelsError,
     reload: reloadModels,
   } = useModels()
+  const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0] ?? null
+
   const autoResize = React.useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -142,12 +178,12 @@ export function ChatBox({
       textareaRef.current?.focus()
     },
   })
-  const canSendWhileGenerating = Boolean(
-    isGenerating &&
-    input.trim().startsWith("/") &&
-    attachments.length === 0 &&
-    !replyTo &&
-    canRunSlashCommandWhileGenerating(input, commands)
+  const showSendWhileGenerating = Boolean(
+    isGenerating && (input.trim().length > 0 || attachments.length > 0)
+  )
+  const canSendWithoutInterruptingGeneration = Boolean(
+    showSendWhileGenerating &&
+    (!input.trim().startsWith("/") || canRunSlashCommandWhileGenerating(input, commands))
   )
   const {
     state: voiceState,
@@ -286,102 +322,89 @@ export function ChatBox({
     }
   }
 
-  // Voice-to-text keyboard shortcuts intentionally disabled.
-  // (The mic button is removed from the composer UI.)
-  //
-  // const voiceShortcutRef = React.useRef({
-  //   pushToTalkActive: false,
-  //   ctrlMetaTapCandidate: false,
-  // })
-  //
-  // React.useEffect(() => {
-  //   function isMetaKeyEvent(event: KeyboardEvent) {
-  //     return (
-  //       event.key === "Meta" ||
-  //       event.key === "OS" ||
-  //       event.code === "MetaLeft" ||
-  //       event.code === "MetaRight"
-  //     )
-  //   }
-  //
-  //   function isPushToTalkEvent(event: KeyboardEvent) {
-  //     return (
-  //       event.code === "Space" &&
-  //       (event.metaKey || event.getModifierState("Meta"))
-  //     )
-  //   }
-  //
-  //   function isVoiceToggleShortcut(event: KeyboardEvent) {
-  //     const isModifierKey = event.key === "Control" || isMetaKeyEvent(event)
-  //     return (
-  //       isModifierKey &&
-  //       event.ctrlKey &&
-  //       (event.metaKey || event.getModifierState("Meta")) &&
-  //       !event.altKey &&
-  //       !event.shiftKey
-  //     )
-  //   }
-  //
-  //   function onKeyDown(event: KeyboardEvent) {
-  //     if (event.repeat) return
-  //     const shortcut = voiceShortcutRef.current
-  //
-  //     if (isVoiceToggleShortcut(event)) {
-  //       shortcut.ctrlMetaTapCandidate = true
-  //       return
-  //     }
-  //     if (
-  //       shortcut.ctrlMetaTapCandidate &&
-  //       event.key !== "Control" &&
-  //       !isMetaKeyEvent(event)
-  //     ) {
-  //       shortcut.ctrlMetaTapCandidate = false
-  //     }
-  //
-  //     if (isPushToTalkEvent(event)) {
-  //       event.preventDefault()
-  //       shortcut.pushToTalkActive = true
-  //       handleVoiceStart()
-  //     }
-  //   }
-  //
-  //   function onKeyUp(event: KeyboardEvent) {
-  //     const shortcut = voiceShortcutRef.current
-  //
-  //     if (
-  //       (event.code === "Space" || isMetaKeyEvent(event)) &&
-  //       shortcut.pushToTalkActive
-  //     ) {
-  //       event.preventDefault()
-  //       shortcut.pushToTalkActive = false
-  //       handleVoiceStop()
-  //       return
-  //     }
-  //
-  //     if (
-  //       (event.key === "Control" || isMetaKeyEvent(event)) &&
-  //       shortcut.ctrlMetaTapCandidate
-  //     ) {
-  //       shortcut.ctrlMetaTapCandidate = false
-  //       handleVoiceToggle()
-  //     }
-  //   }
-  //
-  //   window.addEventListener("keydown", onKeyDown)
-  //   window.addEventListener("keyup", onKeyUp)
-  //   return () => {
-  //     window.removeEventListener("keydown", onKeyDown)
-  //     window.removeEventListener("keyup", onKeyUp)
-  //   }
-  // }, [handleVoiceStart, handleVoiceStop, handleVoiceToggle])
+  const voiceShortcutRef = React.useRef({
+    pushToTalkActive: false,
+  })
 
   React.useEffect(() => {
+    function isPushToTalkEvent(event: KeyboardEvent) {
+      return (
+        event.code === "Space" &&
+        (event.metaKey || event.getModifierState("Meta"))
+      )
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.repeat) return
+      const shortcut = voiceShortcutRef.current
+
+      if (isPushToTalkEvent(event)) {
+        event.preventDefault()
+        shortcut.pushToTalkActive = true
+        handleVoiceStart()
+      }
+    }
+
+    function onKeyUp(event: KeyboardEvent) {
+      const shortcut = voiceShortcutRef.current
+
+      if (
+        (event.code === "Space" || event.key === "Meta") &&
+        shortcut.pushToTalkActive
+      ) {
+        event.preventDefault()
+        shortcut.pushToTalkActive = false
+        handleVoiceStop()
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keyup", onKeyUp)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+    }
+  }, [handleVoiceStart, handleVoiceStop])
+
+  React.useEffect(() => {
+    const placeCaretAtEnd = (value: string) => {
+      const apply = () => {
+        const textarea = textareaRef.current
+        if (!textarea) return
+        const pos = value.length
+        textarea.focus()
+        textarea.setSelectionRange(pos, pos)
+        autoResize()
+      }
+      requestAnimationFrame(() => {
+        apply()
+        requestAnimationFrame(apply)
+      })
+      window.setTimeout(apply, 80)
+    }
+    const restoreInput = (value: string) => {
+      setInput(value)
+      placeCaretAtEnd(value)
+    }
     if (initialPrompt != null) {
-      setInput(initialPrompt)
+      restoreInput(initialPrompt)
       setHistoryIndex(null)
       draftBeforeHistoryRef.current = ""
+      return
     }
-  }, [initialPrompt])
+    if (!draftStorageKey || typeof localStorage === "undefined") return
+    try { restoreInput(localStorage.getItem(draftStorageKey) ?? "") } catch { restoreInput("") }
+    setHistoryIndex(null)
+    draftBeforeHistoryRef.current = ""
+  }, [autoResize, draftStorageKey, initialPrompt])
+
+  React.useEffect(() => {
+    if (!draftStorageKey || typeof localStorage === "undefined") return
+    try {
+      if (input.trim().length > 0) localStorage.setItem(draftStorageKey, input)
+      else localStorage.removeItem(draftStorageKey)
+    } catch {}
+  }, [draftStorageKey, input])
 
   React.useEffect(() => {
     setHistoryIndex(null)
@@ -412,15 +435,29 @@ export function ChatBox({
     }
   }, [voiceState])
 
-  const hasInput =
-    input.trim().length > 0 ||
-    attachments.length > 0 ||
-    Boolean(replyTo?.selections?.length)
-  const hasSelectionReferences = Boolean(replyTo?.selections?.length)
-  const messagePlaceholder = hasSelectionReferences
-    ? "Add one-line instruction for these references..."
-    : "Message... (type / for commands and @ for skills)"
+  React.useEffect(() => {
+    if (lastComposerPhaseRef.current !== composerState.phase) {
+      frontendLog("composer", "composer.phase-change", {
+        from: lastComposerPhaseRef.current,
+        to: composerState.phase,
+        hasPendingText: Boolean(composerState.pendingText),
+        pendingAttachmentCount: composerState.pendingAttachments?.length ?? 0,
+        error: Boolean(composerState.error),
+      })
+      lastComposerPhaseRef.current = composerState.phase
+    }
+  }, [composerState.error, composerState.pendingAttachments?.length, composerState.pendingText, composerState.phase])
+
+  const hasInput = input.trim().length > 0 || attachments.length > 0
   const isSlashCommandInput = /^([/@])\S*/.test(input)
+  React.useEffect(() => {
+    if (!draftKey || typeof localStorage === "undefined") {
+      setSessionModelId(null)
+      return
+    }
+    try { setSessionModelId(localStorage.getItem(`openclaw-session-model:v1:${draftKey}`)) } catch { setSessionModelId(null) }
+  }, [draftKey])
+
   const selectedModelRef = sessionModelId ?? currentModel
   function updateSlashMenu(value: string) {
     const match = value.match(/^([/@])(\S*)$/)
@@ -469,6 +506,11 @@ export function ChatBox({
     return isSingleLineInput(target) || isCaretOnLastLine(target)
   }
 
+  function clearPersistedDraft() {
+    if (!draftStorageKey || typeof localStorage === "undefined") return
+    try { localStorage.removeItem(draftStorageKey) } catch {}
+  }
+
   function applyHistoryInput(value: string) {
     setInput(value)
     setSlashMenuOpen(false)
@@ -484,13 +526,21 @@ export function ChatBox({
 
   async function handleSend() {
     const text = input.trim()
-    const hasSelectionComments = Boolean(replyTo?.selections?.length)
+    frontendLog("composer", "composer.submit.attempt", {
+      hasText: Boolean(text),
+      textLength: text.length,
+      attachmentCount: attachments.length,
+      isGenerating: Boolean(isGenerating),
+      disabled: Boolean(isComposerDisabled),
+      isPreparingAttachments,
+      hasReplyTo: Boolean(replyTo),
+    })
     if (modelSwitching) {
       setAttachmentError("Switching model… please wait")
       return
     }
     if (
-      (!text && attachments.length === 0 && !hasSelectionComments) ||
+      (!text && attachments.length === 0) ||
       isComposerDisabled ||
       isPreparingAttachments
     )
@@ -502,15 +552,19 @@ export function ChatBox({
       isStopSlashCommand(text)
     ) {
       setInput("")
+      clearPersistedDraft()
       setHistoryIndex(null)
       draftBeforeHistoryRef.current = ""
       if (textareaRef.current) textareaRef.current.style.height = "auto"
       setSlashMenuOpen(false)
+      frontendLog("composer", "composer.stop.start", {})
       dispatchComposer({ type: "stop_start" })
       try {
         await onAbort?.()
+        frontendLog("composer", "composer.stop.done", {})
         dispatchComposer({ type: "stop_done" })
       } catch {
+        frontendLog("composer", "composer.stop.fail", {}, "error")
         dispatchComposer({
           type: "send_failed",
           error: "Could not stop generation. Try again.",
@@ -520,54 +574,44 @@ export function ChatBox({
       return
     }
     const payload: ChatComposerSubmit = {
-      text:
-        text ||
-        (hasSelectionComments
-          ? "Please respond to the selected comments."
-          : "Please transcribe and respond to the attached audio."),
+      text: text || "Please transcribe and respond to the attached audio.",
       attachments:
         attachments.length > 0
           ? attachments.map(stripComposerAttachment)
           : undefined,
-      runWhileGenerating: canSendWhileGenerating,
+      runWhileGenerating: canSendWithoutInterruptingGeneration,
       replyTo: replyTo ?? undefined,
       autonomyMode: "manual",
       execPolicy: execPolicyForAutonomyMode("manual"),
     }
     setInput("")
+    clearPersistedDraft()
     setHistoryIndex(null)
     draftBeforeHistoryRef.current = ""
     if (textareaRef.current) textareaRef.current.style.height = "auto"
-    if (isGenerating) {
-      dispatchComposer({ type: "restart_start", payload })
-      try {
-        await onSend?.(payload)
-        dispatchComposer({ type: "send_success" })
-        clearAttachments()
-        setAttachmentError(null)
-        setSlashMenuOpen(false)
-      } catch {
-        setInput(payload.text)
-        dispatchComposer({
-          type: "send_failed",
-          error: "Message failed to send. Try again.",
-        })
-        setAttachmentError("Message failed to send. Try again.")
-        requestAnimationFrame(() => {
-          textareaRef.current?.focus()
-          autoResize()
-        })
-      }
+    if (isGenerating && !payload.runWhileGenerating) {
+      setInput(payload.text)
+      setAttachmentError("Wait for the current response to finish, or send a normal follow-up message.")
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        autoResize()
+      })
       return
     }
     dispatchComposer({ type: "send_start", payload, generating: false })
     try {
+      frontendLog("composer", "composer.send.start", {
+        attachmentCount: payload.attachments?.length ?? 0,
+        textLength: payload.text.length,
+      })
       await onSend?.(payload)
+      frontendLog("composer", "composer.send.success", {})
       dispatchComposer({ type: "send_success" })
       clearAttachments()
       setAttachmentError(null)
       setSlashMenuOpen(false)
     } catch {
+      frontendLog("composer", "composer.send.fail", {}, "error")
       setInput(payload.text)
       dispatchComposer({
         type: "send_failed",
@@ -652,12 +696,9 @@ export function ChatBox({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
-          "relative flex flex-col rounded-[24px] border bg-white/[0.04] shadow-[0_24px_64px_-36px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
+          "relative z-10 flex flex-col rounded-[24px] bg-white/[0.04] shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-2xl transition-all",
           glowOnMount && "chatbox-glow",
-          isFocused
-            ? "border-white/18 ring-1 ring-white/10"
-            : "border-white/10",
-          isDragOver && "border-primary/50 ring-2 ring-primary/20"
+          isDragOver && "ring-2 ring-primary/20"
         )}
       >
         {isDragOver && (
@@ -679,41 +720,11 @@ export function ChatBox({
               <div className="flex items-start gap-2 rounded-t-[22px] border-b border-white/8 bg-white/[0.03] px-3 pt-2.5 pb-2">
                 <div className="min-w-0 flex-1">
                   <span className="text-[11px] font-medium text-muted-foreground/70">
-                    {replyTo.selections && replyTo.selections.length > 1
-                      ? `${replyTo.selections.length} selected comments`
-                      : replyTo.role === "user"
-                        ? "You"
-                        : "Assistant"}
+                    {replyTo.role === "user" ? "You" : "Assistant"}
                   </span>
-                  {replyTo.selections ? (
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {replyTo.selections.map((selection, index) => (
-                        <div
-                          key={`${selection.messageId}:${index}`}
-                          className="flex max-w-full items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.045] px-1.5 py-1"
-                        >
-                          <span className="shrink-0 text-[10px] font-medium text-muted-foreground/70">
-                            Reference {index + 1}
-                          </span>
-                          <span className="max-w-[180px] truncate text-[11px] text-foreground/55">
-                            {selection.text}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onRemoveReplySelection?.(index)}
-                            className="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/45 transition-colors hover:bg-white/10 hover:text-foreground/80"
-                            aria-label={`Remove reference ${index + 1}`}
-                          >
-                            <LuX className="size-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/60">
-                      {replyTo.text}
-                    </p>
-                  )}
+                  <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-foreground/60">
+                    {replyTo.text}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -854,7 +865,7 @@ export function ChatBox({
                 void handleSend()
               }
             }}
-            placeholder={messagePlaceholder}
+            placeholder="Message... (type / for commands and @ for skills)"
             rows={1}
             disabled={isComposerDisabled}
             className={cn(
@@ -913,7 +924,7 @@ export function ChatBox({
               handleUploadClick()
             }}
             isGenerating={isGenerating}
-            canSendWhileGenerating={canSendWhileGenerating}
+            canSendWhileGenerating={showSendWhileGenerating}
             onAbort={onAbort}
             webSearchEnabled={webSearchEnabled}
             onWebSearchDisable={() => setWebSearchEnabled(false)}
@@ -931,12 +942,13 @@ export function ChatBox({
             onModelSelect={(model) => {
               const modelId = `${model.provider}/${model.id}`
               setSessionModelId(modelId)
+              if (draftKey && typeof localStorage !== "undefined") {
+                try { localStorage.setItem(`openclaw-session-model:v1:${draftKey}`, modelId) } catch {}
+              }
               setModelOpen(false)
               const applyModel = onModelSelect
                 ? onModelSelect(modelId)
-                : invoke("middleware_models_set_default", {
-                    input: { modelId },
-                  }).then(() => reloadModels())
+                : Promise.resolve()
               Promise.resolve(applyModel).catch((error) => {
                 setAttachmentError(
                   error instanceof Error
@@ -986,6 +998,67 @@ export function ChatBox({
           </div>
         </GlassDialog>
       </div>
+
+      {showDraftSpaceBanner && (
+        <div className="relative z-0 -mt-[21px] flex min-h-14 items-center justify-between gap-3 rounded-b-[24px] bg-white/[0.025] px-3 pb-1.5 pt-6 shadow-[0_12px_34px_-28px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-2xl">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-xl px-2.5 py-1 text-left text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              >
+                <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br shadow-[0_0_12px_rgba(56,189,248,0.35)]", activeSpace ? spaceGradient(activeSpace) : "from-zinc-500 to-zinc-300")} />
+                <span className="shrink-0 text-muted-foreground/70">Space</span>
+                <span className="min-w-0 max-w-[220px] truncate font-medium text-foreground/85">
+                  {activeSpace?.name ?? "Select a space"}
+                </span>
+                <LuChevronDown className="size-3.5 shrink-0 text-muted-foreground/45 transition-transform group-data-[state=open]:rotate-180" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              side="bottom"
+              sideOffset={8}
+              className={cn(GLASS_POPOVER, "w-64 gap-0 overflow-hidden rounded-xl p-1.5")}
+            >
+              <div className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60">
+                Select chat space
+              </div>
+              <div className="max-h-64 overflow-y-auto">
+                {spaces.length > 0 ? spaces.map((space) => {
+                  const selected = space.id === activeSpace?.id
+                  return (
+                    <button
+                      key={space.id}
+                      type="button"
+                      onClick={() => void onSpaceSelect?.(space.id)}
+                      className={cn(
+                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                        selected ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+                      )}
+                    >
+                      <span className={cn("size-2.5 shrink-0 rounded-full bg-gradient-to-br", spaceGradient(space))} />
+                      <span className="min-w-0 flex-1 truncate">{space.name}</span>
+                      {selected && <span className="text-[11px] text-foreground/60">Current</span>}
+                    </button>
+                  )
+                }) : (
+                  <div className="px-2 py-3 text-sm text-muted-foreground">No spaces available</div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <button
+            type="button"
+            onClick={onOpenSkills}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          >
+            <LuSparkles className="size-3.5" />
+            <span>Skills</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

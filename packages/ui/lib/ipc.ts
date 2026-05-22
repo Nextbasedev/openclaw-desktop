@@ -11,12 +11,30 @@ function isTauriRuntime(): boolean {
   )
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return ["localhost", "tauri.localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname)
+}
+
 function isLoopbackServerUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
-    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(parsed.hostname)
+    return isLoopbackHost(parsed.hostname)
   } catch {
     return false
+  }
+}
+
+function rewriteLoopbackForRemoteBrowser(rawUrl: string): string {
+  if (typeof window === "undefined") return rawUrl
+  const browserHostname = window.location?.hostname
+  if (!browserHostname || isLoopbackHost(browserHostname)) return rawUrl
+  try {
+    const url = new URL(rawUrl)
+    if (!isLoopbackHost(url.hostname)) return rawUrl
+    url.hostname = browserHostname
+    return url.toString()
+  } catch {
+    return rawUrl
   }
 }
 
@@ -45,9 +63,10 @@ function queryString(values: Record<string, string | undefined>): string {
 function middlewareStreamUrl(path: string): string | null {
   if (typeof window === "undefined") return null
   try {
-    const url = localStorage.getItem("openclaw.middleware.url")?.replace(/\/+$/, "")
+    const storedUrl = localStorage.getItem("openclaw.middleware.url")?.replace(/\/+$/, "")
     const token = localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
-    if (!url) return null
+    if (!storedUrl) return null
+    const url = rewriteLoopbackForRemoteBrowser(storedUrl)
     const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ""
     if (path === "/api/stream/cron") return `${url}/api/stream/cron${tokenQuery}`
     const ptyMatch = path.match(/^\/api\/stream\/pty\/([^/]+)$/)
@@ -105,6 +124,11 @@ function isRouteNotFound(error: unknown): boolean {
   return message.toLowerCase().includes("route not found") || message.includes("404")
 }
 
+function isRetryableMiddlewareRequestError(error: unknown): boolean {
+  if (isRouteNotFound(error)) return true
+  return error instanceof TypeError
+}
+
 async function invokeRemoteMiddleware<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -117,14 +141,30 @@ async function invokeRemoteMiddleware<T>(
     try {
       return await request()
     } catch (error) {
-      if (isRouteNotFound(error)) return commandEndpoint()
+      if (isRetryableMiddlewareRequestError(error)) return commandEndpoint()
       throw error
     }
   }
 
   switch (command) {
+    case "middleware_connect_status": {
+      const health = await middlewareFetch<{
+        gateway?: { connected?: boolean; gatewayUrl?: string; lastError?: string | null }
+        openclaw?: { connected?: boolean; gatewayUrl?: string }
+      }>("/health", { headers: { "Cache-Control": "no-cache" }, timeoutMs: 3_000 })
+      const connected = health.openclaw?.connected === true || health.gateway?.connected === true
+      return {
+        gatewayConfigured: true,
+        gatewayUrl: health.gateway?.gatewayUrl ?? health.openclaw?.gatewayUrl ?? null,
+        gatewayToken: "configured",
+        hasConnection: connected,
+        hasIdentity: true,
+        status: connected ? "connected" : "disconnected",
+        error: health.gateway?.lastError ?? null,
+      } as T
+    }
     case "middleware_projects_list":
-      return middlewareFetch<T>(`/api/projects${queryString({ spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
+      return middlewareFetch<T>(`/api/projects${queryString({ spaceId: input.spaceId ? String(input.spaceId) : undefined, all: input.all ? "true" : undefined })}`)
     case "middleware_projects_create":
       return middlewareFetch<T>("/api/projects", { method: "POST", body: JSON.stringify(input) })
     case "middleware_projects_update":
@@ -144,7 +184,7 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_topics_archive":
       return middlewareFetch<T>(`/api/topics/${input.topicId}/archive`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_list":
-      return middlewareFetch<T>(`/api/chats${queryString({ archived: input.archived ? "true" : undefined, spaceId: input.spaceId ? String(input.spaceId) : undefined })}`)
+      return middlewareFetch<T>(`/api/chats${queryString({ archived: input.archived ? "true" : undefined, spaceId: input.spaceId ? String(input.spaceId) : undefined, all: input.all ? "true" : undefined })}`)
     case "middleware_chats_create":
       return middlewareFetch<T>("/api/chats", { method: "POST", body: JSON.stringify(input) })
     case "middleware_chats_update":
@@ -158,11 +198,15 @@ async function invokeRemoteMiddleware<T>(
     case "middleware_chats_attach_session":
       return middlewareFetch<T>(`/api/chats/${input.chatId}/session`, { method: "POST", body: JSON.stringify(input) })
     case "middleware_spaces_list":
-      return withCommandFallback(() => middlewareFetch<T>("/api/spaces"))
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces${queryString({ archived: input.archived ? "true" : undefined })}`))
     case "middleware_spaces_create":
       return withCommandFallback(() => middlewareFetch<T>("/api/spaces", { method: "POST", body: JSON.stringify(input) }))
+    case "middleware_spaces_rename":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}/rename`, { method: "POST", body: JSON.stringify(input) }))
     case "middleware_spaces_update":
-      return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}`, { method: "PATCH", body: JSON.stringify(input) }))
+      return commandEndpoint()
+    case "middleware_spaces_archive":
+      return commandEndpoint()
     case "middleware_spaces_switch":
       return withCommandFallback(() => middlewareFetch<T>(`/api/spaces/${input.spaceId}/switch`, { method: "POST", body: JSON.stringify(input) }))
     case "middleware_spaces_delete":
@@ -171,6 +215,8 @@ async function invokeRemoteMiddleware<T>(
       const params = new URLSearchParams()
       if (input.projectId) params.set("projectId", String(input.projectId))
       if (input.topicId) params.set("topicId", String(input.topicId))
+      if (input.spaceId) params.set("spaceId", String(input.spaceId))
+      if (input.all) params.set("all", "true")
       const query = params.toString()
       return middlewareFetch<T>(`/api/sessions${query ? `?${query}` : ""}`)
     }
@@ -182,6 +228,27 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>("/api/repos/scan", { method: "POST", body: JSON.stringify(input) })
     case "middleware_repos_select":
       return middlewareFetch<T>("/api/repos/select", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_skills_discover":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/skills/discover${queryString({
+        query: input.query ? String(input.query) : undefined,
+        limit: input.limit !== undefined ? String(input.limit) : undefined,
+        sort: input.sort ? String(input.sort) : undefined,
+        includeLocal: input.includeLocal !== undefined ? String(Boolean(input.includeLocal)) : undefined,
+        includeClawHub: input.includeClawHub !== undefined ? String(Boolean(input.includeClawHub)) : undefined,
+      })}`))
+    case "middleware_skills_installed_local":
+    case "middleware_skills_installed":
+      return withCommandFallback(() => middlewareFetch<T>(`/api/skills/installed${queryString({
+        query: input.query ? String(input.query) : undefined,
+        limit: input.limit !== undefined ? String(input.limit) : undefined,
+        sort: input.sort ? String(input.sort) : undefined,
+      })}`))
+    case "middleware_skills_install":
+    case "middleware_skills_detail":
+    case "middleware_skills_versions":
+    case "middleware_skills_uninstall":
+    case "middleware_skills_toggle":
+      return middlewareFetch<T>(`/api/commands/${command}`, { method: "POST", body: JSON.stringify({ input }) })
     case "middleware_git_status":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/git/status`, { headers: { "Cache-Control": "no-cache" } })
     case "middleware_git_status_for_repo":
@@ -204,10 +271,18 @@ async function invokeRemoteMiddleware<T>(
       return middlewareFetch<T>("/api/migration/telegram/scan")
     case "middleware_migration_telegram_import":
       return middlewareFetch<T>("/api/migration/telegram/import", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_migration_discord_scan":
+      return middlewareFetch<T>("/api/migration/discord/scan")
+    case "middleware_migration_discord_import":
+      return middlewareFetch<T>("/api/migration/discord/import", { method: "POST", body: JSON.stringify(input) })
+    case "middleware_migration_v1_sqlite_import":
+      return middlewareFetch<T>("/api/migration/v1-sqlite/import", { method: "POST", body: JSON.stringify(input) })
     case "middleware_self_update":
       return middlewareFetch<T>("/api/middleware/update", { method: "POST", body: JSON.stringify(input) })
     case "middleware_self_update_status":
-      return middlewareFetch<T>("/api/middleware/update/status", { headers: { "Cache-Control": "no-cache" } })
+      return middlewareFetch<T>(`/api/middleware/update/status${queryString({ branch: input.branch ? String(input.branch) : undefined })}`, { headers: { "Cache-Control": "no-cache" } })
+    case "middleware_self_update_branches":
+      return middlewareFetch<T>("/api/middleware/update/branches", { headers: { "Cache-Control": "no-cache" } })
     case "middleware_workspace_tree":
       return middlewareFetch<T>(`/api/projects/${input.projectId}/workspace/tree?path=${encodeURIComponent(String(input.path ?? ""))}`)
     case "middleware_workspace_read":

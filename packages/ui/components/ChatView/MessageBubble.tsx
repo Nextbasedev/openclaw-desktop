@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
+import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
@@ -12,9 +13,12 @@ import {
   LuEllipsisVertical,
   LuPenLine,
   LuPin,
-  LuRefreshCw,
   LuArrowUp,
   LuMessageSquarePlus,
+  LuDownload,
+  LuFile,
+  LuFileText,
+  LuImage,
   LuPaperclip,
   LuReply,
   LuThumbsDown,
@@ -35,7 +39,15 @@ import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MarkdownContent } from "./MarkdownContent"
 import { RichContentPreview } from "./RichContentPreview"
 import type { ChatMessage } from "./types"
+import { formatAssistantErrorText, isAssistantErrorMessage } from "./utils"
+import { useStreamingText } from "./useStreamingText"
 import { getSlashCommandName } from "@/lib/controlSlashCommands"
+import { formatAttachmentSize } from "@/lib/chatAttachments"
+import {
+  chatAttachmentHref,
+  chatAttachmentTypeLabel,
+  getChatAttachmentKind,
+} from "@/lib/chatAttachmentPreview"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
@@ -219,6 +231,143 @@ function formatTokenCount(value?: number | null): string | null {
   return String(value)
 }
 
+type MessageAttachment = NonNullable<ChatMessage["attachments"]>[number]
+
+function attachmentLabel(attachment: MessageAttachment) {
+  const parts = [chatAttachmentTypeLabel(attachment)]
+  if (typeof attachment.size === "number" && attachment.size >= 0) {
+    parts.push(formatAttachmentSize(attachment.size))
+  }
+  return parts.join(" • ")
+}
+
+function AttachmentFileIcon({ kind }: { kind: "pdf" | "file" }) {
+  if (kind === "pdf") return <LuFileText className="size-4" />
+  return <LuFile className="size-4" />
+}
+
+function MessageAttachments({
+  attachments,
+  isUser,
+}: {
+  attachments?: ChatMessage["attachments"]
+  isUser: boolean
+}) {
+  if (!attachments || attachments.length === 0) return null
+
+  return (
+    <div
+      className={cn(
+        "mt-2 space-y-2",
+        isUser ? "text-white" : "text-foreground"
+      )}
+    >
+      {attachments.map((attachment, index) => {
+        const href = chatAttachmentHref(attachment)
+        const kind = getChatAttachmentKind(attachment)
+        const key = `${attachment.name}-${index}`
+
+        if (kind === "image" && href) {
+          return (
+            <a
+              key={key}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              download={attachment.url ? undefined : attachment.name}
+              className={cn(
+                "block max-w-full overflow-hidden rounded-xl border transition-colors",
+                isUser
+                  ? "border-white/10 bg-black/15 hover:border-white/20"
+                  : "border-border/35 bg-foreground/[0.03] hover:border-border/60"
+              )}
+              aria-label={`Open attachment ${attachment.name}`}
+            >
+              <Image
+                src={href}
+                alt={attachment.name}
+                width={640}
+                height={420}
+                unoptimized
+                className="max-h-80 w-full max-w-md object-contain"
+              />
+              <div
+                className={cn(
+                  "flex items-center gap-2 border-t px-3 py-2 text-[11px]",
+                  isUser
+                    ? "border-white/10 text-white/70"
+                    : "border-border/25 text-muted-foreground"
+                )}
+              >
+                <LuImage className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {attachment.name}
+                </span>
+                <span className="shrink-0">{attachmentLabel(attachment)}</span>
+              </div>
+            </a>
+          )
+        }
+
+        const fileKind = kind === "pdf" ? "pdf" : "file"
+        const card = (
+          <div
+            className={cn(
+              "flex max-w-full items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors",
+              isUser
+                ? "border-white/10 bg-black/15 text-white hover:border-white/20"
+                : "border-border/35 bg-foreground/[0.03] text-foreground hover:border-border/60"
+            )}
+          >
+            <div
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                kind === "pdf"
+                  ? "bg-red-400/12 text-red-200"
+                  : isUser
+                    ? "bg-white/10 text-white/75"
+                    : "bg-muted/45 text-muted-foreground"
+              )}
+            >
+              <AttachmentFileIcon kind={fileKind} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] leading-snug font-medium">
+                {attachment.name}
+              </p>
+              <p
+                className={cn(
+                  "truncate text-[11px]",
+                  isUser ? "text-white/60" : "text-muted-foreground"
+                )}
+              >
+                {attachmentLabel(attachment)}
+              </p>
+            </div>
+            {href && <LuDownload className="size-4 shrink-0 opacity-55" />}
+          </div>
+        )
+
+        if (!href) return <div key={key}>{card}</div>
+
+        return (
+          <a
+            key={key}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            download={attachment.url ? undefined : attachment.name}
+            className="block max-w-full"
+            aria-label={`Open attachment ${attachment.name}`}
+          >
+            {card}
+          </a>
+        )
+      })}
+    </div>
+  )
+}
+
 function ResponseMetadata({ message }: { message: ChatMessage }) {
   const usage = message.usage
   const total = formatTokenCount(usage?.total)
@@ -329,11 +478,11 @@ function BranchNav({
 export function MessageBubble({
   message,
   onEdit,
+  onRetrySend,
   onSwitchBranch,
   onReply,
   onPin,
   onDelete,
-  onRegenerate,
   onReact,
   onExport,
   onTextAnimationComplete,
@@ -345,16 +494,17 @@ export function MessageBubble({
   reaction,
   isGenerating,
   isActivelyStreaming,
+  suppressActions,
   popoverOpen,
   onPopoverOpenChange,
 }: {
   message: ChatMessage
   onEdit?: (messageId: string, newText: string) => void
+  onRetrySend?: (messageId: string) => void
   onSwitchBranch?: (messageId: string, branchIndex: number) => void
   onReply?: (messageId: string) => void
   onPin?: (messageId: string) => void
   onDelete?: (messageId: string) => void
-  onRegenerate?: (messageId: string) => void
   onReact?: (messageId: string, reaction: "up" | "down") => void
   onExport?: (messageId: string) => void
   onTextAnimationComplete?: (messageId: string) => void
@@ -373,12 +523,26 @@ export function MessageBubble({
   reaction?: "up" | "down"
   isGenerating?: boolean
   isActivelyStreaming?: boolean
+  suppressActions?: boolean
   popoverOpen?: boolean
   onPopoverOpenChange?: (open: boolean) => void
 }) {
   const isUser = message.role === "user"
+  const isAssistantError = isAssistantErrorMessage(message)
+  const assistantErrorText = isAssistantError
+    ? formatAssistantErrorText(message.text)
+    : message.text
+  const {
+    displayText: displayedAssistantErrorText,
+    isRevealing: isRevealingAssistantError,
+  } = useStreamingText(
+    assistantErrorText,
+    isAssistantError && Boolean(isActivelyStreaming),
+    () => onTextAnimationComplete?.(message.messageId)
+  )
   const shouldAnimateSend = isUser && message.isOptimistic
-  const hideAssistantActions = !isUser && Boolean(isActivelyStreaming)
+  const hideAssistantActions =
+    !isUser && (Boolean(isActivelyStreaming) || Boolean(suppressActions))
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const [selectionAction, setSelectionAction] = useState<{
@@ -572,7 +736,7 @@ export function MessageBubble({
       document.removeEventListener("touchend", handlePointerUp)
       document.removeEventListener("selectionchange", handleSelectionChange)
     }
-  }, [isUser, onAskSelectedText, updateSelectionAction])
+  }, [isUser, onAskSelectedText, selectionAction, updateSelectionAction])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -666,33 +830,40 @@ export function MessageBubble({
           </div>
         ) : (
           <>
-            <div
-              ref={messageBodyRef}
-              onMouseUp={updateSelectionAction}
-              onKeyUp={updateSelectionAction}
-              className={cn(
-                "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
-                isUser && userSlashCommandName
-                  ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
-                  : isUser
-                    ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
-                    : "w-full text-foreground"
-              )}
-            >
+            {isUser && <RichContentPreview message={message} />}
+            {(!isUser || message.text.trim() || userSlashCommandName) && (
+              <div
+                ref={messageBodyRef}
+                onMouseUp={updateSelectionAction}
+                onKeyUp={updateSelectionAction}
+                className={cn(
+                  "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
+                  isUser && userSlashCommandName
+                    ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    : isUser
+                      ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                      : isAssistantError
+                        ? "w-full text-red-300"
+                      : "w-full text-foreground"
+                )}
+              >
               {shouldAnimateSlashCommandBorder && (
                 <>
                   <motion.span
                     aria-hidden="true"
-                    className="pointer-events-none absolute bottom-2 right-0 top-2 w-px bg-white/80"
+                    className="pointer-events-none absolute top-2 right-0 bottom-2 w-px bg-white/80"
                     initial={{ scaleY: 0, opacity: 0, originY: 0 }}
                     animate={{ scaleY: 1, opacity: [0, 0.95, 0] }}
                     transition={{ duration: 0.48, ease: "easeOut" }}
                   />
                   <motion.span
                     aria-hidden="true"
-                    className="pointer-events-none absolute bottom-0 right-2 h-px bg-white/80"
+                    className="pointer-events-none absolute right-2 bottom-0 h-px bg-white/80"
                     initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: "calc(100% - 1rem)", opacity: [0, 0.95, 0] }}
+                    animate={{
+                      width: "calc(100% - 1rem)",
+                      opacity: [0, 0.95, 0],
+                    }}
                     transition={{ duration: 0.4, delay: 0.34, ease: "easeOut" }}
                   />
                 </>
@@ -715,20 +886,53 @@ export function MessageBubble({
                   approval={approvalPrompt}
                   onResolve={onResolveApproval}
                 />
+              ) : isAssistantError ? (
+                <div
+                  className={cn(
+                    "max-w-full min-w-0 overflow-hidden",
+                    isRevealingAssistantError && "streaming-text"
+                  )}
+                >
+                  <p className="[overflow-wrap:anywhere] break-words whitespace-pre-wrap">
+                    {displayedAssistantErrorText}
+                  </p>
+                </div>
               ) : (
                 <MarkdownContent
                   text={message.text}
                   embeds={message.embeds}
-                  streaming={isActivelyStreaming || message.animateText}
+                  streaming={Boolean(isActivelyStreaming)}
                   highlightTexts={referencedTexts}
                   onRevealComplete={() =>
                     onTextAnimationComplete?.(message.messageId)
                   }
                 />
               )}
-              {!isUser && <RichContentPreview message={message} />}
-            </div>
-            {isUser && <RichContentPreview message={message} />}
+                {!isUser && (
+                  <>
+                    <MessageAttachments
+                      attachments={message.attachments}
+                      isUser={isUser}
+                    />
+                    <RichContentPreview message={message} />
+                  </>
+                )}
+              </div>
+            )}
+            {isUser && message.sendStatus === "failed" && (
+              <div className="mt-1 flex max-w-full items-center gap-2 text-[11px] text-rose-300">
+                <span className="min-w-0 truncate">
+                  {message.sendError || "Send failed"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRetrySend?.(message.messageId)}
+                  className="shrink-0 cursor-pointer rounded-full border border-rose-300/30 px-2 py-0.5 text-rose-100 transition-colors hover:bg-rose-300/10"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
             {selectionAction &&
               selectionRects.length > 0 &&
               createPortal(
@@ -758,7 +962,7 @@ export function MessageBubble({
                     "fixed z-[9999] flex -translate-x-1/2 -translate-y-full items-center gap-1.5 border border-white/10 bg-[#202020]/98 shadow-[0_18px_50px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-2xl",
                     selectionCommentOpen
                       ? "w-[min(380px,calc(100vw-32px))] rounded-[18px] px-3 py-2"
-                      : "rounded-full p-1.5",
+                      : "rounded-full p-1.5"
                   )}
                   style={{
                     left: selectionAction.left,
@@ -810,7 +1014,7 @@ export function MessageBubble({
                       "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
                       !selectionCommentOpen || selectionComment.trim()
                         ? "cursor-pointer bg-white/22 text-white hover:bg-white/30"
-                        : "cursor-default bg-white/[0.08] text-white/32",
+                        : "cursor-default bg-white/[0.08] text-white/32"
                     )}
                     aria-label={
                       selectionCommentOpen && selectionComment.trim()
@@ -910,8 +1114,7 @@ export function MessageBubble({
                 <CopyButton text={message.text} />
                 {(onPin ||
                   onReply ||
-                  onFork ||
-                  (onRegenerate && !isGenerating)) && (
+                  onFork) && (
                   <Popover
                     open={popoverOpen}
                     onOpenChange={onPopoverOpenChange}
@@ -947,16 +1150,6 @@ export function MessageBubble({
                           icon={<LuReply className="size-3.5" />}
                           onClick={() => {
                             onReply(message.messageId)
-                            onPopoverOpenChange?.(false)
-                          }}
-                        />
-                      )}
-                      {onRegenerate && !isGenerating && (
-                        <MenuAction
-                          label="Regenerate"
-                          icon={<LuRefreshCw className="size-3.5" />}
-                          onClick={() => {
-                            onRegenerate(message.messageId)
                             onPopoverOpenChange?.(false)
                           }}
                         />

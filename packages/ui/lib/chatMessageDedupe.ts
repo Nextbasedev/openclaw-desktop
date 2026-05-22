@@ -1,4 +1,16 @@
 import type { ChatMessage } from "../components/ChatView/types"
+import { isStandaloneChatErrorText } from "./chatErrorText"
+import { cleanUserMessageText } from "./chatHistoryParser"
+
+const ATTACHMENT_PLACEHOLDER_RE =
+  /(?:^|\n)\s*\[Attached [^:\]]+: [^\]]+\]\s*/g
+
+function normalizedUserText(value: string) {
+  return cleanUserMessageText(value)
+    .replace(ATTACHMENT_PLACEHOLDER_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
 
 function normalizeUserTextForDedupe(text: string) {
   return text
@@ -59,40 +71,260 @@ function hasOverlappingToolCalls(a: ChatMessage, b: ChatMessage) {
   return (b.toolCalls ?? []).some((tool) => aIds.has(tool.id))
 }
 
+function hasDifferentGatewayIndex(a: ChatMessage, b: ChatMessage) {
+  const aIndex = a.gatewayIndex
+  const bIndex = b.gatewayIndex
+  return (
+    typeof aIndex === "number" &&
+    Number.isFinite(aIndex) &&
+    typeof bIndex === "number" &&
+    Number.isFinite(bIndex) &&
+    aIndex !== bIndex
+  )
+}
+
+function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
+  return (
+    typeof a.gatewayIndex === "number" &&
+    Number.isFinite(a.gatewayIndex) &&
+    typeof b.gatewayIndex === "number" &&
+    Number.isFinite(b.gatewayIndex) &&
+    a.gatewayIndex === b.gatewayIndex
+  )
+}
+
+function isAssistantErrorLike(message: ChatMessage) {
+  if (message.role !== "assistant") return false
+  if (isStandaloneChatErrorText(message.text)) return true
+  return message.stopReason === "error" && !message.text.trim()
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
+  if (
+    typeof a.gatewayIndex === "number" &&
+    typeof b.gatewayIndex === "number" &&
+    Number.isFinite(a.gatewayIndex) &&
+    Number.isFinite(b.gatewayIndex) &&
+    a.gatewayIndex === b.gatewayIndex
+  ) {
+    return true
+  }
   const aText = normalizeUserTextForDedupe(a.text)
   const bText = normalizeUserTextForDedupe(b.text)
   if (!aText || aText !== bText) return false
   if (!hasSameAttachments(a, b) && !a.isOptimistic && !b.isOptimistic) return false
-  // When returning to a session, the optimistic local user message may have a
-  // slightly different timestamp or may omit history's attachment marker text.
-  // Treat it as the same message so it does not get appended after the reply.
+  if (a.createdAt && b.createdAt) {
+    if (a.createdAt === b.createdAt) return true
+    const aTime = Date.parse(a.createdAt)
+    const bTime = Date.parse(b.createdAt)
+    if (Number.isFinite(aTime) && Number.isFinite(bTime)) {
+      return Math.abs(aTime - bTime) <= 5 * 60 * 1000
+    }
+    return false
+  }
   if (a.isOptimistic || b.isOptimistic) return true
-  if (a.createdAt && b.createdAt) return a.createdAt === b.createdAt
   return false
+}
+
+function isAssistantPrefixUpdate(shorter: string, longer: string) {
+  if (!longer.startsWith(shorter)) return false
+  const nextChar = longer.charAt(shorter.length)
+  // Streaming updates extend at token/word boundaries. Do not collapse distinct
+  // numbered messages such as "assistant 8" and "assistant 80".
+  return nextChar === "" || /[\s.,!?;:)'"`\]}]/.test(nextChar)
 }
 
 export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "assistant" || b.role !== "assistant") return false
+  if (hasDifferentGatewayIndex(a, b)) return false
+  if (isAssistantErrorLike(a) && isAssistantErrorLike(b)) {
+    return a.messageId === b.messageId || hasSameGatewayIndex(a, b)
+  }
   const aText = stripNoReplyLines(a.text)
   const bText = stripNoReplyLines(b.text)
   if (a.messageId === b.messageId) return true
   if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
   if (aText === bText) return true
-  return aText.startsWith(bText) || bText.startsWith(aText)
+
+  // Only collapse prefix-style assistant updates when the backend says both
+  // records are the same transcript slot. Forked/restored histories can contain
+  // many assistant replies whose text starts similarly ("There it is...",
+  // "I fixed..."). Merging those by text prefix makes newer replies replace or
+  // append into earlier answers, which is exactly what fork chats were doing
+  // after bootstrap/reconcile.
+  if (!hasSameGatewayIndex(a, b)) return false
+  return aText.length <= bText.length
+    ? isAssistantPrefixUpdate(aText, bText)
+    : isAssistantPrefixUpdate(bText, aText)
+}
+
+function messageSignature(message: ChatMessage) {
+  const text = message.role === "user"
+    ? normalizedUserText(message.text)
+    : message.text.trim().replace(/\s+/g, " ")
+  return `${message.role}:${text}`
+}
+
+function isSyntheticMessageId(messageId: string | null | undefined) {
+  return !messageId || messageId.startsWith("msg-") || messageId.startsWith("openclaw:")
+}
+
+function canTextCollapseRepeatedMessages(a: ChatMessage, b: ChatMessage) {
+  if (a.messageId && b.messageId && a.messageId === b.messageId) return true
+  if (!isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
+  return hasSameGatewayIndex(a, b)
+}
+
+function collapseRepeatedBlocks(messages: ChatMessage[]) {
+  const result = [...messages]
+  let changed = true
+
+  while (changed) {
+    changed = false
+    for (let size = Math.floor(result.length / 2); size >= 2; size--) {
+      for (let start = 0; start + size * 2 <= result.length; start++) {
+        let same = true
+        for (let offset = 0; offset < size; offset++) {
+          const left = result[start + offset]
+          const right = result[start + size + offset]
+          if (
+            messageSignature(left) !== messageSignature(right) ||
+            !canTextCollapseRepeatedMessages(left, right)
+          ) {
+            same = false
+            break
+          }
+        }
+        if (same) {
+          result.splice(start + size, size)
+          changed = true
+          break
+        }
+      }
+      if (changed) break
+    }
+  }
+
+  return result
+}
+
+function collapseRepeatedRoleBlocks(
+  messages: ChatMessage[],
+  role: ChatMessage["role"]
+) {
+  const roleItems = messages
+    .map((message, index) => ({ message, index }))
+    .filter((item) => item.message.role === role)
+  const duplicateIndexes = new Set<number>()
+
+  for (let size = Math.floor(roleItems.length / 2); size >= 2; size--) {
+    for (let start = 0; start + size * 2 <= roleItems.length; start++) {
+      let same = true
+      for (let offset = 0; offset < size; offset++) {
+        const left = roleItems[start + offset].message
+        const right = roleItems[start + size + offset].message
+        if (
+          messageSignature(left) !== messageSignature(right) ||
+          !canTextCollapseRepeatedMessages(left, right)
+        ) {
+          same = false
+          break
+        }
+      }
+      if (!same) continue
+      for (let offset = 0; offset < size; offset++) {
+        duplicateIndexes.add(roleItems[start + size + offset].index)
+      }
+    }
+  }
+
+  return duplicateIndexes.size > 0
+    ? messages.filter((_, index) => !duplicateIndexes.has(index))
+    : messages
+}
+
+function messageTimeMs(message: ChatMessage) {
+  if (!message.createdAt) return undefined
+  const parsed = Date.parse(message.createdAt)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function roleOrder(message: ChatMessage) {
+  return message.role === "user" ? 0 : 1
+}
+
+export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      // Optimistic follow-up messages are intentionally appended into the
+      // current visible transcript while an older assistant answer may still be
+      // streaming. Preserve arrival order for optimistic rows; otherwise fresh
+      // assistant patch timestamps can sort below/over the user's new question
+      // and make that question appear hidden.
+      if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
+
+      const aTime = messageTimeMs(a.message)
+      const bTime = messageTimeMs(b.message)
+      const aHasTime = typeof aTime === "number"
+      const bHasTime = typeof bTime === "number"
+      if (aHasTime && bHasTime && aTime === bTime && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
+
+      const aIndex = a.message.gatewayIndex
+      const bIndex = b.message.gatewayIndex
+      const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
+      const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
+      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
+
+      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
+      if (aHasTime && bHasTime && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
+
+      // Do not let a newly-sent optimistic message jump above older restored
+      // history just because the old messages have no createdAt/gatewayIndex.
+      // When only one side has ordering metadata, preserve the current array
+      // order, which is already append/order-of-arrival from history or patches.
+      return a.index - b.index
+    })
+    .map((item) => item.message)
 }
 
 export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = []
   const seenIds = new Set<string>()
 
-  for (const message of messages) {
-    if (seenIds.has(message.messageId)) continue
+  for (const message of collapseRepeatedBlocks(messages)) {
+    const sameIdIndex = result.findIndex(
+      (existing) => existing.messageId === message.messageId
+    )
+    if (sameIdIndex >= 0) {
+      const existing = result[sameIdIndex]
+      result[sameIdIndex] = {
+        ...existing,
+        ...message,
+        text:
+          message.text.trim().length >= existing.text.trim().length
+            ? message.text
+            : existing.text,
+        createdAt: existing.createdAt || message.createdAt,
+        embeds: message.embeds ?? existing.embeds,
+        usage: message.usage ?? existing.usage,
+        stopReason: message.stopReason ?? existing.stopReason,
+        model: message.model ?? existing.model,
+        toolCalls: message.toolCalls ?? existing.toolCalls,
+        attachments: message.attachments ?? existing.attachments,
+      }
+      seenIds.add(message.messageId)
+      continue
+    }
 
     const assistantIndex = result.findIndex((existing) =>
-      sameAssistantMessage(existing, message),
+      sameAssistantMessage(existing, message)
     )
     if (assistantIndex >= 0) {
       const existing = result[assistantIndex]
@@ -110,19 +342,41 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         stopReason: preferred.stopReason ?? existing.stopReason,
         model: preferred.model ?? existing.model,
         toolCalls: mergeToolCalls(existing.toolCalls, message.toolCalls),
+        attachments: preferred.attachments ?? existing.attachments,
       }
       seenIds.add(message.messageId)
       continue
     }
 
-    const duplicateUser = result.some((existing) =>
-      sameUserMessage(existing, message),
+    const duplicateUserIndex = result.findIndex((existing) =>
+      sameUserMessage(existing, message)
     )
-    if (duplicateUser) continue
+    if (duplicateUserIndex >= 0) {
+      const existing = result[duplicateUserIndex]
+      const preferIncoming =
+        Boolean(existing.isOptimistic && !message.isOptimistic) ||
+        Boolean(existing.sendStatus && !message.sendStatus)
+      const preferred = preferIncoming ? message : existing
+      const fallback = preferIncoming ? existing : message
+      result[duplicateUserIndex] = {
+        ...fallback,
+        ...preferred,
+        messageId: preferred.messageId,
+        text: preferred.text.trim() ? preferred.text : fallback.text,
+        createdAt: fallback.createdAt || preferred.createdAt,
+        attachments: preferred.attachments ?? fallback.attachments,
+        replyTo: preferred.replyTo ?? fallback.replyTo,
+        isOptimistic: preferIncoming ? false : preferred.isOptimistic,
+        sendStatus: preferIncoming ? undefined : preferred.sendStatus,
+        sendError: preferIncoming ? null : preferred.sendError,
+      }
+      seenIds.add(message.messageId)
+      continue
+    }
 
     seenIds.add(message.messageId)
     result.push(message)
   }
 
-  return result
+  return sortChatMessagesByTimeline(collapseRepeatedBlocks(collapseRepeatedRoleBlocks(result, "user")))
 }

@@ -3,6 +3,11 @@ const { spawn } = require('node:child_process')
 const isWindows = process.platform === 'win32'
 const pnpmCommand = isWindows ? 'pnpm.cmd' : 'pnpm'
 
+function quoteWindowsArg(arg) {
+  if (!/[ \t"]/u.test(arg)) return arg
+  return `"${arg.replace(/"/g, '\\"')}"`
+}
+
 function sanitizeEnv(env) {
   return Object.fromEntries(
     Object.entries(env)
@@ -11,30 +16,39 @@ function sanitizeEnv(env) {
   )
 }
 
+const children = []
+let stopping = false
+
 function run(name, args) {
-  const child = spawn(pnpmCommand, args, {
-    stdio: 'inherit',
-    env: sanitizeEnv(process.env),
-    shell: isWindows,
-    windowsHide: false,
-  })
+  const child = isWindows
+    ? spawn('cmd.exe', ['/d', '/s', '/c', [pnpmCommand, ...args].map(quoteWindowsArg).join(' ')], {
+        stdio: 'inherit',
+        env: sanitizeEnv(process.env),
+        windowsHide: false,
+      })
+    : spawn(pnpmCommand, args, {
+        stdio: 'inherit',
+        env: sanitizeEnv(process.env),
+        windowsHide: false,
+      })
 
   child.on('error', (error) => {
     console.error(`[${name}] failed to start pnpm: ${error.message}`)
-    process.exit(1)
+    stopChildren(1)
   })
 
   child.on('exit', (code, signal) => {
-    if (signal) {
-      if (!isWindows) process.kill(process.pid, signal)
-      process.exit(1)
-    }
-    if (code) process.exit(code)
+    if (stopping) return
+    if (signal) return stopChildren(1)
+    if (code) return stopChildren(code)
   })
+  children.push(child)
   return child
 }
 
-function stopChildren(children, code) {
+function stopChildren(code) {
+  if (stopping) return
+  stopping = true
   for (const child of children) {
     if (!child.killed) child.kill(isWindows ? undefined : 'SIGTERM')
   }
@@ -42,10 +56,8 @@ function stopChildren(children, code) {
 }
 
 console.log('Starting local OpenClaw Desktop stack: middleware + web UI')
-const children = [
-  run('middleware', ['dev:middleware']),
-  run('web', ['--filter', 'ui', 'dev']),
-]
+run('middleware', ['dev:middleware'])
+run('web', ['dev:ui'])
 
-process.on('SIGINT', () => stopChildren(children, 130))
-process.on('SIGTERM', () => stopChildren(children, 143))
+process.on('SIGINT', () => stopChildren(130))
+process.on('SIGTERM', () => stopChildren(143))

@@ -84,7 +84,7 @@ function classifyError(
   )
     return {
       code: "identity_mismatch",
-      title: "Device Identity Mismatch",
+      title: "Connection Needs Approval",
     }
   if (lower.includes("token is missing"))
     return {
@@ -222,7 +222,7 @@ function classifyError(
   )
     return {
       code: "device_not_registered",
-      title: "Device Not Registered",
+      title: "Device Approval Required",
     }
   if (
     lower.includes("token expired") ||

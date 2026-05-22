@@ -1,7 +1,8 @@
 "use client"
 
-export const SUBAGENT_SESSION_KEY_RE = /agent:[^\s"',}\]]+:subagent:[^\s"',}\]]+/g
-const SUBAGENT_SESSION_KEY_EXACT_RE = /^agent:[^\s"',}\]]+:subagent:[^\s"',}\]]+$/
+export const SUBAGENT_SESSION_KEY_RE = /agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*:subagent:[^\s"',}\]]+/g
+const SUBAGENT_SESSION_KEY_EXACT_RE = /^agent:[^\s"',}\]]+(?::[^\s"',}\]]+)*:subagent:[^\s"',}\]]+$/
+const AGENT_SESSION_KEY_EXACT_RE = /^agent:[^\s"',}\]]+(?::[^\s"',}\]]+)+$/
 
 export function isSubagentSessionKey(
   value: string | null | undefined,
@@ -9,12 +10,24 @@ export function isSubagentSessionKey(
   return Boolean(value && SUBAGENT_SESSION_KEY_EXACT_RE.test(value))
 }
 
+function isAgentSessionKey(value: string | null | undefined): value is string {
+  return Boolean(value && AGENT_SESSION_KEY_EXACT_RE.test(value))
+}
+
+function explicitChildSessionKey(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const childSessionKey = (value as Record<string, unknown>).childSessionKey
+  return typeof childSessionKey === "string" && isAgentSessionKey(childSessionKey)
+    ? childSessionKey
+    : null
+}
+
 function sessionKeyFromString(value: string): string | null {
   const direct = value.match(SUBAGENT_SESSION_KEY_RE)?.[0]
   if (direct) return direct
 
   const childKeyMatch = value.match(/"childSessionKey"\s*:\s*"([^"]+)"/)
-  if (childKeyMatch?.[1] && isSubagentSessionKey(childKeyMatch[1])) {
+  if (childKeyMatch?.[1] && isAgentSessionKey(childKeyMatch[1])) {
     return childKeyMatch[1]
   }
 
@@ -50,14 +63,10 @@ export function extractSubagentSessionKey(value: unknown): string | null {
     if (seen.has(current)) continue
     seen.add(current)
 
+    const childSessionKey = explicitChildSessionKey(current)
+    if (childSessionKey) return childSessionKey
+
     const record = current as Record<string, unknown>
-    const childSessionKey = record.childSessionKey
-    if (
-      typeof childSessionKey === "string" &&
-      isSubagentSessionKey(childSessionKey)
-    ) {
-      return childSessionKey
-    }
     const candidateSessionKey = record.sessionKey
     if (
       typeof candidateSessionKey === "string" &&
@@ -91,14 +100,10 @@ export function extractSubagentSessionKeys(value: unknown): string[] {
     if (seen.has(current)) return
     seen.add(current)
 
+    const childSessionKey = explicitChildSessionKey(current)
+    if (childSessionKey) keys.add(childSessionKey)
+
     const record = current as Record<string, unknown>
-    const childSessionKey = record.childSessionKey
-    if (
-      typeof childSessionKey === "string" &&
-      isSubagentSessionKey(childSessionKey)
-    ) {
-      keys.add(childSessionKey)
-    }
     const candidateSessionKey = record.sessionKey
     if (
       typeof candidateSessionKey === "string" &&

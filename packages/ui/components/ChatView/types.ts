@@ -1,15 +1,29 @@
+import type { ChatComposerSubmit } from "@/lib/chatAttachments"
 import type { SubagentLifecycleStatus } from "@/lib/subagentLifecycle"
 
 export type ContentBlock = {
   type: string
   text?: string
   id?: string
+  toolCallId?: string
+  tool_call_id?: string
   name?: string
+  toolName?: string
+  tool_name?: string
+  tool?: string
   input?: unknown
   arguments?: unknown
+  args?: unknown
+  parameters?: unknown
+  argsMeta?: unknown
+  result?: unknown
+  resultMeta?: unknown
   duration?: string
   durationMs?: number
-  status?: "running" | "success" | "error"
+  status?: "running" | "success" | "error" | "result" | "done" | "complete" | "completed" | "failed"
+  phase?: string
+  startedAtMs?: number
+  finishedAtMs?: number | null
   isError?: boolean
 }
 
@@ -28,8 +42,10 @@ export type InlineToolCall = {
   status: "running" | "success" | "error"
   duration?: string
   startedAt?: number
+  completedAt?: number
   input?: unknown
   resultText?: string
+  awaitingResult?: boolean
   approval?: {
     id: string
     slug?: string
@@ -78,7 +94,11 @@ export type ChatMessage = {
   usage?: ChatTokenUsage | null
   stopReason?: string | null
   isOptimistic?: boolean
+  sendStatus?: "sending" | "failed"
+  sendError?: string | null
+  retryPayload?: ChatComposerSubmit
   animateText?: boolean
+  reasoningText?: string
   toolCalls?: InlineToolCall[]
   branches?: MessageBranch[]
   activeBranch?: number
