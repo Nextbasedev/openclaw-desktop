@@ -1168,6 +1168,7 @@ function handlePatch(frame: PatchFrame) {
     return
   }
   const previousStatus = state.status
+  const payload = patchPayload(frame)
   const patchStatus = statusFromPatch(frame)
   if (patchStatus) {
     if (shouldIgnoreTerminalToActiveStatus(state, frame, previousStatus, patchStatus.status)) {
@@ -1253,6 +1254,17 @@ function handlePatch(frame: PatchFrame) {
       sessionKey,
       ...loadingFactorSummary(state, frame.patch.type),
     }, "info")
+  }
+  // When middleware finishes importing archived transcripts in the background,
+  // it broadcasts a chat.bootstrap patch with backgroundArchiveImport:true.
+  // Dispatch a recovery event so the active chat hook refetches full history.
+  if (frame.patch.type === "chat.bootstrap" && payload?.backgroundArchiveImport && typeof window !== "undefined") {
+    frontendLog("stream", "global-chat-session.archive-import-refresh", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      messageCount: payload.messageCount,
+    })
+    window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery"))
   }
   notify(sessionKey, frame)
 }

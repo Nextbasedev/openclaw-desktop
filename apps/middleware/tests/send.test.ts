@@ -553,7 +553,7 @@ describe("chat send routes", () => {
       toolCalls: [{ toolCallId: "tool-1" }],
       cursor: expect.any(Number),
       sessionStatus: "running",
-      projection: { enabled: true, version: 3, cursor: expect.any(Number), liveSubscribed: true },
+      projection: { enabled: true, version: 3, cursor: expect.any(Number), liveSubscribed: false },
       messages: [{ role: "user", text: "hello" }],
     });
     expect(bootstrap.json().projection.cursor).toBe(bootstrap.json().cursor);

@@ -36,6 +36,13 @@ Lessons listed newest-first.
 
 ---
 
+### 2026-05-22 — Chat refresh bootstrap performance
+- **Bug:** Refreshing with several restored tabs could show no data/startup aborts; switching tabs could show a non-empty chat as empty for several seconds.
+- **Root cause:** `/api/chat/bootstrap` synchronously imported archived transcripts/resequenced thousands of messages and awaited live subscription; UI treated zero-message global sessions created by metadata-only replayed `chat.bootstrap` patches as authoritative empty state.
+- **Fix:** Move archive import/resequence and live subscription out of the bootstrap critical path; only use real bootstrap cache/query data for known-empty fast path.
+- **Constraint:** Chat bootstrap performance (`docs/constraints/middleware.md`) and patch-stream known-empty behavior (`docs/constraints/chat-engine.md`).
+- **Files:** `apps/middleware/src/features/chat/routes.ts`, `packages/ui/hooks/useChatMessages.ts`
+
 ### 2026-05-22 — Chat refresh replay and send reconciliation
 - **Bug:** Refreshing a heavy desktop chat could briefly show only tool cards/reset messages; sending after refresh could attach answer/tool state to stale history.
 - **Root cause:** Global patch stream could replay from cursor 0 before warm/bootstrap cursor seeding, and post-send history reconciliation ignored already live-confirmed optimistic users when `chat.history` lacked an exact text echo.

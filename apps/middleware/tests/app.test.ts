@@ -22,6 +22,10 @@ function testConfig(overrides: Partial<MiddlewareConfig> = {}): MiddlewareConfig
   };
 }
 
+function flushBackgroundJobs() {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   clearSyncGatewaySessionsCache();
@@ -954,9 +958,12 @@ describe("middleware app", () => {
     });
 
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    await flushBackgroundJobs();
+    const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
 
     expect(res.statusCode).toBe(200);
-    const messages = res.json().messages as Array<{ content?: string }>;
+    expect(secondRes.statusCode).toBe(200);
+    const messages = secondRes.json().messages as Array<{ content?: string }>;
     const text = messages.map((message) => String(message.content || "")).join("\n");
     expect(text).toContain("old topic message");
     expect(text).toContain("current topic message");
@@ -989,9 +996,12 @@ describe("middleware app", () => {
     });
 
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    await flushBackgroundJobs();
+    const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
 
     expect(res.statusCode).toBe(200);
-    const text = (res.json().messages as Array<{ content?: string }>).map((message) => String(message.content || "")).join("\n");
+    expect(secondRes.statusCode).toBe(200);
+    const text = (secondRes.json().messages as Array<{ content?: string }>).map((message) => String(message.content || "")).join("\n");
     expect(text).toContain("first archive message");
     expect(text).toContain("second archive message");
     expect(context.db.prepare("SELECT count(*) AS count FROM v2_archive_imports WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 2 });
@@ -1022,9 +1032,12 @@ describe("middleware app", () => {
     });
 
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    await flushBackgroundJobs();
+    const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
 
     expect(res.statusCode).toBe(200);
-    expect((res.json().messages as Array<{ content?: string }>).map((message) => String(message.content || "")).join("\n")).toContain("valid archived message");
+    expect(secondRes.statusCode).toBe(200);
+    expect((secondRes.json().messages as Array<{ content?: string }>).map((message) => String(message.content || "")).join("\n")).toContain("valid archived message");
     await app.close();
   });
 
@@ -1101,6 +1114,8 @@ describe("middleware app", () => {
     });
 
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    await flushBackgroundJobs();
+    expect(context.db.prepare("SELECT count(*) AS count FROM v2_projection_events WHERE session_key = ? AND event_type = 'chat.bootstrap' AND json_extract(payload_json, '$.backgroundArchiveImport') = 1").get(sessionKey)).toMatchObject({ count: 1 });
     const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
 
     expect(res.statusCode).toBe(200);
@@ -1118,8 +1133,11 @@ describe("middleware app", () => {
     const newerMtime = new Date(Date.now() + 10_000);
     fs.utimesSync(archivedFile, newerMtime, newerMtime);
     const thirdRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    await flushBackgroundJobs();
+    const fourthRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
     expect(thirdRes.statusCode).toBe(200);
-    const thirdMessages = thirdRes.json().messages as Array<{ content?: string; __openclaw?: { seq?: number; gatewaySeq?: number | null; segmentId?: string | null } }>;
+    expect(fourthRes.statusCode).toBe(200);
+    const thirdMessages = fourthRes.json().messages as Array<{ content?: string; __openclaw?: { seq?: number; gatewaySeq?: number | null; segmentId?: string | null } }>;
     const thirdText = thirdMessages.map((message) => String(message.content || "")).join("\n");
     expect(thirdText).toContain("old dashboard message");
     expect(thirdText).toContain("newer archived dashboard message");
@@ -1167,7 +1185,10 @@ describe("middleware app", () => {
     });
 
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
+    await flushBackgroundJobs();
+    const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
     expect(res.statusCode).toBe(200);
+    expect(secondRes.statusCode).toBe(200);
     expect(context.db.prepare("SELECT count(*) AS count FROM v2_messages WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 3 });
     expect(context.db.prepare("SELECT count(*) AS count FROM v2_tool_calls WHERE session_key = ?").get(sessionKey)).toMatchObject({ count: 0 });
     await app.close();

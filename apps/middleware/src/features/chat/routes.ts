@@ -25,6 +25,7 @@ const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
+const archiveProjectionJobs = new Map<string, Promise<void>>();
 
 
 function readJsonlRecords(file: string, maxLines?: number): Record<string, unknown>[] {
@@ -496,6 +497,98 @@ export async function prewarmArchivedHistory(context: AppContext, sessionKey: st
   } catch {
     return { ok: false, reason: "error" };
   }
+}
+
+function scheduleArchivedHistoryProjection(params: {
+  context: AppContext;
+  log: ReturnType<typeof createLogger>;
+  sessionKey: string;
+  history: ChatHistoryResponse;
+}) {
+  const existing = archiveProjectionJobs.get(params.sessionKey);
+  if (existing) {
+    params.log.info("bootstrap.archived-history.schedule.skip", { sessionKey: params.sessionKey, reason: "already-running" });
+    return existing;
+  }
+  const job = new Promise<void>((resolve, reject) => {
+    setImmediate(() => {
+      try {
+        if (!params.context.db.open) {
+          resolve();
+          return;
+        }
+        const startedAtMs = nowMs();
+        params.log.info("bootstrap.archived-history.background.start", { sessionKey: params.sessionKey });
+        const archivedProjection = persistArchivedHistorySegments(params.context, params.sessionKey, params.history);
+        if (archivedProjection.fileCount > 0) {
+          params.log.info("bootstrap.archived-history.persist", {
+            sessionKey: params.sessionKey,
+            archivedFiles: archivedProjection.fileCount,
+            importedFiles: archivedProjection.importedFiles,
+            skippedFiles: archivedProjection.skippedFiles,
+            changedFiles: archivedProjection.changedFiles,
+            upserted: archivedProjection.upserted,
+            background: true,
+          });
+        }
+        const resequence = archivedProjection.changed
+          ? params.context.messages.resequenceSessionMessages(params.sessionKey)
+          : { changedMessages: 0, changedSegments: 0 };
+        if (resequence.changedMessages > 0 || resequence.changedSegments > 0) {
+          params.log.info("bootstrap.messages.resequence", {
+            sessionKey: params.sessionKey,
+            changedMessages: resequence.changedMessages,
+            changedSegments: resequence.changedSegments,
+            background: true,
+          });
+        }
+        // Broadcast a bootstrap-refresh event so the UI knows archived
+        // messages are now available and can refetch/update the chat.
+        if (archivedProjection.changed && params.context.db.open) {
+          const projectedMessages = params.context.messages.listMessages(params.sessionKey, { limit: 1000, latest: true });
+          const refreshEvent = params.context.messages.appendProjectionEvent({
+            sessionKey: params.sessionKey,
+            eventType: "chat.bootstrap",
+            payload: { sessionKey: params.sessionKey, messageCount: projectedMessages.length, backgroundArchiveImport: true },
+          });
+          params.context.patchBus.broadcast({
+            cursor: refreshEvent.cursor,
+            type: refreshEvent.eventType,
+            sessionKey: refreshEvent.sessionKey,
+            payload: refreshEvent.payload,
+            createdAtMs: refreshEvent.createdAtMs,
+          });
+          params.log.info("bootstrap.archived-history.background.broadcast", {
+            sessionKey: params.sessionKey,
+            cursor: refreshEvent.cursor,
+            messageCount: projectedMessages.length,
+          });
+        }
+        params.log.info("bootstrap.archived-history.background.end", {
+          sessionKey: params.sessionKey,
+          durationMs: elapsedMs(startedAtMs),
+          changed: archivedProjection.changed,
+          importedFiles: archivedProjection.importedFiles,
+          changedFiles: archivedProjection.changedFiles,
+          upserted: archivedProjection.upserted,
+          resequencedMessages: resequence.changedMessages,
+          resequencedSegments: resequence.changedSegments,
+        });
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }).catch((error) => {
+    params.log.warn("bootstrap.archived-history.background.fail", {
+      sessionKey: params.sessionKey,
+      error: errorMeta(error),
+    });
+  }).finally(() => {
+    if (archiveProjectionJobs.get(params.sessionKey) === job) archiveProjectionJobs.delete(params.sessionKey);
+  });
+  archiveProjectionJobs.set(params.sessionKey, job);
+  return job;
 }
 
 export async function registerChatRoutes(app: FastifyInstance, context: AppContext) {
@@ -1036,8 +1129,6 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const sessionKey = history.sessionKey ?? parsed.data.sessionKey;
     const messages = history.messages ?? [];
     const normalized = normalizeHistoryMessages(sessionKey, messages);
-    const archivedProjection = persistArchivedHistorySegments(context, sessionKey, history);
-    if (archivedProjection.fileCount > 0) log.info("bootstrap.archived-history.persist", { sessionKey, archivedFiles: archivedProjection.fileCount, importedFiles: archivedProjection.importedFiles, skippedFiles: archivedProjection.skippedFiles, changedFiles: archivedProjection.changedFiles, upserted: archivedProjection.upserted });
     const existingSession = context.messages.getSession(sessionKey);
     const segment = context.messages.ensureActiveSegment({
       sessionKey,
@@ -1060,10 +1151,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     });
     log.info("bootstrap.session.persist", { sessionKey, sessionId: history.sessionId ?? existingSession?.sessionId ?? null, status: typeof sessionData.status === "string" ? sessionData.status : null });
     const projection = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
-    const resequence = archivedProjection.changed ? context.messages.resequenceSessionMessages(sessionKey) : { changedMessages: 0, changedSegments: 0 };
     const bootstrapLastSeq = context.messages.nextMessageSeq(sessionKey) - 1;
-    if (resequence.changedMessages > 0 || resequence.changedSegments > 0) log.info("bootstrap.messages.resequence", { sessionKey, changedMessages: resequence.changedMessages, changedSegments: resequence.changedSegments });
     log.info("bootstrap.messages.persist", { sessionKey, normalized: normalized.length, upserted: projection.upserted, lastSeq: bootstrapLastSeq });
+    void scheduleArchivedHistoryProjection({ context, log, sessionKey, history });
 
     const latestRun = context.runs.latestRun(sessionKey);
     const activeRun = context.runs.findLatestPendingRun(sessionKey);
@@ -1114,13 +1204,15 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     const projectedMessages = context.messages.listMessages(sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }).map(serializeProjectedMessage);
     log.info("bootstrap.messages.read", { sessionKey, messageCount: projectedMessages.length, limit: parsed.data.limit ?? 1000 });
-    await context.chatLive.ensureSessionSubscribed(sessionKey);
+    void context.chatLive.ensureSessionSubscribed(sessionKey).catch((error) => {
+      log.warn("bootstrap.live-subscribe.background.fail", { sessionKey, error: errorMeta(error) });
+    });
     const event = context.messages.appendProjectionEvent({
       sessionKey,
       eventType: "chat.bootstrap",
       payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq },
     });
-    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: true } });
+    log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
     return buildChatBootstrapSnapshot(context, {
       sessionKey,
@@ -1129,7 +1221,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messages: projectedMessages,
       messageCount: projectedMessages.length,
       cursor: event.cursor,
-      projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: true },
+      projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
     });
   });

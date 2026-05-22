@@ -491,19 +491,16 @@ export function useChatMessages(
   const hasInitial = initialMessages && initialMessages.length > 0
   const queryClient = useQueryClient()
   const initialGlobalSession = !hasInitial ? getGlobalChatSession(sessionKey) : null
-  const initialCachedBootstrap = !hasInitial && !initialGlobalSession
-    ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
-    : null
   const initialGlobalMessages = initialGlobalSession?.messages?.length
     ? initialGlobalSession.messages
     : undefined
+  const initialCachedBootstrap = !hasInitial && !initialGlobalMessages
+    ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
+    : null
   const initialWarmMessages = hasInitial
     ? initialMessages
     : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
-  const initialKnownEmpty = !hasInitial && !initialWarmMessages && (
-    Boolean(initialGlobalSession && initialGlobalSession.messages.length === 0 && typeof initialGlobalSession.cursor === "number") ||
-    isKnownEmptyBootstrap(initialCachedBootstrap)
-  )
+  const initialKnownEmpty = !hasInitial && !initialWarmMessages && isKnownEmptyBootstrap(initialCachedBootstrap)
   const initialWarmStatus = initialGlobalSession?.status ?? (
     initialCachedBootstrap?.runStatus
       ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
@@ -1285,23 +1282,19 @@ export function useChatMessages(
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     const cachedGlobal = getGlobalChatSession(sessionKey)
     const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
-    const cachedGlobalKnownEmpty = Boolean(cachedGlobal && cachedGlobal.messages.length === 0 && typeof cachedGlobal.cursor === "number")
     const useCachedGlobal = Boolean(
       (cachedGlobalHasMessages &&
         cachedGlobal &&
         (!seededMessages ||
           cachedGlobal.messages.length > seededMessages.length ||
-          cachedGlobal.messages.some((message) => message.role === "assistant"))) ||
-        (!seededMessages && cachedGlobalKnownEmpty)
+          cachedGlobal.messages.some((message) => message.role === "assistant")))
     )
     const cachedBootstrap = !useCachedGlobal
       ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
       : null
     const warmMessagesRaw = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
     const warmMessages = warmMessagesRaw?.length ? warmMessagesRaw : undefined
-    const knownEmptyState = !warmMessages && !seededMessages && (
-      (useCachedGlobal && cachedGlobalKnownEmpty) || isKnownEmptyBootstrap(cachedBootstrap)
-    )
+    const knownEmptyState = !warmMessages && !seededMessages && isKnownEmptyBootstrap(cachedBootstrap)
 
     setLoadError(null)
     setErrorMessage(null)
