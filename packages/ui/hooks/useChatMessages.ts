@@ -59,7 +59,7 @@ import {
 } from "@/lib/chat-engine-v2/client"
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity } from "@/lib/chat-engine-v2/store"
+import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import {
   getWarmChatCache,
@@ -110,6 +110,8 @@ type ChatBootstrapData = {
   runStatus?: RunStatusV2 | string
   statusLabel?: string | null
   activeRun?: ActiveRunV2 | null
+  historyCoverage?: "none" | "metadata" | "full"
+  fullMessagesIncluded?: boolean
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]
   // Compatibility mirror only. Prefer top-level messages/cursor/runStatus.
@@ -272,6 +274,8 @@ async function fetchChatBootstrap(
     runStatus: result.runStatus,
     statusLabel: result.statusLabel ?? null,
     activeRun: result.activeRun ?? null,
+    historyCoverage: result.historyCoverage,
+    fullMessagesIncluded: result.fullMessagesIncluded,
     tools: result.tools ?? result.toolCalls ?? [],
     cursor: result.cursor ?? result.projection?.cursor,
   }))
@@ -290,6 +294,8 @@ async function fetchChatBootstrap(
     runStatus: freshHistory.runStatus,
     statusLabel: freshHistory.statusLabel,
     activeRun: freshHistory.activeRun,
+    historyCoverage: freshHistory.historyCoverage,
+    fullMessagesIncluded: freshHistory.fullMessagesIncluded,
     tools: freshHistory.tools,
     toolCalls: freshHistory.tools,
   }
@@ -305,11 +311,22 @@ function isKnownEmptyBootstrap(data: ChatBootstrapData | null | undefined) {
   if (!data) return false
   const hasMessages = Boolean(data.messages?.length || data.history?.messages?.length)
   if (hasMessages) return false
+  if (data.historyCoverage && data.historyCoverage !== "full") return false
   return data.messageCount === 0 && (
-    typeof data.cursor === "number" ||
-    typeof data.v2Cursor === "number" ||
+    data.fullMessagesIncluded === true ||
+    data.historyCoverage === "full" ||
     Boolean(data.source) ||
     Boolean(data.projectionVersion)
+  )
+}
+
+function isAuthoritativeKnownEmptyGlobal(state: SessionState | null | undefined) {
+  return Boolean(
+    state &&
+    state.historyCoverage === "full" &&
+    state.messages.length === 0 &&
+    state.messageCount === 0 &&
+    typeof state.cursor === "number"
   )
 }
 
@@ -500,7 +517,9 @@ export function useChatMessages(
   const initialWarmMessages = hasInitial
     ? initialMessages
     : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
-  const initialKnownEmpty = !hasInitial && !initialWarmMessages && isKnownEmptyBootstrap(initialCachedBootstrap)
+  const initialKnownEmpty = !hasInitial && !initialWarmMessages && (
+    isAuthoritativeKnownEmptyGlobal(initialGlobalSession) || isKnownEmptyBootstrap(initialCachedBootstrap)
+  )
   const initialWarmStatus = initialGlobalSession?.status ?? (
     initialCachedBootstrap?.runStatus
       ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
@@ -1282,19 +1301,23 @@ export function useChatMessages(
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     const cachedGlobal = getGlobalChatSession(sessionKey)
     const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
+    const cachedGlobalKnownEmpty = isAuthoritativeKnownEmptyGlobal(cachedGlobal)
     const useCachedGlobal = Boolean(
       (cachedGlobalHasMessages &&
         cachedGlobal &&
         (!seededMessages ||
           cachedGlobal.messages.length > seededMessages.length ||
-          cachedGlobal.messages.some((message) => message.role === "assistant")))
+          cachedGlobal.messages.some((message) => message.role === "assistant"))) ||
+        (!seededMessages && cachedGlobalKnownEmpty)
     )
     const cachedBootstrap = !useCachedGlobal
       ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
       : null
     const warmMessagesRaw = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
     const warmMessages = warmMessagesRaw?.length ? warmMessagesRaw : undefined
-    const knownEmptyState = !warmMessages && !seededMessages && isKnownEmptyBootstrap(cachedBootstrap)
+    const knownEmptyState = !warmMessages && !seededMessages && (
+      (useCachedGlobal && cachedGlobalKnownEmpty) || isKnownEmptyBootstrap(cachedBootstrap)
+    )
 
     setLoadError(null)
     setErrorMessage(null)
@@ -1343,6 +1366,8 @@ export function useChatMessages(
           status: warmStatus,
           statusLabel: warmStatusLabel,
           pendingTools: cachedBootstrap?.tools?.map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool)) ?? [],
+          messageCount: cachedBootstrap?.messageCount ?? warmMessages.length,
+          historyCoverage: isKnownEmptyBootstrap(cachedBootstrap) || cachedBootstrap?.historyCoverage === "full" ? "full" : "metadata",
           queryClient,
         })
       }
@@ -1394,6 +1419,8 @@ export function useChatMessages(
           status: emptyStatus,
           statusLabel: emptyStatusLabel,
           pendingTools: [],
+          messageCount: cachedBootstrap?.messageCount ?? 0,
+          historyCoverage: "full",
           queryClient,
         })
       }
@@ -1479,6 +1506,8 @@ export function useChatMessages(
             status: effectiveStatus,
             statusLabel: effectiveLabel,
             pendingTools: cached.entry.pendingTools ?? [],
+            messageCount: cached.entry.messageCount ?? cachedMessages.length,
+            historyCoverage: cached.entry.historyCoverage === "full" ? "full" : "metadata",
             queryClient,
           })
         }
@@ -1607,6 +1636,8 @@ export function useChatMessages(
           statusLabel: seedStatusLabel,
           pendingTools: inlineTools,
           spawnedSubagents: canonicalSpawns,
+          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : seedMessages.length,
+          historyCoverage: "full",
           queryClient,
         })
         const globalAfterSeed = getGlobalChatSession(sessionKey)
@@ -1625,6 +1656,8 @@ export function useChatMessages(
           } : null,
           pendingTools: inlineTools,
           messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length,
+          historyCoverage: "full",
+          fullMessagesIncluded: true,
         }).catch((error) => {
           frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
             sessionKey,

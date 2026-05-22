@@ -56,6 +56,8 @@ export type WarmChatCacheEntry = {
   }>
   pendingTools?: InlineToolCall[]
   messageCount?: number
+  historyCoverage?: "none" | "metadata" | "full"
+  fullMessagesIncluded?: boolean
   cachedAt: number
   lastAccessedAt: number
 }

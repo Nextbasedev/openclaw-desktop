@@ -138,6 +138,8 @@ export function buildChatBootstrapSnapshot(context: AppContext, params: {
     runStatus,
     statusLabel,
     activeRun: activeRunProjection(activeRun),
+    historyCoverage: "full",
+    fullMessagesIncluded: true,
     messages: params.messages,
     messageCount: params.messageCount,
     tools,
