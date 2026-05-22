@@ -46,6 +46,7 @@ function isTerminalOrIdleStatus(status: StreamStatus) {
 }
 
 function normalizeStatusLabel(status: StreamStatus, label: string | null | undefined) {
+  if (status === "error") return label ?? null
   return isTerminalOrIdleStatus(status) ? null : (label ?? null)
 }
 

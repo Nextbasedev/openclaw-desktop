@@ -970,6 +970,35 @@ describe("global V2 chat engine store", () => {
     expect(getGlobalChatSession("s1")).toMatchObject({ status: "streaming", statusLabel: "Streaming" })
   })
 
+  test("status error patches preserve live error labels", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      messages: [{ messageId: "u1", role: "user", text: "hello" }],
+      status: "thinking",
+      statusLabel: "Thinking",
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.status",
+        sessionKey: "s1",
+        createdAtMs: 2_000,
+        payload: {
+          semanticType: "chat.run.error",
+          runStatus: "error",
+          statusLabel: "credit exhausted",
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("s1")).toMatchObject({
+      status: "error",
+      statusLabel: "credit exhausted",
+    })
+  })
+
   test("assistant error text immediately ends the active turn", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
