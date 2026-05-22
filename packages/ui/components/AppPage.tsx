@@ -25,7 +25,7 @@ import { LogsDialog } from "@/components/logs/LogsDialog"
 import { initFrontendCacheRealtimeInvalidation } from "@/lib/cacheRealtime"
 import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
-import { openRouteInNewWindow } from "@/lib/openRouteWindow"
+import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
 import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
@@ -202,6 +202,22 @@ function shouldUseNativeWindowChrome(): boolean {
   return new URLSearchParams(window.location.search).get("openclawNativeChrome") === "1"
 }
 
+function isFocusedChatWindowMode(): boolean {
+  if (typeof window === "undefined") return false
+  return new URLSearchParams(window.location.search).get("openclawWindowMode") === "focused-chat"
+}
+
+function focusedChatWindowParams() {
+  const search = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)
+  const route = typeof window === "undefined" ? { kind: "home" as const } : parseRoute(getRoutePath())
+  const queryChatId = search.get("chatId")?.trim() || null
+  return {
+    chatId: queryChatId || (route.kind === "chat" ? route.chatId : null),
+    sessionKey: search.get("sessionKey")?.trim() || null,
+    title: search.get("title")?.trim() || null,
+  }
+}
+
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 220
@@ -258,6 +274,10 @@ export default function Page() {
     return <AppLoadingSkeleton />
   }
 
+  if (isFocusedChatWindowMode()) {
+    return <FocusedChatWindowPage useNativeWindowChrome={useNativeWindowChrome} />
+  }
+
   return (
     <AppShell
       onResetOnboarding={() => setOnboardingDone(false)}
@@ -267,6 +287,137 @@ export default function Page() {
       onDeleteAccount={deleteAccount}
       useNativeWindowChrome={useNativeWindowChrome}
     />
+  )
+}
+
+function FocusedChatWindowPage({
+  useNativeWindowChrome = false,
+}: {
+  useNativeWindowChrome?: boolean
+}) {
+  const [state, setState] = useState(() => focusedChatWindowParams())
+  const stateRef = useRef(state)
+  const [resolvedSessionKey, setResolvedSessionKey] = useState<string | null>(state.sessionKey)
+  const [resolvedTitle, setResolvedTitle] = useState<string | null>(state.title)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  useEffect(() => {
+    installDesktopRouteShim()
+    initClientLogs()
+    initMiddlewareConnectionCrossWindowSync()
+    initFrontendCacheRealtimeInvalidation()
+    frontendLog("ui", "focused-chat-window.bootstrap", {
+      chatId: state.chatId,
+      sessionKey: state.sessionKey,
+      title: state.title,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.__TAURI_INTERNALS__) return
+    let unlisten: (() => void) | undefined
+    let cancelled = false
+    async function listenForFocusUpdates() {
+      try {
+        const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow")
+        unlisten = await getCurrentWebviewWindow().listen<{
+          chatId?: string
+          sessionKey?: string | null
+          title?: string | null
+        }>("openclaw:focused-chat", (event) => {
+          if (cancelled) return
+          const payload = event.payload
+          if (!payload?.chatId) return
+          const nextSessionKey = payload.sessionKey?.trim() || null
+          const sameChat = payload.chatId === stateRef.current.chatId
+          setState((prev) => ({
+            chatId: payload.chatId!,
+            sessionKey: nextSessionKey ?? (sameChat ? prev.sessionKey : null),
+            title: payload.title ?? (sameChat ? prev.title : null),
+          }))
+          if (nextSessionKey) setResolvedSessionKey(nextSessionKey)
+          else if (!sameChat) setResolvedSessionKey(null)
+          setResolvedTitle((prev) => payload.title ?? (sameChat ? prev : null))
+          setError(null)
+        })
+      } catch {}
+    }
+    void listenForFocusUpdates()
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    setResolvedSessionKey(state.sessionKey)
+    setResolvedTitle(state.title)
+    setError(null)
+  }, [state.chatId, state.sessionKey, state.title])
+
+  useEffect(() => {
+    if (!state.chatId) {
+      setError("Missing chat id for focused chat window.")
+      return
+    }
+    if (resolvedSessionKey) return
+    let cancelled = false
+    async function resolveFocusedChat() {
+      try {
+        const result = await invoke<{
+          chats: Array<ActiveChat & { archived?: boolean }>
+        }>("middleware_chats_list", { input: {} })
+        if (cancelled) return
+        const chat = (result.chats || []).find((item) => item.id === state.chatId && !item.archived)
+        if (!chat?.sessionKey) {
+          setError("Could not resolve this chat session.")
+          return
+        }
+        setResolvedSessionKey(chat.sessionKey)
+        setResolvedTitle((prev) => prev || chat.name)
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to resolve chat session.")
+        }
+      }
+    }
+    void resolveFocusedChat()
+    return () => { cancelled = true }
+  }, [state.chatId, resolvedSessionKey])
+
+  const title = resolvedTitle || state.title || "Focused Chat"
+
+  return (
+    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
+      <Header
+        minimal
+        user={{ name: title }}
+        useNativeWindowChrome={useNativeWindowChrome}
+      />
+      <main className="flex min-h-0 flex-1 overflow-hidden">
+        {resolvedSessionKey ? (
+          <ChatView
+            key={`${state.chatId ?? "focused"}:${resolvedSessionKey}`}
+            sessionKey={resolvedSessionKey}
+            sessionTitle={title}
+            forkContext={{ type: "chat" }}
+          />
+        ) : error ? (
+          <div className="flex h-full w-full items-center justify-center px-8">
+            <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-5 py-4 text-center">
+              <p className="text-sm font-medium text-red-400">Failed to open chat window</p>
+              <p className="mt-1 text-xs text-muted-foreground">{error}</p>
+            </div>
+          </div>
+        ) : (
+          <ChatLoadingSkeleton />
+        )}
+      </main>
+    </div>
   )
 }
 
@@ -1588,7 +1739,13 @@ function AppShell({
     if (tab.kind !== "chat") return
     const chatId = tab.chat?.id ?? tab.id.replace(/^chat:/, "")
     if (!chatId || chatId === tab.id) return
-    void openRouteInNewWindow(`/${chatId}`, tab.title)
+    const cached = resolvedChatCacheRef.current.get(chatId)
+    const sessionKey = cached?.sessionKey ?? tab.chat?.sessionKey ?? null
+    void openChatInFocusedWindow({
+      chatId,
+      sessionKey,
+      title: cached?.title ?? tab.title,
+    })
   }, [])
 
   const handleEditorTabMove = useCallback((
