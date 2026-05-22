@@ -2539,23 +2539,29 @@ export function useChatMessages(
         setHasOlderMessages(false)
         return
       }
-      setMessages((current) => {
-        const merged = dedupeChatMessages([...olderMessages, ...current])
-        // Keep the global patch-stream session in sync with paginated history.
-        // Otherwise the next non-message patch (for example chat.tool.update)
-        // notifies subscribers with the shorter bootstrap/global snapshot and
-        // wipes the locally prepended older messages back out of the UI.
-        seedGlobalChatSession({
-          sessionKey,
-          messages: merged,
-          cursor: v2CursorRef.current,
-          status: statusRef.current,
-          statusLabel,
-          pendingTools: Array.from(pendingToolMapRef.current.values()),
-          spawnedSubagents: Array.from(spawnMapRef.current.values()),
-          queryClient,
-        })
-        return merged
+      const currentMessages = messagesRef.current
+      const merged = dedupeChatMessages([...olderMessages, ...currentMessages])
+      setMessages(merged)
+      // Keep the global patch-stream session in sync with paginated history.
+      // Otherwise the next non-message patch (for example chat.tool.update)
+      // notifies subscribers with the shorter bootstrap/global snapshot and
+      // wipes the locally prepended older messages back out of the UI.
+      const existingGlobal = getGlobalChatSession(sessionKey)
+      seedGlobalChatSession({
+        sessionKey,
+        messages: merged,
+        cursor: v2CursorRef.current,
+        status: statusRef.current,
+        statusLabel,
+        pendingTools: Array.from(pendingToolMapRef.current.values()),
+        spawnedSubagents: Array.from(spawnMapRef.current.values()),
+        messageCount: existingGlobal?.messageCount ?? Math.max(merged.length, page.messageCount),
+        historyCoverage: oldestLoadedSeqRef.current !== null && oldestLoadedSeqRef.current <= 1
+          ? "full"
+          : existingGlobal?.historyCoverage === "full"
+            ? "full"
+            : "metadata",
+        queryClient,
       })
       setHasOlderMessages(
         page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
