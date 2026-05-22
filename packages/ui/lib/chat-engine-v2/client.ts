@@ -41,6 +41,41 @@ export function getMiddlewareUrl(): string {
   return trimTrailingSlash(rewriteLoopbackForRemoteBrowser(process.env.NEXT_PUBLIC_MIDDLEWARE_V2_URL?.trim() || DEFAULT_MIDDLEWARE_URL))
 }
 
+function sanitizeMiddlewarePath(path: string): string {
+  try {
+    const parsed = new URL(path, "http://openclaw.local")
+    const queryKeys = Array.from(parsed.searchParams.keys())
+    const querySuffix = queryKeys.length > 0 ? `?${queryKeys.map((key) => `${key}=…`).join("&")}` : ""
+    return `${parsed.pathname}${querySuffix}`
+  } catch {
+    const [base, query = ""] = path.split("?")
+    if (!query) return base || path
+    const params = new URLSearchParams(query)
+    const queryKeys = Array.from(params.keys())
+    const querySuffix = queryKeys.length > 0 ? `?${queryKeys.map((key) => `${key}=…`).join("&")}` : ""
+    return `${base}${querySuffix}`
+  }
+}
+
+function middlewareTargetUrl(baseUrl: string, path: string): string {
+  try {
+    return new URL(path, `${trimTrailingSlash(baseUrl)}/`).toString()
+  } catch {
+    return `${trimTrailingSlash(baseUrl)}${path.startsWith("/") ? "" : "/"}${path}`
+  }
+}
+
+function middlewareLogContext(method: string, path: string, baseUrl: string, extra?: Record<string, unknown>) {
+  const targetUrl = middlewareTargetUrl(baseUrl, path)
+  return {
+    method,
+    routePath: sanitizeMiddlewarePath(path),
+    targetUrl: sanitizeUrlForLog(targetUrl),
+    middlewareBaseUrl: sanitizeUrlForLog(baseUrl),
+    ...extra,
+  }
+}
+
 function summarizeV2Body(body: BodyInit | null | undefined): unknown {
   if (!body) return undefined
   if (typeof body !== "string") return { type: (body as { constructor?: { name?: string } }).constructor?.name ?? "body" }
@@ -55,14 +90,11 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const startedAt = performance.now()
   const method = (init?.method ?? "GET").toUpperCase()
   const baseUrl = getMiddlewareUrl()
-  frontendLog("api", "middleware.fetch.start", {
-    method,
-    path: sanitizeUrlForLog(path),
-    baseUrl: sanitizeUrlForLog(baseUrl),
+  frontendLog("api", "middleware.fetch.start", middlewareLogContext(method, path, baseUrl, {
     body: summarizeV2Body(init?.body),
-  }, "debug")
+  }), "debug")
   try {
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(middlewareTargetUrl(baseUrl, path), {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -72,25 +104,21 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await response.text()
     const body = text ? JSON.parse(text) : null
     const durationMs = Math.round(performance.now() - startedAt)
-    frontendLog("api", response.ok ? "middleware.fetch.end" : "middleware.fetch.fail", {
-      method,
-      path: sanitizeUrlForLog(path),
+    frontendLog("api", response.ok ? "middleware.fetch.end" : "middleware.fetch.fail", middlewareLogContext(method, path, baseUrl, {
       durationMs,
       status: response.status,
       statusText: response.statusText || undefined,
       error: response.ok ? undefined : redactText(body?.error?.message ?? `Middleware request failed (${response.status})`),
-    }, response.ok ? "info" : "error")
+    }), response.ok ? "info" : "error")
     if (!response.ok) {
       throw new Error(body?.error?.message ?? `Middleware request failed (${response.status})`)
     }
     return body as T
   } catch (error) {
-    frontendLog("api", "middleware.fetch.fail", {
-      method,
-      path: sanitizeUrlForLog(path),
+    frontendLog("api", "middleware.fetch.fail", middlewareLogContext(method, path, baseUrl, {
       durationMs: Math.round(performance.now() - startedAt),
       error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-    }, "error")
+    }), "error")
     throw error
   }
 }

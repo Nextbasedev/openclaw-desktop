@@ -1606,6 +1606,26 @@ export function useChatMessages(
     async function init() {
       const bootstrapStartedAtMs = Date.now()
       frontendLog("chat", "chat.bootstrap.start", { sessionKey, hasWarmMessages: Boolean(warmMessages), elapsedSinceMountMs: bootstrapStartedAtMs - mountStartedAtMs, windowId: windowIdRef.current, viewGeneration })
+      if (hasInitial) {
+        // New-chat quick send already has the optimistic user message and will
+        // receive authoritative updates via the patch stream. Fetching an empty
+        // bootstrap for that brand-new session competes with /api/chat/send and
+        // can delay the actual send behind old heavy-chat requests.
+        bootstrapSettled = true
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+          loadingTimeout = null
+        }
+        setLoading(false)
+        frontendLog("chat", "chat.bootstrap.skip-initial-optimistic", {
+          sessionKey,
+          initialMessageCount: initialMessages?.length ?? 0,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+          windowId: windowIdRef.current,
+          viewGeneration,
+        })
+        return
+      }
       try {
         const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
@@ -1628,31 +1648,45 @@ export function useChatMessages(
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
-        void fetchChatBranchData(sessionKey).then((latestBranchData) => {
-          if (cancelled || viewGenerationRef.current !== viewGeneration) {
-            logChatRequestStaleSkip({
-              windowId: windowIdRef.current,
-              instanceId: instanceIdRef.current,
-              viewGeneration,
-              source: "side-metadata",
-              targetSessionKey: sessionKey,
-              activeSessionKey: sessionKey,
-              renderedSessionKey: sessionKey,
-              requestGeneration: viewGeneration,
-              reason: cancelled ? "branch-data-cancelled" : "view-generation-changed",
+        if (cancelled || viewGenerationRef.current !== viewGeneration) {
+          logChatRequestStaleSkip({
+            windowId: windowIdRef.current,
+            instanceId: instanceIdRef.current,
+            viewGeneration,
+            source: "side-metadata",
+            targetSessionKey: sessionKey,
+            activeSessionKey: sessionKey,
+            renderedSessionKey: sessionKey,
+            requestGeneration: viewGeneration,
+            reason: cancelled ? "branch-data-skip-before-fetch-cancelled" : "branch-data-skip-before-fetch-generation-changed",
+          })
+        } else {
+          void fetchChatBranchData(sessionKey).then((latestBranchData) => {
+            if (cancelled || viewGenerationRef.current !== viewGeneration) {
+              logChatRequestStaleSkip({
+                windowId: windowIdRef.current,
+                instanceId: instanceIdRef.current,
+                viewGeneration,
+                source: "side-metadata",
+                targetSessionKey: sessionKey,
+                activeSessionKey: sessionKey,
+                renderedSessionKey: sessionKey,
+                requestGeneration: viewGeneration,
+                reason: cancelled ? "branch-data-cancelled" : "view-generation-changed",
+              })
+              return
+            }
+            queryClient.setQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey), (current) => {
+              if (!current) return current
+              return { ...current, branchData: latestBranchData }
             })
-            return
-          }
-          queryClient.setQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey), (current) => {
-            if (!current) return current
-            return { ...current, branchData: latestBranchData }
+            frontendLog("chat", "chat.branch-data.loaded", {
+              sessionKey,
+              branchCount: latestBranchData.branches?.length ?? 0,
+              elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+            })
           })
-          frontendLog("chat", "chat.branch-data.loaded", {
-            sessionKey,
-            branchCount: latestBranchData.branches?.length ?? 0,
-            elapsedSinceMountMs: Date.now() - mountStartedAtMs,
-          })
-        })
+        }
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
           loadingTimeout = null

@@ -2247,37 +2247,40 @@ function AppShell({
         idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
       })
-      try {
-        const { name } = await invoke<{ name: string }>(
-          "middleware_autonaming_quick",
-          { input: { text } },
-        )
-        const finalName = isWeakChatName(name) ? fallbackName : name
-        invalidateChatListCache(activeSpaceId)
-        await invoke("middleware_chats_rename", {
-          input: { chatId: result.chat.id, name: finalName },
-        })
-        invalidateChatListCache(activeSpaceId)
-        const renamedChat = { ...createdChat, name: finalName }
-        resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
-        setActiveChat((prev) =>
-          prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
-        )
-        setActiveSessionTitle(finalName)
-        dispatchGroups({
-          type: "UPDATE_TAB",
-          tabId: `chat:${result.chat.id}`,
-          updates: { title: finalName, chat: renamedChat },
-        })
-        dispatchGroups({
-          type: "SET_SESSION_DATA",
-          groupId: targetGroupId,
-          sessionData: { chat: renamedChat, sessionKey, title: finalName },
-        })
-        setChatRefreshTrigger((n) => n + 1)
-      } catch (err) {
-        console.error("Auto-naming chat failed", err)
-      }
+      frontendLog("composer", "quick-send.sent", { chatId: result.chat.id, sessionKey })
+      void (async () => {
+        try {
+          const { name } = await invoke<{ name: string }>(
+            "middleware_autonaming_quick",
+            { input: { text } },
+          )
+          const finalName = isWeakChatName(name) ? fallbackName : name
+          invalidateChatListCache(activeSpaceId)
+          await invoke("middleware_chats_rename", {
+            input: { chatId: result.chat.id, name: finalName },
+          })
+          invalidateChatListCache(activeSpaceId)
+          const renamedChat = { ...createdChat, name: finalName }
+          resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
+          setActiveChat((prev) =>
+            prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
+          )
+          setActiveSessionTitle((prev) => (prev === fallbackName ? finalName : prev))
+          dispatchGroups({
+            type: "UPDATE_TAB",
+            tabId: `chat:${result.chat.id}`,
+            updates: { title: finalName, chat: renamedChat },
+          })
+          dispatchGroups({
+            type: "SET_SESSION_DATA",
+            groupId: targetGroupId,
+            sessionData: { chat: renamedChat, sessionKey, title: finalName },
+          })
+          setChatRefreshTrigger((n) => n + 1)
+        } catch (err) {
+          console.error("Auto-naming chat failed", err)
+        }
+      })()
     } catch (err) {
       frontendLog("composer", "quick-send.fail", { error: err instanceof Error ? { kind: err.name, message: err.message } : { kind: "Error", message: String(err) } }, "error")
       console.error("Quick send failed", err)
