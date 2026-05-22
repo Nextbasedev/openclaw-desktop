@@ -123,7 +123,7 @@ export function registerScheduledRequest(opts: {
 export function abortSessionRequests(sessionKey: string) {
   let abortedCount = 0
   for (const [id, entry] of inflight) {
-    if (entry.sessionKey === sessionKey) {
+    if (entry.sessionKey === sessionKey && entry.priority !== "critical") {
       entry.controller.abort()
       inflight.delete(id)
       abortedCount++
