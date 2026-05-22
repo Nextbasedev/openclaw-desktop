@@ -339,6 +339,7 @@ function isActiveRunStatus(status: StreamStatus | null | undefined) {
 }
 
 function normalizeStatusLabelForStatus(status: StreamStatus | null | undefined, label: string | null | undefined) {
+  if (status === "error") return label ?? null
   return isActiveRunStatus(status) ? (label ?? null) : null
 }
 
@@ -582,7 +583,11 @@ export function useChatMessages(
     [sessionKey]
   )
 
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(() =>
+    initialWarmStatus === "error"
+      ? initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel ?? null
+      : null
+  )
 
   const [pendingTools, setLocalPendingTools] = useState<InlineToolCall[]>([])
   const embedsMapRef = useRef<
@@ -1307,6 +1312,7 @@ export function useChatMessages(
         : normalizeStatusLabelForStatus(warmStatus, cachedBootstrap?.statusLabel)
       setStatus(warmStatus)
       setStatusLabel(warmStatusLabel)
+      setErrorMessage(warmStatus === "error" ? warmStatusLabel : null)
       const warmCursor = useCachedGlobal && typeof cachedGlobal?.cursor === "number"
         ? cachedGlobal.cursor
         : typeof cachedBootstrap?.cursor === "number"
@@ -1363,8 +1369,10 @@ export function useChatMessages(
         ])
       )
       setSpawnedSubagents(cachedActivity.spawnedSubagents)
+      const cachedActivityStatusLabel = normalizeStatusLabelForStatus(cachedActivity.status, cachedActivity.statusLabel)
       setStatus(cachedActivity.status)
-      setStatusLabel(normalizeStatusLabelForStatus(cachedActivity.status, cachedActivity.statusLabel))
+      setStatusLabel(cachedActivityStatusLabel)
+      setErrorMessage(cachedActivity.status === "error" ? cachedActivityStatusLabel : null)
     } else {
       pendingToolMapRef.current.clear()
       setPendingTools([])
@@ -1434,6 +1442,7 @@ export function useChatMessages(
         markHistoryLoaded()
         setStatus(effectiveStatus)
         setStatusLabel(effectiveLabel)
+        setErrorMessage(effectiveStatus === "error" ? effectiveLabel : null)
         if (cached.entry.pendingTools?.length) {
           pendingToolMapRef.current = new Map(cached.entry.pendingTools.map((tool) => [tool.id, tool]))
           setPendingTools(cached.entry.pendingTools)
@@ -1569,6 +1578,7 @@ export function useChatMessages(
         setLocalSpawnedSubagents(canonicalSpawns)
         setStatus(seedStatus)
         setStatusLabel(seedStatusLabel)
+        setErrorMessage(seedStatus === "error" ? seedStatusLabel : null)
         if (isActiveRunStatus(seedStatus)) markOptimisticChatActivity(sessionKey, seedStatusLabel)
         else clearCachedChatActivity(sessionKey)
         setLoading(false)
@@ -1597,9 +1607,11 @@ export function useChatMessages(
             spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
             setLocalPendingTools(state.pendingTools)
             setLocalSpawnedSubagents(state.spawnedSubagents)
+            const nextStatusLabel = normalizeStatusLabelForStatus(state.status, state.statusLabel)
             setStatus(state.status)
-            setStatusLabel(normalizeStatusLabelForStatus(state.status, state.statusLabel))
-            if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, normalizeStatusLabelForStatus(state.status, state.statusLabel))
+            setStatusLabel(nextStatusLabel)
+            setErrorMessage(state.status === "error" ? nextStatusLabel : null)
+            if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
             setMessages(state.messages)
           }

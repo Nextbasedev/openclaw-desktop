@@ -72,6 +72,19 @@ function firstString(...values: unknown[]) {
   return null;
 }
 
+function liveErrorLabel(payload: Record<string, unknown>, data: Record<string, unknown>) {
+  return firstString(
+    payload.error,
+    data.error,
+    payload.message,
+    data.message,
+    payload.statusLabel,
+    data.statusLabel,
+    payload.label,
+    data.label,
+  ) ?? "Run failed";
+}
+
 function isSubagentSessionKey(sessionKey: string) {
   return sessionKey.includes(":subagent:");
 }
@@ -506,7 +519,8 @@ export class ChatLiveIngest {
     }
     if (status === "error" || status === "failed") {
       this.liveAssistantText.delete(run.runId);
-      const updated = this.context.runs.updateRunStatus(run.runId, "error", { statusLabel: typeof payload.error === "string" ? payload.error : "Run failed", error: payload.error ?? payload });
+      const statusLabel = liveErrorLabel(payload, data);
+      const updated = this.context.runs.updateRunStatus(run.runId, "error", { statusLabel, error: payload.error ?? data.error ?? payload });
       if (updated) this.broadcastRunStatus(sessionKey, updated, "chat.run.error");
       return;
     }
