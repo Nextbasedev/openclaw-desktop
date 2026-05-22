@@ -263,23 +263,18 @@ function toolResultText(result: unknown) {
 async function fetchChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData & { v2Cursor?: number }> {
-  const [freshHistory, branchData] = await Promise.all([
-    fetchChatBootstrapV2(sessionKey, CHAT_BOOTSTRAP_MESSAGE_LIMIT).then((result) => ({
-      source: result.source,
-      projectionVersion: result.projectionVersion ?? result.projection?.version,
-      messages: result.messages,
-      messageCount: result.messageCount,
-      legacySessionStatus: result.sessionStatus,
-      runStatus: result.runStatus,
-      statusLabel: result.statusLabel ?? null,
-      activeRun: result.activeRun ?? null,
-      tools: result.tools ?? result.toolCalls ?? [],
-      cursor: result.cursor ?? result.projection?.cursor,
-    })),
-    invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
-      input: { sourceSessionKey: sessionKey },
-    }).catch(() => ({ branches: [] })),
-  ])
+  const freshHistory = await fetchChatBootstrapV2(sessionKey, CHAT_BOOTSTRAP_MESSAGE_LIMIT).then((result) => ({
+    source: result.source,
+    projectionVersion: result.projectionVersion ?? result.projection?.version,
+    messages: result.messages,
+    messageCount: result.messageCount,
+    legacySessionStatus: result.sessionStatus,
+    runStatus: result.runStatus,
+    statusLabel: result.statusLabel ?? null,
+    activeRun: result.activeRun ?? null,
+    tools: result.tools ?? result.toolCalls ?? [],
+    cursor: result.cursor ?? result.projection?.cursor,
+  }))
   return {
     source: freshHistory.source,
     projectionVersion: freshHistory.projectionVersion,
@@ -289,7 +284,7 @@ async function fetchChatBootstrap(
       messages: freshHistory.messages,
       sessionStatus: freshHistory.legacySessionStatus,
     },
-    branchData,
+    branchData: { branches: [] },
     cursor: freshHistory.cursor,
     v2Cursor: freshHistory.cursor,
     runStatus: freshHistory.runStatus,
@@ -298,6 +293,12 @@ async function fetchChatBootstrap(
     tools: freshHistory.tools,
     toolCalls: freshHistory.tools,
   }
+}
+
+async function fetchChatBranchData(sessionKey: string) {
+  return invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
+    input: { sourceSessionKey: sessionKey },
+  }).catch(() => ({ branches: [] }))
 }
 
 async function fetchStableChatBootstrap(
@@ -1498,6 +1499,18 @@ export function useChatMessages(
           canonicalToolCount: canonicalTools?.length ?? 0,
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+        })
+        void fetchChatBranchData(sessionKey).then((latestBranchData) => {
+          if (cancelled) return
+          queryClient.setQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey), (current) => {
+            if (!current) return current
+            return { ...current, branchData: latestBranchData }
+          })
+          frontendLog("chat", "chat.branch-data.loaded", {
+            sessionKey,
+            branchCount: latestBranchData.branches?.length ?? 0,
+            elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+          })
         })
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
