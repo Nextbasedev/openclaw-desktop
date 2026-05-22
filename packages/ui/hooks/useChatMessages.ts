@@ -1355,6 +1355,7 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
+    oldestLoadedSeqRef.current = null
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -1470,7 +1471,14 @@ export function useChatMessages(
         // bundled middleware can briefly return no source/projectionVersion
         // before the first run exists, but this is still V2 bootstrap data, not
         // legacy middleware_chat_history.
-        const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages))
+        // Seed oldest loaded seq from RAW bootstrap messages (before parsing)
+        // to avoid the merged gatewayIndex drift from parseChatHistory.
+        const rawBootstrapMessages = (bootstrapMessages as RawMessage[]) || []
+        const rawBootstrapSeqs = rawBootstrapMessages
+          .map((m) => m.__openclaw?.seq)
+          .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+        if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
+        const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages))
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
@@ -1522,9 +1530,6 @@ export function useChatMessages(
             error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
           }, "warn")
         })
-        // Seed oldest loaded seq from bootstrap messages for accurate pagination
-        const bootstrapSeqs = displayMessages.map((m) => m.gatewayIndex).filter((v): v is number => typeof v === "number" && Number.isFinite(v))
-        if (bootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...bootstrapSeqs)
         setHasOlderMessages(
           canLoadOlderThanFirstMessage(displayMessages) ||
           Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
