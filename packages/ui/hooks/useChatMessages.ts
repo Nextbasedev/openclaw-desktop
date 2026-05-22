@@ -263,23 +263,18 @@ function toolResultText(result: unknown) {
 async function fetchChatBootstrap(
   sessionKey: string
 ): Promise<ChatBootstrapData & { v2Cursor?: number }> {
-  const [freshHistory, branchData] = await Promise.all([
-    fetchChatBootstrapV2(sessionKey, CHAT_BOOTSTRAP_MESSAGE_LIMIT).then((result) => ({
-      source: result.source,
-      projectionVersion: result.projectionVersion ?? result.projection?.version,
-      messages: result.messages,
-      messageCount: result.messageCount,
-      legacySessionStatus: result.sessionStatus,
-      runStatus: result.runStatus,
-      statusLabel: result.statusLabel ?? null,
-      activeRun: result.activeRun ?? null,
-      tools: result.tools ?? result.toolCalls ?? [],
-      cursor: result.cursor ?? result.projection?.cursor,
-    })),
-    invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
-      input: { sourceSessionKey: sessionKey },
-    }).catch(() => ({ branches: [] })),
-  ])
+  const freshHistory = await fetchChatBootstrapV2(sessionKey, CHAT_BOOTSTRAP_MESSAGE_LIMIT).then((result) => ({
+    source: result.source,
+    projectionVersion: result.projectionVersion ?? result.projection?.version,
+    messages: result.messages,
+    messageCount: result.messageCount,
+    legacySessionStatus: result.sessionStatus,
+    runStatus: result.runStatus,
+    statusLabel: result.statusLabel ?? null,
+    activeRun: result.activeRun ?? null,
+    tools: result.tools ?? result.toolCalls ?? [],
+    cursor: result.cursor ?? result.projection?.cursor,
+  }))
   return {
     source: freshHistory.source,
     projectionVersion: freshHistory.projectionVersion,
@@ -289,7 +284,7 @@ async function fetchChatBootstrap(
       messages: freshHistory.messages,
       sessionStatus: freshHistory.legacySessionStatus,
     },
-    branchData,
+    branchData: { branches: [] },
     cursor: freshHistory.cursor,
     v2Cursor: freshHistory.cursor,
     runStatus: freshHistory.runStatus,
@@ -298,6 +293,24 @@ async function fetchChatBootstrap(
     tools: freshHistory.tools,
     toolCalls: freshHistory.tools,
   }
+}
+
+async function fetchChatBranchData(sessionKey: string) {
+  return invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
+    input: { sourceSessionKey: sessionKey },
+  }).catch(() => ({ branches: [] }))
+}
+
+function isKnownEmptyBootstrap(data: ChatBootstrapData | null | undefined) {
+  if (!data) return false
+  const hasMessages = Boolean(data.messages?.length || data.history?.messages?.length)
+  if (hasMessages) return false
+  return data.messageCount === 0 && (
+    typeof data.cursor === "number" ||
+    typeof data.v2Cursor === "number" ||
+    Boolean(data.source) ||
+    Boolean(data.projectionVersion)
+  )
 }
 
 async function fetchStableChatBootstrap(
@@ -487,6 +500,10 @@ export function useChatMessages(
   const initialWarmMessages = hasInitial
     ? initialMessages
     : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
+  const initialKnownEmpty = !hasInitial && !initialWarmMessages && (
+    Boolean(initialGlobalSession && initialGlobalSession.messages.length === 0 && typeof initialGlobalSession.cursor === "number") ||
+    isKnownEmptyBootstrap(initialCachedBootstrap)
+  )
   const initialWarmStatus = initialGlobalSession?.status ?? (
     initialCachedBootstrap?.runStatus
       ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
@@ -503,9 +520,9 @@ export function useChatMessages(
     () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages)
+  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty)
   const [historyLoadVersion, setHistoryLoadVersion] = useState(() =>
-    initialWarmMessages?.length ? 1 : 0
+    initialWarmMessages?.length || initialKnownEmpty ? 1 : 0
   )
   const markHistoryLoaded = useCallback(() => {
     setHistoryLoadVersion((value) => value + 1)
@@ -1268,18 +1285,23 @@ export function useChatMessages(
       initialMessages && initialMessages.length > 0 ? initialMessages : undefined
     const cachedGlobal = getGlobalChatSession(sessionKey)
     const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
+    const cachedGlobalKnownEmpty = Boolean(cachedGlobal && cachedGlobal.messages.length === 0 && typeof cachedGlobal.cursor === "number")
     const useCachedGlobal = Boolean(
-      cachedGlobalHasMessages &&
+      (cachedGlobalHasMessages &&
         cachedGlobal &&
         (!seededMessages ||
           cachedGlobal.messages.length > seededMessages.length ||
-          cachedGlobal.messages.some((message) => message.role === "assistant"))
+          cachedGlobal.messages.some((message) => message.role === "assistant"))) ||
+        (!seededMessages && cachedGlobalKnownEmpty)
     )
     const cachedBootstrap = !useCachedGlobal
       ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
       : null
     const warmMessagesRaw = (useCachedGlobal ? cachedGlobal?.messages : seededMessages) ?? warmBootstrapMessages(undefined, cachedBootstrap)
     const warmMessages = warmMessagesRaw?.length ? warmMessagesRaw : undefined
+    const knownEmptyState = !warmMessages && !seededMessages && (
+      (useCachedGlobal && cachedGlobalKnownEmpty) || isKnownEmptyBootstrap(cachedBootstrap)
+    )
 
     setLoadError(null)
     setErrorMessage(null)
@@ -1347,6 +1369,41 @@ export function useChatMessages(
       }
       if (useCachedGlobal && typeof cachedGlobal?.cursor === "number") v2CursorRef.current = cachedGlobal.cursor
       else if (typeof cachedBootstrap?.v2Cursor === "number") v2CursorRef.current = cachedBootstrap.v2Cursor
+    } else if (knownEmptyState) {
+      setLoading(false)
+      setHasOlderMessages(false)
+      setMessages([])
+      markHistoryLoaded()
+      const emptyStatus = useCachedGlobal && cachedGlobal?.status
+        ? cachedGlobal.status
+        : cachedBootstrap?.runStatus
+          ? streamStatusFromCanonicalRun(cachedBootstrap.runStatus)
+          : "idle"
+      const emptyStatusLabel = useCachedGlobal
+        ? normalizeStatusLabelForStatus(cachedGlobal?.status, cachedGlobal?.statusLabel)
+        : normalizeStatusLabelForStatus(emptyStatus, cachedBootstrap?.statusLabel)
+      setStatus(emptyStatus)
+      setStatusLabel(emptyStatusLabel)
+      setErrorMessage(emptyStatus === "error" ? emptyStatusLabel : null)
+      const emptyCursor = useCachedGlobal && typeof cachedGlobal?.cursor === "number"
+        ? cachedGlobal.cursor
+        : typeof cachedBootstrap?.cursor === "number"
+          ? cachedBootstrap.cursor
+          : typeof cachedBootstrap?.v2Cursor === "number"
+            ? cachedBootstrap.v2Cursor
+            : undefined
+      if (typeof emptyCursor === "number") v2CursorRef.current = emptyCursor
+      if (!useCachedGlobal && typeof emptyCursor === "number") {
+        seedGlobalChatSession({
+          sessionKey,
+          messages: [],
+          cursor: emptyCursor,
+          status: emptyStatus,
+          statusLabel: emptyStatusLabel,
+          pendingTools: [],
+          queryClient,
+        })
+      }
     } else {
       setLoading(true)
       setHasOlderMessages(false)
@@ -1389,7 +1446,7 @@ export function useChatMessages(
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null
     const mountStartedAtMs = Date.now()
 
-    if (!warmMessages) {
+    if (!warmMessages && !knownEmptyState) {
       loadingTimeout = setTimeout(() => {
         if (cancelled || bootstrapSettled) return
         frontendLog("status", "chat.loading-timeout", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs }, "warn")
@@ -1400,7 +1457,7 @@ export function useChatMessages(
     }
 
     async function applyPersistedWarmCache() {
-      if (warmMessages) return
+      if (warmMessages || knownEmptyState) return
       try {
         const cached = await getWarmChatCache(sessionKey)
         if (!cached || cancelled || bootstrapSettled) return
@@ -1498,6 +1555,18 @@ export function useChatMessages(
           canonicalToolCount: canonicalTools?.length ?? 0,
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+        })
+        void fetchChatBranchData(sessionKey).then((latestBranchData) => {
+          if (cancelled) return
+          queryClient.setQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey), (current) => {
+            if (!current) return current
+            return { ...current, branchData: latestBranchData }
+          })
+          frontendLog("chat", "chat.branch-data.loaded", {
+            sessionKey,
+            branchCount: latestBranchData.branches?.length ?? 0,
+            elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+          })
         })
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
