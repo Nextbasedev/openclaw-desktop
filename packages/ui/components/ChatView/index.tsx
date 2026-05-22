@@ -764,7 +764,20 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const renderedMessages = visibleAllMessages
+  const INITIAL_RENDER_WINDOW = 20
+  const [renderWindow, setRenderWindow] = useState(INITIAL_RENDER_WINDOW)
+  const renderedMessages = useMemo(() => {
+    if (visibleAllMessages.length <= renderWindow) return visibleAllMessages
+    return visibleAllMessages.slice(-renderWindow)
+  }, [visibleAllMessages, renderWindow])
+  // Expand render window when user scrolls near top
+  const expandRenderWindow = useCallback(() => {
+    setRenderWindow((prev) => Math.min(prev + 20, visibleAllMessages.length))
+  }, [visibleAllMessages.length])
+  // Reset render window on session change
+  useEffect(() => {
+    setRenderWindow(INITIAL_RENDER_WINDOW)
+  }, [sessionKey])
   const lastHistoryScrollVersionRef = useRef(0)
 
   useLayoutEffect(() => {
@@ -978,6 +991,10 @@ export function ChatView({
     const el = scrollContainerRef.current
     if (el) {
       setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+      // Expand render window when scrolling near top
+      if (el.scrollTop < 300 && renderWindow < visibleAllMessages.length) {
+        expandRenderWindow()
+      }
       if (
         hasOlderMessages &&
         !loadingOlderMessages &&
@@ -989,11 +1006,14 @@ export function ChatView({
     if (activePopoverId) setActivePopoverId(null)
   }, [
     activePopoverId,
+    expandRenderWindow,
     hasOlderMessages,
     loadOlderMessages,
     loadingOlderMessages,
     onScroll,
+    renderWindow,
     scrollContainerRef,
+    visibleAllMessages.length,
   ])
 
   const jumpToLatestMessage = useCallback(() => {

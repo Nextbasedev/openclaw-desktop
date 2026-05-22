@@ -243,6 +243,20 @@ export default function Page() {
         setHasToken(true)
         return
       }
+      // If we have a saved middleware URL, skip the blocking health check.
+      // The sidebar/chat will render from cached data immediately; the actual
+      // connection status is verified in the background by the connect flow.
+      try {
+        const savedUrl = localStorage.getItem("openclaw.middleware.url")?.trim()
+        if (savedUrl) {
+          setHasToken(true)
+          // Still verify in background
+          void invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
+            .then((s) => { if (!s.hasConnection) setHasToken(false) })
+            .catch(() => {})
+          return
+        }
+      } catch {}
       try {
         const s = await invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
         setHasToken(!!s.hasConnection)
