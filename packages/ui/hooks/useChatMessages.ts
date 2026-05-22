@@ -1510,10 +1510,17 @@ export function useChatMessages(
     if (!warmMessages && !knownEmptyState) {
       loadingTimeout = setTimeout(() => {
         if (cancelled || bootstrapSettled) return
-        frontendLog("status", "chat.loading-timeout", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs }, "warn")
+        // Don't wipe messages if warm cache was applied asynchronously
+        setLocalMessages((current) => {
+          if (current.length > 0) {
+            frontendLog("status", "chat.loading-timeout.skip-warm", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs, messageCount: current.length }, "debug")
+            return current
+          }
+          frontendLog("status", "chat.loading-timeout", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs }, "warn")
+          return current
+        })
         setLoading(false)
-        setMessages([])
-        setStatus("idle")
+        setStatus((current) => current === "idle" || current === "done" ? current : "idle")
       }, CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS)
     }
 
