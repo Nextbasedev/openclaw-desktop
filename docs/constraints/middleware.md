@@ -29,6 +29,20 @@ POST /api/chat/send
   10. Broadcast done/error status patches
 ```
 
+## Send Reconciliation
+
+- Live `session.message` can confirm the optimistic user before the queued
+  `chat.send` path finishes loading `chat.history`.
+- Post-send history reconciliation must treat that already-confirmed optimistic
+  user as the current send boundary, even if the later `chat.history` snapshot
+  does not contain an exact text-matching user echo.
+- Do not mark current-run assistant/tool history as stale solely because the
+  history snapshot lacks a text-matching user. Check the local optimistic
+  message id first.
+- Gateway `chat.send` returning `done` is not enough to finalize the UI; final
+  status still depends on history/live events confirming the user and assistant
+  response.
+
 ## Patch Bus
 
 - Single broadcast channel for all real-time UI updates

@@ -62,6 +62,11 @@ Chat opens
 - Key format: `openclaw:patchCursor:<middlewareUrl>`
 - Validated with `Number.isSafeInteger` on restore
 - If middleware restarts and cursor resets, bootstrap recovery handles the gap
+- Warm/global/bootstrap cache cursor must seed the global chat engine BEFORE
+  opening `/api/stream/ws`; otherwise refresh can replay old global patches from
+  cursor 0 and temporarily overwrite active chat state.
+- Replayed `chat.bootstrap` / tool patches are not the source of truth for the
+  active chat when a fresher `/api/chat/bootstrap` cursor is already known.
 
 ## Tool Card Rendering
 
