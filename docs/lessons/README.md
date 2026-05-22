@@ -36,6 +36,13 @@ Lessons listed newest-first.
 
 ---
 
+### 2026-05-22 — Chat refresh replay and send reconciliation
+- **Bug:** Refreshing a heavy desktop chat could briefly show only tool cards/reset messages; sending after refresh could attach answer/tool state to stale history.
+- **Root cause:** Global patch stream could replay from cursor 0 before warm/bootstrap cursor seeding, and post-send history reconciliation ignored already live-confirmed optimistic users when `chat.history` lacked an exact text echo.
+- **Fix:** Seed global chat state before opening patch stream; preserve live-confirmed optimistic user as send boundary. Commit `a3d9ada`.
+- **Constraint:** Patch stream cursor seeding (`docs/constraints/chat-engine.md`) and send reconciliation (`docs/constraints/middleware.md`).
+- **Files:** `packages/ui/hooks/useChatMessages.ts`, `apps/middleware/src/features/chat/routes.ts`, `apps/middleware/src/features/chat/repo.messages.ts`
+
 ### 2026-05-21 — Image attachments fail with "try again"
 - **Bug:** Users sending images got generic "Message failed to send. Try again."
 - **Root cause:** Fastify default body limit (1 MB) rejected base64-encoded image JSON payloads. UI allows 10 MB attachments, but base64 + JSON overhead pushes payloads past 1 MB for images >750 KB.
