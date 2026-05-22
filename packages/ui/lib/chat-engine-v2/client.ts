@@ -1,6 +1,7 @@
 import { frontendLog, redactText, sanitizeForLog, sanitizeUrlForLog } from "../clientLogs"
 import { logChatStreamRecoveryDecision } from "../chatTimelineDiagnostics"
 import { getMiddlewareConnection } from "../middleware-client"
+import { registerScheduledRequest, type RequestPriority } from "../requestScheduler"
 import type { ChatBootstrapV2, HelloFrame, PatchFrame, StreamFrame } from "./types"
 export type { ActiveRunV2, ChatBootstrapV2, HelloFrame, PatchFrame, RunStatusV2, StreamFrame, ToolCallProjectionV2 } from "./types"
 
@@ -86,19 +87,27 @@ function summarizeV2Body(body: BodyInit | null | undefined): unknown {
   }
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function fetchJson<T>(path: string, init?: RequestInit & { schedulerPriority?: RequestPriority; schedulerSessionKey?: string | null; schedulerLabel?: string }): Promise<T> {
   const startedAt = performance.now()
   const method = (init?.method ?? "GET").toUpperCase()
   const baseUrl = getMiddlewareUrl()
   frontendLog("api", "middleware.fetch.start", middlewareLogContext(method, path, baseUrl, {
     body: summarizeV2Body(init?.body),
   }), "debug")
+  const priority = init?.schedulerPriority ?? "active-chat"
+  const scheduled = registerScheduledRequest({
+    sessionKey: init?.schedulerSessionKey ?? null,
+    priority,
+    label: path,
+  })
   try {
+    const { schedulerPriority: _sp, schedulerSessionKey: _ss, schedulerLabel: _sl, ...fetchInit } = init ?? {} as Record<string, unknown>
     const response = await fetch(middlewareTargetUrl(baseUrl, path), {
-      ...init,
+      ...fetchInit as RequestInit,
+      signal: scheduled.signal,
       headers: {
         "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
+        ...((init as RequestInit | undefined)?.headers ?? {}),
       },
     })
     const text = await response.text()
@@ -115,17 +124,25 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     }
     return body as T
   } catch (error) {
-    frontendLog("api", "middleware.fetch.fail", middlewareLogContext(method, path, baseUrl, {
+    const isAbort = error instanceof DOMException && error.name === "AbortError"
+    frontendLog("api", isAbort ? "middleware.fetch.abort" : "middleware.fetch.fail", middlewareLogContext(method, path, baseUrl, {
       durationMs: Math.round(performance.now() - startedAt),
       error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-    }), "error")
+      schedulerPriority: priority,
+    }), isAbort ? "debug" : "error")
     throw error
+  } finally {
+    scheduled.unregister()
   }
 }
 
 export async function fetchChatBootstrapV2(sessionKey: string, limit = 200): Promise<ChatBootstrapV2> {
   const params = new URLSearchParams({ sessionKey, limit: String(limit) })
-  return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`)
+  return fetchJson<ChatBootstrapV2>(`/api/chat/bootstrap?${params.toString()}`, {
+    schedulerPriority: "active-chat",
+    schedulerSessionKey: sessionKey,
+    schedulerLabel: `bootstrap:${sessionKey}`,
+  })
 }
 
 export type ChatMessagesPageV2 = {
@@ -157,7 +174,11 @@ export async function fetchChatMessagesV2(input: {
   })
   if (typeof input.beforeSeq === "number") params.set("beforeSeq", String(input.beforeSeq))
   if (typeof input.afterSeq === "number") params.set("afterSeq", String(input.afterSeq))
-  return fetchJson<ChatMessagesPageV2>(`/api/chat/messages?${params.toString()}`)
+  return fetchJson<ChatMessagesPageV2>(`/api/chat/messages?${params.toString()}`, {
+    schedulerPriority: "active-chat",
+    schedulerSessionKey: input.sessionKey,
+    schedulerLabel: `messages:${input.sessionKey}`,
+  })
 }
 
 async function replayPatchBacklog(afterCursor: number, onFrame: (frame: StreamFrame) => void) {
@@ -303,6 +324,9 @@ export async function sendChatV2(input: SendChatV2Input): Promise<{ ok: boolean;
   return fetchJson<{ ok: boolean; sessionKey: string; idempotencyKey: string }>("/api/chat/send", {
     method: "POST",
     body: JSON.stringify(input),
+    schedulerPriority: "critical",
+    schedulerSessionKey: input.sessionKey,
+    schedulerLabel: `send:${input.sessionKey}`,
   })
 }
 
@@ -310,6 +334,9 @@ export async function abortChatV2(input: { sessionKey: string; runId?: string })
   return fetchJson<{ ok: boolean }>("/api/chat/abort", {
     method: "POST",
     body: JSON.stringify(input),
+    schedulerPriority: "critical",
+    schedulerSessionKey: input.sessionKey,
+    schedulerLabel: `abort:${input.sessionKey}`,
   })
 }
 

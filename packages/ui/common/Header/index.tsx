@@ -20,6 +20,7 @@ import { usePlatform } from "@/hooks/usePlatform"
 import type { HeaderUser } from "@/components/settings/settings.config"
 import { NotificationPopover } from "@/components/notifications/NotificationPopover"
 import { invoke } from "@/lib/ipc"
+import { dedupeRequest } from "@/lib/requestDedupe"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
@@ -138,7 +139,11 @@ export function Header({
   }, [])
 
   useEffect(() => {
-    invoke<VersionInfo>("middleware_version_info")
+    dedupeRequest(
+      "global:middleware_version_info",
+      () => invoke<VersionInfo>("middleware_version_info"),
+      { ttlMs: 120_000 },
+    )
       .then((res) => {
         setOpenClawVersion(res.openclawVersion ?? res.version)
         setNodeVersion(res.nodeVersion ?? null)

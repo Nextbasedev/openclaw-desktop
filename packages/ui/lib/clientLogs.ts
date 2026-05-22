@@ -21,6 +21,7 @@ export type FrontendLogCategory =
   | "status"
   | "ui"
   | "runtime"
+  | "scheduler"
 
 export type FrontendLogContext = Record<string, unknown>
 

@@ -68,6 +68,7 @@ import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
+import { setSchedulerActiveSession, abortSessionRequests } from "@/lib/requestScheduler"
 import {
   getWarmChatCache,
   pruneWarmChatCache,
@@ -1324,6 +1325,7 @@ export function useChatMessages(
     let cancelled = false
     const viewGeneration = viewGenerationRef.current + 1
     viewGenerationRef.current = viewGeneration
+    setSchedulerActiveSession(sessionKey)
     frontendLog("chat", "chat.mount", {
       sessionKey,
       hasInitialMessages: Boolean(initialMessages?.length),
@@ -1887,6 +1889,7 @@ export function useChatMessages(
     return () => {
       frontendLog("chat", "chat.unmount", { sessionKey, instanceId: instanceIdRef.current, windowId: windowIdRef.current, viewGeneration })
       cancelled = true
+      abortSessionRequests(sessionKey)
       if (loadingTimeout) clearTimeout(loadingTimeout)
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
       window.removeEventListener("openclaw:chat-bootstrap-recovery", handleBootstrapRecovery)
