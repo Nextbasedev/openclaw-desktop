@@ -1864,18 +1864,20 @@ export function useChatMessages(
         unsubscribeStream = null
         return
       } catch (e) {
+        const isSchedulerAbort = cancelled || (e instanceof DOMException && e.name === "AbortError")
         bootstrapSettled = true
-        frontendLog("chat", "chat.bootstrap.fail", {
+        frontendLog("chat", isSchedulerAbort ? "chat.bootstrap.cancelled" : "chat.bootstrap.fail", {
           sessionKey,
           error: e instanceof Error ? { kind: e.name, message: redactText(e.message) } : { kind: "Error", message: redactText(String(e)) },
           durationMs: Date.now() - bootstrapStartedAtMs,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
-        }, "error")
+          cancelled,
+        }, isSchedulerAbort ? "debug" : "error")
         if (loadingTimeout) {
           clearTimeout(loadingTimeout)
           loadingTimeout = null
         }
-        if (!cancelled) {
+        if (!cancelled && !isSchedulerAbort) {
           setLoadError(String(e))
           setLoading(false)
         }
