@@ -163,6 +163,7 @@ export function useProjectsData(
   const loadProjects = useCallback(async () => {
     const requestSeq = ++loadProjectsSeqRef.current
     const requestSpaceId = activeSpaceId
+    if (!requestSpaceId) return
     const isCurrentRequest = () =>
       loadProjectsSeqRef.current === requestSeq && currentActiveSpaceIdRef.current === requestSpaceId
     const applyProjects = (nextProjects: Project[]) => {
@@ -173,7 +174,7 @@ export function useProjectsData(
 
     try {
       const bootstrap = await loadMiddlewareStartupBootstrap()
-      if (bootstrap?.projects && (!requestSpaceId || bootstrap.activeSpaceId === requestSpaceId)) {
+      if (bootstrap?.projects && bootstrap.activeSpaceId === requestSpaceId) {
         const active = bootstrap.projects.filter(
           (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
         )
@@ -181,7 +182,7 @@ export function useProjectsData(
       }
       const result = await invoke<{ projects: Project[] }>(
         "middleware_projects_list",
-        { input: { spaceId: requestSpaceId ?? undefined } },
+        { input: { spaceId: requestSpaceId } },
       )
       const active = (result.projects || []).filter(
         (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
@@ -212,7 +213,7 @@ export function useProjectsData(
 
   useEffect(() => {
     const previousSpaceId = previousActiveSpaceIdRef.current
-    const changedConcreteSpace = Boolean(previousSpaceId && activeSpaceId && previousSpaceId !== activeSpaceId)
+    const changedConcreteSpace = Boolean(activeSpaceId && previousSpaceId !== activeSpaceId)
     previousActiveSpaceIdRef.current = activeSpaceId
     currentActiveSpaceIdRef.current = activeSpaceId
     if (changedConcreteSpace) {
