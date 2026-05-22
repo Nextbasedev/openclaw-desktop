@@ -558,6 +558,24 @@ export class MessageRepository {
     };
   }
 
+  latestProjectionEvent(sessionKey: string): ProjectionEvent | null {
+    const row = this.db.prepare(`
+      SELECT cursor, session_key, event_type, payload_json, created_at_ms
+      FROM v2_projection_events
+      WHERE session_key = @sessionKey
+      ORDER BY cursor DESC
+      LIMIT 1
+    `).get({ sessionKey }) as { cursor: number; session_key: string | null; event_type: string; payload_json: string; created_at_ms: number } | undefined;
+    if (!row) return null;
+    return {
+      cursor: row.cursor,
+      sessionKey: row.session_key,
+      eventType: row.event_type,
+      payload: fromJson(row.payload_json),
+      createdAtMs: row.created_at_ms,
+    };
+  }
+
   appendProjectionEvent(params: { sessionKey?: string | null; eventType: string; payload: unknown; createdAtMs?: number }): ProjectionEvent {
     const createdAtMs = params.createdAtMs ?? Date.now();
     const info = this.db.prepare(`
