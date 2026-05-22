@@ -313,6 +313,9 @@ function saveCompatState(context: AppContext) {
     save.run({ key: "activeSpaceId", dataJson: toJson(compatState.activeSpaceId), updatedAtMs: timestamp });
   });
   tx();
+  // Invalidate bootstrap cache so next /api/bootstrap or /api/chats
+  // request picks up the mutation immediately.
+  invalidateBootstrapCache();
 }
 
 function saveCompatCollection(context: AppContext, _collection?: CompatCollection) {
@@ -1908,9 +1911,17 @@ function isDesktopSessionKey(sessionKey: string) {
 
 let syncGatewaySessionsCache: { promise: Promise<void>; expiresAtMs: number } | null = null;
 const SYNC_GATEWAY_CACHE_TTL_MS = 5_000;
+let lastFullSyncAtMs = 0;
+const BOOTSTRAP_FRESH_MS = 30_000;
 
 /** Clear the syncGatewaySessions cache. Exported for test isolation. */
 export function clearSyncGatewaySessionsCache() { syncGatewaySessionsCache = null; }
+
+/** Invalidate bootstrap/chats cache so next request syncs fresh. */
+export function invalidateBootstrapCache() { lastFullSyncAtMs = 0; }
+
+/** Clear bootstrap cache for test isolation. */
+export function clearBootstrapCacheForTests() { lastFullSyncAtMs = 0; }
 
 async function syncGatewaySessions(context: AppContext) {
   // Don't cache if Gateway is disconnected — no-op results should not
@@ -3349,8 +3360,18 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.get("/api/bootstrap", async () => {
     const gateway = await connectGatewayForStatus(context);
-    await syncGatewaySessions(context);
-    applyProjectedChatActivity(context);
+    const syncAge = Date.now() - lastFullSyncAtMs;
+    if (lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_FRESH_MS) {
+      // bootstrap served from cached compatState
+      void syncGatewaySessions(context).then(() => {
+        lastFullSyncAtMs = Date.now();
+        applyProjectedChatActivity(context);
+      }).catch(() => {});
+    } else {
+      await syncGatewaySessions(context);
+      lastFullSyncAtMs = Date.now();
+      applyProjectedChatActivity(context);
+    }
     const spaceId = activeSpaceId();
     const projects = listBySpace(compatState.projects, spaceId);
     const projectIds = new Set(projects.map((project) => project.id).filter(Boolean));
@@ -3441,8 +3462,18 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.get("/api/chats", async (request) => {
-    await syncGatewaySessions(context);
-    applyProjectedChatActivity(context);
+    const syncAge = Date.now() - lastFullSyncAtMs;
+    if (lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_FRESH_MS) {
+      // chats served from cached compatState
+      void syncGatewaySessions(context).then(() => {
+        lastFullSyncAtMs = Date.now();
+        applyProjectedChatActivity(context);
+      }).catch(() => {});
+    } else {
+      await syncGatewaySessions(context);
+      lastFullSyncAtMs = Date.now();
+      applyProjectedChatActivity(context);
+    }
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     const spaceId = listSpaceId(query);
@@ -3617,7 +3648,16 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.get("/api/sessions", async (request) => {
-    await syncGatewaySessions(context);
+    const syncAge = Date.now() - lastFullSyncAtMs;
+    if (lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_FRESH_MS) {
+      // sessions served from cached compatState
+      void syncGatewaySessions(context).then(() => {
+        lastFullSyncAtMs = Date.now();
+      }).catch(() => {});
+    } else {
+      await syncGatewaySessions(context);
+      lastFullSyncAtMs = Date.now();
+    }
     const query = request.query as CompatRecord;
     const spaceId = listSpaceId(query);
     return {

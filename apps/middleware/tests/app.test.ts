@@ -9,7 +9,7 @@ import type { AppContext } from "../src/app.js";
 import { loadEnv, type MiddlewareConfig } from "../src/config/env.js";
 import { migrateDatabase } from "../src/db/migrate.js";
 import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
-import { clearSyncGatewaySessionsCache } from "../src/features/compat/routes.js";
+import { clearSyncGatewaySessionsCache, clearBootstrapCacheForTests } from "../src/features/compat/routes.js";
 import { clearLocalFirstBootstrapCache } from "../src/features/chat/routes.js";
 
 function testConfig(overrides: Partial<MiddlewareConfig> = {}): MiddlewareConfig {
@@ -30,6 +30,7 @@ function flushBackgroundJobs() {
 afterEach(() => {
   vi.restoreAllMocks();
   clearLocalFirstBootstrapCache();
+  clearBootstrapCacheForTests();
   clearSyncGatewaySessionsCache();
 });
 
