@@ -162,6 +162,98 @@ describe("chat live ingest", () => {
     await app.close();
   });
 
+  test("folds a later decorated Gateway user echo into the already confirmed optimistic user", async () => {
+    const app = await createApp(config("dedupe-confirmed-user-echo"));
+    const context = contextOf(app);
+    let listener: (event: GatewayEvent) => void = () => undefined;
+    vi.spyOn(context.gateway, "onEvent").mockImplementation((cb) => {
+      listener = cb;
+      return () => true;
+    });
+    vi.spyOn(context.gateway, "request").mockResolvedValue({ ok: true });
+
+    const now = Date.now();
+    context.chatLive.addOptimisticUser("s1", { id: "client-1", text: "E2E_OK please", createdAtMs: now });
+    context.messages.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 90,
+      messageId: "prior-message",
+      role: "assistant",
+      data: { role: "assistant", text: "Prior legitimate message", __openclaw: { id: "prior-message", seq: 90 } },
+      updatedAtMs: now - 1000,
+    });
+    context.messages.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 100,
+      messageId: "client-1",
+      role: "user",
+      data: { role: "user", text: "E2E_OK please", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1" } },
+      updatedAtMs: now,
+    });
+
+    await context.chatLive.ensureSessionSubscribed("s1");
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 100,
+        message: {
+          role: "user",
+          text: "E2E_OK please",
+          __openclaw: { seq: 100 },
+        },
+      },
+    });
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 90,
+        message: {
+          role: "user",
+          text: "Sender (untrusted metadata):\n```json\n{}\n```\n\n[Fri 2026-05-22 05:44 UTC] E2E_OK please",
+          __openclaw: { id: "gateway-duplicate", seq: 90 },
+        },
+      },
+    });
+
+    let userMessages = context.messages.listMessages("s1").filter((message) => message.role === "user");
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]).toMatchObject({ messageId: "client-1", openclawSeq: 100 });
+    expect(context.messages.findMessageById("s1", "prior-message")).toMatchObject({ role: "assistant", openclawSeq: 90 });
+
+    listener({
+      type: "event",
+      event: "session.message",
+      payload: {
+        sessionKey: "s1",
+        messageSeq: 101,
+        message: {
+          role: "user",
+          text: "E2E_OK please",
+          __openclaw: { id: "gateway-new-repeat", seq: 101 },
+        },
+      },
+    });
+    userMessages = context.messages.listMessages("s1").filter((message) => message.role === "user");
+    expect(userMessages).toHaveLength(2);
+    expect(userMessages.map((message) => message.messageId)).toEqual(["client-1", "gateway-new-repeat"]);
+
+    const replay = await app.inject({ method: "GET", url: "/api/patches?afterCursor=0" });
+    expect(replay.statusCode).toBe(200);
+    const patches = replay.json().patches as Array<{ type: string; payload: { messageId?: string; optimisticId?: string } }>;
+    expect(patches.filter((patch) => patch.type === "chat.message.confirmed" && patch.payload.optimisticId === "client-1")).toHaveLength(1);
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "chat.message.upsert",
+        payload: expect.objectContaining({ messageId: "gateway-duplicate" }),
+      }),
+    ]));
+    await app.close();
+  });
+
   test("confirms optimistic user echoes from content blocks and uses positive fallback seq", async () => {
     const app = await createApp(config("content-optimistic-confirm"));
     const context = contextOf(app);

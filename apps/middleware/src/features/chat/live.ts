@@ -76,6 +76,9 @@ function isSubagentSessionKey(sessionKey: string) {
   return sessionKey.includes(":subagent:");
 }
 
+const RECENT_CONFIRMED_USER_ECHO_TTL_MS = 2 * 60 * 1000;
+const RECENT_CONFIRMED_USER_ECHO_LIMIT = 20;
+
 function textFromLiveValue(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
@@ -98,6 +101,7 @@ export class ChatLiveIngest {
   private subscribed = new Set<string>();
   private listening = false;
   private optimisticUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; createdAtMs: number }>>();
+  private recentlyConfirmedUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; openclawSeq: number; confirmedAtMs: number }>>();
   private liveAssistantText = new Map<string, string>();
   private historyBackfillTimers = new Map<string, NodeJS.Timeout>();
   private readonly log = createLogger("chat-live");
@@ -196,7 +200,19 @@ export class ChatLiveIngest {
     const normalized = normalizeHistoryMessages(sessionKey, [message], Date.now(), payloadSeq ?? this.context.messages.nextMessageSeq(sessionKey));
     const projectedMessage = normalized[0];
     if (!projectedMessage) return;
+    const confirmedDuplicate = !optimisticId ? this.findRecentConfirmedUserEcho(sessionKey, projectedMessage) : null;
+    if (confirmedDuplicate) {
+      this.log.info("message.duplicate-confirmed-user.skip", {
+        sessionKey,
+        optimisticId: confirmedDuplicate.id,
+        gatewayMessageId: projectedMessage.messageId,
+        messageSeq: projectedMessage.openclawSeq,
+        confirmedSeq: confirmedDuplicate.openclawSeq,
+      });
+      return;
+    }
     const confirmed = optimisticId ? this.context.messages.confirmOptimisticUser(sessionKey, optimisticId, projectedMessage) : null;
+    if (optimisticId) this.rememberConfirmedUser(sessionKey, optimisticId, confirmed ?? projectedMessage, optimistic);
     const projection = confirmed ? { upserted: 1, lastSeq: confirmed.openclawSeq } : this.context.messages.upsertMessages(normalized);
     if (!confirmed && projection.upserted === 0) {
       this.log.info("message.replay.noop", { sessionKey, role: projectedMessage.role, messageId: projectedMessage.messageId, messageSeq: projectedMessage.openclawSeq });
@@ -307,6 +323,42 @@ export class ChatLiveIngest {
 
   private objectData(value: unknown): Record<string, unknown> {
     return isObject(value) ? value : {};
+  }
+
+  private rememberConfirmedUser(sessionKey: string, optimisticId: string, message: { data: OpenClawMessage; openclawSeq: number }, optimistic?: { runId?: string; idempotencyKey?: string } | null) {
+    if (message.data.role !== "user") return;
+    const text = normalizeMessageText(textFromMessage(message.data));
+    if (!text) return;
+    const now = Date.now();
+    const fresh = (this.recentlyConfirmedUsers.get(sessionKey) ?? []).filter((entry) => now - entry.confirmedAtMs < RECENT_CONFIRMED_USER_ECHO_TTL_MS);
+    fresh.push({
+      id: optimisticId,
+      text,
+      runId: optimistic?.runId,
+      idempotencyKey: optimistic?.idempotencyKey,
+      openclawSeq: message.openclawSeq,
+      confirmedAtMs: now,
+    });
+    this.recentlyConfirmedUsers.set(sessionKey, fresh.slice(-RECENT_CONFIRMED_USER_ECHO_LIMIT));
+  }
+
+  private findRecentConfirmedUserEcho(sessionKey: string, message: { role: string | null; data: OpenClawMessage; openclawSeq: number }) {
+    if (message.role !== "user") return null;
+    const text = normalizeMessageText(textFromMessage(message.data));
+    if (!text) return null;
+    const now = Date.now();
+    const fresh = (this.recentlyConfirmedUsers.get(sessionKey) ?? []).filter((entry) => now - entry.confirmedAtMs < RECENT_CONFIRMED_USER_ECHO_TTL_MS);
+    if (fresh.length !== (this.recentlyConfirmedUsers.get(sessionKey) ?? []).length) {
+      if (fresh.length > 0) this.recentlyConfirmedUsers.set(sessionKey, fresh);
+      else this.recentlyConfirmedUsers.delete(sessionKey);
+    }
+    return fresh.find((entry) => {
+      if (entry.text !== text) return false;
+      // Later legitimate repeated sends should have a newer sequence and their
+      // own optimistic entry. A decorated Gateway echo for the already-confirmed
+      // turn commonly replays with the original/lower Gateway sequence.
+      return message.openclawSeq <= entry.openclawSeq;
+    }) ?? null;
   }
 
   private takeMatchingOptimisticUser(sessionKey: string, message: OpenClawMessage): { id: string; runId?: string; idempotencyKey?: string } | null {
