@@ -117,6 +117,9 @@ export function useProjectsData(
   const [topicOrder, setTopicOrder] = useState<Record<string, string[]>>({})
   const [pinnedProjects, setPinnedProjects] = useState<Set<string>>(new Set())
   const [pinnedTopics, setPinnedTopics] = useState<Set<string>>(new Set())
+  const previousActiveSpaceIdRef = useRef<string | null | undefined>(activeSpaceId)
+  const currentActiveSpaceIdRef = useRef<string | null | undefined>(activeSpaceId)
+  const loadProjectsSeqRef = useRef(0)
 
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState("")
@@ -158,26 +161,34 @@ export function useProjectsData(
 
 
   const loadProjects = useCallback(async () => {
+    const requestSeq = ++loadProjectsSeqRef.current
+    const requestSpaceId = activeSpaceId
+    const isCurrentRequest = () =>
+      loadProjectsSeqRef.current === requestSeq && currentActiveSpaceIdRef.current === requestSpaceId
+    const applyProjects = (nextProjects: Project[]) => {
+      if (!isCurrentRequest()) return
+      setProjects(nextProjects)
+      setPinnedProjects(new Set(nextProjects.filter((p) => p.pinned).map((p) => p.id)))
+    }
+
     try {
       const bootstrap = await loadMiddlewareStartupBootstrap()
-      if (bootstrap?.projects && (!activeSpaceId || bootstrap.activeSpaceId === activeSpaceId)) {
+      if (bootstrap?.projects && (!requestSpaceId || bootstrap.activeSpaceId === requestSpaceId)) {
         const active = bootstrap.projects.filter(
           (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
         )
-        setProjects(active)
-        setPinnedProjects(new Set(active.filter((p) => p.pinned).map((p) => p.id)))
+        applyProjects(active)
       }
       const result = await invoke<{ projects: Project[] }>(
         "middleware_projects_list",
-        { input: { spaceId: activeSpaceId ?? undefined } },
+        { input: { spaceId: requestSpaceId ?? undefined } },
       )
       const active = (result.projects || []).filter(
         (p) => !p.archived && !(p.name === "Default" && p.profileId === "default"),
       )
-      setProjects(active)
-      setPinnedProjects(new Set(active.filter((p) => p.pinned).map((p) => p.id)))
+      applyProjects(active)
     } catch (e) {
-      console.error("[ProjectsSection] load projects failed", e)
+      if (isCurrentRequest()) console.error("[ProjectsSection] load projects failed", e)
     }
   }, [activeSpaceId])
 
@@ -200,10 +211,19 @@ export function useProjectsData(
   }, [projectOrder, projectOrderCacheReady, activeSpaceId])
 
   useEffect(() => {
-    setProjects([])
-    setPinnedProjects(new Set())
+    const previousSpaceId = previousActiveSpaceIdRef.current
+    const changedConcreteSpace = Boolean(previousSpaceId && activeSpaceId && previousSpaceId !== activeSpaceId)
+    previousActiveSpaceIdRef.current = activeSpaceId
+    currentActiveSpaceIdRef.current = activeSpaceId
+    if (changedConcreteSpace) {
+      setProjects([])
+      setPinnedProjects(new Set())
+    }
+    // Keep the previous sidebar visible during same-space reload/hydration.
+    // Bootstrap cache or fresh middleware response below will replace it; a
+    // blank list makes remote reloads feel much slower than they are.
     loadProjects()
-  }, [loadProjects])
+  }, [loadProjects, activeSpaceId])
 
   const refreshTopicsRef = useRef<() => void>(() => {})
 

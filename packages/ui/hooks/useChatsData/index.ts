@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
 import { on, emit } from "@/lib/events"
-import { localSyncGetChats, localSyncSetChats, localSyncSubscribeChats } from "@/lib/localFirstSync"
-import { persistentCacheGet, persistentCacheSet } from "@/lib/persistentCache"
-import { invalidateMiddlewareStartupBootstrap, loadMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
+import { localSyncSetChats, localSyncSubscribeChats } from "@/lib/localFirstSync"
+import { persistentCacheSet } from "@/lib/persistentCache"
+import { invalidateMiddlewareStartupBootstrap } from "@/lib/startupBootstrap"
+import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace, visibleChatsForSpace } from "@/lib/chatListCache"
 import { MIDDLEWARE_CONNECTION_CHANGED_EVENT } from "@/lib/middleware-client"
 import { deleteWarmChatCache } from "@/lib/warmChatCache"
 import { clearCachedChatActivity, getAllCachedChatActivity, subscribeChatActivity } from "@/lib/chatActivityStore"
-import { isSubagentSessionKey } from "@/lib/subagentSession"
 import type { Chat, ActiveChat } from "@/types/chat"
 
 export type { Chat, ActiveChat }
@@ -78,14 +78,6 @@ function compareChatsByActivity(a: Chat, b: Chat) {
   return String(a.id || a.sessionKey || "").localeCompare(String(b.id || b.sessionKey || ""))
 }
 
-function visibleChatsForSpace(chats: Chat[], spaceId?: string | null) {
-  return chats.filter((chat) => {
-    if (chat.archived) return false
-    if (chat.isSubagent || chat.parentSessionKey || isSubagentSessionKey(chat.sessionKey)) return false
-    return !spaceId || chat.spaceId === spaceId
-  })
-}
-
 export function useChatsData(
   activeChat: ActiveChat | null,
   onChatClear: (chatId?: string) => void,
@@ -133,32 +125,17 @@ export function useChatsData(
       setPinnedChats(new Set(nextChats.filter((c) => c.pinned).map((c) => c.id)))
     }
     try {
-      const result = await invoke<{ chats: Chat[] }>(
-        "middleware_chats_list",
-        { input: { spaceId: spaceId ?? undefined } },
-      )
-      const active = visibleChatsForSpace(result.chats || [], requestSpaceId)
+      const cachedChats = await loadCachedChatsForSpace(requestSpaceId)
+      if (cachedChats?.length && isCurrentRequest()) applyChats(cachedChats)
+      if (!requestSpaceId) return
+
+      const active = await fetchChatsForSpace(requestSpaceId)
       if (!isCurrentRequest()) return
-      if (requestSpaceId) {
-        void persistentCacheSet(`project:${requestSpaceId}:chats`, active, {
-          ttlMs: SIDEBAR_CHAT_CACHE_TTL_MS,
-        })
-        void localSyncSetChats(
-          requestSpaceId,
-          active,
-          undefined,
-          SIDEBAR_CHAT_CACHE_TTL_MS,
-        )
-      }
       applyChats(active)
     } catch (e) {
       if (!isCurrentRequest()) return
-      const chatCacheKey = requestSpaceId ? `project:${requestSpaceId}:chats` : null
-      const localChats = requestSpaceId ? await localSyncGetChats(requestSpaceId).catch(() => null) : null
-      const cachedChats = localChats?.chats ?? (chatCacheKey ? await persistentCacheGet<Chat[]>(chatCacheKey).catch(() => null) : null)
-      const bootstrap = await loadMiddlewareStartupBootstrap().catch(() => null)
-      const fallbackChats = cachedChats ?? (bootstrap && (!requestSpaceId || bootstrap.activeSpaceId === requestSpaceId) ? bootstrap.chats : null)
-      if (fallbackChats) applyChats(visibleChatsForSpace(fallbackChats, requestSpaceId))
+      const fallbackChats = await loadCachedChatsForSpace(requestSpaceId)
+      if (fallbackChats?.length) applyChats(fallbackChats)
       console.error("[ChatsSection] load chats failed", e)
     }
   }, [spaceId])
@@ -369,23 +346,27 @@ export function useChatsData(
       })
       try {
         invalidateMiddlewareStartupBootstrap()
+        invalidateChatListCache(spaceId)
         await invoke("middleware_chats_update", {
           input: { chatId, pinned: newPinned },
         })
+        invalidateChatListCache(spaceId)
       } catch (e) {
         console.error("pin chat failed", e)
       }
     },
-    [chats, pinnedChats],
+    [chats, pinnedChats, spaceId],
   )
 
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
       try {
         invalidateMiddlewareStartupBootstrap()
+        invalidateChatListCache(spaceId)
         await invoke("middleware_chats_archive", {
           input: { chatId },
         })
+        invalidateChatListCache(spaceId)
         onChatClear(chatId)
         await loadChats()
         emit("archive:changed")
@@ -393,7 +374,7 @@ export function useChatsData(
         console.error("archive chat failed", e)
       }
     },
-    [onChatClear, loadChats],
+    [onChatClear, loadChats, spaceId],
   )
 
   const openRename = useCallback((chat: Chat) => {
@@ -406,18 +387,20 @@ export function useChatsData(
     if (!renameTarget || !renameName.trim()) return
     try {
       invalidateMiddlewareStartupBootstrap()
+      invalidateChatListCache(spaceId)
       await invoke("middleware_chats_rename", {
         input: {
           chatId: renameTarget.id,
           name: renameName.trim(),
         },
       })
+      invalidateChatListCache(spaceId)
       setRenameOpen(false)
       await loadChats()
     } catch (e) {
       console.error("rename chat failed", e)
     }
-  }, [renameTarget, renameName, loadChats])
+  }, [renameTarget, renameName, loadChats, spaceId])
 
   const openDelete = useCallback((chat: Chat) => {
     setDeleteTarget(chat)
@@ -431,6 +414,7 @@ export function useChatsData(
     setDeleting(true)
     try {
       invalidateMiddlewareStartupBootstrap()
+      invalidateChatListCache(spaceId)
       setChats((prev) => {
         const next = prev.filter((chat) => chat.id !== chatId)
         if (spaceId) {
@@ -455,6 +439,7 @@ export function useChatsData(
       await invoke("middleware_chats_delete", {
         input: { chatId },
       })
+      invalidateChatListCache(spaceId)
       if (sessionKey) {
         clearCachedChatActivity(sessionKey)
         void deleteWarmChatCache(sessionKey)
