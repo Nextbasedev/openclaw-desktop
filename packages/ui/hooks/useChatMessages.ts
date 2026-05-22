@@ -511,6 +511,10 @@ export function useChatMessages(
   }, [])
   const [hasOlderMessages, setHasOlderMessages] = useState(false)
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
+  // Track the actual oldest raw openclawSeq loaded from the middleware,
+  // independent of parseChatHistory's merged gatewayIndex which can drift
+  // forward during assistant message merging and break pagination.
+  const oldestLoadedSeqRef = useRef<number | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -1351,6 +1355,7 @@ export function useChatMessages(
     }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
+    oldestLoadedSeqRef.current = null
     let unsubscribeStream: (() => void) | null = null
     let unsubscribeV2Stream: (() => void) | null = null
     let bootstrapSettled = false
@@ -1466,7 +1471,14 @@ export function useChatMessages(
         // bundled middleware can briefly return no source/projectionVersion
         // before the first run exists, but this is still V2 bootstrap data, not
         // legacy middleware_chat_history.
-        const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory((bootstrapMessages as RawMessage[]) || []).messages))
+        // Seed oldest loaded seq from RAW bootstrap messages (before parsing)
+        // to avoid the merged gatewayIndex drift from parseChatHistory.
+        const rawBootstrapMessages = (bootstrapMessages as RawMessage[]) || []
+        const rawBootstrapSeqs = rawBootstrapMessages
+          .map((m) => m.__openclaw?.seq)
+          .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+        if (rawBootstrapSeqs.length > 0) oldestLoadedSeqRef.current = Math.min(...rawBootstrapSeqs)
+        const canonicalMessages = dedupeChatMessages(hydrateCachedAttachments(sessionKey, parseChatHistory(rawBootstrapMessages).messages))
         const inlineTools = (canonicalTools ?? []).map(inlineToolFromProjection).filter((tool): tool is InlineToolCall => Boolean(tool))
         const canonicalSpawns = inlineTools.map(subagentFromCanonicalTool).filter((spawn): spawn is SpawnedSubagent => Boolean(spawn))
         pendingToolMapRef.current = new Map(inlineTools.map((tool) => [tool.id, tool]))
@@ -2354,7 +2366,11 @@ export function useChatMessages(
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages || !hasOlderMessages) return
-    const beforeSeq = firstLoadedGatewayIndex(messagesRef.current)
+    // Use the tracked raw seq instead of the parsed/merged gatewayIndex.
+    // parseChatHistory merges consecutive assistant messages and updates
+    // gatewayIndex to the latest seq, which causes beforeSeq to point to
+    // data already loaded → pagination gets stuck.
+    const beforeSeq = oldestLoadedSeqRef.current ?? firstLoadedGatewayIndex(messagesRef.current)
     if (beforeSeq === null || beforeSeq <= 1) {
       setHasOlderMessages(false)
       return
@@ -2370,6 +2386,14 @@ export function useChatMessages(
         beforeSeq,
         limit: CHAT_OLDER_PAGE_LIMIT,
       })
+      // Track the actual oldest raw seq from the API response
+      const rawSeqs = page.messages.map((m) => m.openclawSeq).filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+      if (rawSeqs.length > 0) {
+        const pageOldest = Math.min(...rawSeqs)
+        oldestLoadedSeqRef.current = oldestLoadedSeqRef.current !== null
+          ? Math.min(oldestLoadedSeqRef.current, pageOldest)
+          : pageOldest
+      }
       const olderMessages = hydrateCachedAttachments(
         sessionKey,
         parseChatHistory(projectedPageRowsToRawMessages(page.messages)).messages
@@ -2381,7 +2405,7 @@ export function useChatMessages(
       setMessages((current) => dedupeChatMessages([...olderMessages, ...current]))
       setHasOlderMessages(
         page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
-        canLoadOlderThanFirstMessage(olderMessages)
+        (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
       requestAnimationFrame(() => {
         const nextEl = scrollContainerRef.current
