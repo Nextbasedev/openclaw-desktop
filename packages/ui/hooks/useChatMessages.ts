@@ -6,7 +6,7 @@ import type { SetStateAction } from "react"
 import { invoke, streamUrl } from "@/lib/ipc"
 import { useQueryClient } from "@tanstack/react-query"
 import { flushSync } from "react-dom"
-import { invalidateDedupe } from "@/lib/requestDedupe"
+import { dedupeRequest, invalidateDedupe } from "@/lib/requestDedupe"
 import {
   inferRestoredChatStatus,
   statusFromBackendSession,
@@ -308,10 +308,23 @@ async function fetchChatBootstrap(
   }
 }
 
+const CHAT_BRANCH_DATA_TTL_MS = 30_000
+
+function currentMiddlewareConnectionKey(): string {
+  if (typeof window === "undefined") return "server"
+  const url = window.localStorage.getItem("openclaw.middleware.url")?.trim() ?? ""
+  const token = window.localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
+  return url ? `${url}|${token ? "token" : "no-token"}` : "default"
+}
+
 async function fetchChatBranchData(sessionKey: string) {
-  return invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
-    input: { sourceSessionKey: sessionKey },
-  }).catch(() => ({ branches: [] }))
+  return dedupeRequest(
+    `chat-branch-data:${currentMiddlewareConnectionKey()}:${sessionKey}`,
+    () => invoke<{ branches: BranchSummary[] }>("middleware_branch_list", {
+      input: { sourceSessionKey: sessionKey },
+    }),
+    { ttlMs: CHAT_BRANCH_DATA_TTL_MS },
+  ).catch(() => ({ branches: [] }))
 }
 
 function isKnownEmptyBootstrap(data: ChatBootstrapData | null | undefined) {
@@ -504,8 +517,16 @@ function attachmentLogMeta(attachments: ChatComposerSubmit["attachments"] | unde
 }
 
 async function loadFreshChatBootstrap(sessionKey: string): Promise<ChatBootstrapData> {
-  invalidateDedupe(`chat-bootstrap:${sessionKey}`)
-  return fetchStableChatBootstrap(sessionKey)
+  // React dev/StrictMode and rapid tab switches can mount the same ChatView
+  // twice within milliseconds. Coalesce those identical bootstrap requests so
+  // the browser does not spend its send budget fetching the same 500KB-1MB
+  // history window repeatedly. Explicit recovery paths still invalidate this
+  // key before refetching.
+  return dedupeRequest(
+    `chat-bootstrap:${sessionKey}:${currentMiddlewareConnectionKey()}`,
+    () => fetchStableChatBootstrap(sessionKey),
+    { ttlMs: 2_000 },
+  )
 }
 
 export function useChatMessages(

@@ -24,6 +24,7 @@ import {
   visibleMessages,
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
+import { dedupeRequest } from "@/lib/requestDedupe"
 import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
 import { frontendLog } from "@/lib/clientLogs"
@@ -444,17 +445,28 @@ export function ChatView({
   }>({ pins: [], loaded: false })
 
   useEffect(() => {
+    let cancelled = false
     // Reset everything when the session changes
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
 
-    invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
-      "middleware_pins_list",
-      {
-        sessionKey,
-      }
+    const connectionKey = (() => {
+      if (typeof window === "undefined") return "server"
+      const url = window.localStorage.getItem("openclaw.middleware.url")?.trim() ?? ""
+      const token = window.localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
+      return url ? `${url}|${token ? "token" : "no-token"}` : "default"
+    })()
+
+    dedupeRequest(
+      `chat-pins:${connectionKey}:${sessionKey}`,
+      () => invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
+        "middleware_pins_list",
+        { sessionKey },
+      ),
+      { ttlMs: 30_000 },
     )
       .then((res) => {
+        if (cancelled) return
         const pins = Array.isArray(res?.pins) ? res.pins : []
         setDbPins({ pins, loaded: true })
         // Apply fetched pins immediately. If IDs match exactly, they'll show up.
@@ -465,8 +477,12 @@ export function ChatView({
         }))
       })
       .catch(() => {
-        setDbPins({ pins: [], loaded: true })
+        if (!cancelled) setDbPins({ pins: [], loaded: true })
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [sessionKey])
 
   // Reconcile DB pins against the loaded messages.
