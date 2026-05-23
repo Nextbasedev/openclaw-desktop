@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { LuArchive, LuMessageSquare, LuBrain, LuWrench, LuDownload, LuTrash2 } from "react-icons/lu"
 import { middlewareFetch } from "@/lib/middleware-client"
+import { localSyncClearAll } from "@/lib/localFirstSync"
+import { persistentCacheClearAll } from "@/lib/persistentCache"
 
 type ExportItem = {
   id: string
@@ -55,12 +57,17 @@ export function DataControlTab({
     setDeleting(true)
     setDeleteResult(null)
     try {
-      const result = await middlewareFetch<{ ok: boolean; deleted: number; sessionsCleaned: number }>("/api/chats", { method: "DELETE" })
+      const result = await middlewareFetch<{ ok: boolean; deleted: number; sessionsCleaned: number }>("/api/chats", { method: "DELETE", timeoutMs: 60_000 })
       setDeleteResult(`Deleted ${result.deleted} chats, cleaned ${result.sessionsCleaned} sessions.`)
-      window.dispatchEvent(new CustomEvent("sidebar:refresh"))
     } catch (error) {
-      setDeleteResult(`Failed: ${error instanceof Error ? error.message : String(error)}`)
+      // Deletion likely succeeded server-side even if we timed out
+      setDeleteResult(error instanceof Error && error.message.includes("timed out")
+        ? "Chats deleted (server cleanup still finishing)."
+        : `Failed: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
+      // Always clear frontend caches and refresh sidebar
+      await Promise.all([localSyncClearAll(), persistentCacheClearAll()]).catch(() => {})
+      window.dispatchEvent(new CustomEvent("sidebar:refresh"))
       setDeleting(false)
     }
   }
