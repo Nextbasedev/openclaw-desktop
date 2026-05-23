@@ -1918,8 +1918,16 @@ const BOOTSTRAP_STALE_SERVE_MS = 5 * 60 * 1000; // serve stale up to 5min, alway
 /** Clear the syncGatewaySessions cache. Exported for test isolation. */
 export function clearSyncGatewaySessionsCache() { syncGatewaySessionsCache = null; }
 
-/** Invalidate bootstrap/chats cache so next request syncs fresh. */
-export function invalidateBootstrapCache() { lastFullSyncAtMs = 0; }
+/** Trigger a background sync on the next bootstrap/chats request.
+ *  Does NOT reset lastFullSyncAtMs to 0 — that would force a blocking sync
+ *  even though compatState already has the mutation applied in-memory.
+ *  Instead, we set the timestamp to an old-but-nonzero value so the next
+ *  request serves immediately from compatState and syncs in background. */
+export function invalidateBootstrapCache() {
+  // Set to 1ms — nonzero (so we serve from compatState) but old enough
+  // that the next request triggers a background sync.
+  if (lastFullSyncAtMs > 0) lastFullSyncAtMs = 1;
+}
 
 /** Clear bootstrap cache for test isolation. */
 export function clearBootstrapCacheForTests() { lastFullSyncAtMs = 0; }
