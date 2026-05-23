@@ -1,6 +1,8 @@
 "use client"
 
-import { LuArchive, LuMessageSquare, LuBrain, LuWrench, LuDownload } from "react-icons/lu"
+import { useState } from "react"
+import { LuArchive, LuMessageSquare, LuBrain, LuWrench, LuDownload, LuTrash2 } from "react-icons/lu"
+import { middlewareFetch } from "@/lib/middleware-client"
 
 type ExportItem = {
   id: string
@@ -45,6 +47,24 @@ export function DataControlTab({
   items = EXPORT_ITEMS,
   onExport,
 }: DataControlTabProps) {
+  const [deleting, setDeleting] = useState(false)
+  const [deleteResult, setDeleteResult] = useState<string | null>(null)
+
+  async function handleDeleteAllChats() {
+    if (!confirm("Delete ALL chats? This removes all desktop and imported Telegram chats, messages, and projections. This cannot be undone.")) return
+    setDeleting(true)
+    setDeleteResult(null)
+    try {
+      const result = await middlewareFetch<{ ok: boolean; deleted: number; sessionsCleaned: number }>("/api/chats", { method: "DELETE" })
+      setDeleteResult(`Deleted ${result.deleted} chats, cleaned ${result.sessionsCleaned} sessions.`)
+      window.dispatchEvent(new CustomEvent("sidebar:refresh"))
+    } catch (error) {
+      setDeleteResult(`Failed: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -88,6 +108,40 @@ export function DataControlTab({
             </div>
           )
         })}
+      </div>
+
+      <div className="mt-4">
+        <h2 className="text-lg font-semibold text-foreground">Danger Zone</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Destructive actions that cannot be undone.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-red-500/30 bg-red-500/5">
+        <div className="flex items-center gap-4 px-5 py-4">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
+            <LuTrash2 size={15} />
+          </span>
+          <div className="flex flex-1 flex-col gap-0.5">
+            <span className="text-[13px] font-medium text-foreground">Delete All Chats</span>
+            <span className="text-[11px] leading-tight text-muted-foreground">
+              Removes all desktop and imported chats, messages, and cached data. Start fresh.
+            </span>
+            {deleteResult && (
+              <span className={`mt-1 text-[11px] ${deleteResult.startsWith('Failed') ? 'text-red-400' : 'text-green-400'}`}>
+                {deleteResult}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleDeleteAllChats}
+            disabled={deleting}
+            className="cursor-pointer rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[12px] font-medium text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+          >
+            {deleting ? "Deleting..." : "Delete All"}
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -3571,6 +3571,33 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return deleteCompatChat(context, request.params.chatId);
   });
 
+  app.delete("/api/chats", async () => {
+    const allChats = compatState.chats.filter(notDeleted);
+    const deletedIds: string[] = [];
+    for (const chat of allChats) {
+      deleteCompatChat(context, chat.id);
+      deletedIds.push(chat.id);
+    }
+    // Also clear SQLite message projections for all deleted sessions
+    const sessionKeys = allChats.map((c) => c.sessionKey).filter(Boolean);
+    for (const sk of sessionKeys) {
+      try {
+        const session = context.messages.getSession(sk);
+        if (session) {
+          // Delete all messages for this session
+          const segments = context.db.prepare("SELECT segment_id FROM v2_chat_segments WHERE session_key = ?").all(sk) as Array<{ segment_id: string }>;
+          for (const seg of segments) {
+            context.messages.deleteMessagesForSegment(seg.segment_id);
+          }
+          context.db.prepare("DELETE FROM v2_chat_segments WHERE session_key = ?").run(sk);
+          context.db.prepare("DELETE FROM v2_sessions WHERE session_key = ?").run(sk);
+          context.db.prepare("DELETE FROM v2_archive_imports WHERE session_key = ?").run(sk);
+        }
+      } catch {}
+    }
+    return { ok: true, deleted: deletedIds.length, sessionsCleaned: sessionKeys.length };
+  });
+
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const sessionKey = body.sessionKey ?? null;
