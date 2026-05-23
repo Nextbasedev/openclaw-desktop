@@ -1913,6 +1913,7 @@ let syncGatewaySessionsCache: { promise: Promise<void>; expiresAtMs: number } | 
 const SYNC_GATEWAY_CACHE_TTL_MS = 5_000;
 let lastFullSyncAtMs = 0;
 const BOOTSTRAP_FRESH_MS = 30_000;
+const BOOTSTRAP_STALE_SERVE_MS = 5 * 60 * 1000; // serve stale up to 5min, always sync in background
 
 /** Clear the syncGatewaySessions cache. Exported for test isolation. */
 export function clearSyncGatewaySessionsCache() { syncGatewaySessionsCache = null; }
@@ -3361,13 +3362,15 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.get("/api/bootstrap", async () => {
     const gateway = await connectGatewayForStatus(context);
     const syncAge = Date.now() - lastFullSyncAtMs;
-    if (lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_FRESH_MS) {
-      // bootstrap served from cached compatState
+    const hasAnyCachedState = lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_STALE_SERVE_MS;
+    if (hasAnyCachedState) {
+      // Serve from in-memory compatState immediately, sync in background
       void syncGatewaySessions(context).then(() => {
         lastFullSyncAtMs = Date.now();
         applyProjectedChatActivity(context);
       }).catch(() => {});
     } else {
+      // First load or cache too old — must sync blocking
       await syncGatewaySessions(context);
       lastFullSyncAtMs = Date.now();
       applyProjectedChatActivity(context);
@@ -3463,7 +3466,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.get("/api/chats", async (request) => {
     const syncAge = Date.now() - lastFullSyncAtMs;
-    if (lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_FRESH_MS) {
+    const hasAnyCachedState = lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_STALE_SERVE_MS;
+    if (hasAnyCachedState) {
       // chats served from cached compatState
       void syncGatewaySessions(context).then(() => {
         lastFullSyncAtMs = Date.now();
@@ -3649,7 +3653,8 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.get("/api/sessions", async (request) => {
     const syncAge = Date.now() - lastFullSyncAtMs;
-    if (lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_FRESH_MS) {
+    const hasAnyCachedState = lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_STALE_SERVE_MS;
+    if (hasAnyCachedState) {
       // sessions served from cached compatState
       void syncGatewaySessions(context).then(() => {
         lastFullSyncAtMs = Date.now();
