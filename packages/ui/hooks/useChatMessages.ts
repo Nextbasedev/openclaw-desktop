@@ -313,7 +313,7 @@ async function fetchChatBootstrap(
   }
 }
 
-const CHAT_BRANCH_DATA_TTL_MS = 30_000
+const CHAT_BRANCH_DATA_TTL_MS = 60_000
 
 function currentMiddlewareConnectionKey(): string {
   if (typeof window === "undefined") return "server"
