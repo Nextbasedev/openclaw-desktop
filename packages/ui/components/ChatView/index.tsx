@@ -1256,19 +1256,13 @@ export function ChatView({
     // Message not loaded yet — load older messages until we reach it
     if (seq && seq > 0 && hasOlderMessages) {
       void (async () => {
-        // Load up to 5 pages to find the message
         for (let attempt = 0; attempt < 5; attempt++) {
           await loadOlderMessages()
-          // Wait for React to process the new messages
-          await new Promise((r) => setTimeout(r, 200))
+          // Wait for React to render the new messages into the DOM
+          await new Promise((r) => setTimeout(r, 500))
           const el = document.getElementById(`message-${messageId}`)
           if (el) {
             el.scrollIntoView({ behavior: "smooth", block: "center" })
-            return
-          }
-          const idx = renderedMessages.findIndex((m) => m.messageId === messageId)
-          if (idx >= 0 && virtuosoRef.current) {
-            virtuosoRef.current.scrollToIndex({ index: idx, behavior: "smooth", align: "center" })
             return
           }
         }
