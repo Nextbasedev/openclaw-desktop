@@ -133,9 +133,39 @@ export function clearMiddlewareConnection() {
   localStorage.setItem("jarvis.gatewayActive", "false")
   clearWorkspaceScopeCache()
   syncDesktopBackendMode(null)
+  // Clear ALL cached data from the previous connection
+  void clearAllConnectionCaches()
   if (previous) {
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: previous.url } }))
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: null } }))
+  }
+}
+
+async function clearAllConnectionCaches() {
+  try {
+    // Clear persisted cache (IndexedDB + localStorage)
+    const { persistentCacheClearAll } = await import("./persistentCache")
+    await persistentCacheClearAll()
+    // Clear startup bootstrap cache
+    const { invalidateMiddlewareStartupBootstrap } = await import("./startupBootstrap")
+    invalidateMiddlewareStartupBootstrap()
+    // Clear chat list cache
+    const { invalidateChatListCache } = await import("./chatListCache")
+    invalidateChatListCache()
+    // Clear request dedupe
+    const { clearDedupeForTests: clearDedupe } = await import("./requestDedupe")
+    clearDedupe()
+    // Clear patch stream cursor
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("openclaw:patchCursor:") || key.startsWith("openclaw-ui-cache:")) {
+        localStorage.removeItem(key)
+      }
+    }
+    frontendLog("connection", "middleware.caches-cleared", {}, "info")
+  } catch (error) {
+    frontendLog("connection", "middleware.caches-clear-fail", {
+      error: error instanceof Error ? error.message : String(error),
+    }, "warn")
   }
 }
 
