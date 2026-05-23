@@ -318,22 +318,24 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
   }
 
   // Periodic health check — detect silent WS disconnects
-  const healthCheckInterval = window.setInterval(() => safeReconnect("health-check.dead"), 15_000)
+  const healthCheckInterval = typeof window !== "undefined" && window.setInterval
+    ? window.setInterval(() => safeReconnect("health-check.dead"), 15_000)
+    : null
 
   // Reconnect on app focus — OS may have killed the socket while backgrounded
   const handleVisibilityChange = () => {
     if (document.hidden) return
     safeReconnect("focus-reconnect")
   }
-  document.addEventListener("visibilitychange", handleVisibilityChange)
-  window.addEventListener("focus", handleVisibilityChange)
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", handleVisibilityChange)
+  if (typeof window !== "undefined") window.addEventListener("focus", handleVisibilityChange)
 
   return () => {
     closedByCaller = true
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
-    window.clearInterval(healthCheckInterval)
-    document.removeEventListener("visibilitychange", handleVisibilityChange)
-    window.removeEventListener("focus", handleVisibilityChange)
+    if (healthCheckInterval) window.clearInterval(healthCheckInterval)
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleVisibilityChange)
+    if (typeof window !== "undefined") window.removeEventListener("focus", handleVisibilityChange)
     frontendLog("stream", "patch-stream.unsubscribe", { afterCursor: cursor }, "debug")
     ws?.close()
   }

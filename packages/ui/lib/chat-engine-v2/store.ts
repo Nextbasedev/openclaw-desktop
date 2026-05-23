@@ -1063,9 +1063,11 @@ function patchShouldMoveSidebar(frame: PatchFrame | undefined) {
 // 20-40 re-renders from a burst of chat.tool.update patches.
 const pendingNotifications = new Map<string, { frame?: PatchFrame; sidebarEvents: Array<{ at?: string; text?: string | null }> }>()
 let batchRafId: number | null = null
+let batchTimeoutId: ReturnType<typeof setTimeout> | null = null
 
 function flushNotifications() {
   batchRafId = null
+  if (batchTimeoutId !== null) { clearTimeout(batchTimeoutId); batchTimeoutId = null }
   const batch = new Map(pendingNotifications)
   pendingNotifications.clear()
   for (const [sessionKey, pending] of batch) {
@@ -1081,6 +1083,17 @@ function flushNotifications() {
     const snapshot = cloneState(state)
     for (const listener of callbacks) listener(snapshot, pending.frame)
   }
+}
+
+// Flush pending notifications when app returns from background
+// (rAF doesn't fire while backgrounded, so notifications accumulate)
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && pendingNotifications.size > 0) {
+      frontendLog("stream", "batch.flush-on-foreground", { pendingCount: pendingNotifications.size }, "debug")
+      flushNotifications()
+    }
+  })
 }
 
 function notify(sessionKey: string, frame?: PatchFrame) {
@@ -1108,6 +1121,13 @@ function notify(sessionKey: string, frame?: PatchFrame) {
   }
   if (batchRafId === null && typeof requestAnimationFrame !== "undefined") {
     batchRafId = requestAnimationFrame(flushNotifications)
+    // Fallback: if rAF doesn't fire within 100ms (backgrounded tab), use setTimeout
+    if (batchTimeoutId === null) {
+      batchTimeoutId = setTimeout(() => {
+        batchTimeoutId = null
+        if (pendingNotifications.size > 0) flushNotifications()
+      }, 100)
+    }
   } else if (batchRafId === null) {
     // SSR / test environment fallback — notify synchronously
     flushNotifications()
@@ -1646,6 +1666,10 @@ export function clearGlobalChatEngineForTests() {
     cancelAnimationFrame(batchRafId)
     batchRafId = null
   }
+  if (batchTimeoutId !== null) {
+    clearTimeout(batchTimeoutId)
+    batchTimeoutId = null
+  }
   lastReceivedCursor = 0
 }
 
@@ -1654,6 +1678,10 @@ export function flushPatchNotifications() {
   if (batchRafId !== null) {
     cancelAnimationFrame(batchRafId)
     batchRafId = null
+  }
+  if (batchTimeoutId !== null) {
+    clearTimeout(batchTimeoutId)
+    batchTimeoutId = null
   }
   flushNotifications()
 }
