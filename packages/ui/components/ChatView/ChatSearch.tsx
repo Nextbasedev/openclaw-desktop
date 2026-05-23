@@ -17,6 +17,41 @@ interface ChatSearchProps {
   onHighlightMessage?: (messageId: string | null) => void
 }
 
+/** Use CSS Custom Highlight API to highlight matched text in the DOM */
+function highlightTextInElement(messageId: string, query: string) {
+  if (!query.trim() || typeof CSS === "undefined" || !("highlights" in CSS)) return
+  try {
+    const el = document.getElementById(`message-${messageId}`)
+    if (!el) return
+    const treeWalker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    const ranges: Range[] = []
+    const lower = query.toLowerCase()
+    while (treeWalker.nextNode()) {
+      const node = treeWalker.currentNode
+      const text = node.textContent?.toLowerCase() ?? ""
+      let startIdx = 0
+      while (startIdx < text.length) {
+        const idx = text.indexOf(lower, startIdx)
+        if (idx < 0) break
+        const range = new Range()
+        range.setStart(node, idx)
+        range.setEnd(node, idx + query.length)
+        ranges.push(range)
+        startIdx = idx + query.length
+      }
+    }
+    ;(CSS as any).highlights.set("chat-search", new (globalThis as any).Highlight(...ranges))
+  } catch {}
+}
+
+function clearTextHighlight() {
+  try {
+    if (typeof CSS !== "undefined" && "highlights" in CSS) {
+      ;(CSS as any).highlights.delete("chat-search")
+    }
+  } catch {}
+}
+
 export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMessage, onHighlightMessage }: ChatSearchProps) {
   const [query, setQuery] = useState("")
   const [matches, setMatches] = useState<SearchMatch[]>([])
@@ -33,6 +68,7 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
       setMatches([])
       setActiveIndex(0)
       onHighlightMessage?.(null)
+      clearTextHighlight()
     }
   }, [open])
 
@@ -79,6 +115,7 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
           if (merged.length > 0) {
             onScrollToMessage(merged[0].messageId, merged[0].seq)
             onHighlightMessage?.(merged[0].messageId)
+            setTimeout(() => highlightTextInElement(merged[0].messageId, q), 600)
           }
         } else {
           setMatches(localMatches)
@@ -86,6 +123,7 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
           if (localMatches.length > 0) {
             onScrollToMessage(localMatches[0].messageId, localMatches[0].seq)
             onHighlightMessage?.(localMatches[0].messageId)
+            setTimeout(() => highlightTextInElement(localMatches[0].messageId, q), 600)
           }
         }
       } catch {
@@ -102,6 +140,7 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
         if (found.length > 0) {
           onScrollToMessage(found[0].messageId, found[0].seq)
           onHighlightMessage?.(found[0].messageId)
+          setTimeout(() => highlightTextInElement(found[0].messageId, q), 600)
         }
       } finally {
         setSearching(false)
@@ -117,7 +156,8 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
     setActiveIndex(next)
     onScrollToMessage(matches[next].messageId, matches[next].seq)
     onHighlightMessage?.(matches[next].messageId)
-  }, [matches, activeIndex, onScrollToMessage, onHighlightMessage])
+    setTimeout(() => highlightTextInElement(matches[next].messageId, query), 600)
+  }, [matches, activeIndex, onScrollToMessage, onHighlightMessage, query])
 
   useEffect(() => {
     if (!open) return
