@@ -67,6 +67,7 @@ import {
 import { updateCachedBootstrapMessages, warmBootstrapMessages } from "@/lib/chat-engine-v2/bootstrapPreview"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
 import { dedupeSpawnedSubagents, ensureGlobalChatEngine, getGlobalChatSession, seedGlobalChatSession, subscribeGlobalChatSession, updateGlobalChatSessionActivity, type SessionState } from "@/lib/chat-engine-v2/store"
+import { getTimelineStore, deleteTimelineStore } from "@/lib/chat-engine-v2/timelineStore"
 import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { setSchedulerActiveSession, abortSessionRequests } from "@/lib/requestScheduler"
 import {
@@ -567,6 +568,11 @@ export function useChatMessages(
   const viewGenerationRef = useRef(0)
   const windowIdRef = useRef<string | null>(null)
   if (windowIdRef.current === null) windowIdRef.current = currentChatWindowId()
+  const timelineStoreRef = useRef(getTimelineStore(sessionKey))
+  // Initialize store with warm messages if available
+  if (initialWarmMessages && timelineStoreRef.current.size === 0) {
+    timelineStoreRef.current.applyWarmCache(initialWarmMessages, initialGlobalSession?.cursor ?? 0)
+  }
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
     () => initialWarmMessages ? dedupeChatMessages(initialWarmMessages) : []
   )
@@ -1610,6 +1616,7 @@ export function useChatMessages(
           }
         }
         setDataSource("syncing") // warm cache shown, bootstrap still loading
+        timelineStoreRef.current.applyWarmCache(cachedMessages, typeof cached.entry.cursor === "number" ? cached.entry.cursor : 0, cached.entry.messageCount)
         frontendLog("chat", "warm-cache.applied", {
           sessionKey,
           messageCount: cachedMessages.length,
@@ -1861,6 +1868,7 @@ export function useChatMessages(
         setLoading(false)
         markHistoryLoaded()
         setDataSource("fresh")
+        timelineStoreRef.current.applyBootstrap(displayMessages, typeof bootstrapCursor === "number" ? bootstrapCursor : 0, typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : displayMessages.length)
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,
@@ -1906,6 +1914,10 @@ export function useChatMessages(
             setErrorMessage(state.status === "error" ? nextStatusLabel : null)
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
+            // Feed timeline store with patch stream messages
+            for (const msg of state.messages) {
+              timelineStoreRef.current.applyPatchMessage(msg, state.cursor)
+            }
             setMessages(state.messages)
           }
         )
