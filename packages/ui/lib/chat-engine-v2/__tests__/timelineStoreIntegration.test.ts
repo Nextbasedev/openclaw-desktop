@@ -188,3 +188,91 @@ describe("ChatTimelineStore Integration", () => {
     })
   })
 })
+
+describe("method interaction pairs", () => {
+  let store: ChatTimelineStore
+  beforeEach(() => { clearAllTimelineStores(); store = new ChatTimelineStore("pair-test") })
+
+  it("applyOptimistic → applyBootstrap preserves optimistic", () => {
+    store.applyOptimistic(msg("opt-1", "sending...", 999, "user"))
+    store.flushSync()
+    store.applyBootstrap([msg("m1", "old", 1), msg("m2", "old2", 2)], 10)
+    store.flushSync()
+    const snap = store.getSnapshot()
+    // optimistic preserved + bootstrap messages = 3
+    expect(snap.messages.some(m => m.messageId === "opt-1")).toBe(true)
+    expect(snap.messages).toHaveLength(3)
+  })
+
+  it("applyOptimistic → applyBootstrap that includes confirmed version replaces optimistic", () => {
+    store.applyOptimistic(msg("opt-1", "sending...", 999, "user"))
+    store.flushSync()
+    // Bootstrap includes the confirmed version with same ID
+    store.applyBootstrap([msg("opt-1", "confirmed!", 3, "user"), msg("m1", "old", 1)], 10)
+    store.flushSync()
+    const snap = store.getSnapshot()
+    expect(snap.messages).toHaveLength(2) // not 3
+    expect(snap.messages.find(m => m.messageId === "opt-1")?.text).toBe("confirmed!")
+  })
+
+  it("applyWarmCache → applyOptimistic → applyBootstrap", () => {
+    store.applyWarmCache([msg("w1", "cached", 1)], 5)
+    store.flushSync()
+    store.applyOptimistic(msg("opt-1", "sending", 999, "user"))
+    store.flushSync()
+    store.applyBootstrap([msg("b1", "fresh", 1)], 20)
+    store.flushSync()
+    const snap = store.getSnapshot()
+    // warm cache replaced by bootstrap, optimistic preserved
+    expect(snap.messages.some(m => m.messageId === "opt-1")).toBe(true)
+    expect(snap.messages.some(m => m.messageId === "b1")).toBe(true)
+    expect(snap.messages.some(m => m.messageId === "w1")).toBe(false)
+  })
+
+  it("optimistic sorts to end, not beginning", () => {
+    store.applyBootstrap([msg("m1", "first", 1), msg("m2", "second", 2)], 10)
+    store.flushSync()
+    store.applyOptimistic(msg("opt-1", "my message", 0, "user"))
+    store.flushSync()
+    const snap = store.getSnapshot()
+    // optimistic should be LAST, not first
+    expect(snap.messages[snap.messages.length - 1].messageId).toBe("opt-1")
+  })
+
+  it("multiple optimistic messages maintain order", () => {
+    store.applyBootstrap([msg("m1", "prev", 1)], 10)
+    store.flushSync()
+    store.applyOptimistic({ ...msg("opt-1", "first send", 0, "user"), isOptimistic: true })
+    store.applyOptimistic({ ...msg("opt-2", "second send", 0, "user"), isOptimistic: true })
+    store.flushSync()
+    const snap = store.getSnapshot()
+    expect(snap.messages).toHaveLength(3)
+    expect(snap.messages[0].messageId).toBe("m1") // canonical first
+  })
+
+  it("removeMessage on optimistic message works", () => {
+    store.applyOptimistic(msg("opt-1", "oops", 999, "user"))
+    store.flushSync()
+    store.removeMessage("opt-1", 0)
+    store.flushSync()
+    expect(store.getSnapshot().messages).toHaveLength(0)
+  })
+
+  it("applyPatchMessage after bootstrap adds to existing", () => {
+    store.applyBootstrap([msg("m1", "base", 1)], 10)
+    store.flushSync()
+    store.applyPatchMessage(msg("m2", "live", 2), 11)
+    store.flushSync()
+    expect(store.getSnapshot().messages).toHaveLength(2)
+  })
+
+  it("applyBootstrap after patches clears patch data", () => {
+    store.applyPatchMessage(msg("p1", "live", 1), 15)
+    store.flushSync()
+    store.applyBootstrap([msg("b1", "fresh", 1)], 10)
+    store.flushSync()
+    // patch message cleared by bootstrap (bootstrap is authoritative set)
+    expect(store.getSnapshot().messages).toHaveLength(1)
+    expect(store.getSnapshot().messages[0].messageId).toBe("b1")
+  })
+})

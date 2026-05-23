@@ -106,7 +106,7 @@ export class ChatTimelineStore {
    * Apply an optimistic message (user send before Gateway confirms).
    */
   applyOptimistic(message: ChatMessage) {
-    this.messageMap.set(message.messageId, message)
+    this.messageMap.set(message.messageId, { ...message, isOptimistic: true })
     this.messageCount = Math.max(this.messageCount, this.messageMap.size)
     this.scheduleNotify()
   }
@@ -176,11 +176,11 @@ export class ChatTimelineStore {
 
   private getSortedMessages(): ChatMessage[] {
     const msgs = Array.from(this.messageMap.values())
-    // Optimistic messages (no gatewayIndex) sort to the END (after all canonical messages)
-    const maxSeq = msgs.reduce((max, m) => Math.max(max, m.gatewayIndex ?? 0), 0)
+    // Optimistic messages always sort to the END (after all canonical messages)
+    const maxSeq = msgs.reduce((max, m) => m.isOptimistic ? max : Math.max(max, m.gatewayIndex ?? 0), 0)
     msgs.sort((a, b) => {
-      const seqA = a.gatewayIndex ?? (a.isOptimistic ? maxSeq + 1 : 0)
-      const seqB = b.gatewayIndex ?? (b.isOptimistic ? maxSeq + 1 : 0)
+      const seqA = a.isOptimistic ? maxSeq + 1 : (a.gatewayIndex ?? 0)
+      const seqB = b.isOptimistic ? maxSeq + 1 : (b.gatewayIndex ?? 0)
       return seqA - seqB
     })
     return msgs
