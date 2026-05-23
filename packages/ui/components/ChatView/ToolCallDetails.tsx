@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { cn } from "@/lib/utils"
+import { middlewareFetch } from "@/lib/middleware-client"
 import type { InlineToolCall } from "./types"
 
 function isInferredFallbackResult(value: unknown) {
@@ -111,13 +112,33 @@ export function ToolCallDetails({
   inputText,
   outputText,
   fullOutputText,
+  sessionKey,
 }: {
   call: InlineToolCall
   inputText: string
   outputText: string
   fullOutputText?: string
+  sessionKey?: string
 }) {
   const [showFull, setShowFull] = useState(false)
+  const [fetchedFullText, setFetchedFullText] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
+
+  const fetchFullResult = useCallback(async () => {
+    if (fetchedFullText || !sessionKey || !call.id) return
+    setFetching(true)
+    try {
+      const result = await middlewareFetch<{ ok: boolean; text: string }>(
+        `/api/chat/tool-result?sessionKey=${encodeURIComponent(sessionKey)}&toolCallId=${encodeURIComponent(call.id)}`,
+        { timeoutMs: 30_000 }
+      )
+      if (result.ok && result.text) setFetchedFullText(result.text)
+    } catch {} finally {
+      setFetching(false)
+    }
+  }, [sessionKey, call.id, fetchedFullText])
+
+  const effectiveFullText = fetchedFullText ?? fullOutputText
   const showWaitingForOutput = !outputText && call.status === "running"
   const showEmptyState = !inputText && !outputText && call.status !== "running"
   const showDivider = Boolean(
@@ -140,17 +161,21 @@ export function ToolCallDetails({
                 <DetailBlock
                   label={call.status === "error" ? "Error" : "Output"}
                   tone={call.status === "error" ? "error" : "success"}
-                  expanded={showFull && Boolean(fullOutputText)}
+                  expanded={showFull && Boolean(effectiveFullText)}
                 >
-                  {showFull && fullOutputText ? fullOutputText : outputText}
+                  {showFull && effectiveFullText ? effectiveFullText : outputText}
                 </DetailBlock>
-                {fullOutputText && (
+                {(fullOutputText || (outputText.includes("(truncated)") && sessionKey)) && (
                   <button
                     type="button"
-                    onClick={() => setShowFull((v) => !v)}
-                    className="w-full bg-black/10 px-5 py-1.5 text-center text-[11px] font-medium text-[#93C5FD]/75 hover:bg-black/20 hover:text-[#93C5FD] transition-colors"
+                    onClick={() => {
+                      if (!showFull && !effectiveFullText) void fetchFullResult()
+                      setShowFull((v) => !v)
+                    }}
+                    disabled={fetching}
+                    className="w-full bg-black/10 px-5 py-1.5 text-center text-[11px] font-medium text-[#93C5FD]/75 hover:bg-black/20 hover:text-[#93C5FD] transition-colors disabled:opacity-50"
                   >
-                    {showFull ? "Collapse output" : `Show full output (${Math.round(fullOutputText.length / 1024)}KB)`}
+                    {fetching ? "Loading full output…" : showFull ? "Collapse output" : effectiveFullText ? `Show full output (${Math.round(effectiveFullText.length / 1024)}KB)` : "Fetch full output"}
                   </button>
                 )}
               </>

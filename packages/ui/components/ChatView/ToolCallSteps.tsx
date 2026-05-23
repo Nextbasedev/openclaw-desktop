@@ -32,6 +32,7 @@ function ToolRow({
   onSelect,
   onInteract,
   onResolveApproval,
+  sessionKey,
 }: {
   call: InlineToolCall
   open: boolean
@@ -42,6 +43,7 @@ function ToolRow({
     approvalId: string,
     decision: ApprovalDecision
   ) => Promise<void> | void
+  sessionKey?: string
 }) {
   const { inputText, outputText, fullOutputText, hasDetails } = getToolDetailState(call)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
@@ -144,6 +146,7 @@ function ToolRow({
                 inputText={inputText}
                 outputText={outputText}
                 fullOutputText={fullOutputText}
+                sessionKey={sessionKey}
               />
             </div>
           </div>
@@ -205,11 +208,13 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   onSelectTool,
   onInteract,
   onResolveApproval,
+  sessionKey,
 }: {
   tools: InlineToolCall[]
   defaultOpen?: boolean
   onSelectTool?: (id: string) => void
   onInteract?: () => void
+  sessionKey?: string
   onResolveApproval?: (
     approvalId: string,
     decision: ApprovalDecision
@@ -254,6 +259,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
             onSelect={onSelectTool}
             onInteract={onInteract}
             onResolveApproval={onResolveApproval}
+            sessionKey={sessionKey}
           />
         </div>
       </div>
@@ -308,6 +314,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
                   onSelect={onSelectTool}
                   onInteract={onInteract}
                   onResolveApproval={onResolveApproval}
+                  sessionKey={sessionKey}
                 />
               ))}
               <button

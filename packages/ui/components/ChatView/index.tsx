@@ -1329,6 +1329,7 @@ export function ChatView({
                       defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
                       onSelectTool={onSelectTool}
                       onResolveApproval={resolveExecApproval}
+                      sessionKey={sessionKey}
                     />
                   </div>
                 )
@@ -1379,6 +1380,7 @@ export function ChatView({
                 defaultOpen
                 onSelectTool={onSelectTool}
                 onResolveApproval={resolveExecApproval}
+                sessionKey={sessionKey}
               />
             </div>
           )}

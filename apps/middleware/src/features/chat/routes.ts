@@ -1389,4 +1389,55 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       messageCount: messages.length,
     };
   });
+
+  app.get("/api/chat/tool-result", async (request) => {
+    const parsed = z.object({
+      sessionKey: z.string().min(1),
+      toolCallId: z.string().min(1),
+    }).safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid tool result query", "INVALID_QUERY", parsed.error.flatten());
+    }
+    const { sessionKey, toolCallId } = parsed.data;
+    log.info("tool-result.fetch.start", { sessionKey, toolCallId });
+
+    // First try local SQLite projection (fast)
+    const localMessages = context.messages.listMessages(sessionKey, { limit: 1000 });
+    for (const msg of localMessages) {
+      const data = msg.data as Record<string, unknown>;
+      if ((data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") &&
+          (data.tool_call_id === toolCallId || data.toolCallId === toolCallId)) {
+        const content = data.content ?? data.text ?? data.output;
+        const text = typeof content === "string" ? content
+          : Array.isArray(content) ? content.map((c: unknown) => typeof c === "string" ? c : (c as Record<string, unknown>)?.text ?? "").join("\n")
+          : typeof content === "object" ? JSON.stringify(content, null, 2)
+          : String(content ?? "");
+        log.info("tool-result.fetch.local", { sessionKey, toolCallId, length: text.length });
+        return { ok: true, source: "local", sessionKey, toolCallId, text };
+      }
+    }
+
+    // Fall back to Gateway history (full, untruncated)
+    try {
+      const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 500 });
+      const messages = history.messages ?? [];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i] as Record<string, unknown>;
+        if ((msg.role === "tool" || msg.role === "tool_result" || msg.role === "toolResult") &&
+            (msg.tool_call_id === toolCallId || msg.toolCallId === toolCallId)) {
+          const content = msg.content ?? msg.text ?? msg.output;
+          const text = typeof content === "string" ? content
+            : Array.isArray(content) ? content.map((c: unknown) => typeof c === "string" ? c : (c as Record<string, unknown>)?.text ?? "").join("\n")
+            : typeof content === "object" ? JSON.stringify(content, null, 2)
+            : String(content ?? "");
+          log.info("tool-result.fetch.gateway", { sessionKey, toolCallId, length: text.length });
+          return { ok: true, source: "gateway", sessionKey, toolCallId, text };
+        }
+      }
+    } catch (error) {
+      log.warn("tool-result.fetch.gateway-fail", { sessionKey, toolCallId, ...errorMeta(error) });
+    }
+
+    return { ok: false, error: { message: "Tool result not found" }, sessionKey, toolCallId, text: "" };
+  });
 }
