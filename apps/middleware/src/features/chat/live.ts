@@ -164,7 +164,33 @@ export class ChatLiveIngest {
       }
     }
     this.log.info("recent-sessions.subscribe.end", { attempted, subscribed: this.subscribed.size });
+    // Proactively repair any sessions with stale pending runs.
+    // After middleware restart, in-memory run store is wiped but Gateway may
+    // still have completed runs. Backfill history to finalize them immediately
+    // instead of waiting for the user to navigate to each chat.
+    void this.repairStaleRunsOnStartup(sessionKeys);
     return { attempted, subscribed: this.subscribed.size };
+  }
+
+  private async repairStaleRunsOnStartup(sessionKeys: string[]) {
+    const staleCleanup = this.context.runs.finalizeStaleActivity();
+    if (staleCleanup.runsFinalized || staleCleanup.toolsFinalized) {
+      this.log.info("startup.stale-runs-finalized", staleCleanup);
+    }
+    // Check for sessions whose SQLite projection has a pending run status
+    for (const sessionKey of sessionKeys) {
+      try {
+        const session = this.context.messages.getSession(sessionKey);
+        const data = session?.data as Record<string, unknown> | undefined;
+        const status = typeof data?.status === "string" ? data.status : null;
+        if (status && ["thinking", "streaming", "tool_running", "running", "queued"].includes(status)) {
+          this.log.info("startup.pending-session.backfill", { sessionKey, status });
+          await this.backfillHistory(sessionKey, null, "startup_pending_run_repair");
+        }
+      } catch (error) {
+        this.log.warn("startup.pending-session.backfill-fail", { sessionKey, ...errorMeta(error) });
+      }
+    }
   }
 
   diagnostics() {
