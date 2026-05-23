@@ -578,6 +578,7 @@ export function useChatMessages(
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty)
+  const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialWarmMessages ? "warm-cache" : "loading")
   const [historyLoadVersion, setHistoryLoadVersion] = useState(() =>
     initialWarmMessages?.length || initialKnownEmpty ? 1 : 0
   )
@@ -1608,6 +1609,7 @@ export function useChatMessages(
             setPendingTools(tools)
           }
         }
+        setDataSource("syncing") // warm cache shown, bootstrap still loading
         frontendLog("chat", "warm-cache.applied", {
           sessionKey,
           messageCount: cachedMessages.length,
@@ -1858,6 +1860,7 @@ export function useChatMessages(
         else clearCachedChatActivity(sessionKey)
         setLoading(false)
         markHistoryLoaded()
+        setDataSource("fresh")
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,
@@ -2839,5 +2842,6 @@ export function useChatMessages(
     markTextAnimationComplete,
     pendingTools,
     spawnedSubagents,
+    dataSource,
   }
 }

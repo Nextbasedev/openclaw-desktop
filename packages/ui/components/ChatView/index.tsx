@@ -331,6 +331,7 @@ export function ChatView({
     markTextAnimationComplete,
     pendingTools,
     spawnedSubagents,
+    dataSource,
   } = useChatMessages(sessionKey, initialMessages)
 
   const lastAssistantText = messages
@@ -1590,6 +1591,13 @@ export function ChatView({
             <span className="uppercase tracking-widest">Conversation</span>
           </div> */}
         </div>
+
+        {dataSource === "syncing" && (
+          <div className="flex items-center gap-1.5 rounded-full bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground/60">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-500/60" />
+            <span>Syncing…</span>
+          </div>
+        )}
 
         <div className="relative">
           <button
