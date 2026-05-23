@@ -391,8 +391,15 @@ export class ChatLiveIngest {
       if (fresh.length > 0) this.recentlyConfirmedUsers.set(sessionKey, fresh);
       else this.recentlyConfirmedUsers.delete(sessionKey);
     }
+    // Extract idempotency key from the incoming message if available
+    const msgOpenclaw = isObject((message.data as Record<string, unknown>).__openclaw)
+      ? (message.data as Record<string, unknown>).__openclaw as Record<string, unknown>
+      : null;
+    const msgIdempotencyKey = typeof msgOpenclaw?.idempotencyKey === "string" ? msgOpenclaw.idempotencyKey : null;
     return fresh.find((entry) => {
       if (entry.text !== text) return false;
+      // Match by idempotency key if available (most reliable)
+      if (msgIdempotencyKey && entry.idempotencyKey && msgIdempotencyKey === entry.idempotencyKey) return true;
       // Later legitimate repeated sends should have a newer sequence and their
       // own optimistic entry. A decorated Gateway echo for the already-confirmed
       // turn commonly replays with the original/lower Gateway sequence.
