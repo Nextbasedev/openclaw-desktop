@@ -1257,7 +1257,14 @@ function handlePatch(frame: PatchFrame) {
     globalCursor = Math.max(globalCursor, frame.patch.cursor)
     return
   }
-  const state = getOrCreate(sessionKey)
+  // Don't create new session state for replayed patches below globalCursor.
+  // This prevents cursor-0 replay floods from creating hundreds of empty sessions.
+  const existingState = states.get(sessionKey)
+  if (!existingState && frame.patch.cursor < globalCursor && frame.patch.type !== "chat.bootstrap") {
+    globalCursor = Math.max(globalCursor, frame.patch.cursor)
+    return
+  }
+  const state = existingState ?? getOrCreate(sessionKey)
   if (frame.patch.cursor <= state.cursor) {
     globalCursor = Math.max(globalCursor, state.cursor, frame.patch.cursor)
     const appliedStaleTool = applyStaleMatchingToolPatch(state, frame)
