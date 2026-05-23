@@ -767,7 +767,12 @@ export function ChatView({
   )
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const mountedAtRef = useRef(Date.now())
   const lastHistoryScrollVersionRef = useRef(0)
+  // Reset mount timestamp on session change
+  useEffect(() => {
+    mountedAtRef.current = Date.now()
+  }, [sessionKey])
 
   useLayoutEffect(() => {
     if (isBackgroundSession) return
@@ -1567,7 +1572,9 @@ export function ChatView({
         increaseViewportBy={{ top: 400, bottom: 200 }}
         className="flex-1"
         atTopStateChange={(atTop) => {
-          if (atTop && hasOlderMessages && !loadingOlderMessages) {
+          // Don't trigger older message loading within 1s of mount or session change
+          // — Virtuoso fires atTop immediately for short chats that fit in viewport
+          if (atTop && hasOlderMessages && !loadingOlderMessages && Date.now() - mountedAtRef.current > 1000) {
             void loadOlderMessages()
           }
         }}
