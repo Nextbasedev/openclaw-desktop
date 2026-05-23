@@ -2174,6 +2174,8 @@ export function useChatMessages(
         ...messagesRef.current.filter((m) => m.messageId !== optimisticId),
         optimisticMessage,
       ])
+      // Write optimistic to timeline store BEFORE React state
+      timelineStoreRef.current.applyOptimistic(optimisticMessage)
       flushSync(() => {
         setMessages(optimisticMessages)
         seedGlobalChatSession({
