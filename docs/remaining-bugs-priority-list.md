@@ -108,62 +108,52 @@ Last updated: 2026-05-23
 
 ## Unchecked Edge Cases (from all matrices)
 
-### From chat-rendering-edge-case-matrix.md:
-- [ ] P0-1 related: Virtuoso `atTopStateChange` fires immediately for short chats (< viewport height)
-- [ ] Windowed render + pagination: two sources of prepended messages interact
-- [ ] Rapid status changes during scroll → layout thrash from un-memoized re-renders
+### Fixed on 2026-05-23:
+- [x] Virtuoso `atTopStateChange` fires immediately for short chats → 1s delay guard (cdd5219)
+- [x] 90 patch stream updates = 90 re-renders → 16ms batching (d8e5603)
+- [x] Popover open/close re-renders all messages → MessageBubble memo with popoverOpen (5c766bb)
+- [x] Cache says `thinking` but run finished → stale run finalization (bbee789 + 39278b7)
+- [x] Cache says `tool_running` with stale tool card → stale tool filter (a3f0865)
+- [x] Gateway disconnects then reconnects → missed events → invalidate cache on reconnect (87698b7)
+- [x] Middleware restart, SQLite >10min → proactive startup repair (107bf56)
+- [x] Warm cache 'done' vs middleware 'thinking' → bootstrap metadata guard (521932b + bbee789)
+- [x] Patch stream cursor-0 replay floods UI → phantom session prevention (89869fa)
+- [x] Side metadata (branch_list) per-chat → 60s dedupe TTL (24b62c1)
+- [x] `historyCoverage:"full"` for limited windows → windowed coverage (f10ebd8)
+- [x] No `hasOlder`, `knownTotalMessages` → added to bootstrap response (f10ebd8)
+- [x] Heavy content blob storage/preview for tool outputs → collapsible output (d772647)
+
+### Remaining — Real concerns (fix individually or via ChatTimelineStore refactor):
+- [ ] Multiple cache layers return different message counts → count jumps 0→60→85
+- [ ] requestDedupe TTL prevents fresh bootstrap after rapid session change
+- [ ] IndexedDB quota exceeded → write fails silently
 - [ ] Warm cache has old message text, bootstrap has cleaned version → text flickers
-- [ ] Warm cache messages different order than bootstrap → possible scroll jump
-- [ ] 90 patch stream updates during render = 90 React re-render cycles
-- [ ] Popover open/close re-renders all messages (activePopoverId in ChatView state)
-
-### From local-first-edge-case-matrix.md:
-- [ ] Brand new chat from another client → no local projection, must fall through to Gateway
-- [ ] Chat deleted from another client → ghost data in local projection
-- [ ] Session key changed (migration) → wrong session loaded from cache
-- [ ] Network drops during background sync → partial sync state
-- [ ] Background sync updates cursor → patch stream needs to re-anchor
-- [ ] Two windows open, different cursors → state divergence between windows
-
-### From app-bootstrap-caching-edge-case-matrix.md:
-- [ ] Chat renamed from another client → old name shown in sidebar until sync
-- [ ] Chat archived from another client → still visible until sync
-- [ ] New space created from another client → not visible until sync
-- [ ] `/api/bootstrap` cached, `/api/chats` not (or vice versa) → different chat lists
-
-### From never-block-bootstrap-edge-case-matrix.md:
-- [ ] Tab for deleted chat restored → tab exists but chat is gone
-- [ ] Chat activity from Telegram changes sidebar order → stale order
 - [ ] Background sync fails silently → `compatState` stays stale
+- [ ] Chat deleted from another client → ghost data in local projection
+- [ ] Two windows open, different cursors → state divergence between windows
 - [ ] Gateway disconnected for >5min → cache expires, next request blocks
 
-### From warm-cache-indexeddb-edge-case-matrix.md:
-- [ ] Messages cached 2+ hours ago (within 24h TTL) → very stale data shown
-- [ ] Tool result text truncated in cache → shows `[Cached preview truncated]`
-- [ ] Cache says `thinking` but run finished → stale thinking indicator
-- [ ] Cache says `tool_running` with stale tool card → ghost tool
-- [ ] IndexedDB quota exceeded → write fails silently
-- [ ] 30 chats × 60 msgs × 500KB = 15MB in IndexedDB → storage pressure
-
-### From sqlite-local-first-edge-cases.md:
-- [ ] Gateway disconnects then reconnects → missed events during disconnect window
-- [ ] Gateway reconnects but session not yet re-subscribed → brief event gap
-- [ ] Middleware restart, SQLite has data from 10+ minutes ago → falls through to Gateway
-- [ ] New message arrives via live event WHILE local-first response is being built → race
-
-### From full-cache-layer-interaction-matrix.md:
-- [ ] Warm cache 'done' vs middleware 'thinking' → status flicker for 1-2 frames
-- [ ] requestDedupe TTL prevents fresh bootstrap after rapid session change
-- [ ] invalidateBootstrapCache + active syncGatewaySessionsCache promise → uses cached sync
-- [ ] Multiple cache layers return different message counts → count jumps 0→60→85
-
-### From yesterday's architecture plans:
-- [ ] Patch stream cursor-0 replay floods UI with old patches
-- [ ] Side metadata (branch_list) still fires per-chat, not globally deduped
-- [ ] Three systems mutate visible timeline independently (bootstrap/patch/warm)
-- [ ] `historyCoverage:"full"` returned for limited 160-message windows
-- [ ] No `hasOlder`, `knownTotalMessages` in bootstrap response
-- [ ] Heavy content blob storage/preview for tool outputs not implemented
+### Remaining — Low risk / by design / acceptable:
+- [ ] Windowed render + pagination: two sources of prepended messages interact (Virtuoso handles)
+- [ ] Rapid status changes during scroll → layout thrash (mitigated by memo + batching)
+- [ ] Warm cache messages different order than bootstrap (ordered by seq, stable)
+- [ ] Brand new chat from another client → falls through to Gateway (by design)
+- [ ] Session key changed (migration) → wrong session loaded (very rare)
+- [ ] Network drops during background sync → partial state (self-heals)
+- [ ] Background sync updates cursor → needs re-anchor (P2-3 cursor gap detection handles)
+- [ ] Chat renamed from another client → old name until sync (expected multi-client)
+- [ ] Chat archived from another client → still visible until sync (expected)
+- [ ] New space from another client → not visible until sync (expected)
+- [ ] `/api/bootstrap` cached, `/api/chats` not → different chat lists (5min stale max)
+- [ ] Tab for deleted chat restored → shows empty (minor)
+- [ ] Chat activity from Telegram changes sidebar order → stale (refreshes on focus)
+- [ ] Messages cached 2+ hours → very stale (syncing indicator warns user)
+- [ ] Tool result text truncated in cache → bootstrap loads full
+- [ ] 30 chats × 60 msgs × 500KB = 15MB (within browser limits)
+- [ ] Gateway reconnects but session not re-subscribed → brief gap (<1s)
+- [ ] New message via live event during local-first build → race (last-write-wins)
+- [ ] invalidateBootstrapCache + active sync promise → cached sync (5min max)
+- [ ] Three systems mutate timeline independently → ChatTimelineStore refactor planned
 
 ## Shipped Today (2026-05-22 / 2026-05-23)
 
