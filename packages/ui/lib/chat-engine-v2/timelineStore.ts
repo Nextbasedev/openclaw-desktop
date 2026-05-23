@@ -176,7 +176,13 @@ export class ChatTimelineStore {
 
   private getSortedMessages(): ChatMessage[] {
     const msgs = Array.from(this.messageMap.values())
-    msgs.sort((a, b) => (a.gatewayIndex ?? 0) - (b.gatewayIndex ?? 0))
+    // Optimistic messages (no gatewayIndex) sort to the END (after all canonical messages)
+    const maxSeq = msgs.reduce((max, m) => Math.max(max, m.gatewayIndex ?? 0), 0)
+    msgs.sort((a, b) => {
+      const seqA = a.gatewayIndex ?? (a.isOptimistic ? maxSeq + 1 : 0)
+      const seqB = b.gatewayIndex ?? (b.isOptimistic ? maxSeq + 1 : 0)
+      return seqA - seqB
+    })
     return msgs
   }
 

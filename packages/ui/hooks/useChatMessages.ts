@@ -2236,16 +2236,15 @@ export function useChatMessages(
         frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
         emit("chat:activity", { sessionKey })
         emit("chat:message-confirmed", { sessionKey })
-        // Fallback: if WS is dead, patches won't arrive. Poll bootstrap after 5s
+        // Fallback: if WS is dead, patches won't arrive. Poll bootstrap after 8s
         // to pick up the response if status is still "thinking".
+        // Uses reconcileActiveRun (lighter than setStreamGeneration which re-inits everything)
         setTimeout(() => {
           if (statusRef.current === "thinking" || statusRef.current === "streaming" || statusRef.current === "tool_running") {
             frontendLog("composer", "chat.send.fallback-poll", { sessionKey, status: statusRef.current }, "warn")
-            invalidateDedupe(`chat-bootstrap:${sessionKey}`)
-            void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
-            setStreamGeneration((v) => v + 1)
+            void reconcileActiveRun().catch(() => undefined)
           }
-        }, 5000)
+        }, 8000)
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

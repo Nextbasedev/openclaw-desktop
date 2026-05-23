@@ -301,28 +301,29 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
 
   connect()
 
+  let reconnecting = false
+  const safeReconnect = (reason: string) => {
+    if (closedByCaller || reconnecting) return
+    const state = ws?.readyState ?? WebSocket.CLOSED
+    if (state === WebSocket.OPEN) return // already connected
+    reconnecting = true
+    frontendLog("stream", `patch-stream.${reason}`, { readyState: state, cursor }, reason === "health-check.dead" ? "warn" : "info")
+    if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    reconnectAttempt = 0
+    try { ws?.close() } catch {}
+    ws = null
+    connect()
+    // Reset guard after connect starts (connect is sync, WS creation is sync)
+    reconnecting = false
+  }
+
   // Periodic health check — detect silent WS disconnects
-  const healthCheckInterval = window.setInterval(() => {
-    if (closedByCaller) return
-    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-      frontendLog("stream", "patch-stream.health-check.dead", { readyState: ws?.readyState ?? "null", cursor }, "warn")
-      // Force reconnect
-      if (reconnectTimer) window.clearTimeout(reconnectTimer)
-      reconnectAttempt = 0
-      connect()
-    }
-  }, 15_000) // Check every 15s
+  const healthCheckInterval = window.setInterval(() => safeReconnect("health-check.dead"), 15_000)
 
   // Reconnect on app focus — OS may have killed the socket while backgrounded
   const handleVisibilityChange = () => {
-    if (closedByCaller || document.hidden) return
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      frontendLog("stream", "patch-stream.focus-reconnect", { readyState: ws?.readyState ?? "null", cursor }, "info")
-      if (reconnectTimer) window.clearTimeout(reconnectTimer)
-      reconnectAttempt = 0
-      try { ws?.close() } catch {}
-      connect()
-    }
+    if (document.hidden) return
+    safeReconnect("focus-reconnect")
   }
   document.addEventListener("visibilitychange", handleVisibilityChange)
   window.addEventListener("focus", handleVisibilityChange)
