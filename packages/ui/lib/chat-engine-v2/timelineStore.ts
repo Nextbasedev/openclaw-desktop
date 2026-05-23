@@ -64,8 +64,16 @@ export class ChatTimelineStore {
    */
   applyBootstrap(messages: ChatMessage[], cursor: number, messageCount?: number) {
     // Bootstrap is authoritative — replace all messages
+    // BUT preserve optimistic messages that haven't been confirmed yet
+    const optimistic = Array.from(this.messageMap.values()).filter((m) => m.isOptimistic)
     this.messageMap.clear()
     this.mergeMessages(messages)
+    // Re-add optimistic messages not yet in bootstrap
+    for (const opt of optimistic) {
+      if (!this.messageMap.has(opt.messageId)) {
+        this.messageMap.set(opt.messageId, opt)
+      }
+    }
     this.cursor = Math.max(this.cursor, cursor)
     this.messageCount = messageCount ?? messages.length
     this.source = "bootstrap"
