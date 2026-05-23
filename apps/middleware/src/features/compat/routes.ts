@@ -3570,27 +3570,35 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.delete("/api/chats", async () => {
     const allChats = compatState.chats.filter(notDeleted);
     const deletedIds: string[] = [];
+    const sessionKeys: string[] = [];
+
     for (const chat of allChats) {
-      deleteCompatChat(context, chat.id);
+      const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
       deletedIds.push(chat.id);
+      if (sessionKey) sessionKeys.push(sessionKey);
     }
-    // Also clear SQLite message projections for all deleted sessions
-    const sessionKeys = allChats.map((c) => c.sessionKey).filter(Boolean);
+
+    // Clear compat state (local only — do NOT touch Gateway sessions)
+    compatState.chats = compatState.chats.filter((c) => !deletedIds.includes(c.id));
+    compatState.sessions = compatState.sessions.filter(
+      (s) => !sessionKeys.includes(s.sessionKey) && !sessionKeys.includes(s.key ?? "")
+    );
+    saveCompatState(context);
+
+    // Clean up local SQLite projections only
     for (const sk of sessionKeys) {
       try {
-        const session = context.messages.getSession(sk);
-        if (session) {
-          // Delete all messages for this session
-          const segments = context.db.prepare("SELECT segment_id FROM v2_chat_segments WHERE session_key = ?").all(sk) as Array<{ segment_id: string }>;
-          for (const seg of segments) {
-            context.messages.deleteMessagesForSegment(seg.segment_id);
-          }
-          context.db.prepare("DELETE FROM v2_chat_segments WHERE session_key = ?").run(sk);
-          context.db.prepare("DELETE FROM v2_sessions WHERE session_key = ?").run(sk);
-          context.db.prepare("DELETE FROM v2_archive_imports WHERE session_key = ?").run(sk);
-        }
+        context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_sessions WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_gateway_offsets WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_projection_events WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_chat_segments WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_archive_imports WHERE session_key = ?").run(sk);
       } catch {}
     }
+
     return { ok: true, deleted: deletedIds.length, sessionsCleaned: sessionKeys.length };
   });
 
