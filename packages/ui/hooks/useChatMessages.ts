@@ -71,6 +71,7 @@ import { isStopSlashCommand } from "@/lib/controlSlashCommands"
 import { setSchedulerActiveSession, abortSessionRequests } from "@/lib/requestScheduler"
 import {
   getWarmChatCache,
+  getWarmChatCacheSync,
   pruneWarmChatCache,
   setWarmChatCache,
   WARM_CHAT_WRITE_DEBOUNCE_MS,
@@ -546,16 +547,21 @@ export function useChatMessages(
   const initialCachedBootstrap = !hasInitial && !initialGlobalMessages
     ? queryClient.getQueryData<ChatBootstrapData>(queryKeys.chatBootstrap(sessionKey))
     : null
+  const initialSyncWarmCache = !hasInitial && !initialGlobalMessages && !initialCachedBootstrap
+    ? getWarmChatCacheSync(sessionKey)
+    : null
   const initialWarmMessages = hasInitial
     ? initialMessages
-    : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap)
+    : initialGlobalMessages ?? warmBootstrapMessages(undefined, initialCachedBootstrap) ?? (initialSyncWarmCache?.entry?.messages?.length ? dedupeChatMessages(initialSyncWarmCache.entry.messages) : undefined)
   const initialKnownEmpty = !hasInitial && !initialWarmMessages && (
     isAuthoritativeKnownEmptyGlobal(initialGlobalSession) || isKnownEmptyBootstrap(initialCachedBootstrap)
   )
   const initialWarmStatus = initialGlobalSession?.status ?? (
     initialCachedBootstrap?.runStatus
       ? streamStatusFromCanonicalRun(initialCachedBootstrap.runStatus)
-      : "idle"
+      : initialSyncWarmCache?.entry?.runStatus
+        ? streamStatusFromCanonicalRun(initialSyncWarmCache.entry.runStatus)
+        : "idle"
   )
   const instanceIdRef = useRef(randomId())
   const viewGenerationRef = useRef(0)

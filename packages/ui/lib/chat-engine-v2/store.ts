@@ -7,7 +7,7 @@ import { emit } from "../events"
 import { isAwaitingLiveToolResult, isInferredFallbackToolResult } from "../liveToolCalls"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
-import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
+import { setWarmChatCache, preloadWarmCacheToMemory, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type HistoryCoverageV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
@@ -1414,6 +1414,8 @@ export function ensureGlobalChatEngine(queryClient?: QueryClient) {
   if (!sweepInterval && typeof window !== "undefined") {
     sweepInterval = setInterval(() => sweepStaleGlobalChatSessions(), 60_000)
     frontendLog("session", "global-chat-engine.sweep.start", { intervalMs: 60_000 }, "debug")
+    // Preload warm cache from IndexedDB into memory for instant sync reads
+    void preloadWarmCacheToMemory().catch(() => {})
   }
   // Restore cursor from localStorage so page reloads / tab switches
   // don't replay the entire patch history from cursor 0.
