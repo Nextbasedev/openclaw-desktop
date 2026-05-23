@@ -653,6 +653,7 @@ describe("middleware app", () => {
 
     // Clear the sync cache so the second bootstrap re-evaluates compat state
     clearSyncGatewaySessionsCache();
+    clearBootstrapCacheForTests();
     const secondBootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
 
     expect(secondBootstrap.json().chats).not.toEqual(expect.arrayContaining([

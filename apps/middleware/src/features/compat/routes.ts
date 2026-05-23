@@ -313,9 +313,6 @@ function saveCompatState(context: AppContext) {
     save.run({ key: "activeSpaceId", dataJson: toJson(compatState.activeSpaceId), updatedAtMs: timestamp });
   });
   tx();
-  // Invalidate bootstrap cache so next /api/bootstrap or /api/chats
-  // request picks up the mutation immediately.
-  invalidateBootstrapCache();
 }
 
 function saveCompatCollection(context: AppContext, _collection?: CompatCollection) {
