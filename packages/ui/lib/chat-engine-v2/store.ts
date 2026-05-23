@@ -918,6 +918,10 @@ function shouldIgnoreTerminalToActiveStatus(state: SessionState, frame: PatchFra
   if (patchCarriesToolActivity(frame)) return false
   if (patchCarriesAssistantLiveActivity(frame)) return false
   if (hasActiveToolOrSubagent(state)) return false
+  // Metadata-only bootstrap replays (no full messages) should not resurrect
+  // idle/done sessions into "thinking" when local state has no messages yet.
+  // The upcoming full bootstrap will set the correct status.
+  if (frame.patch.type === "chat.bootstrap" && state.messages.length === 0) return true
   return hasAssistantAnswerAfterLatestUser(state)
 }
 
