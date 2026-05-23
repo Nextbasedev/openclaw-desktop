@@ -31,6 +31,7 @@ import { frontendLog } from "@/lib/clientLogs"
 import { currentChatWindowId, logChatViewInvariant } from "@/lib/chatTimelineDiagnostics"
 import { toast } from "react-toastify"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import {
   LuBrain,
   LuClock,
@@ -764,20 +765,8 @@ export function ChatView({
     () => visibleMessages(messages, messageActionState),
     [messages, messageActionState]
   )
-  const INITIAL_RENDER_WINDOW = 20
-  const [renderWindow, setRenderWindow] = useState(INITIAL_RENDER_WINDOW)
-  const renderedMessages = useMemo(() => {
-    if (visibleAllMessages.length <= renderWindow) return visibleAllMessages
-    return visibleAllMessages.slice(-renderWindow)
-  }, [visibleAllMessages, renderWindow])
-  // Expand render window when user scrolls near top
-  const expandRenderWindow = useCallback(() => {
-    setRenderWindow((prev) => Math.min(prev + 20, visibleAllMessages.length))
-  }, [visibleAllMessages.length])
-  // Reset render window on session change
-  useEffect(() => {
-    setRenderWindow(INITIAL_RENDER_WINDOW)
-  }, [sessionKey])
+  const renderedMessages = visibleAllMessages
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
   const lastHistoryScrollVersionRef = useRef(0)
 
   useLayoutEffect(() => {
@@ -991,10 +980,6 @@ export function ChatView({
     const el = scrollContainerRef.current
     if (el) {
       setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
-      // Expand render window when scrolling near top
-      if (el.scrollTop < 300 && renderWindow < visibleAllMessages.length) {
-        expandRenderWindow()
-      }
       if (
         hasOlderMessages &&
         !loadingOlderMessages &&
@@ -1006,20 +991,21 @@ export function ChatView({
     if (activePopoverId) setActivePopoverId(null)
   }, [
     activePopoverId,
-    expandRenderWindow,
     hasOlderMessages,
     loadOlderMessages,
     loadingOlderMessages,
     onScroll,
-    renderWindow,
     scrollContainerRef,
-    visibleAllMessages.length,
   ])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-  }, [bottomRef])
+    if (virtuosoRef.current) {
+      virtuosoRef.current.scrollToIndex({ index: renderedMessages.length - 1, behavior: "smooth", align: "end" })
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    }
+  }, [bottomRef, renderedMessages.length])
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -1571,47 +1557,50 @@ export function ChatView({
         onSubmit={handleFeedbackSubmit}
       />
 
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
-      >
-        <div className="mx-auto max-w-3xl px-4 pt-8">
-          {loadingOlderMessages && (
-            <div className="mb-4 flex justify-center text-xs text-muted-foreground">
-              Loading earlier messages…
+      <Virtuoso
+        ref={virtuosoRef}
+        data={renderedMessages}
+        initialTopMostItemIndex={renderedMessages.length > 0 ? renderedMessages.length - 1 : 0}
+        followOutput="smooth"
+        alignToBottom
+        overscan={400}
+        className="flex-1"
+        itemContent={(index, msg) => renderMessageRow(index, msg)}
+        components={{
+          Header: () => (
+            <div className="mx-auto max-w-3xl px-4 pt-8">
+              {loadingOlderMessages && (
+                <div className="mb-4 flex justify-center text-xs text-muted-foreground">
+                  Loading earlier messages…
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        {renderedMessages.map((msg, index) => (
-          <div key={msg.messageId} className="contents">
-            {renderMessageRow(index, msg)}
-          </div>
-        ))}
-        <div className="mx-auto max-w-3xl px-4 pb-8">
-          <AnimatePresence initial={false}>
-            {editPreview && (
-              <EditPreviewPanel
-                key={editPreview.branchSessionKey}
-                preview={editPreview}
-                onSelect={selectEditBranch}
-              />
-            )}
-          </AnimatePresence>
-
-          {statusText && (
-            <div className="mt-4 flex items-center pl-1">
-              <ProcessStatusIcon tool={liveTool?.tool} />
-              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                {statusText.replace(/\.{3}$/, "")}
-                <span className="thinking-ellipsis" aria-hidden="true" />
-              </span>
+          ),
+          Footer: () => (
+            <div className="mx-auto max-w-3xl px-4 pb-8">
+              <AnimatePresence initial={false}>
+                {editPreview && (
+                  <EditPreviewPanel
+                    key={editPreview.branchSessionKey}
+                    preview={editPreview}
+                    onSelect={selectEditBranch}
+                  />
+                )}
+              </AnimatePresence>
+              {statusText && (
+                <div className="mt-4 flex items-center pl-1">
+                  <ProcessStatusIcon tool={liveTool?.tool} />
+                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                    {statusText.replace(/\.{3}$/, "")}
+                    <span className="thinking-ellipsis" aria-hidden="true" />
+                  </span>
+                </div>
+              )}
+              <div ref={bottomRef} className="h-8" />
             </div>
-          )}
-
-          <div ref={bottomRef} className="h-8" />
-        </div>
-      </div>
+          ),
+        }}
+      />
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <AnimatePresence>
