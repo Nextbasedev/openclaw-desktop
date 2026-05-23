@@ -5,6 +5,7 @@ import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
+import { ChatSearch } from "./ChatSearch"
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
@@ -432,6 +433,19 @@ export function ChatView({
   const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null)
   const [pinnedPopoverOpen, setPinnedPopoverOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  // Ctrl+F / Cmd+F opens in-chat search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
   const pinButtonRef = useRef<HTMLButtonElement>(null)
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
@@ -1575,6 +1589,13 @@ export function ChatView({
         open={feedbackDialogOpen}
         onClose={() => setFeedbackDialogOpen(false)}
         onSubmit={handleFeedbackSubmit}
+      />
+
+      <ChatSearch
+        messages={renderedMessages}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onScrollToMessage={scrollToRenderedMessage}
       />
 
       <Virtuoso
