@@ -130,6 +130,26 @@ Apply this checklist to every feature that touches messaging, connections, or st
 
 ---
 
+## 9. State Store Method Interaction Matrix
+
+Every pair of store methods that modify the same state must be tested:
+
+| First call | Second call | Data loss risk? | Tested? |
+|-----------|-------------|-----------------|----------|
+| applyWarmCache | applyBootstrap | Warm cache replaced | ✅ |
+| applyBootstrap | applyPatchMessage | Patch adds on top | ✅ |
+| applyOptimistic | applyBootstrap | **Optimistic dropped** | ✅ Fixed (84bc7d4) |
+| applyOptimistic | confirmOptimistic | Optimistic replaced | ✅ |
+| applyPatchMessage | applyBootstrap | Patch data cleared | ✅ (by design) |
+| applyWarmCache | applyOptimistic | Both preserved | ✅ |
+| applyBootstrap | applyOptimistic | Optimistic added | ✅ |
+| applyOptimistic | removeMessage | Optimistic removed | ✅ |
+| applyPatchMessage | removeMessage | Message removed | ✅ |
+
+**Rule: For every new store method, test it paired with EVERY existing method.**
+
+---
+
 ## Summary: Critical gaps to fix
 
 **P0 (causes visible bugs):**
