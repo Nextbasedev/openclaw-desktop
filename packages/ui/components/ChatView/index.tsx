@@ -435,6 +435,16 @@ export function ChatView({
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null)
   const [pinnedPopoverOpen, setPinnedPopoverOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleHighlightMessage = useCallback((messageId: string | null) => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    setHighlightedMessageId(messageId)
+    if (messageId) {
+      highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(null), 2000)
+    }
+  }, [])
 
   // Ctrl+F / Cmd+F opens in-chat search
   useEffect(() => {
@@ -1333,7 +1343,7 @@ export function ChatView({
       return (
         <div
           id={`message-${msg.messageId}`}
-          className="mx-auto max-w-3xl px-4 py-2.5"
+          className={`mx-auto max-w-3xl px-4 py-2.5 transition-colors duration-500 ${highlightedMessageId === msg.messageId ? "bg-yellow-500/15 rounded-lg ring-2 ring-yellow-500/30" : ""}`}
         >
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
@@ -1613,6 +1623,7 @@ export function ChatView({
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onScrollToMessage={(id: string, seq?: number) => scrollToRenderedMessage(id, seq)}
+        onHighlightMessage={handleHighlightMessage}
       />
 
       <Virtuoso

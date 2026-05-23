@@ -14,9 +14,10 @@ interface ChatSearchProps {
   open: boolean
   onClose: () => void
   onScrollToMessage: (messageId: string, seq?: number) => void
+  onHighlightMessage?: (messageId: string | null) => void
 }
 
-export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMessage }: ChatSearchProps) {
+export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMessage, onHighlightMessage }: ChatSearchProps) {
   const [query, setQuery] = useState("")
   const [matches, setMatches] = useState<SearchMatch[]>([])
   const [activeIndex, setActiveIndex] = useState(0)
@@ -31,6 +32,7 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
       setQuery("")
       setMatches([])
       setActiveIndex(0)
+      onHighlightMessage?.(null)
     }
   }, [open])
 
@@ -74,11 +76,17 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
           }
           setMatches(merged)
           setActiveIndex(0)
-          if (merged.length > 0) onScrollToMessage(merged[0].messageId, merged[0].seq)
+          if (merged.length > 0) {
+            onScrollToMessage(merged[0].messageId, merged[0].seq)
+            onHighlightMessage?.(merged[0].messageId)
+          }
         } else {
           setMatches(localMatches)
           setActiveIndex(0)
-          if (localMatches.length > 0) onScrollToMessage(localMatches[0].messageId, localMatches[0].seq)
+          if (localMatches.length > 0) {
+            onScrollToMessage(localMatches[0].messageId, localMatches[0].seq)
+            onHighlightMessage?.(localMatches[0].messageId)
+          }
         }
       } catch {
         // Fallback to local-only search
@@ -91,7 +99,10 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
         }
         setMatches(found)
         setActiveIndex(0)
-        if (found.length > 0) onScrollToMessage(found[0].messageId, found[0].seq)
+        if (found.length > 0) {
+          onScrollToMessage(found[0].messageId, found[0].seq)
+          onHighlightMessage?.(found[0].messageId)
+        }
       } finally {
         setSearching(false)
       }
@@ -105,7 +116,8 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
       : (activeIndex - 1 + matches.length) % matches.length
     setActiveIndex(next)
     onScrollToMessage(matches[next].messageId, matches[next].seq)
-  }, [matches, activeIndex, onScrollToMessage])
+    onHighlightMessage?.(matches[next].messageId)
+  }, [matches, activeIndex, onScrollToMessage, onHighlightMessage])
 
   useEffect(() => {
     if (!open) return
