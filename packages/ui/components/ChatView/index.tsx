@@ -6,6 +6,7 @@ import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
+
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
@@ -1235,7 +1236,7 @@ export function ChatView({
     }
   }
 
-  const scrollToRenderedMessage = useCallback((messageId: string) => {
+  const scrollToRenderedMessage = useCallback((messageId: string, seq?: number) => {
     // First try direct DOM scroll (message already rendered by Virtuoso)
     const target = document.getElementById(`message-${messageId}`)
     if (target) {
@@ -1252,8 +1253,29 @@ export function ChatView({
       })
       return true
     }
+    // Message not loaded yet — load older messages until we reach it
+    if (seq && seq > 0 && hasOlderMessages) {
+      void (async () => {
+        // Load up to 5 pages to find the message
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await loadOlderMessages()
+          // Wait for React to process the new messages
+          await new Promise((r) => setTimeout(r, 200))
+          const el = document.getElementById(`message-${messageId}`)
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" })
+            return
+          }
+          const idx = renderedMessages.findIndex((m) => m.messageId === messageId)
+          if (idx >= 0 && virtuosoRef.current) {
+            virtuosoRef.current.scrollToIndex({ index: idx, behavior: "smooth", align: "center" })
+            return
+          }
+        }
+      })()
+    }
     return false
-  }, [renderedMessages])
+  }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages])
 
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
@@ -1596,7 +1618,7 @@ export function ChatView({
         sessionKey={sessionKey}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        onScrollToMessage={scrollToRenderedMessage}
+        onScrollToMessage={(id: string, seq?: number) => scrollToRenderedMessage(id, seq)}
       />
 
       <Virtuoso

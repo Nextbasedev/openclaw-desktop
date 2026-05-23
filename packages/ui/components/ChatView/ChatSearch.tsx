@@ -13,7 +13,7 @@ interface ChatSearchProps {
   sessionKey: string
   open: boolean
   onClose: () => void
-  onScrollToMessage: (messageId: string) => void
+  onScrollToMessage: (messageId: string, seq?: number) => void
 }
 
 export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMessage }: ChatSearchProps) {
@@ -74,11 +74,11 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
           }
           setMatches(merged)
           setActiveIndex(0)
-          if (merged.length > 0) onScrollToMessage(merged[0].messageId)
+          if (merged.length > 0) onScrollToMessage(merged[0].messageId, merged[0].seq)
         } else {
           setMatches(localMatches)
           setActiveIndex(0)
-          if (localMatches.length > 0) onScrollToMessage(localMatches[0].messageId)
+          if (localMatches.length > 0) onScrollToMessage(localMatches[0].messageId, localMatches[0].seq)
         }
       } catch {
         // Fallback to local-only search
@@ -91,7 +91,7 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
         }
         setMatches(found)
         setActiveIndex(0)
-        if (found.length > 0) onScrollToMessage(found[0].messageId)
+        if (found.length > 0) onScrollToMessage(found[0].messageId, found[0].seq)
       } finally {
         setSearching(false)
       }
@@ -104,7 +104,7 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
       ? (activeIndex + 1) % matches.length
       : (activeIndex - 1 + matches.length) % matches.length
     setActiveIndex(next)
-    onScrollToMessage(matches[next].messageId)
+    onScrollToMessage(matches[next].messageId, matches[next].seq)
   }, [matches, activeIndex, onScrollToMessage])
 
   useEffect(() => {
