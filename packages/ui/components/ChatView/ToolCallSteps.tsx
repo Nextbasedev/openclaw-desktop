@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, memo } from "react"
+import { useState, useRef, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
 import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
@@ -221,6 +221,14 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   ) => Promise<void> | void
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  // If defaultOpen changes from false→true (e.g. bootstrap update), open it
+  // But never auto-close if it was already open
+  const prevDefaultOpenRef = useRef(defaultOpen)
+  if (defaultOpen && !prevDefaultOpenRef.current) {
+    // Parent now says this should be open — respect it
+    if (!open) setOpen(true)
+  }
+  prevDefaultOpenRef.current = defaultOpen
   const [openToolId, setOpenToolId] = useState<string | null>(null)
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
