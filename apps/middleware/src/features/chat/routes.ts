@@ -21,7 +21,7 @@ const bootstrapQuery = z.object({
 });
 
 
-const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
+const STALE_BOOTSTRAP_RUN_MS = 2 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
 const LOCAL_FIRST_FRESH_MS = 30_000;
 const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -251,6 +251,25 @@ function lastMessageIsAssistantText(messages: unknown[]) {
     const text = textFromMessage(data).trim();
     if (!role && !text) continue;
     return projectGatewayMessage(data).assistantHasFinalText;
+  }
+  return false;
+}
+
+/** Returns true if there's any assistant message with text after the last user message. */
+function hasAssistantResponseAfterLastUser(messages: unknown[]) {
+  let lastUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!msg || typeof msg !== "object" || Array.isArray(msg)) continue;
+    const data = msg as Record<string, unknown>;
+    if (data.role === "user") { lastUserIndex = i; break; }
+  }
+  if (lastUserIndex < 0) return false;
+  for (let i = lastUserIndex + 1; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg || typeof msg !== "object" || Array.isArray(msg)) continue;
+    const data = msg as Record<string, unknown>;
+    if (data.role === "assistant" && textFromMessage(data).trim().length > 0) return true;
   }
   return false;
 }
@@ -1285,7 +1304,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       const staleRunMs = Date.now() - activeRun.updatedAtMs;
       const staleToolMs = oldestRunningToolAgeMs(context, sessionKey, activeRun.runId);
       const shouldFinalizeStaleRun =
-        (staleRunMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) ||
+        (staleRunMs > STALE_BOOTSTRAP_RUN_MS && (lastMessageIsAssistantText(messages) || hasAssistantResponseAfterLastUser(messages))) ||
         (staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS);
       if (shouldFinalizeStaleRun) {
         const reason = staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS

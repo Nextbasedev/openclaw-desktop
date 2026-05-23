@@ -607,14 +607,26 @@ export function useChatMessages(
     if (next.length === 0) return
     persistTimerRef.current = setTimeout(() => {
       persistTimerRef.current = null
-      void setWarmChatCache(sessionKey, {
-        messages: next,
-        cursor: v2CursorRef.current,
-        runStatus: statusRef.current,
-        statusLabel: normalizeStatusLabelForStatus(statusRef.current, statusLabel),
-        pendingTools: Array.from(pendingToolMapRef.current.values()),
-        messageCount: next.length,
-      }).catch((error) => {
+      void (async () => {
+        // Don't overwrite warm cache with fewer messages (partial load)
+        const existing = await getWarmChatCache(sessionKey).catch(() => null)
+        if (existing?.entry?.messages && existing.entry.messages.length > next.length) {
+          frontendLog("chat", "warm-cache.persist.skip-fewer", {
+            sessionKey,
+            existingCount: existing.entry.messages.length,
+            newCount: next.length,
+          }, "debug")
+          return
+        }
+        return setWarmChatCache(sessionKey, {
+          messages: next,
+          cursor: v2CursorRef.current,
+          runStatus: statusRef.current,
+          statusLabel: normalizeStatusLabelForStatus(statusRef.current, statusLabel),
+          pendingTools: Array.from(pendingToolMapRef.current.values()),
+          messageCount: next.length,
+        })
+      })().catch((error) => {
         frontendLog("chat", "warm-cache.persist.fail", {
           sessionKey,
           error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
