@@ -1222,11 +1222,25 @@ export function ChatView({
   }
 
   const scrollToRenderedMessage = useCallback((messageId: string) => {
+    // First try direct DOM scroll (message already rendered by Virtuoso)
     const target = document.getElementById(`message-${messageId}`)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "smooth", block: "center" })
-    return true
-  }, [])
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" })
+      return true
+    }
+    // Message outside Virtuoso's rendered range — find its index and scroll
+    const index = renderedMessages.findIndex((m) => m.messageId === messageId)
+    if (index >= 0 && virtuosoRef.current) {
+      const firstItemIndex = Math.max(0, 10000 - renderedMessages.length)
+      virtuosoRef.current.scrollToIndex({
+        index: firstItemIndex + index,
+        behavior: "smooth",
+        align: "center",
+      })
+      return true
+    }
+    return false
+  }, [renderedMessages])
 
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
