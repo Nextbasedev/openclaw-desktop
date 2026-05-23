@@ -1231,9 +1231,8 @@ export function ChatView({
     // Message outside Virtuoso's rendered range — find its index and scroll
     const index = renderedMessages.findIndex((m) => m.messageId === messageId)
     if (index >= 0 && virtuosoRef.current) {
-      const firstItemIndex = Math.max(0, 10000 - renderedMessages.length)
       virtuosoRef.current.scrollToIndex({
-        index: firstItemIndex + index,
+        index,
         behavior: "smooth",
         align: "center",
       })
