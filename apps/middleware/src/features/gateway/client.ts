@@ -214,12 +214,20 @@ export class GatewayClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private listeners = new Set<(event: GatewayEvent) => void>();
+  private reconnectCallbacks = new Set<() => void>();
   private connecting: Promise<void> | null = null;
   private lastError: string | null = null;
   private connectedAtMs: number | null = null;
+  private hasConnectedBefore = false;
   private readonly log = createLogger("gateway");
 
   constructor(private readonly config: MiddlewareConfig) {}
+
+  /** Register a callback that fires on Gateway reconnect (not initial connect). */
+  onReconnect(callback: () => void): () => void {
+    this.reconnectCallbacks.add(callback);
+    return () => { this.reconnectCallbacks.delete(callback); };
+  }
 
   status() {
     return {
@@ -237,7 +245,14 @@ export class GatewayClient {
     if (this.connecting) return this.connecting;
     this.log.info("connect.start", { gatewayUrl: safeUrlForLog(this.config.openclawGatewayUrl) });
     this.connecting = this.connectOnce()
-      .then(() => { this.log.info("connect.end", { connected: true, pendingRequests: this.pending.size }); })
+      .then(() => {
+        this.log.info("connect.end", { connected: true, pendingRequests: this.pending.size });
+        if (this.hasConnectedBefore) {
+          this.log.info("reconnect.callbacks", { count: this.reconnectCallbacks.size });
+          for (const cb of this.reconnectCallbacks) { try { cb(); } catch {} }
+        }
+        this.hasConnectedBefore = true;
+      })
       .catch((error) => {
         this.lastError = error instanceof Error ? error.message : String(error);
         this.log.error("connect.fail", errorMeta(error));

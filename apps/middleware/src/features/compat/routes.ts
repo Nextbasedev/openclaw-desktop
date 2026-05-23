@@ -7,6 +7,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
+import { createLogger } from "../../lib/logger.js";
 import { prewarmArchivedHistory } from "../chat/routes.js";
 import {
   getActiveSkills,
@@ -3357,6 +3358,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     ensureDefaultSpace();
     saveCompatState(context);
   }
+  // Invalidate bootstrap cache on Gateway reconnect so stale sidebar/chat data refreshes
+  context.gateway.onReconnect(() => {
+    createLogger("compat").info("gateway.reconnect.invalidate-bootstrap-cache");
+    invalidateBootstrapCache();
+  });
 
   app.get("/api/version", async () => ({
     ok: true,
