@@ -2721,7 +2721,19 @@ function AppShell({
         onNavigateProject={() => {}}
         onNavigateTopic={() => {}}
         onNavigateDirectChat={() => {}}
-        onNavigateSearchMessage={() => {}}
+        onNavigateSearchMessage={async (input) => {
+          if (!input.sessionKey) return
+          // Navigate to the chat first
+          await handleSessionNavigate(input.sessionKey)
+          // Then dispatch a scroll-to-message event after the chat loads
+          if (input.messageId) {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("openclaw:scroll-to-message", {
+                detail: { messageId: input.messageId, sessionKey: input.sessionKey },
+              }))
+            }, 1000) // Wait for chat to load
+          }
+        }}
       />
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />

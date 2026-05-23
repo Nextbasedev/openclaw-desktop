@@ -457,6 +457,8 @@ export function ChatView({
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
   }, [])
+
+
   const pinButtonRef = useRef<HTMLButtonElement>(null)
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
@@ -1280,6 +1282,19 @@ export function ChatView({
     }
     return false
   }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages])
+
+  // Listen for scroll-to-message events from Ctrl+K global search
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.sessionKey === sessionKey && detail?.messageId) {
+        scrollToRenderedMessage(detail.messageId)
+        handleHighlightMessage(detail.messageId)
+      }
+    }
+    window.addEventListener("openclaw:scroll-to-message", handler)
+    return () => window.removeEventListener("openclaw:scroll-to-message", handler)
+  }, [sessionKey, scrollToRenderedMessage, handleHighlightMessage])
 
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
