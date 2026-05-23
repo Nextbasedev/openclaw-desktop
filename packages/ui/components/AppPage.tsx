@@ -2055,8 +2055,13 @@ function AppShell({
         input: { chatId: chat.id, name: finalName },
       })
       invalidateChatListCache(activeSpaceId)
-      setActiveChat((prev) => prev ? { ...prev, name: finalName } : prev)
-      setActiveSessionTitle(finalName)
+      // Only update active UI state if this chat is still the active one
+      // (user may have switched chats while autonaming was in flight)
+      const stillActive = activeChatRef.current?.id === chat.id
+      if (stillActive) {
+        setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: finalName } : prev)
+        setActiveSessionTitle(finalName)
+      }
       if (chat.sessionKey) {
         resolvedChatCacheRef.current.set(chat.id, {
           chat: { ...chat, name: finalName },
@@ -2065,7 +2070,7 @@ function AppShell({
         })
       }
       setChatRefreshTrigger((n) => n + 1)
-      window.history.replaceState(null, "", `/${chat.id}`)
+      if (stillActive) window.history.replaceState(null, "", `/${chat.id}`)
     } catch (err) {
       const fallbackName = fallbackChatNameFromText(text)
       try {
@@ -2074,8 +2079,11 @@ function AppShell({
           input: { chatId: chat.id, name: fallbackName },
         })
         invalidateChatListCache(activeSpaceId)
-        setActiveChat((prev) => prev ? { ...prev, name: fallbackName } : prev)
-        setActiveSessionTitle(fallbackName)
+        const stillActive = activeChatRef.current?.id === chat.id
+        if (stillActive) {
+          setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: fallbackName } : prev)
+          setActiveSessionTitle(fallbackName)
+        }
         setChatRefreshTrigger((n) => n + 1)
       } catch {}
       console.error("Auto-naming chat failed", err)
