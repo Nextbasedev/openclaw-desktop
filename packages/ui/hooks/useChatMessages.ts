@@ -656,6 +656,13 @@ export function useChatMessages(
         )
         schedulePersistentMessages(next)
         updateCachedBootstrapMessages(queryClient, sessionKey, next)
+        // Write-through to timeline store — store dedupes and batches
+        const store = timelineStoreRef.current
+        for (const msg of next) {
+          if (!store.getMessage(msg.messageId) || store.getMessage(msg.messageId)?.text !== msg.text) {
+            store.applyPatchMessage(msg, v2CursorRef.current)
+          }
+        }
         return next
       })
     },
@@ -675,6 +682,20 @@ export function useChatMessages(
     },
     [sessionKey]
   )
+
+  // Subscribe to timeline store — store batches all writes (warm cache,
+  // bootstrap, patches, optimistic) into one notification per frame.
+  // This eliminates count jumps and flickers from multi-source races.
+  useEffect(() => {
+    const store = timelineStoreRef.current
+    const unsubscribe = store.subscribe((snapshot) => {
+      if (snapshot.messages.length > 0) {
+        setLocalMessages(snapshot.messages)
+        schedulePersistentMessages(snapshot.messages)
+      }
+    })
+    return unsubscribe
+  }, [sessionKey, schedulePersistentMessages])
 
   const [errorMessage, setErrorMessage] = useState<string | null>(() =>
     initialWarmStatus === "error"
