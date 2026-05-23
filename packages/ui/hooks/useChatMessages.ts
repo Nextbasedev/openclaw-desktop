@@ -1531,17 +1531,19 @@ export function useChatMessages(
     if (!warmMessages && !knownEmptyState) {
       loadingTimeout = setTimeout(() => {
         if (cancelled || bootstrapSettled) return
-        // Don't wipe messages if warm cache was applied asynchronously
+        // Don't wipe messages or change status if warm cache was applied asynchronously
         setLocalMessages((current) => {
           if (current.length > 0) {
             frontendLog("status", "chat.loading-timeout.skip-warm", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs, messageCount: current.length }, "debug")
+            // Warm cache already applied — just clear loading, don't touch status
+            setLoading(false)
             return current
           }
           frontendLog("status", "chat.loading-timeout", { sessionKey, timeoutMs: CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS, elapsedSinceMountMs: Date.now() - mountStartedAtMs }, "warn")
+          setLoading(false)
+          setStatus((s) => s === "idle" || s === "done" ? s : "idle")
           return current
         })
-        setLoading(false)
-        setStatus((current) => current === "idle" || current === "done" ? current : "idle")
       }, CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS)
     }
 
@@ -1567,6 +1569,10 @@ export function useChatMessages(
           : normalizeStatusLabelForStatus(effectiveStatus, cached.entry.statusLabel)
 
         if (typeof cached.entry.cursor === "number") v2CursorRef.current = cached.entry.cursor
+        // Filter stale running tools before seeding global state
+        const seedTools = cached.stale
+          ? (cached.entry.pendingTools ?? []).filter((tool) => tool.status !== "running")
+          : (cached.entry.pendingTools ?? [])
         if (typeof cached.entry.cursor === "number") {
           seedGlobalChatSession({
             sessionKey,
@@ -1574,7 +1580,7 @@ export function useChatMessages(
             cursor: cached.entry.cursor,
             status: effectiveStatus,
             statusLabel: effectiveLabel,
-            pendingTools: cached.entry.pendingTools ?? [],
+            pendingTools: seedTools,
             messageCount: cached.entry.messageCount ?? cachedMessages.length,
             historyCoverage: cached.entry.historyCoverage === "full" ? "full" : "metadata",
             queryClient,
@@ -1592,8 +1598,15 @@ export function useChatMessages(
         setStatusLabel(effectiveLabel)
         setErrorMessage(effectiveStatus === "error" ? effectiveLabel : null)
         if (cached.entry.pendingTools?.length) {
-          pendingToolMapRef.current = new Map(cached.entry.pendingTools.map((tool) => [tool.id, tool]))
-          setPendingTools(cached.entry.pendingTools)
+          // Clear stale running tools from cache to prevent ghost tool cards.
+          // If the run is actually still active, the patch stream will re-add them.
+          const tools = cached.stale
+            ? cached.entry.pendingTools.filter((tool) => tool.status !== "running")
+            : cached.entry.pendingTools
+          if (tools.length > 0) {
+            pendingToolMapRef.current = new Map(tools.map((tool) => [tool.id, tool]))
+            setPendingTools(tools)
+          }
         }
         frontendLog("chat", "warm-cache.applied", {
           sessionKey,
