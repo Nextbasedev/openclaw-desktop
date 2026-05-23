@@ -150,6 +150,20 @@ Every pair of store methods that modify the same state must be tested:
 
 ---
 
+## 10. External System Protocol Audit
+
+For every external system, document the EXACT wire-level behavior — not assumptions:
+
+**Gateway message echo protocol:**
+- Gateway sends user message echo TWICE for confirmed messages
+- First echo: empty confirmation (contentBlockCount:0), matched by idempotencyKey
+- Second echo: full decorated message (contentBlockCount:1), higher seq for new sessions
+- Dedup must match by idempotencyKey, not just sequence number
+
+**Rule: Before building dedup/matching logic, trace the ACTUAL messages on the wire. Log them. Count them. Don't assume "one request = one response."**
+
+---
+
 ## Summary: Critical gaps to fix
 
 **P0 (causes visible bugs):**
