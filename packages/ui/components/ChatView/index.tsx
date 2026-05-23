@@ -1358,7 +1358,7 @@ export function ChatView({
       return (
         <div
           id={`message-${msg.messageId}`}
-          className={`mx-auto max-w-3xl px-4 py-2.5 transition-colors duration-500 ${highlightedMessageId === msg.messageId ? "bg-yellow-500/15 rounded-lg ring-2 ring-yellow-500/30" : ""}`}
+          className={`mx-auto max-w-3xl px-4 py-2.5 transition-all duration-500 ${highlightedMessageId && highlightedMessageId !== msg.messageId ? "opacity-40" : ""} ${highlightedMessageId === msg.messageId ? "rounded-lg ring-1 ring-yellow-500/40" : ""}`}
         >
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
