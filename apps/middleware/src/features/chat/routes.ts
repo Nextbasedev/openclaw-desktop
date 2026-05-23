@@ -107,7 +107,13 @@ function identitiesMatch(a: ReturnType<typeof firstHistoryIdentity>, b: ReturnTy
   if (a.kind === "conversation" || b.kind === "conversation") {
     return a.kind === "conversation" && b.kind === "conversation" && a.channel === b.channel && a.chatId === b.chatId && (a.topicId ?? null) === (b.topicId ?? null);
   }
-  if ((a.kind === "sender" || a.kind === "desktop") && (b.kind === "sender" || b.kind === "desktop")) return a.senderId === b.senderId && Boolean(a.desktopOnly) === Boolean(b.desktopOnly);
+  if ((a.kind === "sender" || a.kind === "desktop") && (b.kind === "sender" || b.kind === "desktop")) {
+    // Desktop sessions with a human senderId (numeric) should NOT match other
+    // sessions by sender alone — multiple desktop chats share the same human sender.
+    // Only match when the senderId is a service/bot identity (non-numeric).
+    if (a.desktopOnly && b.desktopOnly && /^\d+$/.test(a.senderId)) return false;
+    return a.senderId === b.senderId && Boolean(a.desktopOnly) === Boolean(b.desktopOnly);
+  }
   return false;
 }
 
@@ -139,6 +145,7 @@ function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?
     .filter((file) => path.resolve(file) !== current)
     .filter((file) => {
       const archivedSessionId = archiveSessionIdFromFile(file);
+
       if (params.sessionId && archivedSessionId === params.sessionId && !current) return true;
       if (!currentIdentity) return params.sessionId ? archivedSessionId === params.sessionId : false;
       const archivedMessages = transcriptMessagesFromJsonl(file, 80);
