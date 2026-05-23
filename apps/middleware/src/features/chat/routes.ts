@@ -24,6 +24,7 @@ const bootstrapQuery = z.object({
 const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
 const LOCAL_FIRST_FRESH_MS = 30_000;
+const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
 const localFirstBootstrapTimestamps = new Map<string, number>();
 
 /** Clear local-first cache — for test isolation only. */
@@ -1132,13 +1133,20 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey, limit: parsed.data.limit, hasMaxChars: parsed.data.maxChars !== undefined });
 
     // ── Local-first fast path ──
-    // If the session exists in local SQLite and was synced recently, serve
-    // from the projection immediately and refresh from Gateway in background.
+    // Serve from local SQLite projection immediately when:
+    //   1. Session exists in SQLite with messages, AND
+    //   2. Either: recently bootstrapped in-memory (within 30s)
+    //      OR: SQLite data is recent (<5min) AND Gateway is connected
+    //          (live patch stream keeps SQLite up-to-date)
     const localSession = context.messages.getSession(parsed.data.sessionKey);
     const lastBootstrapAt = localFirstBootstrapTimestamps.get(parsed.data.sessionKey) ?? 0;
-    const bootstrapAge = nowMs() - lastBootstrapAt;
-    const localMessages = localSession && lastBootstrapAt > 0 ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
-    const canServeLocal = Boolean(localSession && localMessages.length > 0 && bootstrapAge < LOCAL_FIRST_FRESH_MS);
+    const inMemoryFresh = lastBootstrapAt > 0 && (nowMs() - lastBootstrapAt) < LOCAL_FIRST_FRESH_MS;
+    const sqliteFresh = localSession && (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS;
+    const gatewayConnected = context.gateway.status().connected;
+    const canServeFromSqlite = Boolean(localSession && sqliteFresh && gatewayConnected);
+    const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
+    const localMessages = localSession && shouldServeLocal ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
+    const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
 
     if (canServeLocal) {
       const serialized = localMessages.map(serializeProjectedMessage);
@@ -1148,7 +1156,9 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       log.info("bootstrap.local-first", {
         sessionKey: parsed.data.sessionKey,
         messageCount: serialized.length,
-        localAgeMs: bootstrapAge,
+        reason: inMemoryFresh ? "in-memory-fresh" : "sqlite-fresh-gateway-connected",
+        sqliteAgeMs: localSession ? nowMs() - localSession.updatedAtMs : null,
+        gatewayConnected,
         cursor,
         durationMs: elapsedMs(bootstrapStartedAtMs),
       });
