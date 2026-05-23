@@ -1206,12 +1206,16 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
         }
       })();
       void context.chatLive.ensureSessionSubscribed(parsed.data.sessionKey).catch(() => {});
+      const totalMessages = context.messages.countMessages(parsed.data.sessionKey);
+      const oldestSeq = serialized.length > 0 ? (localMessages[0]?.openclawSeq ?? null) : null;
       return buildChatBootstrapSnapshot(context, {
         sessionKey: parsed.data.sessionKey,
         sessionId: localSession!.sessionId,
         sessionData,
         messages: serialized,
         messageCount: serialized.length,
+        knownTotalMessages: totalMessages,
+        oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
         cursor,
         projection: { upserted: 0, lastSeq: context.messages.nextMessageSeq(parsed.data.sessionKey) - 1, liveSubscribed: false },
       });
@@ -1316,12 +1320,16 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     localFirstSqliteBlocked.delete('*');
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
+    const totalMessages = context.messages.countMessages(sessionKey);
+    const oldestSeq = projectedMessages.length > 0 ? ((projectedMessages[0] as { __openclaw?: { seq?: number } }).__openclaw?.seq ?? null) : null;
     return buildChatBootstrapSnapshot(context, {
       sessionKey,
       sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
       sessionData,
       messages: projectedMessages,
       messageCount: projectedMessages.length,
+      knownTotalMessages: totalMessages,
+      oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
       cursor: event.cursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },

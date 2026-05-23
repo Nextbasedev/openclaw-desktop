@@ -118,8 +118,11 @@ type ChatBootstrapData = {
   runStatus?: RunStatusV2 | string
   statusLabel?: string | null
   activeRun?: ActiveRunV2 | null
-  historyCoverage?: "none" | "metadata" | "full"
+  historyCoverage?: "none" | "metadata" | "full" | "windowed"
   fullMessagesIncluded?: boolean
+  hasOlder?: boolean
+  knownTotalMessages?: number
+  oldestLoadedSeq?: number | null
   tools?: ToolCallProjectionV2[]
   toolCalls?: ToolCallProjectionV2[]
   // Compatibility mirror only. Prefer top-level messages/cursor/runStatus.
@@ -1640,7 +1643,7 @@ export function useChatMessages(
         return
       }
       try {
-        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools } = await queryClient.fetchQuery({
+        const { messages: bootstrapMessages, messageCount: canonicalMessageCount, branchData, cursor: canonicalCursor, v2Cursor, source, projectionVersion, runStatus, statusLabel: canonicalStatusLabel, activeRun, tools: canonicalTools, hasOlder: bootstrapHasOlder, knownTotalMessages: bootstrapKnownTotal, oldestLoadedSeq: bootstrapOldestSeq, historyCoverage: bootstrapHistoryCoverage } = await queryClient.fetchQuery({
           queryKey: queryKeys.chatBootstrap(sessionKey),
           queryFn: () => loadFreshChatBootstrap(sessionKey),
           staleTime: 0,
@@ -1778,8 +1781,8 @@ export function useChatMessages(
           statusLabel: seedStatusLabel,
           pendingTools: inlineTools,
           spawnedSubagents: canonicalSpawns,
-          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : seedMessages.length,
-          historyCoverage: "full",
+          messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : seedMessages.length),
+          historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
           queryClient,
         })
         const globalAfterSeed = getGlobalChatSession(sessionKey)
@@ -1797,17 +1800,21 @@ export function useChatMessages(
             startedAt: activeRun.startedAtMs ?? null,
           } : null,
           pendingTools: inlineTools,
-          messageCount: typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length,
-          historyCoverage: "full",
-          fullMessagesIncluded: true,
+          messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length),
+          historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
+          fullMessagesIncluded: bootstrapHistoryCoverage !== "windowed",
         }).catch((error) => {
           frontendLog("chat", "warm-cache.bootstrap-persist.fail", {
             sessionKey,
             error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
           }, "warn")
         })
+        // Use server-side hasOlder when available (accurate), fall back to heuristics
+        if (typeof bootstrapOldestSeq === "number") oldestLoadedSeqRef.current = bootstrapOldestSeq
         setHasOlderMessages(
+          bootstrapHasOlder === true ||
           canLoadOlderThanFirstMessage(displayMessages) ||
+          Boolean(typeof bootstrapKnownTotal === "number" && bootstrapKnownTotal > displayMessages.length) ||
           Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
         )
         setMessages(displayMessages)

@@ -402,6 +402,11 @@ export class MessageRepository {
     return tx() as { changedMessages: number; changedSegments: number };
   }
 
+  countMessages(sessionKey: string): number {
+    const row = this.db.prepare(`SELECT count(*) AS count FROM v2_messages WHERE session_key = @sessionKey`).get({ sessionKey }) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
   nextMessageSeq(sessionKey: string): number {
     const row = this.db.prepare(`
       SELECT max(openclaw_seq) AS maxSeq

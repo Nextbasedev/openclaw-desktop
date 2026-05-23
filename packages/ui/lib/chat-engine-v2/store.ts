@@ -1160,10 +1160,14 @@ function applyHistoryCoverageFromPatch(state: SessionState, frame: PatchFrame, p
   const messageCount = payloadMessageCount(payload)
   if (frame.patch.type === "chat.bootstrap") {
     const fullMessagesIncluded = payload?.fullMessagesIncluded === true
-    const coverage: HistoryCoverageV2 = fullMessagesIncluded ? "full" : "metadata"
-    if (coverage === "full" || state.historyCoverage !== "full") {
+    const hasOlder = payload?.hasOlder === true
+    const coverage: HistoryCoverageV2 = fullMessagesIncluded ? "full" : hasOlder ? "windowed" : "metadata"
+    if (coverage === "full" || (state.historyCoverage !== "full" && state.historyCoverage !== "windowed")) {
       state.historyCoverage = coverage
       state.messageCount = messageCount ?? (fullMessagesIncluded ? state.messages.length : state.messageCount)
+    } else if (coverage === "windowed" && state.historyCoverage !== "full") {
+      state.historyCoverage = coverage
+      if (messageCount !== null) state.messageCount = messageCount
     } else if (messageCount !== null && state.messageCount === null) {
       state.messageCount = messageCount
     }

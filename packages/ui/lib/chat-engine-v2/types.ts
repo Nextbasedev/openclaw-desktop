@@ -2,7 +2,7 @@ export const CHAT_PROJECTION_VERSION = 3
 
 export type RunStatusV2 = "idle" | "queued" | "thinking" | "streaming" | "tool_running" | "done" | "error" | "aborted"
 
-export type HistoryCoverageV2 = "none" | "metadata" | "full"
+export type HistoryCoverageV2 = "none" | "metadata" | "full" | "windowed"
 
 export type ActiveRunV2 = {
   runId: string
