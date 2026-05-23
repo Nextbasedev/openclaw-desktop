@@ -1440,4 +1440,20 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
 
     return { ok: false, error: { message: "Tool result not found" }, sessionKey, toolCallId, text: "" };
   });
+
+  app.get("/api/chat/search", async (request) => {
+    const parsed = z.object({
+      sessionKey: z.string().min(1),
+      query: z.string().min(1).max(200),
+      limit: z.coerce.number().int().positive().max(100).optional(),
+    }).safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid search query", "INVALID_QUERY", parsed.error.flatten());
+    }
+    const { sessionKey, query, limit } = parsed.data;
+    const startMs = Date.now();
+    const results = context.messages.searchMessages(sessionKey, query, limit ?? 50);
+    log.info("chat.search", { sessionKey, query: query.slice(0, 50), resultCount: results.length, durationMs: Date.now() - startMs });
+    return { ok: true, sessionKey, query, results, resultCount: results.length };
+  });
 }

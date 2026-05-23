@@ -402,6 +402,38 @@ export class MessageRepository {
     return tx() as { changedMessages: number; changedSegments: number };
   }
 
+  searchMessages(sessionKey: string, query: string, limit = 50): Array<{ openclawSeq: number; messageId: string | null; role: string | null; snippet: string }> {
+    if (!query.trim()) return [];
+    const pattern = `%${query.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+    const rows = this.db.prepare(`
+      SELECT openclaw_seq, message_id, role, data_json
+      FROM v2_messages
+      WHERE session_key = @sessionKey
+        AND data_json LIKE @pattern
+      ORDER BY openclaw_seq DESC
+      LIMIT @limit
+    `).all({ sessionKey, pattern, limit }) as Array<{
+      openclaw_seq: number;
+      message_id: string | null;
+      role: string | null;
+      data_json: string;
+    }>;
+    return rows.map((row) => {
+      try {
+        const data = JSON.parse(row.data_json) as Record<string, unknown>;
+        const text = typeof data.text === 'string' ? data.text : '';
+        const lower = text.toLowerCase();
+        const idx = lower.indexOf(query.toLowerCase());
+        const start = Math.max(0, idx - 40);
+        const end = Math.min(text.length, idx + query.length + 40);
+        const snippet = (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
+        return { openclawSeq: row.openclaw_seq, messageId: row.message_id, role: row.role, snippet };
+      } catch {
+        return { openclawSeq: row.openclaw_seq, messageId: row.message_id, role: row.role, snippet: '' };
+      }
+    });
+  }
+
   countMessages(sessionKey: string): number {
     const row = this.db.prepare(`SELECT count(*) AS count FROM v2_messages WHERE session_key = @sessionKey`).get({ sessionKey }) as { count?: number } | undefined;
     return Number(row?.count ?? 0);

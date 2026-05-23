@@ -1593,6 +1593,7 @@ export function ChatView({
 
       <ChatSearch
         messages={renderedMessages}
+        sessionKey={sessionKey}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onScrollToMessage={scrollToRenderedMessage}
