@@ -1560,11 +1560,17 @@ export function ChatView({
       <Virtuoso
         ref={virtuosoRef}
         data={renderedMessages}
+        firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
         initialTopMostItemIndex={renderedMessages.length > 0 ? renderedMessages.length - 1 : 0}
         followOutput="smooth"
         alignToBottom
-        overscan={400}
+        increaseViewportBy={{ top: 400, bottom: 200 }}
         className="flex-1"
+        atTopStateChange={(atTop) => {
+          if (atTop && hasOlderMessages && !loadingOlderMessages) {
+            void loadOlderMessages()
+          }
+        }}
         itemContent={(index, msg) => renderMessageRow(index, msg)}
         components={{
           Header: () => (
