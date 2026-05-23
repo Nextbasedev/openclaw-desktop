@@ -41,6 +41,13 @@ function highlightTextInElement(messageId: string, query: string) {
       }
     }
     ;(CSS as any).highlights.set("chat-search", new (globalThis as any).Highlight(...ranges))
+    // Inject highlight style if not already present
+    if (!document.getElementById("chat-search-highlight-style")) {
+      const style = document.createElement("style")
+      style.id = "chat-search-highlight-style"
+      style.textContent = "::highlight(chat-search) { background-color: rgba(250, 204, 21, 0.35); color: #fff; }"
+      document.head.appendChild(style)
+    }
   } catch {}
 }
 

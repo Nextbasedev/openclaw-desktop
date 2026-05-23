@@ -665,9 +665,3 @@ body {
   }
 }
 
-/* Chat search text highlight (CSS Custom Highlight API) */
-::highlight(chat-search) {
-  background-color: rgba(250, 204, 21, 0.35);
-  color: #fff;
-  border-radius: 2px;
-}
