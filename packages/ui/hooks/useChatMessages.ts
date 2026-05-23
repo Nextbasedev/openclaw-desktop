@@ -2236,6 +2236,16 @@ export function useChatMessages(
         frontendLog("composer", "chat.send.ack", { sessionKey, optimisticId })
         emit("chat:activity", { sessionKey })
         emit("chat:message-confirmed", { sessionKey })
+        // Fallback: if WS is dead, patches won't arrive. Poll bootstrap after 5s
+        // to pick up the response if status is still "thinking".
+        setTimeout(() => {
+          if (statusRef.current === "thinking" || statusRef.current === "streaming" || statusRef.current === "tool_running") {
+            frontendLog("composer", "chat.send.fallback-poll", { sessionKey, status: statusRef.current }, "warn")
+            invalidateDedupe(`chat-bootstrap:${sessionKey}`)
+            void queryClient.invalidateQueries({ queryKey: queryKeys.chatBootstrap(sessionKey) })
+            setStreamGeneration((v) => v + 1)
+          }
+        }, 5000)
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

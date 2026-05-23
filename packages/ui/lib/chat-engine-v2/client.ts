@@ -301,9 +301,38 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
 
   connect()
 
+  // Periodic health check — detect silent WS disconnects
+  const healthCheckInterval = window.setInterval(() => {
+    if (closedByCaller) return
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      frontendLog("stream", "patch-stream.health-check.dead", { readyState: ws?.readyState ?? "null", cursor }, "warn")
+      // Force reconnect
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      reconnectAttempt = 0
+      connect()
+    }
+  }, 15_000) // Check every 15s
+
+  // Reconnect on app focus — OS may have killed the socket while backgrounded
+  const handleVisibilityChange = () => {
+    if (closedByCaller || document.hidden) return
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      frontendLog("stream", "patch-stream.focus-reconnect", { readyState: ws?.readyState ?? "null", cursor }, "info")
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      reconnectAttempt = 0
+      try { ws?.close() } catch {}
+      connect()
+    }
+  }
+  document.addEventListener("visibilitychange", handleVisibilityChange)
+  window.addEventListener("focus", handleVisibilityChange)
+
   return () => {
     closedByCaller = true
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    window.clearInterval(healthCheckInterval)
+    document.removeEventListener("visibilitychange", handleVisibilityChange)
+    window.removeEventListener("focus", handleVisibilityChange)
     frontendLog("stream", "patch-stream.unsubscribe", { afterCursor: cursor }, "debug")
     ws?.close()
   }
