@@ -43,7 +43,7 @@ function ToolRow({
     decision: ApprovalDecision
   ) => Promise<void> | void
 }) {
-  const { inputText, outputText, hasDetails } = getToolDetailState(call)
+  const { inputText, outputText, fullOutputText, hasDetails } = getToolDetailState(call)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -143,6 +143,7 @@ function ToolRow({
                 call={call}
                 inputText={inputText}
                 outputText={outputText}
+                fullOutputText={fullOutputText}
               />
             </div>
           </div>
