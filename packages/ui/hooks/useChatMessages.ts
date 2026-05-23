@@ -569,6 +569,10 @@ export function useChatMessages(
   const windowIdRef = useRef<string | null>(null)
   if (windowIdRef.current === null) windowIdRef.current = currentChatWindowId()
   const timelineStoreRef = useRef(getTimelineStore(sessionKey))
+  // Update store ref when session changes
+  if (timelineStoreRef.current.sessionKey !== sessionKey) {
+    timelineStoreRef.current = getTimelineStore(sessionKey)
+  }
   // Initialize store with warm messages if available
   if (initialWarmMessages && timelineStoreRef.current.size === 0) {
     timelineStoreRef.current.applyWarmCache(initialWarmMessages, initialGlobalSession?.cursor ?? 0)
@@ -1935,10 +1939,7 @@ export function useChatMessages(
             setErrorMessage(state.status === "error" ? nextStatusLabel : null)
             if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
             else clearCachedChatActivity(sessionKey)
-            // Feed timeline store with patch stream messages
-            for (const msg of state.messages) {
-              timelineStoreRef.current.applyPatchMessage(msg, state.cursor)
-            }
+            // setMessages writes through to timeline store automatically
             setMessages(state.messages)
           }
         )
