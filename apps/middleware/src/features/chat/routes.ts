@@ -26,10 +26,16 @@ const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
 const LOCAL_FIRST_FRESH_MS = 30_000;
 const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
 const localFirstBootstrapTimestamps = new Map<string, number>();
+const localFirstSqliteBlocked = new Set<string>();
 
 /** Clear local-first cache — for test isolation only. */
 export function clearLocalFirstBootstrapCache() {
   localFirstBootstrapTimestamps.clear();
+  // Block SQLite-first for all known sessions until next Gateway bootstrap
+  // stamps them fresh. This ensures test sequential bootstraps go to Gateway.
+  localFirstSqliteBlocked.clear();
+  // Mark all as blocked — next Gateway bootstrap will unblock
+  localFirstSqliteBlocked.add('*');
 }
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
@@ -1141,9 +1147,14 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
     const localSession = context.messages.getSession(parsed.data.sessionKey);
     const lastBootstrapAt = localFirstBootstrapTimestamps.get(parsed.data.sessionKey) ?? 0;
     const inMemoryFresh = lastBootstrapAt > 0 && (nowMs() - lastBootstrapAt) < LOCAL_FIRST_FRESH_MS;
-    const sqliteFresh = localSession && (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS;
     const gatewayConnected = context.gateway.status().connected;
-    const canServeFromSqlite = Boolean(localSession && sqliteFresh && gatewayConnected);
+    // When Gateway is connected, live events keep SQLite current — any existing
+    // data is valid regardless of age. Only check age when disconnected.
+    const canServeFromSqlite = Boolean(
+      !localFirstSqliteBlocked.has('*') &&
+      localSession &&
+      (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
+    );
     const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
     const localMessages = localSession && shouldServeLocal ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
     const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
@@ -1295,6 +1306,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false },
     });
     localFirstBootstrapTimestamps.set(sessionKey, nowMs());
+    localFirstSqliteBlocked.delete('*');
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
     return buildChatBootstrapSnapshot(context, {
