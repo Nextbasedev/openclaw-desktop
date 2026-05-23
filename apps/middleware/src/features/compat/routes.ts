@@ -3567,10 +3567,6 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return { chat };
   });
 
-  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
-    return deleteCompatChat(context, request.params.chatId);
-  });
-
   app.delete("/api/chats", async () => {
     const allChats = compatState.chats.filter(notDeleted);
     const deletedIds: string[] = [];
@@ -3596,6 +3592,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       } catch {}
     }
     return { ok: true, deleted: deletedIds.length, sessionsCleaned: sessionKeys.length };
+  });
+
+  app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
+    return deleteCompatChat(context, request.params.chatId);
   });
 
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/session", async (request) => {
