@@ -2040,6 +2040,9 @@ function AppShell({
   const handleFirstMessageSent = useCallback(async (text: string) => {
     const chat = activeChatRef.current
     if (!chat) return
+    // Skip autonaming if the chat already has a meaningful name
+    // (e.g. migrated Telegram chats, previously named chats)
+    if (!isWeakChatName(chat.name)) return
     try {
       const fallbackName = fallbackChatNameFromText(text)
       const { name } = await invoke<{ name: string }>(
