@@ -1251,12 +1251,34 @@ function applyHistoryCoverageFromPatch(state: SessionState, frame: PatchFrame, p
   }
 }
 
+let lastReceivedCursor = 0
+
 function handlePatch(frame: PatchFrame) {
   const sessionKey = frame.patch.sessionKey
   if (!sessionKey) {
     globalCursor = Math.max(globalCursor, frame.patch.cursor)
+    lastReceivedCursor = Math.max(lastReceivedCursor, frame.patch.cursor)
     return
   }
+  // Detect cursor gap — if we jumped more than 1 cursor, patches were missed.
+  // Trigger a bootstrap recovery for this session to fetch the latest state.
+  const expectedNext = lastReceivedCursor + 1
+  const gap = frame.patch.cursor - lastReceivedCursor
+  if (lastReceivedCursor > 0 && gap > 5 && states.has(sessionKey)) {
+    frontendLog("stream", "patch-stream.cursor-gap-detected", {
+      sessionKey,
+      expectedNext,
+      receivedCursor: frame.patch.cursor,
+      gap,
+    }, "warn")
+    // Dispatch recovery event so the active chat refetches if needed
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
+        detail: { sessionKey, reason: "cursor-gap", cursor: frame.patch.cursor },
+      }))
+    }
+  }
+  lastReceivedCursor = Math.max(lastReceivedCursor, frame.patch.cursor)
   // Don't create new session state for replayed patches below globalCursor.
   // This prevents cursor-0 replay floods from creating hundreds of empty sessions.
   const existingState = states.get(sessionKey)
@@ -1624,6 +1646,7 @@ export function clearGlobalChatEngineForTests() {
     cancelAnimationFrame(batchRafId)
     batchRafId = null
   }
+  lastReceivedCursor = 0
 }
 
 /** Flush any pending batched notifications immediately (for tests). */
