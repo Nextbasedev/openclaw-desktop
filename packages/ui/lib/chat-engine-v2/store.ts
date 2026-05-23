@@ -877,7 +877,7 @@ function syncLinkedSubagentStatus(childSessionKey: string, childStatus: StreamSt
     })
     if (changed) {
       parent.spawnedSubagents = dedupeSpawnedSubagents(next)
-      notify(parentKey)
+      notifySync(parentKey)
     }
   }
 }
@@ -1057,11 +1057,79 @@ function patchShouldMoveSidebar(frame: PatchFrame | undefined) {
   return frame.patch.type.startsWith("chat.message.")
 }
 
+// ── Batched notification system ──
+// Patches are applied to state immediately, but listener notifications
+// are coalesced within a single animation frame (16ms). This prevents
+// 20-40 re-renders from a burst of chat.tool.update patches.
+const pendingNotifications = new Map<string, { frame?: PatchFrame; sidebarEvents: Array<{ at?: string; text?: string | null }> }>()
+let batchRafId: number | null = null
+
+function flushNotifications() {
+  batchRafId = null
+  const batch = new Map(pendingNotifications)
+  pendingNotifications.clear()
+  for (const [sessionKey, pending] of batch) {
+    const state = states.get(sessionKey)
+    if (!state) continue
+    cacheBootstrap(sessionKey, state)
+    persistWarmSessionSnapshot(sessionKey, state)
+    for (const evt of pending.sidebarEvents) {
+      emit("chat:message-confirmed", { sessionKey, at: evt.at, lastMessageText: evt.text })
+    }
+    const callbacks = listeners.get(sessionKey)
+    if (!callbacks) continue
+    const snapshot = cloneState(state)
+    for (const listener of callbacks) listener(snapshot, pending.frame)
+  }
+}
+
 function notify(sessionKey: string, frame?: PatchFrame) {
+  const state = states.get(sessionKey)
+  if (!state) return
+  const existing = pendingNotifications.get(sessionKey)
+  if (existing) {
+    // Keep the latest frame for the snapshot
+    existing.frame = frame
+    if (patchShouldMoveSidebar(frame)) {
+      existing.sidebarEvents.push({
+        at: frame?.patch.createdAtMs ? new Date(frame.patch.createdAtMs).toISOString() : undefined,
+        text: messageTextFromPatch(frame),
+      })
+    }
+  } else {
+    const sidebarEvents: Array<{ at?: string; text?: string | null }> = []
+    if (patchShouldMoveSidebar(frame)) {
+      sidebarEvents.push({
+        at: frame?.patch.createdAtMs ? new Date(frame.patch.createdAtMs).toISOString() : undefined,
+        text: messageTextFromPatch(frame),
+      })
+    }
+    pendingNotifications.set(sessionKey, { frame, sidebarEvents })
+  }
+  if (batchRafId === null && typeof requestAnimationFrame !== "undefined") {
+    batchRafId = requestAnimationFrame(flushNotifications)
+  } else if (batchRafId === null) {
+    // SSR / test environment fallback — notify synchronously
+    flushNotifications()
+  }
+}
+
+/** Synchronous notify — used by seed/subscribe/sweep where the caller
+ *  expects the listener to receive state immediately. */
+function notifySync(sessionKey: string, frame?: PatchFrame) {
+  // Flush any pending batched notification for this session first
+  const pending = pendingNotifications.get(sessionKey)
+  if (pending) pendingNotifications.delete(sessionKey)
   const state = states.get(sessionKey)
   if (!state) return
   cacheBootstrap(sessionKey, state)
   persistWarmSessionSnapshot(sessionKey, state)
+  // Emit any accumulated sidebar events from batch
+  if (pending) {
+    for (const evt of pending.sidebarEvents) {
+      emit("chat:message-confirmed", { sessionKey, at: evt.at, lastMessageText: evt.text })
+    }
+  }
   if (patchShouldMoveSidebar(frame)) {
     emit("chat:message-confirmed", {
       sessionKey,
@@ -1426,7 +1494,7 @@ export function seedGlobalChatSession(params: {
     spawnedSubagentCount: state.spawnedSubagents.length,
     historyCoverage: state.historyCoverage,
   }, "debug")
-  notify(params.sessionKey)
+  notifySync(params.sessionKey)
 }
 
 export function updateGlobalChatSessionActivity(params: {
@@ -1461,7 +1529,7 @@ export function updateGlobalChatSessionActivity(params: {
     historyCoverage: state.historyCoverage,
     messageCount: state.messageCount,
   }, "debug")
-  notify(params.sessionKey)
+  notifySync(params.sessionKey)
 }
 
 export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE_ACTIVE_RUN_MS) {
@@ -1492,7 +1560,7 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
       to: state.status,
       staleMs,
     }, "warn")
-    notify(sessionKey)
+    notifySync(sessionKey)
   }
 }
 
@@ -1542,4 +1610,18 @@ export function clearGlobalChatEngineForTests() {
   }
   for (const timer of warmPersistTimers.values()) clearTimeout(timer)
   warmPersistTimers.clear()
+  pendingNotifications.clear()
+  if (batchRafId !== null) {
+    cancelAnimationFrame(batchRafId)
+    batchRafId = null
+  }
+}
+
+/** Flush any pending batched notifications immediately (for tests). */
+export function flushPatchNotifications() {
+  if (batchRafId !== null) {
+    cancelAnimationFrame(batchRafId)
+    batchRafId = null
+  }
+  flushNotifications()
 }
