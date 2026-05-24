@@ -1749,6 +1749,25 @@ export function useChatMessages(
           windowId: windowIdRef.current,
           viewGeneration,
         })
+        ensureGlobalChatEngine(queryClient)
+        unsubscribeV2Stream = subscribeGlobalChatSession(
+          sessionKey,
+          (state) => {
+            if (cancelled || viewGenerationRef.current !== viewGeneration) return
+            v2CursorRef.current = state.cursor
+            pendingToolMapRef.current = new Map(state.pendingTools.map((tool) => [tool.id, tool]))
+            spawnMapRef.current = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+            setLocalPendingTools(state.pendingTools)
+            setLocalSpawnedSubagents(state.spawnedSubagents)
+            const nextStatusLabel = normalizeStatusLabelForStatus(state.status, state.statusLabel)
+            setStatus(state.status)
+            setStatusLabel(nextStatusLabel)
+            setErrorMessage(state.status === "error" ? nextStatusLabel : null)
+            if (isActiveRunStatus(state.status)) markOptimisticChatActivity(sessionKey, nextStatusLabel)
+            else clearCachedChatActivity(sessionKey)
+            setMessages(state.messages)
+          }
+        )
         return
       }
       try {
