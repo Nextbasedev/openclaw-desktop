@@ -620,7 +620,7 @@ export function useChatMessages(
     () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty)
+  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty && !initialGlobalMessages)
   const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialWarmMessages ? "warm-cache" : "loading")
   const [historyLoadVersion, setHistoryLoadVersion] = useState(() =>
     initialWarmMessages?.length || initialKnownEmpty ? 1 : 0
