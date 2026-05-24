@@ -1448,6 +1448,18 @@ export function useChatMessages(
     setLoadingOlderMessages(false)
     seenIds.current.clear()
 
+    let engineEnsured = false
+    const ensureEngine = (reason: string) => {
+      if (engineEnsured) return
+      engineEnsured = true
+      const replayFromCursor = v2CursorRef.current > 0 ? v2CursorRef.current : undefined
+      ensureGlobalChatEngine(queryClient, {
+        replayFromCursor,
+        sessionKey,
+        reason,
+      })
+    }
+
     if (warmMessages) {
       for (const message of warmMessages) {
         seenIds.current.add(message.messageId)
@@ -1583,7 +1595,9 @@ export function useChatMessages(
       spawnMapRef.current.clear()
       setSpawnedSubagents([])
     }
-    ensureGlobalChatEngine(queryClient)
+    if (v2CursorRef.current > 0 || useCachedGlobal) {
+      ensureEngine(useCachedGlobal ? "cached-global-state" : "warm-bootstrap-state")
+    }
     doneAfterYieldRef.current = 0
     isAtBottomRef.current = true
     oldestLoadedSeqRef.current = null
@@ -1697,6 +1711,7 @@ export function useChatMessages(
           hasCachedActiveWork,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
         })
+        if (typeof cached.entry.cursor === "number") ensureEngine("persisted-warm-cache")
       } catch (error) {
         frontendLog("chat", "warm-cache.load.fail", {
           sessionKey,
@@ -1749,6 +1764,7 @@ export function useChatMessages(
           windowId: windowIdRef.current,
           viewGeneration,
         })
+        ensureEngine("initial-optimistic")
         return
       }
       try {
@@ -1978,6 +1994,7 @@ export function useChatMessages(
           viewGeneration,
         })
 
+        ensureEngine("fresh-bootstrap")
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
           (state) => {
@@ -2029,6 +2046,7 @@ export function useChatMessages(
         if (!cancelled && !isSchedulerAbort) {
           setLoadError(String(e))
           setLoading(false)
+          ensureEngine("bootstrap-failure-fallback")
         }
       }
     }

@@ -1472,7 +1472,14 @@ function handleFrame(frame: StreamFrame) {
   persistGlobalCursor()
 }
 
-export function ensureGlobalChatEngine(queryClient?: QueryClient) {
+export function ensureGlobalChatEngine(
+  queryClient?: QueryClient,
+  options?: {
+    replayFromCursor?: number | null
+    sessionKey?: string | null
+    reason?: string
+  }
+) {
   if (queryClient) queryClientRef = queryClient
   if (!sweepInterval && typeof window !== "undefined") {
     sweepInterval = setInterval(() => sweepStaleGlobalChatSessions(), 60_000)
@@ -1483,11 +1490,34 @@ export function ensureGlobalChatEngine(queryClient?: QueryClient) {
   // Restore cursor from localStorage so page reloads / tab switches
   // don't replay the entire patch history from cursor 0.
   restoreGlobalCursor()
+  const restoredCursor = globalCursor
   for (const state of states.values()) {
     globalCursor = Math.max(globalCursor, state.cursor)
   }
   if (unsubscribeStream) return
-  frontendLog("stream", "global-chat-engine.connect.start", { afterCursor: globalCursor })
+
+  const replayFromCursor = options?.replayFromCursor
+  if (
+    typeof replayFromCursor === "number" &&
+    Number.isSafeInteger(replayFromCursor) &&
+    replayFromCursor > 0 &&
+    replayFromCursor < globalCursor
+  ) {
+    frontendLog("stream", "global-chat-engine.replay-cursor.lowered", {
+      sessionKey: options?.sessionKey ?? null,
+      fromCursor: globalCursor,
+      toCursor: replayFromCursor,
+      restoredCursor,
+      reason: options?.reason ?? "session-safe-replay",
+    }, "info")
+    globalCursor = replayFromCursor
+  }
+
+  frontendLog("stream", "global-chat-engine.connect.start", {
+    afterCursor: globalCursor,
+    reason: options?.reason ?? null,
+    sessionKey: options?.sessionKey ?? null,
+  })
   unsubscribeStream = openPatchStreamV2(globalCursor, handleFrame)
 }
 

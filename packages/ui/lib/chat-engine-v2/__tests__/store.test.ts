@@ -2,6 +2,7 @@ import { describe, expect, test, vi, afterEach } from "vitest"
 import { createOpenClawQueryClient, queryKeys } from "../../query"
 import {
   clearGlobalChatEngineForTests,
+  ensureGlobalChatEngine,
   getGlobalChatSession,
   ingestGlobalChatPatchForTests,
   seedGlobalChatSession,
@@ -13,12 +14,70 @@ vi.mock("../client", () => ({
   openPatchStreamV2: vi.fn(() => () => undefined),
 }))
 
+const _lsStore = new Map<string, string>()
+const _lsMock = {
+  getItem: (key: string) => _lsStore.get(key) ?? null,
+  setItem: (key: string, value: string) => { _lsStore.set(key, value) },
+  removeItem: (key: string) => { _lsStore.delete(key) },
+  clear: () => { _lsStore.clear() },
+  get length() { return _lsStore.size },
+  key: (i: number) => [..._lsStore.keys()][i] ?? null,
+}
+if (typeof globalThis.localStorage === "undefined") {
+  vi.stubGlobal("localStorage", _lsMock)
+}
+
 afterEach(() => {
   vi.useRealTimers()
+  vi.clearAllMocks()
   clearGlobalChatEngineForTests()
+  _lsStore.clear()
 })
 
+function stubLocalStorage(data: Record<string, string> = {}) {
+  _lsStore.clear()
+  for (const [k, v] of Object.entries(data)) _lsStore.set(k, v)
+}
+
 describe("global V2 chat engine store", () => {
+  test("focused window stream can replay from session-safe cursor below persisted global cursor", async () => {
+    stubLocalStorage({ "openclaw:patchCursor:default": "1000" })
+    seedGlobalChatSession({
+      sessionKey: "focused-session",
+      cursor: 900,
+      status: "thinking",
+      messages: [{ messageId: "u1", role: "user", text: "work" }],
+    })
+
+    ensureGlobalChatEngine(undefined, {
+      sessionKey: "focused-session",
+      replayFromCursor: 900,
+      reason: "test-focused-window",
+    })
+
+    const { openPatchStreamV2 } = await import("../client")
+    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(900, expect.any(Function))
+  })
+
+  test("focused replay cursor can lower even when another session has newer local state", async () => {
+    stubLocalStorage({ "openclaw:patchCursor:default": "1000" })
+    seedGlobalChatSession({
+      sessionKey: "other-session",
+      cursor: 980,
+      status: "thinking",
+      messages: [{ messageId: "u1", role: "user", text: "newer local" }],
+    })
+
+    ensureGlobalChatEngine(undefined, {
+      sessionKey: "focused-session",
+      replayFromCursor: 900,
+      reason: "test-focused-window",
+    })
+
+    const { openPatchStreamV2 } = await import("../client")
+    expect(vi.mocked(openPatchStreamV2)).toHaveBeenCalledWith(900, expect.any(Function))
+  })
+
   test("metadata-only bootstrap replay is not authoritative empty history", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",

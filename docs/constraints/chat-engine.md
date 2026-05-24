@@ -84,3 +84,17 @@ Chat opens
 - UI filters `pendingTools` to only show `running` or `awaitingResult` tools, PLUS completed tools not yet in message history
 - `mergeToolCallsForDisplay()` deduplicates: skips live tools already completed in base message history
 - Never render the same tool card twice (once in message history, once as live pending)
+
+## Focused / New Window Replay Cursor
+
+- Focused/new chat windows run in a fresh JS realm and may not have the main
+  window's in-memory chat state.
+- When a focused/new window has an active-session warm/bootstrap cursor that is
+  lower than the persisted global patch cursor, the patch stream must start from
+  the session-safe cursor. Other local session state can reject stale replayed
+  patches by its own cursor; otherwise the focused
+  window can skip active-session patches that happened before the unrelated
+  global cursor advanced.
+- Bootstrap remains the canonical source for messages/tools/subagents; lowering
+  the replay cursor is only to avoid missing live patch gaps during fresh-window
+  reconstruction.
