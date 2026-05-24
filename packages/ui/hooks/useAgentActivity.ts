@@ -698,6 +698,15 @@ export function useAgentActivity(sessionKey: string | null) {
     }
 
     loadHistory()
+    let syncScheduled = false
+    const debouncedSyncState = () => {
+      if (syncScheduled) return
+      syncScheduled = true
+      queueMicrotask(() => {
+        syncScheduled = false
+        if (!cancelledRef.current) syncState()
+      })
+    }
     const syncGlobalActivity = () => {
       const state = getGlobalChatSession(sessionKey)
       if (!state) return
@@ -773,7 +782,7 @@ export function useAgentActivity(sessionKey: string | null) {
           }
         }
       }
-      if (changed) syncState()
+      if (changed) debouncedSyncState()
     }
     syncGlobalActivity()
     const unsubscribeGlobalSession = subscribeGlobalChatSession(sessionKey, () => {
@@ -798,6 +807,15 @@ export function useAgentActivity(sessionKey: string | null) {
   useEffect(() => {
     if (!sessionKey || subKeyToAgent.length === 0) return
     let cancelled = false
+    let childSyncScheduled = false
+    const debouncedChildSync = () => {
+      if (childSyncScheduled) return
+      childSyncScheduled = true
+      queueMicrotask(() => {
+        childSyncScheduled = false
+        if (!cancelled) syncState()
+      })
+    }
 
     const syncChildActivity = (subKey: string, agentId: string) => {
       if (cancelled) return
@@ -865,7 +883,7 @@ export function useAgentActivity(sessionKey: string | null) {
         for (const tool of message.toolCalls) upsertTool(tool, turn)
       }
 
-      if (changed) syncState()
+      if (changed) debouncedChildSync()
     }
 
     for (const [subKey, agentId] of subKeyToAgent) syncChildActivity(subKey, agentId)
