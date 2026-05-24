@@ -1207,67 +1207,88 @@ export function ChatView({
       [renderedMessages]
     )
 
-  const spawnsByToolCallId = new Map<string, SpawnedSubagent>()
-  for (const sub of spawnedSubagents) {
-    spawnsByToolCallId.set(sub.toolCallId, sub)
-  }
+  const spawnsByToolCallId = useMemo(() => {
+    const map = new Map<string, SpawnedSubagent>()
+    for (const sub of spawnedSubagents) {
+      map.set(sub.toolCallId, sub)
+    }
+    return map
+  }, [spawnedSubagents])
 
-  function getSubagentsForMessage(
-    toolCalls?: import("./types").InlineToolCall[]
-  ): SpawnedSubagent[] {
-    if (!toolCalls) return []
-    const matched: SpawnedSubagent[] = []
-    for (const tc of toolCalls) {
-      if (tc.tool === "sessions_spawn") {
-        const sub = spawnsByToolCallId.get(tc.id)
-        if (sub) matched.push(sub)
+  const getSubagentsForMessage = useCallback(
+    (toolCalls?: import("./types").InlineToolCall[]): SpawnedSubagent[] => {
+      if (!toolCalls) return []
+      const matched: SpawnedSubagent[] = []
+      for (const tc of toolCalls) {
+        if (tc.tool === "sessions_spawn") {
+          const sub = spawnsByToolCallId.get(tc.id)
+          if (sub) matched.push(sub)
+        }
+      }
+      return matched
+    },
+    [spawnsByToolCallId]
+  )
+
+  const {
+    subagentsByTriggerUserId,
+    orphanSubagentsByAssistantId,
+    subagentRenderScope,
+  } = useMemo(() => {
+    const byTriggerUserId = new Map<string, SpawnedSubagent[]>()
+    const orphanByAssistantId = new Map<string, SpawnedSubagent[]>()
+    let nearestUserId: string | null = null
+    let latestUserMessageId: string | null = null
+
+    for (const msg of renderedMessages) {
+      if (msg.role === "user") {
+        nearestUserId = msg.messageId
+        latestUserMessageId = msg.messageId
+        continue
+      }
+
+      const msgSubagents = getSubagentsForMessage(msg.toolCalls)
+      if (msgSubagents.length === 0) continue
+
+      if (nearestUserId) {
+        const existing = byTriggerUserId.get(nearestUserId) ?? []
+        byTriggerUserId.set(nearestUserId, [
+          ...existing,
+          ...msgSubagents,
+        ])
+      } else {
+        orphanByAssistantId.set(msg.messageId, msgSubagents)
       }
     }
-    return matched
-  }
 
-  const subagentsByTriggerUserId = new Map<string, SpawnedSubagent[]>()
-  const orphanSubagentsByAssistantId = new Map<string, SpawnedSubagent[]>()
-  let nearestUserId: string | null = null
-
-  for (const msg of renderedMessages) {
-    if (msg.role === "user") {
-      nearestUserId = msg.messageId
-      continue
+    const latestUserSubagents = latestUserMessageId
+      ? (byTriggerUserId.get(latestUserMessageId) ?? [])
+      : []
+    return {
+      subagentsByTriggerUserId: byTriggerUserId,
+      orphanSubagentsByAssistantId: orphanByAssistantId,
+      subagentRenderScope: {
+        latestUserMessageId,
+        currentTurnCount: latestUserSubagents.length,
+        anchoredCount: Array.from(byTriggerUserId.values()).reduce((sum, items) => sum + items.length, 0),
+        orphanCount: Array.from(orphanByAssistantId.values()).reduce((sum, items) => sum + items.length, 0),
+      },
     }
-
-    const msgSubagents = getSubagentsForMessage(msg.toolCalls)
-    if (msgSubagents.length === 0) continue
-
-    if (nearestUserId) {
-      const existing = subagentsByTriggerUserId.get(nearestUserId) ?? []
-      subagentsByTriggerUserId.set(nearestUserId, [
-        ...existing,
-        ...msgSubagents,
-      ])
-    } else {
-      orphanSubagentsByAssistantId.set(msg.messageId, msgSubagents)
-    }
-  }
+  }, [getSubagentsForMessage, renderedMessages])
 
   useEffect(() => {
     if (spawnedSubagents.length === 0) return
-    const latestUserMessage = [...renderedMessages].reverse().find((message) => message.role === "user")
-    const latestUserSubagents = latestUserMessage
-      ? (subagentsByTriggerUserId.get(latestUserMessage.messageId) ?? [])
-      : []
-    const orphanCount = Array.from(orphanSubagentsByAssistantId.values()).reduce((sum, items) => sum + items.length, 0)
     frontendLog("chat", "subagents.render.scope", {
       sessionKey,
       globalCount: spawnedSubagents.length,
       activeCount: spawnedSubagents.filter((sub) => isActiveSubagent(sub.status)).length,
-      latestUserMessageId: latestUserMessage?.messageId ?? null,
-      currentTurnCount: latestUserSubagents.length,
-      anchoredCount: Array.from(subagentsByTriggerUserId.values()).reduce((sum, items) => sum + items.length, 0),
-      orphanCount,
+      latestUserMessageId: subagentRenderScope.latestUserMessageId,
+      currentTurnCount: subagentRenderScope.currentTurnCount,
+      anchoredCount: subagentRenderScope.anchoredCount,
+      orphanCount: subagentRenderScope.orphanCount,
       messageCount: renderedMessages.length,
-    }, latestUserSubagents.length > 0 && spawnedSubagents.length !== latestUserSubagents.length ? "warn" : "debug")
-  }, [renderedMessages, sessionKey, spawnedSubagents, subagentsByTriggerUserId, orphanSubagentsByAssistantId])
+    }, "debug")
+  }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
 
   const scrollToRenderedMessage = useCallback((messageId: string, seq?: number) => {
     // First try direct DOM scroll (message already rendered by Virtuoso)

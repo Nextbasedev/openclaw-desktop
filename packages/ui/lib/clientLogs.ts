@@ -42,6 +42,7 @@ let initialized = false
 let counter = 0
 let fetchCounter = 0
 let originalConsole: Record<LogLevel, (...args: unknown[]) => void> | null = null
+const LOG_HASH_SALT = Math.random().toString(36).slice(2)
 
 let notifyScheduled = false
 function notify() {
@@ -123,7 +124,7 @@ export function redactText(value: string): string {
 export function stableLogHash(value: string | null | undefined): string | null {
   if (!value) return null
   let hash = 5381
-  const normalized = value.trim().replace(/\s+/g, " ")
+  const normalized = `${LOG_HASH_SALT}:${value.trim().replace(/\s+/g, " ")}`
   for (let i = 0; i < normalized.length; i += 1) {
     hash = ((hash << 5) + hash) ^ normalized.charCodeAt(i)
   }
