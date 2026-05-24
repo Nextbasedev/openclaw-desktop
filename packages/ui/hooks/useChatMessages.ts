@@ -21,7 +21,7 @@ import {
   markOptimisticChatActivity,
 } from "@/lib/chatActivityStore"
 import { emit } from "@/lib/events"
-import { frontendLog, redactText } from "@/lib/clientLogs"
+import { frontendLog, redactText, stableLogHash } from "@/lib/clientLogs"
 import {
   currentChatWindowId,
   logChatApplyDecision,
@@ -129,6 +129,39 @@ type ChatBootstrapData = {
   toolCalls?: ToolCallProjectionV2[]
   // Compatibility mirror only. Prefer top-level messages/cursor/runStatus.
   history: { messages: unknown[]; sessionStatus?: string | null }
+}
+
+
+function duplicateUserTextDiagnostics(messages: ChatMessage[]) {
+  const seen = new Map<string, { messageId: string; gatewayIndex?: number; createdAt?: string; isOptimistic?: boolean }>()
+  const duplicates: Array<{ textHash: string; firstMessageId: string; messageId: string; firstGatewayIndex?: number; gatewayIndex?: number; firstCreatedAt?: string; createdAt?: string; firstOptimistic?: boolean; isOptimistic?: boolean }> = []
+  for (const message of messages) {
+    if (message.role !== "user") continue
+    const textHash = stableLogHash(message.text)
+    if (!textHash) continue
+    const existing = seen.get(textHash)
+    if (existing) {
+      duplicates.push({
+        textHash,
+        firstMessageId: existing.messageId,
+        messageId: message.messageId,
+        firstGatewayIndex: existing.gatewayIndex,
+        gatewayIndex: message.gatewayIndex,
+        firstCreatedAt: existing.createdAt,
+        createdAt: message.createdAt,
+        firstOptimistic: existing.isOptimistic,
+        isOptimistic: message.isOptimistic,
+      })
+      continue
+    }
+    seen.set(textHash, {
+      messageId: message.messageId,
+      gatewayIndex: message.gatewayIndex,
+      createdAt: message.createdAt,
+      isOptimistic: message.isOptimistic,
+    })
+  }
+  return duplicates
 }
 
 function hasAssistantAnswerAfterLatestUserMessage(messages: ChatMessage[]) {
@@ -1642,7 +1675,18 @@ export function useChatMessages(
         }
         setDataSource("syncing") // warm cache shown, bootstrap still loading
         timelineStoreRef.current.applyWarmCache(cachedMessages, typeof cached.entry.cursor === "number" ? cached.entry.cursor : 0, cached.entry.messageCount)
+        const duplicateUsersAfterWarmCache = duplicateUserTextDiagnostics(cachedMessages)
+        if (duplicateUsersAfterWarmCache.length > 0) {
+          frontendLog("chat", "chat.duplicate_user_candidate", {
+            windowId: windowIdRef.current,
+            sessionKey,
+            source: "warm-cache",
+            duplicateCount: duplicateUsersAfterWarmCache.length,
+            duplicates: duplicateUsersAfterWarmCache.slice(0, 5),
+          }, "warn")
+        }
         frontendLog("chat", "warm-cache.applied", {
+          windowId: windowIdRef.current,
           sessionKey,
           messageCount: cachedMessages.length,
           cursor: cached.entry.cursor,
@@ -1894,6 +1938,29 @@ export function useChatMessages(
         markHistoryLoaded()
         setDataSource("fresh")
         timelineStoreRef.current.applyBootstrap(displayMessages, typeof bootstrapCursor === "number" ? bootstrapCursor : 0, typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : displayMessages.length)
+        const duplicateUsersAfterBootstrap = duplicateUserTextDiagnostics(displayMessages)
+        if (duplicateUsersAfterBootstrap.length > 0) {
+          frontendLog("chat", "chat.duplicate_user_candidate", {
+            windowId: windowIdRef.current,
+            sessionKey,
+            source: "bootstrap",
+            duplicateCount: duplicateUsersAfterBootstrap.length,
+            duplicates: duplicateUsersAfterBootstrap.slice(0, 5),
+          }, "warn")
+        }
+        frontendLog("chat", "focused.bootstrap.applied", {
+          windowId: windowIdRef.current,
+          sessionKey,
+          bootstrapCursor: bootstrapCursor ?? null,
+          streamCursor: v2CursorRef.current,
+          messageCount: displayMessages.length,
+          canonicalMessageCount: canonicalMessages.length,
+          spawnedSubagentCount: canonicalSpawns.length,
+          pendingToolCount: inlineTools.length,
+          historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
+          dataSource: source,
+          elapsedSinceMountMs: Date.now() - mountStartedAtMs,
+        }, "info")
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,

@@ -18,6 +18,7 @@ import { ChatLoadingSkeleton } from "@/components/Skeleton/ChatLoadingSkeleton"
 import { ChatBox } from "@/components/ChatBox"
 import { type ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
+import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
   exportMessagesMarkdown,
   initialMessageActionState,
@@ -1248,6 +1249,25 @@ export function ChatView({
       orphanSubagentsByAssistantId.set(msg.messageId, msgSubagents)
     }
   }
+
+  useEffect(() => {
+    if (spawnedSubagents.length === 0) return
+    const latestUserMessage = [...renderedMessages].reverse().find((message) => message.role === "user")
+    const latestUserSubagents = latestUserMessage
+      ? (subagentsByTriggerUserId.get(latestUserMessage.messageId) ?? [])
+      : []
+    const orphanCount = Array.from(orphanSubagentsByAssistantId.values()).reduce((sum, items) => sum + items.length, 0)
+    frontendLog("chat", "subagents.render.scope", {
+      sessionKey,
+      globalCount: spawnedSubagents.length,
+      activeCount: spawnedSubagents.filter((sub) => isActiveSubagent(sub.status)).length,
+      latestUserMessageId: latestUserMessage?.messageId ?? null,
+      currentTurnCount: latestUserSubagents.length,
+      anchoredCount: Array.from(subagentsByTriggerUserId.values()).reduce((sum, items) => sum + items.length, 0),
+      orphanCount,
+      messageCount: renderedMessages.length,
+    }, latestUserSubagents.length > 0 && spawnedSubagents.length !== latestUserSubagents.length ? "warn" : "debug")
+  }, [renderedMessages, sessionKey, spawnedSubagents, subagentsByTriggerUserId, orphanSubagentsByAssistantId])
 
   const scrollToRenderedMessage = useCallback((messageId: string, seq?: number) => {
     // First try direct DOM scroll (message already rendered by Virtuoso)
