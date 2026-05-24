@@ -1994,6 +1994,7 @@ export function useChatMessages(
           viewGeneration,
         })
 
+        ensureEngine("fresh-bootstrap")
         unsubscribeV2Stream = subscribeGlobalChatSession(
           sessionKey,
           (state) => {
@@ -2026,7 +2027,6 @@ export function useChatMessages(
             setMessages(state.messages)
           }
         )
-        ensureEngine("fresh-bootstrap")
         unsubscribeStream = null
         return
       } catch (e) {
