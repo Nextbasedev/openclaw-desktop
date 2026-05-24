@@ -697,7 +697,52 @@ export function useAgentActivity(sessionKey: string | null) {
       }
     }
 
-    loadHistory()
+    // Try global session state first — if it has messages + tools,
+    // hydrate Activity instantly without a network fetch.
+    const globalState = getGlobalChatSession(sessionKey)
+    const globalHasActivity = globalState &&
+      (globalState.messages.length > 0 || globalState.pendingTools.length > 0 || globalState.spawnedSubagents.length > 0)
+    if (globalHasActivity) {
+      // Hydrate from global state immediately — same logic as syncGlobalActivity
+      // but also extracts tool calls from message history
+      setStreamStatus(globalState.status)
+      for (const message of globalState.messages) {
+        if (message.role !== "assistant" || !message.toolCalls?.length) continue
+        for (const tool of message.toolCalls) {
+          const key = activityCallKey(sessionKey, tool.id)
+          callMapRef.current.set(key, mergeActivityCall(callMapRef.current.get(key), activityCallFromInlineTool(tool, { messageId: "", messagePreview: undefined })))
+        }
+      }
+      for (const tool of globalState.pendingTools) {
+        const key = activityCallKey(sessionKey, tool.id)
+        callMapRef.current.set(key, mergeActivityCall(callMapRef.current.get(key), activityCallFromInlineTool(tool, { messageId: "", messagePreview: undefined })))
+      }
+      for (const sub of globalState.spawnedSubagents) {
+        const agentId = sub.id || `spawn:${sub.toolCallId}`
+        agentsRef.current.set(agentId, {
+          runId: agentId,
+          label: sub.label || `sub-${agentId.slice(-6)}`,
+          description: sub.task,
+          phase: sub.status === "failed" ? "error" : sub.status === "completed" ? "done" : "start",
+          sessionKey: sub.sessionKey ?? undefined,
+        })
+        if (sub.sessionKey) subKeyToAgentRef.current.set(sub.sessionKey, agentId)
+      }
+      syncState()
+      setHistoryLoaded(true)
+      frontendLog("activity", "activity.hydrated-from-global", {
+        sessionKey,
+        messageCount: globalState.messages.length,
+        toolCount: globalState.pendingTools.length,
+        subagentCount: globalState.spawnedSubagents.length,
+        cursor: globalState.cursor,
+      }, "info")
+      // Still fetch history in background for completeness (subagent details, etc.)
+      // but Activity is already visible and interactive.
+      loadHistory()
+    } else {
+      loadHistory()
+    }
     let syncScheduled = false
     const debouncedSyncState = () => {
       if (syncScheduled) return
