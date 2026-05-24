@@ -2117,6 +2117,29 @@ export function useChatMessages(
     }
   }, [isGenerating, reconcileActiveRun])
 
+  // Scroll to bottom when window regains focus if we were generating
+  // (rAF doesn't fire while backgrounded, so scroll gets stuck)
+  useEffect(() => {
+    const onFocusScroll = () => {
+      if (!isGenerating && statusRef.current === "done") {
+        // Generation finished while backgrounded — force scroll to see the answer
+        forceScrollToBottom(false)
+      } else if (isGenerating) {
+        // Still generating — ensure we're tracking bottom
+        forceScrollToBottom(false)
+      }
+    }
+    const onVisible = () => {
+      if (document.visibilityState === "visible") onFocusScroll()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("focus", onFocusScroll)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("focus", onFocusScroll)
+    }
+  }, [isGenerating, forceScrollToBottom])
+
   useEffect(() => {
     if (subagentPollRef.current) clearInterval(subagentPollRef.current)
     const hasRunning = spawnedSubagents.some((s) => isActiveSubagent(s.status))

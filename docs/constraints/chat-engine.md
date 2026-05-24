@@ -98,3 +98,20 @@ Chat opens
 - Bootstrap remains the canonical source for messages/tools/subagents; lowering
   the replay cursor is only to avoid missing live patch gaps during fresh-window
   reconstruction.
+
+## Scroll Behavior
+
+- `scrollToBottom` uses `requestAnimationFrame` — does NOT fire when the window
+  is hidden/backgrounded.
+- On `visibilitychange` (visible) or `focus`, force scroll to bottom if the
+  session finished or is still generating. This ensures users see the answer
+  after switching back from another window.
+- `forceScrollToBottom` unconditionally sets `isAtBottomRef = true` and scrolls.
+  Used for send, focus-recovery, and initial load.
+
+## Markdown Rendering
+
+- `MarkdownParagraph` must render as `<div>` (not `<p>`) when children contain
+  block-level elements (CodeBlock, div, pre, table, etc.).
+- Invalid `<p><div>...</div></p>` nesting breaks browser layout calculation
+  and corrupts `scrollHeight`, making the chat appear un-scrollable.
