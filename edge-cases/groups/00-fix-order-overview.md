@@ -2,6 +2,18 @@
 
 This folder groups the edge cases by shared state/data-flow. The order matters: fixing later UX symptoms before the upstream source-of-truth issues can make wrong state render faster.
 
+
+## Required workflow before each group
+
+Do not jump straight into code. Each group must follow the repo-local four-stage workflow:
+
+1. `docs/skills/feature-plan/SKILL.md` — trace code + update/create plan docs.
+2. `docs/skills/feature-build/SKILL.md` — implement only the current group.
+3. `docs/skills/pr-review/SKILL.md` — create PR + run 3-pass review.
+4. `docs/skills/feature-ship/SKILL.md` — run checks + update PR, but do not merge unless asked.
+
+See durable constraint: `docs/constraints/edge-case-fix-workflow.md`.
+
 ## Recommended order
 
 1. **Instrumentation / diagnostics first**
