@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@/lib/ipc"
+import { frontendLog } from "@/lib/clientLogs"
 import { subscribeChatStream } from "@/lib/chatStream"
 import { fetchChatBootstrapV2, type ToolCallProjectionV2 } from "@/lib/chat-engine-v2/client"
 import { getGlobalChatSession, subscribeGlobalChatSession } from "@/lib/chat-engine-v2/store"
@@ -266,6 +267,10 @@ export function useAgentActivity(sessionKey: string | null) {
   const spawnQueueRef = useRef<string[]>([])
   const subKeyToAgentRef = useRef<Map<string, string>>(new Map())
   const cancelledRef = useRef(false)
+  const openStartedAtRef = useRef(0)
+  const firstPaintLoggedRef = useRef(false)
+  const historyRequestCountRef = useRef(0)
+  const subagentHistoryRequestCountRef = useRef(0)
 
   const syncState = useCallback(() => {
     setToolCalls(Array.from(callMapRef.current.values()))
@@ -283,6 +288,7 @@ export function useAgentActivity(sessionKey: string | null) {
 
   const fetchSubagentHistory = useCallback(
     async (subKey: string, agentId: string) => {
+      subagentHistoryRequestCountRef.current += 1
       try {
         const bootstrap = await fetchChatBootstrapV2(subKey)
         const subMessages = (bootstrap.messages ?? []) as RawHistoryMessage[]
@@ -611,6 +617,15 @@ export function useAgentActivity(sessionKey: string | null) {
   useEffect(() => {
     cancelledRef.current = false
 
+    openStartedAtRef.current = Date.now()
+    firstPaintLoggedRef.current = false
+    historyRequestCountRef.current = 0
+    subagentHistoryRequestCountRef.current = 0
+    frontendLog("activity", "activity.open", {
+      sessionKey,
+      phase: "mount",
+    }, "debug")
+
     if (!sessionKey) {
       callMapRef.current.clear()
       agentsRef.current.clear()
@@ -629,6 +644,7 @@ export function useAgentActivity(sessionKey: string | null) {
 
     async function loadHistory() {
       try {
+        historyRequestCountRef.current += 1
         const history = await invoke<{
           messages: RawHistoryMessage[]
         }>(
@@ -862,6 +878,24 @@ export function useAgentActivity(sessionKey: string | null) {
       for (const unsubscribe of unsubscribers) unsubscribe()
     }
   }, [sessionKey, subKeyToAgentSignature, syncState])
+
+  useEffect(() => {
+    if (!sessionKey || firstPaintLoggedRef.current) return
+    if (!historyLoaded && toolCalls.length === 0 && agents.size === 0 && !streamStatus) return
+    firstPaintLoggedRef.current = true
+    frontendLog("activity", "activity.open", {
+      sessionKey,
+      phase: "first-paint",
+      firstPaintMs: Date.now() - openStartedAtRef.current,
+      historyLoaded,
+      usedGlobalCache: !historyLoaded,
+      historyRequestCount: historyRequestCountRef.current,
+      subagentHistoryCount: subagentHistoryRequestCountRef.current,
+      toolCallCount: toolCalls.length,
+      agentCount: agents.size,
+      streamStatus,
+    }, "info")
+  }, [agents.size, historyLoaded, sessionKey, streamStatus, toolCalls.length])
 
   // Do not poll full chat history while the activity panel is open. The live
   // stream drives activity updates; history is only loaded on panel/session open

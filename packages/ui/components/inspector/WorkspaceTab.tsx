@@ -49,6 +49,7 @@ import remarkGfm from "remark-gfm"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { invoke, streamUrl } from "@/lib/ipc"
+import { frontendLog } from "@/lib/clientLogs"
 import {
   createRemoteWorkspaceDirectory,
   deleteRemoteWorkspaceEntry,
@@ -987,6 +988,16 @@ export function WorkspaceTab({
   const refreshTimeoutRef = useRef<number | null>(null)
   const loadRequestRef = useRef(0)
   const effectiveSessionKey = workspaceSessionKey ?? sessionKey ?? null
+
+  useEffect(() => {
+    if (!sessionKey || !effectiveSessionKey || sessionKey === effectiveSessionKey) return
+    frontendLog("inspector", "inspector.session_mismatch", {
+      tab: "workspace",
+      effectiveSessionKey,
+      activeSessionKey: sessionKey,
+      projectId: projectId ?? null,
+    }, "warn")
+  }, [effectiveSessionKey, projectId, sessionKey])
 
   useEffect(() => {
     if (workspaceSessionKey) return

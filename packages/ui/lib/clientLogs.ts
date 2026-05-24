@@ -22,6 +22,10 @@ export type FrontendLogCategory =
   | "ui"
   | "runtime"
   | "scheduler"
+  | "activity"
+  | "inspector"
+  | "terminal"
+  | "cron"
 
 export type FrontendLogContext = Record<string, unknown>
 
@@ -38,6 +42,7 @@ let initialized = false
 let counter = 0
 let fetchCounter = 0
 let originalConsole: Record<LogLevel, (...args: unknown[]) => void> | null = null
+const LOG_HASH_SALT = Math.random().toString(36).slice(2)
 
 let notifyScheduled = false
 function notify() {
@@ -114,6 +119,16 @@ export function redactText(value: string): string {
     .replace(/([?&](?:token|key|code|secret|password|auth|session)[^=]*=)[^&\s]+/gi, `$1${SECRET_VALUE}`)
     .replace(/(sk-[A-Za-z0-9_-]{8,})/g, SECRET_VALUE)
     .replace(/(ghp_[A-Za-z0-9_]+)/g, SECRET_VALUE)
+}
+
+export function stableLogHash(value: string | null | undefined): string | null {
+  if (!value) return null
+  let hash = 5381
+  const normalized = `${LOG_HASH_SALT}:${value.trim().replace(/\s+/g, " ")}`
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ normalized.charCodeAt(i)
+  }
+  return (hash >>> 0).toString(36)
 }
 
 function truncate(text: string, max = MAX_STRING_CHARS): string {

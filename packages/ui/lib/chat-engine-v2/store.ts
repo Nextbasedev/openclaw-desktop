@@ -1306,7 +1306,21 @@ function handlePatch(frame: PatchFrame) {
     globalCursor = Math.max(globalCursor, frame.patch.cursor)
     return
   }
+  const localStateWasEmpty = !existingState
   const state = existingState ?? getOrCreate(sessionKey)
+  if (localStateWasEmpty) {
+    frontendLog("stream", "patch_stream.cursor_relation", {
+      sessionKey,
+      patchCursor: frame.patch.cursor,
+      globalCursorBeforeApply: globalCursor,
+      lastReceivedCursor,
+      localStateEmpty: true,
+      patchType: frame.patch.type,
+      historyCoverage: state.historyCoverage,
+      messageCount: state.messages.length,
+      spawnedSubagentCount: state.spawnedSubagents.length,
+    }, "debug")
+  }
   if (frame.patch.cursor <= state.cursor) {
     globalCursor = Math.max(globalCursor, state.cursor, frame.patch.cursor)
     const appliedStaleTool = applyStaleMatchingToolPatch(state, frame)
