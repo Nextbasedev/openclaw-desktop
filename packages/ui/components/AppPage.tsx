@@ -243,6 +243,20 @@ export default function Page() {
         setHasToken(true)
         return
       }
+      // If we have a saved middleware URL, skip the blocking health check.
+      // The sidebar/chat will render from cached data immediately; the actual
+      // connection status is verified in the background by the connect flow.
+      try {
+        const savedUrl = localStorage.getItem("openclaw.middleware.url")?.trim()
+        if (savedUrl) {
+          setHasToken(true)
+          // Still verify in background
+          void invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
+            .then((s) => { if (!s.hasConnection) setHasToken(false) })
+            .catch(() => {})
+          return
+        }
+      } catch {}
       try {
         const s = await invoke<{ hasConnection?: boolean }>("middleware_connect_status", { input: {} })
         setHasToken(!!s.hasConnection)
@@ -2026,6 +2040,9 @@ function AppShell({
   const handleFirstMessageSent = useCallback(async (text: string) => {
     const chat = activeChatRef.current
     if (!chat) return
+    // Skip autonaming if the chat already has a meaningful name
+    // (e.g. migrated Telegram chats, previously named chats)
+    if (!isWeakChatName(chat.name)) return
     try {
       const fallbackName = fallbackChatNameFromText(text)
       const { name } = await invoke<{ name: string }>(
@@ -2038,8 +2055,13 @@ function AppShell({
         input: { chatId: chat.id, name: finalName },
       })
       invalidateChatListCache(activeSpaceId)
-      setActiveChat((prev) => prev ? { ...prev, name: finalName } : prev)
-      setActiveSessionTitle(finalName)
+      // Only update active UI state if this chat is still the active one
+      // (user may have switched chats while autonaming was in flight)
+      const stillActive = activeChatRef.current?.id === chat.id
+      if (stillActive) {
+        setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: finalName } : prev)
+        setActiveSessionTitle(finalName)
+      }
       if (chat.sessionKey) {
         resolvedChatCacheRef.current.set(chat.id, {
           chat: { ...chat, name: finalName },
@@ -2048,7 +2070,7 @@ function AppShell({
         })
       }
       setChatRefreshTrigger((n) => n + 1)
-      window.history.replaceState(null, "", `/${chat.id}`)
+      if (stillActive) window.history.replaceState(null, "", `/${chat.id}`)
     } catch (err) {
       const fallbackName = fallbackChatNameFromText(text)
       try {
@@ -2057,8 +2079,11 @@ function AppShell({
           input: { chatId: chat.id, name: fallbackName },
         })
         invalidateChatListCache(activeSpaceId)
-        setActiveChat((prev) => prev ? { ...prev, name: fallbackName } : prev)
-        setActiveSessionTitle(fallbackName)
+        const stillActive = activeChatRef.current?.id === chat.id
+        if (stillActive) {
+          setActiveChat((prev) => prev?.id === chat.id ? { ...prev, name: fallbackName } : prev)
+          setActiveSessionTitle(fallbackName)
+        }
         setChatRefreshTrigger((n) => n + 1)
       } catch {}
       console.error("Auto-naming chat failed", err)
@@ -2247,37 +2272,40 @@ function AppShell({
         idempotencyKey: chatSendIdempotencyKey(sessionKey, optimisticId),
         clientMessageId: optimisticId,
       })
-      try {
-        const { name } = await invoke<{ name: string }>(
-          "middleware_autonaming_quick",
-          { input: { text } },
-        )
-        const finalName = isWeakChatName(name) ? fallbackName : name
-        invalidateChatListCache(activeSpaceId)
-        await invoke("middleware_chats_rename", {
-          input: { chatId: result.chat.id, name: finalName },
-        })
-        invalidateChatListCache(activeSpaceId)
-        const renamedChat = { ...createdChat, name: finalName }
-        resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
-        setActiveChat((prev) =>
-          prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
-        )
-        setActiveSessionTitle(finalName)
-        dispatchGroups({
-          type: "UPDATE_TAB",
-          tabId: `chat:${result.chat.id}`,
-          updates: { title: finalName, chat: renamedChat },
-        })
-        dispatchGroups({
-          type: "SET_SESSION_DATA",
-          groupId: targetGroupId,
-          sessionData: { chat: renamedChat, sessionKey, title: finalName },
-        })
-        setChatRefreshTrigger((n) => n + 1)
-      } catch (err) {
-        console.error("Auto-naming chat failed", err)
-      }
+      frontendLog("composer", "quick-send.sent", { chatId: result.chat.id, sessionKey })
+      void (async () => {
+        try {
+          const { name } = await invoke<{ name: string }>(
+            "middleware_autonaming_quick",
+            { input: { text } },
+          )
+          const finalName = isWeakChatName(name) ? fallbackName : name
+          invalidateChatListCache(activeSpaceId)
+          await invoke("middleware_chats_rename", {
+            input: { chatId: result.chat.id, name: finalName },
+          })
+          invalidateChatListCache(activeSpaceId)
+          const renamedChat = { ...createdChat, name: finalName }
+          resolvedChatCacheRef.current.set(result.chat.id, { chat: renamedChat, sessionKey, title: finalName })
+          setActiveChat((prev) =>
+            prev?.id === result.chat.id ? { ...prev, name: finalName } : prev,
+          )
+          setActiveSessionTitle((prev) => (prev === fallbackName ? finalName : prev))
+          dispatchGroups({
+            type: "UPDATE_TAB",
+            tabId: `chat:${result.chat.id}`,
+            updates: { title: finalName, chat: renamedChat },
+          })
+          dispatchGroups({
+            type: "SET_SESSION_DATA",
+            groupId: targetGroupId,
+            sessionData: { chat: renamedChat, sessionKey, title: finalName },
+          })
+          setChatRefreshTrigger((n) => n + 1)
+        } catch (err) {
+          console.error("Auto-naming chat failed", err)
+        }
+      })()
     } catch (err) {
       frontendLog("composer", "quick-send.fail", { error: err instanceof Error ? { kind: err.name, message: err.message } : { kind: "Error", message: String(err) } }, "error")
       console.error("Quick send failed", err)
@@ -2693,7 +2721,19 @@ function AppShell({
         onNavigateProject={() => {}}
         onNavigateTopic={() => {}}
         onNavigateDirectChat={() => {}}
-        onNavigateSearchMessage={() => {}}
+        onNavigateSearchMessage={async (input) => {
+          if (!input.sessionKey) return
+          // Navigate to the chat first
+          await handleSessionNavigate(input.sessionKey)
+          // Then dispatch a scroll-to-message event after the chat loads
+          if (input.messageId) {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("openclaw:scroll-to-message", {
+                detail: { messageId: input.messageId, sessionKey: input.sessionKey },
+              }))
+            }, 1000) // Wait for chat to load
+          }
+        }}
       />
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />

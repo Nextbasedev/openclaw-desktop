@@ -5,6 +5,8 @@ import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
+import { ChatSearch } from "./ChatSearch"
+
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
 import { SubagentBar } from "./SubagentBar"
@@ -24,11 +26,14 @@ import {
   visibleMessages,
 } from "@/lib/messageActions"
 import { invoke } from "@/lib/ipc"
+import { dedupeRequest } from "@/lib/requestDedupe"
 import { resolveExecApprovalV2 } from "@/lib/chat-engine-v2/client"
 import { emit } from "@/lib/events"
 import { frontendLog } from "@/lib/clientLogs"
+import { currentChatWindowId, logChatViewInvariant } from "@/lib/chatTimelineDiagnostics"
 import { toast } from "react-toastify"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import {
   LuBrain,
   LuClock,
@@ -326,6 +331,7 @@ export function ChatView({
     markTextAnimationComplete,
     pendingTools,
     spawnedSubagents,
+    dataSource,
   } = useChatMessages(sessionKey, initialMessages)
 
   const lastAssistantText = messages
@@ -341,6 +347,9 @@ export function ChatView({
   // don't leave dangling listeners behind.
   const toastUnlistenRef = useRef<{ reply?: () => void; open?: () => void }>({})
   const lastRunErrorToastRef = useRef<string | null>(null)
+  const viewGenerationRef = useRef(0)
+  const windowIdRef = useRef<string | null>(null)
+  if (windowIdRef.current === null) windowIdRef.current = currentChatWindowId()
 
   useEffect(() => {
     const setup = async () => {
@@ -426,6 +435,31 @@ export function ChatView({
   const [composerSeed, setComposerSeed] = useState(initialPrompt ?? "")
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null)
   const [pinnedPopoverOpen, setPinnedPopoverOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleHighlightMessage = useCallback((messageId: string | null) => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    setHighlightedMessageId(messageId)
+    if (messageId) {
+      highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(null), 2000)
+    }
+  }, [])
+
+  // Ctrl+F / Cmd+F opens in-chat search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
+
+
   const pinButtonRef = useRef<HTMLButtonElement>(null)
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackTargetId, setFeedbackTargetId] = useState<string | null>(null)
@@ -440,17 +474,28 @@ export function ChatView({
   }>({ pins: [], loaded: false })
 
   useEffect(() => {
+    let cancelled = false
     // Reset everything when the session changes
     dispatchMessageAction(initialMessageActionState)
     setDbPins({ pins: [], loaded: false })
 
-    invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
-      "middleware_pins_list",
-      {
-        sessionKey,
-      }
+    const connectionKey = (() => {
+      if (typeof window === "undefined") return "server"
+      const url = window.localStorage.getItem("openclaw.middleware.url")?.trim() ?? ""
+      const token = window.localStorage.getItem("openclaw.middleware.token")?.trim() ?? ""
+      return url ? `${url}|${token ? "token" : "no-token"}` : "default"
+    })()
+
+    dedupeRequest(
+      `chat-pins:${connectionKey}:${sessionKey}`,
+      () => invoke<{ pins: Array<{ messageId: string; messageText: string }> }>(
+        "middleware_pins_list",
+        { sessionKey },
+      ),
+      { ttlMs: 30_000 },
     )
       .then((res) => {
+        if (cancelled) return
         const pins = Array.isArray(res?.pins) ? res.pins : []
         setDbPins({ pins, loaded: true })
         // Apply fetched pins immediately. If IDs match exactly, they'll show up.
@@ -461,8 +506,12 @@ export function ChatView({
         }))
       })
       .catch(() => {
-        setDbPins({ pins: [], loaded: true })
+        if (!cancelled) setDbPins({ pins: [], loaded: true })
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [sessionKey])
 
   // Reconcile DB pins against the loaded messages.
@@ -534,15 +583,21 @@ export function ChatView({
   })
 
   useEffect(() => {
+    const viewGeneration = viewGenerationRef.current + 1
+    viewGenerationRef.current = viewGeneration
     frontendLog("chat", "chat-view.mount", {
       sessionKey,
       sessionTitle,
       isBackgroundSession,
+      windowId: windowIdRef.current,
+      viewGeneration,
     })
     return () =>
       frontendLog("chat", "chat-view.unmount", {
         sessionKey,
         isBackgroundSession,
+        windowId: windowIdRef.current,
+        viewGeneration,
       })
   }, [isBackgroundSession, sessionKey, sessionTitle])
 
@@ -561,6 +616,8 @@ export function ChatView({
         messageCount: messages.length,
         pendingToolCount: pendingTools.length,
         spawnedSubagentCount: spawnedSubagents.length,
+        windowId: windowIdRef.current,
+        viewGeneration: viewGenerationRef.current,
       },
       "debug"
     )
@@ -576,6 +633,18 @@ export function ChatView({
     status,
     statusLabel,
   ])
+
+  useEffect(() => {
+    logChatViewInvariant({
+      windowId: windowIdRef.current,
+      viewGeneration: viewGenerationRef.current,
+      activeSessionKey: sessionKey,
+      renderedSessionKey: sessionKey,
+      messageListSessionKey: sessionKey,
+      messageCount: messages.length,
+      reason: "chat-view-render",
+    })
+  }, [messages.length, sessionKey])
 
   useEffect(() => {
     setComposerSeed(initialPrompt ?? "")
@@ -725,7 +794,13 @@ export function ChatView({
     [messages, messageActionState]
   )
   const renderedMessages = visibleAllMessages
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const mountedAtRef = useRef(Date.now())
   const lastHistoryScrollVersionRef = useRef(0)
+  // Reset mount timestamp on session change
+  useEffect(() => {
+    mountedAtRef.current = Date.now()
+  }, [sessionKey])
 
   useLayoutEffect(() => {
     if (isBackgroundSession) return
@@ -958,8 +1033,12 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-  }, [bottomRef])
+    if (virtuosoRef.current) {
+      virtuosoRef.current.scrollToIndex({ index: renderedMessages.length - 1, behavior: "smooth", align: "end" })
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    }
+  }, [bottomRef, renderedMessages.length])
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -1170,12 +1249,53 @@ export function ChatView({
     }
   }
 
-  const scrollToRenderedMessage = useCallback((messageId: string) => {
+  const scrollToRenderedMessage = useCallback((messageId: string, seq?: number) => {
+    // First try direct DOM scroll (message already rendered by Virtuoso)
     const target = document.getElementById(`message-${messageId}`)
-    if (!target) return false
-    target.scrollIntoView({ behavior: "smooth", block: "center" })
-    return true
-  }, [])
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" })
+      return true
+    }
+    // Message outside Virtuoso's rendered range — find its index and scroll
+    const index = renderedMessages.findIndex((m) => m.messageId === messageId)
+    if (index >= 0 && virtuosoRef.current) {
+      virtuosoRef.current.scrollToIndex({
+        index,
+        behavior: "smooth",
+        align: "center",
+      })
+      return true
+    }
+    // Message not loaded yet — load older messages until we reach it
+    if (seq && seq > 0 && hasOlderMessages) {
+      void (async () => {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await loadOlderMessages()
+          // Wait for React to render the new messages into the DOM
+          await new Promise((r) => setTimeout(r, 500))
+          const el = document.getElementById(`message-${messageId}`)
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" })
+            return
+          }
+        }
+      })()
+    }
+    return false
+  }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages])
+
+  // Listen for scroll-to-message events from Ctrl+K global search
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.sessionKey === sessionKey && detail?.messageId) {
+        scrollToRenderedMessage(detail.messageId)
+        handleHighlightMessage(detail.messageId)
+      }
+    }
+    window.addEventListener("openclaw:scroll-to-message", handler)
+    return () => window.removeEventListener("openclaw:scroll-to-message", handler)
+  }, [sessionKey, scrollToRenderedMessage, handleHighlightMessage])
 
   const renderMessageRow = useCallback(
     (index: number, msg: ChatMessage) => {
@@ -1239,7 +1359,7 @@ export function ChatView({
       return (
         <div
           id={`message-${msg.messageId}`}
-          className="mx-auto max-w-3xl px-4 py-2.5"
+          className={`mx-auto max-w-3xl px-4 py-2.5 transition-all duration-500 ${highlightedMessageId && highlightedMessageId !== msg.messageId ? "opacity-40" : ""} ${highlightedMessageId === msg.messageId ? "rounded-lg ring-1 ring-yellow-500/40" : ""}`}
         >
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
@@ -1265,6 +1385,7 @@ export function ChatView({
                       defaultOpen={lastTwoAssistantIds.has(msg.messageId) && !assistantHasText}
                       onSelectTool={onSelectTool}
                       onResolveApproval={resolveExecApproval}
+                      sessionKey={sessionKey}
                     />
                   </div>
                 )
@@ -1315,6 +1436,7 @@ export function ChatView({
                 defaultOpen
                 onSelectTool={onSelectTool}
                 onResolveApproval={resolveExecApproval}
+                sessionKey={sessionKey}
               />
             </div>
           )}
@@ -1470,6 +1592,13 @@ export function ChatView({
           </div> */}
         </div>
 
+        {dataSource === "syncing" && (
+          <div className="flex items-center gap-1.5 rounded-full bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground/60">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-500/60" />
+            <span>Syncing…</span>
+          </div>
+        )}
+
         <div className="relative">
           <button
             ref={pinButtonRef}
@@ -1511,47 +1640,67 @@ export function ChatView({
         onSubmit={handleFeedbackSubmit}
       />
 
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
-      >
-        <div className="mx-auto max-w-3xl px-4 pt-8">
-          {loadingOlderMessages && (
-            <div className="mb-4 flex justify-center text-xs text-muted-foreground">
-              Loading earlier messages…
-            </div>
-          )}
-        </div>
-        {renderedMessages.map((msg, index) => (
-          <div key={msg.messageId} className="contents">
-            {renderMessageRow(index, msg)}
-          </div>
-        ))}
-        <div className="mx-auto max-w-3xl px-4 pb-8">
-          <AnimatePresence initial={false}>
-            {editPreview && (
-              <EditPreviewPanel
-                key={editPreview.branchSessionKey}
-                preview={editPreview}
-                onSelect={selectEditBranch}
-              />
-            )}
-          </AnimatePresence>
+      <ChatSearch
+        messages={renderedMessages}
+        sessionKey={sessionKey}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onScrollToMessage={(id: string, seq?: number) => scrollToRenderedMessage(id, seq)}
+        onHighlightMessage={handleHighlightMessage}
+      />
 
-          {statusText && (
-            <div className="mt-4 flex items-center pl-1">
-              <ProcessStatusIcon tool={liveTool?.tool} />
-              <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                {statusText.replace(/\.{3}$/, "")}
-                <span className="thinking-ellipsis" aria-hidden="true" />
-              </span>
+      <Virtuoso
+        ref={virtuosoRef}
+        data={renderedMessages}
+        firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
+        initialTopMostItemIndex={renderedMessages.length > 0 ? renderedMessages.length - 1 : 0}
+        followOutput="smooth"
+        alignToBottom
+        increaseViewportBy={{ top: 400, bottom: 200 }}
+        className="flex-1"
+        atTopStateChange={(atTop) => {
+          // Don't trigger older message loading within 1s of mount or session change
+          // — Virtuoso fires atTop immediately for short chats that fit in viewport
+          if (atTop && hasOlderMessages && !loadingOlderMessages && Date.now() - mountedAtRef.current > 1000) {
+            void loadOlderMessages()
+          }
+        }}
+        itemContent={(index, msg) => renderMessageRow(index, msg)}
+        components={{
+          Header: () => (
+            <div className="mx-auto max-w-3xl px-4 pt-8">
+              {loadingOlderMessages && (
+                <div className="mb-4 flex justify-center text-xs text-muted-foreground">
+                  Loading earlier messages…
+                </div>
+              )}
             </div>
-          )}
-
-          <div ref={bottomRef} className="h-8" />
-        </div>
-      </div>
+          ),
+          Footer: () => (
+            <div className="mx-auto max-w-3xl px-4 pb-8">
+              <AnimatePresence initial={false}>
+                {editPreview && (
+                  <EditPreviewPanel
+                    key={editPreview.branchSessionKey}
+                    preview={editPreview}
+                    onSelect={selectEditBranch}
+                  />
+                )}
+              </AnimatePresence>
+              {statusText && (
+                <div className="mt-4 flex items-center pl-1">
+                  <ProcessStatusIcon tool={liveTool?.tool} />
+                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                    {statusText.replace(/\.{3}$/, "")}
+                    <span className="thinking-ellipsis" aria-hidden="true" />
+                  </span>
+                </div>
+              )}
+              <div ref={bottomRef} className="h-8" />
+            </div>
+          ),
+        }}
+      />
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <AnimatePresence>

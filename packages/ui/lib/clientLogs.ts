@@ -21,6 +21,7 @@ export type FrontendLogCategory =
   | "status"
   | "ui"
   | "runtime"
+  | "scheduler"
 
 export type FrontendLogContext = Record<string, unknown>
 
@@ -403,13 +404,14 @@ function instrumentFetch() {
       return res
     } catch (err) {
       const durationMs = Math.round(performance.now() - start)
-      frontendLog("api", "request.fail", {
+      const isAbort = err instanceof DOMException && err.name === "AbortError"
+      frontendLog("api", isAbort ? "request.abort" : "request.fail", {
         requestId,
         method: meta.method,
         url: meta.safeUrl,
         durationMs,
         error: errorMeta(err),
-      }, "error")
+      }, isAbort ? "debug" : "error")
       throw err
     }
   }

@@ -1,5 +1,7 @@
 import { toast } from "react-toastify"
 import { invoke } from "@/lib/ipc"
+import { frontendLog } from "@/lib/clientLogs"
+import { getMiddlewareConnection } from "@/lib/middleware-client"
 
 export function showGatewayError(message?: string) {
   toast.error(message ?? "Gateway not connected. Check connection settings.", {
@@ -22,6 +24,20 @@ export function isGatewayError(err: unknown): boolean {
 }
 
 export async function checkGatewayOrRedirect(): Promise<boolean> {
+  const savedConnection = getMiddlewareConnection()
+
+  // Send/new-chat is the hottest path in the app. Do not block it on a
+  // synchronous health/connect probe: under heavy tab switching that probe can
+  // time out even though the saved remote middleware is valid, which used to
+  // route the user away to /connect before /api/chat/send ever fired.
+  if (savedConnection) {
+    frontendLog("connection", "gateway-check.skip-for-send", {
+      url: savedConnection.url,
+      hasToken: Boolean(savedConnection.token),
+    }, "debug")
+    return true
+  }
+
   try {
     const s = await invoke<{
       gatewayConfigured: boolean

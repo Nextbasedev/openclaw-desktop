@@ -7,7 +7,7 @@ import { emit } from "../events"
 import { isAwaitingLiveToolResult, isInferredFallbackToolResult } from "../liveToolCalls"
 import { queryKeys } from "../query"
 import { extractSubagentSessionKey } from "../subagentSession"
-import { setWarmChatCache, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
+import { setWarmChatCache, preloadWarmCacheToMemory, WARM_CHAT_WRITE_DEBOUNCE_MS } from "../warmChatCache"
 import { applyChatPatch, patchImpliesActiveRun, statusFromPatch } from "./applyPatches"
 import { openPatchStreamV2 } from "./client"
 import { CHAT_PROJECTION_VERSION, type CachedChatBootstrapV2, type HistoryCoverageV2, type PatchFrame, type PatchPayloadV2, type StreamFrame, type ToolCallProjectionV2 } from "./types"
@@ -877,7 +877,7 @@ function syncLinkedSubagentStatus(childSessionKey: string, childStatus: StreamSt
     })
     if (changed) {
       parent.spawnedSubagents = dedupeSpawnedSubagents(next)
-      notify(parentKey)
+      notifySync(parentKey)
     }
   }
 }
@@ -918,6 +918,10 @@ function shouldIgnoreTerminalToActiveStatus(state: SessionState, frame: PatchFra
   if (patchCarriesToolActivity(frame)) return false
   if (patchCarriesAssistantLiveActivity(frame)) return false
   if (hasActiveToolOrSubagent(state)) return false
+  // Metadata-only bootstrap replays (no full messages) should not resurrect
+  // idle/done sessions into "thinking" when local state has no messages yet.
+  // The upcoming full bootstrap will set the correct status.
+  if (frame.patch.type === "chat.bootstrap" && state.messages.length === 0) return true
   return hasAssistantAnswerAfterLatestUser(state)
 }
 
@@ -1053,11 +1057,99 @@ function patchShouldMoveSidebar(frame: PatchFrame | undefined) {
   return frame.patch.type.startsWith("chat.message.")
 }
 
+// ── Batched notification system ──
+// Patches are applied to state immediately, but listener notifications
+// are coalesced within a single animation frame (16ms). This prevents
+// 20-40 re-renders from a burst of chat.tool.update patches.
+const pendingNotifications = new Map<string, { frame?: PatchFrame; sidebarEvents: Array<{ at?: string; text?: string | null }> }>()
+let batchRafId: number | null = null
+let batchTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+function flushNotifications() {
+  batchRafId = null
+  if (batchTimeoutId !== null) { clearTimeout(batchTimeoutId); batchTimeoutId = null }
+  const batch = new Map(pendingNotifications)
+  pendingNotifications.clear()
+  for (const [sessionKey, pending] of batch) {
+    const state = states.get(sessionKey)
+    if (!state) continue
+    cacheBootstrap(sessionKey, state)
+    persistWarmSessionSnapshot(sessionKey, state)
+    for (const evt of pending.sidebarEvents) {
+      emit("chat:message-confirmed", { sessionKey, at: evt.at, lastMessageText: evt.text })
+    }
+    const callbacks = listeners.get(sessionKey)
+    if (!callbacks) continue
+    const snapshot = cloneState(state)
+    for (const listener of callbacks) listener(snapshot, pending.frame)
+  }
+}
+
+// Flush pending notifications when app returns from background
+// (rAF doesn't fire while backgrounded, so notifications accumulate)
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && pendingNotifications.size > 0) {
+      frontendLog("stream", "batch.flush-on-foreground", { pendingCount: pendingNotifications.size }, "debug")
+      flushNotifications()
+    }
+  })
+}
+
 function notify(sessionKey: string, frame?: PatchFrame) {
+  const state = states.get(sessionKey)
+  if (!state) return
+  const existing = pendingNotifications.get(sessionKey)
+  if (existing) {
+    // Keep the latest frame for the snapshot
+    existing.frame = frame
+    if (patchShouldMoveSidebar(frame)) {
+      existing.sidebarEvents.push({
+        at: frame?.patch.createdAtMs ? new Date(frame.patch.createdAtMs).toISOString() : undefined,
+        text: messageTextFromPatch(frame),
+      })
+    }
+  } else {
+    const sidebarEvents: Array<{ at?: string; text?: string | null }> = []
+    if (patchShouldMoveSidebar(frame)) {
+      sidebarEvents.push({
+        at: frame?.patch.createdAtMs ? new Date(frame.patch.createdAtMs).toISOString() : undefined,
+        text: messageTextFromPatch(frame),
+      })
+    }
+    pendingNotifications.set(sessionKey, { frame, sidebarEvents })
+  }
+  if (batchRafId === null && typeof requestAnimationFrame !== "undefined") {
+    batchRafId = requestAnimationFrame(flushNotifications)
+    // Fallback: if rAF doesn't fire within 100ms (backgrounded tab), use setTimeout
+    if (batchTimeoutId === null) {
+      batchTimeoutId = setTimeout(() => {
+        batchTimeoutId = null
+        if (pendingNotifications.size > 0) flushNotifications()
+      }, 100)
+    }
+  } else if (batchRafId === null) {
+    // SSR / test environment fallback — notify synchronously
+    flushNotifications()
+  }
+}
+
+/** Synchronous notify — used by seed/subscribe/sweep where the caller
+ *  expects the listener to receive state immediately. */
+function notifySync(sessionKey: string, frame?: PatchFrame) {
+  // Flush any pending batched notification for this session first
+  const pending = pendingNotifications.get(sessionKey)
+  if (pending) pendingNotifications.delete(sessionKey)
   const state = states.get(sessionKey)
   if (!state) return
   cacheBootstrap(sessionKey, state)
   persistWarmSessionSnapshot(sessionKey, state)
+  // Emit any accumulated sidebar events from batch
+  if (pending) {
+    for (const evt of pending.sidebarEvents) {
+      emit("chat:message-confirmed", { sessionKey, at: evt.at, lastMessageText: evt.text })
+    }
+  }
   if (patchShouldMoveSidebar(frame)) {
     emit("chat:message-confirmed", {
       sessionKey,
@@ -1156,10 +1248,14 @@ function applyHistoryCoverageFromPatch(state: SessionState, frame: PatchFrame, p
   const messageCount = payloadMessageCount(payload)
   if (frame.patch.type === "chat.bootstrap") {
     const fullMessagesIncluded = payload?.fullMessagesIncluded === true
-    const coverage: HistoryCoverageV2 = fullMessagesIncluded ? "full" : "metadata"
-    if (coverage === "full" || state.historyCoverage !== "full") {
+    const hasOlder = payload?.hasOlder === true
+    const coverage: HistoryCoverageV2 = fullMessagesIncluded ? "full" : hasOlder ? "windowed" : "metadata"
+    if (coverage === "full" || (state.historyCoverage !== "full" && state.historyCoverage !== "windowed")) {
       state.historyCoverage = coverage
       state.messageCount = messageCount ?? (fullMessagesIncluded ? state.messages.length : state.messageCount)
+    } else if (coverage === "windowed" && state.historyCoverage !== "full") {
+      state.historyCoverage = coverage
+      if (messageCount !== null) state.messageCount = messageCount
     } else if (messageCount !== null && state.messageCount === null) {
       state.messageCount = messageCount
     }
@@ -1175,13 +1271,42 @@ function applyHistoryCoverageFromPatch(state: SessionState, frame: PatchFrame, p
   }
 }
 
+let lastReceivedCursor = 0
+
 function handlePatch(frame: PatchFrame) {
   const sessionKey = frame.patch.sessionKey
   if (!sessionKey) {
     globalCursor = Math.max(globalCursor, frame.patch.cursor)
+    lastReceivedCursor = Math.max(lastReceivedCursor, frame.patch.cursor)
     return
   }
-  const state = getOrCreate(sessionKey)
+  // Detect cursor gap — if we jumped more than 1 cursor, patches were missed.
+  // Trigger a bootstrap recovery for this session to fetch the latest state.
+  const expectedNext = lastReceivedCursor + 1
+  const gap = frame.patch.cursor - lastReceivedCursor
+  if (lastReceivedCursor > 0 && gap > 5 && states.has(sessionKey)) {
+    frontendLog("stream", "patch-stream.cursor-gap-detected", {
+      sessionKey,
+      expectedNext,
+      receivedCursor: frame.patch.cursor,
+      gap,
+    }, "warn")
+    // Dispatch recovery event so the active chat refetches if needed
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
+        detail: { sessionKey, reason: "cursor-gap", cursor: frame.patch.cursor },
+      }))
+    }
+  }
+  lastReceivedCursor = Math.max(lastReceivedCursor, frame.patch.cursor)
+  // Don't create new session state for replayed patches below globalCursor.
+  // This prevents cursor-0 replay floods from creating hundreds of empty sessions.
+  const existingState = states.get(sessionKey)
+  if (!existingState && frame.patch.cursor < globalCursor && frame.patch.type !== "chat.bootstrap") {
+    globalCursor = Math.max(globalCursor, frame.patch.cursor)
+    return
+  }
+  const state = existingState ?? getOrCreate(sessionKey)
   if (frame.patch.cursor <= state.cursor) {
     globalCursor = Math.max(globalCursor, state.cursor, frame.patch.cursor)
     const appliedStaleTool = applyStaleMatchingToolPatch(state, frame)
@@ -1303,8 +1428,15 @@ function handlePatch(frame: PatchFrame) {
       sessionKey,
       patchCursor: frame.patch.cursor,
       messageCount: payload.messageCount,
+      recoveryScoped: true,
     })
-    window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery"))
+    window.dispatchEvent(new CustomEvent("openclaw:chat-bootstrap-recovery", {
+      detail: {
+        sessionKey,
+        reason: "archive-import",
+        cursor: frame.patch.cursor,
+      },
+    }))
   }
   notify(sessionKey, frame)
 }
@@ -1331,6 +1463,8 @@ export function ensureGlobalChatEngine(queryClient?: QueryClient) {
   if (!sweepInterval && typeof window !== "undefined") {
     sweepInterval = setInterval(() => sweepStaleGlobalChatSessions(), 60_000)
     frontendLog("session", "global-chat-engine.sweep.start", { intervalMs: 60_000 }, "debug")
+    // Preload warm cache from IndexedDB into memory for instant sync reads
+    void preloadWarmCacheToMemory().catch(() => {})
   }
   // Restore cursor from localStorage so page reloads / tab switches
   // don't replay the entire patch history from cursor 0.
@@ -1411,7 +1545,7 @@ export function seedGlobalChatSession(params: {
     spawnedSubagentCount: state.spawnedSubagents.length,
     historyCoverage: state.historyCoverage,
   }, "debug")
-  notify(params.sessionKey)
+  notifySync(params.sessionKey)
 }
 
 export function updateGlobalChatSessionActivity(params: {
@@ -1446,7 +1580,7 @@ export function updateGlobalChatSessionActivity(params: {
     historyCoverage: state.historyCoverage,
     messageCount: state.messageCount,
   }, "debug")
-  notify(params.sessionKey)
+  notifySync(params.sessionKey)
 }
 
 export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE_ACTIVE_RUN_MS) {
@@ -1477,7 +1611,7 @@ export function sweepStaleGlobalChatSessions(nowMs = Date.now(), staleMs = STALE
       to: state.status,
       staleMs,
     }, "warn")
-    notify(sessionKey)
+    notifySync(sessionKey)
   }
 }
 
@@ -1527,4 +1661,27 @@ export function clearGlobalChatEngineForTests() {
   }
   for (const timer of warmPersistTimers.values()) clearTimeout(timer)
   warmPersistTimers.clear()
+  pendingNotifications.clear()
+  if (batchRafId !== null) {
+    cancelAnimationFrame(batchRafId)
+    batchRafId = null
+  }
+  if (batchTimeoutId !== null) {
+    clearTimeout(batchTimeoutId)
+    batchTimeoutId = null
+  }
+  lastReceivedCursor = 0
+}
+
+/** Flush any pending batched notifications immediately (for tests). */
+export function flushPatchNotifications() {
+  if (batchRafId !== null) {
+    cancelAnimationFrame(batchRafId)
+    batchRafId = null
+  }
+  if (batchTimeoutId !== null) {
+    clearTimeout(batchTimeoutId)
+    batchTimeoutId = null
+  }
+  flushNotifications()
 }

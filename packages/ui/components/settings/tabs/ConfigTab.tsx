@@ -3,7 +3,10 @@
 import * as React from "react"
 import { invoke } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
-import { LuFileText, LuRefreshCw, LuPencil, LuSave, LuX } from "react-icons/lu"
+import { middlewareFetch } from "@/lib/middleware-client"
+import { localSyncClearAll } from "@/lib/localFirstSync"
+import { persistentCacheClearAll } from "@/lib/persistentCache"
+import { LuFileText, LuRefreshCw, LuPencil, LuSave, LuX, LuTrash2 } from "react-icons/lu"
 
 type ConfigFile = {
   path: string
@@ -28,6 +31,28 @@ export function ConfigTab() {
   const [content, setContent] = React.useState("")
   const [draft, setDraft] = React.useState("")
   const [loading, setLoading] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
+  const [deleteResult, setDeleteResult] = React.useState<string | null>(null)
+
+  async function handleDeleteAllChats() {
+    if (!confirm("Delete ALL chats? This removes all desktop and imported Telegram chats, messages, and projections. This cannot be undone.")) return
+    setDeleting(true)
+    setDeleteResult(null)
+    try {
+      const result = await middlewareFetch<{ ok: boolean; deleted: number; sessionsCleaned: number }>("/api/chats", { method: "DELETE", timeoutMs: 60_000 })
+      setDeleteResult(`Deleted ${result.deleted} chats, cleaned ${result.sessionsCleaned} sessions.`)
+    } catch (error) {
+      // Deletion likely succeeded server-side even if we timed out
+      setDeleteResult(error instanceof Error && error.message.includes("timed out")
+        ? "Chats deleted (server cleanup still finishing)."
+        : `Failed: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      // Always clear frontend caches and refresh sidebar
+      await Promise.all([localSyncClearAll(), persistentCacheClearAll()]).catch(() => {})
+      window.dispatchEvent(new CustomEvent("sidebar:refresh"))
+      setDeleting(false)
+    }
+  }
   const [saving, setSaving] = React.useState(false)
   const [editing, setEditing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -181,6 +206,25 @@ export function ConfigTab() {
             </pre>
           )}
         </section>
+      </div>
+
+      <div className="mt-8 rounded-xl border border-red-500/30 bg-red-500/5 p-5">
+        <div className="flex items-center gap-3">
+          <LuTrash2 size={16} className="shrink-0 text-red-400" />
+          <div className="flex-1">
+            <p className="text-[13px] font-medium text-foreground">Delete All Chats</p>
+            <p className="text-[11px] text-muted-foreground">Removes all desktop and imported chats, messages, and cached projections. Cannot be undone.</p>
+            {deleteResult && <p className={`mt-1 text-[11px] ${deleteResult.startsWith("Failed") ? "text-red-400" : "text-green-400"}`}>{deleteResult}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={handleDeleteAllChats}
+            disabled={deleting}
+            className="cursor-pointer rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[12px] font-medium text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+          >
+            {deleting ? "Deleting..." : "Delete All"}
+          </button>
+        </div>
       </div>
     </div>
   )

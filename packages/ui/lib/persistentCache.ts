@@ -80,15 +80,32 @@ async function idbGet<T>(key: string): Promise<PersistentCacheEntry<T> | null> {
   })
 }
 
+let quotaWarningEmitted = false
+
 async function idbSet(entry: PersistentCacheEntry): Promise<void> {
   const db = await openDb()
   if (!db) return
   await new Promise<void>((resolve) => {
     try {
       const tx = db.transaction(STORE_NAME, "readwrite")
-      tx.objectStore(STORE_NAME).put(entry)
+      const req = tx.objectStore(STORE_NAME).put(entry)
       tx.oncomplete = () => resolve()
-      tx.onerror = () => resolve()
+      tx.onerror = (event) => {
+        const error = (event.target as IDBRequest)?.error
+        if (error?.name === "QuotaExceededError" || error?.name === "NS_ERROR_DOM_QUOTA_REACHED") {
+          if (!quotaWarningEmitted) {
+            quotaWarningEmitted = true
+            console.warn("[OCPlatform] IndexedDB quota exceeded — warm cache writes will fail. Clear browser data to free space.")
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("openclaw:storage-quota-exceeded", {
+                detail: { store: "indexeddb", key: entry.key },
+              }))
+            }
+          }
+        }
+        resolve()
+      }
+      req.onerror = () => {} // suppress uncaught DOMException
     } catch {
       recreateDbAfterCorruption(db)
       resolve()
@@ -181,4 +198,17 @@ export async function persistentCacheClearAll() {
 export function persistentCachePeekMemory<T>(key: string): T | null {
   const entry = memory.get(key) as PersistentCacheEntry<T> | undefined
   return entry && !isExpired(entry) ? entry.value : null
+}
+
+/** Check storage usage. Returns null if StorageManager is unavailable. */
+export async function getStorageUsage(): Promise<{ used: number; quota: number; percent: number } | null> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
+      const est = await navigator.storage.estimate()
+      const used = est.usage ?? 0
+      const quota = est.quota ?? 0
+      return { used, quota, percent: quota > 0 ? Math.round((used / quota) * 100) : 0 }
+    }
+  } catch {}
+  return null
 }

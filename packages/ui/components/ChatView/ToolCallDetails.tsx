@@ -1,6 +1,8 @@
 "use client"
 
+import { useState, useCallback } from "react"
 import { cn } from "@/lib/utils"
+import { middlewareFetch } from "@/lib/middleware-client"
 import type { InlineToolCall } from "./types"
 
 function isInferredFallbackResult(value: unknown) {
@@ -20,6 +22,8 @@ function isInferredFallbackResult(value: unknown) {
   }
 }
 
+const TOOL_OUTPUT_COLLAPSE_THRESHOLD = 2000
+
 function formatDetail(value: unknown, limit: number) {
   if (value === undefined || value === null || value === "") return ""
   if (isInferredFallbackResult(value)) return ""
@@ -32,13 +36,25 @@ function formatDetail(value: unknown, limit: number) {
   return text.length > limit ? `${text.slice(0, limit)}\n...(truncated)` : text
 }
 
+function formatDetailFull(value: unknown) {
+  if (value === undefined || value === null || value === "") return ""
+  if (isInferredFallbackResult(value)) return ""
+  try {
+    return typeof value === "string" ? value : JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 function DetailBlock({
   label,
   tone,
+  expanded,
   children,
 }: {
   label: string
   tone?: "error" | "neutral" | "success"
+  expanded?: boolean
   children: string
 }) {
   return (
@@ -59,7 +75,8 @@ function DetailBlock({
       </div>
       <pre
         className={cn(
-          "max-h-48 overflow-auto bg-black/20 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-[#E5E7EB]/75",
+          "overflow-auto bg-black/20 px-5 py-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-[#E5E7EB]/75",
+          expanded ? "max-h-[80vh]" : "max-h-48",
           tone === "error" && "text-[#FF4D4D]/80",
           tone === "success" && "text-[#00D492]/80"
         )}
@@ -75,10 +92,15 @@ export function getToolDetailState(call: InlineToolCall) {
     ? { command: call.approval.command }
     : undefined
   const inputText = formatDetail(call.input ?? approvalInput, 1200)
-  const outputText = formatDetail(call.resultText, 1600)
+  const fullOutput = formatDetailFull(call.resultText)
+  const isOutputTruncated = fullOutput.length > TOOL_OUTPUT_COLLAPSE_THRESHOLD
+  const outputText = isOutputTruncated
+    ? `${fullOutput.slice(0, TOOL_OUTPUT_COLLAPSE_THRESHOLD)}\n...(truncated)`
+    : fullOutput
   return {
     inputText,
     outputText,
+    fullOutputText: isOutputTruncated ? fullOutput : undefined,
     hasDetails: Boolean(
       inputText || outputText || call.status === "running" || call.approval
     ),
@@ -89,11 +111,34 @@ export function ToolCallDetails({
   call,
   inputText,
   outputText,
+  fullOutputText,
+  sessionKey,
 }: {
   call: InlineToolCall
   inputText: string
   outputText: string
+  fullOutputText?: string
+  sessionKey?: string
 }) {
+  const [showFull, setShowFull] = useState(false)
+  const [fetchedFullText, setFetchedFullText] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
+
+  const fetchFullResult = useCallback(async () => {
+    if (fetchedFullText || !sessionKey || !call.id) return
+    setFetching(true)
+    try {
+      const result = await middlewareFetch<{ ok: boolean; text: string }>(
+        `/api/chat/tool-result?sessionKey=${encodeURIComponent(sessionKey)}&toolCallId=${encodeURIComponent(call.id)}`,
+        { timeoutMs: 30_000 }
+      )
+      if (result.ok && result.text) setFetchedFullText(result.text)
+    } catch {} finally {
+      setFetching(false)
+    }
+  }, [sessionKey, call.id, fetchedFullText])
+
+  const effectiveFullText = fetchedFullText ?? fullOutputText
   const showWaitingForOutput = !outputText && call.status === "running"
   const showEmptyState = !inputText && !outputText && call.status !== "running"
   const showDivider = Boolean(
@@ -112,12 +157,28 @@ export function ToolCallDetails({
         <div className="overflow-hidden">
           <div className="transition-all duration-300 ease-out animate-in fade-in-0 slide-in-from-top-1">
             {outputText ? (
-              <DetailBlock
-                label={call.status === "error" ? "Error" : "Output"}
-                tone={call.status === "error" ? "error" : "success"}
-              >
-                {outputText}
-              </DetailBlock>
+              <>
+                <DetailBlock
+                  label={call.status === "error" ? "Error" : "Output"}
+                  tone={call.status === "error" ? "error" : "success"}
+                  expanded={showFull && Boolean(effectiveFullText)}
+                >
+                  {showFull && effectiveFullText ? effectiveFullText : outputText}
+                </DetailBlock>
+                {(fullOutputText || (outputText.includes("(truncated)") && sessionKey)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!showFull && !effectiveFullText) void fetchFullResult()
+                      setShowFull((v) => !v)
+                    }}
+                    disabled={fetching}
+                    className="w-full bg-black/10 px-5 py-1.5 text-center text-[11px] font-medium text-[#93C5FD]/75 hover:bg-black/20 hover:text-[#93C5FD] transition-colors disabled:opacity-50"
+                  >
+                    {fetching ? "Loading full output…" : showFull ? "Collapse output" : effectiveFullText ? `Show full output (${Math.round(effectiveFullText.length / 1024)}KB)` : "Fetch full output"}
+                  </button>
+                )}
+              </>
             ) : showWaitingForOutput ? (
               <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75 transition-opacity duration-300">
                 Waiting for this tool to return output...

@@ -21,8 +21,22 @@ const bootstrapQuery = z.object({
 });
 
 
-const STALE_BOOTSTRAP_RUN_MS = 5 * 60 * 1000;
+const STALE_BOOTSTRAP_RUN_MS = 2 * 60 * 1000;
 const STALE_BOOTSTRAP_TOOL_MS = 30 * 60 * 1000;
+const LOCAL_FIRST_FRESH_MS = 30_000;
+const LOCAL_FIRST_SQLITE_MAX_AGE_MS = 5 * 60 * 1000;
+const localFirstBootstrapTimestamps = new Map<string, number>();
+const localFirstSqliteBlocked = new Set<string>();
+
+/** Clear local-first cache — for test isolation only. */
+export function clearLocalFirstBootstrapCache() {
+  localFirstBootstrapTimestamps.clear();
+  // Block SQLite-first for all known sessions until next Gateway bootstrap
+  // stamps them fresh. This ensures test sequential bootstraps go to Gateway.
+  localFirstSqliteBlocked.clear();
+  // Mark all as blocked — next Gateway bootstrap will unblock
+  localFirstSqliteBlocked.add('*');
+}
 const MIN_REAL_TIMESTAMP_MS = 1_700_000_000_000;
 const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "thinking", "streaming", "tool_running"]);
 const archiveProjectionJobs = new Map<string, Promise<void>>();
@@ -93,7 +107,13 @@ function identitiesMatch(a: ReturnType<typeof firstHistoryIdentity>, b: ReturnTy
   if (a.kind === "conversation" || b.kind === "conversation") {
     return a.kind === "conversation" && b.kind === "conversation" && a.channel === b.channel && a.chatId === b.chatId && (a.topicId ?? null) === (b.topicId ?? null);
   }
-  if ((a.kind === "sender" || a.kind === "desktop") && (b.kind === "sender" || b.kind === "desktop")) return a.senderId === b.senderId && Boolean(a.desktopOnly) === Boolean(b.desktopOnly);
+  if ((a.kind === "sender" || a.kind === "desktop") && (b.kind === "sender" || b.kind === "desktop")) {
+    // Desktop sessions with a human senderId (numeric) should NOT match other
+    // sessions by sender alone — multiple desktop chats share the same human sender.
+    // Only match when the senderId is a service/bot identity (non-numeric).
+    if (a.desktopOnly && b.desktopOnly && /^\d+$/.test(a.senderId)) return false;
+    return a.senderId === b.senderId && Boolean(a.desktopOnly) === Boolean(b.desktopOnly);
+  }
   return false;
 }
 
@@ -125,6 +145,7 @@ function archivedHistoryTranscriptFiles(params: { sessionKey: string; sessionId?
     .filter((file) => path.resolve(file) !== current)
     .filter((file) => {
       const archivedSessionId = archiveSessionIdFromFile(file);
+
       if (params.sessionId && archivedSessionId === params.sessionId && !current) return true;
       if (!currentIdentity) return params.sessionId ? archivedSessionId === params.sessionId : false;
       const archivedMessages = transcriptMessagesFromJsonl(file, 80);
@@ -230,6 +251,25 @@ function lastMessageIsAssistantText(messages: unknown[]) {
     const text = textFromMessage(data).trim();
     if (!role && !text) continue;
     return projectGatewayMessage(data).assistantHasFinalText;
+  }
+  return false;
+}
+
+/** Returns true if there's any assistant message with text after the last user message. */
+function hasAssistantResponseAfterLastUser(messages: unknown[]) {
+  let lastUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!msg || typeof msg !== "object" || Array.isArray(msg)) continue;
+    const data = msg as Record<string, unknown>;
+    if (data.role === "user") { lastUserIndex = i; break; }
+  }
+  if (lastUserIndex < 0) return false;
+  for (let i = lastUserIndex + 1; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg || typeof msg !== "object" || Array.isArray(msg)) continue;
+    const data = msg as Record<string, unknown>;
+    if (data.role === "assistant" && textFromMessage(data).trim().length > 0) return true;
   }
   return false;
 }
@@ -637,23 +677,28 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       agentId: input.agentId || "main",
     });
 
-    const sessionCreateStartedAtMs = nowMs();
-    log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label) });
-    const gatewayLabel = (() => {
-      const base = String(input.label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
-      const suffix = (input.sessionKey.split(":").pop() || input.sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
-      return `${base} \u00b7 ${suffix}`;
-    })();
-    await context.gateway.request("sessions.create", {
-      key: input.sessionKey,
-      agentId: input.agentId || "main",
-      label: gatewayLabel,
-    }).then(() => {
-      log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs) });
-    }).catch((error) => {
-      log.warn("session.create.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
-      return null;
-    });
+    const existingLocalSession = context.messages.getSession(input.sessionKey);
+    if (existingLocalSession?.sessionId) {
+      log.info("session.create.skip-existing", { sessionKey: input.sessionKey, sessionId: existingLocalSession.sessionId });
+    } else {
+      const sessionCreateStartedAtMs = nowMs();
+      log.info("session.create.start", { sessionKey: input.sessionKey, agentId: input.agentId || "main", hasLabel: Boolean(input.label) });
+      const gatewayLabel = (() => {
+        const base = String(input.label || "New Chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New Chat";
+        const suffix = (input.sessionKey.split(":").pop() || input.sessionKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || Date.now().toString(36);
+        return `${base} \u00b7 ${suffix}`;
+      })();
+      await context.gateway.request("sessions.create", {
+        key: input.sessionKey,
+        agentId: input.agentId || "main",
+        label: gatewayLabel,
+      }).then(() => {
+        log.info("session.create.end", { sessionKey: input.sessionKey, durationMs: elapsedMs(sessionCreateStartedAtMs) });
+      }).catch((error) => {
+        log.warn("session.create.fail_ignored", { sessionKey: input.sessionKey, ...errorMeta(error) });
+        return null;
+      });
+    }
 
     if (input.execPolicy !== undefined) {
       const patch = input.execPolicy === null
@@ -1118,6 +1163,84 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       log.warn("bootstrap.stale-activity-finalized", { sessionKey: parsed.data.sessionKey, ...staleCleanup });
     }
     log.info("bootstrap.start", { sessionKey: parsed.data.sessionKey, limit: parsed.data.limit, hasMaxChars: parsed.data.maxChars !== undefined });
+
+    // ── Local-first fast path ──
+    // Serve from local SQLite projection immediately when:
+    //   1. Session exists in SQLite with messages, AND
+    //   2. Either: recently bootstrapped in-memory (within 30s)
+    //      OR: SQLite data is recent (<5min) AND Gateway is connected
+    //          (live patch stream keeps SQLite up-to-date)
+    const localSession = context.messages.getSession(parsed.data.sessionKey);
+    const lastBootstrapAt = localFirstBootstrapTimestamps.get(parsed.data.sessionKey) ?? 0;
+    const inMemoryFresh = lastBootstrapAt > 0 && (nowMs() - lastBootstrapAt) < LOCAL_FIRST_FRESH_MS;
+    const gatewayConnected = context.gateway.status().connected;
+    // When Gateway is connected, live events keep SQLite current — any existing
+    // data is valid regardless of age. Only check age when disconnected.
+    const canServeFromSqlite = Boolean(
+      !localFirstSqliteBlocked.has('*') &&
+      localSession &&
+      (gatewayConnected || (nowMs() - localSession.updatedAtMs) < LOCAL_FIRST_SQLITE_MAX_AGE_MS)
+    );
+    const shouldServeLocal = inMemoryFresh || canServeFromSqlite;
+    const localMessages = localSession && shouldServeLocal ? context.messages.listMessages(parsed.data.sessionKey, { limit: parsed.data.limit ?? 1000, latest: true }) : [];
+    const canServeLocal = Boolean(localSession && localMessages.length > 0 && shouldServeLocal);
+
+    if (canServeLocal) {
+      const serialized = localMessages.map(serializeProjectedMessage);
+      const sessionData = objectData(localSession!.data);
+      const latestEvent = context.messages.latestProjectionEvent(parsed.data.sessionKey);
+      const cursor = latestEvent?.cursor ?? 0;
+      log.info("bootstrap.local-first", {
+        sessionKey: parsed.data.sessionKey,
+        messageCount: serialized.length,
+        reason: inMemoryFresh ? "in-memory-fresh" : "sqlite-fresh-gateway-connected",
+        sqliteAgeMs: localSession ? nowMs() - localSession.updatedAtMs : null,
+        gatewayConnected,
+        cursor,
+        durationMs: elapsedMs(bootstrapStartedAtMs),
+      });
+      // Background sync from Gateway (fire-and-forget)
+      void (async () => {
+        try {
+          const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
+            sessionKey: parsed.data.sessionKey,
+            ...(parsed.data.limit ? { limit: parsed.data.limit } : {}),
+          });
+          const sk = history.sessionKey ?? parsed.data.sessionKey;
+          const msgs = history.messages ?? [];
+          const normalized = normalizeHistoryMessages(sk, msgs);
+          const segment = context.messages.ensureActiveSegment({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, sessionFile: typeof history.sessionFile === "string" ? history.sessionFile : null });
+          context.messages.upsertSession({ sessionKey: sk, sessionId: history.sessionId ?? localSession!.sessionId, data: { ...sessionData, ...(history.status ? { status: history.status } : {}) } });
+          const proj = context.messages.upsertMessages(normalized, { segmentId: segment.segmentId, sessionId: segment.sessionId, baseSeq: segment.baseSeq });
+          if (proj.upserted > 0) {
+            const newEvent = context.messages.appendProjectionEvent({ sessionKey: sk, eventType: "chat.bootstrap", payload: { sessionKey: sk, messageCount: serialized.length + proj.upserted, lastSeq: context.messages.nextMessageSeq(sk) - 1, backgroundRefresh: true } });
+            context.patchBus.broadcast({ cursor: newEvent.cursor, type: newEvent.eventType, sessionKey: sk, payload: newEvent.payload, createdAtMs: newEvent.createdAtMs });
+            log.info("bootstrap.background-sync.changed", { sessionKey: sk, upserted: proj.upserted, cursor: newEvent.cursor });
+          } else {
+            log.info("bootstrap.background-sync.unchanged", { sessionKey: sk });
+          }
+          localFirstBootstrapTimestamps.set(sk, Date.now());
+        } catch (error) {
+          log.warn("bootstrap.background-sync.fail", { sessionKey: parsed.data.sessionKey, error: errorMeta(error) });
+        }
+      })();
+      void context.chatLive.ensureSessionSubscribed(parsed.data.sessionKey).catch(() => {});
+      const totalMessages = context.messages.countMessages(parsed.data.sessionKey);
+      const oldestSeq = serialized.length > 0 ? (localMessages[0]?.openclawSeq ?? null) : null;
+      return buildChatBootstrapSnapshot(context, {
+        sessionKey: parsed.data.sessionKey,
+        sessionId: localSession!.sessionId,
+        sessionData,
+        messages: serialized,
+        messageCount: serialized.length,
+        knownTotalMessages: totalMessages,
+        oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
+        cursor,
+        projection: { upserted: 0, lastSeq: context.messages.nextMessageSeq(parsed.data.sessionKey) - 1, liveSubscribed: false },
+      });
+    }
+    // ── End local-first fast path ──
+
     const gatewayHistoryStartedAtMs = nowMs();
     const history = await context.gateway.request<ChatHistoryResponse>("chat.history", {
       sessionKey: parsed.data.sessionKey,
@@ -1181,7 +1304,7 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       const staleRunMs = Date.now() - activeRun.updatedAtMs;
       const staleToolMs = oldestRunningToolAgeMs(context, sessionKey, activeRun.runId);
       const shouldFinalizeStaleRun =
-        (staleRunMs > STALE_BOOTSTRAP_RUN_MS && lastMessageIsAssistantText(messages)) ||
+        (staleRunMs > STALE_BOOTSTRAP_RUN_MS && (lastMessageIsAssistantText(messages) || hasAssistantResponseAfterLastUser(messages))) ||
         (staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS);
       if (shouldFinalizeStaleRun) {
         const reason = staleToolMs !== null && staleToolMs > STALE_BOOTSTRAP_TOOL_MS
@@ -1212,14 +1335,20 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       eventType: "chat.bootstrap",
       payload: { sessionKey, messageCount: projectedMessages.length, lastSeq: bootstrapLastSeq, historyCoverage: "metadata", fullMessagesIncluded: false },
     });
+    localFirstBootstrapTimestamps.set(sessionKey, nowMs());
+    localFirstSqliteBlocked.delete('*');
     log.info("bootstrap.end", { sessionKey, sessionId: history.sessionId ?? null, totalDurationMs: elapsedMs(bootstrapStartedAtMs), messageCount: projectedMessages.length, status: typeof sessionData.status === "string" ? sessionData.status : null, cursor: event.cursor, factors: { gatewayHistoryMs: elapsedMs(gatewayHistoryStartedAtMs), normalized: normalized.length, upserted: projection.upserted, liveSubscribed: "background" } });
 
+    const totalMessages = context.messages.countMessages(sessionKey);
+    const oldestSeq = projectedMessages.length > 0 ? ((projectedMessages[0] as { __openclaw?: { seq?: number } }).__openclaw?.seq ?? null) : null;
     return buildChatBootstrapSnapshot(context, {
       sessionKey,
       sessionId: history.sessionId ?? existingSession?.sessionId ?? null,
       sessionData,
       messages: projectedMessages,
       messageCount: projectedMessages.length,
+      knownTotalMessages: totalMessages,
+      oldestLoadedSeq: typeof oldestSeq === "number" ? oldestSeq : undefined,
       cursor: event.cursor,
       projection: { upserted: projection.upserted, lastSeq: bootstrapLastSeq, liveSubscribed: false },
       historyMeta: { thinkingLevel: history.thinkingLevel, fastMode: history.fastMode, verboseLevel: history.verboseLevel },
@@ -1259,5 +1388,72 @@ export async function registerChatRoutes(app: FastifyInstance, context: AppConte
       })),
       messageCount: messages.length,
     };
+  });
+
+  app.get("/api/chat/tool-result", async (request) => {
+    const parsed = z.object({
+      sessionKey: z.string().min(1),
+      toolCallId: z.string().min(1),
+    }).safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid tool result query", "INVALID_QUERY", parsed.error.flatten());
+    }
+    const { sessionKey, toolCallId } = parsed.data;
+    log.info("tool-result.fetch.start", { sessionKey, toolCallId });
+
+    // First try local SQLite projection (fast)
+    const localMessages = context.messages.listMessages(sessionKey, { limit: 1000 });
+    for (const msg of localMessages) {
+      const data = msg.data as Record<string, unknown>;
+      if ((data.role === "tool" || data.role === "tool_result" || data.role === "toolResult") &&
+          (data.tool_call_id === toolCallId || data.toolCallId === toolCallId)) {
+        const content = data.content ?? data.text ?? data.output;
+        const text = typeof content === "string" ? content
+          : Array.isArray(content) ? content.map((c: unknown) => typeof c === "string" ? c : (c as Record<string, unknown>)?.text ?? "").join("\n")
+          : typeof content === "object" ? JSON.stringify(content, null, 2)
+          : String(content ?? "");
+        log.info("tool-result.fetch.local", { sessionKey, toolCallId, length: text.length });
+        return { ok: true, source: "local", sessionKey, toolCallId, text };
+      }
+    }
+
+    // Fall back to Gateway history (full, untruncated)
+    try {
+      const history = await context.gateway.request<ChatHistoryResponse>("chat.history", { sessionKey, limit: 500 });
+      const messages = history.messages ?? [];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i] as Record<string, unknown>;
+        if ((msg.role === "tool" || msg.role === "tool_result" || msg.role === "toolResult") &&
+            (msg.tool_call_id === toolCallId || msg.toolCallId === toolCallId)) {
+          const content = msg.content ?? msg.text ?? msg.output;
+          const text = typeof content === "string" ? content
+            : Array.isArray(content) ? content.map((c: unknown) => typeof c === "string" ? c : (c as Record<string, unknown>)?.text ?? "").join("\n")
+            : typeof content === "object" ? JSON.stringify(content, null, 2)
+            : String(content ?? "");
+          log.info("tool-result.fetch.gateway", { sessionKey, toolCallId, length: text.length });
+          return { ok: true, source: "gateway", sessionKey, toolCallId, text };
+        }
+      }
+    } catch (error) {
+      log.warn("tool-result.fetch.gateway-fail", { sessionKey, toolCallId, ...errorMeta(error) });
+    }
+
+    return { ok: false, error: { message: "Tool result not found" }, sessionKey, toolCallId, text: "" };
+  });
+
+  app.get("/api/chat/search", async (request) => {
+    const parsed = z.object({
+      sessionKey: z.string().min(1),
+      query: z.string().min(1).max(200),
+      limit: z.coerce.number().int().positive().max(100).optional(),
+    }).safeParse(request.query);
+    if (!parsed.success) {
+      throw new HttpError(400, "Invalid search query", "INVALID_QUERY", parsed.error.flatten());
+    }
+    const { sessionKey, query, limit } = parsed.data;
+    const startMs = Date.now();
+    const results = context.messages.searchMessages(sessionKey, query, limit ?? 50);
+    log.info("chat.search", { sessionKey, query: query.slice(0, 50), resultCount: results.length, durationMs: Date.now() - startMs });
+    return { ok: true, sessionKey, query, results, resultCount: results.length };
   });
 }

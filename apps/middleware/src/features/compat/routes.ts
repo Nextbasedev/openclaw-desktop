@@ -7,6 +7,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
+import { createLogger } from "../../lib/logger.js";
 import { prewarmArchivedHistory } from "../chat/routes.js";
 import {
   getActiveSkills,
@@ -1908,9 +1909,26 @@ function isDesktopSessionKey(sessionKey: string) {
 
 let syncGatewaySessionsCache: { promise: Promise<void>; expiresAtMs: number } | null = null;
 const SYNC_GATEWAY_CACHE_TTL_MS = 5_000;
+let lastFullSyncAtMs = 0;
+const BOOTSTRAP_FRESH_MS = 30_000;
+const BOOTSTRAP_STALE_SERVE_MS = 5 * 60 * 1000; // serve stale up to 5min, always sync in background
 
 /** Clear the syncGatewaySessions cache. Exported for test isolation. */
 export function clearSyncGatewaySessionsCache() { syncGatewaySessionsCache = null; }
+
+/** Trigger a background sync on the next bootstrap/chats request.
+ *  Does NOT reset lastFullSyncAtMs to 0 — that would force a blocking sync
+ *  even though compatState already has the mutation applied in-memory.
+ *  Instead, we set the timestamp to an old-but-nonzero value so the next
+ *  request serves immediately from compatState and syncs in background. */
+export function invalidateBootstrapCache() {
+  // Set to 1ms — nonzero (so we serve from compatState) but old enough
+  // that the next request triggers a background sync.
+  if (lastFullSyncAtMs > 0) lastFullSyncAtMs = 1;
+}
+
+/** Clear bootstrap cache for test isolation. */
+export function clearBootstrapCacheForTests() { lastFullSyncAtMs = 0; }
 
 async function syncGatewaySessions(context: AppContext) {
   // Don't cache if Gateway is disconnected — no-op results should not
@@ -3340,6 +3358,11 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     ensureDefaultSpace();
     saveCompatState(context);
   }
+  // Invalidate bootstrap cache on Gateway reconnect so stale sidebar/chat data refreshes
+  context.gateway.onReconnect(() => {
+    createLogger("compat").info("gateway.reconnect.invalidate-bootstrap-cache");
+    invalidateBootstrapCache();
+  });
 
   app.get("/api/version", async () => ({
     ok: true,
@@ -3349,8 +3372,20 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
 
   app.get("/api/bootstrap", async () => {
     const gateway = await connectGatewayForStatus(context);
-    await syncGatewaySessions(context);
-    applyProjectedChatActivity(context);
+    const syncAge = Date.now() - lastFullSyncAtMs;
+    const hasAnyCachedState = lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_STALE_SERVE_MS;
+    if (hasAnyCachedState) {
+      // Serve from in-memory compatState immediately, sync in background
+      void syncGatewaySessions(context).then(() => {
+        lastFullSyncAtMs = Date.now();
+        applyProjectedChatActivity(context);
+      }).catch(() => {});
+    } else {
+      // First load or cache too old — must sync blocking
+      await syncGatewaySessions(context);
+      lastFullSyncAtMs = Date.now();
+      applyProjectedChatActivity(context);
+    }
     const spaceId = activeSpaceId();
     const projects = listBySpace(compatState.projects, spaceId);
     const projectIds = new Set(projects.map((project) => project.id).filter(Boolean));
@@ -3441,8 +3476,19 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.get("/api/chats", async (request) => {
-    await syncGatewaySessions(context);
-    applyProjectedChatActivity(context);
+    const syncAge = Date.now() - lastFullSyncAtMs;
+    const hasAnyCachedState = lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_STALE_SERVE_MS;
+    if (hasAnyCachedState) {
+      // chats served from cached compatState
+      void syncGatewaySessions(context).then(() => {
+        lastFullSyncAtMs = Date.now();
+        applyProjectedChatActivity(context);
+      }).catch(() => {});
+    } else {
+      await syncGatewaySessions(context);
+      lastFullSyncAtMs = Date.now();
+      applyProjectedChatActivity(context);
+    }
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     const spaceId = listSpaceId(query);
@@ -3525,6 +3571,41 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     if (!chat) return reply.code(404).send({ ok: false, error: { message: "Chat not found" } });
     saveCompatCollection(context, "chats");
     return { chat };
+  });
+
+  app.delete("/api/chats", async () => {
+    const allChats = compatState.chats.filter(notDeleted);
+    const deletedIds: string[] = [];
+    const sessionKeys: string[] = [];
+
+    for (const chat of allChats) {
+      const sessionKey = typeof chat.sessionKey === "string" && chat.sessionKey.trim() ? chat.sessionKey.trim() : null;
+      deletedIds.push(chat.id);
+      if (sessionKey) sessionKeys.push(sessionKey);
+    }
+
+    // Clear compat state (local only — do NOT touch Gateway sessions)
+    compatState.chats = compatState.chats.filter((c) => !deletedIds.includes(c.id));
+    compatState.sessions = compatState.sessions.filter(
+      (s) => !sessionKeys.includes(s.sessionKey) && !sessionKeys.includes(s.key ?? "")
+    );
+    saveCompatState(context);
+
+    // Clean up local SQLite projections only
+    for (const sk of sessionKeys) {
+      try {
+        context.db.prepare("DELETE FROM v2_messages WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_runs WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_tool_calls WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_sessions WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_gateway_offsets WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_projection_events WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_chat_segments WHERE session_key = ?").run(sk);
+        context.db.prepare("DELETE FROM v2_archive_imports WHERE session_key = ?").run(sk);
+      } catch {}
+    }
+
+    return { ok: true, deleted: deletedIds.length, sessionsCleaned: sessionKeys.length };
   });
 
   app.delete<{ Params: { chatId: string } }>("/api/chats/:chatId", async (request) => {
@@ -3617,7 +3698,17 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
 
   app.get("/api/sessions", async (request) => {
-    await syncGatewaySessions(context);
+    const syncAge = Date.now() - lastFullSyncAtMs;
+    const hasAnyCachedState = lastFullSyncAtMs > 0 && syncAge < BOOTSTRAP_STALE_SERVE_MS;
+    if (hasAnyCachedState) {
+      // sessions served from cached compatState
+      void syncGatewaySessions(context).then(() => {
+        lastFullSyncAtMs = Date.now();
+      }).catch(() => {});
+    } else {
+      await syncGatewaySessions(context);
+      lastFullSyncAtMs = Date.now();
+    }
     const query = request.query as CompatRecord;
     const spaceId = listSpaceId(query);
     return {

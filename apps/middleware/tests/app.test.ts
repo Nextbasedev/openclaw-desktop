@@ -9,7 +9,8 @@ import type { AppContext } from "../src/app.js";
 import { loadEnv, type MiddlewareConfig } from "../src/config/env.js";
 import { migrateDatabase } from "../src/db/migrate.js";
 import { normalizeHistoryMessages } from "../src/features/chat/message-normalizer.js";
-import { clearSyncGatewaySessionsCache } from "../src/features/compat/routes.js";
+import { clearSyncGatewaySessionsCache, clearBootstrapCacheForTests } from "../src/features/compat/routes.js";
+import { clearLocalFirstBootstrapCache } from "../src/features/chat/routes.js";
 
 function testConfig(overrides: Partial<MiddlewareConfig> = {}): MiddlewareConfig {
   return {
@@ -28,6 +29,8 @@ function flushBackgroundJobs() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  clearLocalFirstBootstrapCache();
+  clearBootstrapCacheForTests();
   clearSyncGatewaySessionsCache();
 });
 
@@ -650,6 +653,7 @@ describe("middleware app", () => {
 
     // Clear the sync cache so the second bootstrap re-evaluates compat state
     clearSyncGatewaySessionsCache();
+    clearBootstrapCacheForTests();
     const secondBootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
 
     expect(secondBootstrap.json().chats).not.toEqual(expect.arrayContaining([
@@ -1116,6 +1120,7 @@ describe("middleware app", () => {
     const res = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
     await flushBackgroundJobs();
     expect(context.db.prepare("SELECT count(*) AS count FROM v2_projection_events WHERE session_key = ? AND event_type = 'chat.bootstrap' AND json_extract(payload_json, '$.backgroundArchiveImport') = 1").get(sessionKey)).toMatchObject({ count: 1 });
+    clearLocalFirstBootstrapCache();
     const secondRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
 
     expect(res.statusCode).toBe(200);
@@ -1132,8 +1137,10 @@ describe("middleware app", () => {
     fs.appendFileSync(archivedFile, `${line("a2", "newer archived dashboard message")}\n`);
     const newerMtime = new Date(Date.now() + 10_000);
     fs.utimesSync(archivedFile, newerMtime, newerMtime);
+    clearLocalFirstBootstrapCache();
     const thirdRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
     await flushBackgroundJobs();
+    clearLocalFirstBootstrapCache();
     const fourthRes = await app.inject({ method: "GET", url: `/api/chat/bootstrap?sessionKey=${encodeURIComponent(sessionKey)}` });
     expect(thirdRes.statusCode).toBe(200);
     expect(fourthRes.statusCode).toBe(200);

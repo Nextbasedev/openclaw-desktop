@@ -6,7 +6,9 @@ import { LuBrain } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import { MarkdownContent } from "./MarkdownContent"
 
-export function ThinkingBlock({ text, defaultOpen = false }: { text?: string; defaultOpen?: boolean }) {
+import { memo } from "react"
+
+export const ThinkingBlock = memo(function ThinkingBlock({ text, defaultOpen = false }: { text?: string; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   const trimmed = text?.trim()
   if (!trimmed) return null
@@ -48,4 +50,4 @@ export function ThinkingBlock({ text, defaultOpen = false }: { text?: string; de
       </div>
     </div>
   )
-}
+})

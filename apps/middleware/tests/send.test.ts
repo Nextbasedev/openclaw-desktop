@@ -1,6 +1,8 @@
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { clearLocalFirstBootstrapCache } from "../src/features/chat/routes.js";
+import { clearBootstrapCacheForTests } from "../src/features/compat/routes.js";
 import { createApp } from "../src/app.js";
 import type { AppContext } from "../src/app.js";
 import type { MiddlewareConfig } from "../src/config/env.js";
@@ -29,6 +31,8 @@ async function waitFor(condition: () => boolean, timeoutMs = 500) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  clearLocalFirstBootstrapCache();
+  clearBootstrapCacheForTests();
 });
 
 describe("chat send routes", () => {

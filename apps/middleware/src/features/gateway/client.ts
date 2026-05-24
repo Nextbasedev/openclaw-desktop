@@ -214,12 +214,22 @@ export class GatewayClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private listeners = new Set<(event: GatewayEvent) => void>();
+  private reconnectCallbacks = new Set<() => void>();
   private connecting: Promise<void> | null = null;
   private lastError: string | null = null;
   private connectedAtMs: number | null = null;
+  private hasConnectedBefore = false;
+  private pingInterval: NodeJS.Timeout | null = null;
+  private autoReconnectTimer: NodeJS.Timeout | null = null;
   private readonly log = createLogger("gateway");
 
   constructor(private readonly config: MiddlewareConfig) {}
+
+  /** Register a callback that fires on Gateway reconnect (not initial connect). */
+  onReconnect(callback: () => void): () => void {
+    this.reconnectCallbacks.add(callback);
+    return () => { this.reconnectCallbacks.delete(callback); };
+  }
 
   status() {
     return {
@@ -237,7 +247,14 @@ export class GatewayClient {
     if (this.connecting) return this.connecting;
     this.log.info("connect.start", { gatewayUrl: safeUrlForLog(this.config.openclawGatewayUrl) });
     this.connecting = this.connectOnce()
-      .then(() => { this.log.info("connect.end", { connected: true, pendingRequests: this.pending.size }); })
+      .then(() => {
+        this.log.info("connect.end", { connected: true, pendingRequests: this.pending.size });
+        if (this.hasConnectedBefore) {
+          this.log.info("reconnect.callbacks", { count: this.reconnectCallbacks.size });
+          for (const cb of this.reconnectCallbacks) { try { cb(); } catch {} }
+        }
+        this.hasConnectedBefore = true;
+      })
       .catch((error) => {
         this.lastError = error instanceof Error ? error.message : String(error);
         this.log.error("connect.fail", errorMeta(error));
@@ -304,6 +321,7 @@ export class GatewayClient {
   }
 
   close(reason = "close") {
+    this.stopPing();
     const ws = this.ws;
     this.ws = null;
     this.log.info("disconnect", { reason, hadSocket: Boolean(ws), pendingRequests: this.pending.size });
@@ -371,6 +389,7 @@ export class GatewayClient {
       connectedSocket = true;
       this.connectedAtMs = Date.now();
       this.lastError = null;
+      this.startPing();
       this.log.info("auth.connected", { connectedAtMs: this.connectedAtMs, listenerCount: this.listeners.size });
     } catch (error) {
       if (!connectedSocket) {
@@ -400,5 +419,39 @@ export class GatewayClient {
     this.lastError = error?.message ?? "Gateway disconnected";
     this.log.warn("socket.disconnect", { ...errorMeta(error ?? new Error("Gateway disconnected")), pendingRequests: this.pending.size });
     this.close("socket-disconnect");
+    // Auto-reconnect after 2s
+    if (!this.autoReconnectTimer) {
+      this.autoReconnectTimer = setTimeout(() => {
+        this.autoReconnectTimer = null;
+        this.log.info("auto-reconnect.start");
+        void this.connect().catch((err) => {
+          this.log.warn("auto-reconnect.fail", errorMeta(err));
+        });
+      }, 2000);
+    }
   };
+
+  private startPing() {
+    this.stopPing();
+    this.pingInterval = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        this.log.warn("ping.dead", { readyState: this.ws?.readyState ?? "null" });
+        this.stopPing();
+        this.handleDisconnect(new Error("Gateway WS dead (ping check)"));
+        return;
+      }
+      try {
+        this.ws.ping();
+      } catch (err) {
+        this.log.warn("ping.fail", errorMeta(err));
+      }
+    }, 30_000); // Ping every 30s
+  }
+
+  private stopPing() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
 }

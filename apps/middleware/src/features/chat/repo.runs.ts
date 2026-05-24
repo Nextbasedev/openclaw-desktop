@@ -6,7 +6,7 @@ export type ToolPhase = "start" | "calling" | "update" | "result" | "error";
 export type ToolStatus = "running" | "success" | "error";
 
 const STALE_DETACHED_TOOL_MS = 5 * 60 * 1000;
-const DEFAULT_STALE_ACTIVE_RUN_MS = 10 * 60 * 1000;
+const DEFAULT_STALE_ACTIVE_RUN_MS = 3 * 60 * 1000;
 const DEFAULT_STALE_RUNNING_TOOL_MS = 30 * 60 * 1000;
 
 export type ProjectedRun = {

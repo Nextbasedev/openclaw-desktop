@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, memo } from "react"
 import { cn } from "@/lib/utils"
 import { VscChevronDown, VscChevronRight, VscError } from "react-icons/vsc"
 import { LuLoader, LuShieldCheck, LuTerminal } from "react-icons/lu"
@@ -32,6 +32,7 @@ function ToolRow({
   onSelect,
   onInteract,
   onResolveApproval,
+  sessionKey,
 }: {
   call: InlineToolCall
   open: boolean
@@ -42,8 +43,9 @@ function ToolRow({
     approvalId: string,
     decision: ApprovalDecision
   ) => Promise<void> | void
+  sessionKey?: string
 }) {
-  const { inputText, outputText, hasDetails } = getToolDetailState(call)
+  const { inputText, outputText, fullOutputText, hasDetails } = getToolDetailState(call)
   const [resolving, setResolving] = useState<ApprovalDecision | null>(null)
   const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
   const approval = call.approval
@@ -143,6 +145,8 @@ function ToolRow({
                 call={call}
                 inputText={inputText}
                 outputText={outputText}
+                fullOutputText={fullOutputText}
+                sessionKey={sessionKey}
               />
             </div>
           </div>
@@ -198,23 +202,33 @@ function ToolRow({
   )
 }
 
-export function ToolCallSteps({
+export const ToolCallSteps = memo(function ToolCallSteps({
   tools,
   defaultOpen = false,
   onSelectTool,
   onInteract,
   onResolveApproval,
+  sessionKey,
 }: {
   tools: InlineToolCall[]
   defaultOpen?: boolean
   onSelectTool?: (id: string) => void
   onInteract?: () => void
+  sessionKey?: string
   onResolveApproval?: (
     approvalId: string,
     decision: ApprovalDecision
   ) => Promise<void> | void
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  // If defaultOpen changes from false→true (e.g. bootstrap update), open it
+  // But never auto-close if it was already open
+  const prevDefaultOpenRef = useRef(defaultOpen)
+  if (defaultOpen && !prevDefaultOpenRef.current) {
+    // Parent now says this should be open — respect it
+    if (!open) setOpen(true)
+  }
+  prevDefaultOpenRef.current = defaultOpen
   const [openToolId, setOpenToolId] = useState<string | null>(null)
 
   function handleToolOpenChange(id: string, nextOpen: boolean) {
@@ -253,6 +267,7 @@ export function ToolCallSteps({
             onSelect={onSelectTool}
             onInteract={onInteract}
             onResolveApproval={onResolveApproval}
+            sessionKey={sessionKey}
           />
         </div>
       </div>
@@ -307,6 +322,7 @@ export function ToolCallSteps({
                   onSelect={onSelectTool}
                   onInteract={onInteract}
                   onResolveApproval={onResolveApproval}
+                  sessionKey={sessionKey}
                 />
               ))}
               <button
@@ -369,4 +385,4 @@ export function ToolCallSteps({
       </div>
     </div>
   )
-}
+})

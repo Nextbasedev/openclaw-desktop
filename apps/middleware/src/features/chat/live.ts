@@ -164,7 +164,33 @@ export class ChatLiveIngest {
       }
     }
     this.log.info("recent-sessions.subscribe.end", { attempted, subscribed: this.subscribed.size });
+    // Proactively repair any sessions with stale pending runs.
+    // After middleware restart, in-memory run store is wiped but Gateway may
+    // still have completed runs. Backfill history to finalize them immediately
+    // instead of waiting for the user to navigate to each chat.
+    void this.repairStaleRunsOnStartup(sessionKeys);
     return { attempted, subscribed: this.subscribed.size };
+  }
+
+  private async repairStaleRunsOnStartup(sessionKeys: string[]) {
+    const staleCleanup = this.context.runs.finalizeStaleActivity();
+    if (staleCleanup.runsFinalized || staleCleanup.toolsFinalized) {
+      this.log.info("startup.stale-runs-finalized", staleCleanup);
+    }
+    // Check for sessions whose SQLite projection has a pending run status
+    for (const sessionKey of sessionKeys) {
+      try {
+        const session = this.context.messages.getSession(sessionKey);
+        const data = session?.data as Record<string, unknown> | undefined;
+        const status = typeof data?.status === "string" ? data.status : null;
+        if (status && ["thinking", "streaming", "tool_running", "running", "queued"].includes(status)) {
+          this.log.info("startup.pending-session.backfill", { sessionKey, status });
+          await this.backfillHistory(sessionKey, null, "startup_pending_run_repair");
+        }
+      } catch (error) {
+        this.log.warn("startup.pending-session.backfill-fail", { sessionKey, ...errorMeta(error) });
+      }
+    }
   }
 
   diagnostics() {
@@ -365,8 +391,15 @@ export class ChatLiveIngest {
       if (fresh.length > 0) this.recentlyConfirmedUsers.set(sessionKey, fresh);
       else this.recentlyConfirmedUsers.delete(sessionKey);
     }
+    // Extract idempotency key from the incoming message if available
+    const msgOpenclaw = isObject((message.data as Record<string, unknown>).__openclaw)
+      ? (message.data as Record<string, unknown>).__openclaw as Record<string, unknown>
+      : null;
+    const msgIdempotencyKey = typeof msgOpenclaw?.idempotencyKey === "string" ? msgOpenclaw.idempotencyKey : null;
     return fresh.find((entry) => {
       if (entry.text !== text) return false;
+      // Match by idempotency key if available (most reliable)
+      if (msgIdempotencyKey && entry.idempotencyKey && msgIdempotencyKey === entry.idempotencyKey) return true;
       // Later legitimate repeated sends should have a newer sequence and their
       // own optimistic entry. A decorated Gateway echo for the already-confirmed
       // turn commonly replays with the original/lower Gateway sequence.
@@ -511,10 +544,11 @@ export class ChatLiveIngest {
     if (!run) return;
     const status = firstString(payload.status, data.status, payload.phase, data.phase)?.toLowerCase() ?? null;
     if (status === "final" || status === "done" || status === "completed") {
-      // Wait for the canonical assistant session.message before broadcasting done.
-      // Gateway can emit chat/final before the final persisted assistant message,
-      // and an early done patch makes the UI drop the Thinking/streaming row.
-      this.log.info("chat.event.final.defer", { sessionKey, runId: run.runId, gatewayRunId });
+      // Gateway can emit chat/final before the final persisted assistant message.
+      // Instead of silently deferring (which risks permanent "thinking" if session.message
+      // is delayed), schedule a history backfill to proactively fetch the final response.
+      this.log.info("chat.event.final.backfill", { sessionKey, runId: run.runId, gatewayRunId });
+      this.scheduleHistoryBackfill(sessionKey, run.runId, "chat_final_proactive");
       return;
     }
     if (status === "error" || status === "failed") {
@@ -660,6 +694,33 @@ export class ChatLiveIngest {
           }),
         });
         this.context.patchBus.broadcast({ cursor: event.cursor, type: event.eventType, sessionKey: event.sessionKey, payload: event.payload, createdAtMs: event.createdAtMs });
+      }
+      // After backfill, check if the run should be finalized.
+      // The assistant message was projected via upsertMessages (not handleSessionMessage),
+      // so the normal run finalization in handleSessionMessage won't fire.
+      const postBackfillRun = runId ? this.context.runs.getRun(runId) : this.context.runs.findLatestPendingRun(sessionKey);
+      if (postBackfillRun && ["queued", "thinking", "streaming", "tool_running"].includes(postBackfillRun.status)) {
+        const hasAssistantFinal = messages.some((m) => {
+          const msg = m as Record<string, unknown>;
+          return msg.role === "assistant" && typeof msg.text === "string" && (msg.text as string).trim().length > 0;
+        });
+        const hasRunningTools = this.context.runs.hasRunningTools(sessionKey, postBackfillRun.runId);
+        if (hasAssistantFinal && !hasRunningTools) {
+          this.context.runs.updateRunStatus(postBackfillRun.runId, "done", { statusLabel: null });
+          this.context.messages.upsertSession({
+            sessionKey,
+            sessionId: this.context.messages.getSession(sessionKey)?.sessionId ?? null,
+            data: {
+              ...this.objectData(this.context.messages.getSession(sessionKey)?.data),
+              sessionKey,
+              status: "done",
+              statusLabel: null,
+            },
+          });
+          const doneRun = this.context.runs.getRun(postBackfillRun.runId);
+          this.broadcastRunStatus(sessionKey, doneRun ?? postBackfillRun, "chat.run.done");
+          this.log.info("history.backfill.run-finalized", { sessionKey, runId: postBackfillRun.runId, reason });
+        }
       }
       this.log.info("history.backfill.end", { sessionKey, runId, reason, durationMs: Date.now() - startedAt, messages: messages.length, changedMessages: projection.changedMessages.length });
     } catch (error) {

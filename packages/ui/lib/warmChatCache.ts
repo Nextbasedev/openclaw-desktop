@@ -56,7 +56,7 @@ export type WarmChatCacheEntry = {
   }>
   pendingTools?: InlineToolCall[]
   messageCount?: number
-  historyCoverage?: "none" | "metadata" | "full"
+  historyCoverage?: "none" | "metadata" | "full" | "windowed"
   fullMessagesIncluded?: boolean
   cachedAt: number
   lastAccessedAt: number
@@ -88,6 +88,57 @@ export type WarmChatCacheRead = {
   fresh: boolean
   stale: boolean
   ageMs: number
+}
+
+// ── In-memory warm cache layer ──
+// Preloaded from IndexedDB on boot for instant sync access.
+// Updated on every write. IndexedDB is the persistent backing store.
+const memoryCache = new Map<string, WarmChatCacheEntry>()
+let memoryPreloaded = false
+let memoryPreloadPromise: Promise<void> | null = null
+
+/** Preload all warm cache entries from IndexedDB into memory.
+ *  Call once at app boot. Subsequent calls are no-ops. */
+export async function preloadWarmCacheToMemory(): Promise<void> {
+  if (memoryPreloaded) return
+  if (memoryPreloadPromise) return memoryPreloadPromise
+  memoryPreloadPromise = (async () => {
+    try {
+      const index = await getIndex()
+      const results = await Promise.all(
+        index.entries.slice(0, WARM_CHAT_MAX_CHATS).map(async (entry) => {
+          const [preview, run] = await Promise.all([
+            persistentCacheGet<WarmChatPreviewEntry>(previewKey(entry.sessionKey)),
+            persistentCacheGet<WarmChatRunEntry>(runKey(entry.sessionKey)),
+          ])
+          if (preview && isDisplayable(preview.cachedAt) && preview.messages.length > 0) {
+            return { sessionKey: entry.sessionKey, entry: combineWarmEntries(preview, run ?? null) }
+          }
+          return null
+        })
+      )
+      for (const result of results) {
+        if (result) memoryCache.set(result.sessionKey, result.entry)
+      }
+    } catch { /* IndexedDB unavailable — memory cache stays empty */ }
+    memoryPreloaded = true
+    memoryPreloadPromise = null
+  })()
+  return memoryPreloadPromise
+}
+
+/** Sync read from memory cache. Returns null if not preloaded or not cached. */
+export function getWarmChatCacheSync(sessionKey: string): WarmChatCacheRead | null {
+  const entry = memoryCache.get(sessionKey)
+  if (!entry || !isEntryDisplayable(entry) || entry.messages.length === 0) return null
+  return classifyWarmChatCache(entry)
+}
+
+/** Clear memory cache (for tests). */
+export function clearWarmCacheMemory() {
+  memoryCache.clear()
+  memoryPreloaded = false
+  memoryPreloadPromise = null
 }
 
 function now() {
@@ -229,6 +280,10 @@ function combineWarmEntries(preview: WarmChatPreviewEntry, run: WarmChatRunEntry
 }
 
 export async function getWarmChatCache(sessionKey: string): Promise<WarmChatCacheRead | null> {
+  // Check memory cache first (instant)
+  const memResult = getWarmChatCacheSync(sessionKey)
+  if (memResult) return memResult
+
   const [preview, run] = await Promise.all([
     persistentCacheGet<WarmChatPreviewEntry>(previewKey(sessionKey)),
     persistentCacheGet<WarmChatRunEntry>(runKey(sessionKey)),
@@ -298,6 +353,9 @@ export async function setWarmChatCache(
     lastAccessedAt,
   }
 
+  // Update memory cache immediately (sync) for instant reads
+  memoryCache.set(sessionKey, combineWarmEntries(preview, run))
+
   await Promise.all([
     persistentCacheSet(previewKey(sessionKey), preview, {
       ttlMs: WARM_CHAT_DISPLAYABLE_MS,
@@ -313,6 +371,7 @@ export async function setWarmChatCache(
 }
 
 export async function deleteWarmChatCache(sessionKey: string) {
+  memoryCache.delete(sessionKey)
   await deleteSessionCache(sessionKey)
   const index = await getIndex()
   await setIndex({

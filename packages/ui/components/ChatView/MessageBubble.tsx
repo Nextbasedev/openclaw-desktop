@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, memo } from "react"
 import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { createPortal } from "react-dom"
@@ -475,7 +475,31 @@ function BranchNav({
   )
 }
 
-export function MessageBubble({
+interface MessageBubbleProps {
+  message: ChatMessage
+  onEdit?: (messageId: string, newText: string) => void
+  onRetrySend?: (messageId: string) => void
+  onSwitchBranch?: (messageId: string, branchIndex: number) => void
+  onReply?: (messageId: string) => void
+  onPin?: (messageId: string) => void
+  onDelete?: (messageId: string) => void
+  onReact?: (messageId: string, reaction: "up" | "down") => void
+  onExport?: (messageId: string) => void
+  onTextAnimationComplete?: (messageId: string) => void
+  onFork?: (messageId: string) => void
+  onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => Promise<void> | void
+  onAskSelectedText?: (messageId: string, text: string, comment?: string) => void
+  referencedTexts?: string[]
+  isPinned?: boolean
+  reaction?: "up" | "down"
+  isGenerating?: boolean
+  isActivelyStreaming?: boolean
+  suppressActions?: boolean
+  popoverOpen?: boolean
+  onPopoverOpenChange?: (open: boolean) => void
+}
+
+export const MessageBubble = memo(function MessageBubble({
   message,
   onEdit,
   onRetrySend,
@@ -1174,6 +1198,40 @@ export function MessageBubble({
       </div>
     </motion.div>
   )
+}, messageBubbleAreEqual)
+
+function messageBubbleAreEqual(
+  prev: MessageBubbleProps,
+  next: MessageBubbleProps
+): boolean {
+  // Fast path: same message reference + same UI state = skip re-render
+  if (prev.message === next.message &&
+      prev.isGenerating === next.isGenerating &&
+      prev.isActivelyStreaming === next.isActivelyStreaming &&
+      prev.popoverOpen === next.popoverOpen &&
+      prev.isPinned === next.isPinned &&
+      prev.reaction === next.reaction &&
+      prev.suppressActions === next.suppressActions) {
+    return true
+  }
+  // Message content changed
+  if (prev.message.messageId !== next.message.messageId ||
+      prev.message.text !== next.message.text ||
+      prev.message.role !== next.message.role ||
+      (prev.message.branches?.length ?? 0) !== (next.message.branches?.length ?? 0) ||
+      prev.message.activeBranch !== next.message.activeBranch) {
+    return false
+  }
+  // Tool calls changed
+  if ((prev.message.toolCalls?.length ?? 0) !== (next.message.toolCalls?.length ?? 0)) return false
+  // UI state props
+  if (prev.isGenerating !== next.isGenerating) return false
+  if (prev.isActivelyStreaming !== next.isActivelyStreaming) return false
+  if (prev.popoverOpen !== next.popoverOpen) return false
+  if (prev.isPinned !== next.isPinned) return false
+  if (prev.reaction !== next.reaction) return false
+  if (prev.suppressActions !== next.suppressActions) return false
+  return true
 }
 
 export function TypingDots() {

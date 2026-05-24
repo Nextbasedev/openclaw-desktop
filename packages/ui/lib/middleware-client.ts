@@ -133,9 +133,39 @@ export function clearMiddlewareConnection() {
   localStorage.setItem("jarvis.gatewayActive", "false")
   clearWorkspaceScopeCache()
   syncDesktopBackendMode(null)
+  // Clear ALL cached data from the previous connection
+  void clearAllConnectionCaches()
   if (previous) {
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_DISCONNECTED_EVENT, { detail: { url: previous.url } }))
     window.dispatchEvent(new CustomEvent(MIDDLEWARE_CONNECTION_CHANGED_EVENT, { detail: { url: null } }))
+  }
+}
+
+async function clearAllConnectionCaches() {
+  try {
+    // Clear persisted cache (IndexedDB + localStorage)
+    const { persistentCacheClearAll } = await import("./persistentCache")
+    await persistentCacheClearAll()
+    // Clear startup bootstrap cache
+    const { invalidateMiddlewareStartupBootstrap } = await import("./startupBootstrap")
+    invalidateMiddlewareStartupBootstrap()
+    // Clear chat list cache
+    const { invalidateChatListCache } = await import("./chatListCache")
+    invalidateChatListCache()
+    // Clear request dedupe
+    const { clearDedupeForTests: clearDedupe } = await import("./requestDedupe")
+    clearDedupe()
+    // Clear patch stream cursor
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("openclaw:patchCursor:") || key.startsWith("openclaw-ui-cache:")) {
+        localStorage.removeItem(key)
+      }
+    }
+    frontendLog("connection", "middleware.caches-cleared", {}, "info")
+  } catch (error) {
+    frontendLog("connection", "middleware.caches-clear-fail", {
+      error: error instanceof Error ? error.message : String(error),
+    }, "warn")
   }
 }
 
@@ -168,6 +198,42 @@ const CONNECTION_PROBE_TIMEOUT_MS = 3_000
 
 type MiddlewareRequestInit = RequestInit & { timeoutMs?: number }
 
+function sanitizeMiddlewarePath(path: string): string {
+  try {
+    const parsed = new URL(path, "http://openclaw.local")
+    const queryKeys = Array.from(parsed.searchParams.keys())
+    const querySuffix = queryKeys.length > 0 ? `?${queryKeys.map((key) => `${key}=…`).join("&")}` : ""
+    return `${parsed.pathname}${querySuffix}`
+  } catch {
+    const [base, query = ""] = path.split("?")
+    if (!query) return base || path
+    const params = new URLSearchParams(query)
+    const queryKeys = Array.from(params.keys())
+    const querySuffix = queryKeys.length > 0 ? `?${queryKeys.map((key) => `${key}=…`).join("&")}` : ""
+    return `${base}${querySuffix}`
+  }
+}
+
+function middlewareTargetUrl(baseUrl: string, path: string): string {
+  try {
+    return new URL(path, `${trimTrailingSlash(baseUrl)}/`).toString()
+  } catch {
+    return `${trimTrailingSlash(baseUrl)}${path.startsWith("/") ? "" : "/"}${path}`
+  }
+}
+
+function middlewareLogContext(method: string, path: string, baseUrl: string, token: string, extra?: Record<string, unknown>) {
+  const targetUrl = middlewareTargetUrl(baseUrl, path)
+  return {
+    method,
+    routePath: sanitizeMiddlewarePath(path),
+    targetUrl: sanitizeUrlForLog(targetUrl),
+    middlewareBaseUrl: sanitizeUrlForLog(baseUrl),
+    hasToken: Boolean(token),
+    ...extra,
+  }
+}
+
 function timeoutSignal(timeoutMs: number) {
   const controller = new AbortController()
   const timer = globalThis.setTimeout(() => controller.abort(new Error(`Middleware request timed out after ${timeoutMs}ms`)), timeoutMs)
@@ -182,14 +248,9 @@ export async function middlewareFetch<T>(path: string, init: MiddlewareRequestIn
   const url = trimTrailingSlash(rewriteLoopbackForRemoteBrowser(connection.url))
   const timeout = init.signal ? null : timeoutSignal(init.timeoutMs ?? DEFAULT_MIDDLEWARE_FETCH_TIMEOUT_MS)
   const { timeoutMs: _timeoutMs, ...fetchInit } = init
-  frontendLog("api", "middleware.fetch.start", {
-    method,
-    path: sanitizeUrlForLog(path),
-    baseUrl: sanitizeUrlForLog(url),
-    hasToken: Boolean(token),
-  }, "debug")
+  frontendLog("api", "middleware.fetch.start", middlewareLogContext(method, path, url, token), "debug")
   try {
-    const response = await fetch(`${url}${path}`, {
+    const response = await fetch(middlewareTargetUrl(url, path), {
       ...fetchInit,
       signal: init.signal ?? timeout?.signal,
       headers: {
@@ -201,25 +262,21 @@ export async function middlewareFetch<T>(path: string, init: MiddlewareRequestIn
     const text = await response.text()
     const body = text ? JSON.parse(text) : null
     const durationMs = Math.round(performance.now() - startedAt)
-    frontendLog("api", response.ok ? "middleware.fetch.end" : "middleware.fetch.fail", {
-      method,
-      path: sanitizeUrlForLog(path),
+    frontendLog("api", response.ok ? "middleware.fetch.end" : "middleware.fetch.fail", middlewareLogContext(method, path, url, token, {
       durationMs,
       status: response.status,
       statusText: response.statusText || undefined,
       error: response.ok ? undefined : redactText(body?.error?.message ?? `Middleware request failed (${response.status})`),
-    }, response.ok ? "info" : "error")
+    }), response.ok ? "info" : "error")
     if (!response.ok) {
       throw new Error(body?.error?.message ?? `Middleware request failed (${response.status})`)
     }
     return body as T
   } catch (error) {
-    frontendLog("api", "middleware.fetch.fail", {
-      method,
-      path: sanitizeUrlForLog(path),
+    frontendLog("api", "middleware.fetch.fail", middlewareLogContext(method, path, url, token, {
       durationMs: Math.round(performance.now() - startedAt),
       error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
-    }, "error")
+    }), "error")
     throw error
   } finally {
     timeout?.clear()
