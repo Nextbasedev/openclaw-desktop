@@ -141,6 +141,10 @@ export class ChatTimelineStore {
     return this.messageMap.size
   }
 
+  getAllMessageIds(): string[] {
+    return Array.from(this.messageMap.keys())
+  }
+
   get currentCursor(): number {
     return this.cursor
   }

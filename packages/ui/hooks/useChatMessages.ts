@@ -696,6 +696,13 @@ export function useChatMessages(
         updateCachedBootstrapMessages(queryClient, sessionKey, next)
         // Write-through to timeline store — store dedupes and batches
         const store = timelineStoreRef.current
+        const nextIds = new Set(next.map((m) => m.messageId))
+        // Remove stale entries (e.g. optimistic messages replaced by confirmed)
+        for (const existing of store.getAllMessageIds()) {
+          if (!nextIds.has(existing)) {
+            store.removeMessage(existing, v2CursorRef.current)
+          }
+        }
         for (const msg of next) {
           if (!store.getMessage(msg.messageId) || store.getMessage(msg.messageId)?.text !== msg.text) {
             store.applyPatchMessage(msg, v2CursorRef.current)
