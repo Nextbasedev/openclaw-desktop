@@ -44,6 +44,7 @@ export function useChatScrollAnchor({
     behavior: "auto" | "smooth"
     reason: string
   } | null>(null)
+  const lastBottomScrollKeyRef = useRef<string | null>(null)
 
   // Reset anchor on session change before the next paint.
   useLayoutEffect(() => {
@@ -54,6 +55,7 @@ export function useChatScrollAnchor({
       prevMessageCountRef.current = 0
       pendingBottomRequestRef.current = null
       bottomRequestIdRef.current = 0
+      lastBottomScrollKeyRef.current = null
       frontendLog("chat", "chat.scroll.anchor.reset", { sessionKey, reason: "session-change" }, "debug")
     }
   }, [sessionKey])
@@ -62,10 +64,24 @@ export function useChatScrollAnchor({
     if (renderedMessages.length === 0) return false
     const handle = virtuosoRef.current
     if (!handle) return false
+
+    const firstId = renderedMessages[0]?.messageId ?? "none"
+    const lastId = renderedMessages[renderedMessages.length - 1]?.messageId ?? "none"
+    const scrollKey = `${sessionKey}:${renderedMessages.length}:${firstId}:${lastId}:bottom`
+    if (behavior === "auto" && lastBottomScrollKeyRef.current === scrollKey) {
+      frontendLog("chat", "chat.scroll.bottom.skip-duplicate", {
+        sessionKey,
+        messageCount: renderedMessages.length,
+        reason,
+      }, "debug")
+      return true
+    }
+
     handle.scrollToIndex({
       ...latestScrollLocation,
       behavior,
     })
+    lastBottomScrollKeyRef.current = scrollKey
     frontendLog("chat", "chat.scroll.bottom.apply", {
       sessionKey,
       messageCount: renderedMessages.length,
@@ -73,7 +89,7 @@ export function useChatScrollAnchor({
       behavior,
     }, "debug")
     return true
-  }, [renderedMessages.length, sessionKey, virtuosoRef])
+  }, [renderedMessages, sessionKey, virtuosoRef])
 
   const requestBottomScroll = useCallback((behavior: "auto" | "smooth", reason: string) => {
     anchorRef.current = { kind: "bottom" }
@@ -85,7 +101,9 @@ export function useChatScrollAnchor({
       reason,
     }
     pendingBottomRequestRef.current = request
-    performBottomScroll(behavior, reason)
+    if (performBottomScroll(behavior, reason)) {
+      pendingBottomRequestRef.current = null
+    }
     frontendLog("chat", "chat.scroll.bottom.request", {
       sessionKey,
       messageCount: renderedMessages.length,
