@@ -55,7 +55,6 @@ import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import {
   groupAssistantToolCallsByMessage,
-  mergeToolCallsForDisplay,
 } from "@/lib/chatToolDisplay"
 import type {
   ChatMessage,
@@ -71,6 +70,7 @@ import {
 } from "@/components/ui/tooltip"
 
 const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
+const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
 type StatusIconMeta = {
   icon: IconType
@@ -312,7 +312,6 @@ export function ChatView({
     status,
     statusLabel,
     loading,
-    historyLoadVersion,
     hasOlderMessages,
     loadingOlderMessages,
     loadOlderMessages,
@@ -796,46 +795,26 @@ export function ChatView({
   )
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const virtuosoFirstItemIndexRef = useRef(10000)
+  const virtuosoIndexSnapshotRef = useRef<{
+    sessionKey: string
+    firstId: string | null
+    lastId: string | null
+    length: number
+  } | null>(null)
   const mountedAtRef = useRef(Date.now())
-  const lastHistoryScrollVersionRef = useRef(0)
+  const userScrollIntentRef = useRef(false)
+  // Track whether Virtuoso has been scrolled to bottom after first data load.
+  // On first open / refresh, messages arrive async (warm cache or bootstrap)
+  // after Virtuoso mounts. initialTopMostItemIndex may not position correctly
+  // if item heights haven't been measured yet. This ensures a definitive scroll.
+  const needsInitialScrollRef = useRef(true)
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
+    userScrollIntentRef.current = false
+    needsInitialScrollRef.current = true
   }, [sessionKey])
-
-  useLayoutEffect(() => {
-    if (isBackgroundSession) return
-    if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
-    if (renderedMessages.length === 0) return
-
-    lastHistoryScrollVersionRef.current = historyLoadVersion
-    const scrollToLatest = () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-        return
-      }
-      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-    }
-
-    let secondFrame: number | null = null
-    const frame = requestAnimationFrame(() => {
-      scrollToLatest()
-      secondFrame = requestAnimationFrame(scrollToLatest)
-    })
-    const settleTimer = window.setTimeout(scrollToLatest, 150)
-    return () => {
-      cancelAnimationFrame(frame)
-      if (secondFrame !== null) cancelAnimationFrame(secondFrame)
-      window.clearTimeout(settleTimer)
-    }
-  }, [
-    bottomRef,
-    historyLoadVersion,
-    isBackgroundSession,
-    renderedMessages.length,
-    scrollContainerRef,
-  ])
 
   const latestRenderedUserIndex = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
@@ -843,6 +822,40 @@ export function ChatView({
     }
     return -1
   }, [renderedMessages])
+
+  const virtuosoFirstItemIndex = (() => {
+    const firstId = renderedMessages[0]?.messageId ?? null
+    const lastId = renderedMessages[renderedMessages.length - 1]?.messageId ?? null
+    const previous = virtuosoIndexSnapshotRef.current
+
+    if (!previous || previous.sessionKey !== sessionKey) {
+      virtuosoFirstItemIndexRef.current = Math.max(0, 10000 - renderedMessages.length)
+    } else if (previous.length === 0 && renderedMessages.length > 0) {
+      virtuosoFirstItemIndexRef.current = Math.max(0, 10000 - renderedMessages.length)
+    } else if (renderedMessages.length > previous.length && previous.firstId) {
+      const previousFirstIndex = renderedMessages.findIndex(
+        (message) => message.messageId === previous.firstId
+      )
+      if (previousFirstIndex > 0) {
+        // Only older-message prepends should move Virtuoso's absolute index.
+        // Appends, bootstrap refreshes, and live patch replacements must keep
+        // the index stable or Virtuoso preserves the wrong viewport on first
+        // app open / refresh.
+        virtuosoFirstItemIndexRef.current = Math.max(
+          0,
+          virtuosoFirstItemIndexRef.current - previousFirstIndex
+        )
+      }
+    }
+
+    virtuosoIndexSnapshotRef.current = {
+      sessionKey,
+      firstId,
+      lastId,
+      length: renderedMessages.length,
+    }
+    return virtuosoFirstItemIndexRef.current
+  })()
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -1013,10 +1026,13 @@ export function ChatView({
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
-      setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+      setShowJumpToBottom(
+        el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
+      )
       if (
         hasOlderMessages &&
         !loadingOlderMessages &&
+        userScrollIntentRef.current &&
         el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
       ) {
         void loadOlderMessages()
@@ -1035,19 +1051,28 @@ export function ChatView({
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
     if (virtuosoRef.current) {
-      virtuosoRef.current.scrollToIndex({ index: renderedMessages.length - 1, behavior: "smooth", align: "end" })
+      virtuosoRef.current.scrollToIndex({ index: "LAST", behavior: "smooth", align: "end" })
     } else {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
     }
-  }, [bottomRef, renderedMessages.length])
+  }, [bottomRef])
+
+  const syncJumpToBottomVisibility = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    setShowJumpToBottom(
+      el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
+    )
+  }, [scrollContainerRef])
 
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+    syncJumpToBottomVisibility()
     if (
       hasOlderMessages &&
       !loadingOlderMessages &&
+      userScrollIntentRef.current &&
       el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX &&
       el.scrollHeight <= el.clientHeight + AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
     ) {
@@ -1058,9 +1083,36 @@ export function ChatView({
     isGenerating,
     loadOlderMessages,
     loadingOlderMessages,
-    renderedMessages.length,
+    pendingTools,
+    renderedMessages,
     scrollContainerRef,
+    status,
+    statusLabel,
+    syncJumpToBottomVisibility,
   ])
+
+  // On first open / refresh, Virtuoso may mount before item heights are measured,
+  // so initialTopMostItemIndex can land at a wrong position. This ensures a
+  // definitive scroll-to-bottom once Virtuoso is mounted and has data.
+  useLayoutEffect(() => {
+    if (
+      needsInitialScrollRef.current &&
+      renderedMessages.length > 0 &&
+      !loading &&
+      virtuosoRef.current &&
+      !userScrollIntentRef.current
+    ) {
+      needsInitialScrollRef.current = false
+      // Use requestAnimationFrame to let Virtuoso finish its initial layout pass
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: "LAST",
+          align: "end",
+          behavior: "auto",
+        })
+      })
+    }
+  }, [renderedMessages.length, loading])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1342,7 +1394,10 @@ export function ChatView({
     (index: number, msg: ChatMessage) => {
       const isLast = index === renderedMessages.length - 1
       const showPending =
-        isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
+        index === latestRenderedUserIndex &&
+        isGenerating &&
+        pendingTools.length > 0 &&
+        msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
       let hasLaterAssistantInSameTurn = false
@@ -1377,10 +1432,7 @@ export function ChatView({
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
       const filteredToolCalls =
         msg.role === "assistant"
-          ? mergeToolCallsForDisplay(
-              toolCallsWithoutSpawn(messageToolCalls),
-              isActivelyStreaming ? filteredPending : []
-            )
+          ? toolCallsWithoutSpawn(messageToolCalls)
           : toolCallsWithoutSpawn(messageToolCalls)
       const anchoredUserSubagents =
         msg.role === "user"
@@ -1623,7 +1675,15 @@ export function ChatView({
   }
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden">
+    <div
+      className="relative flex h-full w-full flex-col overflow-hidden"
+      onWheelCapture={() => {
+        userScrollIntentRef.current = true
+      }}
+      onTouchMoveCapture={() => {
+        userScrollIntentRef.current = true
+      }}
+    >
       {/* Sub-header for chat actions & pins */}
       <div className="z-40 flex h-9 shrink-0 items-center justify-between bg-background/70 px-4 backdrop-blur-[2px]">
         <div className="flex items-center gap-4">
@@ -1691,10 +1751,15 @@ export function ChatView({
       />
 
       <Virtuoso
+        key={sessionKey}
         ref={virtuosoRef}
+        scrollerRef={(ref) => {
+          scrollContainerRef.current = ref as HTMLDivElement | null
+        }}
         data={renderedMessages}
-        firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
-        initialTopMostItemIndex={renderedMessages.length > 0 ? renderedMessages.length - 1 : 0}
+        computeItemKey={(_, msg) => msg.messageId}
+        firstItemIndex={virtuosoFirstItemIndex}
+        initialTopMostItemIndex={{ index: "LAST", align: "end" }}
         followOutput="smooth"
         alignToBottom
         increaseViewportBy={{ top: 400, bottom: 200 }}
@@ -1702,9 +1767,12 @@ export function ChatView({
         atTopStateChange={(atTop) => {
           // Don't trigger older message loading within 1s of mount or session change
           // — Virtuoso fires atTop immediately for short chats that fit in viewport
-          if (atTop && hasOlderMessages && !loadingOlderMessages && Date.now() - mountedAtRef.current > 1000) {
+          if (atTop && hasOlderMessages && !loadingOlderMessages && userScrollIntentRef.current && Date.now() - mountedAtRef.current > 1000) {
             void loadOlderMessages()
           }
+        }}
+        atBottomStateChange={(atBottom) => {
+          if (atBottom) setShowJumpToBottom(false)
         }}
         itemContent={(index, msg) => renderMessageRow(index, msg)}
         components={{

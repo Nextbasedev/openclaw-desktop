@@ -179,6 +179,28 @@ export function editorGroupsReducer(
           }
           if (existing >= 0) {
             const nextTab = action.tab
+            const currentTab = g.tabs[existing]
+            if (
+              currentTab?.kind === nextTab.kind &&
+              currentTab.title === nextTab.title &&
+              currentTab.subtitle === nextTab.subtitle &&
+              (currentTab.kind !== "chat" || nextTab.kind !== "chat" || currentTab.chat?.sessionKey === nextTab.chat?.sessionKey) &&
+              (currentTab.kind !== "topic" || nextTab.kind !== "topic" || currentTab.topic?.id === nextTab.topic?.id)
+            ) {
+              const currentSessionData = sessionDataFromTab(currentTab) ?? g.sessionData
+              const sameSessionData =
+                (!currentSessionData && !g.sessionData) ||
+                (Boolean(currentSessionData && g.sessionData) &&
+                  currentSessionData?.chat.id === g.sessionData?.chat.id &&
+                  currentSessionData?.sessionKey === g.sessionData?.sessionKey &&
+                  currentSessionData?.title === g.sessionData?.title)
+              if (g.activeTabId === action.tab.id && sameSessionData) return g
+              return {
+                ...g,
+                activeTabId: action.tab.id,
+                sessionData: currentSessionData,
+              }
+            }
             return {
               ...g,
               tabs: withoutDraft.map((t) =>

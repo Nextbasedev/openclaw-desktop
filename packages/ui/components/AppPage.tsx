@@ -1206,26 +1206,6 @@ function AppShell({
     setInitialMessages(undefined)
     const provisionalTitle = isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name
     const provisionalSessionKey = isRealChatSessionKey(chat.sessionKey) ? chat.sessionKey : null
-    setActiveChat(chat)
-    setActiveSessionKey(provisionalSessionKey)
-    setActiveSessionTitle(provisionalTitle)
-    dispatchGroups({
-      type: "ADD_TAB",
-      tab: {
-        id: `chat:${chat.id}`,
-        title: provisionalTitle,
-        subtitle: "Chat",
-        kind: "chat",
-        chat,
-      },
-    })
-    dispatchGroups({
-      type: "SET_SESSION_DATA",
-      groupId: editorGroups.focusedGroupId,
-      sessionData: provisionalSessionKey
-        ? { chat, sessionKey: provisionalSessionKey, title: provisionalTitle }
-        : null,
-    })
     const pushChatRoute = (chatId: string) => {
       const nextUrl = routeUrl(`/${chatId}`)
       if (getRoutePath() === `/${chatId}`) return
@@ -1263,13 +1243,35 @@ function AppShell({
       const selection = { chat, sessionKey: chat.sessionKey, title }
       resolvedChatCacheRef.current.set(chat.id, selection)
       applyChatSelection(selection)
+    } else {
+      setActiveChat(chat)
+      setActiveSessionKey(provisionalSessionKey)
+      setActiveSessionTitle(provisionalTitle)
+      dispatchGroups({
+        type: "ADD_TAB",
+        tab: {
+          id: `chat:${chat.id}`,
+          title: provisionalTitle,
+          subtitle: "Chat",
+          kind: "chat",
+          chat,
+        },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: editorGroups.focusedGroupId,
+        sessionData: null,
+      })
+      pushChatRoute(chat.id)
     }
 
     try {
       const resolved = await ensureChatSession(chat, { activeSpaceId })
       if (routeRequestRef.current !== requestId) return
       resolvedChatCacheRef.current.set(resolved.chat.id, resolved)
-      applyChatSelection(resolved)
+      if (resolved.chat.id !== chat.id || resolved.sessionKey !== (cached?.sessionKey ?? chat.sessionKey)) {
+        applyChatSelection(resolved)
+      }
     } catch (err) {
       if (routeRequestRef.current !== requestId) return
       console.error("Failed to open chat session", err)
