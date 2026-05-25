@@ -849,6 +849,7 @@ export function ChatView({
     isGenerating,
     sessionKey,
     firstItemIndex: virtuosoFirstItemIndex,
+    shouldTrackMessageAnchor: () => userScrollIntentRef.current,
   })
 
   // Restore scroll anchor after data source changes (bootstrap/warm-cache)

@@ -27,12 +27,14 @@ export function useChatScrollAnchor({
   isGenerating,
   sessionKey,
   firstItemIndex,
+  shouldTrackMessageAnchor = () => true,
 }: {
   virtuosoRef: React.RefObject<VirtuosoHandle | null>
   renderedMessages: ChatMessage[]
   isGenerating: boolean
   sessionKey: string
   firstItemIndex: number
+  shouldTrackMessageAnchor?: () => boolean
 }) {
   const anchorRef = useRef<ScrollAnchor>({ kind: "bottom" })
   const atBottomRef = useRef(true)
@@ -131,10 +133,14 @@ export function useChatScrollAnchor({
     }
   }, [flushPendingBottomScroll])
 
-  // Virtuoso rangeChanged callback — track top visible message when not at bottom
+  // Virtuoso rangeChanged callback — track top visible message when the user
+  // actually scrolled. During initial/programmatic layout, Virtuoso can briefly
+  // report atBottom=false and a top-ish range; capturing that as a message
+  // anchor causes restoreAnchor() to jump bottom → top on the next data change.
   const onRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
     flushPendingBottomScroll("range-ready")
     if (atBottomRef.current) return
+    if (!shouldTrackMessageAnchor()) return
     // Map Virtuoso's shifted index back to array index
     const arrayIndex = range.startIndex - firstItemIndex
     if (arrayIndex >= 0 && arrayIndex < renderedMessages.length) {
@@ -143,7 +149,7 @@ export function useChatScrollAnchor({
         anchorRef.current = { kind: "message", messageId: msg.messageId, offsetPx: 0 }
       }
     }
-  }, [flushPendingBottomScroll, renderedMessages])
+  }, [firstItemIndex, flushPendingBottomScroll, renderedMessages, shouldTrackMessageAnchor])
 
   // After data changes (bootstrap/warm-cache/reconcile), restore anchor
   const restoreAnchor = useCallback(() => {
