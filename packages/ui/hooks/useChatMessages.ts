@@ -770,6 +770,7 @@ export function useChatMessages(
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
   const scrollFrameRef = useRef<number | null>(null)
+  const scrollTimeoutRef = useRef<number | null>(null)
   const programmaticScrollUntilRef = useRef(0)
   const lastSmoothScrollAtRef = useRef(0)
   const lastStreamEventAtRef = useRef(Date.now())
@@ -822,6 +823,11 @@ export function useChatMessages(
     if (!isAtBottomRef.current) return
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current)
+      scrollFrameRef.current = null
+    }
+    if (scrollTimeoutRef.current !== null) {
+      window.clearTimeout(scrollTimeoutRef.current)
+      scrollTimeoutRef.current = null
     }
     const scroll = () => {
       const el = scrollContainerRef.current
@@ -836,14 +842,24 @@ export function useChatMessages(
       })
       isAtBottomRef.current = true
       scrollFrameRef.current = null
+      scrollTimeoutRef.current = null
     }
-    scrollFrameRef.current = requestAnimationFrame(scroll)
+    if (typeof document !== "undefined" && document.hidden) {
+      scrollTimeoutRef.current = window.setTimeout(scroll, 0)
+    } else {
+      scrollFrameRef.current = requestAnimationFrame(scroll)
+    }
   }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
     isAtBottomRef.current = true
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current)
+      scrollFrameRef.current = null
+    }
+    if (scrollTimeoutRef.current !== null) {
+      window.clearTimeout(scrollTimeoutRef.current)
+      scrollTimeoutRef.current = null
     }
     const scroll = () => {
       const el = scrollContainerRef.current
@@ -855,6 +871,11 @@ export function useChatMessages(
       })
       isAtBottomRef.current = true
       scrollFrameRef.current = null
+      scrollTimeoutRef.current = null
+    }
+    if (typeof document !== "undefined" && document.hidden) {
+      scrollTimeoutRef.current = window.setTimeout(scroll, 0)
+      return
     }
     scrollFrameRef.current = requestAnimationFrame(() => {
       if (smooth) {
@@ -950,6 +971,9 @@ export function useChatMessages(
     return () => {
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current)
+      }
+      if (scrollTimeoutRef.current !== null) {
+        window.clearTimeout(scrollTimeoutRef.current)
       }
     }
   }, [])
@@ -2863,9 +2887,6 @@ export function useChatMessages(
       return
     }
 
-    const el = scrollContainerRef.current
-    const previousScrollHeight = el?.scrollHeight ?? 0
-    const previousScrollTop = el?.scrollTop ?? 0
     setLoadingOlderMessages(true)
     try {
       const page = await fetchChatMessagesV2({
@@ -2947,12 +2968,9 @@ export function useChatMessages(
         page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
-      requestAnimationFrame(() => {
-        const nextEl = scrollContainerRef.current
-        if (!nextEl) return
-        const delta = nextEl.scrollHeight - previousScrollHeight
-        nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
-      })
+      // Scroll anchoring is handled by Virtuoso's firstItemIndex model.
+      // When renderedMessages grows at the top, firstItemIndex decreases
+      // proportionally (10000 - newLength), keeping the viewport stable.
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {
         sessionKey,

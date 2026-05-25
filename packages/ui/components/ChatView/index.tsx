@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -1574,6 +1574,61 @@ export function ChatView({
                         : "Thinking - waiting for the next event..."
                       : null)
 
+  const virtuosoComponents = useMemo(() => ({
+    Scroller: forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ChatVirtuosoScroller(
+      props,
+      ref,
+    ) {
+      const { onScroll: virtuosoOnScroll, ...rest } = props
+      return (
+        <div
+          {...rest}
+          ref={(node) => {
+            scrollContainerRef.current = node
+            if (typeof ref === "function") ref(node)
+            else if (ref) ref.current = node
+          }}
+          onScroll={(event) => {
+            virtuosoOnScroll?.(event)
+            handleScroll()
+          }}
+        />
+      )
+    }),
+    Header: () => (
+      <div className="mx-auto max-w-3xl px-4 pt-8">
+        {loadingOlderMessages && (
+          <div className="mb-4 flex justify-center text-xs text-muted-foreground">
+            Loading earlier messages…
+          </div>
+        )}
+      </div>
+    ),
+    Footer: () => (
+      <div className="mx-auto max-w-3xl px-4 pb-8">
+        <AnimatePresence initial={false}>
+          {editPreview && (
+            <EditPreviewPanel
+              key={editPreview.branchSessionKey}
+              preview={editPreview}
+              onSelect={selectEditBranch}
+            />
+          )}
+        </AnimatePresence>
+        {statusText && (
+          <div className="mt-4 flex items-center pl-1">
+            <ProcessStatusIcon tool={liveTool?.tool} />
+            <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+              {statusText.replace(/\.{3}$/, "")}
+              <span className="thinking-ellipsis" aria-hidden="true" />
+            </span>
+          </div>
+        )}
+        <div ref={bottomRef} className="h-8" />
+      </div>
+    ),
+  }), [bottomRef, editPreview, handleScroll, liveTool?.tool, loadingOlderMessages, scrollContainerRef, selectEditBranch, statusText])
+
   if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
   }
@@ -1707,40 +1762,7 @@ export function ChatView({
           }
         }}
         itemContent={(index, msg) => renderMessageRow(index, msg)}
-        components={{
-          Header: () => (
-            <div className="mx-auto max-w-3xl px-4 pt-8">
-              {loadingOlderMessages && (
-                <div className="mb-4 flex justify-center text-xs text-muted-foreground">
-                  Loading earlier messages…
-                </div>
-              )}
-            </div>
-          ),
-          Footer: () => (
-            <div className="mx-auto max-w-3xl px-4 pb-8">
-              <AnimatePresence initial={false}>
-                {editPreview && (
-                  <EditPreviewPanel
-                    key={editPreview.branchSessionKey}
-                    preview={editPreview}
-                    onSelect={selectEditBranch}
-                  />
-                )}
-              </AnimatePresence>
-              {statusText && (
-                <div className="mt-4 flex items-center pl-1">
-                  <ProcessStatusIcon tool={liveTool?.tool} />
-                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                    {statusText.replace(/\.{3}$/, "")}
-                    <span className="thinking-ellipsis" aria-hidden="true" />
-                  </span>
-                </div>
-              )}
-              <div ref={bottomRef} className="h-8" />
-            </div>
-          ),
-        }}
+        components={virtuosoComponents}
       />
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
