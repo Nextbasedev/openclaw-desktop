@@ -12,6 +12,7 @@ type PtyEventPayload = {
 }
 
 type SpawnResult = { ptyId: string; cwd: string; websocketUrl?: string }
+export type PtyStatus = "idle" | "spawning" | "connected" | "stream_failed" | "exited" | "error"
 
 function handleEvent(
   evt: PtyEventPayload,
@@ -37,16 +38,53 @@ function middlewareWsUrl(path: string | undefined): string | null {
 export function usePty(
   termRef: React.RefObject<Terminal | null>,
   projectId?: string | null,
+  onStatus?: (status: PtyStatus, message?: string) => void,
 ) {
   const ptyIdRef = useRef<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const closeStreamRef = useRef<(() => void) | null>(null)
+  const writeQueueRef = useRef<string[]>([])
+
+  const setStatus = useCallback((status: PtyStatus, message?: string) => {
+    onStatus?.(status, message)
+  }, [onStatus])
+
+  const openSseStream = useCallback((ptyId: string) => {
+    closeStreamRef.current?.()
+    closeStreamRef.current = openEventStream(
+      `/api/stream/pty/${ptyId}`,
+      (event) => {
+        try {
+          const data = JSON.parse(event.data) as PtyEventPayload | { event: PtyEventPayload }
+          const evt = "event" in data ? data.event : data
+          handleEvent(evt, termRef)
+          if (evt.type === "pty.exit" || evt.type === "terminal.exit") setStatus("exited")
+          if (evt.type === "pty.error" || evt.type === "terminal.error") setStatus("error", evt.message)
+        } catch {}
+      },
+    )
+  }, [setStatus, termRef])
+
+  const flushWriteQueue = useCallback(async () => {
+    if (!ptyIdRef.current || writeQueueRef.current.length === 0) return
+    const queued = writeQueueRef.current.splice(0)
+    for (const data of queued) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "write", data }))
+      } else {
+        await invoke("middleware_pty_write", {
+          input: { ptyId: ptyIdRef.current, data },
+        })
+      }
+    }
+  }, [])
 
   const cleanup = useCallback(() => {
     wsRef.current?.close()
     wsRef.current = null
     closeStreamRef.current?.()
     closeStreamRef.current = null
+    writeQueueRef.current = []
     if (ptyIdRef.current) {
       const id = ptyIdRef.current
       ptyIdRef.current = null
@@ -59,6 +97,7 @@ export function usePty(
       cleanup()
 
       if (signal.aborted) return { ptyId: "", cwd: "" } as SpawnResult
+      setStatus("spawning")
 
       const result = await invoke<SpawnResult>("middleware_pty_spawn", {
         input: { rows, cols, projectId: projectId ?? undefined },
@@ -74,6 +113,10 @@ export function usePty(
       if (wsUrl) {
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws
+        ws.onopen = () => {
+          setStatus("connected")
+          void flushWriteQueue()
+        }
         ws.onmessage = (event) => {
           try {
             const payload = JSON.parse(event.data) as { data?: unknown } | PtyEventPayload
@@ -81,31 +124,40 @@ export function usePty(
               ? payload.data as PtyEventPayload
               : payload as PtyEventPayload
             handleEvent(evt, termRef)
+            if (evt.type === "pty.exit" || evt.type === "terminal.exit") setStatus("exited")
+            if (evt.type === "pty.error" || evt.type === "terminal.error") setStatus("error", evt.message)
           } catch {}
         }
+        const fallbackToSse = () => {
+          if (!ptyIdRef.current || closeStreamRef.current) return
+          setStatus("stream_failed", "websocket terminal stream unavailable")
+          termRef.current?.write("\r\n\x1b[33m[websocket terminal stream unavailable, falling back to SSE]\x1b[0m\r\n")
+          openSseStream(ptyIdRef.current)
+          void flushWriteQueue()
+        }
         ws.onerror = () => {
-          termRef.current?.write("\r\n\x1b[33m[websocket terminal stream unavailable, falling back may require reload]\x1b[0m\r\n")
+          fallbackToSse()
+          try { ws.close() } catch {}
+        }
+        ws.onclose = () => {
+          if (ptyIdRef.current && !signal.aborted) fallbackToSse()
         }
       } else {
-        closeStreamRef.current = openEventStream(
-          `/api/stream/pty/${result.ptyId}`,
-          (event) => {
-            try {
-              const data = JSON.parse(event.data) as PtyEventPayload | { event: PtyEventPayload }
-              const evt = "event" in data ? data.event : data
-              handleEvent(evt, termRef)
-            } catch {}
-          },
-        )
+        setStatus("connected")
+        openSseStream(result.ptyId)
+        void flushWriteQueue()
       }
 
       return result
     },
-    [termRef, cleanup, projectId],
+    [termRef, cleanup, projectId, setStatus, flushWriteQueue, openSseStream],
   )
 
   const write = useCallback(async (data: string) => {
-    if (!ptyIdRef.current) return
+    if (!ptyIdRef.current) {
+      writeQueueRef.current.push(data)
+      return
+    }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "write", data }))
       return
