@@ -40,6 +40,12 @@ export function useChatScrollAnchor({
   const atBottomRef = useRef(true)
   const sessionKeyRef = useRef(sessionKey)
   const prevMessageCountRef = useRef(0)
+  const bottomRequestIdRef = useRef(0)
+  const pendingBottomRequestRef = useRef<{
+    id: number
+    behavior: "auto" | "smooth"
+    reason: string
+  } | null>(null)
 
   // Reset anchor on session change before the next paint.
   useLayoutEffect(() => {
@@ -48,20 +54,73 @@ export function useChatScrollAnchor({
       atBottomRef.current = true
       sessionKeyRef.current = sessionKey
       prevMessageCountRef.current = 0
+      pendingBottomRequestRef.current = null
+      bottomRequestIdRef.current = 0
       frontendLog("chat", "chat.scroll.anchor.reset", { sessionKey, reason: "session-change" }, "debug")
     }
   }, [sessionKey])
+
+  const performBottomScroll = useCallback((behavior: "auto" | "smooth", reason: string) => {
+    if (renderedMessages.length === 0) return false
+    const handle = virtuosoRef.current
+    if (!handle) return false
+    handle.scrollToIndex({
+      ...latestScrollLocation,
+      behavior,
+    })
+    frontendLog("chat", "chat.scroll.bottom.apply", {
+      sessionKey,
+      messageCount: renderedMessages.length,
+      reason,
+      behavior,
+    }, "debug")
+    return true
+  }, [renderedMessages.length, sessionKey, virtuosoRef])
+
+  const requestBottomScroll = useCallback((behavior: "auto" | "smooth", reason: string) => {
+    const request = {
+      id: ++bottomRequestIdRef.current,
+      behavior,
+      reason,
+    }
+    pendingBottomRequestRef.current = request
+    anchorRef.current = { kind: "bottom" }
+    atBottomRef.current = true
+
+    // Try immediately, but keep the request pending until Virtuoso reports a
+    // measured range / bottom state. In practice, first async data can arrive
+    // before Virtuoso is ready to honor scrollToIndex.
+    performBottomScroll(behavior, reason)
+    frontendLog("chat", "chat.scroll.bottom.request", {
+      sessionKey,
+      messageCount: renderedMessages.length,
+      reason,
+      requestId: request.id,
+    }, "debug")
+  }, [performBottomScroll, renderedMessages.length, sessionKey])
+
+  const flushPendingBottomScroll = useCallback((reason: string) => {
+    const pending = pendingBottomRequestRef.current
+    if (!pending) return
+    if (performBottomScroll(pending.behavior, `${pending.reason}:${reason}`)) {
+      pendingBottomRequestRef.current = null
+    }
+  }, [performBottomScroll])
 
   // Virtuoso atBottomStateChange callback
   const onAtBottomChange = useCallback((atBottom: boolean) => {
     atBottomRef.current = atBottom
     if (atBottom) {
       anchorRef.current = { kind: "bottom" }
+      pendingBottomRequestRef.current = null
+    } else {
+      flushPendingBottomScroll("at-bottom-false")
     }
-  }, [])
+  }, [flushPendingBottomScroll])
 
   // Virtuoso rangeChanged callback — track top visible message when not at bottom
   const onRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
+    flushPendingBottomScroll("range-ready")
     if (atBottomRef.current) return
     // Map Virtuoso's shifted index back to array index
     const firstItemIndex = firstItemIndexFor(renderedMessages.length)
@@ -72,7 +131,7 @@ export function useChatScrollAnchor({
         anchorRef.current = { kind: "message", messageId: msg.messageId, offsetPx: 0 }
       }
     }
-  }, [renderedMessages])
+  }, [flushPendingBottomScroll, renderedMessages])
 
   // After data changes (bootstrap/warm-cache/reconcile), restore anchor
   const restoreAnchor = useCallback(() => {
@@ -112,30 +171,18 @@ export function useChatScrollAnchor({
 
     if (!shouldFollowBottom) return
 
-    anchorRef.current = { kind: "bottom" }
-    atBottomRef.current = true
-    virtuosoRef.current?.scrollToIndex({
-      ...latestScrollLocation,
-      behavior: "auto",
-    })
+    requestBottomScroll("auto", prevCount === 0 ? "initial-data" : "append")
     frontendLog("chat", "chat.scroll.follow-bottom", {
       sessionKey,
       previousMessageCount: prevCount,
       messageCount: newCount,
       reason: prevCount === 0 ? "initial-data" : "append",
     }, "debug")
-  }, [renderedMessages.length, isGenerating, sessionKey, virtuosoRef])
+  }, [renderedMessages.length, isGenerating, requestBottomScroll, sessionKey])
 
   const scrollToBottom = useCallback((behavior: "auto" | "smooth" = "smooth") => {
-    anchorRef.current = { kind: "bottom" }
-    atBottomRef.current = true
-    if (renderedMessages.length > 0) {
-      virtuosoRef.current?.scrollToIndex({
-        ...latestScrollLocation,
-        behavior,
-      })
-    }
-  }, [renderedMessages.length, virtuosoRef])
+    requestBottomScroll(behavior, "explicit-bottom")
+  }, [requestBottomScroll])
 
   const jumpToMessage = useCallback((messageId: string) => {
     const idx = renderedMessages.findIndex((m) => m.messageId === messageId)
