@@ -1,5 +1,11 @@
 # Group 09 — UI Rendering & Scroll Bugs
 
+## Status
+
+**Complete** — merged into `v3` via PR #73 (`e3cafb4`).
+
+Validated by typecheck, browser/runtime audits where possible, and live user confirmation for the final first-open/refresh bottom-scroll path.
+
 ## Connected issues
 
 - Chat can't scroll to latest answer after message arrives while window is blurred/backgrounded

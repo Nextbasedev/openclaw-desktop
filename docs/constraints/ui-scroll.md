@@ -1,5 +1,11 @@
 # UI Scroll Constraints
 
+## Status
+
+- **Group 09 complete** — PR #73 merged into `v3` (`e3cafb4`).
+- Live validation confirmed first app open / refresh scrolls to the latest message.
+- Remaining work in this file is constraint documentation, not active Group 09 implementation.
+
 ## Core Rules
 
 1. **First chat open** → scroll to latest/bottom (via `historyLoadVersion` signal)
@@ -11,13 +17,19 @@
 
 ## Implementation
 
+### Initial Bottom Position
+- First open / refresh must land at latest/bottom after async warm-cache or bootstrap hydration.
+- `ChatView` keeps Virtuoso `firstItemIndex` stable across warm-cache → bootstrap replacements.
+- `firstItemIndex` only moves for real older-message prepends, never for appends or bootstrap refreshes.
+- After first async data load, `ChatView` performs one guarded `scrollToIndex(LAST)` if the user has not scrolled.
+
 ### History Load Signal (`historyLoadVersion`)
 - Initialized to `1` when warm/global cache messages exist on mount
 - Incremented by `markHistoryLoaded()` on:
   - Warm cache hydration
   - Global session cache hydration
   - Fresh bootstrap completion
-- `ChatView` watches this via `useLayoutEffect` → scrolls to bottom before paint
+- `ChatView` watches history/data readiness and scrolls to bottom before/at first stable paint
 
 ### Scroll Ownership
 - `ChatView` owns DOM scroll behavior (not `useChatMessages`)
