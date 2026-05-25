@@ -55,7 +55,6 @@ import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import {
   groupAssistantToolCallsByMessage,
-  mergeToolCallsForDisplay,
 } from "@/lib/chatToolDisplay"
 import type {
   ChatMessage,
@@ -1325,7 +1324,10 @@ export function ChatView({
     (index: number, msg: ChatMessage) => {
       const isLast = index === renderedMessages.length - 1
       const showPending =
-        isLast && isGenerating && pendingTools.length > 0 && msg.role === "user"
+        index === latestRenderedUserIndex &&
+        isGenerating &&
+        pendingTools.length > 0 &&
+        msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
       let hasLaterAssistantInSameTurn = false
@@ -1360,10 +1362,7 @@ export function ChatView({
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
       const filteredToolCalls =
         msg.role === "assistant"
-          ? mergeToolCallsForDisplay(
-              toolCallsWithoutSpawn(messageToolCalls),
-              isActivelyStreaming ? filteredPending : []
-            )
+          ? toolCallsWithoutSpawn(messageToolCalls)
           : toolCallsWithoutSpawn(messageToolCalls)
       const anchoredUserSubagents =
         msg.role === "user"
