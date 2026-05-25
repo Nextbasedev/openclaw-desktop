@@ -66,33 +66,62 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
   const [searching, setSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchRequestRef = useRef(0)
+  const openRef = useRef(open)
+
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
 
   useEffect(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 50)
     } else {
+      searchRequestRef.current += 1
+      if (debounceRef.current) clearTimeout(debounceRef.current)
       setQuery("")
       setMatches([])
       setActiveIndex(0)
       onHighlightMessage?.(null)
       clearTextHighlight()
     }
-  }, [open])
+  }, [open, onHighlightMessage])
+
+  useEffect(() => {
+    searchRequestRef.current += 1
+    setMatches([])
+    setActiveIndex(0)
+    onHighlightMessage?.(null)
+    clearTextHighlight()
+    return () => {
+      searchRequestRef.current += 1
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [sessionKey, onHighlightMessage])
 
   const search = useCallback((q: string) => {
     setQuery(q)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!q.trim()) {
+      searchRequestRef.current += 1
       setMatches([])
       setActiveIndex(0)
       setSearching(false)
       return
     }
     setSearching(true)
+    const requestId = ++searchRequestRef.current
+    const requestSessionKey = sessionKey
+    const requestQuery = q
+    const isCurrentSearch = () =>
+      openRef.current &&
+      searchRequestRef.current === requestId &&
+      requestSessionKey === sessionKey &&
+      requestQuery === q
     debounceRef.current = setTimeout(async () => {
       try {
         // Search local messages first (instant)
-        const lower = q.toLowerCase()
+        const lower = requestQuery.toLowerCase()
         const localMatches: SearchMatch[] = []
         for (const msg of messages) {
           if (msg.text?.toLowerCase().includes(lower)) {
@@ -101,9 +130,10 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
         }
         // Search all messages via middleware (SQLite)
         const result = await middlewareFetch<SearchResult>(
-          `/api/chat/search?sessionKey=${encodeURIComponent(sessionKey)}&query=${encodeURIComponent(q)}&limit=50`,
+          `/api/chat/search?sessionKey=${encodeURIComponent(requestSessionKey)}&query=${encodeURIComponent(requestQuery)}&limit=50`,
           { timeoutMs: 5000 }
         )
+        if (!isCurrentSearch()) return
         if (result.ok && result.results.length > 0) {
           const serverMatches: SearchMatch[] = result.results
             .filter((r) => r.messageId)
@@ -122,7 +152,9 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
           if (merged.length > 0) {
             onScrollToMessage(merged[0].messageId, merged[0].seq)
             onHighlightMessage?.(merged[0].messageId)
-            setTimeout(() => highlightTextInElement(merged[0].messageId, q), 600)
+            setTimeout(() => {
+              if (isCurrentSearch()) highlightTextInElement(merged[0].messageId, requestQuery)
+            }, 600)
           }
         } else {
           setMatches(localMatches)
@@ -130,12 +162,15 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
           if (localMatches.length > 0) {
             onScrollToMessage(localMatches[0].messageId, localMatches[0].seq)
             onHighlightMessage?.(localMatches[0].messageId)
-            setTimeout(() => highlightTextInElement(localMatches[0].messageId, q), 600)
+            setTimeout(() => {
+              if (isCurrentSearch()) highlightTextInElement(localMatches[0].messageId, requestQuery)
+            }, 600)
           }
         }
       } catch {
+        if (!isCurrentSearch()) return
         // Fallback to local-only search
-        const lower = q.toLowerCase()
+        const lower = requestQuery.toLowerCase()
         const found: SearchMatch[] = []
         for (const msg of messages) {
           if (msg.text?.toLowerCase().includes(lower)) {
@@ -147,13 +182,15 @@ export function ChatSearch({ messages, sessionKey, open, onClose, onScrollToMess
         if (found.length > 0) {
           onScrollToMessage(found[0].messageId, found[0].seq)
           onHighlightMessage?.(found[0].messageId)
-          setTimeout(() => highlightTextInElement(found[0].messageId, q), 600)
+          setTimeout(() => {
+            if (isCurrentSearch()) highlightTextInElement(found[0].messageId, requestQuery)
+          }, 600)
         }
       } finally {
-        setSearching(false)
+        if (isCurrentSearch()) setSearching(false)
       }
     }, 200) // 200ms debounce
-  }, [messages, sessionKey, onScrollToMessage])
+  }, [messages, sessionKey, onScrollToMessage, onHighlightMessage])
 
   const goToMatch = useCallback((direction: "prev" | "next") => {
     if (matches.length === 0) return

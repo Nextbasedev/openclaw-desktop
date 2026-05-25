@@ -33,6 +33,8 @@ export function ConfigTab() {
   const [loading, setLoading] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [deleteResult, setDeleteResult] = React.useState<string | null>(null)
+  const loadRequestRef = React.useRef(0)
+  const selectedPathRef = React.useRef(CONFIG_FILES[0].path)
 
   async function handleDeleteAllChats() {
     if (!confirm("Delete ALL chats? This removes all desktop and imported Telegram chats, messages, and projections. This cannot be undone.")) return
@@ -59,6 +61,8 @@ export function ConfigTab() {
   const [status, setStatus] = React.useState<string | null>(null)
 
   const loadFile = React.useCallback(async (file: ConfigFile) => {
+    const requestId = ++loadRequestRef.current
+    selectedPathRef.current = file.path
     setSelected(file)
     setLoading(true)
     setError(null)
@@ -66,13 +70,17 @@ export function ConfigTab() {
     setEditing(false)
     try {
       const res = await invoke<ReadResponse>("middleware_memory_read", { input: { path: file.path } })
+      if (loadRequestRef.current !== requestId || selectedPathRef.current !== file.path) return
       setContent(res.content || "")
       setDraft(res.content || "")
     } catch (err) {
+      if (loadRequestRef.current !== requestId || selectedPathRef.current !== file.path) return
       setContent("")
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (loadRequestRef.current === requestId && selectedPathRef.current === file.path) {
+        setLoading(false)
+      }
     }
   }, [])
 
@@ -81,15 +89,19 @@ export function ConfigTab() {
   }, [loadFile])
 
   async function saveFile() {
+    const pathAtSave = selected.path
+    const draftAtSave = draft
     setSaving(true)
     setError(null)
     setStatus(null)
     try {
-      await invoke("middleware_memory_write", { input: { path: selected.path, content: draft } })
-      setContent(draft)
+      await invoke("middleware_memory_write", { input: { path: pathAtSave, content: draftAtSave } })
+      if (selectedPathRef.current !== pathAtSave) return
+      setContent(draftAtSave)
       setEditing(false)
       setStatus("Saved.")
     } catch (err) {
+      if (selectedPathRef.current !== pathAtSave) return
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)

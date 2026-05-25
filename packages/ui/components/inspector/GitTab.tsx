@@ -585,8 +585,11 @@ function CommitDetailView({
   const [diffs, setDiffs] = useState<FileDiff[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const requestRef = useRef(0)
 
   useEffect(() => {
+    const requestId = ++requestRef.current
+    const requestKey = `${projectId ?? ""}:${repoPath ?? ""}:${hash}`
     async function loadDiff() {
       if (!projectId && !repoPath) { setLoading(false); return }
       setLoading(true)
@@ -594,16 +597,19 @@ function CommitDetailView({
         const res = await invoke<{ diff: string }>("middleware_git_commit_details", {
           input: { projectId, repoRoot: repoPath, hash },
         })
+        if (requestRef.current !== requestId || requestKey !== `${projectId ?? ""}:${repoPath ?? ""}:${hash}`) return
         const parsed = parseGitShow(res.diff)
         setDiffs(parsed)
         setSelectedFile(parsed.length > 0 ? parsed[0].path : null)
       } catch (err) {
+        if (requestRef.current !== requestId) return
         console.error(err)
       } finally {
-        setLoading(false)
+        if (requestRef.current === requestId) setLoading(false)
       }
     }
     loadDiff()
+    return () => { requestRef.current += 1 }
   }, [projectId, repoPath, hash])
 
   const currentFileDiff = diffs?.find(f => f.path === selectedFile)
@@ -774,8 +780,11 @@ function ChangedFileDiffView({
   const [diff, setDiff] = useState<GitDiffResponse | null>(null)
   const [parsedDiff, setParsedDiff] = useState<FileDiff | null>(null)
   const [loading, setLoading] = useState(true)
+  const requestRef = useRef(0)
 
   useEffect(() => {
+    const requestId = ++requestRef.current
+    const requestKey = `${projectId ?? ""}:${repoPath ?? ""}:${file.path}`
     async function loadDiff() {
       if (!projectId && !repoPath) return
       setLoading(true)
@@ -787,18 +796,21 @@ function ChangedFileDiffView({
           : await invoke<GitDiffResponse>("middleware_git_diff_for_repo", {
             input: { repoPath, path: file.path },
           })
+        if (requestRef.current !== requestId || requestKey !== `${projectId ?? ""}:${repoPath ?? ""}:${file.path}`) return
         setDiff(res)
         const parsed = res.patch ? parseGitShow(res.patch) : []
         setParsedDiff(parsed[0] ?? null)
       } catch (err) {
+        if (requestRef.current !== requestId) return
         console.error(err)
         setDiff(null)
         setParsedDiff(null)
       } finally {
-        setLoading(false)
+        if (requestRef.current === requestId) setLoading(false)
       }
     }
     void loadDiff()
+    return () => { requestRef.current += 1 }
   }, [projectId, repoPath, file.path])
 
   return (
