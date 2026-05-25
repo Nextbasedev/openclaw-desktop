@@ -60,6 +60,7 @@ export function InspectorView({
     { id: "term-1", title: "Terminal 1" },
   ])
   const [activeTermId, setActiveTermId] = useState("term-1")
+  const [terminalHasMounted, setTerminalHasMounted] = useState(activeTab === "terminal")
   const [gitSelection, setGitSelection] = useState<GitTabSelection | null>(null)
   const termScrollRef = useRef<HTMLDivElement>(null)
 
@@ -93,9 +94,14 @@ export function InspectorView({
   )
 
   const handleTabChange = useCallback((tab: InspectorTabId) => {
+    if (tab === "terminal") setTerminalHasMounted(true)
     onTabChange(tab)
     onTerminalTabChange?.(tab === "terminal")
   }, [onTabChange, onTerminalTabChange])
+
+  React.useEffect(() => {
+    if (activeTab === "terminal") setTerminalHasMounted(true)
+  }, [activeTab])
 
   return (
     <div className={cn("flex h-full min-w-0 flex-col", className)}>
@@ -179,8 +185,13 @@ export function InspectorView({
             onSelectionChange={setGitSelection}
           />
         )}
-        {activeTab === "terminal" && (
-          <div className="flex h-full flex-col overflow-hidden">
+        {terminalHasMounted && (
+          <div
+            className={cn(
+              "h-full flex-col overflow-hidden",
+              activeTab === "terminal" ? "flex" : "hidden",
+            )}
+          >
             <div
               ref={termScrollRef}
               onWheel={(event) => {
