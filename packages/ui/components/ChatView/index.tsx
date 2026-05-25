@@ -334,6 +334,7 @@ export function ChatView({
     pendingTools,
     spawnedSubagents,
     dataSource,
+    bottomScrollIntent,
   } = useChatMessages(sessionKey, initialMessages)
 
   const lastAssistantText = messages
@@ -798,6 +799,7 @@ export function ChatView({
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
+  const handledBottomScrollIntentIdRef = useRef(0)
 
   // Reset mount timestamp on session change
   useEffect(() => {
@@ -823,6 +825,17 @@ export function ChatView({
     if (renderedMessages.length === 0) return
     restoreAnchor()
   }, [historyLoadVersion, isBackgroundSession, renderedMessages.length, restoreAnchor])
+
+  // useChatMessages owns message lifecycle, but Virtuoso owns scrolling.
+  // Lifecycle events emit bottom-scroll intents; ChatView performs them through
+  // Virtuoso indexes instead of mutating DOM scrollTop/scrollHeight.
+  useEffect(() => {
+    if (isBackgroundSession) return
+    if (!bottomScrollIntent || renderedMessages.length === 0) return
+    if (bottomScrollIntent.id <= handledBottomScrollIntentIdRef.current) return
+    handledBottomScrollIntentIdRef.current = bottomScrollIntent.id
+    anchorScrollToBottom(bottomScrollIntent.smooth ? "smooth" : "auto")
+  }, [anchorScrollToBottom, bottomScrollIntent, isBackgroundSession, renderedMessages.length])
 
   const latestRenderedUserIndex = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {

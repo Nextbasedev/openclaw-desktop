@@ -129,14 +129,14 @@ export function useChatScrollAnchor({
     }, "debug")
   }, [renderedMessages.length, isGenerating, sessionKey, virtuosoRef])
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((behavior: "auto" | "smooth" = "smooth") => {
     anchorRef.current = { kind: "bottom" }
     atBottomRef.current = true
     if (renderedMessages.length > 0) {
       virtuosoRef.current?.scrollToIndex({
         index: latestVirtuosoIndex(renderedMessages.length),
         align: "end",
-        behavior: "smooth",
+        behavior,
       })
     }
   }, [renderedMessages.length, virtuosoRef])
