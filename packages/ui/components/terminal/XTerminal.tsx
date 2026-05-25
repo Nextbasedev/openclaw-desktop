@@ -69,12 +69,17 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
   const fitRef = useRef<FitAddon | null>(null)
   const spawnRef = useRef<(() => void) | null>(null)
   const spawnedRef = useRef(false)
+  const visibleRef = useRef(visible)
   const { resolvedTheme } = useTheme()
   const [, setPtyStatus] = useState<string>("idle")
 
   const pty = usePty(termRef, projectId, (status) => setPtyStatus(status))
   const ptyRef = useRef(pty)
   ptyRef.current = pty
+
+  useEffect(() => {
+    visibleRef.current = visible
+  }, [visible])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -124,13 +129,21 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
     spawnRef.current = () => {
       if (signal.aborted) return
       if (spawnedRef.current) return
+      if (!visibleRef.current) return
       const rect = container.getBoundingClientRect()
       if (rect.width <= 0 || rect.height <= 0) return
+      spawnedRef.current = true
       requestAnimationFrame(() => {
         if (signal.aborted) return
+        if (!visibleRef.current) {
+          spawnedRef.current = false
+          return
+        }
         const nextRect = container.getBoundingClientRect()
-        if (nextRect.width <= 0 || nextRect.height <= 0) return
-        spawnedRef.current = true
+        if (nextRect.width <= 0 || nextRect.height <= 0) {
+          spawnedRef.current = false
+          return
+        }
         fit.fit()
         term.focus()
         const { rows, cols } = term
@@ -145,12 +158,13 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
 
     document.fonts.ready.then(() => {
       if (signal.aborted) return
-      if (visible) spawnRef.current?.()
+      if (visibleRef.current) spawnRef.current?.()
     })
 
     const ro = new ResizeObserver(() => {
-      if (!visible) return
+      if (!visibleRef.current) return
       requestAnimationFrame(() => {
+        if (!visibleRef.current) return
         const rect = container.getBoundingClientRect()
         if (rect.width <= 0 || rect.height <= 0) return
         try { fit.fit() } catch { }
@@ -170,7 +184,7 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
       ptyRef.current.cleanup()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, visible])
+  }, [projectId])
 
   useEffect(() => {
     if (!termRef.current) return
