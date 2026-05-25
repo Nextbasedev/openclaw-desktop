@@ -638,7 +638,15 @@ export function useAgentActivity(sessionKey: string | null) {
     agentsRef.current.clear()
     spawnQueueRef.current = []
     subKeyToAgentRef.current.clear()
-    queueMicrotask(() => resetVisibleState(false))
+
+    // If live/global state is already available, do not schedule the skeleton
+    // reset. The previous reset ran in a microtask after the instant hydration
+    // below, flipping historyLoaded back to false until the background history
+    // request completed.
+    const globalState = getGlobalChatSession(sessionKey)
+    const globalHasActivity = globalState &&
+      (globalState.messages.length > 0 || globalState.pendingTools.length > 0 || globalState.spawnedSubagents.length > 0)
+    if (!globalHasActivity) queueMicrotask(() => resetVisibleState(false))
 
     const activeSessionKey = sessionKey
 
@@ -698,10 +706,7 @@ export function useAgentActivity(sessionKey: string | null) {
     }
 
     // Try global session state first — if it has messages + tools,
-    // hydrate Activity instantly without a network fetch.
-    const globalState = getGlobalChatSession(sessionKey)
-    const globalHasActivity = globalState &&
-      (globalState.messages.length > 0 || globalState.pendingTools.length > 0 || globalState.spawnedSubagents.length > 0)
+    // hydrate Activity instantly without blocking on a network fetch.
     if (globalHasActivity) {
       // Hydrate from global state immediately — same logic as syncGlobalActivity
       // but also extracts tool calls from message history
