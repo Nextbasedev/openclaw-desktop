@@ -15,6 +15,18 @@ type ScrollAnchor =
   | { kind: "bottom" }
   | { kind: "message"; messageId: string; offsetPx: number }
 
+function firstItemIndexFor(messageCount: number) {
+  return Math.max(0, 10000 - messageCount)
+}
+
+function virtuosoIndexForArrayIndex(messageCount: number, arrayIndex: number) {
+  return firstItemIndexFor(messageCount) + arrayIndex
+}
+
+function latestVirtuosoIndex(messageCount: number) {
+  return virtuosoIndexForArrayIndex(messageCount, messageCount - 1)
+}
+
 export function useChatScrollAnchor({
   virtuosoRef,
   renderedMessages,
@@ -54,7 +66,7 @@ export function useChatScrollAnchor({
   const onRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
     if (atBottomRef.current) return
     // Map Virtuoso's shifted index back to array index
-    const firstItemIndex = Math.max(0, 10000 - renderedMessages.length)
+    const firstItemIndex = firstItemIndexFor(renderedMessages.length)
     const arrayIndex = range.startIndex - firstItemIndex
     if (arrayIndex >= 0 && arrayIndex < renderedMessages.length) {
       const msg = renderedMessages[arrayIndex]
@@ -74,9 +86,8 @@ export function useChatScrollAnchor({
     // Find the anchored message in current data
     const idx = renderedMessages.findIndex((m) => m.messageId === anchor.messageId)
     if (idx >= 0) {
-      const firstItemIndex = Math.max(0, 10000 - renderedMessages.length)
       virtuosoRef.current?.scrollToIndex({
-        index: firstItemIndex + idx,
+        index: virtuosoIndexForArrayIndex(renderedMessages.length, idx),
         align: "start",
         behavior: "auto",
       })
@@ -106,7 +117,7 @@ export function useChatScrollAnchor({
     anchorRef.current = { kind: "bottom" }
     atBottomRef.current = true
     virtuosoRef.current?.scrollToIndex({
-      index: newCount - 1,
+      index: latestVirtuosoIndex(newCount),
       align: "end",
       behavior: "auto",
     })
@@ -123,7 +134,7 @@ export function useChatScrollAnchor({
     atBottomRef.current = true
     if (renderedMessages.length > 0) {
       virtuosoRef.current?.scrollToIndex({
-        index: renderedMessages.length - 1,
+        index: latestVirtuosoIndex(renderedMessages.length),
         align: "end",
         behavior: "smooth",
       })
@@ -133,11 +144,10 @@ export function useChatScrollAnchor({
   const jumpToMessage = useCallback((messageId: string) => {
     const idx = renderedMessages.findIndex((m) => m.messageId === messageId)
     if (idx < 0) return
-    const firstItemIndex = Math.max(0, 10000 - renderedMessages.length)
     anchorRef.current = { kind: "message", messageId, offsetPx: 0 }
     atBottomRef.current = false
     virtuosoRef.current?.scrollToIndex({
-      index: firstItemIndex + idx,
+      index: virtuosoIndexForArrayIndex(renderedMessages.length, idx),
       align: "center",
       behavior: "smooth",
     })
