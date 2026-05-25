@@ -810,12 +810,11 @@ export function ChatView({
 
     lastHistoryScrollVersionRef.current = historyLoadVersion
     const scrollToLatest = () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-        return
-      }
-      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+      virtuosoRef.current?.scrollToIndex({
+        index: "LAST",
+        align: "end",
+        behavior: "auto",
+      })
     }
 
     let secondFrame: number | null = null
@@ -1691,10 +1690,12 @@ export function ChatView({
       />
 
       <Virtuoso
+        key={sessionKey}
         ref={virtuosoRef}
         data={renderedMessages}
+        computeItemKey={(_, msg) => msg.messageId}
         firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
-        initialTopMostItemIndex={renderedMessages.length > 0 ? renderedMessages.length - 1 : 0}
+        initialTopMostItemIndex={{ index: "LAST", align: "end" }}
         followOutput="smooth"
         alignToBottom
         increaseViewportBy={{ top: 400, bottom: 200 }}
