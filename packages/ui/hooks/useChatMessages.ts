@@ -613,6 +613,7 @@ export function useChatMessages(
   const [messages, setLocalMessages] = useState<ChatMessage[]>(
     () => initialWarmMessages ? dedupeChatMessages(initialWarmMessages) : []
   )
+  const [messageSessionKey, setMessageSessionKey] = useState(sessionKey)
   const [status, setLocalStatus] = useState<StreamStatus>(
     () => hasInitial ? "thinking" : initialWarmStatus
   )
@@ -702,6 +703,7 @@ export function useChatMessages(
         }
         return next
       })
+      setMessageSessionKey(sessionKey)
     },
     [queryClient, schedulePersistentMessages, sessionKey]
   )
@@ -2964,11 +2966,13 @@ export function useChatMessages(
     }
   }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])
 
+  const messagesBelongToActiveSession = messageSessionKey === sessionKey
+
   return {
-    messages,
+    messages: messagesBelongToActiveSession ? messages : [],
     status,
     statusLabel,
-    loading,
+    loading: loading || !messagesBelongToActiveSession,
     historyLoadVersion,
     hasOlderMessages,
     loadingOlderMessages,

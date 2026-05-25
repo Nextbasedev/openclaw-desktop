@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -312,7 +312,6 @@ export function ChatView({
     status,
     statusLabel,
     loading,
-    historyLoadVersion,
     hasOlderMessages,
     loadingOlderMessages,
     loadOlderMessages,
@@ -797,44 +796,10 @@ export function ChatView({
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
-  const lastHistoryScrollVersionRef = useRef(0)
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
   }, [sessionKey])
-
-  useLayoutEffect(() => {
-    if (isBackgroundSession) return
-    if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
-    if (renderedMessages.length === 0) return
-
-    lastHistoryScrollVersionRef.current = historyLoadVersion
-    const scrollToLatest = () => {
-      virtuosoRef.current?.scrollToIndex({
-        index: "LAST",
-        align: "end",
-        behavior: "auto",
-      })
-    }
-
-    let secondFrame: number | null = null
-    const frame = requestAnimationFrame(() => {
-      scrollToLatest()
-      secondFrame = requestAnimationFrame(scrollToLatest)
-    })
-    const settleTimer = window.setTimeout(scrollToLatest, 150)
-    return () => {
-      cancelAnimationFrame(frame)
-      if (secondFrame !== null) cancelAnimationFrame(secondFrame)
-      window.clearTimeout(settleTimer)
-    }
-  }, [
-    bottomRef,
-    historyLoadVersion,
-    isBackgroundSession,
-    renderedMessages.length,
-    scrollContainerRef,
-  ])
 
   const latestRenderedUserIndex = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
@@ -1692,6 +1657,9 @@ export function ChatView({
       <Virtuoso
         key={sessionKey}
         ref={virtuosoRef}
+        scrollerRef={(ref) => {
+          scrollContainerRef.current = ref as HTMLDivElement | null
+        }}
         data={renderedMessages}
         computeItemKey={(_, msg) => msg.messageId}
         firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
