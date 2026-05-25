@@ -798,10 +798,12 @@ export function ChatView({
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
   const lastHistoryScrollVersionRef = useRef(0)
-  // Reset mount timestamp/scroll gate on session change.
-  useEffect(() => {
+  const [initialScrollReady, setInitialScrollReady] = useState(false)
+  // Reset mount timestamp/scroll gate before the next chat paints.
+  useLayoutEffect(() => {
     mountedAtRef.current = Date.now()
     lastHistoryScrollVersionRef.current = 0
+    setInitialScrollReady(false)
   }, [sessionKey])
 
   useLayoutEffect(() => {
@@ -826,6 +828,7 @@ export function ChatView({
       secondFrame = requestAnimationFrame(scrollToLatest)
     })
     const settleTimers = [50, 150, 350].map((delay) => window.setTimeout(scrollToLatest, delay))
+    setInitialScrollReady(true)
     return () => {
       cancelAnimationFrame(frame)
       if (secondFrame !== null) cancelAnimationFrame(secondFrame)
@@ -1755,7 +1758,10 @@ export function ChatView({
         followOutput="smooth"
         alignToBottom
         increaseViewportBy={{ top: 400, bottom: 200 }}
-        className="flex-1"
+        className={cn(
+          "flex-1 transition-opacity duration-100",
+          !initialScrollReady && renderedMessages.length > 0 ? "opacity-0" : "opacity-100",
+        )}
         atTopStateChange={(atTop) => {
           // Don't trigger older message loading within 1s of mount or session change
           // — Virtuoso fires atTop immediately for short chats that fit in viewport
