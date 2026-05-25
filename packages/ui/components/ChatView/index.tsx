@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/tooltip"
 
 const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
+const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 
 type StatusIconMeta = {
   icon: IconType
@@ -979,7 +980,9 @@ export function ChatView({
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
-      setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+      setShowJumpToBottom(
+        el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
+      )
       if (
         hasOlderMessages &&
         !loadingOlderMessages &&
@@ -1002,16 +1005,24 @@ export function ChatView({
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
     if (virtuosoRef.current) {
-      virtuosoRef.current.scrollToIndex({ index: renderedMessages.length - 1, behavior: "smooth", align: "end" })
+      virtuosoRef.current.scrollToIndex({ index: "LAST", behavior: "smooth", align: "end" })
     } else {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
     }
-  }, [bottomRef, renderedMessages.length])
+  }, [bottomRef])
+
+  const syncJumpToBottomVisibility = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    setShowJumpToBottom(
+      el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
+    )
+  }, [scrollContainerRef])
 
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+    syncJumpToBottomVisibility()
     if (
       hasOlderMessages &&
       !loadingOlderMessages &&
@@ -1026,8 +1037,12 @@ export function ChatView({
     isGenerating,
     loadOlderMessages,
     loadingOlderMessages,
-    renderedMessages.length,
+    pendingTools,
+    renderedMessages,
     scrollContainerRef,
+    status,
+    statusLabel,
+    syncJumpToBottomVisibility,
   ])
 
   const handleFeedbackSubmit = useCallback(
@@ -1686,6 +1701,9 @@ export function ChatView({
           if (atTop && hasOlderMessages && !loadingOlderMessages && userScrollIntentRef.current && Date.now() - mountedAtRef.current > 1000) {
             void loadOlderMessages()
           }
+        }}
+        atBottomStateChange={(atBottom) => {
+          if (atBottom) setShowJumpToBottom(false)
         }}
         itemContent={(index, msg) => renderMessageRow(index, msg)}
         components={{
