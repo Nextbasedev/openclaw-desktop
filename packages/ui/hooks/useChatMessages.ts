@@ -769,12 +769,9 @@ export function useChatMessages(
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
-  const scrollIntentSeqRef = useRef(0)
-  const [bottomScrollIntent, setBottomScrollIntent] = useState<{
-    id: number
-    smooth: boolean
-  } | null>(null)
+  const scrollFrameRef = useRef<number | null>(null)
   const programmaticScrollUntilRef = useRef(0)
+  const lastSmoothScrollAtRef = useRef(0)
   const lastStreamEventAtRef = useRef(Date.now())
   const activeReconcileInFlightRef = useRef(false)
   const messagesRef = useRef<ChatMessage[]>(
@@ -821,23 +818,52 @@ export function useChatMessages(
       el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }, [])
 
-  const requestBottomScroll = useCallback((smooth: boolean) => {
-    programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
-    setBottomScrollIntent({
-      id: ++scrollIntentSeqRef.current,
-      smooth,
-    })
-  }, [])
-
   const scrollToBottom = useCallback((smooth = false) => {
     if (!isAtBottomRef.current) return
-    requestBottomScroll(smooth)
-  }, [requestBottomScroll])
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
+    const scroll = () => {
+      const el = scrollContainerRef.current
+      if (!el) return
+      const now = Date.now()
+      const allowSmooth = smooth && now - lastSmoothScrollAtRef.current > 180
+      if (allowSmooth) lastSmoothScrollAtRef.current = now
+      programmaticScrollUntilRef.current = now + (allowSmooth ? 350 : 80)
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: allowSmooth ? "smooth" : "auto",
+      })
+      isAtBottomRef.current = true
+      scrollFrameRef.current = null
+    }
+    scrollFrameRef.current = requestAnimationFrame(scroll)
+  }, [])
 
   const forceScrollToBottom = useCallback((smooth = false) => {
     isAtBottomRef.current = true
-    requestBottomScroll(smooth)
-  }, [requestBottomScroll])
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
+    const scroll = () => {
+      const el = scrollContainerRef.current
+      if (!el) return
+      programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      })
+      isAtBottomRef.current = true
+      scrollFrameRef.current = null
+    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      if (smooth) {
+        scrollFrameRef.current = requestAnimationFrame(scroll)
+        return
+      }
+      scroll()
+    })
+  }, [])
 
   const reconcileActiveRun = useCallback(async () => {
     if (activeReconcileInFlightRef.current) return
@@ -922,7 +948,9 @@ export function useChatMessages(
 
   useEffect(() => {
     return () => {
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+      }
     }
   }, [])
 
@@ -2835,6 +2863,9 @@ export function useChatMessages(
       return
     }
 
+    const el = scrollContainerRef.current
+    const previousScrollHeight = el?.scrollHeight ?? 0
+    const previousScrollTop = el?.scrollTop ?? 0
     setLoadingOlderMessages(true)
     try {
       const page = await fetchChatMessagesV2({
@@ -2916,9 +2947,12 @@ export function useChatMessages(
         page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
-      // Scroll anchoring is handled by Virtuoso's firstItemIndex model.
-      // When renderedMessages grows at the top, firstItemIndex decreases
-      // proportionally (10000 - newLength), keeping the viewport stable.
+      requestAnimationFrame(() => {
+        const nextEl = scrollContainerRef.current
+        if (!nextEl) return
+        const delta = nextEl.scrollHeight - previousScrollHeight
+        nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
+      })
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {
         sessionKey,
@@ -2957,6 +2991,5 @@ export function useChatMessages(
     pendingTools,
     spawnedSubagents,
     dataSource,
-    bottomScrollIntent,
   }
 }

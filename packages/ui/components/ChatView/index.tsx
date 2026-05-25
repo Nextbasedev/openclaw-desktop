@@ -1,8 +1,7 @@
 "use client"
 
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
-import { useChatScrollAnchor } from "@/hooks/useChatScrollAnchor"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
@@ -334,7 +333,6 @@ export function ChatView({
     pendingTools,
     spawnedSubagents,
     dataSource,
-    bottomScrollIntent,
   } = useChatMessages(sessionKey, initialMessages)
 
   const lastAssistantText = messages
@@ -799,76 +797,45 @@ export function ChatView({
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
-  const handledBottomScrollIntentIdRef = useRef(0)
-  const userScrollIntentRef = useRef(false)
-  const scrollSessionKeyRef = useRef(sessionKey)
-  const timelineFirstItemIndexRef = useRef(10000)
-  const timelineIndexStateRef = useRef<{
-    sessionKey: string
-    messageIds: string[]
-  }>({ sessionKey, messageIds: [] })
-
-  // Synchronous reset on session change — must run during render, not in
-  // a post-paint useEffect, because Virtuoso (keyed by sessionKey) can fire
-  // atTopStateChange during its initial layout before effects run.
-  if (scrollSessionKeyRef.current !== sessionKey) {
-    scrollSessionKeyRef.current = sessionKey
+  const lastHistoryScrollVersionRef = useRef(0)
+  // Reset mount timestamp on session change
+  useEffect(() => {
     mountedAtRef.current = Date.now()
-    userScrollIntentRef.current = false
-  }
+  }, [sessionKey])
 
-  const virtuosoFirstItemIndex = useMemo(() => {
-    const nextIds = renderedMessages.map((message) => message.messageId)
-    const previous = timelineIndexStateRef.current
+  useLayoutEffect(() => {
+    if (isBackgroundSession) return
+    if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
+    if (renderedMessages.length === 0) return
 
-    if (previous.sessionKey !== sessionKey) {
-      timelineFirstItemIndexRef.current = 10000
-    } else if (previous.messageIds.length > 0 && nextIds.length > previous.messageIds.length) {
-      const previousFirstIndex = nextIds.indexOf(previous.messageIds[0])
-      if (previousFirstIndex > 0) {
-        timelineFirstItemIndexRef.current = Math.max(0, timelineFirstItemIndexRef.current - previousFirstIndex)
+    lastHistoryScrollVersionRef.current = historyLoadVersion
+    const scrollToLatest = () => {
+      const el = scrollContainerRef.current
+      if (el) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
+        return
       }
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
     }
 
-    timelineIndexStateRef.current = { sessionKey, messageIds: nextIds }
-    return timelineFirstItemIndexRef.current
-  }, [renderedMessages, sessionKey])
-
-  // mountedAtRef is now reset synchronously above (not in useEffect)
-  // to prevent Virtuoso's initial atTopStateChange from passing the 1s guard.
-
-  // Telegram-style scroll anchor
-  const {
-    onAtBottomChange,
-    onRangeChanged,
-    restoreAnchor,
-    scrollToBottom: anchorScrollToBottom,
-  } = useChatScrollAnchor({
-    virtuosoRef,
-    renderedMessages,
-    isGenerating,
-    sessionKey,
-    firstItemIndex: virtuosoFirstItemIndex,
-    shouldTrackMessageAnchor: () => userScrollIntentRef.current,
-  })
-
-  // Restore scroll anchor after data source changes (bootstrap/warm-cache)
-  useEffect(() => {
-    if (isBackgroundSession) return
-    if (renderedMessages.length === 0) return
-    restoreAnchor()
-  }, [historyLoadVersion, isBackgroundSession, renderedMessages.length, restoreAnchor])
-
-  // useChatMessages owns message lifecycle, but Virtuoso owns scrolling.
-  // Lifecycle events emit bottom-scroll intents; ChatView performs them through
-  // Virtuoso indexes instead of mutating DOM scrollTop/scrollHeight.
-  useEffect(() => {
-    if (isBackgroundSession) return
-    if (!bottomScrollIntent || renderedMessages.length === 0) return
-    if (bottomScrollIntent.id <= handledBottomScrollIntentIdRef.current) return
-    handledBottomScrollIntentIdRef.current = bottomScrollIntent.id
-    anchorScrollToBottom(bottomScrollIntent.smooth ? "smooth" : "auto")
-  }, [anchorScrollToBottom, bottomScrollIntent, isBackgroundSession, renderedMessages.length])
+    let secondFrame: number | null = null
+    const frame = requestAnimationFrame(() => {
+      scrollToLatest()
+      secondFrame = requestAnimationFrame(scrollToLatest)
+    })
+    const settleTimer = window.setTimeout(scrollToLatest, 150)
+    return () => {
+      cancelAnimationFrame(frame)
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame)
+      window.clearTimeout(settleTimer)
+    }
+  }, [
+    bottomRef,
+    historyLoadVersion,
+    isBackgroundSession,
+    renderedMessages.length,
+    scrollContainerRef,
+  ])
 
   const latestRenderedUserIndex = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
@@ -1048,7 +1015,6 @@ export function ChatView({
     if (el) {
       setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
       if (
-        userScrollIntentRef.current &&
         hasOlderMessages &&
         !loadingOlderMessages &&
         el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
@@ -1068,18 +1034,18 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    anchorScrollToBottom()
-  }, [anchorScrollToBottom])
+    if (virtuosoRef.current) {
+      virtuosoRef.current.scrollToIndex({ index: renderedMessages.length - 1, behavior: "smooth", align: "end" })
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    }
+  }, [bottomRef, renderedMessages.length])
 
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
     setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
-    // Do not auto-load older messages during initial/programmatic layout.
-    // Virtuoso can transiently report scrollTop=0 while it is still anchoring
-    // to bottom, which caused first-open/reopen to jump from bottom to top.
     if (
-      userScrollIntentRef.current &&
       hasOlderMessages &&
       !loadingOlderMessages &&
       el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX &&
@@ -1335,7 +1301,7 @@ export function ChatView({
     const index = renderedMessages.findIndex((m) => m.messageId === messageId)
     if (index >= 0 && virtuosoRef.current) {
       virtuosoRef.current.scrollToIndex({
-        index: virtuosoFirstItemIndex + index,
+        index,
         behavior: "smooth",
         align: "center",
       })
@@ -1357,7 +1323,7 @@ export function ChatView({
       })()
     }
     return false
-  }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages, virtuosoFirstItemIndex])
+  }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1608,67 +1574,6 @@ export function ChatView({
                         : "Thinking - waiting for the next event..."
                       : null)
 
-  const virtuosoComponents = useMemo(() => ({
-    Scroller: forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ChatVirtuosoScroller(
-      props,
-      ref,
-    ) {
-      const { onScroll: virtuosoOnScroll, ...rest } = props
-      return (
-        <div
-          {...rest}
-          ref={(node) => {
-            scrollContainerRef.current = node
-            if (typeof ref === "function") ref(node)
-            else if (ref) ref.current = node
-          }}
-          onWheel={() => {
-            userScrollIntentRef.current = true
-          }}
-          onTouchMove={() => {
-            userScrollIntentRef.current = true
-          }}
-          onScroll={(event) => {
-            virtuosoOnScroll?.(event)
-            handleScroll()
-          }}
-        />
-      )
-    }),
-    Header: () => (
-      <div className="mx-auto max-w-3xl px-4 pt-8">
-        {loadingOlderMessages && (
-          <div className="mb-4 flex justify-center text-xs text-muted-foreground">
-            Loading earlier messages…
-          </div>
-        )}
-      </div>
-    ),
-    Footer: () => (
-      <div className="mx-auto max-w-3xl px-4 pb-8">
-        <AnimatePresence initial={false}>
-          {editPreview && (
-            <EditPreviewPanel
-              key={editPreview.branchSessionKey}
-              preview={editPreview}
-              onSelect={selectEditBranch}
-            />
-          )}
-        </AnimatePresence>
-        {statusText && (
-          <div className="mt-4 flex items-center pl-1">
-            <ProcessStatusIcon tool={liveTool?.tool} />
-            <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-              {statusText.replace(/\.{3}$/, "")}
-              <span className="thinking-ellipsis" aria-hidden="true" />
-            </span>
-          </div>
-        )}
-        <div ref={bottomRef} className="h-8" />
-      </div>
-    ),
-  }), [bottomRef, editPreview, handleScroll, liveTool?.tool, loadingOlderMessages, scrollContainerRef, selectEditBranch, statusText])
-
   if (loading && messages.length === 0) {
     return <ChatLoadingSkeleton />
   }
@@ -1786,32 +1691,56 @@ export function ChatView({
       />
 
       <Virtuoso
-        key={sessionKey}
         ref={virtuosoRef}
         data={renderedMessages}
-        firstItemIndex={virtuosoFirstItemIndex}
-        initialTopMostItemIndex={renderedMessages.length > 0 ? { index: "LAST", align: "end" } : 0}
+        firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
+        initialTopMostItemIndex={renderedMessages.length > 0 ? renderedMessages.length - 1 : 0}
         followOutput="smooth"
         alignToBottom
         increaseViewportBy={{ top: 400, bottom: 200 }}
         className="flex-1"
-        atBottomStateChange={onAtBottomChange}
-        rangeChanged={onRangeChanged}
         atTopStateChange={(atTop) => {
           // Don't trigger older message loading within 1s of mount or session change
           // — Virtuoso fires atTop immediately for short chats that fit in viewport
-          if (
-            atTop &&
-            userScrollIntentRef.current &&
-            hasOlderMessages &&
-            !loadingOlderMessages &&
-            Date.now() - mountedAtRef.current > 1000
-          ) {
+          if (atTop && hasOlderMessages && !loadingOlderMessages && Date.now() - mountedAtRef.current > 1000) {
             void loadOlderMessages()
           }
         }}
         itemContent={(index, msg) => renderMessageRow(index, msg)}
-        components={virtuosoComponents}
+        components={{
+          Header: () => (
+            <div className="mx-auto max-w-3xl px-4 pt-8">
+              {loadingOlderMessages && (
+                <div className="mb-4 flex justify-center text-xs text-muted-foreground">
+                  Loading earlier messages…
+                </div>
+              )}
+            </div>
+          ),
+          Footer: () => (
+            <div className="mx-auto max-w-3xl px-4 pb-8">
+              <AnimatePresence initial={false}>
+                {editPreview && (
+                  <EditPreviewPanel
+                    key={editPreview.branchSessionKey}
+                    preview={editPreview}
+                    onSelect={selectEditBranch}
+                  />
+                )}
+              </AnimatePresence>
+              {statusText && (
+                <div className="mt-4 flex items-center pl-1">
+                  <ProcessStatusIcon tool={liveTool?.tool} />
+                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                    {statusText.replace(/\.{3}$/, "")}
+                    <span className="thinking-ellipsis" aria-hidden="true" />
+                  </span>
+                </div>
+              )}
+              <div ref={bottomRef} className="h-8" />
+            </div>
+          ),
+        }}
       />
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
