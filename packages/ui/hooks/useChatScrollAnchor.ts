@@ -79,20 +79,6 @@ export function useChatScrollAnchor({
     anchorRef.current = { kind: "bottom" }
     atBottomRef.current = true
 
-    // Do not replay automatic initial-data bottom scrolls after render. If the
-    // list was already painted at a middle position, replaying scrollToIndex is
-    // the visible middle -> bottom jump reported in testing. Initial placement
-    // must come from Virtuoso's initialTopMostItemIndex instead.
-    if (reason === "initial-data") {
-      pendingBottomRequestRef.current = null
-      frontendLog("chat", "chat.scroll.bottom.skip-auto-initial", {
-        sessionKey,
-        messageCount: renderedMessages.length,
-        reason,
-      }, "debug")
-      return
-    }
-
     const request = {
       id: ++bottomRequestIdRef.current,
       behavior,
@@ -145,7 +131,10 @@ export function useChatScrollAnchor({
   const restoreAnchor = useCallback(() => {
     const anchor = anchorRef.current
     if (anchor.kind === "bottom") {
-      // Virtuoso's followOutput + alignToBottom handle this
+      // Data was replaced (e.g. warm-cache → bootstrap). Virtuoso's
+      // followOutput only auto-scrolls on *appends*; a full data replacement
+      // with the same or similar count won't trigger it. Explicitly scroll.
+      performBottomScroll("auto", "restore-bottom")
       return
     }
     // Find the anchored message in current data
