@@ -801,11 +801,21 @@ export function ChatView({
   const mountedAtRef = useRef(Date.now())
   const handledBottomScrollIntentIdRef = useRef(0)
   const userScrollIntentRef = useRef(false)
+  const scrollSessionKeyRef = useRef(sessionKey)
   const timelineFirstItemIndexRef = useRef(10000)
   const timelineIndexStateRef = useRef<{
     sessionKey: string
     messageIds: string[]
   }>({ sessionKey, messageIds: [] })
+
+  // Synchronous reset on session change — must run during render, not in
+  // a post-paint useEffect, because Virtuoso (keyed by sessionKey) can fire
+  // atTopStateChange during its initial layout before effects run.
+  if (scrollSessionKeyRef.current !== sessionKey) {
+    scrollSessionKeyRef.current = sessionKey
+    mountedAtRef.current = Date.now()
+    userScrollIntentRef.current = false
+  }
 
   const virtuosoFirstItemIndex = useMemo(() => {
     const nextIds = renderedMessages.map((message) => message.messageId)
@@ -824,10 +834,8 @@ export function ChatView({
     return timelineFirstItemIndexRef.current
   }, [renderedMessages, sessionKey])
 
-  // Reset mount timestamp on session change
-  useEffect(() => {
-    mountedAtRef.current = Date.now()
-  }, [sessionKey])
+  // mountedAtRef is now reset synchronously above (not in useEffect)
+  // to prevent Virtuoso's initial atTopStateChange from passing the 1s guard.
 
   // Telegram-style scroll anchor
   const {
