@@ -620,7 +620,7 @@ export function useChatMessages(
     () => normalizeStatusLabelForStatus(initialWarmStatus, initialGlobalSession?.statusLabel ?? initialCachedBootstrap?.statusLabel)
   )
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty)
+  const [loading, setLoading] = useState(!hasInitial && !initialWarmMessages && !initialKnownEmpty && !initialGlobalMessages)
   const [dataSource, setDataSource] = useState<"fresh" | "warm-cache" | "syncing" | "loading">(initialWarmMessages ? "warm-cache" : "loading")
   const [historyLoadVersion, setHistoryLoadVersion] = useState(() =>
     initialWarmMessages?.length || initialKnownEmpty ? 1 : 0
@@ -2145,45 +2145,22 @@ export function useChatMessages(
     const hasRunning = spawnedSubagents.some((s) => isActiveSubagent(s.status))
     if (!hasRunning) return
 
-    subagentPollRef.current = setInterval(async () => {
+    subagentPollRef.current = setInterval(() => {
       for (const sub of spawnedSubagents) {
         if (!isActiveSubagent(sub.status) || !sub.sessionKey) continue
-        try {
-          const hist = await invoke<{ messages: unknown[] }>(
-            "middleware_chat_history",
-            { input: { sessionKey: sub.sessionKey } }
-          )
-          const msgs = (hist.messages ?? []) as RawMessage[]
-          let isDone = false
-          for (const m of msgs) {
-            if (m.role !== "assistant") continue
-            const blocks = Array.isArray(m.content)
-              ? (m.content as Array<{ type?: string; name?: string }>)
-              : []
-            if (
-              blocks.some(
-                (b) =>
-                  (b.type === "toolCall" || b.type === "tool_use") &&
-                  b.name === "sessions_yield"
-              )
-            ) {
-              isDone = true
-              break
-            }
-          }
-          if (!isDone) {
-            const lastMsg = msgs[msgs.length - 1]
-            if (lastMsg?.role === "assistant") {
-              const text = lastMsg.text || extractText(lastMsg.content)
-              if (text) isDone = true
-            }
-          }
-          if (isDone) {
-            upsertSpawn({ ...sub, status: "completed" })
-          }
-        } catch {}
+        // Use global chat session state from the v2 patch stream instead of
+        // polling middleware_chat_history. The patch stream already delivers
+        // subagent status updates in real time.
+        const subState = getGlobalChatSession(sub.sessionKey)
+        if (!subState) continue
+        const isDone = subState.status === "done" ||
+          ((subState.status === "idle" || subState.status === "connected") &&
+            subState.messages.some((m) => m.role === "assistant" && m.text))
+        if (isDone) {
+          upsertSpawn({ ...sub, status: "completed" })
+        }
       }
-    }, 2000)
+    }, 5000)
 
     return () => {
       if (subagentPollRef.current) {

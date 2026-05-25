@@ -638,7 +638,15 @@ export function useAgentActivity(sessionKey: string | null) {
     agentsRef.current.clear()
     spawnQueueRef.current = []
     subKeyToAgentRef.current.clear()
-    queueMicrotask(() => resetVisibleState(false))
+
+    // If live/global state is already available, do not schedule the skeleton
+    // reset. The previous reset ran in a microtask after the instant hydration
+    // below, flipping historyLoaded back to false until the background history
+    // request completed.
+    const globalState = getGlobalChatSession(sessionKey)
+    const globalHasActivity = globalState &&
+      (globalState.messages.length > 0 || globalState.pendingTools.length > 0 || globalState.spawnedSubagents.length > 0)
+    if (!globalHasActivity) queueMicrotask(() => resetVisibleState(false))
 
     const activeSessionKey = sessionKey
 
@@ -697,7 +705,63 @@ export function useAgentActivity(sessionKey: string | null) {
       }
     }
 
-    loadHistory()
+    // Try global session state first — if it has messages + tools,
+    // hydrate Activity instantly without blocking on a network fetch.
+    if (globalHasActivity) {
+      // Hydrate from global state immediately — same logic as syncGlobalActivity
+      // but also extracts tool calls from message history
+      setStreamStatus(globalState.status)
+      for (const message of globalState.messages) {
+        if (message.role !== "assistant" || !message.toolCalls?.length) continue
+        for (const tool of message.toolCalls) {
+          // Running/awaiting tools in message metadata are provisional snapshots;
+          // the authoritative live running set is state.pendingTools. Counting
+          // both makes Activity briefly over-count, then shrink after history
+          // reconciliation.
+          if (tool.status === "running" || tool.awaitingResult === true) continue
+          const key = activityCallKey(sessionKey, tool.id)
+          callMapRef.current.set(key, mergeActivityCall(callMapRef.current.get(key), activityCallFromInlineTool(tool, { messageId: "", messagePreview: undefined })))
+        }
+      }
+      for (const tool of globalState.pendingTools) {
+        const key = activityCallKey(sessionKey, tool.id)
+        callMapRef.current.set(key, mergeActivityCall(callMapRef.current.get(key), activityCallFromInlineTool(tool, { messageId: "", messagePreview: undefined })))
+      }
+      for (const sub of globalState.spawnedSubagents) {
+        const agentId = sub.id || `spawn:${sub.toolCallId}`
+        agentsRef.current.set(agentId, {
+          runId: agentId,
+          label: sub.label || `sub-${agentId.slice(-6)}`,
+          description: sub.task,
+          phase: sub.status === "failed" ? "error" : sub.status === "completed" ? "done" : "start",
+          sessionKey: sub.sessionKey ?? undefined,
+        })
+        if (sub.sessionKey) subKeyToAgentRef.current.set(sub.sessionKey, agentId)
+      }
+      syncState()
+      setHistoryLoaded(true)
+      frontendLog("activity", "activity.hydrated-from-global", {
+        sessionKey,
+        messageCount: globalState.messages.length,
+        toolCount: globalState.pendingTools.length,
+        subagentCount: globalState.spawnedSubagents.length,
+        cursor: globalState.cursor,
+      }, "info")
+      // Still fetch history in background for completeness (subagent details, etc.)
+      // but Activity is already visible and interactive.
+      loadHistory()
+    } else {
+      loadHistory()
+    }
+    let syncScheduled = false
+    const debouncedSyncState = () => {
+      if (syncScheduled) return
+      syncScheduled = true
+      queueMicrotask(() => {
+        syncScheduled = false
+        if (!cancelledRef.current) syncState()
+      })
+    }
     const syncGlobalActivity = () => {
       const state = getGlobalChatSession(sessionKey)
       if (!state) return
@@ -760,6 +824,7 @@ export function useAgentActivity(sessionKey: string | null) {
             }
           : liveTurn
         for (const tool of message.toolCalls) {
+          if (tool.status === "running" || tool.awaitingResult === true) continue
           const key = activityCallKey(sessionKey, tool.id)
           const existing = callMapRef.current.get(key)
           const incoming = activityCallFromInlineTool(tool, {
@@ -773,7 +838,7 @@ export function useAgentActivity(sessionKey: string | null) {
           }
         }
       }
-      if (changed) syncState()
+      if (changed) debouncedSyncState()
     }
     syncGlobalActivity()
     const unsubscribeGlobalSession = subscribeGlobalChatSession(sessionKey, () => {
@@ -798,6 +863,15 @@ export function useAgentActivity(sessionKey: string | null) {
   useEffect(() => {
     if (!sessionKey || subKeyToAgent.length === 0) return
     let cancelled = false
+    let childSyncScheduled = false
+    const debouncedChildSync = () => {
+      if (childSyncScheduled) return
+      childSyncScheduled = true
+      queueMicrotask(() => {
+        childSyncScheduled = false
+        if (!cancelled) syncState()
+      })
+    }
 
     const syncChildActivity = (subKey: string, agentId: string) => {
       if (cancelled) return
@@ -862,10 +936,13 @@ export function useAgentActivity(sessionKey: string | null) {
               messagePreview: previewFromChatMessage(previousUser),
             }
           : liveTurn
-        for (const tool of message.toolCalls) upsertTool(tool, turn)
+        for (const tool of message.toolCalls) {
+          if (!childLooksComplete && (tool.status === "running" || tool.awaitingResult === true)) continue
+          upsertTool(tool, turn)
+        }
       }
 
-      if (changed) syncState()
+      if (changed) debouncedChildSync()
     }
 
     for (const [subKey, agentId] of subKeyToAgent) syncChildActivity(subKey, agentId)
