@@ -822,13 +822,15 @@ export function ChatView({
       bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
     }
 
+    scrollToLatest()
+    setInitialScrollReady(true)
+
     let secondFrame: number | null = null
     const frame = requestAnimationFrame(() => {
       scrollToLatest()
       secondFrame = requestAnimationFrame(scrollToLatest)
     })
     const settleTimers = [50, 150, 350].map((delay) => window.setTimeout(scrollToLatest, delay))
-    setInitialScrollReady(true)
     return () => {
       cancelAnimationFrame(frame)
       if (secondFrame !== null) cancelAnimationFrame(secondFrame)
