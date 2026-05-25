@@ -800,6 +800,7 @@ export function ChatView({
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
   const handledBottomScrollIntentIdRef = useRef(0)
+  const userScrollIntentRef = useRef(false)
 
   // Reset mount timestamp on session change
   useEffect(() => {
@@ -1015,6 +1016,7 @@ export function ChatView({
     if (el) {
       setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
       if (
+        userScrollIntentRef.current &&
         hasOlderMessages &&
         !loadingOlderMessages &&
         el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
@@ -1041,7 +1043,11 @@ export function ChatView({
     const el = scrollContainerRef.current
     if (!el) return
     setShowJumpToBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 160)
+    // Do not auto-load older messages during initial/programmatic layout.
+    // Virtuoso can transiently report scrollTop=0 while it is still anchoring
+    // to bottom, which caused first-open/reopen to jump from bottom to top.
     if (
+      userScrollIntentRef.current &&
       hasOlderMessages &&
       !loadingOlderMessages &&
       el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX &&
@@ -1585,6 +1591,12 @@ export function ChatView({
             if (typeof ref === "function") ref(node)
             else if (ref) ref.current = node
           }}
+          onWheel={() => {
+            userScrollIntentRef.current = true
+          }}
+          onTouchMove={() => {
+            userScrollIntentRef.current = true
+          }}
           onScroll={(event) => {
             virtuosoOnScroll?.(event)
             handleScroll()
@@ -1757,7 +1769,13 @@ export function ChatView({
         atTopStateChange={(atTop) => {
           // Don't trigger older message loading within 1s of mount or session change
           // — Virtuoso fires atTop immediately for short chats that fit in viewport
-          if (atTop && hasOlderMessages && !loadingOlderMessages && Date.now() - mountedAtRef.current > 1000) {
+          if (
+            atTop &&
+            userScrollIntentRef.current &&
+            hasOlderMessages &&
+            !loadingOlderMessages &&
+            Date.now() - mountedAtRef.current > 1000
+          ) {
             void loadOlderMessages()
           }
         }}
