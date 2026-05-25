@@ -1,7 +1,8 @@
 "use client"
 
-import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from "react"
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
+import { useChatScrollAnchor } from "@/hooks/useChatScrollAnchor"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
@@ -797,52 +798,31 @@ export function ChatView({
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
-  const lastHistoryScrollVersionRef = useRef(0)
-  const [initialScrollReady, setInitialScrollReady] = useState(false)
-  // Reset mount timestamp/scroll gate before the next chat paints.
-  useLayoutEffect(() => {
+
+  // Reset mount timestamp on session change
+  useEffect(() => {
     mountedAtRef.current = Date.now()
-    lastHistoryScrollVersionRef.current = 0
-    setInitialScrollReady(false)
   }, [sessionKey])
 
-  useLayoutEffect(() => {
+  // Telegram-style scroll anchor
+  const {
+    onAtBottomChange,
+    onRangeChanged,
+    restoreAnchor,
+    scrollToBottom: anchorScrollToBottom,
+  } = useChatScrollAnchor({
+    virtuosoRef,
+    renderedMessages,
+    isGenerating,
+    sessionKey,
+  })
+
+  // Restore scroll anchor after data source changes (bootstrap/warm-cache)
+  useEffect(() => {
     if (isBackgroundSession) return
-    if (historyLoadVersion <= lastHistoryScrollVersionRef.current) return
     if (renderedMessages.length === 0) return
-
-    lastHistoryScrollVersionRef.current = historyLoadVersion
-    const scrollToLatest = () => {
-      const lastIndex = renderedMessages.length - 1
-      if (lastIndex >= 0) {
-        virtuosoRef.current?.scrollToIndex({ index: lastIndex, align: "end", behavior: "auto" })
-      }
-      const el = scrollContainerRef.current
-      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-    }
-
-    scrollToLatest()
-    setInitialScrollReady(true)
-
-    let secondFrame: number | null = null
-    const frame = requestAnimationFrame(() => {
-      scrollToLatest()
-      secondFrame = requestAnimationFrame(scrollToLatest)
-    })
-    const settleTimers = [50, 150, 350].map((delay) => window.setTimeout(scrollToLatest, delay))
-    return () => {
-      cancelAnimationFrame(frame)
-      if (secondFrame !== null) cancelAnimationFrame(secondFrame)
-      for (const timer of settleTimers) window.clearTimeout(timer)
-    }
-  }, [
-    bottomRef,
-    historyLoadVersion,
-    isBackgroundSession,
-    renderedMessages.length,
-    scrollContainerRef,
-  ])
+    restoreAnchor()
+  }, [historyLoadVersion, isBackgroundSession, renderedMessages.length, restoreAnchor])
 
   const latestRenderedUserIndex = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--) {
@@ -1041,12 +1021,8 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    if (virtuosoRef.current) {
-      virtuosoRef.current.scrollToIndex({ index: renderedMessages.length - 1, behavior: "smooth", align: "end" })
-    } else {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-    }
-  }, [bottomRef, renderedMessages.length])
+    anchorScrollToBottom()
+  }, [anchorScrollToBottom])
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -1760,10 +1736,9 @@ export function ChatView({
         followOutput="smooth"
         alignToBottom
         increaseViewportBy={{ top: 400, bottom: 200 }}
-        className={cn(
-          "flex-1 transition-opacity duration-100",
-          !initialScrollReady && renderedMessages.length > 0 ? "opacity-0" : "opacity-100",
-        )}
+        className="flex-1"
+        atBottomStateChange={onAtBottomChange}
+        rangeChanged={onRangeChanged}
         atTopStateChange={(atTop) => {
           // Don't trigger older message loading within 1s of mount or session change
           // — Virtuoso fires atTop immediately for short chats that fit in viewport
