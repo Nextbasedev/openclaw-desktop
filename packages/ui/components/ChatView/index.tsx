@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
@@ -795,12 +795,25 @@ export function ChatView({
   )
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const virtuosoFirstItemIndexRef = useRef(10000)
+  const virtuosoIndexSnapshotRef = useRef<{
+    sessionKey: string
+    firstId: string | null
+    lastId: string | null
+    length: number
+  } | null>(null)
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
+  // Track whether Virtuoso has been scrolled to bottom after first data load.
+  // On first open / refresh, messages arrive async (warm cache or bootstrap)
+  // after Virtuoso mounts. initialTopMostItemIndex may not position correctly
+  // if item heights haven't been measured yet. This ensures a definitive scroll.
+  const needsInitialScrollRef = useRef(true)
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
     userScrollIntentRef.current = false
+    needsInitialScrollRef.current = true
   }, [sessionKey])
 
   const latestRenderedUserIndex = useMemo(() => {
@@ -809,6 +822,40 @@ export function ChatView({
     }
     return -1
   }, [renderedMessages])
+
+  const virtuosoFirstItemIndex = (() => {
+    const firstId = renderedMessages[0]?.messageId ?? null
+    const lastId = renderedMessages[renderedMessages.length - 1]?.messageId ?? null
+    const previous = virtuosoIndexSnapshotRef.current
+
+    if (!previous || previous.sessionKey !== sessionKey) {
+      virtuosoFirstItemIndexRef.current = Math.max(0, 10000 - renderedMessages.length)
+    } else if (previous.length === 0 && renderedMessages.length > 0) {
+      virtuosoFirstItemIndexRef.current = Math.max(0, 10000 - renderedMessages.length)
+    } else if (renderedMessages.length > previous.length && previous.firstId) {
+      const previousFirstIndex = renderedMessages.findIndex(
+        (message) => message.messageId === previous.firstId
+      )
+      if (previousFirstIndex > 0) {
+        // Only older-message prepends should move Virtuoso's absolute index.
+        // Appends, bootstrap refreshes, and live patch replacements must keep
+        // the index stable or Virtuoso preserves the wrong viewport on first
+        // app open / refresh.
+        virtuosoFirstItemIndexRef.current = Math.max(
+          0,
+          virtuosoFirstItemIndexRef.current - previousFirstIndex
+        )
+      }
+    }
+
+    virtuosoIndexSnapshotRef.current = {
+      sessionKey,
+      firstId,
+      lastId,
+      length: renderedMessages.length,
+    }
+    return virtuosoFirstItemIndexRef.current
+  })()
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -1043,6 +1090,29 @@ export function ChatView({
     statusLabel,
     syncJumpToBottomVisibility,
   ])
+
+  // On first open / refresh, Virtuoso may mount before item heights are measured,
+  // so initialTopMostItemIndex can land at a wrong position. This ensures a
+  // definitive scroll-to-bottom once Virtuoso is mounted and has data.
+  useLayoutEffect(() => {
+    if (
+      needsInitialScrollRef.current &&
+      renderedMessages.length > 0 &&
+      !loading &&
+      virtuosoRef.current &&
+      !userScrollIntentRef.current
+    ) {
+      needsInitialScrollRef.current = false
+      // Use requestAnimationFrame to let Virtuoso finish its initial layout pass
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: "LAST",
+          align: "end",
+          behavior: "auto",
+        })
+      })
+    }
+  }, [renderedMessages.length, loading])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1688,7 +1758,7 @@ export function ChatView({
         }}
         data={renderedMessages}
         computeItemKey={(_, msg) => msg.messageId}
-        firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
+        firstItemIndex={virtuosoFirstItemIndex}
         initialTopMostItemIndex={{ index: "LAST", align: "end" }}
         followOutput="smooth"
         alignToBottom
