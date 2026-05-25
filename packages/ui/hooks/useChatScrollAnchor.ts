@@ -76,18 +76,29 @@ export function useChatScrollAnchor({
   }, [renderedMessages.length, sessionKey, virtuosoRef])
 
   const requestBottomScroll = useCallback((behavior: "auto" | "smooth", reason: string) => {
+    anchorRef.current = { kind: "bottom" }
+    atBottomRef.current = true
+
+    // Do not replay automatic initial-data bottom scrolls after render. If the
+    // list was already painted at a middle position, replaying scrollToIndex is
+    // the visible middle -> bottom jump reported in testing. Initial placement
+    // must come from Virtuoso's initialTopMostItemIndex instead.
+    if (reason === "initial-data") {
+      pendingBottomRequestRef.current = null
+      frontendLog("chat", "chat.scroll.bottom.skip-auto-initial", {
+        sessionKey,
+        messageCount: renderedMessages.length,
+        reason,
+      }, "debug")
+      return
+    }
+
     const request = {
       id: ++bottomRequestIdRef.current,
       behavior,
       reason,
     }
     pendingBottomRequestRef.current = request
-    anchorRef.current = { kind: "bottom" }
-    atBottomRef.current = true
-
-    // Try immediately, but keep the request pending until Virtuoso reports a
-    // measured range / bottom state. In practice, first async data can arrive
-    // before Virtuoso is ready to honor scrollToIndex.
     performBottomScroll(behavior, reason)
     frontendLog("chat", "chat.scroll.bottom.request", {
       sessionKey,
