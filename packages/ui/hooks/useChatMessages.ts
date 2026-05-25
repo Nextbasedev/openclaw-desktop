@@ -1427,8 +1427,13 @@ export function useChatMessages(
     const cachedGlobal = getGlobalChatSession(sessionKey)
     const cachedGlobalHasMessages = Boolean(cachedGlobal?.messages.length)
     const cachedGlobalKnownEmpty = isAuthoritativeKnownEmptyGlobal(cachedGlobal)
+    const cachedGlobalCanPrimeMessages = Boolean(
+      cachedGlobal &&
+      cachedGlobalHasMessages &&
+      (cachedGlobal.historyCoverage === "full" || cachedGlobal.historyCoverage === "windowed")
+    )
     const useCachedGlobal = Boolean(
-      (cachedGlobalHasMessages &&
+      (cachedGlobalCanPrimeMessages &&
         cachedGlobal &&
         (!seededMessages ||
           cachedGlobal.messages.length > seededMessages.length ||

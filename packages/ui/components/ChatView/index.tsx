@@ -796,9 +796,11 @@ export function ChatView({
   const renderedMessages = visibleAllMessages
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
+  const userScrollIntentRef = useRef(false)
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
+    userScrollIntentRef.current = false
   }, [sessionKey])
 
   const latestRenderedUserIndex = useMemo(() => {
@@ -981,6 +983,7 @@ export function ChatView({
       if (
         hasOlderMessages &&
         !loadingOlderMessages &&
+        userScrollIntentRef.current &&
         el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
       ) {
         void loadOlderMessages()
@@ -1012,6 +1015,7 @@ export function ChatView({
     if (
       hasOlderMessages &&
       !loadingOlderMessages &&
+      userScrollIntentRef.current &&
       el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX &&
       el.scrollHeight <= el.clientHeight + AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
     ) {
@@ -1587,7 +1591,15 @@ export function ChatView({
   }
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden">
+    <div
+      className="relative flex h-full w-full flex-col overflow-hidden"
+      onWheelCapture={() => {
+        userScrollIntentRef.current = true
+      }}
+      onTouchMoveCapture={() => {
+        userScrollIntentRef.current = true
+      }}
+    >
       {/* Sub-header for chat actions & pins */}
       <div className="z-40 flex h-9 shrink-0 items-center justify-between bg-background/70 px-4 backdrop-blur-[2px]">
         <div className="flex items-center gap-4">
@@ -1671,7 +1683,7 @@ export function ChatView({
         atTopStateChange={(atTop) => {
           // Don't trigger older message loading within 1s of mount or session change
           // — Virtuoso fires atTop immediately for short chats that fit in viewport
-          if (atTop && hasOlderMessages && !loadingOlderMessages && Date.now() - mountedAtRef.current > 1000) {
+          if (atTop && hasOlderMessages && !loadingOlderMessages && userScrollIntentRef.current && Date.now() - mountedAtRef.current > 1000) {
             void loadOlderMessages()
           }
         }}
