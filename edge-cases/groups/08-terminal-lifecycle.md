@@ -1,5 +1,17 @@
 # Group 08 — Terminal Lifecycle
 
+## Status
+
+**Implemented / ready for PR** — branch `fix/group-08-terminal-lifecycle`.
+
+Validated with:
+- `pnpm --filter server typecheck`
+- `pnpm --filter @openclaw/desktop-middleware typecheck`
+- `pnpm --filter ui typecheck`
+- user log validation showing duplicate accidental PTY spawns were reduced from 3-at-once to 1, and follow-up fixes preserve terminal state across inspector tab switches.
+
+PR target: `v3`.
+
 ## Connected issues
 
 - Hidden terminal tabs keep PTYs alive.

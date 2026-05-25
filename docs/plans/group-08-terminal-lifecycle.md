@@ -2,8 +2,16 @@
 
 ## Status
 
+Implemented / ready for PR.
+
 Branch: `fix/group-08-terminal-lifecycle`
 Base: latest `v3` as of 2026-05-25.
+
+Validation:
+- `pnpm --filter server typecheck` ✅
+- `pnpm --filter @openclaw/desktop-middleware typecheck` ✅
+- `pnpm --filter ui typecheck` ✅
+- User log review confirmed the duplicate accidental 3-at-once PTY spawn was fixed; follow-up patch keeps terminal mounted across inspector tab switches so switching Activity/Workspace/Git does not intentionally kill/recreate the PTY.
 
 ## Target Bugs
 
@@ -68,12 +76,10 @@ Tests likely to update/add:
 ### 4. Hidden tab lifecycle guard
 
 - In `XTerminal`, avoid spawning/fitting/resizing while hidden or zero-sized.
-- Add a short hidden cleanup timer:
-  - when `visible=false`, start timer
-  - if still hidden after grace period, call `pty.cleanup()` and mark terminal disconnected
-  - when visible again, respawn cleanly
-- Guard `ResizeObserver` and `onResize` from sending zero/invalid dimensions.
-- Keep UX clear: write a small terminal line when reconnecting after hidden cleanup.
+- Preserve terminal instances across inspector tab switches by keeping the Terminal panel mounted after first open and hiding it instead of unmounting it.
+- Multiple terminal tabs remain supported: each user-created terminal tab owns one PTY.
+- Closing a terminal tab or unmounting the inspector/app performs cleanup; merely switching inspector tabs must not kill/recreate PTYs.
+- Guard `ResizeObserver` and spawn scheduling from hidden/zero-size containers.
 
 ### 5. UI stream/write robustness
 
@@ -87,10 +93,12 @@ Tests likely to update/add:
 - Polling read failure removes local active PTY/session and notifies clients.
 - `ptyKill()` / terminal close cannot leak local active map entries if Gateway kill fails.
 - SSE stream closes on exit/error; client does not hang forever.
-- Hidden terminal tabs do not keep PTYs alive indefinitely.
+- Hidden/unopened terminal tabs do not spawn PTYs.
+- Switching inspector tabs preserves existing PTYs instead of killing/recreating them.
+- Multiple terminal tabs are supported intentionally; accidental duplicate PTYs for a single visible terminal are not.
 - Keystrokes during spawn are not silently dropped.
 - Typecheck passes.
-- Server service tests cover polling failure and kill failure cleanup.
+- Server service tests cover polling failure and kill failure cleanup where harness supports it.
 
 ## Recommended Patch Order
 
