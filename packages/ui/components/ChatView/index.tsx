@@ -798,9 +798,10 @@ export function ChatView({
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const mountedAtRef = useRef(Date.now())
   const lastHistoryScrollVersionRef = useRef(0)
-  // Reset mount timestamp on session change
+  // Reset mount timestamp/scroll gate on session change.
   useEffect(() => {
     mountedAtRef.current = Date.now()
+    lastHistoryScrollVersionRef.current = 0
   }, [sessionKey])
 
   useLayoutEffect(() => {
@@ -810,11 +811,12 @@ export function ChatView({
 
     lastHistoryScrollVersionRef.current = historyLoadVersion
     const scrollToLatest = () => {
-      const el = scrollContainerRef.current
-      if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
-        return
+      const lastIndex = renderedMessages.length - 1
+      if (lastIndex >= 0) {
+        virtuosoRef.current?.scrollToIndex({ index: lastIndex, align: "end", behavior: "auto" })
       }
+      const el = scrollContainerRef.current
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "auto" })
       bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
     }
 
@@ -823,11 +825,11 @@ export function ChatView({
       scrollToLatest()
       secondFrame = requestAnimationFrame(scrollToLatest)
     })
-    const settleTimer = window.setTimeout(scrollToLatest, 150)
+    const settleTimers = [50, 150, 350].map((delay) => window.setTimeout(scrollToLatest, delay))
     return () => {
       cancelAnimationFrame(frame)
       if (secondFrame !== null) cancelAnimationFrame(secondFrame)
-      window.clearTimeout(settleTimer)
+      for (const timer of settleTimers) window.clearTimeout(timer)
     }
   }, [
     bottomRef,
