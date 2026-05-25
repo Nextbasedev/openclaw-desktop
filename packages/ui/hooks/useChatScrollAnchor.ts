@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useLayoutEffect, useRef } from "react"
 import type { VirtuosoHandle } from "react-virtuoso"
 import type { ChatMessage } from "@/components/ChatView/types"
 import { frontendLog } from "@/lib/clientLogs"
@@ -31,8 +31,8 @@ export function useChatScrollAnchor({
   const sessionKeyRef = useRef(sessionKey)
   const prevMessageCountRef = useRef(0)
 
-  // Reset anchor on session change
-  useEffect(() => {
+  // Reset anchor on session change before the next paint.
+  useLayoutEffect(() => {
     if (sessionKeyRef.current !== sessionKey) {
       anchorRef.current = { kind: "bottom" }
       atBottomRef.current = true
@@ -88,19 +88,35 @@ export function useChatScrollAnchor({
     }
   }, [renderedMessages, sessionKey, virtuosoRef])
 
-  // Detect when messages are appended while at bottom — stay at bottom
-  useEffect(() => {
+  // Detect first async data arrival / appends before paint. Virtuoso's
+  // initialTopMostItemIndex only applies when data exists at mount. Many chats
+  // mount with 0 messages, then warm-cache/bootstrap inserts messages, so we
+  // must synchronously move to bottom on the 0 -> N transition.
+  useLayoutEffect(() => {
     const prevCount = prevMessageCountRef.current
     const newCount = renderedMessages.length
     prevMessageCountRef.current = newCount
+    if (newCount === 0) return
 
-    if (prevCount === 0 || newCount <= prevCount) return
+    const shouldFollowBottom = anchorRef.current.kind === "bottom" &&
+      (prevCount === 0 || atBottomRef.current || isGenerating)
 
-    // Messages were appended
-    if (atBottomRef.current || isGenerating) {
-      anchorRef.current = { kind: "bottom" }
-    }
-  }, [renderedMessages.length, isGenerating])
+    if (!shouldFollowBottom) return
+
+    anchorRef.current = { kind: "bottom" }
+    atBottomRef.current = true
+    virtuosoRef.current?.scrollToIndex({
+      index: newCount - 1,
+      align: "end",
+      behavior: "auto",
+    })
+    frontendLog("chat", "chat.scroll.follow-bottom", {
+      sessionKey,
+      previousMessageCount: prevCount,
+      messageCount: newCount,
+      reason: prevCount === 0 ? "initial-data" : "append",
+    }, "debug")
+  }, [renderedMessages.length, isGenerating, sessionKey, virtuosoRef])
 
   const scrollToBottom = useCallback(() => {
     anchorRef.current = { kind: "bottom" }
