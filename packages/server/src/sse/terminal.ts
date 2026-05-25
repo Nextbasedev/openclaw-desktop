@@ -11,26 +11,43 @@ export function terminalStreamHandler(req: Request, res: Response): void {
   })
   res.write("\n")
 
+  let closed = false
+
+  const writeEvent = (event: string, payload: unknown) => {
+    if (closed || res.destroyed) return
+    res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+  }
+
+  const finish = () => {
+    if (closed) return
+    closed = true
+    cleanup()
+    if (!res.destroyed) res.end()
+  }
+
   const onOutput = (event: unknown) => {
-    res.write(
-      `event: output\ndata: ${JSON.stringify(event)}\n\n`,
-    )
+    writeEvent("output", event)
   }
 
   const onExit = (event: unknown) => {
-    res.write(
-      `event: exit\ndata: ${JSON.stringify(event)}\n\n`,
-    )
-    cleanup()
+    writeEvent("exit", event)
+    finish()
+  }
+
+  const onError = (event: unknown) => {
+    writeEvent("error_event", event)
+    finish()
   }
 
   terminalEvents.on(`terminal:output:${sessionId}`, onOutput)
   terminalEvents.on(`terminal:exit:${sessionId}`, onExit)
+  terminalEvents.on(`terminal:error:${sessionId}`, onError)
 
   function cleanup() {
     terminalEvents.off(`terminal:output:${sessionId}`, onOutput)
     terminalEvents.off(`terminal:exit:${sessionId}`, onExit)
+    terminalEvents.off(`terminal:error:${sessionId}`, onError)
   }
 
-  req.on("close", cleanup)
+  req.on("close", finish)
 }

@@ -11,28 +11,46 @@ export function ptyStreamHandler(req: Request, res: Response): void {
   })
   res.write("\n")
 
+  let closed = false
+
+  const writeEvent = (event: string, payload: unknown) => {
+    if (closed || res.destroyed) return
+    res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+  }
+
+  const finish = () => {
+    if (closed) return
+    closed = true
+    cleanup()
+    if (!res.destroyed) res.end()
+  }
+
   const onData = (event: unknown) => {
     const payload = { ...(event as Record<string, unknown>), type: "pty.data" }
-    res.write(
-      `event: data\ndata: ${JSON.stringify(payload)}\n\n`,
-    )
+    writeEvent("data", payload)
   }
 
   const onExit = (event: unknown) => {
     const payload = { ...(event as Record<string, unknown>), type: "pty.exit" }
-    res.write(
-      `event: exit\ndata: ${JSON.stringify(payload)}\n\n`,
-    )
-    cleanup()
+    writeEvent("exit", payload)
+    finish()
+  }
+
+  const onError = (event: unknown) => {
+    const payload = { ...(event as Record<string, unknown>), type: "pty.error" }
+    writeEvent("error_event", payload)
+    finish()
   }
 
   ptyEvents.on(`pty:data:${ptyId}`, onData)
   ptyEvents.on(`pty:exit:${ptyId}`, onExit)
+  ptyEvents.on(`pty:error:${ptyId}`, onError)
 
   function cleanup() {
     ptyEvents.off(`pty:data:${ptyId}`, onData)
     ptyEvents.off(`pty:exit:${ptyId}`, onExit)
+    ptyEvents.off(`pty:error:${ptyId}`, onError)
   }
 
-  req.on("close", cleanup)
+  req.on("close", finish)
 }

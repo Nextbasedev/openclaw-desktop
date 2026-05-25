@@ -3340,8 +3340,7 @@ async function spawnTerminal(cwd: string, body: CompatRecord = {}) {
     broadcastTerminal(term, "data", { type: "terminal.data", terminalId: idValue, data });
   });
   proc.onExit((event) => {
-    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: idValue, exitCode: event.exitCode ?? 0 });
-    compatState.terminals.delete(idValue);
+    closeCompatTerminal(term, "exit", { exitCode: event.exitCode ?? 0 });
   });
   compatState.terminals.set(idValue, term);
   return { terminalId: idValue, cwd: resolvedCwd, streamUrl: `/api/terminal/${idValue}/stream`, websocketUrl: `/api/terminal/${idValue}/ws` };
@@ -3349,6 +3348,26 @@ async function spawnTerminal(cwd: string, body: CompatRecord = {}) {
 
 function getTerminal(terminalId: string) {
   return compatState.terminals.get(terminalId) ?? null;
+}
+
+function closeCompatTerminal(term: CompatTerminal, event: "exit" | "error" | "kill", payload: CompatRecord = {}) {
+  compatState.terminals.delete(term.id);
+  if (event === "error") {
+    broadcastTerminal(term, "error", { type: "terminal.error", terminalId: term.id, ...payload });
+  } else if (event === "exit") {
+    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: term.id, ...payload });
+  }
+  if (event === "kill") {
+    try { term.proc.kill(); } catch (error) {
+      broadcastTerminal(term, "error", {
+        type: "terminal.error",
+        terminalId: term.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    broadcastTerminal(term, "exit", { type: "terminal.exit", terminalId: term.id, killed: true });
+  }
 }
 
 export async function registerCompatRoutes(app: FastifyInstance, context: AppContext) {
@@ -4612,7 +4631,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   });
   app.post<{ Params: { ptyId: string } }>("/api/terminal/:ptyId/kill", async (request) => {
     const term = getTerminal(request.params.ptyId);
-    if (term) { term.proc.kill(); compatState.terminals.delete(request.params.ptyId); }
+    if (term) closeCompatTerminal(term, "kill");
     return { ok: true };
   });
 
@@ -4624,11 +4643,24 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     for (const data of term.buffer) {
       reply.raw.write(`event: data\ndata: ${JSON.stringify({ type: "terminal.data", terminalId: term.id, data })}\n\n`);
     }
+    let closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      term.listeners.delete(listener);
+    };
+    const finish = () => {
+      cleanup();
+      if (!reply.raw.destroyed) reply.raw.end();
+    };
     const listener = (event: string, payload: CompatRecord) => {
-      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      if (closed || reply.raw.destroyed) return;
+      const sseEvent = event === "error" ? "error_event" : event;
+      reply.raw.write(`event: ${sseEvent}\ndata: ${JSON.stringify(payload)}\n\n`);
+      if (event === "exit" || event === "error") finish();
     };
     term.listeners.add(listener);
-    request.raw.on("close", () => term.listeners.delete(listener));
+    request.raw.on("close", cleanup);
   });
 
   // --- terminal WebSocket ---
@@ -4647,7 +4679,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const msg = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number };
         if (msg.type === "write" && typeof msg.data === "string") term.proc.write(msg.data);
         if (msg.type === "resize" && msg.cols && msg.rows) term.proc.resize(msg.cols, msg.rows);
-        if (msg.type === "kill") { term.proc.kill(); compatState.terminals.delete(term.id); }
+        if (msg.type === "kill") closeCompatTerminal(term, "kill");
       } catch {}
     });
     socket.on("close", () => term.listeners.delete(listener));

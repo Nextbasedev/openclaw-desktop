@@ -17,6 +17,26 @@ interface PtyHandle {
 
 const activePtys = new Map<string, PtyHandle>()
 
+function cleanupPty(
+  ptyId: string,
+  reason: "exit" | "error" | "kill",
+  message?: string,
+) {
+  const handle = activePtys.get(ptyId)
+  if (handle) {
+    handle.stopPolling()
+    activePtys.delete(ptyId)
+  }
+  if (reason === "error") {
+    ptyEvents.emit(`pty:error:${ptyId}`, {
+      ptyId,
+      message: message ?? "terminal stream failed",
+    })
+  } else if (reason === "exit") {
+    ptyEvents.emit(`pty:exit:${ptyId}`, { ptyId })
+  }
+}
+
 function startPolling(
   ptyId: string,
   terminalId: string,
@@ -32,7 +52,14 @@ function startPolling(
           exited?: boolean
           exitCode?: number
         }>("terminal.read", { terminalId })
-        if (!res.ok) break
+        if (!res.ok) {
+          cleanupPty(
+            ptyId,
+            "error",
+            res.error?.message ?? "terminal.read failed",
+          )
+          break
+        }
         const p = res.payload
         if (p?.data) {
           ptyEvents.emit(`pty:data:${ptyId}`, {
@@ -41,11 +68,15 @@ function startPolling(
           })
         }
         if (p?.exited) {
-          ptyEvents.emit(`pty:exit:${ptyId}`, { ptyId })
-          activePtys.delete(ptyId)
+          cleanupPty(ptyId, "exit")
           break
         }
-      } catch {
+      } catch (error) {
+        cleanupPty(
+          ptyId,
+          "error",
+          error instanceof Error ? error.message : String(error),
+        )
         break
       }
       await new Promise((r) => setTimeout(r, POLL_MS))
@@ -143,11 +174,22 @@ export async function ptyKill(input: { ptyId: string }) {
     throw new Error(`PTY not found: ${input.ptyId}`)
   }
   handle.stopPolling()
-  const gw = await ensureGatewayClient()
-  await gw.request("terminal.kill", {
-    terminalId: handle.terminalId,
-  })
   activePtys.delete(input.ptyId)
+  try {
+    const gw = await ensureGatewayClient()
+    const res = await gw.request("terminal.kill", {
+      terminalId: handle.terminalId,
+    })
+    if (!res.ok) {
+      throw new Error(res.error?.message ?? "terminal.kill failed")
+    }
+  } catch (error) {
+    ptyEvents.emit(`pty:error:${input.ptyId}`, {
+      ptyId: input.ptyId,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
   return { ok: true, ptyId: input.ptyId }
 }
 

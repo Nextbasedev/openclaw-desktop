@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useEffect } from "react"
+import { useRef, useEffect, useState } from "react"
 import { Terminal, type ITheme } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { useTheme } from "next-themes"
@@ -67,11 +67,19 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const spawnRef = useRef<(() => void) | null>(null)
+  const spawnedRef = useRef(false)
+  const visibleRef = useRef(visible)
   const { resolvedTheme } = useTheme()
+  const [, setPtyStatus] = useState<string>("idle")
 
-  const pty = usePty(termRef, projectId)
+  const pty = usePty(termRef, projectId, (status) => setPtyStatus(status))
   const ptyRef = useRef(pty)
   ptyRef.current = pty
+
+  useEffect(() => {
+    visibleRef.current = visible
+  }, [visible])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -118,10 +126,24 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
     }
     container.addEventListener("paste", onPaste)
 
-    document.fonts.ready.then(() => {
+    spawnRef.current = () => {
       if (signal.aborted) return
+      if (spawnedRef.current) return
+      if (!visibleRef.current) return
+      const rect = container.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return
+      spawnedRef.current = true
       requestAnimationFrame(() => {
         if (signal.aborted) return
+        if (!visibleRef.current) {
+          spawnedRef.current = false
+          return
+        }
+        const nextRect = container.getBoundingClientRect()
+        if (nextRect.width <= 0 || nextRect.height <= 0) {
+          spawnedRef.current = false
+          return
+        }
         fit.fit()
         term.focus()
         const { rows, cols } = term
@@ -132,10 +154,19 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
           term.writeln("\x1b[90mCheck that OpenClaw Middleware is connected and the selected workspace still exists.\x1b[0m")
         })
       })
+    }
+
+    document.fonts.ready.then(() => {
+      if (signal.aborted) return
+      if (visibleRef.current) spawnRef.current?.()
     })
 
     const ro = new ResizeObserver(() => {
+      if (!visibleRef.current) return
       requestAnimationFrame(() => {
+        if (!visibleRef.current) return
+        const rect = container.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return
         try { fit.fit() } catch { }
       })
     })
@@ -145,6 +176,8 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
       signal.aborted = true
       container.removeEventListener("paste", onPaste)
       ro.disconnect()
+      spawnRef.current = null
+      spawnedRef.current = false
       term.dispose()
       termRef.current = null
       fitRef.current = null
@@ -164,6 +197,7 @@ export function XTerminal({ visible, projectId }: XTerminalProps) {
         try {
           fitRef.current?.fit()
           termRef.current?.focus()
+          spawnRef.current?.()
         } catch { }
       })
     }

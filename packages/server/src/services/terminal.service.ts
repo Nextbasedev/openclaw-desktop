@@ -26,6 +26,40 @@ interface TerminalHandle {
 
 const activeTerminals = new Map<string, TerminalHandle>()
 
+function markTerminalClosed(sessionId: string) {
+  try {
+    const db = getDb()
+    db.prepare(
+      "UPDATE terminal_sessions SET status = 'closed', last_active_at = ? WHERE id = ?",
+    ).run(nowIso(), sessionId)
+  } catch {}
+}
+
+function cleanupTerminal(
+  sessionId: string,
+  reason: "exit" | "error" | "kill",
+  message?: string,
+  code?: number,
+) {
+  const handle = activeTerminals.get(sessionId)
+  if (handle) {
+    handle.stopPolling()
+    activeTerminals.delete(sessionId)
+  }
+  if (reason === "error") {
+    terminalEvents.emit(`terminal:error:${sessionId}`, {
+      sessionId,
+      message: message ?? "terminal stream failed",
+    })
+  } else if (reason === "exit") {
+    terminalEvents.emit(`terminal:exit:${sessionId}`, {
+      sessionId,
+      code,
+    })
+  }
+  if (reason !== "kill") markTerminalClosed(sessionId)
+}
+
 function startPolling(
   sessionId: string,
   terminalId: string,
@@ -41,7 +75,14 @@ function startPolling(
           exited?: boolean
           exitCode?: number
         }>("terminal.read", { terminalId })
-        if (!res.ok) break
+        if (!res.ok) {
+          cleanupTerminal(
+            sessionId,
+            "error",
+            res.error?.message ?? "terminal.read failed",
+          )
+          break
+        }
         const p = res.payload
         if (p?.data) {
           terminalEvents.emit(
@@ -50,20 +91,15 @@ function startPolling(
           )
         }
         if (p?.exited) {
-          terminalEvents.emit(
-            `terminal:exit:${sessionId}`,
-            { sessionId, code: p.exitCode },
-          )
-          activeTerminals.delete(sessionId)
-          try {
-            const db = getDb()
-            db.prepare(
-              "UPDATE terminal_sessions SET status = 'closed', last_active_at = ? WHERE id = ?",
-            ).run(nowIso(), sessionId)
-          } catch {}
+          cleanupTerminal(sessionId, "exit", undefined, p.exitCode)
           break
         }
-      } catch {
+      } catch (error) {
+        cleanupTerminal(
+          sessionId,
+          "error",
+          error instanceof Error ? error.message : String(error),
+        )
         break
       }
       await new Promise((r) => setTimeout(r, POLL_MS))
@@ -225,16 +261,24 @@ export async function terminalClose(input: {
   }
 
   handle.stopPolling()
-  const gw = await ensureGatewayClient()
-  await gw.request("terminal.kill", {
-    terminalId: handle.terminalId,
-  })
   activeTerminals.delete(input.sessionId)
+  markTerminalClosed(input.sessionId)
 
-  const db = getDb()
-  db.prepare(
-    "UPDATE terminal_sessions SET status = 'closed', last_active_at = ? WHERE id = ?",
-  ).run(nowIso(), input.sessionId)
+  try {
+    const gw = await ensureGatewayClient()
+    const res = await gw.request("terminal.kill", {
+      terminalId: handle.terminalId,
+    })
+    if (!res.ok) {
+      throw new Error(res.error?.message ?? "terminal.kill failed")
+    }
+  } catch (error) {
+    terminalEvents.emit(`terminal:error:${input.sessionId}`, {
+      sessionId: input.sessionId,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
 
   return { ok: true, sessionId: input.sessionId }
 }
