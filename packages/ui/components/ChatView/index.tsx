@@ -801,6 +801,28 @@ export function ChatView({
   const mountedAtRef = useRef(Date.now())
   const handledBottomScrollIntentIdRef = useRef(0)
   const userScrollIntentRef = useRef(false)
+  const timelineFirstItemIndexRef = useRef(10000)
+  const timelineIndexStateRef = useRef<{
+    sessionKey: string
+    messageIds: string[]
+  }>({ sessionKey, messageIds: [] })
+
+  const virtuosoFirstItemIndex = useMemo(() => {
+    const nextIds = renderedMessages.map((message) => message.messageId)
+    const previous = timelineIndexStateRef.current
+
+    if (previous.sessionKey !== sessionKey) {
+      timelineFirstItemIndexRef.current = 10000
+    } else if (previous.messageIds.length > 0 && nextIds.length > previous.messageIds.length) {
+      const previousFirstIndex = nextIds.indexOf(previous.messageIds[0])
+      if (previousFirstIndex > 0) {
+        timelineFirstItemIndexRef.current = Math.max(0, timelineFirstItemIndexRef.current - previousFirstIndex)
+      }
+    }
+
+    timelineIndexStateRef.current = { sessionKey, messageIds: nextIds }
+    return timelineFirstItemIndexRef.current
+  }, [renderedMessages, sessionKey])
 
   // Reset mount timestamp on session change
   useEffect(() => {
@@ -818,6 +840,7 @@ export function ChatView({
     renderedMessages,
     isGenerating,
     sessionKey,
+    firstItemIndex: virtuosoFirstItemIndex,
   })
 
   // Restore scroll anchor after data source changes (bootstrap/warm-cache)
@@ -1302,9 +1325,8 @@ export function ChatView({
     // Message outside Virtuoso's rendered range — find its index and scroll
     const index = renderedMessages.findIndex((m) => m.messageId === messageId)
     if (index >= 0 && virtuosoRef.current) {
-      const firstItemIndex = Math.max(0, 10000 - renderedMessages.length)
       virtuosoRef.current.scrollToIndex({
-        index: firstItemIndex + index,
+        index: virtuosoFirstItemIndex + index,
         behavior: "smooth",
         align: "center",
       })
@@ -1326,7 +1348,7 @@ export function ChatView({
       })()
     }
     return false
-  }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages])
+  }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages, virtuosoFirstItemIndex])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1758,7 +1780,7 @@ export function ChatView({
         key={sessionKey}
         ref={virtuosoRef}
         data={renderedMessages}
-        firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
+        firstItemIndex={virtuosoFirstItemIndex}
         initialTopMostItemIndex={renderedMessages.length > 0 ? { index: "LAST", align: "end" } : 0}
         followOutput="smooth"
         alignToBottom

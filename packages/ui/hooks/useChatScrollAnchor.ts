@@ -15,12 +15,8 @@ type ScrollAnchor =
   | { kind: "bottom" }
   | { kind: "message"; messageId: string; offsetPx: number }
 
-function firstItemIndexFor(messageCount: number) {
-  return Math.max(0, 10000 - messageCount)
-}
-
-function virtuosoIndexForArrayIndex(messageCount: number, arrayIndex: number) {
-  return firstItemIndexFor(messageCount) + arrayIndex
+function virtuosoIndexForArrayIndex(firstItemIndex: number, arrayIndex: number) {
+  return firstItemIndex + arrayIndex
 }
 
 const latestScrollLocation = { index: "LAST", align: "end" } as const
@@ -30,11 +26,13 @@ export function useChatScrollAnchor({
   renderedMessages,
   isGenerating,
   sessionKey,
+  firstItemIndex,
 }: {
   virtuosoRef: React.RefObject<VirtuosoHandle | null>
   renderedMessages: ChatMessage[]
   isGenerating: boolean
   sessionKey: string
+  firstItemIndex: number
 }) {
   const anchorRef = useRef<ScrollAnchor>({ kind: "bottom" })
   const atBottomRef = useRef(true)
@@ -123,7 +121,6 @@ export function useChatScrollAnchor({
     flushPendingBottomScroll("range-ready")
     if (atBottomRef.current) return
     // Map Virtuoso's shifted index back to array index
-    const firstItemIndex = firstItemIndexFor(renderedMessages.length)
     const arrayIndex = range.startIndex - firstItemIndex
     if (arrayIndex >= 0 && arrayIndex < renderedMessages.length) {
       const msg = renderedMessages[arrayIndex]
@@ -144,7 +141,7 @@ export function useChatScrollAnchor({
     const idx = renderedMessages.findIndex((m) => m.messageId === anchor.messageId)
     if (idx >= 0) {
       virtuosoRef.current?.scrollToIndex({
-        index: virtuosoIndexForArrayIndex(renderedMessages.length, idx),
+        index: virtuosoIndexForArrayIndex(firstItemIndex, idx),
         align: "start",
         behavior: "auto",
       })
@@ -154,7 +151,7 @@ export function useChatScrollAnchor({
         arrayIndex: idx,
       }, "debug")
     }
-  }, [renderedMessages, sessionKey, virtuosoRef])
+  }, [firstItemIndex, renderedMessages, sessionKey, virtuosoRef])
 
   // Detect first async data arrival / appends before paint. Virtuoso's
   // initialTopMostItemIndex only applies when data exists at mount. Many chats
@@ -190,11 +187,11 @@ export function useChatScrollAnchor({
     anchorRef.current = { kind: "message", messageId, offsetPx: 0 }
     atBottomRef.current = false
     virtuosoRef.current?.scrollToIndex({
-      index: virtuosoIndexForArrayIndex(renderedMessages.length, idx),
+      index: virtuosoIndexForArrayIndex(firstItemIndex, idx),
       align: "center",
       behavior: "smooth",
     })
-  }, [renderedMessages, virtuosoRef])
+  }, [firstItemIndex, renderedMessages, virtuosoRef])
 
   return {
     atBottom: atBottomRef,
