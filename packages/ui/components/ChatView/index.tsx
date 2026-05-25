@@ -1747,7 +1747,7 @@ export function ChatView({
         ref={virtuosoRef}
         data={renderedMessages}
         firstItemIndex={Math.max(0, 10000 - renderedMessages.length)}
-        initialTopMostItemIndex={renderedMessages.length > 0 ? renderedMessages.length - 1 : 0}
+        initialTopMostItemIndex={renderedMessages.length > 0 ? { index: "LAST", align: "end" } : 0}
         followOutput="smooth"
         alignToBottom
         increaseViewportBy={{ top: 400, bottom: 200 }}

@@ -23,9 +23,7 @@ function virtuosoIndexForArrayIndex(messageCount: number, arrayIndex: number) {
   return firstItemIndexFor(messageCount) + arrayIndex
 }
 
-function latestVirtuosoIndex(messageCount: number) {
-  return virtuosoIndexForArrayIndex(messageCount, messageCount - 1)
-}
+const latestScrollLocation = { index: "LAST", align: "end" } as const
 
 export function useChatScrollAnchor({
   virtuosoRef,
@@ -117,8 +115,7 @@ export function useChatScrollAnchor({
     anchorRef.current = { kind: "bottom" }
     atBottomRef.current = true
     virtuosoRef.current?.scrollToIndex({
-      index: latestVirtuosoIndex(newCount),
-      align: "end",
+      ...latestScrollLocation,
       behavior: "auto",
     })
     frontendLog("chat", "chat.scroll.follow-bottom", {
@@ -134,8 +131,7 @@ export function useChatScrollAnchor({
     atBottomRef.current = true
     if (renderedMessages.length > 0) {
       virtuosoRef.current?.scrollToIndex({
-        index: latestVirtuosoIndex(renderedMessages.length),
-        align: "end",
+        ...latestScrollLocation,
         behavior,
       })
     }
