@@ -220,11 +220,18 @@ export const ToolCallSteps = memo(function ToolCallSteps({
     decision: ApprovalDecision
   ) => Promise<void> | void
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const total = tools.length
+  const [open, setOpen] = useState(defaultOpen && total <= 1)
+  const userToggledGroupRef = useRef(false)
+  // Multi-tool runs can stream many rows in quick succession. Keeping the whole
+  // group expanded while tools arrive creates large height churn in the chat
+  // viewport, so only auto-open single-tool groups. If the user explicitly
+  // expands a multi-tool group, preserve that choice.
+  const groupOpen = total > 1 && !userToggledGroupRef.current ? false : open
   // If defaultOpen changes from false→true (e.g. bootstrap update), open it
   // But never auto-close if it was already open
   const prevDefaultOpenRef = useRef(defaultOpen)
-  if (defaultOpen && !prevDefaultOpenRef.current) {
+  if (defaultOpen && !prevDefaultOpenRef.current && total <= 1) {
     // Parent now says this should be open — respect it
     if (!open) setOpen(true)
   }
@@ -236,7 +243,6 @@ export const ToolCallSteps = memo(function ToolCallSteps({
     setOpenToolId(nextOpen ? id : null)
   }
 
-  const total = tools.length
   const rest = total - 1
   const collapsedTop = tools[tools.length - 1]
 
@@ -277,12 +283,13 @@ export const ToolCallSteps = memo(function ToolCallSteps({
   return (
     <div
       className="transition-all duration-300 ease-out"
-      style={{ marginBottom: open ? 8 : rest > 0 ? 20 : 12 }}
+      style={{ marginBottom: groupOpen ? 8 : rest > 0 ? 20 : 12 }}
     >
       <button
         type="button"
         onClick={() => {
           onInteract?.()
+          userToggledGroupRef.current = true
           setOpen((p) => !p)
         }}
         className={cn(
@@ -290,7 +297,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
           "text-muted-foreground/60 transition-colors hover:text-muted-foreground"
         )}
       >
-        {open ? (
+        {groupOpen ? (
           <VscChevronDown className="size-3" />
         ) : (
           <VscChevronRight className="size-3" />
@@ -304,13 +311,13 @@ export const ToolCallSteps = memo(function ToolCallSteps({
       <div className="ml-1 border-l border-border/20 pl-1.5">
         <div
           className="grid transition-[grid-template-rows] duration-300 ease-out"
-          style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+          style={{ gridTemplateRows: groupOpen ? "1fr" : "0fr" }}
         >
           <div className="overflow-hidden">
             <div
               className={cn(
                 "space-y-1 transition-all duration-300 ease-out",
-                open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
+                groupOpen ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
               )}
             >
               {tools.map((call) => (
@@ -329,6 +336,7 @@ export const ToolCallSteps = memo(function ToolCallSteps({
                 type="button"
                 onClick={() => {
                   onInteract?.()
+                  userToggledGroupRef.current = true
                   setOpen(false)
                 }}
                 className={cn(
@@ -343,11 +351,12 @@ export const ToolCallSteps = memo(function ToolCallSteps({
           </div>
         </div>
 
-        {!open && (
+        {!groupOpen && (
           <div
             className="relative cursor-pointer"
             onClick={() => {
               onInteract?.()
+              userToggledGroupRef.current = true
               setOpen(true)
             }}
           >
