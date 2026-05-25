@@ -714,6 +714,11 @@ export function useAgentActivity(sessionKey: string | null) {
       for (const message of globalState.messages) {
         if (message.role !== "assistant" || !message.toolCalls?.length) continue
         for (const tool of message.toolCalls) {
+          // Running/awaiting tools in message metadata are provisional snapshots;
+          // the authoritative live running set is state.pendingTools. Counting
+          // both makes Activity briefly over-count, then shrink after history
+          // reconciliation.
+          if (tool.status === "running" || tool.awaitingResult === true) continue
           const key = activityCallKey(sessionKey, tool.id)
           callMapRef.current.set(key, mergeActivityCall(callMapRef.current.get(key), activityCallFromInlineTool(tool, { messageId: "", messagePreview: undefined })))
         }
@@ -819,6 +824,7 @@ export function useAgentActivity(sessionKey: string | null) {
             }
           : liveTurn
         for (const tool of message.toolCalls) {
+          if (tool.status === "running" || tool.awaitingResult === true) continue
           const key = activityCallKey(sessionKey, tool.id)
           const existing = callMapRef.current.get(key)
           const incoming = activityCallFromInlineTool(tool, {
@@ -930,7 +936,10 @@ export function useAgentActivity(sessionKey: string | null) {
               messagePreview: previewFromChatMessage(previousUser),
             }
           : liveTurn
-        for (const tool of message.toolCalls) upsertTool(tool, turn)
+        for (const tool of message.toolCalls) {
+          if (!childLooksComplete && (tool.status === "running" || tool.awaitingResult === true)) continue
+          upsertTool(tool, turn)
+        }
       }
 
       if (changed) debouncedChildSync()
