@@ -1,5 +1,6 @@
 "use client"
 
+import { useLayoutEffect, useRef, useState } from "react"
 import type { UsageSummary } from "./types"
 
 function formatTokens(n: number): string {
@@ -16,6 +17,45 @@ function formatPercent(value: number): string {
 
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-md bg-muted ${className}`} />
+}
+
+function NumberPopIn({ value }: { value: string }) {
+  const groupRef = useRef<HTMLSpanElement | null>(null)
+  const [animating, setAnimating] = useState(false)
+
+  useLayoutEffect(() => {
+    const group = groupRef.current
+    if (!group) return
+
+    setAnimating(false)
+    void group.offsetHeight
+
+    const frame = requestAnimationFrame(() => {
+      setAnimating(true)
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [value])
+
+  const chars = value.split("")
+
+  return (
+    <span
+      ref={groupRef}
+      className={`t-digit-group ${animating ? "is-animating" : ""}`}
+      aria-label={value}
+    >
+      {chars.map((ch, i) => {
+        const stagger = i === chars.length - 2 ? "1" : i === chars.length - 1 ? "2" : undefined
+
+        return (
+          <span key={`${value}-${i}`} className="t-digit" data-stagger={stagger} aria-hidden="true">
+            {ch}
+          </span>
+        )
+      })}
+    </span>
+  )
 }
 
 function MiniMetric({
@@ -35,7 +75,7 @@ function MiniMetric({
         {label}
       </div>
       <div className="mt-3 truncate text-[22px] font-semibold tabular-nums tracking-tight text-foreground">
-        {value}
+        <NumberPopIn value={value} />
       </div>
       {helper && (
         <div className="mt-1 text-[12px] text-muted-foreground">
@@ -114,7 +154,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
               Usage overview
             </div>
             <div className="mt-1 tabular-nums text-[34px] font-semibold leading-tight tracking-tight text-foreground">
-              {formatTokens(trackedTokens)}
+              <NumberPopIn value={formatTokens(trackedTokens)} />
             </div>
             <div className="text-[14px] text-muted-foreground">
               Total tracked tokens across all usage
@@ -126,7 +166,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
               Spend
             </div>
             <div className="mt-2 tabular-nums text-[24px] font-semibold tracking-tight text-foreground">
-              ${summary.totalCost.toFixed(2)}
+              <NumberPopIn value={`$${summary.totalCost.toFixed(2)}`} />
             </div>
           </div>
         </div>
