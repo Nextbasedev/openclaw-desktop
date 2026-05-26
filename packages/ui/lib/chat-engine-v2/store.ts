@@ -565,13 +565,14 @@ function finalizeActiveToolsForTerminalStatus(state: SessionState, status: Strea
     return {
       ...tool,
       status: status === "error" ? "error" : "success",
+      awaitingResult: false,
       duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
       completedAt: tool.completedAt ?? Date.now(),
       resultText:
         tool.resultText ??
         (status === "error"
           ? "Run ended before this tool reported a result."
-          : tool.resultText),
+          : undefined),
     }
   })
   const detachedTools = finalizeToolsInPlace(state, finalizedTools)

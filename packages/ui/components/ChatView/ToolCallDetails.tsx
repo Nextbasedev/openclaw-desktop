@@ -109,7 +109,7 @@ export function getToolDetailState(call: InlineToolCall) {
     outputText,
     fullOutputText: isOutputTruncated ? fullOutput : undefined,
     hasDetails: Boolean(
-      inputText || outputText || call.status === "running" || call.approval
+      inputText || outputText || call.status === "running" || call.status === "error" || call.approval
     ),
   }
 }
@@ -147,9 +147,10 @@ export function ToolCallDetails({
 
   const effectiveFullText = fetchedFullText ?? fullOutputText
   const showWaitingForOutput = !outputText && call.status === "running"
-  const showEmptyState = !inputText && !outputText && call.status !== "running"
+  const showErrorFallback = !outputText && call.status === "error"
+  const showEmptyState = !inputText && !outputText && call.status !== "running" && call.status !== "error"
   const showDivider = Boolean(
-    inputText && (outputText || showWaitingForOutput)
+    inputText && (outputText || showWaitingForOutput || showErrorFallback)
   )
 
   return (
@@ -190,6 +191,10 @@ export function ToolCallDetails({
               <div className="bg-black/20 px-5 py-4 text-[12px] text-[#93C5FD]/75 transition-opacity duration-300">
                 Waiting for this tool to return output...
               </div>
+            ) : showErrorFallback ? (
+              <DetailBlock label="Error" tone="error">
+                {call.resultText || "Tool execution failed."}
+              </DetailBlock>
             ) : showEmptyState ? (
               <div className="bg-black/20 px-5 py-4 text-[12px] text-[#9CA3AF]/75 transition-opacity duration-300">
                 No inline input or output was captured for this tool.
