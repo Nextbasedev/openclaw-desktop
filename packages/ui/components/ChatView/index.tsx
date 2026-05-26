@@ -1222,11 +1222,21 @@ export function ChatView({
   const activeTurnToolCalls = useMemo(() => {
     if (!isGenerating || latestRenderedUserIndex < 0) return []
     const merged = new Map<string, import("./types").InlineToolCall>()
-    for (const tool of pendingTools) merged.set(tool.id, tool)
+    const latestUser = renderedMessages[latestRenderedUserIndex]
+    const latestUserCreatedAtMs = latestUser?.createdAt ? Date.parse(latestUser.createdAt) : Number.NaN
+    const hasLatestUserTime = Number.isFinite(latestUserCreatedAtMs)
+    const turnMessageToolIds = new Set<string>()
+    const toolIsFreshForCurrentTurn = (tool: import("./types").InlineToolCall) => {
+      if (turnMessageToolIds.has(tool.id)) return true
+      if (typeof tool.startedAt !== "number") return tool.status === "running" || Boolean(tool.awaitingResult)
+      if (!hasLatestUserTime) return tool.status === "running" || Boolean(tool.awaitingResult)
+      return tool.startedAt >= latestUserCreatedAtMs - 2_000
+    }
     for (const message of renderedMessages.slice(latestRenderedUserIndex + 1)) {
       if (message.role === "user") break
       if (message.role !== "assistant") continue
       for (const tool of message.toolCalls ?? []) {
+        turnMessageToolIds.add(tool.id)
         const existing = merged.get(tool.id)
         merged.set(tool.id, {
           ...(existing ?? tool),
@@ -1239,6 +1249,20 @@ export function ChatView({
           awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing?.awaitingResult),
         })
       }
+    }
+    for (const tool of pendingTools) {
+      if (!toolIsFreshForCurrentTurn(tool)) continue
+      const existing = merged.get(tool.id)
+      merged.set(tool.id, {
+        ...(existing ?? tool),
+        ...tool,
+        duration: tool.duration ?? existing?.duration,
+        startedAt: tool.startedAt ?? existing?.startedAt,
+        completedAt: tool.completedAt ?? existing?.completedAt,
+        resultText: tool.resultText ?? existing?.resultText,
+        approval: tool.approval ?? existing?.approval,
+        awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing?.awaitingResult),
+      })
     }
     return Array.from(merged.values())
   }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
