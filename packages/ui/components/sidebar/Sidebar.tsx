@@ -173,7 +173,7 @@ export function Sidebar({
         aria-hidden={isHiddenMobileSidebar}
         style={sidebarStyle}
         className={cn(
-          "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden rounded-tr-[30px]",
+          "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden",
           "w-[var(--sidebar-width)]",
           "z-40",
           "border-r border-border/50",
