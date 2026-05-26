@@ -431,7 +431,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
           ? "failed"
           : (childKey ?? spawn.sessionKey)
             ? "working"
-            : "completed",
+            : spawn.status,
       }
     }))
   }
@@ -747,7 +747,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
       ...(existing ?? { id: `spawn:${inline.id}`, label, task: typeof input.task === "string" ? input.task : undefined, sessionKey: null, toolCallId: inline.id }),
       label: existing?.label ?? label,
       sessionKey: childSessionKey,
-      status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
+      status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : existing?.status ?? "spawning",
     })
     state.spawnedSubagents = dedupeSpawnedSubagents(Array.from(spawns.values()))
   }
@@ -886,18 +886,25 @@ function isActiveSpawnStatus(status: SpawnedSubagent["status"]) {
   return status === "spawning" || status === "linking" || status === "working"
 }
 
-function childStatusToSpawnStatus(status: StreamStatus): SpawnedSubagent["status"] {
+function childStatusToSpawnStatus(status: StreamStatus, parentStatus?: StreamStatus): SpawnedSubagent["status"] {
   if (status === "error") return "failed"
-  if (status === "done" || status === "idle" || status === "connected") return "completed"
+  if (status === "done") return "completed"
+  if (status === "idle" || status === "connected") {
+    // Child sessions can briefly report idle/connected during bootstrap before
+    // their first active patch arrives. Only treat that as completion once the
+    // parent turn itself is terminal; otherwise the UI flashes "done" then
+    // flips back to working when child activity starts.
+    return parentStatus && isTerminalOrIdleStatus(parentStatus) ? "completed" : "working"
+  }
   // A child message/bootstrap can arrive before the child status patch. Once we
   // have seen active child activity, stop showing the parent as stuck in "linking".
   return "working"
 }
 
 function syncLinkedSubagentStatus(childSessionKey: string, childStatus: StreamStatus) {
-  const status = childStatusToSpawnStatus(childStatus)
   for (const [parentKey, parent] of states) {
     if (parentKey === childSessionKey) continue
+    const status = childStatusToSpawnStatus(childStatus, parent.status)
     let changed = false
     const next = parent.spawnedSubagents.map((spawn) => {
       if (spawn.sessionKey !== childSessionKey) return spawn
