@@ -6,6 +6,8 @@
 
 Validated by typecheck, browser/runtime audits where possible, and live user confirmation for the final first-open/refresh bottom-scroll path.
 
+**2026-05-26 follow-up:** A live Desktop repro showed the main chat timeline jumping when `react-virtuoso` footer/status height changed during `Thinking` / tool-card updates. The current constraint is to keep the main chat timeline as a plain DOM scroll container, top-aligned for short chats, with a stable-height status/footer row. Do not reintroduce timeline virtualization without a dedicated live tool-card/status regression test.
+
 ## Connected issues
 
 - Chat can't scroll to latest answer after message arrives while window is blurred/backgrounded
@@ -72,6 +74,16 @@ When user returns to the window, `isAtBottomRef.current` may be `false` (because
 **Problem:** All chat entries render in DOM regardless of visibility. With 28+ sessions, this means 28+ React components in the sidebar, each potentially re-rendering when sidebar data refreshes.
 
 **Effect:** Slower initial render, more GC pressure, minor contribution to re-render storms during patch bursts.
+
+### 7. Main chat virtualizer anchoring jumps during live status/tool updates (HIGH)
+
+**File:** `packages/ui/components/ChatView/index.tsx`
+
+**Problem:** The main chat timeline used `react-virtuoso` with footer status content. When `Thinking`, `Running tool`, or tool-card rows appeared/disappeared, Virtuoso preserved bottom alignment by shifting the visible transcript. This made user rows/tool cards appear to jump even when message ordering data was correct.
+
+**Fix:** Remove `react-virtuoso` from the main chat timeline and render messages in a normal `overflow-y-auto` container. Keep short chats top-aligned and reserve stable height for the status/footer row.
+
+**Constraint:** Virtualization is acceptable for sidebars/lists if needed, but the main chat timeline must remain plain DOM unless we have a regression test proving live tool/status updates do not shift visible rows.
 
 ## Files to touch
 

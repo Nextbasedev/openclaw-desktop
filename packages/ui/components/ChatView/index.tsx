@@ -34,7 +34,6 @@ import { frontendLog } from "@/lib/clientLogs"
 import { currentChatWindowId, logChatViewInvariant } from "@/lib/chatTimelineDiagnostics"
 import { toast } from "react-toastify"
 import { MdKeyboardDoubleArrowDown } from "react-icons/md"
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import {
   LuBrain,
   LuClock,
@@ -796,21 +795,9 @@ export function ChatView({
     [messages, messageActionState]
   )
   const renderedMessages = visibleAllMessages
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
-  const virtuosoFirstItemIndexRef = useRef(10000)
-  const virtuosoIndexSnapshotRef = useRef<{
-    sessionKey: string
-    firstId: string | null
-    lastId: string | null
-    length: number
-  } | null>(null)
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const isAtBottomRef = useRef(true)
-  // Track whether Virtuoso has been scrolled to bottom after first data load.
-  // On first open / refresh, messages arrive async (warm cache or bootstrap)
-  // after Virtuoso mounts. initialTopMostItemIndex may not position correctly
-  // if item heights haven't been measured yet. This ensures a definitive scroll.
   const needsInitialScrollRef = useRef(true)
   // Reset mount timestamp on session change
   useEffect(() => {
@@ -826,39 +813,6 @@ export function ChatView({
     return -1
   }, [renderedMessages])
 
-  const virtuosoFirstItemIndex = (() => {
-    const firstId = renderedMessages[0]?.messageId ?? null
-    const lastId = renderedMessages[renderedMessages.length - 1]?.messageId ?? null
-    const previous = virtuosoIndexSnapshotRef.current
-
-    if (!previous || previous.sessionKey !== sessionKey) {
-      virtuosoFirstItemIndexRef.current = Math.max(0, 10000 - renderedMessages.length)
-    } else if (previous.length === 0 && renderedMessages.length > 0) {
-      virtuosoFirstItemIndexRef.current = Math.max(0, 10000 - renderedMessages.length)
-    } else if (renderedMessages.length > previous.length && previous.firstId) {
-      const previousFirstIndex = renderedMessages.findIndex(
-        (message) => message.messageId === previous.firstId
-      )
-      if (previousFirstIndex > 0) {
-        // Only older-message prepends should move Virtuoso's absolute index.
-        // Appends, bootstrap refreshes, and live patch replacements must keep
-        // the index stable or Virtuoso preserves the wrong viewport on first
-        // app open / refresh.
-        virtuosoFirstItemIndexRef.current = Math.max(
-          0,
-          virtuosoFirstItemIndexRef.current - previousFirstIndex
-        )
-      }
-    }
-
-    virtuosoIndexSnapshotRef.current = {
-      sessionKey,
-      firstId,
-      lastId,
-      length: renderedMessages.length,
-    }
-    return virtuosoFirstItemIndexRef.current
-  })()
   const userMessageHistory = useMemo(
     () =>
       messages
@@ -1029,9 +983,10 @@ export function ChatView({
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
-      setShowJumpToBottom(
-        el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_TO_BOTTOM_THRESHOLD_PX
-      )
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      const atBottom = distanceFromBottom <= JUMP_TO_BOTTOM_THRESHOLD_PX
+      isAtBottomRef.current = atBottom
+      setShowJumpToBottom(!atBottom)
       if (
         hasOlderMessages &&
         !loadingOlderMessages &&
@@ -1053,11 +1008,7 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    if (virtuosoRef.current) {
-      virtuosoRef.current.scrollToIndex({ index: "LAST", behavior: "smooth", align: "end" })
-    } else {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
   }, [bottomRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
@@ -1094,28 +1045,24 @@ export function ChatView({
     syncJumpToBottomVisibility,
   ])
 
-  // On first open / refresh, Virtuoso may mount before item heights are measured,
-  // so initialTopMostItemIndex can land at a wrong position. This ensures a
-  // definitive scroll-to-bottom once Virtuoso is mounted and has data.
   useLayoutEffect(() => {
     if (
       needsInitialScrollRef.current &&
       renderedMessages.length > 0 &&
       !loading &&
-      virtuosoRef.current &&
       !userScrollIntentRef.current
     ) {
       needsInitialScrollRef.current = false
-      // Use requestAnimationFrame to let Virtuoso finish its initial layout pass
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({
-          index: "LAST",
-          align: "end",
-          behavior: "auto",
-        })
+        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
       })
     }
-  }, [renderedMessages.length, loading])
+  }, [bottomRef, renderedMessages.length, loading])
+
+  useLayoutEffect(() => {
+    if (!isAtBottomRef.current) return
+    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+  }, [bottomRef, renderedMessages.length, isGenerating, pendingTools.length, status, statusLabel])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1267,6 +1214,35 @@ export function ChatView({
     [renderedMessages, pendingTools]
   )
 
+  const activeTurnToolCalls = useMemo(() => {
+    if (!isGenerating || latestRenderedUserIndex < 0) return []
+    const merged = new Map<string, import("./types").InlineToolCall>()
+    for (const tool of pendingTools) merged.set(tool.id, tool)
+    for (const message of renderedMessages.slice(latestRenderedUserIndex + 1)) {
+      if (message.role === "user") break
+      if (message.role !== "assistant") continue
+      for (const tool of message.toolCalls ?? []) {
+        const existing = merged.get(tool.id)
+        merged.set(tool.id, {
+          ...(existing ?? tool),
+          ...tool,
+          duration: tool.duration ?? existing?.duration,
+          startedAt: tool.startedAt ?? existing?.startedAt,
+          completedAt: tool.completedAt ?? existing?.completedAt,
+          resultText: tool.resultText ?? existing?.resultText,
+          approval: tool.approval ?? existing?.approval,
+          awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing?.awaitingResult),
+        })
+      }
+    }
+    return Array.from(merged.values())
+  }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
+
+  const activeTurnToolIds = useMemo(
+    () => new Set(activeTurnToolCalls.map((tool) => tool.id)),
+    [activeTurnToolCalls]
+  )
+
   const spawnsByToolCallId = useMemo(() => {
     const map = new Map<string, SpawnedSubagent>()
     for (const sub of spawnedSubagents) {
@@ -1351,20 +1327,9 @@ export function ChatView({
   }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
 
   const scrollToRenderedMessage = useCallback((messageId: string, seq?: number) => {
-    // First try direct DOM scroll (message already rendered by Virtuoso)
     const target = document.getElementById(`message-${messageId}`)
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "center" })
-      return true
-    }
-    // Message outside Virtuoso's rendered range — find its index and scroll
-    const index = renderedMessages.findIndex((m) => m.messageId === messageId)
-    if (index >= 0 && virtuosoRef.current) {
-      virtuosoRef.current.scrollToIndex({
-        index,
-        behavior: "smooth",
-        align: "center",
-      })
       return true
     }
     // Message not loaded yet — load older messages until we reach it
@@ -1383,7 +1348,7 @@ export function ChatView({
       })()
     }
     return false
-  }, [renderedMessages, sessionKey, hasOlderMessages, loadOlderMessages])
+  }, [hasOlderMessages, loadOlderMessages])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1404,7 +1369,7 @@ export function ChatView({
       const showPending =
         index === latestRenderedUserIndex &&
         isGenerating &&
-        pendingTools.length > 0 &&
+        activeTurnToolCalls.length > 0 &&
         msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
@@ -1423,7 +1388,7 @@ export function ChatView({
       const suppressAssistantActions =
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
-      const filteredPending = toolCallsWithoutSpawn(pendingTools).filter((t) => {
+      const filteredPending = toolCallsWithoutSpawn(activeTurnToolCalls).filter((t) => {
         // Always show running or awaiting-approval tools
         if (t.status === "running" || t.awaitingResult) return true
         // Keep completed tools that are NOT yet in any message's toolCalls
@@ -1438,11 +1403,15 @@ export function ChatView({
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
           ? []
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
+      const activeTurnAssistantToolCalls =
+        isGenerating && msg.role === "assistant" && index > latestRenderedUserIndex
+          ? messageToolCalls.filter((tool) => !activeTurnToolIds.has(tool.id))
+          : messageToolCalls
       const shouldFinalizeDisplayedTools =
         msg.role === "assistant" &&
         (index < latestRenderedUserIndex || !isGenerating || pendingTools.length === 0)
       const filteredToolCalls = applyTerminalToolState(
-        toolCallsWithoutSpawn(messageToolCalls),
+        toolCallsWithoutSpawn(activeTurnAssistantToolCalls),
         terminalToolState,
         { finalizeStaleRunning: shouldFinalizeDisplayedTools }
       )
@@ -1550,6 +1519,8 @@ export function ChatView({
     },
     [
       activePopoverId,
+      activeTurnToolCalls,
+      activeTurnToolIds,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
@@ -1763,75 +1734,49 @@ export function ChatView({
         onHighlightMessage={handleHighlightMessage}
       />
 
-      <Virtuoso
-        key={sessionKey}
-        ref={virtuosoRef}
-        scrollerRef={(ref) => {
-          scrollContainerRef.current = ref as HTMLDivElement | null
+      <div
+        ref={(ref) => {
+          scrollContainerRef.current = ref
         }}
-        data={renderedMessages}
-        computeItemKey={(_, msg) => msg.messageId}
-        firstItemIndex={virtuosoFirstItemIndex}
-        initialTopMostItemIndex={{ index: "LAST", align: "end" }}
-        followOutput={(isAtBottom) => {
-          // Streaming assistant/tool patches can update row heights many times per
-          // second. Smooth-following every update makes the viewport visibly
-          // jump/animate on each assistant message. Only follow when the user is
-          // already pinned to the bottom, and use an immediate adjustment so the
-          // current visual anchor stays stable while content grows.
-          if (!isAtBottom || !isAtBottomRef.current) return false
-          return "auto"
-        }}
-        alignToBottom
-        increaseViewportBy={{ top: 400, bottom: 200 }}
-        className="flex-1"
-        atTopStateChange={(atTop) => {
-          // Don't trigger older message loading within 1s of mount or session change
-          // — Virtuoso fires atTop immediately for short chats that fit in viewport
-          if (atTop && hasOlderMessages && !loadingOlderMessages && userScrollIntentRef.current && Date.now() - mountedAtRef.current > 1000) {
-            void loadOlderMessages()
-          }
-        }}
-        atBottomStateChange={(atBottom) => {
-          isAtBottomRef.current = atBottom
-          if (atBottom) setShowJumpToBottom(false)
-        }}
-        itemContent={(index, msg) => renderMessageRow(index, msg)}
-        components={{
-          Header: () => (
-            <div className="mx-auto max-w-3xl px-4 pt-8">
-              {loadingOlderMessages && (
-                <div className="mb-4 flex justify-center text-xs text-muted-foreground">
-                  Loading earlier messages…
-                </div>
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto overscroll-contain"
+      >
+        <div className="min-h-full">
+          <div className="mx-auto max-w-3xl px-4 pt-8">
+            {loadingOlderMessages && (
+              <div className="mb-4 flex justify-center text-xs text-muted-foreground">
+                Loading earlier messages…
+              </div>
+            )}
+          </div>
+          {renderedMessages.map((msg, index) => (
+            <div key={msg.messageId}>{renderMessageRow(index, msg)}</div>
+          ))}
+          <div className="mx-auto max-w-3xl px-4 pb-8">
+            <AnimatePresence initial={false}>
+              {editPreview && (
+                <EditPreviewPanel
+                  key={editPreview.branchSessionKey}
+                  preview={editPreview}
+                  onSelect={selectEditBranch}
+                />
               )}
-            </div>
-          ),
-          Footer: () => (
-            <div className="mx-auto max-w-3xl px-4 pb-8">
-              <AnimatePresence initial={false}>
-                {editPreview && (
-                  <EditPreviewPanel
-                    key={editPreview.branchSessionKey}
-                    preview={editPreview}
-                    onSelect={selectEditBranch}
-                  />
-                )}
-              </AnimatePresence>
+            </AnimatePresence>
+            <div className="mt-4 flex h-[21px] items-center pl-1">
               {statusText && (
-                <div className="mt-4 flex items-center pl-1">
+                <>
                   <ProcessStatusIcon tool={liveTool?.tool} />
                   <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
                     {statusText.replace(/\.{3}$/, "")}
                     <span className="thinking-ellipsis" aria-hidden="true" />
                   </span>
-                </div>
+                </>
               )}
-              <div ref={bottomRef} className="h-8" />
             </div>
-          ),
-        }}
-      />
+            <div ref={bottomRef} className="h-8" />
+          </div>
+        </div>
+      </div>
 
       <div className="shrink-0 bg-background/60 py-3 backdrop-blur-sm">
         <AnimatePresence>

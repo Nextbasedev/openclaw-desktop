@@ -457,11 +457,12 @@ export class ChatLiveIngest {
     // command_output stream and persisted chat.history toolResult messages are
     // the only sources that may advance tool output/result state.
     const liveResultValue = data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details;
-    const liveResultMeta = this.safeResultMeta(liveResultValue);
+    const liveResultIsAwaitingPlaceholder = this.isAwaitingToolResultMeta(liveResultValue);
+    const liveResultMeta = liveResultIsAwaitingPlaceholder ? liveResultValue : this.safeResultMeta(liveResultValue);
     const existingTool = this.context.runs.getToolCall(sessionKey, toolCallId);
     const isCompletionOnlyResult = phase === "result" && liveResultValue === undefined;
-    const shouldMarkAwaitingResult = isCompletionOnlyResult && (!existingTool?.resultMeta || this.isAwaitingToolResultMeta(existingTool.resultMeta));
-    const awaitingResultMeta = shouldMarkAwaitingResult ? this.awaitingToolResultMeta("gateway_stripped_live_result") : null;
+    const shouldMarkAwaitingResult = (isCompletionOnlyResult || liveResultIsAwaitingPlaceholder) && (!existingTool?.resultMeta || this.isAwaitingToolResultMeta(existingTool.resultMeta));
+    const awaitingResultMeta = shouldMarkAwaitingResult ? this.awaitingToolResultMeta(liveResultIsAwaitingPlaceholder ? "gateway_agent_item_end_pending_history_result" : "gateway_stripped_live_result") : null;
     const tool = this.context.runs.upsertToolCall({
       sessionKey,
       toolCallId,
@@ -470,7 +471,7 @@ export class ChatLiveIngest {
       name,
       phase,
       argsMeta: isObject(data.args) ? data.args : null,
-      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : shouldMarkAwaitingResult ? awaitingResultMeta : liveResultMeta,
+      resultMeta: phase === "error" ? this.safeResultMeta(data.error) : shouldMarkAwaitingResult ? awaitingResultMeta : liveResultIsAwaitingPlaceholder ? existingTool?.resultMeta ?? null : liveResultMeta,
     });
     if ((phase === "start" || phase === "calling") && tool.status !== "running") {
       this.log.info("tool.replayed-start.skip-terminal", { sessionKey, toolCallId, requestedPhase: phase, existingPhase: tool.phase, status: tool.status });

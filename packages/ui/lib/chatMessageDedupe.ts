@@ -332,6 +332,17 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       // and make that question appear hidden.
       if (a.message.isOptimistic || b.message.isOptimistic) return a.index - b.index
 
+      const aIndex = a.message.gatewayIndex
+      const bIndex = b.message.gatewayIndex
+      const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex) && aIndex > 0
+      const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex) && bIndex > 0
+      // gatewayIndex (messageSeq) is the most reliable ordering signal — use it
+      // first. Within the same seq, user messages sort before assistant.
+      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
+      if (aHasIndex && bHasIndex && a.message.role !== b.message.role) {
+        return roleOrder(a.message) - roleOrder(b.message)
+      }
+
       const aTime = messageTimeMs(a.message)
       const bTime = messageTimeMs(b.message)
       const aHasTime = typeof aTime === "number"
@@ -339,12 +350,6 @@ export function sortChatMessagesByTimeline(messages: ChatMessage[]): ChatMessage
       if (aHasTime && bHasTime && aTime === bTime && a.message.role !== b.message.role) {
         return roleOrder(a.message) - roleOrder(b.message)
       }
-
-      const aIndex = a.message.gatewayIndex
-      const bIndex = b.message.gatewayIndex
-      const aHasIndex = typeof aIndex === "number" && Number.isFinite(aIndex)
-      const bHasIndex = typeof bIndex === "number" && Number.isFinite(bIndex)
-      if (aHasIndex && bHasIndex && aIndex !== bIndex) return aIndex - bIndex
 
       if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime
       if (aHasTime && bHasTime && a.message.role !== b.message.role) {

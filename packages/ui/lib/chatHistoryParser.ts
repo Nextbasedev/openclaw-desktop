@@ -210,6 +210,7 @@ function toolBlockInput(block: RawToolBlock) {
 function toolBlockResultText(block: RawToolBlock) {
   const result = block.resultMeta ?? block.result
   if (result == null) return undefined
+  if (isAwaitingToolResult(result)) return undefined
   if (typeof result === "string") return result
   if (typeof result === "object" && !Array.isArray(result)) {
     const record = result as { text?: unknown; content?: unknown; result?: unknown }
@@ -220,6 +221,27 @@ function toolBlockResultText(block: RawToolBlock) {
     return JSON.stringify(result, null, 2)
   } catch {
     return String(result)
+  }
+}
+
+function isAwaitingToolResult(value: unknown) {
+  if (!value) return false
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as { awaitingResult?: unknown; completionInferred?: unknown; source?: unknown; reason?: unknown }
+    return record.awaitingResult === true || (
+      "awaitingResult" in record &&
+      "completionInferred" in record &&
+      record.source === "gateway_live_tool_result" &&
+      typeof record.reason === "string"
+    )
+  }
+  if (typeof value !== "string") return false
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return isAwaitingToolResult(JSON.parse(trimmed) as unknown)
+  } catch {
+    return false
   }
 }
 
