@@ -208,10 +208,8 @@ export function Header({
       onMouseDown={handleHeaderMouseDown}
       className={cn(
         "relative z-50 flex h-11 shrink-0 items-center",
-        uniqueSidebarBg
-          ? "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]"
-          : "bg-[#1b1b1e] dark:bg-[#18181b]",
-        "select-none",
+        "bg-[#1b1b1e]",
+        "select-none","dark:bg-[#18181b]",
         className,
       )}
     >
@@ -411,16 +409,7 @@ export function Header({
       )}
 
       {/* Right: action icons — absolute so they don't shrink the tab area */}
-      <div
-        ref={rightClusterRef}
-        className={cn(
-          "absolute right-0 top-0 z-20 flex h-full items-center gap-0 pl-2",
-          uniqueSidebarBg
-            ? "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]"
-            : "bg-[#151515]",
-          showWindowControls ? "pr-0" : "pr-3",
-        )}
-      >
+      <div ref={rightClusterRef} className={cn("absolute right-0 top-0 z-20 flex h-full items-center gap-0 bg-[#151515] pl-2", showWindowControls ? "pr-0" : "pr-3")}>
         {!minimal && (
           <>
             {showSplitButton && (
