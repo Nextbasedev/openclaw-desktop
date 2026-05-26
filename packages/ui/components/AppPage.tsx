@@ -2823,39 +2823,6 @@ function AppShell({
   )
 }
 
-function SettingsModal({
-  open,
-  section,
-  onOpenChange,
-  onSectionChange,
-}: {
-  open: boolean
-  section: SettingsSection
-  onOpenChange: (open: boolean) => void
-  onSectionChange: (section: SettingsSection) => void
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton
-        className={cn(
-          "h-[min(720px,88vh)] w-[min(1040px,calc(100vw-32px))] max-w-none gap-0 overflow-hidden p-0",
-          "border-border/60 bg-background/98 shadow-2xl shadow-black/30 backdrop-blur-xl",
-          "duration-300 ease-out origin-top-right",
-          "data-open:slide-in-from-top-6 data-open:slide-in-from-right-8 data-open:zoom-in-90",
-          "data-closed:slide-out-to-top-4 data-closed:slide-out-to-right-6 data-closed:zoom-out-95",
-        )}
-      >
-        <DialogTitle className="sr-only">Settings</DialogTitle>
-        <SettingsDashboard
-          activeSection={section}
-          onSectionChange={onSectionChange}
-        />
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 function MainContent({
   activeTab,
   activeTopic,
