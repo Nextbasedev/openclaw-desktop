@@ -370,6 +370,39 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("partial same-cursor bootstrap cannot temporarily hide the latest local user turn", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 20,
+      status: "done",
+      historyCoverage: "metadata",
+      messageCount: 50,
+      messages: [
+        { messageId: "u-prev", role: "user", text: "previous" },
+        { messageId: "a-prev", role: "assistant", text: "previous answer" },
+        { messageId: "u-latest", role: "user", text: "hii" },
+        { messageId: "a-latest", role: "assistant", text: "hello" },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 20,
+      status: "done",
+      historyCoverage: "metadata",
+      messageCount: 50,
+      messages: [
+        { messageId: "u-prev", role: "user", text: "previous" },
+        { messageId: "a-prev", role: "assistant", text: "previous answer" },
+      ],
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "u-latest", text: "hii" }),
+      expect.objectContaining({ messageId: "a-latest", text: "hello" }),
+    ]))
+  })
+
   test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

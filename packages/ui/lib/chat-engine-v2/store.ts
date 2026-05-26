@@ -1572,12 +1572,17 @@ export function seedGlobalChatSession(params: {
   const incomingToolIds = new Set((params.pendingTools ?? []).map((tool) => tool.id))
   const incomingDropsRunningTool = state.pendingTools.some((tool) => tool.status === "running" && !incomingToolIds.has(tool.id))
   const hasNewerCursor = state.cursor > incomingCursor && state.messages.length > 0
+  const incomingMayBePartial = incomingHistoryCoverage !== "full"
+  const incomingPartialDropsLocalMessages = incomingMayBePartial &&
+    incomingCursor <= state.cursor &&
+    state.messages.length > 0 &&
+    incomingDropsMessages
   const hasSameCursorLiveState = state.cursor === incomingCursor &&
     state.messages.length > 0 &&
     hasLiveState &&
     incomingIsTerminal &&
     (incomingDropsMessages || incomingDropsRunningTool)
-  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState
+  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
   state.messages = hadNewerLiveState
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)

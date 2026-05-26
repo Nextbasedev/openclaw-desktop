@@ -67,4 +67,32 @@ describe("ChatView tool display grouping", () => {
 
     expect(tools[0]).toMatchObject({ id: "exec", duration: "2.0s" })
   })
+
+  test("does not show a completed chat tool as running when display grouping sees stale updates", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "u1", role: "user", text: "check" },
+      {
+        messageId: "a-tools-done",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "exec", tool: "exec", status: "success", duration: "2.0s", resultText: "ok" }],
+      },
+      {
+        messageId: "a-tools-stale",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "exec", tool: "exec", status: "running" }],
+      },
+      { messageId: "a-final", role: "assistant", text: "Done." },
+    ]
+
+    const { grouped } = groupAssistantToolCallsByMessage(messages)
+
+    expect(grouped.get("a-tools-done")?.[0]).toMatchObject({
+      id: "exec",
+      status: "success",
+      duration: "2.0s",
+      resultText: "ok",
+    })
+  })
 })

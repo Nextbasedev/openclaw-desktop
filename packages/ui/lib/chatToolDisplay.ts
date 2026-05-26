@@ -15,6 +15,19 @@ function mergeToolCalls(
       merged.set(key, tool)
       continue
     }
+    const currentTerminal = current.status === "success" || current.status === "error"
+    if (currentTerminal && tool.status === "running") {
+      merged.set(key, {
+        ...tool,
+        ...current,
+        duration: current.duration ?? tool.duration,
+        startedAt: current.startedAt ?? tool.startedAt,
+        completedAt: current.completedAt ?? tool.completedAt,
+        resultText: current.resultText ?? tool.resultText,
+        awaitingResult: false,
+      })
+      continue
+    }
     const next = { ...current, ...tool }
     if (current.duration && !tool.duration) next.duration = current.duration
     if (current.duration && current.status !== "running") {
