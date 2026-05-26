@@ -2,7 +2,6 @@ import { useState, useCallback, useMemo, useEffect, useRef, type CSSProperties }
 import { Reorder } from "framer-motion"
 import type { ActiveTopic } from "@/types/project"
 import { ChatsSection, type ActiveChat } from "./ChatsSection"
-import { SpacesSection } from "./SpacesSection"
 import { CollapsedSpacesPopover } from "./CollapsedSpacesPopover"
 import { cn } from "@/lib/utils"
 import { SidebarItem, GlassTooltip, type SidebarNavItem } from "./SidebarItem"
@@ -192,32 +191,70 @@ export function Sidebar({
 
         <nav className={cn(
           "relative z-10 flex-1 py-3",
-          "px-2",
-          showExpandedContent ? "overflow-y-auto scroll-smooth overscroll-contain" : "overflow-hidden",
+          showExpandedContent ? "flex min-h-0 overflow-hidden" : "overflow-hidden px-2",
           isHiddenMobileSidebar && "hidden",
         )}>
-          {showPrimaryNav && mounted && showExpandedContent ? (
-            <Reorder.Group
-              axis="y"
-              values={items.map((i) => i.id)}
-              onReorder={onItemsReorder}
-              as="div"
-              className="flex flex-col gap-0.5"
-            >
-              {items.map((item) => (
-                <SidebarItem
-                  key={item.id}
-                  item={item}
-                  isActive={activeTab === item.id}
-                  onClick={() => handlePrimaryTabClick(item.id)}
-                  href={NAV_HREFS[item.id]}
-                  collapsed={itemCollapsed}
-                  draggable
+          {showExpandedContent ? (
+            <>
+              <div className="flex w-[54px] shrink-0 flex-col items-center overflow-y-auto px-2 pb-2 scrollbar-hide">
+                <CollapsedSpacesPopover
+                  spaces={spaces}
+                  activeSpaceId={activeSpaceId}
+                  onSpaceSwitch={onSpaceSwitch}
+                  onSpaceNewChat={onSpaceNewChat}
+                  onSpaceCreate={onSpaceCreate}
                 />
-              ))}
-            </Reorder.Group>
+              </div>
+
+              <div className="min-w-0 flex-1 overflow-y-auto px-2 scroll-smooth overscroll-contain">
+                {showPrimaryNav && mounted && (
+                  <Reorder.Group
+                    axis="y"
+                    values={items.map((i) => i.id)}
+                    onReorder={onItemsReorder}
+                    as="div"
+                    className="flex flex-col gap-0.5"
+                  >
+                    {items.map((item) => (
+                      <SidebarItem
+                        key={item.id}
+                        item={item}
+                        isActive={activeTab === item.id}
+                        onClick={() => handlePrimaryTabClick(item.id)}
+                        href={NAV_HREFS[item.id]}
+                        collapsed={itemCollapsed}
+                        draggable
+                      />
+                    ))}
+                  </Reorder.Group>
+                )}
+
+                <div className={cn(showPrimaryNav && "mt-2 border-t border-border/10 pt-2")}>
+                  <ChatsSection
+                    collapsed={false}
+                    sectionLabel={activeSpaceName}
+                    activeChat={activeChat}
+                    onChatSelect={onChatSelect}
+                    onChatClear={onChatClear}
+                    onNewChat={onNewChat}
+                    refreshTrigger={chatRefreshTrigger}
+                    spaceId={activeSpaceId}
+                  />
+                </div>
+              </div>
+            </>
           ) : !showExpandedContent ? (
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col items-center gap-3 pt-1">
+              <CollapsedSpacesPopover
+                spaces={spaces}
+                activeSpaceId={activeSpaceId}
+                onSpaceSwitch={onSpaceSwitch}
+                onSpaceNewChat={onSpaceNewChat}
+                onSpaceCreate={onSpaceCreate}
+              />
+
+              <div className="mt-1 h-px w-7 bg-border/40" />
+
               {items.map((item) => (
                 <SidebarItem
                   key={item.id}
@@ -276,46 +313,7 @@ export function Sidebar({
             </div>
           ) : null}
 
-          <div className={cn(showPrimaryNav && "mt-2 border-t border-border/10 pt-2", !showExpandedContent && "hidden")}>
-            <ChatsSection
-              collapsed={false}
-              sectionLabel={activeSpaceName}
-              activeChat={activeChat}
-              onChatSelect={onChatSelect}
-              onChatClear={onChatClear}
-              onNewChat={onNewChat}
-              refreshTrigger={chatRefreshTrigger}
-              spaceId={activeSpaceId}
-            />
-          </div>
-
         </nav>
-
-        {!isHiddenMobileSidebar && !showExpandedContent && (
-          <div className="relative z-10 border-t border-white/[0.06] px-2 pb-3 pt-2.5 dark:border-white/[0.06]">
-            <div className="flex justify-center">
-              <CollapsedSpacesPopover
-                spaces={spaces}
-                activeSpaceId={activeSpaceId}
-                onSpaceSwitch={onSpaceSwitch}
-                onSpaceCreate={onSpaceCreate}
-              />
-            </div>
-          </div>
-        )}
-
-        {!isHiddenMobileSidebar && showExpandedContent && (
-          <SpacesSection
-            spaces={spaces}
-            activeSpaceId={activeSpaceId}
-            onSwitch={onSpaceSwitch}
-            onNewChat={onSpaceNewChat}
-            onCreate={onSpaceCreate}
-            onUpdate={onSpaceUpdate}
-            onArchive={onSpaceArchive}
-            onDelete={onSpaceDelete}
-          />
-        )}
 
         {!collapsed && (
           <button
