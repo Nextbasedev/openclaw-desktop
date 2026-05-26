@@ -804,6 +804,7 @@ export function ChatView({
   } | null>(null)
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
+  const isAtBottomRef = useRef(true)
   // Track whether Virtuoso has been scrolled to bottom after first data load.
   // On first open / refresh, messages arrive async (warm cache or bootstrap)
   // after Virtuoso mounts. initialTopMostItemIndex may not position correctly
@@ -1760,7 +1761,15 @@ export function ChatView({
         computeItemKey={(_, msg) => msg.messageId}
         firstItemIndex={virtuosoFirstItemIndex}
         initialTopMostItemIndex={{ index: "LAST", align: "end" }}
-        followOutput="smooth"
+        followOutput={(isAtBottom) => {
+          // Streaming assistant/tool patches can update row heights many times per
+          // second. Smooth-following every update makes the viewport visibly
+          // jump/animate on each assistant message. Only follow when the user is
+          // already pinned to the bottom, and use an immediate adjustment so the
+          // current visual anchor stays stable while content grows.
+          if (!isAtBottom || !isAtBottomRef.current) return false
+          return "auto"
+        }}
         alignToBottom
         increaseViewportBy={{ top: 400, bottom: 200 }}
         className="flex-1"
@@ -1772,6 +1781,7 @@ export function ChatView({
           }
         }}
         atBottomStateChange={(atBottom) => {
+          isAtBottomRef.current = atBottom
           if (atBottom) setShowJumpToBottom(false)
         }}
         itemContent={(index, msg) => renderMessageRow(index, msg)}
