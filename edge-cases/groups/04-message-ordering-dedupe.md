@@ -43,3 +43,7 @@
 ## Expected invariant
 
 After bootstrap settles, there should not be two user rows with same normalized text/attachments/client id in the same turn.
+
+Canonical rows with different valid `gatewayIndex`/`openclawSeq` must remain separate even if text repeats.
+
+See `docs/plans/group-04-message-ordering-dedupe.md` for the detailed implementation plan.
