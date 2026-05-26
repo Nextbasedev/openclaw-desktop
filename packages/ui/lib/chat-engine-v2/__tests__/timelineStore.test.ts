@@ -120,6 +120,31 @@ describe("ChatTimelineStore", () => {
       expect(snap.messages[0].messageId).toBe("real-1")
       expect(snap.messages[0].text).toBe("sent!")
     })
+
+    it("drops optimistic user when bootstrap contains canonical echo with different id", () => {
+      store.applyBootstrap([msg("prev", "previous", 1, "assistant")], 10)
+      store.flushSync()
+      store.applyOptimistic({
+        ...msg("optimistic-user", "hii", 0, "user"),
+        createdAt: "2026-05-26T03:40:00.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      })
+      store.flushSync()
+
+      store.applyBootstrap([
+        msg("prev", "previous", 1, "assistant"),
+        {
+          ...msg("gateway-user", "hii", 2, "user"),
+          createdAt: "2026-05-26T03:40:02.000Z",
+        },
+      ], 20)
+      store.flushSync()
+
+      const snap = store.getSnapshot()
+      expect(snap.messages.map((message) => message.messageId)).toEqual(["prev", "gateway-user"])
+      expect(snap.messages.some((message) => message.isOptimistic)).toBe(false)
+    })
   })
 
   describe("conflict resolution", () => {

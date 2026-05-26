@@ -388,6 +388,11 @@ function findVisibleToolById(state: SessionState, id: string | null) {
   return null
 }
 
+function findVisibleTerminalToolById(state: SessionState, id: string | null) {
+  const tool = findVisibleToolById(state, id)
+  return tool && (tool.status === "success" || tool.status === "error") ? tool : null
+}
+
 function applyToolResultById(state: SessionState, params: { id: string | null; resultText: string; createdAtMs: number; source?: unknown }) {
   const pendingIndex = params.id
     ? state.pendingTools.findIndex((tool) => tool.id === params.id)
@@ -471,13 +476,17 @@ function mergeToolCalls(existing: InlineToolCall[] | undefined, incoming: Inline
       merged.set(tool.id, tool)
       continue
     }
+    const terminalCurrent = current.status === "success" || current.status === "error"
+    const staleRunningIncoming = terminalCurrent && tool.status === "running"
     merged.set(tool.id, {
       ...current,
-      ...tool,
+      ...(staleRunningIncoming ? {} : tool),
       duration: tool.duration ?? current.duration,
       startedAt: tool.startedAt ?? current.startedAt,
       completedAt: tool.completedAt ?? current.completedAt,
       awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? current.awaitingResult),
+      resultText: mergeToolResultText(tool.resultText, current.resultText),
+      approval: tool.approval ?? current.approval,
     })
   }
   return Array.from(merged.values())
@@ -673,6 +682,16 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   }
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
   const existingTool = pending.get(inline.id)
+  const visibleTerminalTool = findVisibleTerminalToolById(state, inline.id)
+  if (visibleTerminalTool && inline.status === "running") {
+    frontendLog("stream", "global-chat-session.visible-terminal-tool-running-skip", {
+      toolCallId: inline.id,
+      tool: inline.tool,
+      existingStatus: visibleTerminalTool.status,
+      patchCursor: frame.patch.cursor,
+    }, "debug")
+    return false
+  }
   pending.set(inline.id, {
     ...(existingTool ?? inline),
     ...inline,
@@ -822,6 +841,16 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
       block.id,
       `tool:${messageId}:${blockIndex}:${tool}`
     )
+    const visibleTerminalTool = findVisibleTerminalToolById(state, id)
+    if (visibleTerminalTool) {
+      frontendLog("stream", "global-chat-session.visible-terminal-tool-block-skip", {
+        toolCallId: id,
+        tool,
+        existingStatus: visibleTerminalTool.status,
+        patchCursor: frame.patch.cursor,
+      }, "debug")
+      continue
+    }
     const input = block.arguments ?? block.input
     const existing = pending.get(id)
     pending.set(id, {
@@ -980,8 +1009,33 @@ function isUserMessagePatch(frame: PatchFrame) {
   return message?.role === "user"
 }
 
+function finalizePreviousRunningToolsForNewTurn(state: SessionState) {
+  const latestUserIndex = latestUserMessageIndex(state)
+  if (latestUserIndex < 0) return
+  state.messages = state.messages.map((message, index) => {
+    if (index >= latestUserIndex) return message
+    if (message.role !== "assistant" || !message.toolCalls?.length) return message
+    let changed = false
+    const toolCalls = message.toolCalls.map((tool) => {
+      if (tool.status !== "running") return tool
+      changed = true
+      return {
+        ...tool,
+        status: "success" as const,
+        completedAt: tool.completedAt ?? Date.now(),
+        duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
+      }
+    })
+    return changed ? { ...message, toolCalls } : message
+  })
+}
+
 function resetDetachedActivityForNewTurn(state: SessionState) {
-  state.pendingTools = state.pendingTools.filter((tool) => tool.status === "running")
+  // A fresh user turn must not inherit detached tool activity from the previous
+  // assistant turn. Keeping old running tools here makes the prior tool card
+  // reappear as "running" when the user sends the next message, especially
+  // after patch replay/bootstrap churn.
+  state.pendingTools = []
   state.spawnedSubagents = dedupeSpawnedSubagents(state.spawnedSubagents.filter((spawn) =>
     spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working" || Boolean(spawn.sessionKey)
   ))
@@ -1384,12 +1438,15 @@ function handlePatch(frame: PatchFrame) {
     // middleware patches should carry runStatus/statusLabel explicitly.
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
-  if (isUserMessagePatch(frame) && !state.pendingTools.some((tool) => tool.status === "running")) {
+  if (isUserMessagePatch(frame)) {
     resetDetachedActivityForNewTurn(state)
   }
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
   state.messages = next.messages
+  if (isUserMessagePatch(frame)) {
+    finalizePreviousRunningToolsForNewTurn(state)
+  }
   applyHistoryCoverageFromPatch(state, frame, payload)
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyReasoningFromPatch(state, frame)
@@ -1544,12 +1601,17 @@ export function seedGlobalChatSession(params: {
   const incomingToolIds = new Set((params.pendingTools ?? []).map((tool) => tool.id))
   const incomingDropsRunningTool = state.pendingTools.some((tool) => tool.status === "running" && !incomingToolIds.has(tool.id))
   const hasNewerCursor = state.cursor > incomingCursor && state.messages.length > 0
+  const incomingMayBePartial = incomingHistoryCoverage !== "full"
+  const incomingPartialDropsLocalMessages = incomingMayBePartial &&
+    incomingCursor <= state.cursor &&
+    state.messages.length > 0 &&
+    incomingDropsMessages
   const hasSameCursorLiveState = state.cursor === incomingCursor &&
     state.messages.length > 0 &&
     hasLiveState &&
     incomingIsTerminal &&
     (incomingDropsMessages || incomingDropsRunningTool)
-  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState
+  const hadNewerLiveState = hasNewerCursor || hasSameCursorLiveState || incomingPartialDropsLocalMessages
   state.messages = hadNewerLiveState
     ? dedupeChatMessages([...params.messages, ...state.messages])
     : dedupeChatMessages(params.messages)

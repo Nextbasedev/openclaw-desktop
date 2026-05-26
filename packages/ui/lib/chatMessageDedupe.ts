@@ -61,7 +61,13 @@ function mergeToolCalls(
   if (!incoming?.length) return existing
   const merged = new Map(existing.map((tool) => [tool.id, tool]))
   for (const tool of incoming) {
-    merged.set(tool.id, { ...(merged.get(tool.id) ?? {}), ...tool })
+    const current = merged.get(tool.id)
+    const terminalCurrent = current?.status === "success" || current?.status === "error"
+    const staleRunningIncoming = terminalCurrent && tool.status === "running"
+    merged.set(tool.id, staleRunningIncoming
+      ? { ...tool, ...current }
+      : { ...(current ?? {}), ...tool }
+    )
   }
   return Array.from(merged.values())
 }
@@ -77,8 +83,10 @@ function hasDifferentGatewayIndex(a: ChatMessage, b: ChatMessage) {
   return (
     typeof aIndex === "number" &&
     Number.isFinite(aIndex) &&
+    aIndex > 0 &&
     typeof bIndex === "number" &&
     Number.isFinite(bIndex) &&
+    bIndex > 0 &&
     aIndex !== bIndex
   )
 }
@@ -87,8 +95,10 @@ function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
   return (
     typeof a.gatewayIndex === "number" &&
     Number.isFinite(a.gatewayIndex) &&
+    a.gatewayIndex > 0 &&
     typeof b.gatewayIndex === "number" &&
     Number.isFinite(b.gatewayIndex) &&
+    b.gatewayIndex > 0 &&
     a.gatewayIndex === b.gatewayIndex
   )
 }
@@ -99,21 +109,66 @@ function isAssistantErrorLike(message: ChatMessage) {
   return message.stopReason === "error" && !message.text.trim()
 }
 
+function isOptimisticUserCandidate(message: ChatMessage) {
+  return Boolean(message.isOptimistic || message.sendStatus)
+}
+
+function parsedMessageTime(message: ChatMessage) {
+  if (!message.createdAt) return null
+  const parsed = Date.parse(message.createdAt)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function sameOptimisticUserTurn(a: ChatMessage, b: ChatMessage) {
+  const aOptimistic = isOptimisticUserCandidate(a)
+  const bOptimistic = isOptimisticUserCandidate(b)
+
+  // Two different optimistic rows can be the user intentionally sending the
+  // exact same text twice. Only collapse them if they are literally the same
+  // client row; otherwise the second send appears hidden until Gateway echoes.
+  if (aOptimistic && bOptimistic) return Boolean(a.messageId && a.messageId === b.messageId)
+  if (!aOptimistic && !bOptimistic) return false
+
+  const optimistic = aOptimistic ? a : b
+  const canonical = aOptimistic ? b : a
+  const optimisticTime = parsedMessageTime(optimistic)
+  const canonicalTime = parsedMessageTime(canonical)
+
+  // A canonical echo should be at/after the optimistic send. If the matching
+  // canonical row is older than the optimistic row, it is a previous repeated
+  // user message and must not absorb the new optimistic message.
+  if (optimisticTime !== null && canonicalTime !== null) {
+    const hasAttachmentEcho = Boolean(
+      optimistic.attachments?.length ||
+      canonical.attachments?.length ||
+      ATTACHMENT_PLACEHOLDER_RE.test(optimistic.text) ||
+      ATTACHMENT_PLACEHOLDER_RE.test(canonical.text)
+    )
+    ATTACHMENT_PLACEHOLDER_RE.lastIndex = 0
+    if (hasAttachmentEcho) return Math.abs(canonicalTime - optimisticTime) <= 5 * 60 * 1000
+    if (canonicalTime + 1000 < optimisticTime) return false
+    return canonicalTime - optimisticTime <= 5 * 60 * 1000
+  }
+
+  // Without ordering metadata, text-only optimistic matching is too broad for
+  // repeated messages. Keep both visible rather than hiding a real second send.
+  return false
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
-  if (
-    typeof a.gatewayIndex === "number" &&
-    typeof b.gatewayIndex === "number" &&
-    Number.isFinite(a.gatewayIndex) &&
-    Number.isFinite(b.gatewayIndex) &&
-    a.gatewayIndex === b.gatewayIndex
-  ) {
-    return true
-  }
+  if (hasSameGatewayIndex(a, b)) return true
+  if (hasDifferentGatewayIndex(a, b)) return false
+  if (a.messageId && b.messageId && a.messageId === b.messageId) return true
+
+  const hasOptimisticCandidate = isOptimisticUserCandidate(a) || isOptimisticUserCandidate(b)
+  if (!hasOptimisticCandidate && !isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
+
   const aText = normalizeUserTextForDedupe(a.text)
   const bText = normalizeUserTextForDedupe(b.text)
   if (!aText || aText !== bText) return false
-  if (!hasSameAttachments(a, b) && !a.isOptimistic && !b.isOptimistic) return false
+  if (!hasSameAttachments(a, b) && !hasOptimisticCandidate) return false
+  if (hasOptimisticCandidate) return sameOptimisticUserTurn(a, b)
   if (a.createdAt && b.createdAt) {
     if (a.createdAt === b.createdAt) return true
     const aTime = Date.parse(a.createdAt)
@@ -123,7 +178,6 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
     }
     return false
   }
-  if (a.isOptimistic || b.isOptimistic) return true
   return false
 }
 
@@ -147,6 +201,14 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
   if (aText === bText) return true
+
+  if ((a.text.includes("NO_REPLY") || b.text.includes("NO_REPLY")) && (
+    aText.length <= bText.length
+      ? isAssistantPrefixUpdate(aText, bText)
+      : isAssistantPrefixUpdate(bText, aText)
+  )) {
+    return true
+  }
 
   // Only collapse prefix-style assistant updates when the backend says both
   // records are the same transcript slot. Forked/restored histories can contain
@@ -173,6 +235,10 @@ function isSyntheticMessageId(messageId: string | null | undefined) {
 
 function canTextCollapseRepeatedMessages(a: ChatMessage, b: ChatMessage) {
   if (a.messageId && b.messageId && a.messageId === b.messageId) return true
+  if (a.messageId && b.messageId && (
+    a.messageId === `${b.messageId}-duplicate` ||
+    b.messageId === `${a.messageId}-duplicate`
+  )) return true
   if (!isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
   return hasSameGatewayIndex(a, b)
 }
@@ -316,15 +382,18 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         usage: message.usage ?? existing.usage,
         stopReason: message.stopReason ?? existing.stopReason,
         model: message.model ?? existing.model,
-        toolCalls: message.toolCalls ?? existing.toolCalls,
+        toolCalls: mergeToolCalls(existing.toolCalls, message.toolCalls),
         attachments: message.attachments ?? existing.attachments,
       }
       seenIds.add(message.messageId)
       continue
     }
 
-    const assistantIndex = result.findIndex((existing) =>
-      sameAssistantMessage(existing, message)
+    const lastUserIndex = message.role === "assistant"
+      ? result.map((existing) => existing.role).lastIndexOf("user")
+      : -1
+    const assistantIndex = result.findIndex((existing, index) =>
+      index > lastUserIndex && sameAssistantMessage(existing, message)
     )
     if (assistantIndex >= 0) {
       const existing = result[assistantIndex]

@@ -928,6 +928,13 @@ export function useChatMessages(
       } else {
         if (freshMessages?.length) {
           setMessages((prev) => {
+            // Gateway history can omit tool_call content blocks, producing
+            // fewer parsed messages than the live-projected set. When the
+            // canonical history has fewer messages, merge additively so tool
+            // cards and intermediate assistant rows are not dropped.
+            if (freshMessages.length < prev.length) {
+              return dedupeChatMessages([...prev, ...freshMessages])
+            }
             const freshIds = new Set(freshMessages.map((message) => message.messageId))
             const keptOptimistic = prev.filter(
               (message) =>

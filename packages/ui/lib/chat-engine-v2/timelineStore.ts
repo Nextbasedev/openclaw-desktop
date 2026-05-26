@@ -16,6 +16,7 @@
 
 import type { ChatMessage } from "@/components/ChatView/types"
 import type { InlineToolCall } from "@/components/ChatView/types"
+import { dedupeChatMessages, sameUserMessage } from "../chatMessageDedupe"
 
 export type TimelineSource = "warm-cache" | "bootstrap" | "patch" | "optimistic" | "idle"
 
@@ -70,7 +71,10 @@ export class ChatTimelineStore {
     this.mergeMessages(messages)
     // Re-add optimistic messages not yet in bootstrap
     for (const opt of optimistic) {
-      if (!this.messageMap.has(opt.messageId)) {
+      const confirmedByBootstrap = Array.from(this.messageMap.values()).some((canonical) =>
+        sameUserMessage(canonical, opt)
+      )
+      if (!this.messageMap.has(opt.messageId) && !confirmedByBootstrap) {
         this.messageMap.set(opt.messageId, opt)
       }
     }
@@ -179,7 +183,7 @@ export class ChatTimelineStore {
   }
 
   private getSortedMessages(): ChatMessage[] {
-    const msgs = Array.from(this.messageMap.values())
+    const msgs = dedupeChatMessages(Array.from(this.messageMap.values()))
     // Optimistic messages always sort to the END (after all canonical messages)
     const maxSeq = msgs.reduce((max, m) => m.isOptimistic ? max : Math.max(max, m.gatewayIndex ?? 0), 0)
     msgs.sort((a, b) => {

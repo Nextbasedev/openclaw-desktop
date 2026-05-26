@@ -370,6 +370,39 @@ describe("global V2 chat engine store", () => {
     })
   })
 
+  test("partial same-cursor bootstrap cannot temporarily hide the latest local user turn", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 20,
+      status: "done",
+      historyCoverage: "metadata",
+      messageCount: 50,
+      messages: [
+        { messageId: "u-prev", role: "user", text: "previous" },
+        { messageId: "a-prev", role: "assistant", text: "previous answer" },
+        { messageId: "u-latest", role: "user", text: "hii" },
+        { messageId: "a-latest", role: "assistant", text: "hello" },
+      ],
+    })
+
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 20,
+      status: "done",
+      historyCoverage: "metadata",
+      messageCount: 50,
+      messages: [
+        { messageId: "u-prev", role: "user", text: "previous" },
+        { messageId: "a-prev", role: "assistant", text: "previous answer" },
+      ],
+    })
+
+    expect(getGlobalChatSession("s1")!.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "u-latest", text: "hii" }),
+      expect.objectContaining({ messageId: "a-latest", text: "hello" }),
+    ]))
+  })
+
   test("updates visible completed tool row when result arrives after pending tools were cleared", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
@@ -2699,6 +2732,49 @@ describe("global V2 chat engine store", () => {
     expect(state?.messages.find((m) => m.messageId === "a1")?.toolCalls?.find((t) => t.id === "tc-2")?.status).toBe("success")
   })
 
+  test("history backfill running tool block cannot resurrect a completed visible tool", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "thinking",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "do tool" },
+        { messageId: "a-tool", role: "assistant", text: "", toolCalls: [{ id: "tc-done", tool: "session_status", status: "success", duration: "0.5s", resultText: "ok" }] },
+        { messageId: "a-text", role: "assistant", text: "Done" },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          semanticType: "chat.assistant.delta",
+          runStatus: "tool_running",
+          statusLabel: "session_status",
+          message: {
+            id: "a-backfill-running",
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc-done", name: "session_status", input: {} }],
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.pendingTools.find((t) => t.id === "tc-done")).toBeUndefined()
+    expect(state?.messages.flatMap((m) => m.toolCalls ?? []).find((t) => t.id === "tc-done")).toMatchObject({
+      status: "success",
+      duration: "0.5s",
+      resultText: "ok",
+    })
+  })
+
   test("running tool stays in pendingTools until result arrives", () => {
     seedGlobalChatSession({
       sessionKey: "s1",
@@ -2729,6 +2805,43 @@ describe("global V2 chat engine store", () => {
     const state = getGlobalChatSession("s1")
     expect(state?.pendingTools.find((t) => t.id === "tc-run")?.status).toBe("running")
     expect(state?.pendingTools.find((t) => t.id === "tc-new")?.status).toBe("running")
+  })
+
+  test("new user turn clears previous detached running tools and finalizes old visible tool rows", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tc-old", tool: "exec", status: "running", startedAt: Date.now() - 1000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "first" },
+        { messageId: "a1", role: "assistant", text: "", toolCalls: [{ id: "tc-old", tool: "exec", status: "running", startedAt: Date.now() - 1000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.user.created",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            id: "u2",
+            role: "user",
+            text: "second",
+            createdAt: new Date().toISOString(),
+          },
+          runStatus: "thinking",
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.pendingTools).toEqual([])
+    expect(state?.messages.find((m) => m.messageId === "a1")?.toolCalls?.[0]?.status).toBe("success")
   })
 
   test("awaitingResult tool stays visible through UI filter", () => {

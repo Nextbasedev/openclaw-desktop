@@ -15,6 +15,19 @@ function mergeToolCalls(
       merged.set(key, tool)
       continue
     }
+    const currentTerminal = current.status === "success" || current.status === "error"
+    if (currentTerminal && tool.status === "running") {
+      merged.set(key, {
+        ...tool,
+        ...current,
+        duration: current.duration ?? tool.duration,
+        startedAt: current.startedAt ?? tool.startedAt,
+        completedAt: current.completedAt ?? tool.completedAt,
+        resultText: current.resultText ?? tool.resultText,
+        awaitingResult: false,
+      })
+      continue
+    }
     const next = { ...current, ...tool }
     if (current.duration && !tool.duration) next.duration = current.duration
     if (current.duration && current.status !== "running") {
@@ -42,6 +55,52 @@ export function mergeToolCallsForDisplay(
   return mergeToolCalls(base ?? [], filteredLive)
 }
 
+export function terminalToolStateById(messages: ChatMessage[], live?: InlineToolCall[]) {
+  const terminal = new Map<string, InlineToolCall>()
+  const add = (tool: InlineToolCall) => {
+    if (!tool.id) return
+    if (tool.status !== "success" && tool.status !== "error") return
+    const current = terminal.get(tool.id)
+    terminal.set(tool.id, current ? { ...current, ...tool } : tool)
+  }
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const tool of message.toolCalls ?? []) add(tool)
+  }
+  for (const tool of live ?? []) add(tool)
+  return terminal
+}
+
+export function applyTerminalToolState(
+  tools: InlineToolCall[],
+  terminalById: Map<string, InlineToolCall>,
+  options: { finalizeStaleRunning?: boolean } = {}
+) {
+  if (tools.length === 0) return tools
+  if (terminalById.size === 0 && !options.finalizeStaleRunning) return tools
+  return tools.map((tool) => {
+    const terminal = terminalById.get(tool.id)
+    if (!terminal) {
+      if (!options.finalizeStaleRunning || (tool.status !== "running" && !tool.awaitingResult)) return tool
+      return {
+        ...tool,
+        status: "success" as const,
+        awaitingResult: false,
+      }
+    }
+    if (tool.status !== "running" && !tool.awaitingResult) return tool
+    return {
+      ...tool,
+      ...terminal,
+      duration: terminal.duration ?? tool.duration,
+      startedAt: terminal.startedAt ?? tool.startedAt,
+      completedAt: terminal.completedAt ?? tool.completedAt,
+      resultText: terminal.resultText ?? tool.resultText,
+      awaitingResult: false,
+    }
+  })
+}
+
 export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
   const grouped = new Map<string, InlineToolCall[]>()
   const suppressed = new Set<string>()
@@ -61,7 +120,15 @@ export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
       flush()
       continue
     }
-    if (message.role !== "assistant" || !message.toolCalls?.length) continue
+    if (message.role !== "assistant") continue
+    if (message.text.trim()) {
+      // Assistant text is the visible boundary of a response segment. Do not
+      // keep merging later tool activity into the earlier steps block, or one
+      // new running tool makes the completed steps above old answers look like
+      // they are loading again.
+      flush()
+    }
+    if (!message.toolCalls?.length) continue
 
     if (!firstToolMessageId) {
       firstToolMessageId = message.messageId

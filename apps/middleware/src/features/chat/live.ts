@@ -364,9 +364,9 @@ export class ChatLiveIngest {
     return isObject(value) ? value : {};
   }
 
-  private rememberConfirmedUser(sessionKey: string, optimisticId: string, message: { data: OpenClawMessage; openclawSeq: number }, optimistic?: { runId?: string; idempotencyKey?: string } | null) {
+  private rememberConfirmedUser(sessionKey: string, optimisticId: string, message: { data: OpenClawMessage; openclawSeq: number }, optimistic?: { runId?: string; idempotencyKey?: string; text?: string } | null) {
     if (message.data.role !== "user") return;
-    const text = normalizeMessageText(textFromMessage(message.data));
+    const text = normalizeMessageText(textFromMessage(message.data) || optimistic?.text || "");
     if (!text) return;
     const now = Date.now();
     const fresh = (this.recentlyConfirmedUsers.get(sessionKey) ?? []).filter((entry) => now - entry.confirmedAtMs < RECENT_CONFIRMED_USER_ECHO_TTL_MS);
