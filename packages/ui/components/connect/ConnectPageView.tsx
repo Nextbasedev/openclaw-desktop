@@ -80,14 +80,14 @@ Context:
 
 Source:
 - Repo: https://github.com/Nextbasedev/openclaw-desktop.git
-- Branch: dev-2-temp
+- Branch: v3
 
 Setup:
 1. Ensure Node.js 22+ and pnpm exist.
 2. Start/verify OpenClaw Gateway:
    - openclaw gateway status
    - expected Middleware gateway URL: ws://127.0.0.1:18789
-3. Clone/update the repo, checkout dev-2-temp, install, and build:
+3. Clone/update the repo, checkout v3, install, and build:
    - pnpm install --frozen-lockfile
    - pnpm --filter @openclaw/desktop-middleware build
 4. Run apps/middleware on port 8787:
@@ -128,14 +128,14 @@ Context:
 
 Source:
 - Repo: https://github.com/Nextbasedev/openclaw-desktop.git
-- Branch: dev-2-temp
+- Branch: v3
 
 Setup:
 1. Ensure Node.js 22+ and pnpm exist.
 2. Start/verify OpenClaw Gateway on this VPS:
    - openclaw gateway status
    - expected Middleware gateway URL: ws://127.0.0.1:18789
-3. Clone/update the repo, checkout dev-2-temp, install, and build:
+3. Clone/update the repo, checkout v3, install, and build:
    - pnpm install --frozen-lockfile
    - pnpm --filter @openclaw/desktop-middleware build
 4. Run apps/middleware on port 8787:
