@@ -1853,15 +1853,17 @@ export function ChatView({
                   />
                 )}
               </AnimatePresence>
-              {statusText && (
-                <div className="mt-4 flex items-center pl-1">
-                  <ProcessStatusIcon tool={liveTool?.tool} />
-                  <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
-                    {statusText.replace(/\.{3}$/, "")}
-                    <span className="thinking-ellipsis" aria-hidden="true" />
-                  </span>
-                </div>
-              )}
+              <div className="mt-4 flex h-[21px] items-center pl-1">
+                {statusText && (
+                  <>
+                    <ProcessStatusIcon tool={liveTool?.tool} />
+                    <span className="thinking-shimmer text-[14px] font-medium tracking-[-0.01em]">
+                      {statusText.replace(/\.{3}$/, "")}
+                      <span className="thinking-ellipsis" aria-hidden="true" />
+                    </span>
+                  </>
+                )}
+              </div>
               <div ref={bottomRef} className="h-8" />
             </div>
           ),
