@@ -5,18 +5,25 @@ import { cn } from "@/lib/utils"
 import { middlewareFetch } from "@/lib/middleware-client"
 import type { InlineToolCall } from "./types"
 
-function isInferredFallbackResult(value: unknown) {
+function isPlaceholderToolResult(value: unknown) {
   if (!value) return false
   if (typeof value === "object" && !Array.isArray(value)) {
-    const record = value as { inferred?: unknown; reason?: unknown }
-    return record.inferred === true && typeof record.reason === "string"
+    const record = value as { inferred?: unknown; awaitingResult?: unknown; completionInferred?: unknown; source?: unknown; reason?: unknown }
+    return (record.inferred === true && typeof record.reason === "string") ||
+      record.awaitingResult === true ||
+      (
+        "awaitingResult" in record &&
+        "completionInferred" in record &&
+        record.source === "gateway_live_tool_result" &&
+        typeof record.reason === "string"
+      )
   }
   if (typeof value !== "string") return false
   const trimmed = value.trim()
   if (!trimmed.startsWith("{")) return false
   try {
     const parsed = JSON.parse(trimmed) as unknown
-    return isInferredFallbackResult(parsed)
+    return isPlaceholderToolResult(parsed)
   } catch {
     return false
   }
@@ -26,7 +33,7 @@ const TOOL_OUTPUT_COLLAPSE_THRESHOLD = 2000
 
 function formatDetail(value: unknown, limit: number) {
   if (value === undefined || value === null || value === "") return ""
-  if (isInferredFallbackResult(value)) return ""
+  if (isPlaceholderToolResult(value)) return ""
   let text = ""
   try {
     text = typeof value === "string" ? value : JSON.stringify(value, null, 2)
@@ -38,7 +45,7 @@ function formatDetail(value: unknown, limit: number) {
 
 function formatDetailFull(value: unknown) {
   if (value === undefined || value === null || value === "") return ""
-  if (isInferredFallbackResult(value)) return ""
+  if (isPlaceholderToolResult(value)) return ""
   try {
     return typeof value === "string" ? value : JSON.stringify(value, null, 2)
   } catch {

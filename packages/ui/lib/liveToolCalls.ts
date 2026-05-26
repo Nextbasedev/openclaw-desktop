@@ -30,8 +30,13 @@ function extractToolResultText(value: unknown): string {
 export function isAwaitingLiveToolResult(result: unknown): boolean {
   if (!result) return false
   if (typeof result === "object" && !Array.isArray(result)) {
-    const record = result as { awaitingResult?: unknown; reason?: unknown }
-    return record.awaitingResult === true
+    const record = result as { awaitingResult?: unknown; completionInferred?: unknown; source?: unknown; reason?: unknown }
+    return record.awaitingResult === true || (
+      "awaitingResult" in record &&
+      "completionInferred" in record &&
+      record.source === "gateway_live_tool_result" &&
+      typeof record.reason === "string"
+    )
   }
   if (typeof result !== "string") return false
   const trimmed = result.trim()

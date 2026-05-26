@@ -47,6 +47,17 @@ describe("live tool call event helpers", () => {
     expect(liveToolResultText(meta)).toBe("")
   })
 
+  it("suppresses sanitized awaiting-result schema metadata", () => {
+    const meta = {
+      awaitingResult: { type: "boolean" },
+      completionInferred: { type: "boolean" },
+      source: "gateway_live_tool_result",
+      reason: "gateway_agent_item_end_pending_history_result",
+    }
+    expect(isAwaitingLiveToolResult(meta)).toBe(true)
+    expect(liveToolResultText(meta)).toBe("")
+  })
+
   it("renders structured tool result blocks when text is an object", () => {
     const output = liveToolResultText([
       { type: "text", text: { url: "https://example.com", status: 200, title: "Example" } },
