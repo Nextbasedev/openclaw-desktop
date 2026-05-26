@@ -1,5 +1,18 @@
 # Group 03 — Subagent Turn Model
 
+## Status
+
+**Partially complete — UI scope fix implemented on `fix/group-03-subagent-turn-model`.**
+
+What is fixed:
+- The floating composer `SubagentBar` no longer renders session-global `spawnedSubagents`.
+- It uses current/latest user-turn scope derived from rendered message `sessions_spawn` tool calls.
+- Activity remains whole-session scoped, so historical subagents are still available for audit/debugging.
+- Regression tests cover old completed linked subagents not inflating the bottom bar and live current-turn spawns being included.
+
+Remaining edge case to watch:
+- If a future focused/new-window repro shows current-turn reconstruction mismatch because bootstrap history lacks enough message/tool ordering, add explicit anchor fields (`triggerUserMessageId`, `parentAssistantMessageId`, `turnId`) to `SpawnedSubagent` and populate them in live + bootstrap paths.
+
 ## Connected issues
 
 - Floating subagent bar shows 8 while inline reply shows 4.

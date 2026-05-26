@@ -480,7 +480,11 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
     id: `spawn:${tool.id}`,
     label: subagentLabelFromToolInput(tool.input),
     sessionKey: childSessionKey,
-    status: tool.status === "error" ? "failed" : tool.status === "success" ? "completed" : childSessionKey ? "working" : "spawning",
+    // A successful sessions_spawn only means the child session was requested.
+    // The child remains spawning/working until its own session status arrives.
+    // Never infer "completed" from the parent tool result; that is what made
+    // freshly-created subagents flash as done during live/backfill races.
+    status: tool.status === "error" ? "failed" : childSessionKey ? "working" : tool.status === "success" ? "completed" : "spawning",
     toolCallId: tool.id,
   }
 }
@@ -1953,17 +1957,23 @@ export function useChatMessages(
         const displayMessages = globalAfterSeed?.messages.length
           ? globalAfterSeed.messages
           : seedMessages
+        const displayPendingTools = globalAfterSeed?.pendingTools ?? inlineTools
+        const displaySpawnedSubagents = globalAfterSeed?.spawnedSubagents ?? canonicalSpawns
+        const displayStatus = globalAfterSeed?.status ?? seedStatus
+        const displayStatusLabel = globalAfterSeed?.statusLabel ?? seedStatusLabel
+        pendingToolMapRef.current = new Map(displayPendingTools.map((tool) => [tool.id, tool]))
+        spawnMapRef.current = new Map(displaySpawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
         void setWarmChatCache(sessionKey, {
           messages: displayMessages,
           cursor: typeof bootstrapCursor === "number" ? bootstrapCursor : v2CursorRef.current,
-          runStatus: runStatus ?? seedStatus,
-          statusLabel: seedStatusLabel,
+          runStatus: runStatus ?? displayStatus,
+          statusLabel: displayStatusLabel,
           activeRunSummary: activeRun ? {
             runId: activeRun.runId,
             status: activeRun.status,
             startedAt: activeRun.startedAtMs ?? null,
           } : null,
-          pendingTools: inlineTools,
+          pendingTools: displayPendingTools,
           messageCount: typeof bootstrapKnownTotal === "number" ? bootstrapKnownTotal : (typeof canonicalMessageCount === "number" ? canonicalMessageCount : displayMessages.length),
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
           fullMessagesIncluded: bootstrapHistoryCoverage !== "windowed",
@@ -1982,12 +1992,12 @@ export function useChatMessages(
           Boolean(typeof canonicalMessageCount === "number" && canonicalMessageCount > displayMessages.length)
         )
         setMessages(displayMessages)
-        setLocalPendingTools(inlineTools)
-        setLocalSpawnedSubagents(canonicalSpawns)
-        setStatus(seedStatus)
-        setStatusLabel(seedStatusLabel)
-        setErrorMessage(seedStatus === "error" ? seedStatusLabel : null)
-        if (isActiveRunStatus(seedStatus)) markOptimisticChatActivity(sessionKey, seedStatusLabel)
+        setLocalPendingTools(displayPendingTools)
+        setLocalSpawnedSubagents(displaySpawnedSubagents)
+        setStatus(displayStatus)
+        setStatusLabel(displayStatusLabel)
+        setErrorMessage(displayStatus === "error" ? displayStatusLabel : null)
+        if (isActiveRunStatus(displayStatus)) markOptimisticChatActivity(sessionKey, displayStatusLabel)
         else clearCachedChatActivity(sessionKey)
         setLoading(false)
         markHistoryLoaded()
@@ -2010,8 +2020,8 @@ export function useChatMessages(
           streamCursor: v2CursorRef.current,
           messageCount: displayMessages.length,
           canonicalMessageCount: canonicalMessages.length,
-          spawnedSubagentCount: canonicalSpawns.length,
-          pendingToolCount: inlineTools.length,
+          spawnedSubagentCount: displaySpawnedSubagents.length,
+          pendingToolCount: displayPendingTools.length,
           historyCoverage: bootstrapHistoryCoverage === "windowed" ? "windowed" : "full",
           dataSource: source,
           elapsedSinceMountMs: Date.now() - mountStartedAtMs,
@@ -2019,11 +2029,11 @@ export function useChatMessages(
         frontendLog("chat", "chat.bootstrap.applied", {
           sessionKey,
           messageCount: canonicalMessages.length,
-          status: seedStatus,
-          statusLabel: seedStatusLabel,
+          status: displayStatus,
+          statusLabel: displayStatusLabel,
           cursor: bootstrapCursor,
-          pendingToolCount: inlineTools.length,
-          spawnedSubagentCount: canonicalSpawns.length,
+          pendingToolCount: displayPendingTools.length,
+          spawnedSubagentCount: displaySpawnedSubagents.length,
           canonical: true,
           source,
           projectionVersion,
