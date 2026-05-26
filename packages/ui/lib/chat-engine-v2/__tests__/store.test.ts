@@ -2731,6 +2731,43 @@ describe("global V2 chat engine store", () => {
     expect(state?.pendingTools.find((t) => t.id === "tc-new")?.status).toBe("running")
   })
 
+  test("new user turn clears previous detached running tools and finalizes old visible tool rows", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "tool_running",
+      pendingTools: [{ id: "tc-old", tool: "exec", status: "running", startedAt: Date.now() - 1000 }],
+      messages: [
+        { messageId: "u1", role: "user", text: "first" },
+        { messageId: "a1", role: "assistant", text: "", toolCalls: [{ id: "tc-old", tool: "exec", status: "running", startedAt: Date.now() - 1000 }] },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.user.created",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          message: {
+            id: "u2",
+            role: "user",
+            text: "second",
+            createdAt: new Date().toISOString(),
+          },
+          runStatus: "thinking",
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.pendingTools).toEqual([])
+    expect(state?.messages.find((m) => m.messageId === "a1")?.toolCalls?.[0]?.status).toBe("success")
+  })
+
   test("awaitingResult tool stays visible through UI filter", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

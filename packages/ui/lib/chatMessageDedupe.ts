@@ -103,19 +103,66 @@ function isAssistantErrorLike(message: ChatMessage) {
   return message.stopReason === "error" && !message.text.trim()
 }
 
+function isOptimisticUserCandidate(message: ChatMessage) {
+  return Boolean(message.isOptimistic || message.sendStatus)
+}
+
+function parsedMessageTime(message: ChatMessage) {
+  if (!message.createdAt) return null
+  const parsed = Date.parse(message.createdAt)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function sameOptimisticUserTurn(a: ChatMessage, b: ChatMessage) {
+  const aOptimistic = isOptimisticUserCandidate(a)
+  const bOptimistic = isOptimisticUserCandidate(b)
+
+  // Two different optimistic rows can be the user intentionally sending the
+  // exact same text twice. Only collapse them if they are literally the same
+  // client row; otherwise the second send appears hidden until Gateway echoes.
+  if (aOptimistic && bOptimistic) return Boolean(a.messageId && a.messageId === b.messageId)
+  if (!aOptimistic && !bOptimistic) return false
+
+  const optimistic = aOptimistic ? a : b
+  const canonical = aOptimistic ? b : a
+  const optimisticTime = parsedMessageTime(optimistic)
+  const canonicalTime = parsedMessageTime(canonical)
+
+  // A canonical echo should be at/after the optimistic send. If the matching
+  // canonical row is older than the optimistic row, it is a previous repeated
+  // user message and must not absorb the new optimistic message.
+  if (optimisticTime !== null && canonicalTime !== null) {
+    const hasAttachmentEcho = Boolean(
+      optimistic.attachments?.length ||
+      canonical.attachments?.length ||
+      ATTACHMENT_PLACEHOLDER_RE.test(optimistic.text) ||
+      ATTACHMENT_PLACEHOLDER_RE.test(canonical.text)
+    )
+    ATTACHMENT_PLACEHOLDER_RE.lastIndex = 0
+    if (hasAttachmentEcho) return Math.abs(canonicalTime - optimisticTime) <= 5 * 60 * 1000
+    if (canonicalTime + 1000 < optimisticTime) return false
+    return canonicalTime - optimisticTime <= 5 * 60 * 1000
+  }
+
+  // Without ordering metadata, text-only optimistic matching is too broad for
+  // repeated messages. Keep both visible rather than hiding a real second send.
+  return false
+}
+
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
   if (hasSameGatewayIndex(a, b)) return true
   if (hasDifferentGatewayIndex(a, b)) return false
   if (a.messageId && b.messageId && a.messageId === b.messageId) return true
 
-  const hasOptimisticCandidate = Boolean(a.isOptimistic || b.isOptimistic || a.sendStatus || b.sendStatus)
+  const hasOptimisticCandidate = isOptimisticUserCandidate(a) || isOptimisticUserCandidate(b)
   if (!hasOptimisticCandidate && !isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
 
   const aText = normalizeUserTextForDedupe(a.text)
   const bText = normalizeUserTextForDedupe(b.text)
   if (!aText || aText !== bText) return false
   if (!hasSameAttachments(a, b) && !hasOptimisticCandidate) return false
+  if (hasOptimisticCandidate) return sameOptimisticUserTurn(a, b)
   if (a.createdAt && b.createdAt) {
     if (a.createdAt === b.createdAt) return true
     const aTime = Date.parse(a.createdAt)
@@ -125,7 +172,6 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
     }
     return false
   }
-  if (hasOptimisticCandidate) return true
   return false
 }
 

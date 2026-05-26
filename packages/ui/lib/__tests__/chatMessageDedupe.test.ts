@@ -206,6 +206,57 @@ describe("dedupeChatMessages", () => {
     })
   })
 
+  it("keeps a new optimistic repeat visible when an older canonical user has the same text", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "gateway-user-old",
+        role: "user",
+        text: "same msg",
+        createdAt: "2026-05-26T09:00:00.000Z",
+        gatewayIndex: 10,
+      },
+      {
+        messageId: "optimistic-new-repeat",
+        role: "user",
+        text: "same msg",
+        createdAt: "2026-05-26T09:00:10.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual([
+      "gateway-user-old",
+      "optimistic-new-repeat",
+    ])
+  })
+
+  it("keeps two distinct optimistic repeats visible", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "optimistic-repeat-1",
+        role: "user",
+        text: "repeat now",
+        createdAt: "2026-05-26T09:00:00.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      },
+      {
+        messageId: "optimistic-repeat-2",
+        role: "user",
+        text: "repeat now",
+        createdAt: "2026-05-26T09:00:01.000Z",
+        isOptimistic: true,
+        sendStatus: "sending",
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual([
+      "optimistic-repeat-1",
+      "optimistic-repeat-2",
+    ])
+  })
+
   it("does not reconcile optimistic user messages far from canonical history", () => {
     const messages = dedupeChatMessages([
       {

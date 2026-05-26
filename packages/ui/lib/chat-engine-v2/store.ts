@@ -980,8 +980,33 @@ function isUserMessagePatch(frame: PatchFrame) {
   return message?.role === "user"
 }
 
+function finalizePreviousRunningToolsForNewTurn(state: SessionState) {
+  const latestUserIndex = latestUserMessageIndex(state)
+  if (latestUserIndex < 0) return
+  state.messages = state.messages.map((message, index) => {
+    if (index >= latestUserIndex) return message
+    if (message.role !== "assistant" || !message.toolCalls?.length) return message
+    let changed = false
+    const toolCalls = message.toolCalls.map((tool) => {
+      if (tool.status !== "running") return tool
+      changed = true
+      return {
+        ...tool,
+        status: "success" as const,
+        completedAt: tool.completedAt ?? Date.now(),
+        duration: tool.duration ?? formatToolDuration(tool.startedAt, Date.now()),
+      }
+    })
+    return changed ? { ...message, toolCalls } : message
+  })
+}
+
 function resetDetachedActivityForNewTurn(state: SessionState) {
-  state.pendingTools = state.pendingTools.filter((tool) => tool.status === "running")
+  // A fresh user turn must not inherit detached tool activity from the previous
+  // assistant turn. Keeping old running tools here makes the prior tool card
+  // reappear as "running" when the user sends the next message, especially
+  // after patch replay/bootstrap churn.
+  state.pendingTools = []
   state.spawnedSubagents = dedupeSpawnedSubagents(state.spawnedSubagents.filter((spawn) =>
     spawn.status === "spawning" || spawn.status === "linking" || spawn.status === "working" || Boolean(spawn.sessionKey)
   ))
@@ -1384,12 +1409,15 @@ function handlePatch(frame: PatchFrame) {
     // middleware patches should carry runStatus/statusLabel explicitly.
     state.statusLabel = normalizeStatusLabel(state.status, "Thinking")
   }
-  if (isUserMessagePatch(frame) && !state.pendingTools.some((tool) => tool.status === "running")) {
+  if (isUserMessagePatch(frame)) {
     resetDetachedActivityForNewTurn(state)
   }
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
   state.messages = next.messages
+  if (isUserMessagePatch(frame)) {
+    finalizePreviousRunningToolsForNewTurn(state)
+  }
   applyHistoryCoverageFromPatch(state, frame, payload)
   state.lastPatchAtMs = frame.patch.createdAtMs || Date.now()
   applyReasoningFromPatch(state, frame)
