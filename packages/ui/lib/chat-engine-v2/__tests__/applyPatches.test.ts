@@ -312,6 +312,48 @@ describe("applyChatPatch", () => {
     expect(state.messages[2]?.toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "running" })
   })
 
+  test("does not let same-message backfill downgrade completed tools to running", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.message.upsert",
+          messageId: "assistant-tools",
+          message: {
+            role: "assistant",
+            toolCalls: [{ id: "tool-1", tool: "session_status", status: "success", duration: "0.5s" }],
+            __openclaw: { id: "assistant-tools", seq: 2 },
+          },
+        },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.message.upsert",
+          messageId: "assistant-tools",
+          message: {
+            role: "assistant",
+            toolCalls: [{ id: "tool-1", tool: "session_status", status: "running" }],
+            __openclaw: { id: "assistant-tools", seq: 2 },
+          },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0]?.toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "success", duration: "0.5s" })
+  })
+
   test("does not replace current optimistic user with a stale confirmed user echo", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",

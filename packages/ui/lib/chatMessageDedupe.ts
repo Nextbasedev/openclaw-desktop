@@ -382,7 +382,7 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
         usage: message.usage ?? existing.usage,
         stopReason: message.stopReason ?? existing.stopReason,
         model: message.model ?? existing.model,
-        toolCalls: message.toolCalls ?? existing.toolCalls,
+        toolCalls: mergeToolCalls(existing.toolCalls, message.toolCalls),
         attachments: message.attachments ?? existing.attachments,
       }
       seenIds.add(message.messageId)

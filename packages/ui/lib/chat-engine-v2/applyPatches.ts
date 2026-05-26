@@ -319,9 +319,10 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
   }
+  const normalizedHasUser = normalized.some((item) => item.role === "user")
   const idsToReplace = new Set([
     optimisticId,
-    canonicalMessageId,
+    normalizedHasUser ? canonicalMessageId : null,
     ...matchingUserIdsAtGatewayIndex(state, normalized, messageSeq),
     ...matchingOptimisticUserIdsByText(state, normalized, messageSeq),
   ].filter((id): id is string => Boolean(id)))

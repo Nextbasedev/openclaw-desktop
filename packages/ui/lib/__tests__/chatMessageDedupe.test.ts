@@ -476,6 +476,26 @@ it("does not let stale running tool history overwrite a completed tool", () => {
     expect(messages[0].toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "success", duration: "0.5s" })
 })
 
+it("does not let a same-message backfill overwrite completed tool status", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "assistant-tools",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "tool-1", tool: "session_status", status: "success", duration: "0.5s" }],
+      },
+      {
+        messageId: "assistant-tools",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "tool-1", tool: "session_status", status: "running" }],
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "success", duration: "0.5s" })
+})
+
 it("keeps refetched history in backend gateway sequence order", () => {
   const messages = dedupeChatMessages([
     { messageId: "live-user-2", role: "user", text: "second", gatewayIndex: 3 },

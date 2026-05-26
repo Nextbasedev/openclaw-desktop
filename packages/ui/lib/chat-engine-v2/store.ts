@@ -476,13 +476,17 @@ function mergeToolCalls(existing: InlineToolCall[] | undefined, incoming: Inline
       merged.set(tool.id, tool)
       continue
     }
+    const terminalCurrent = current.status === "success" || current.status === "error"
+    const staleRunningIncoming = terminalCurrent && tool.status === "running"
     merged.set(tool.id, {
       ...current,
-      ...tool,
+      ...(staleRunningIncoming ? {} : tool),
       duration: tool.duration ?? current.duration,
       startedAt: tool.startedAt ?? current.startedAt,
       completedAt: tool.completedAt ?? current.completedAt,
       awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? current.awaitingResult),
+      resultText: mergeToolResultText(tool.resultText, current.resultText),
+      approval: tool.approval ?? current.approval,
     })
   }
   return Array.from(merged.values())
