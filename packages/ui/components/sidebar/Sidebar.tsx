@@ -15,15 +15,9 @@ import {
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import type { Space } from "@/types/space"
 
-const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
-  { id: "chat", label: "Chat", icon: "chat" },
-  { id: "skill", label: "Skill", icon: "skill" },
-]
+const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = []
 
-const NAV_HREFS: Record<string, string> = {
-  chat: "/",
-  skill: "/skill",
-}
+const NAV_HREFS: Record<string, string> = {}
 
 const UNIQUE_SIDEBAR_BG_KEY = "openclaw.uniqueSidebarBg"
 
@@ -152,6 +146,7 @@ export function Sidebar({
   const isHiddenMobileSidebar = collapsed && isMobileViewport
   const showExpandedContent = !collapsed || isMobileViewport
   const itemCollapsed = isMobileViewport ? false : collapsed
+  const showPrimaryNav = items.length > 0
   const activeSpaceName =
     spaces.find((space) => space.id === activeSpaceId)?.name ?? "MySpace"
 
@@ -201,7 +196,7 @@ export function Sidebar({
           showExpandedContent ? "overflow-y-auto scroll-smooth overscroll-contain" : "overflow-hidden",
           isHiddenMobileSidebar && "hidden",
         )}>
-          {mounted && showExpandedContent ? (
+          {showPrimaryNav && mounted && showExpandedContent ? (
             <Reorder.Group
               axis="y"
               values={items.map((i) => i.id)}
@@ -221,7 +216,7 @@ export function Sidebar({
                 />
               ))}
             </Reorder.Group>
-          ) : (
+          ) : !showExpandedContent ? (
             <div className="flex flex-col gap-0.5">
               {items.map((item) => (
                 <SidebarItem
@@ -279,9 +274,9 @@ export function Sidebar({
                 </PopoverContent>
               </Popover>
             </div>
-          )}
+          ) : null}
 
-          <div className={cn("mt-2 border-t border-border/10 pt-2", !showExpandedContent && "hidden")}>
+          <div className={cn(showPrimaryNav && "mt-2 border-t border-border/10 pt-2", !showExpandedContent && "hidden")}>
             <ChatsSection
               collapsed={false}
               sectionLabel={activeSpaceName}
