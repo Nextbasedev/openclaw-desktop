@@ -407,7 +407,7 @@ function FocusedChatWindowPage({
   const title = resolvedTitle || state.title || "Focused Chat"
 
   return (
-    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden rounded-tl-[18px] bg-background">
+    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         minimal
         user={{ name: title }}
@@ -2553,7 +2553,7 @@ function AppShell({
   }, [onDeleteAccount, onResetOnboarding])
 
   return (
-    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden rounded-tl-[18px] bg-background">
+    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
