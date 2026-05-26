@@ -8,6 +8,7 @@ import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
 import type { SidebarNavItem, ActiveTopic, ActiveChat } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import { SkillPage } from "@/components/SkillPage"
@@ -753,10 +754,13 @@ function AppShell({
   }, [clearConversationState])
 
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
       setSettingsSection("usage")
+      setSettingsOpen(true)
+      setActiveTab(prevTabRef.current === "settings" ? "chat" : prevTabRef.current)
     }
     lastSettingsTabRef.current = activeTab
   }, [activeTab])
@@ -778,6 +782,9 @@ function AppShell({
       setComposerError(null)
       if (route.tab === "settings") {
         setSettingsSection("usage")
+        setSettingsOpen(true)
+        if (getRoutePath() === "/settings") window.history.replaceState(null, "", routeUrl("/"))
+        return
       }
       setActiveTab(route.tab)
       clearConversationState()
@@ -1046,18 +1053,11 @@ function AppShell({
   const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
-    const currentPath = getRoutePath()
-    if (!isSettingsRoute(currentPath)) {
-      previousContentPathRef.current = currentPath
-    }
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
     setSettingsSection(section)
-    setActiveTab("settings")
-    clearConversationState()
-    settingsPushedRef.current = true
-    window.history.pushState(null, "", routeUrl("/settings"))
-  }, [activeTab, clearConversationState])
+    setSettingsOpen(true)
+  }, [activeTab])
 
   useEffect(() => {
     function handleOpenSettings(event: Event) {
@@ -1102,6 +1102,10 @@ function AppShell({
   }, [])
 
   const handleSettingsBack = useCallback(() => {
+    if (settingsOpen) {
+      setSettingsOpen(false)
+      return
+    }
     if (settingsPushedRef.current) {
       settingsPushedRef.current = false
       window.history.back()
@@ -1117,7 +1121,7 @@ function AppShell({
 
     window.history.replaceState(null, "", routeUrl(url))
     void activateRoute(parseRoute(url))
-  }, [activateRoute])
+  }, [activateRoute, settingsOpen])
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
   }, [resolvedTheme, setTheme])
@@ -2788,6 +2792,13 @@ function AppShell({
         />
       )}
 
+      <SettingsModal
+        open={settingsOpen}
+        section={settingsSection}
+        onOpenChange={setSettingsOpen}
+        onSectionChange={setSettingsSection}
+      />
+
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
@@ -2820,6 +2831,39 @@ function AppShell({
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />
     </div>
+  )
+}
+
+function SettingsModal({
+  open,
+  section,
+  onOpenChange,
+  onSectionChange,
+}: {
+  open: boolean
+  section: SettingsSection
+  onOpenChange: (open: boolean) => void
+  onSectionChange: (section: SettingsSection) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton
+        className={cn(
+          "h-[min(720px,88vh)] w-[min(1040px,calc(100vw-32px))] max-w-none gap-0 overflow-hidden p-0",
+          "border-border/60 bg-background/98 shadow-2xl shadow-black/30 backdrop-blur-xl",
+          "duration-300 ease-out origin-top-right",
+          "data-open:slide-in-from-top-6 data-open:slide-in-from-right-8 data-open:zoom-in-90",
+          "data-closed:slide-out-to-top-4 data-closed:slide-out-to-right-6 data-closed:zoom-out-95",
+        )}
+      >
+        <DialogTitle className="sr-only">Settings</DialogTitle>
+        <SettingsDashboard
+          activeSection={section}
+          onSectionChange={onSectionChange}
+        />
+      </DialogContent>
+    </Dialog>
   )
 }
 

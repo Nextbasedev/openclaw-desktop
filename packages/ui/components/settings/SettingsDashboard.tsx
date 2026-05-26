@@ -50,8 +50,9 @@ type SettingsDashboardProps = {
 
 export function SettingsDashboard({ onBack, activeSection, onSectionChange }: SettingsDashboardProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
-  const topNavItems = [...SECTION_GROUPS.flatMap((group) => group.items), ...FOOTER_ITEMS]
-  const resolvedSection = topNavItems.some((item) => item.id === activeSection)
+  const topNavItems = SECTION_GROUPS.flatMap((group) => group.items)
+  const allNavItems = [...topNavItems, ...FOOTER_ITEMS]
+  const resolvedSection = allNavItems.some((item) => item.id === activeSection)
     ? activeSection
     : "usage"
 
@@ -64,59 +65,87 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col items-center px-2 pt-6 min-[720px]:px-3 min-[720px]:pt-8 lg:pt-10">
-      <nav className="w-full max-w-2xl px-2">
-        {onBack && (
-          <button
-            onClick={onBack}
-            aria-label="Back"
-            className="group mb-4 flex cursor-pointer items-center gap-2 rounded-md text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
-            <span>Back</span>
-          </button>
-        )}
-
-        <div className="flex flex-wrap gap-2 pb-2">
-          {topNavItems.map((item) => (
-            <TopNavButton
-              key={item.id}
-              item={item}
-              isActive={activeSection === item.id}
-              onClick={() => handleSidebarClick(item.id)}
-            />
-          ))}
+    <div className="flex h-full w-full min-w-0 overflow-hidden rounded-md">
+      <aside className="flex w-[220px] shrink-0 flex-col border-r border-border/60 bg-muted/20">
+        <div className="border-b border-border/50 px-4 py-4">
+          {onBack ? (
+            <button
+              onClick={onBack}
+              aria-label="Back"
+              className="group mb-3 flex cursor-pointer items-center gap-2 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Icons.Back size={14} className="transition-transform group-hover:-translate-x-0.5" />
+              <span>Back</span>
+            </button>
+          ) : null}
+          <div>
+            <p className="text-[15px] font-semibold text-foreground">Settings</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">Manage OpenClaw</p>
+          </div>
         </div>
-      </nav>
+
+        <nav className="flex min-h-0 flex-1 flex-col px-3 py-3">
+          <div className="space-y-5">
+            {SECTION_GROUPS.map((group) => (
+              <div key={group.label} className="space-y-1">
+                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
+                  {group.label}
+                </p>
+                {group.items.map((item) => (
+                  <SettingsNavButton
+                    key={item.id}
+                    item={item}
+                    isActive={resolvedSection === item.id}
+                    onClick={() => handleSidebarClick(item.id)}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-auto border-t border-border/50 pt-3">
+            {FOOTER_ITEMS.map((item) => (
+              <SettingsNavButton
+                key={item.id}
+                item={item}
+                isActive={resolvedSection === item.id}
+                onClick={() => handleSidebarClick(item.id)}
+              />
+            ))}
+          </div>
+        </nav>
+      </aside>
 
       <div
         ref={scrollRef}
         className={cn(
-          "my-2 mx-2 min-h-0 flex-1 w-full overflow-y-auto scrollbar-hide md:my-4 lg:my-6",
-          resolvedSection === "connect" ? "max-w-6xl" : "max-w-2xl",
+          "min-h-0 flex-1 overflow-y-auto scrollbar-hide",
+          resolvedSection === "connect" ? "bg-background" : "bg-background px-8 py-7",
         )}
       >
-        {resolvedSection === "usage" && <UsageTab />}
+        <div className={cn("mx-auto min-h-full", resolvedSection === "connect" ? "max-w-none" : "max-w-2xl")}>
+          {resolvedSection === "usage" && <UsageTab />}
 
-        {resolvedSection === "config" && <ConfigTab />}
+          {resolvedSection === "config" && <ConfigTab />}
 
-        {resolvedSection === "archive" && <ArchiveTab />}
+          {resolvedSection === "archive" && <ArchiveTab />}
 
-        {resolvedSection === "connect" && <ConnectPage />}
+          {resolvedSection === "connect" && <ConnectPage />}
 
-        {resolvedSection === "appearance" && <AppearanceTab />}
+          {resolvedSection === "appearance" && <AppearanceTab />}
 
-        {resolvedSection === "voice" && <VoiceTab />}
+          {resolvedSection === "voice" && <VoiceTab />}
 
-        {resolvedSection === "help" && <HelpTab onShortcutsClick={() => { onSectionChange("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+          {resolvedSection === "help" && <HelpTab onShortcutsClick={() => { onSectionChange("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
 
-        {resolvedSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { onSectionChange("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+          {resolvedSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { onSectionChange("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+        </div>
       </div>
     </div>
   )
 }
 
-function TopNavButton({
+function SettingsNavButton({
   item,
   isActive,
   onClick,
@@ -132,10 +161,11 @@ function TopNavButton({
       onClick={onClick}
       aria-label={item.label}
       className={cn(
-        "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-left text-[14px] transition-colors",
+        "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors",
+        "outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isActive
-          ? "border-foreground/25 bg-foreground/5 text-foreground"
-          : "border-border/50 text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+          ? "bg-foreground/8 text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+          : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
       )}
     >
       <Icon size={16} strokeWidth={isActive ? 2 : 1.5} className="shrink-0" />
