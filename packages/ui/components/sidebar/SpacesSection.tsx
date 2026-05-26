@@ -41,10 +41,6 @@ function gradientForSpace(space: Space) {
   return gradientForIndex(seed)
 }
 
-function spaceInitial(space: Space) {
-  return (space.name.trim()[0] || "P").toUpperCase()
-}
-
 function getSpaceRank(space: Space) {
   if (typeof space.sortOrder === "number") return space.sortOrder
 
@@ -199,31 +195,6 @@ export function SpacesSection({
 
   return (
     <div className="relative z-10 border-t border-white/[0.06] px-3 pb-3 pt-2.5 dark:border-white/[0.06]">
-      {activeSpace && (
-        <button
-          type="button"
-          onClick={() => handleSwitch(activeSpace.id)}
-          onContextMenu={(event) => openContextMenu(event, activeSpace)}
-          className={cn(
-            "mb-2 flex h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left",
-            "border border-white/[0.08] bg-white/[0.035] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/[0.06]",
-          )}
-          aria-label={`Current project ${activeSpace.name}`}
-        >
-          <span
-            className={cn(
-              "flex size-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[9px] font-bold text-white shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_14px_rgba(0,0,0,0.18)]",
-              gradientForSpace(activeSpace),
-            )}
-          >
-            {spaceInitial(activeSpace)}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-            {activeSpace.name}
-          </span>
-          <Icons.MoreVertical size={14} strokeWidth={1.7} className="shrink-0 text-muted-foreground/60" />
-        </button>
-      )}
       <div
         className={cn(
           "flex h-9 items-center justify-between gap-2 rounded-md px-2.5",

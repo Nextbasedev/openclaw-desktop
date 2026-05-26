@@ -298,7 +298,6 @@ export function Sidebar({
                 spaces={spaces}
                 activeSpaceId={activeSpaceId}
                 onSpaceSwitch={onSpaceSwitch}
-                onSpaceNewChat={onSpaceNewChat}
                 onSpaceCreate={onSpaceCreate}
               />
             </div>

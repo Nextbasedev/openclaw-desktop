@@ -13,7 +13,6 @@ type Props = {
   spaces: Space[]
   activeSpaceId: string | null
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
-  onSpaceNewChat: (spaceId: string) => void | Promise<void>
   onSpaceCreate: (name?: string) => void | Promise<void>
 }
 
@@ -43,22 +42,10 @@ function getSpaceRank(space: Space) {
   return 0
 }
 
-function spaceInitial(space: Space | null) {
-  return (space?.name?.trim()?.[0] || "P").toUpperCase()
-}
-
-function displayRepoRoot(space: Space | null) {
-  if (!space?.repoRoot) return "No repository linked"
-  const parts = space.repoRoot.split(/[\\/]/).filter(Boolean)
-  if (parts.length <= 2) return space.repoRoot
-  return `${parts.at(-2)}${space.repoRoot.includes("\\") ? "\\" : "/"}${parts.at(-1)}`
-}
-
 export function CollapsedSpacesPopover({
   spaces,
   activeSpaceId,
   onSpaceSwitch,
-  onSpaceNewChat,
   onSpaceCreate,
 }: Props) {
   const [open, setOpen] = useState(false)
@@ -76,17 +63,21 @@ export function CollapsedSpacesPopover({
             <button
               type="button"
               className={cn(
-                "group flex size-10 cursor-pointer items-center justify-center rounded-xl border border-white/[0.12]",
-                "bg-white/[0.045] text-foreground/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all duration-150 ease-in-out hover:bg-white/[0.08] hover:text-foreground",
-                open && "border-violet-400/70 shadow-[0_0_0_1px_rgba(168,85,247,0.35),0_0_20px_rgba(168,85,247,0.24)]",
+                "group flex size-8 cursor-pointer items-center justify-center rounded-full",
+                "text-foreground/85 transition-[background-color,color,opacity] duration-150 ease-in-out hover:bg-white/[0.08] hover:text-foreground",
               )}
               aria-label="Spaces"
             >
-              <span className="relative flex size-7 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#3b255f] via-[#31204b] to-[#17131f] text-[11px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
+              <span className="relative flex size-4 items-center justify-center">
                 {activeSpace ? (
-                  spaceInitial(activeSpace)
+                  <span
+                    className={cn(
+                      "size-3.5 rounded-full bg-gradient-to-br shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_16px_rgba(0,0,0,0.16)]",
+                      gradientForSpace(activeSpace),
+                    )}
+                  />
                 ) : (
-                  <Icons.Project size={15} strokeWidth={1.6} />
+                  <Icons.Project size={16} strokeWidth={1.5} />
                 )}
               </span>
             </button>
@@ -101,15 +92,10 @@ export function CollapsedSpacesPopover({
         collisionPadding={12}
         className={cn("w-[248px] p-2", GLASS_POPOVER)}
       >
-        <div className="flex items-start justify-between gap-3 px-2.5 pb-2 pt-1">
-          <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold text-foreground">
-              {activeSpaceLabel}
-            </div>
-            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {displayRepoRoot(activeSpace)}
-            </div>
-          </div>
+        <div className="flex items-center justify-between px-2.5 pb-2 pt-1">
+          <span className="truncate text-[10px] font-semibold uppercase tracking-widest text-foreground">
+            {activeSpaceLabel}
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -122,20 +108,6 @@ export function CollapsedSpacesPopover({
             <LuPlus className="size-3.5 stroke-[1.9]" />
           </button>
         </div>
-
-        {activeSpace && (
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              void onSpaceNewChat(activeSpace.id)
-            }}
-            className="mb-2 flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.035] text-[13px] font-semibold text-foreground transition-colors hover:bg-white/[0.07]"
-          >
-            <Icons.Edit size={15} strokeWidth={1.7} />
-            New session
-          </button>
-        )}
 
         <div className="max-h-[220px] overflow-y-auto px-1 pb-1">
           {orderedSpaces.map((space) => (
