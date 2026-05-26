@@ -127,9 +127,11 @@ function mergeInlineToolCalls(existing: ChatMessage["toolCalls"], incoming: NonN
   const merged = new Map((existing ?? []).map((tool) => [tool.id, tool]))
   for (const tool of incoming) {
     const current = merged.get(tool.id)
+    const terminalCurrent = current?.status === "success" || current?.status === "error"
+    const staleRunningIncoming = terminalCurrent && tool.status === "running"
     merged.set(tool.id, current ? {
       ...current,
-      ...tool,
+      ...(staleRunningIncoming ? {} : tool),
       duration: tool.duration ?? current.duration,
       startedAt: tool.startedAt ?? current.startedAt,
       completedAt: tool.completedAt ?? current.completedAt,

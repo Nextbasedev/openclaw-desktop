@@ -513,8 +513,15 @@ export class MessageRepository {
       WHERE session_key = @sessionKey AND message_id = @optimisticId
     `);
 
+    const existingData = fromJson(existing.data_json) as OpenClawMessage;
+    const gatewayHasDisplayText = textOf(gatewayMessage.data).length > 0;
+    const existingHasDisplayText = textOf(existingData).length > 0;
+    const preserveOptimisticDisplay = !gatewayHasDisplayText && existingHasDisplayText;
     const data = {
       ...gatewayMessage.data,
+      ...(preserveOptimisticDisplay && typeof existingData.text === "string" ? { text: existingData.text } : {}),
+      ...(preserveOptimisticDisplay && existingData.content !== undefined ? { content: existingData.content } : {}),
+      ...((gatewayMessage.data as OpenClawMessage).attachments === undefined && existingData.attachments !== undefined ? { attachments: existingData.attachments } : {}),
       isOptimistic: false,
       __clientOptimistic: false,
       __openclaw: {

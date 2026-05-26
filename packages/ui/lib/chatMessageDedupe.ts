@@ -61,7 +61,13 @@ function mergeToolCalls(
   if (!incoming?.length) return existing
   const merged = new Map(existing.map((tool) => [tool.id, tool]))
   for (const tool of incoming) {
-    merged.set(tool.id, { ...(merged.get(tool.id) ?? {}), ...tool })
+    const current = merged.get(tool.id)
+    const terminalCurrent = current?.status === "success" || current?.status === "error"
+    const staleRunningIncoming = terminalCurrent && tool.status === "running"
+    merged.set(tool.id, staleRunningIncoming
+      ? { ...tool, ...current }
+      : { ...(current ?? {}), ...tool }
+    )
   }
   return Array.from(merged.values())
 }

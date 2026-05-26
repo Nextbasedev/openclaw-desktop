@@ -207,6 +207,25 @@ describe("SQLite projection", () => {
     db.close();
   });
 
+  test("confirming optimistic user with empty gateway echo preserves optimistic display text", () => {
+    const db = openDatabase({ databasePath: testDbPath("confirm-user-empty-echo") });
+    const repo = new MessageRepository(db);
+    repo.insertOptimisticMessage({
+      sessionKey: "s1",
+      openclawSeq: 1,
+      messageId: "client-1",
+      role: "user",
+      data: { role: "user", text: "hii", __clientOptimistic: true, __openclaw: { id: "client-1" } },
+      updatedAtMs: 100,
+    });
+    const [gateway] = normalizeHistoryMessages("s1", [{ role: "user", __openclaw: { id: "gateway-user-1", seq: 1 } }], 200);
+    const confirmed = repo.confirmOptimisticUser("s1", "client-1", gateway!);
+
+    expect(confirmed?.data).toMatchObject({ role: "user", text: "hii", __clientOptimistic: false });
+    expect(repo.listMessages("s1")[0]?.data).toMatchObject({ text: "hii", __clientOptimistic: false });
+    db.close();
+  });
+
   test("projection cursor increases monotonically", () => {
     const db = openDatabase({ databasePath: testDbPath("cursor") });
     const repo = new MessageRepository(db);
