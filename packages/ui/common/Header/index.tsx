@@ -187,8 +187,8 @@ export function Header({
       onMouseDown={handleHeaderMouseDown}
       className={cn(
         "relative z-50 flex h-11 shrink-0 items-center",
-        "bg-[#151515]",
-        "select-none",
+        "bg-[#1b1b1e]",
+        "select-none","dark:bg-[#18181b]",
         className,
       )}
     >
