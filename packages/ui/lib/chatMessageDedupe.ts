@@ -77,8 +77,10 @@ function hasDifferentGatewayIndex(a: ChatMessage, b: ChatMessage) {
   return (
     typeof aIndex === "number" &&
     Number.isFinite(aIndex) &&
+    aIndex > 0 &&
     typeof bIndex === "number" &&
     Number.isFinite(bIndex) &&
+    bIndex > 0 &&
     aIndex !== bIndex
   )
 }
@@ -87,8 +89,10 @@ function hasSameGatewayIndex(a: ChatMessage, b: ChatMessage) {
   return (
     typeof a.gatewayIndex === "number" &&
     Number.isFinite(a.gatewayIndex) &&
+    a.gatewayIndex > 0 &&
     typeof b.gatewayIndex === "number" &&
     Number.isFinite(b.gatewayIndex) &&
+    b.gatewayIndex > 0 &&
     a.gatewayIndex === b.gatewayIndex
   )
 }
@@ -101,19 +105,17 @@ function isAssistantErrorLike(message: ChatMessage) {
 
 export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
   if (a.role !== "user" || b.role !== "user") return false
-  if (
-    typeof a.gatewayIndex === "number" &&
-    typeof b.gatewayIndex === "number" &&
-    Number.isFinite(a.gatewayIndex) &&
-    Number.isFinite(b.gatewayIndex) &&
-    a.gatewayIndex === b.gatewayIndex
-  ) {
-    return true
-  }
+  if (hasSameGatewayIndex(a, b)) return true
+  if (hasDifferentGatewayIndex(a, b)) return false
+  if (a.messageId && b.messageId && a.messageId === b.messageId) return true
+
+  const hasOptimisticCandidate = Boolean(a.isOptimistic || b.isOptimistic || a.sendStatus || b.sendStatus)
+  if (!hasOptimisticCandidate && !isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
+
   const aText = normalizeUserTextForDedupe(a.text)
   const bText = normalizeUserTextForDedupe(b.text)
   if (!aText || aText !== bText) return false
-  if (!hasSameAttachments(a, b) && !a.isOptimistic && !b.isOptimistic) return false
+  if (!hasSameAttachments(a, b) && !hasOptimisticCandidate) return false
   if (a.createdAt && b.createdAt) {
     if (a.createdAt === b.createdAt) return true
     const aTime = Date.parse(a.createdAt)
@@ -123,7 +125,7 @@ export function sameUserMessage(a: ChatMessage, b: ChatMessage) {
     }
     return false
   }
-  if (a.isOptimistic || b.isOptimistic) return true
+  if (hasOptimisticCandidate) return true
   return false
 }
 
@@ -147,6 +149,14 @@ export function sameAssistantMessage(a: ChatMessage, b: ChatMessage) {
   if (hasOverlappingToolCalls(a, b)) return true
   if (!aText || !bText) return false
   if (aText === bText) return true
+
+  if ((a.text.includes("NO_REPLY") || b.text.includes("NO_REPLY")) && (
+    aText.length <= bText.length
+      ? isAssistantPrefixUpdate(aText, bText)
+      : isAssistantPrefixUpdate(bText, aText)
+  )) {
+    return true
+  }
 
   // Only collapse prefix-style assistant updates when the backend says both
   // records are the same transcript slot. Forked/restored histories can contain
@@ -173,6 +183,10 @@ function isSyntheticMessageId(messageId: string | null | undefined) {
 
 function canTextCollapseRepeatedMessages(a: ChatMessage, b: ChatMessage) {
   if (a.messageId && b.messageId && a.messageId === b.messageId) return true
+  if (a.messageId && b.messageId && (
+    a.messageId === `${b.messageId}-duplicate` ||
+    b.messageId === `${a.messageId}-duplicate`
+  )) return true
   if (!isSyntheticMessageId(a.messageId) && !isSyntheticMessageId(b.messageId)) return false
   return hasSameGatewayIndex(a, b)
 }

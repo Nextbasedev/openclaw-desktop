@@ -248,6 +248,67 @@ describe("dedupeChatMessages", () => {
     expect(messages).toHaveLength(1)
     expect(messages[0].messageId).toBe("optimistic-confirmed")
   })
+
+  it("keeps repeated canonical user messages separate when backend sequences differ", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "user-hii-1",
+        role: "user",
+        text: "hii",
+        createdAt: "2026-05-26T03:40:00.000Z",
+        gatewayIndex: 10,
+      },
+      {
+        messageId: "user-hii-2",
+        role: "user",
+        text: "hii",
+        createdAt: "2026-05-26T03:40:15.000Z",
+        gatewayIndex: 12,
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual(["user-hii-1", "user-hii-2"])
+  })
+
+  it("keeps repeated canonical user messages separate when real ids differ even without sequence", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "gateway-user-1",
+        role: "user",
+        text: "same again",
+        createdAt: "2026-05-26T03:40:00.000Z",
+      },
+      {
+        messageId: "gateway-user-2",
+        role: "user",
+        text: "same again",
+        createdAt: "2026-05-26T03:40:10.000Z",
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual(["gateway-user-1", "gateway-user-2"])
+  })
+
+  it("orders late replayed user patches by backend sequence instead of timestamp", () => {
+    const messages = dedupeChatMessages([
+      {
+        messageId: "assistant-seq-2",
+        role: "assistant",
+        text: "answer",
+        createdAt: "2026-05-26T03:40:00.000Z",
+        gatewayIndex: 2,
+      },
+      {
+        messageId: "late-user-seq-1",
+        role: "user",
+        text: "question",
+        createdAt: "2026-05-26T03:41:00.000Z",
+        gatewayIndex: 1,
+      },
+    ])
+
+    expect(messages.map((message) => message.messageId)).toEqual(["late-user-seq-1", "assistant-seq-2"])
+  })
 })
 
 it("collapses repeated contiguous history blocks", () => {
