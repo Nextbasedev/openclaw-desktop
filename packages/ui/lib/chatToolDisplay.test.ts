@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { groupAssistantToolCallsByMessage, mergeToolCallsForDisplay } from "./chatToolDisplay"
+import { applyTerminalToolState, groupAssistantToolCallsByMessage, mergeToolCallsForDisplay, terminalToolStateById } from "./chatToolDisplay"
 import type { ChatMessage } from "@/components/ChatView/types"
 
 describe("ChatView tool display grouping", () => {
@@ -118,6 +118,29 @@ describe("ChatView tool display grouping", () => {
       status: "success",
       duration: "2.0s",
       resultText: "ok",
+    })
+  })
+
+  test("stabilizes displayed running tools with terminal state from the transcript", () => {
+    const terminalById = terminalToolStateById([
+      {
+        messageId: "a-terminal",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "exec", tool: "exec", status: "success", duration: "0.3s", resultText: "ok" }],
+      },
+    ])
+
+    const tools = applyTerminalToolState([
+      { id: "exec", tool: "exec", status: "running", awaitingResult: true },
+    ], terminalById)
+
+    expect(tools[0]).toMatchObject({
+      id: "exec",
+      status: "success",
+      duration: "0.3s",
+      resultText: "ok",
+      awaitingResult: false,
     })
   })
 })

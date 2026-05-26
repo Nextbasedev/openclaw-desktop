@@ -55,6 +55,43 @@ export function mergeToolCallsForDisplay(
   return mergeToolCalls(base ?? [], filteredLive)
 }
 
+export function terminalToolStateById(messages: ChatMessage[], live?: InlineToolCall[]) {
+  const terminal = new Map<string, InlineToolCall>()
+  const add = (tool: InlineToolCall) => {
+    if (!tool.id) return
+    if (tool.status !== "success" && tool.status !== "error") return
+    const current = terminal.get(tool.id)
+    terminal.set(tool.id, current ? { ...current, ...tool } : tool)
+  }
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const tool of message.toolCalls ?? []) add(tool)
+  }
+  for (const tool of live ?? []) add(tool)
+  return terminal
+}
+
+export function applyTerminalToolState(
+  tools: InlineToolCall[],
+  terminalById: Map<string, InlineToolCall>
+) {
+  if (tools.length === 0 || terminalById.size === 0) return tools
+  return tools.map((tool) => {
+    const terminal = terminalById.get(tool.id)
+    if (!terminal) return tool
+    if (tool.status !== "running" && !tool.awaitingResult) return tool
+    return {
+      ...tool,
+      ...terminal,
+      duration: terminal.duration ?? tool.duration,
+      startedAt: terminal.startedAt ?? tool.startedAt,
+      completedAt: terminal.completedAt ?? tool.completedAt,
+      resultText: terminal.resultText ?? tool.resultText,
+      awaitingResult: false,
+    }
+  })
+}
+
 export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
   const grouped = new Map<string, InlineToolCall[]>()
   const suppressed = new Set<string>()

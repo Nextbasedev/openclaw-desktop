@@ -54,7 +54,9 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Icons } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import {
+  applyTerminalToolState,
   groupAssistantToolCallsByMessage,
+  terminalToolStateById,
 } from "@/lib/chatToolDisplay"
 import type {
   ChatMessage,
@@ -1260,6 +1262,11 @@ export function ChatView({
       [renderedMessages]
     )
 
+  const terminalToolState = useMemo(
+    () => terminalToolStateById(renderedMessages, pendingTools),
+    [renderedMessages, pendingTools]
+  )
+
   const spawnsByToolCallId = useMemo(() => {
     const map = new Map<string, SpawnedSubagent>()
     for (const sub of spawnedSubagents) {
@@ -1431,10 +1438,10 @@ export function ChatView({
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
           ? []
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
-      const filteredToolCalls =
-        msg.role === "assistant"
-          ? toolCallsWithoutSpawn(messageToolCalls)
-          : toolCallsWithoutSpawn(messageToolCalls)
+      const filteredToolCalls = applyTerminalToolState(
+        toolCallsWithoutSpawn(messageToolCalls),
+        terminalToolState
+      )
       const anchoredUserSubagents =
         msg.role === "user"
           ? (subagentsByTriggerUserId.get(msg.messageId) ?? [])
@@ -1559,6 +1566,7 @@ export function ChatView({
       reactToMessage,
       groupedToolCalls,
       suppressedToolCallMessages,
+      terminalToolState,
       renderedMessages.length,
       replyToMessage,
       resolveExecApproval,
