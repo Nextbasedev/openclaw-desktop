@@ -104,6 +104,7 @@ export type HelloFrame = {
   replayHasMore?: boolean
   replayWindowExceeded?: boolean
   recovery?: "bootstrap" | string | null
+  droppedReplayCount?: number
 }
 
 export type StreamFrame = PatchFrame | HelloFrame

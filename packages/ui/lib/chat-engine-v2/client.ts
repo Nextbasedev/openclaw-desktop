@@ -199,6 +199,7 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
   let ws: WebSocket | null = null
   let cursor = Math.max(0, afterCursor)
   let reconnectAttempt = 0
+  let suppressReplayUntilCursor = 0
 
   const connect = () => {
     if (closedByCaller) return
@@ -244,6 +245,10 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
           replayHasMore: frame.type === "hello" ? frame.replayHasMore : undefined,
         }, "debug")
         if (frame.type === "hello" && (frame.recovery === "bootstrap" || frame.replayWindowExceeded)) {
+          suppressReplayUntilCursor = Math.max(
+            suppressReplayUntilCursor,
+            connectionCursor + Math.max(0, frame.replayCount ?? 0),
+          )
           frontendLog("stream", "patch-stream.bootstrap-recovery", { afterCursor: connectionCursor, replayCount: frame.replayCount, replayHasMore: frame.replayHasMore }, "warn")
           logChatStreamRecoveryDecision({
             targetSessionKey: null,
@@ -264,6 +269,15 @@ export function openPatchStreamV2(afterCursor: number, onFrame: (frame: StreamFr
             },
           }))
           onFrame(frame)
+          return
+        }
+        if (frame.type === "patch" && suppressReplayUntilCursor > 0 && frame.patch.cursor <= suppressReplayUntilCursor) {
+          frontendLog("stream", "patch-stream.recovery-replay-skip", {
+            cursor: frame.patch.cursor,
+            suppressReplayUntilCursor,
+            patchType: frame.patch.type,
+            sessionKey: frame.patch.sessionKey,
+          }, "debug")
           return
         }
         if (frame.type === "hello" && frame.replayHasMore) {

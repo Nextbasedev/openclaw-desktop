@@ -92,7 +92,7 @@ describe("patch stream", () => {
     expect(body.latestCursor).toBeGreaterThan(0);
   });
 
-  test("websocket marks replayHasMore when stale cursor exceeds replay window", async () => {
+  test("websocket skips partial replay when stale cursor exceeds replay window", async () => {
     const app = await createApp(config("stale-ws"));
     apps.push(app);
     const context = contextOf(app);
@@ -104,7 +104,7 @@ describe("patch stream", () => {
     if (!address || typeof address === "string") throw new Error("missing server address");
     const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/stream/ws?afterCursor=0`);
     const hello = await waitForMessage(ws);
-    expect(hello).toMatchObject({ type: "hello", replayCount: 1000, replayHasMore: true, replayWindowExceeded: true, recovery: "bootstrap" });
+    expect(hello).toMatchObject({ type: "hello", replayCount: 0, replayHasMore: true, replayWindowExceeded: true, recovery: "bootstrap", droppedReplayCount: 1000 });
     ws.close();
   });
 

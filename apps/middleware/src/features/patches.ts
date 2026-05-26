@@ -131,7 +131,11 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
       .catch((error) => log.warn("stream.recent-subscriptions.fail", { clientId: id, error: error instanceof Error ? error.message : String(error) }));
     const replay = listPatchesAfter(context, afterCursor, 1001);
     const replayHasMore = replay.length > 1000;
-    const replayWindow = replay.slice(0, 1000);
+    // If the browser cursor is too far behind, a partial replay is worse than
+    // no replay: the UI can briefly apply old running tool/user patches without
+    // the later terminal/canonical patches that make the transcript consistent.
+    // Tell the UI to recover via bootstrap and only stream new live patches.
+    const replayWindow = replayHasMore ? [] : replay;
     socket.send(JSON.stringify({
       type: "hello",
       clientId: id,
@@ -140,6 +144,7 @@ export async function registerPatchRoutes(app: FastifyInstance, context: AppCont
       replayHasMore,
       replayWindowExceeded: replayHasMore,
       recovery: replayHasMore ? "bootstrap" : null,
+      droppedReplayCount: replayHasMore ? replay.length - 1 : 0,
     }));
     log.info("stream.replay", { clientId: id, afterCursor, replayCount: replayWindow.length, replayHasMore });
     for (const patch of replayWindow) {
