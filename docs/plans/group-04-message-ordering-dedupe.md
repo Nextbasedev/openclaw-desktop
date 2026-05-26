@@ -11,7 +11,18 @@ Make chat timeline reconciliation deterministic when messages arrive from warm c
 
 The invariant:
 
-> One real message appears once, in canonical sequence order. Optimistic user rows are replaced by their confirmed Gateway echo. Similar repeated user messages remain separate turns unless they are proven to be the same optimistic/canonical message.
+> One real message appears once, in canonical sequence order. Optimistic user rows are replaced by their confirmed Gateway echo. If the user intentionally sends the same text again, it must remain as a separate message/turn.
+
+Important example:
+
+```text
+User: hii
+Assistant: ...
+User: hii
+Assistant: ...
+```
+
+Those two `hii` messages are different real sends and must not be deduped. Same text alone is never enough to collapse canonical user messages.
 
 ## Current facts
 
@@ -56,7 +67,8 @@ Important flow:
 
 3. **Repeated user message false positive**
    - `sameUserMessage()` can collapse same text within 5 minutes when both messages are canonical and attachments match.
-   - Repeated real messages like “hii” close together must stay separate if they have different canonical seq/message ids.
+   - This is dangerous: if Dixit sends `hii` twice, both sends must stay visible as separate turns.
+   - Repeated real messages close together must stay separate if they have different canonical seq/message ids.
 
 4. **Late replayed user patch after assistant**
    - A replayed user message with lower `gatewayIndex` but newer timestamp must sort before the assistant with higher seq.
@@ -91,7 +103,8 @@ Rules:
 - Different valid `gatewayIndex` => not same message, even if text/time match.
 - Same non-synthetic `messageId` => same message.
 - Optimistic/canonical candidates may match by normalized text + compatible attachments + close timestamp.
-- Two non-optimistic canonical rows with different real ids and no same seq should not collapse just because text is equal/nearby.
+- Two non-optimistic canonical rows with different real ids and no same seq must not collapse just because text is equal/nearby.
+- Repeated text from the user is a valid separate turn unless there is proof it is the same physical send.
 
 ### 3. Make timeline store use shared dedupe
 
@@ -140,7 +153,8 @@ Recommended middleware checks if touched:
 Manual checks:
 
 1. Send “hii” twice quickly; both user turns should remain if both are real sends.
-2. Send a message and refresh/focus a new window while it is confirming; only one user row should remain after bootstrap settles.
+2. Send the exact same message again after an assistant reply; it must appear as a new user turn, not merge into the earlier one.
+3. Send a message and refresh/focus a new window while it is confirming; only one user row should remain after bootstrap settles.
 3. Open a chat with old/replayed messages; user/assistant order should follow turn order, not timestamp glitches.
 4. Image send/attachment placeholder should not produce optimistic + canonical duplicate.
 

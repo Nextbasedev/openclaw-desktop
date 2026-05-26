@@ -46,4 +46,6 @@ After bootstrap settles, there should not be two user rows with same normalized 
 
 Canonical rows with different valid `gatewayIndex`/`openclawSeq` must remain separate even if text repeats.
 
+If the user intentionally sends the exact same message again, it is a new real turn and must not be deduped unless there is proof it is the same physical send (same seq/id or optimistic row confirmed by canonical echo).
+
 See `docs/plans/group-04-message-ordering-dedupe.md` for the detailed implementation plan.
