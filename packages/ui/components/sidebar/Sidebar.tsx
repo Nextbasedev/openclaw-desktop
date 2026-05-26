@@ -217,7 +217,17 @@ export function Sidebar({
               ))}
             </Reorder.Group>
           ) : !showExpandedContent ? (
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col items-center gap-3 pt-1">
+              <CollapsedSpacesPopover
+                spaces={spaces}
+                activeSpaceId={activeSpaceId}
+                onSpaceSwitch={onSpaceSwitch}
+                onSpaceNewChat={onSpaceNewChat}
+                onSpaceCreate={onSpaceCreate}
+              />
+
+              <div className="mt-1 h-px w-7 bg-border/40" />
+
               {items.map((item) => (
                 <SidebarItem
                   key={item.id}
@@ -290,19 +300,6 @@ export function Sidebar({
           </div>
 
         </nav>
-
-        {!isHiddenMobileSidebar && !showExpandedContent && (
-          <div className="relative z-10 border-t border-white/[0.06] px-2 pb-3 pt-2.5 dark:border-white/[0.06]">
-            <div className="flex justify-center">
-              <CollapsedSpacesPopover
-                spaces={spaces}
-                activeSpaceId={activeSpaceId}
-                onSpaceSwitch={onSpaceSwitch}
-                onSpaceCreate={onSpaceCreate}
-              />
-            </div>
-          </div>
-        )}
 
         {!isHiddenMobileSidebar && showExpandedContent && (
           <SpacesSection
