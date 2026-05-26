@@ -8,6 +8,7 @@ import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
 import type { SidebarNavItem, ActiveTopic, ActiveChat } from "@/components/sidebar"
 import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
 import { SkillPage } from "@/components/SkillPage"
@@ -753,10 +754,13 @@ function AppShell({
   }, [clearConversationState])
 
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage")
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     if (activeTab === "settings" && lastSettingsTabRef.current !== "settings") {
       setSettingsSection("usage")
+      setSettingsOpen(true)
+      setActiveTab(prevTabRef.current === "settings" ? "chat" : prevTabRef.current)
     }
     lastSettingsTabRef.current = activeTab
   }, [activeTab])
@@ -778,6 +782,9 @@ function AppShell({
       setComposerError(null)
       if (route.tab === "settings") {
         setSettingsSection("usage")
+        setSettingsOpen(true)
+        if (getRoutePath() === "/settings") window.history.replaceState(null, "", routeUrl("/"))
+        return
       }
       setActiveTab(route.tab)
       clearConversationState()
@@ -1046,18 +1053,11 @@ function AppShell({
   const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
     routeRequestRef.current += 1
-    const currentPath = getRoutePath()
-    if (!isSettingsRoute(currentPath)) {
-      previousContentPathRef.current = currentPath
-    }
     prevTabRef.current = activeTab === "settings" ? "chat" : activeTab
     setComposerError(null)
     setSettingsSection(section)
-    setActiveTab("settings")
-    clearConversationState()
-    settingsPushedRef.current = true
-    window.history.pushState(null, "", routeUrl("/settings"))
-  }, [activeTab, clearConversationState])
+    setSettingsOpen(true)
+  }, [activeTab])
 
   useEffect(() => {
     function handleOpenSettings(event: Event) {
@@ -1102,6 +1102,10 @@ function AppShell({
   }, [])
 
   const handleSettingsBack = useCallback(() => {
+    if (settingsOpen) {
+      setSettingsOpen(false)
+      return
+    }
     if (settingsPushedRef.current) {
       settingsPushedRef.current = false
       window.history.back()
@@ -1117,7 +1121,7 @@ function AppShell({
 
     window.history.replaceState(null, "", routeUrl(url))
     void activateRoute(parseRoute(url))
-  }, [activateRoute])
+  }, [activateRoute, settingsOpen])
   const toggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark")
   }, [resolvedTheme, setTheme])
@@ -2607,7 +2611,7 @@ function AppShell({
           onSpaceDelete={handleSpaceDelete}
         />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden rounded-tl-[8px] border-l border-t border-border/50 bg-background">
           <main
             ref={mainContentRef}
             className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out"
@@ -2787,6 +2791,13 @@ function AppShell({
           onAgentSelect={setActiveAgentId}
         />
       )}
+
+      <SettingsModal
+        open={settingsOpen}
+        section={settingsSection}
+        onOpenChange={setSettingsOpen}
+        onSectionChange={setSettingsSection}
+      />
 
       <CommandPalette
         open={commandPaletteOpen}
