@@ -1267,6 +1267,35 @@ export function ChatView({
     [renderedMessages, pendingTools]
   )
 
+  const activeTurnToolCalls = useMemo(() => {
+    if (!isGenerating || latestRenderedUserIndex < 0) return []
+    const merged = new Map<string, import("./types").InlineToolCall>()
+    for (const tool of pendingTools) merged.set(tool.id, tool)
+    for (const message of renderedMessages.slice(latestRenderedUserIndex + 1)) {
+      if (message.role === "user") break
+      if (message.role !== "assistant") continue
+      for (const tool of message.toolCalls ?? []) {
+        const existing = merged.get(tool.id)
+        merged.set(tool.id, {
+          ...(existing ?? tool),
+          ...tool,
+          duration: tool.duration ?? existing?.duration,
+          startedAt: tool.startedAt ?? existing?.startedAt,
+          completedAt: tool.completedAt ?? existing?.completedAt,
+          resultText: tool.resultText ?? existing?.resultText,
+          approval: tool.approval ?? existing?.approval,
+          awaitingResult: tool.resultText ? false : (tool.awaitingResult ?? existing?.awaitingResult),
+        })
+      }
+    }
+    return Array.from(merged.values())
+  }, [isGenerating, latestRenderedUserIndex, pendingTools, renderedMessages])
+
+  const activeTurnToolIds = useMemo(
+    () => new Set(activeTurnToolCalls.map((tool) => tool.id)),
+    [activeTurnToolCalls]
+  )
+
   const spawnsByToolCallId = useMemo(() => {
     const map = new Map<string, SpawnedSubagent>()
     for (const sub of spawnedSubagents) {
@@ -1404,7 +1433,7 @@ export function ChatView({
       const showPending =
         index === latestRenderedUserIndex &&
         isGenerating &&
-        pendingTools.length > 0 &&
+        activeTurnToolCalls.length > 0 &&
         msg.role === "user"
       const isActivelyStreaming =
         isLast && isGenerating && msg.role === "assistant"
@@ -1423,7 +1452,7 @@ export function ChatView({
       const suppressAssistantActions =
         msg.role === "assistant" &&
         (hasLaterAssistantInSameTurn || (isGenerating && isActiveTurnAssistant))
-      const filteredPending = toolCallsWithoutSpawn(pendingTools).filter((t) => {
+      const filteredPending = toolCallsWithoutSpawn(activeTurnToolCalls).filter((t) => {
         // Always show running or awaiting-approval tools
         if (t.status === "running" || t.awaitingResult) return true
         // Keep completed tools that are NOT yet in any message's toolCalls
@@ -1438,11 +1467,15 @@ export function ChatView({
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
           ? []
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
+      const activeTurnAssistantToolCalls =
+        isGenerating && msg.role === "assistant" && index > latestRenderedUserIndex
+          ? messageToolCalls.filter((tool) => !activeTurnToolIds.has(tool.id))
+          : messageToolCalls
       const shouldFinalizeDisplayedTools =
         msg.role === "assistant" &&
         (index < latestRenderedUserIndex || !isGenerating || pendingTools.length === 0)
       const filteredToolCalls = applyTerminalToolState(
-        toolCallsWithoutSpawn(messageToolCalls),
+        toolCallsWithoutSpawn(activeTurnAssistantToolCalls),
         terminalToolState,
         { finalizeStaleRunning: shouldFinalizeDisplayedTools }
       )
@@ -1550,6 +1583,8 @@ export function ChatView({
     },
     [
       activePopoverId,
+      activeTurnToolCalls,
+      activeTurnToolIds,
       askAboutSelectedText,
       deleteMessage,
       exportOneMessage,
