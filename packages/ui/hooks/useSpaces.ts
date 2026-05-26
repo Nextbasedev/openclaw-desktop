@@ -170,13 +170,21 @@ export function useSpaces() {
   }, [loadSpacesFresh])
 
   const switchSpace = useCallback(async (spaceId: string) => {
+    const previousActiveSpaceId = activeSpaceId
     invalidateMiddlewareStartupBootstrap()
     activeSpaceOverrideRef.current = spaceId
-    await invoke("middleware_spaces_switch", { input: { spaceId } })
+    setActiveSpaceId(spaceId)
+    try {
+      await invoke("middleware_spaces_switch", { input: { spaceId } })
+    } catch (error) {
+      activeSpaceOverrideRef.current = previousActiveSpaceId
+      setActiveSpaceId(previousActiveSpaceId)
+      throw error
+    }
     invalidateMiddlewareStartupBootstrap()
     setActiveSpaceId(spaceId)
     void loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after switch failed", error))
-  }, [loadSpacesFresh])
+  }, [activeSpaceId, loadSpacesFresh])
 
   const archiveSpace = useCallback(async (spaceId: string) => {
     invalidateMiddlewareStartupBootstrap()

@@ -697,6 +697,7 @@ function AppShell({
   const previousContentPathRef = useRef("/")
   const settingsPushedRef = useRef(false)
   const lastChatRouteBySpaceRef = useRef(new Map<string, string>())
+  const lastChatSelectionBySpaceRef = useRef(new Map<string, { chat: ActiveChat; sessionKey: string | null; title: string | null }>())
   const pendingSpaceRouteRestoreRef = useRef<{ spaceId: string; path: string | null } | null>(null)
 
   const { resolvedTheme, setTheme } = useTheme()
@@ -800,13 +801,39 @@ function AppShell({
       if (!activeSpaceId) return
       const expectedPath = `/${route.chatId}`
       const isCurrentPath = () => getRoutePath() === expectedPath
+      const applyRouteChat = (chat: ActiveChat, sessionKey?: string | null, title?: string) => {
+        const finalTitle = title ?? (isUndecidedChatTitle(chat.name) ? "New Chat" : chat.name)
+        const finalSessionKey = isRealChatSessionKey(sessionKey) ? sessionKey : null
+        setActiveChat(chat)
+        setActiveSessionKey(finalSessionKey)
+        setActiveSessionTitle(finalSessionKey ? finalTitle : null)
+        dispatchGroups({
+          type: "ADD_TAB",
+          groupId: editorGroups.focusedGroupId,
+          tab: {
+            id: `chat:${chat.id}`,
+            title: finalTitle,
+            subtitle: "Chat",
+            kind: "chat",
+            chat,
+          },
+        })
+        dispatchGroups({
+          type: "SET_SESSION_DATA",
+          groupId: editorGroups.focusedGroupId,
+          sessionData: finalSessionKey ? { chat, sessionKey: finalSessionKey, title: finalTitle } : null,
+        })
+      }
       setPendingPrompt(null)
       setComposerError(null)
       setActiveTab("chat")
       setActiveTopic(null)
-      setActiveChat({ id: route.chatId, name: "Opening chat..." })
-      setActiveSessionKey(null)
-      setActiveSessionTitle(null)
+      const alreadyShowingTargetChat = activeChatRef.current?.id === route.chatId
+      if (!alreadyShowingTargetChat) {
+        setActiveChat({ id: route.chatId, name: "Opening chat..." })
+        setActiveSessionKey(null)
+        setActiveSessionTitle(null)
+      }
       setInitialMessages(undefined)
 
       try {
@@ -817,6 +844,18 @@ function AppShell({
         const cachedFound = (cachedChats || []).find(
           (chat) => chat.id === route.chatId && chat.spaceId === activeSpaceId,
         ) as RouteChatRecord | undefined
+        if (cachedFound) {
+          const cachedChat = { id: cachedFound.id, name: cachedFound.name, sessionKey: cachedFound.sessionKey }
+          const cachedTitle = isUndecidedChatTitle(cachedFound.name) ? "New Chat" : cachedFound.name
+          if (isRealChatSessionKey(cachedFound.sessionKey)) {
+            resolvedChatCacheRef.current.set(cachedFound.id, {
+              chat: cachedChat,
+              sessionKey: cachedFound.sessionKey,
+              title: cachedTitle,
+            })
+          }
+          applyRouteChat(cachedChat, cachedFound.sessionKey, cachedTitle)
+        }
         const chatResult = await fetchChatsForSpace(activeSpaceId)
         if (!isCurrentPath()) return
 
@@ -855,9 +894,7 @@ function AppShell({
 
         resolvedChatCacheRef.current.set(found.id, resolved)
         frontendLog("ui", "route.chat.resolved", { chatId: found.id, sessionKey: resolved.sessionKey, title: resolved.title })
-        setActiveChat(resolved.chat)
-        setActiveSessionKey(resolved.sessionKey)
-        setActiveSessionTitle(resolved.title)
+        applyRouteChat(resolved.chat, resolved.sessionKey, resolved.title)
       } catch (error) {
         frontendLog("ui", "route.chat.fail", { chatId: route.chatId, error: error instanceof Error ? { kind: error.name, message: error.message } : { kind: "Error", message: String(error) } }, "error")
         if (isCurrentPath()) {
@@ -1538,16 +1575,59 @@ function AppShell({
       const route = parseRoute(getRoutePath())
       if (route.kind === "chat") {
         lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${route.chatId}`)
+        if (activeChat?.id) {
+          lastChatSelectionBySpaceRef.current.set(activeSpaceId, {
+            chat: activeChat,
+            sessionKey: activeSessionKey,
+            title: activeSessionTitle,
+          })
+        }
       } else if (route.kind === "topic") {
         lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${route.projectId}/${route.topicId}`)
       } else if (activeChat?.id) {
         lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${activeChat.id}`)
+        lastChatSelectionBySpaceRef.current.set(activeSpaceId, {
+          chat: activeChat,
+          sessionKey: activeSessionKey,
+          title: activeSessionTitle,
+        })
       } else if (activeTopic?.projectId && activeTopic.id) {
         lastChatRouteBySpaceRef.current.set(activeSpaceId, `/${activeTopic.projectId}/${activeTopic.id}`)
       }
     }
     const restorePath = lastChatRouteBySpaceRef.current.get(spaceId) ?? null
+    const restoreSelection = lastChatSelectionBySpaceRef.current.get(spaceId) ?? null
     pendingSpaceRouteRestoreRef.current = { spaceId, path: restorePath }
+    if (restorePath) window.history.pushState(null, "", routeUrl(restorePath))
+    if (restoreSelection) {
+      setActiveTab("chat")
+      setActiveTopic(null)
+      setActiveChat(restoreSelection.chat)
+      setActiveSessionKey(restoreSelection.sessionKey)
+      setActiveSessionTitle(restoreSelection.title)
+      dispatchGroups({
+        type: "ADD_TAB",
+        groupId: editorGroups.focusedGroupId,
+        tab: {
+          id: `chat:${restoreSelection.chat.id}`,
+          title: restoreSelection.title ?? (isUndecidedChatTitle(restoreSelection.chat.name) ? "New Chat" : restoreSelection.chat.name),
+          subtitle: "Chat",
+          kind: "chat",
+          chat: restoreSelection.chat,
+        },
+      })
+      dispatchGroups({
+        type: "SET_SESSION_DATA",
+        groupId: editorGroups.focusedGroupId,
+        sessionData: restoreSelection.sessionKey
+          ? {
+              chat: restoreSelection.chat,
+              sessionKey: restoreSelection.sessionKey,
+              title: restoreSelection.title ?? (isUndecidedChatTitle(restoreSelection.chat.name) ? "New Chat" : restoreSelection.chat.name),
+            }
+          : null,
+      })
+    }
     await switchSpace(spaceId)
     resolvedChatCacheRef.current.clear()
     routeRequestRef.current += 1
@@ -1557,7 +1637,7 @@ function AppShell({
     setChatRefreshTrigger((n) => n + 1)
     if (!restorePath) window.history.pushState(null, "", routeUrl("/"))
     emit("sidebar:refresh")
-  }, [activeChat, activeSpaceId, activeTopic, clearConversationState, switchSpace])
+  }, [activeChat, activeSessionKey, activeSessionTitle, activeSpaceId, activeTopic, clearConversationState, editorGroups.focusedGroupId, switchSpace])
 
   const handleSpaceNewChat = useCallback(async (spaceId: string) => {
     if (spaceId !== activeSpaceId) {
