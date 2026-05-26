@@ -987,7 +987,11 @@ export function WorkspaceTab({
   const [previewCompact, setPreviewCompact] = useState(false)
   const refreshTimeoutRef = useRef<number | null>(null)
   const loadRequestRef = useRef(0)
+  const capabilityRequestRef = useRef(0)
   const effectiveSessionKey = workspaceSessionKey ?? sessionKey ?? null
+  const workspaceScopeKey = `${effectiveSessionKey ?? ""}:${projectId ?? ""}`
+  const workspaceScopeKeyRef = useRef(workspaceScopeKey)
+  workspaceScopeKeyRef.current = workspaceScopeKey
 
   useEffect(() => {
     if (!sessionKey || !effectiveSessionKey || sessionKey === effectiveSessionKey) return
@@ -1117,13 +1121,25 @@ export function WorkspaceTab({
     if (refreshTimeoutRef.current !== null) {
       window.clearTimeout(refreshTimeoutRef.current)
     }
+    const scheduledScopeKey = workspaceScopeKeyRef.current
+    const scheduledRoot = workspaceRoot
     refreshTimeoutRef.current = window.setTimeout(() => {
-      if (workspaceRoot !== null) {
-        void loadRoot(workspaceRoot, true)
+      if (
+        workspaceScopeKeyRef.current === scheduledScopeKey &&
+        scheduledRoot !== null
+      ) {
+        void loadRoot(scheduledRoot, true)
       }
       refreshTimeoutRef.current = null
     }, delayMs)
   }, [loadRoot, workspaceRoot])
+
+  useEffect(() => {
+    if (refreshTimeoutRef.current !== null) {
+      window.clearTimeout(refreshTimeoutRef.current)
+      refreshTimeoutRef.current = null
+    }
+  }, [workspaceScopeKey])
 
   useEffect(() => {
     if (!effectiveSessionKey) {
@@ -1137,16 +1153,32 @@ export function WorkspaceTab({
     }
 
     loadRequestRef.current += 1
+    const capabilityRequestId = ++capabilityRequestRef.current
+    const capabilityScopeKey = workspaceScopeKeyRef.current
     setTree([])
     setSelectedId(null)
     setExpandedIds(new Set())
     setWorkspaceRoot("")
     setTreeLoading(true)
     void fetchRemoteWorkspaceCapabilities(projectId)
-      .then((result) => setCapabilities(result.capabilities))
-      .catch(() => setCapabilities(null))
+      .then((result) => {
+        if (
+          capabilityRequestRef.current === capabilityRequestId &&
+          workspaceScopeKeyRef.current === capabilityScopeKey
+        ) {
+          setCapabilities(result.capabilities)
+        }
+      })
+      .catch(() => {
+        if (
+          capabilityRequestRef.current === capabilityRequestId &&
+          workspaceScopeKeyRef.current === capabilityScopeKey
+        ) {
+          setCapabilities(null)
+        }
+      })
     void loadRoot("")
-  }, [effectiveSessionKey, projectId, loadRoot])
+  }, [effectiveSessionKey, projectId, loadRoot, workspaceScopeKey])
 
   useEffect(() => {
     return () => {

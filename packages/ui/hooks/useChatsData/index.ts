@@ -108,6 +108,8 @@ export function useChatsData(
   const loadSeqRef = useRef(0)
   const currentSpaceIdRef = useRef<string | null | undefined>(spaceId)
   const previousSpaceIdRef = useRef<string | null | undefined>(spaceId)
+  const latestChatsRef = useRef<Chat[]>([])
+  const chatsBySpaceRef = useRef(new Map<string, Chat[]>())
   const refreshTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -121,6 +123,8 @@ export function useChatsData(
     const isCurrentRequest = () => loadSeqRef.current === requestSeq && currentSpaceIdRef.current === requestSpaceId
     const applyChats = (nextChats: Chat[]) => {
       if (!isCurrentRequest()) return
+      latestChatsRef.current = nextChats
+      if (requestSpaceId) chatsBySpaceRef.current.set(requestSpaceId, nextChats)
       setChats(nextChats)
       setPinnedChats(new Set(nextChats.filter((c) => c.pinned).map((c) => c.id)))
     }
@@ -165,10 +169,16 @@ export function useChatsData(
 
   useEffect(() => {
     const spaceChanged = previousSpaceIdRef.current !== spaceId
+    const previousSpaceId = previousSpaceIdRef.current
+    if (spaceChanged && previousSpaceId && latestChatsRef.current.length) {
+      chatsBySpaceRef.current.set(previousSpaceId, latestChatsRef.current)
+    }
     previousSpaceIdRef.current = spaceId
     if (spaceChanged) {
-      setChats([])
-      setPinnedChats(new Set())
+      const remembered = spaceId ? chatsBySpaceRef.current.get(spaceId) : undefined
+      latestChatsRef.current = remembered ?? []
+      setChats(remembered ?? [])
+      setPinnedChats(new Set((remembered ?? []).filter((c) => c.pinned).map((c) => c.id)))
     }
     loadChats()
     return () => {

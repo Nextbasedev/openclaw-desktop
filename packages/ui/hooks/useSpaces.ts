@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { invoke } from "@/lib/ipc"
 import { on } from "@/lib/events"
 import { localSyncSubscribeBootstrap } from "@/lib/localFirstSync"
@@ -47,28 +47,43 @@ export function useSpaces() {
   const [spaces, setSpaces] = useState<Space[]>([])
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const loadRequestRef = useRef(0)
+  const activeSpaceOverrideRef = useRef<string | null>(null)
 
-  const loadSpacesFresh = useCallback(async () => {
-    const result = await invoke<SpacesResponse>("middleware_spaces_list", { input: {} })
-    const nextSpaces = normalizeSpaces(result.spaces || [])
-    setSpaces(nextSpaces)
-    setActiveSpaceId(result.activeSpaceId || nextSpaces[0]?.id || null)
-    return result
+  const applySpaces = useCallback((nextSpaces: Space[], requestedActiveSpaceId?: string | null) => {
+    const normalized = normalizeSpaces(nextSpaces || [])
+    const override = activeSpaceOverrideRef.current
+    const overrideStillExists = Boolean(override && normalized.some((space) => space.id === override))
+    setSpaces(normalized)
+    setActiveSpaceId(
+      overrideStillExists
+        ? override
+        : requestedActiveSpaceId || normalized[0]?.id || null,
+    )
+    return normalized
   }, [])
 
+  const loadSpacesFresh = useCallback(async () => {
+    const requestId = ++loadRequestRef.current
+    const result = await invoke<SpacesResponse>("middleware_spaces_list", { input: {} })
+    if (loadRequestRef.current !== requestId) return result
+    applySpaces(result.spaces || [], result.activeSpaceId)
+    return result
+  }, [applySpaces])
+
   const loadSpaces = useCallback(async () => {
+    const requestId = ++loadRequestRef.current
     setLoading(true)
     try {
       const bootstrap = await loadMiddlewareStartupBootstrap()
-      if (bootstrap) {
-        setSpaces(normalizeSpaces(bootstrap.spaces || []))
-        setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
+      if (bootstrap && loadRequestRef.current === requestId) {
+        applySpaces(bootstrap.spaces || [], bootstrap.activeSpaceId)
       }
       await loadSpacesFresh()
     } finally {
-      setLoading(false)
+      if (loadRequestRef.current >= requestId) setLoading(false)
     }
-  }, [loadSpacesFresh])
+  }, [applySpaces, loadSpacesFresh])
 
   useEffect(() => {
     void loadSpaces()
@@ -76,14 +91,15 @@ export function useSpaces() {
 
   useEffect(() => {
     return localSyncSubscribeBootstrap((bootstrap) => {
-      setSpaces(normalizeSpaces(bootstrap.spaces || []))
-      setActiveSpaceId(bootstrap.activeSpaceId || bootstrap.spaces?.[0]?.id || null)
+      applySpaces(bootstrap.spaces || [], bootstrap.activeSpaceId)
     })
-  }, [])
+  }, [applySpaces])
 
   useEffect(() => {
     function handleConnectionChanged() {
       invalidateMiddlewareStartupBootstrap()
+      loadRequestRef.current += 1
+      activeSpaceOverrideRef.current = null
       setSpaces([])
       setActiveSpaceId(null)
       setLoading(true)
@@ -106,6 +122,7 @@ export function useSpaces() {
       input: { name: name?.trim() || undefined },
     })
     invalidateMiddlewareStartupBootstrap()
+    activeSpaceOverrideRef.current = result.activeSpaceId || result.space.id
     setSpaces((prev) => upsertSpace(prev, result.space))
     setActiveSpaceId(result.activeSpaceId || result.space.id)
     void loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after create failed", error))
@@ -153,15 +170,25 @@ export function useSpaces() {
   }, [loadSpacesFresh])
 
   const switchSpace = useCallback(async (spaceId: string) => {
+    const previousActiveSpaceId = activeSpaceId
     invalidateMiddlewareStartupBootstrap()
-    await invoke("middleware_spaces_switch", { input: { spaceId } })
+    activeSpaceOverrideRef.current = spaceId
+    setActiveSpaceId(spaceId)
+    try {
+      await invoke("middleware_spaces_switch", { input: { spaceId } })
+    } catch (error) {
+      activeSpaceOverrideRef.current = previousActiveSpaceId
+      setActiveSpaceId(previousActiveSpaceId)
+      throw error
+    }
     invalidateMiddlewareStartupBootstrap()
     setActiveSpaceId(spaceId)
     void loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after switch failed", error))
-  }, [loadSpacesFresh])
+  }, [activeSpaceId, loadSpacesFresh])
 
   const archiveSpace = useCallback(async (spaceId: string) => {
     invalidateMiddlewareStartupBootstrap()
+    if (activeSpaceOverrideRef.current === spaceId) activeSpaceOverrideRef.current = null
     await invoke<{ ok: true; activeSpaceId?: string }>("middleware_spaces_archive", { input: { spaceId } })
     invalidateMiddlewareStartupBootstrap()
     setSpaces((prev) => prev.filter((space) => space.id !== spaceId))
@@ -171,6 +198,7 @@ export function useSpaces() {
 
   const deleteSpace = useCallback(async (spaceId: string) => {
     invalidateMiddlewareStartupBootstrap()
+    if (activeSpaceOverrideRef.current === spaceId) activeSpaceOverrideRef.current = null
     await invoke<{ ok: true; activeSpaceId?: string }>("middleware_spaces_delete", { input: { spaceId } })
     invalidateMiddlewareStartupBootstrap()
     setSpaces((prev) => prev.filter((space) => space.id !== spaceId))
