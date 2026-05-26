@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import type { UsageSummary } from "./types"
 
 function formatTokens(n: number): string {
@@ -17,33 +16,6 @@ function formatPercent(value: number): string {
 
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-md bg-muted ${className}`} />
-}
-
-function NumberPopIn({ value }: { value: string }) {
-  const [playing, setPlaying] = useState(true)
-
-  useEffect(() => {
-    setPlaying(false)
-    const frame = requestAnimationFrame(() => {
-      requestAnimationFrame(() => setPlaying(true))
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [value])
-
-  return (
-    <span className={`t-digit-group ${playing ? "is-animating" : ""}`} aria-label={value}>
-      {value.split("").map((ch, i) => (
-        <span
-          key={`${ch}-${i}`}
-          aria-hidden="true"
-          className="t-digit"
-          data-stagger={i > 0 ? Math.min(i, 2) : undefined}
-        >
-          {ch}
-        </span>
-      ))}
-    </span>
-  )
 }
 
 function MiniMetric({
@@ -63,7 +35,7 @@ function MiniMetric({
         {label}
       </div>
       <div className="mt-3 truncate text-[22px] font-semibold tabular-nums tracking-tight text-foreground">
-        <NumberPopIn value={value} />
+        {value}
       </div>
       {helper && (
         <div className="mt-1 text-[12px] text-muted-foreground">
@@ -142,7 +114,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
               Usage overview
             </div>
             <div className="mt-1 tabular-nums text-[34px] font-semibold leading-tight tracking-tight text-foreground">
-              <NumberPopIn value={formatTokens(trackedTokens)} />
+              {formatTokens(trackedTokens)}
             </div>
             <div className="text-[14px] text-muted-foreground">
               Total tracked tokens across all usage
@@ -154,7 +126,7 @@ export function UsageStatsCards({ summary, loading = false }: UsageStatsCardsPro
               Spend
             </div>
             <div className="mt-2 tabular-nums text-[24px] font-semibold tracking-tight text-foreground">
-              <NumberPopIn value={`$${summary.totalCost.toFixed(2)}`} />
+              ${summary.totalCost.toFixed(2)}
             </div>
           </div>
         </div>
