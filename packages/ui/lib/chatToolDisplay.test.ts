@@ -143,4 +143,16 @@ describe("ChatView tool display grouping", () => {
       awaitingResult: false,
     })
   })
+
+  test("can finalize stale displayed running tools after the turn is no longer live", () => {
+    const tools = applyTerminalToolState([
+      { id: "exec", tool: "exec", status: "running", awaitingResult: true },
+    ], new Map(), { finalizeStaleRunning: true })
+
+    expect(tools[0]).toMatchObject({
+      id: "exec",
+      status: "success",
+      awaitingResult: false,
+    })
+  })
 })

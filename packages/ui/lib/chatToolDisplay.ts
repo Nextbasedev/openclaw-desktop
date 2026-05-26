@@ -73,12 +73,21 @@ export function terminalToolStateById(messages: ChatMessage[], live?: InlineTool
 
 export function applyTerminalToolState(
   tools: InlineToolCall[],
-  terminalById: Map<string, InlineToolCall>
+  terminalById: Map<string, InlineToolCall>,
+  options: { finalizeStaleRunning?: boolean } = {}
 ) {
-  if (tools.length === 0 || terminalById.size === 0) return tools
+  if (tools.length === 0) return tools
+  if (terminalById.size === 0 && !options.finalizeStaleRunning) return tools
   return tools.map((tool) => {
     const terminal = terminalById.get(tool.id)
-    if (!terminal) return tool
+    if (!terminal) {
+      if (!options.finalizeStaleRunning || (tool.status !== "running" && !tool.awaitingResult)) return tool
+      return {
+        ...tool,
+        status: "success" as const,
+        awaitingResult: false,
+      }
+    }
     if (tool.status !== "running" && !tool.awaitingResult) return tool
     return {
       ...tool,

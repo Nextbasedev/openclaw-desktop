@@ -1438,9 +1438,12 @@ export function ChatView({
         msg.role === "assistant" && suppressedToolCallMessages.has(msg.messageId)
           ? []
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
+      const shouldFinalizeDisplayedTools =
+        msg.role === "assistant" && (index < latestRenderedUserIndex || !isGenerating)
       const filteredToolCalls = applyTerminalToolState(
         toolCallsWithoutSpawn(messageToolCalls),
-        terminalToolState
+        terminalToolState,
+        { finalizeStaleRunning: shouldFinalizeDisplayedTools }
       )
       const anchoredUserSubagents =
         msg.role === "user"
