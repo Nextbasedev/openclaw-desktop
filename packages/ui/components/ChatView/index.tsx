@@ -20,6 +20,11 @@ import { type ChatComposerSubmit } from "@/lib/chatAttachments"
 import { isSubagentSessionKey } from "@/lib/subagentSession"
 import { isActiveSubagent } from "@/lib/subagentLifecycle"
 import {
+  buildSubagentTurnScope,
+  mergeCurrentTurnSubagents,
+  subagentsForToolCalls,
+} from "@/lib/subagentTurnScope"
+import {
   exportMessagesMarkdown,
   initialMessageActionState,
   messageActionReducer,
@@ -1243,74 +1248,30 @@ export function ChatView({
     [activeTurnToolCalls]
   )
 
-  const spawnsByToolCallId = useMemo(() => {
-    const map = new Map<string, SpawnedSubagent>()
-    for (const sub of spawnedSubagents) {
-      map.set(sub.toolCallId, sub)
-    }
-    return map
-  }, [spawnedSubagents])
+  const subagentTurnScope = useMemo(
+    () => buildSubagentTurnScope(renderedMessages, spawnedSubagents),
+    [renderedMessages, spawnedSubagents]
+  )
+
+  const spawnsByToolCallId = subagentTurnScope.spawnsByToolCallId
 
   const getSubagentsForMessage = useCallback(
     (toolCalls?: import("./types").InlineToolCall[]): SpawnedSubagent[] => {
-      if (!toolCalls) return []
-      const matched: SpawnedSubagent[] = []
-      for (const tc of toolCalls) {
-        if (tc.tool === "sessions_spawn") {
-          const sub = spawnsByToolCallId.get(tc.id)
-          if (sub) matched.push(sub)
-        }
-      }
-      return matched
+      return subagentsForToolCalls(toolCalls, spawnsByToolCallId)
     },
     [spawnsByToolCallId]
   )
 
-  const {
-    subagentsByTriggerUserId,
-    orphanSubagentsByAssistantId,
-    subagentRenderScope,
-  } = useMemo(() => {
-    const byTriggerUserId = new Map<string, SpawnedSubagent[]>()
-    const orphanByAssistantId = new Map<string, SpawnedSubagent[]>()
-    let nearestUserId: string | null = null
-    let latestUserMessageId: string | null = null
-
-    for (const msg of renderedMessages) {
-      if (msg.role === "user") {
-        nearestUserId = msg.messageId
-        latestUserMessageId = msg.messageId
-        continue
-      }
-
-      const msgSubagents = getSubagentsForMessage(msg.toolCalls)
-      if (msgSubagents.length === 0) continue
-
-      if (nearestUserId) {
-        const existing = byTriggerUserId.get(nearestUserId) ?? []
-        byTriggerUserId.set(nearestUserId, [
-          ...existing,
-          ...msgSubagents,
-        ])
-      } else {
-        orphanByAssistantId.set(msg.messageId, msgSubagents)
-      }
-    }
-
-    const latestUserSubagents = latestUserMessageId
-      ? (byTriggerUserId.get(latestUserMessageId) ?? [])
-      : []
-    return {
-      subagentsByTriggerUserId: byTriggerUserId,
-      orphanSubagentsByAssistantId: orphanByAssistantId,
-      subagentRenderScope: {
-        latestUserMessageId,
-        currentTurnCount: latestUserSubagents.length,
-        anchoredCount: Array.from(byTriggerUserId.values()).reduce((sum, items) => sum + items.length, 0),
-        orphanCount: Array.from(orphanByAssistantId.values()).reduce((sum, items) => sum + items.length, 0),
-      },
-    }
-  }, [getSubagentsForMessage, renderedMessages])
+  const subagentsByTriggerUserId = subagentTurnScope.subagentsByTriggerUserId
+  const orphanSubagentsByAssistantId = subagentTurnScope.orphanSubagentsByAssistantId
+  const currentTurnSubagents = useMemo(
+    () => mergeCurrentTurnSubagents(
+      subagentTurnScope.currentTurnSubagents,
+      activeTurnToolCalls,
+      spawnsByToolCallId
+    ),
+    [activeTurnToolCalls, spawnsByToolCallId, subagentTurnScope.currentTurnSubagents]
+  )
 
   useEffect(() => {
     if (spawnedSubagents.length === 0) return
@@ -1318,13 +1279,14 @@ export function ChatView({
       sessionKey,
       globalCount: spawnedSubagents.length,
       activeCount: spawnedSubagents.filter((sub) => isActiveSubagent(sub.status)).length,
-      latestUserMessageId: subagentRenderScope.latestUserMessageId,
-      currentTurnCount: subagentRenderScope.currentTurnCount,
-      anchoredCount: subagentRenderScope.anchoredCount,
-      orphanCount: subagentRenderScope.orphanCount,
+      latestUserMessageId: subagentTurnScope.latestUserMessageId,
+      currentTurnCount: subagentTurnScope.currentTurnCount,
+      floatingBarCount: currentTurnSubagents.length,
+      anchoredCount: subagentTurnScope.anchoredCount,
+      orphanCount: subagentTurnScope.orphanCount,
       messageCount: renderedMessages.length,
     }, "debug")
-  }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
+  }, [currentTurnSubagents.length, renderedMessages.length, sessionKey, spawnedSubagents, subagentTurnScope])
 
   const scrollToRenderedMessage = useCallback((messageId: string, seq?: number) => {
     const target = document.getElementById(`message-${messageId}`)
@@ -1813,9 +1775,9 @@ export function ChatView({
             </motion.div>
           )}
         </AnimatePresence>
-        {spawnedSubagents.length > 0 && (
+        {currentTurnSubagents.length > 0 && (
           <div className="mb-2">
-            <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
+            <SubagentBar subagents={currentTurnSubagents} onOpen={openSubagent} />
           </div>
         )}
         <ChatBox

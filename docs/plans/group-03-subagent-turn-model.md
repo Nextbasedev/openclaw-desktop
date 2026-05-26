@@ -1,5 +1,15 @@
 # Group 03 — Subagent Turn Model Plan
 
+## Implementation Status
+
+Implemented on `fix/group-03-subagent-turn-model` after the planning pass:
+
+- Extracted current-turn subagent scope into `packages/ui/lib/subagentTurnScope.ts`.
+- Changed the bottom floating `SubagentBar` to render `currentTurnSubagents`, not session-global `spawnedSubagents`.
+- Preserved inline cards and Activity as separate scopes: inline/current-turn vs Activity/session-global.
+- Added focused regression coverage in `packages/ui/lib/__tests__/subagentTurnScope.test.ts`.
+- Web UI check against a multi-turn subagent chat confirmed the floating bar shows the latest turn count (`5 background agent`) while older historical subagents remain in the transcript/activity context.
+
 ## Problem
 
 The floating subagent bar is currently session-global, while inline subagent cards are message/turn-derived. This mixes two different scopes:
@@ -145,4 +155,4 @@ pnpm --filter ui exec vitest run lib/chat-engine-v2/__tests__/store.test.ts
 
 ## Stop Point
 
-This document is the feature-plan output. Do not implement in this step; use `feature-build` for code changes.
+Original planning stop point is complete. Implementation followed in the same branch because the follow-up request explicitly asked to build, test, scan edge cases, and open a PR.
