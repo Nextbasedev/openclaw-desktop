@@ -105,6 +105,19 @@ function matchingUserIdsAtGatewayIndex(state: ApplyPatchState, normalized: ChatM
     .map((item) => item.messageId)
 }
 
+function matchingOptimisticUserIdsByText(state: ApplyPatchState, normalized: ChatMessage[], messageSeq: number | undefined): string[] {
+  const incomingUser = normalized.find((item) => item.role === "user" && !item.isOptimistic)
+  if (!incomingUser?.text.trim()) return []
+  const match = state.messages.find((item) =>
+    item.role === "user" &&
+    item.isOptimistic &&
+    (typeof messageSeq !== "number" || typeof item.gatewayIndex !== "number" || item.gatewayIndex <= 0) &&
+    item.messageId !== incomingUser.messageId &&
+    userTextMatchesSent(incomingUser.text, item.text)
+  )
+  return match ? [match.messageId] : []
+}
+
 function isToolOnlyAssistantMessage(message: ChatMessage) {
   return message.role === "assistant" && !message.text.trim() && Boolean(message.toolCalls?.length)
 }
@@ -191,6 +204,44 @@ function preserveUserAttachmentsFromReplacedMessages(
   })
 }
 
+function preserveOptimisticUserDisplayFromBlankConfirmation(
+  state: ApplyPatchState,
+  incoming: ChatMessage[],
+  optimisticId: string | null,
+) {
+  if (!optimisticId) return incoming
+  const existing = state.messages.find((item) => item.messageId === optimisticId)
+  if (!existing || existing.role !== "user" || !existing.text.trim()) return incoming
+  return incoming.map((message) => {
+    if (message.role !== "user" || message.text.trim()) return message
+    return {
+      ...message,
+      text: existing.text,
+      attachments: message.attachments?.length ? message.attachments : existing.attachments,
+    }
+  })
+}
+
+function synthesizeBlankUserConfirmation(
+  state: ApplyPatchState,
+  parsed: ChatMessage[],
+  optimisticId: string | null,
+  canonicalMessageId: string | null,
+  messageSeq: number | undefined,
+) {
+  if (parsed.length > 0 || !optimisticId) return parsed
+  const existing = state.messages.find((item) => item.messageId === optimisticId)
+  if (!existing || existing.role !== "user" || !existing.text.trim()) return parsed
+  return [{
+    ...existing,
+    messageId: canonicalMessageId ?? optimisticId,
+    gatewayIndex: messageSeq ?? existing.gatewayIndex,
+    isOptimistic: false,
+    sendStatus: undefined,
+    sendError: null,
+  }]
+}
+
 const ACTIVE_STATUSES = new Set<StreamStatus>(["queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting"])
 const VALID_STATUSES = new Set<StreamStatus>(["idle", "connected", "queued", "running", "collect", "thinking", "tool_running", "streaming", "stopping", "restarting", "done", "error"])
 
@@ -241,15 +292,21 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
   }
   const message = patchMessage(frame)
   if (!message) return { ...state, cursor: frame.patch.cursor }
-  const parsed = parseChatHistory([message]).messages
   const optimisticId = patchOptimisticId(frame)
   const payload = patchPayload(frame)
   const canonicalMessageId = typeof payload?.messageId === "string" && payload.messageId.trim() ? payload.messageId : optimisticId
   const messageSeq = patchMessageSeq(frame)
+  const parsed = synthesizeBlankUserConfirmation(
+    state,
+    parseChatHistory([message]).messages,
+    optimisticId,
+    canonicalMessageId,
+    messageSeq,
+  )
   const withSeq = typeof messageSeq === "number"
     ? parsed.map((item) => ({ ...item, gatewayIndex: messageSeq }))
     : parsed
-  const normalized = canonicalMessageId
+  const normalizedRaw = canonicalMessageId
     ? withSeq.map((item) =>
       item.role === "user"
         ? { ...item, messageId: canonicalMessageId, isOptimistic: false, sendStatus: undefined, sendError: null }
@@ -258,6 +315,7 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
           : item
     )
     : withSeq
+  const normalized = preserveOptimisticUserDisplayFromBlankConfirmation(state, normalizedRaw, optimisticId)
   if (rejectsStaleConfirmedUser(state, optimisticId, normalized)) {
     return { ...state, cursor: frame.patch.cursor }
   }
@@ -265,6 +323,7 @@ export function applyChatPatch(state: ApplyPatchState, frame: PatchFrame): Apply
     optimisticId,
     canonicalMessageId,
     ...matchingUserIdsAtGatewayIndex(state, normalized, messageSeq),
+    ...matchingOptimisticUserIdsByText(state, normalized, messageSeq),
   ].filter((id): id is string => Boolean(id)))
   const baseMessages = idsToReplace.size > 0
     ? state.messages.filter((item) => !idsToReplace.has(item.messageId))

@@ -389,8 +389,11 @@ export function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
       continue
     }
 
-    const assistantIndex = result.findIndex((existing) =>
-      sameAssistantMessage(existing, message)
+    const lastUserIndex = message.role === "assistant"
+      ? result.map((existing) => existing.role).lastIndexOf("user")
+      : -1
+    const assistantIndex = result.findIndex((existing, index) =>
+      index > lastUserIndex && sameAssistantMessage(existing, message)
     )
     if (assistantIndex >= 0) {
       const existing = result[assistantIndex]

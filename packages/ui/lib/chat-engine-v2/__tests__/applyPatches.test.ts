@@ -228,6 +228,90 @@ describe("applyChatPatch", () => {
     expect(confirmed.messages[0]).toMatchObject({ messageId: "client:key", role: "user", text: "byy", isOptimistic: false })
   })
 
+  test("confirms optimistic user without hiding it when Gateway echo is blank", () => {
+    const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.created",
+          messageId: "client-1",
+          message: { role: "user", text: "hii", isOptimistic: true, __clientOptimistic: true, __openclaw: { id: "client-1" } },
+        },
+        createdAtMs: 1,
+      },
+    })
+    const confirmed = applyChatPatch(withOptimistic, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.confirmed",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.user.confirmed",
+          messageId: "client-1",
+          optimisticId: "client-1",
+          gatewayMessageId: "gateway-blank",
+          messageSeq: 2,
+          message: { role: "user", __openclaw: { id: "gateway-blank", seq: 2 } },
+        },
+        createdAtMs: 2,
+      },
+    })
+
+    expect(confirmed.messages).toHaveLength(1)
+    expect(confirmed.messages[0]).toMatchObject({ messageId: "client-1", role: "user", text: "hii", isOptimistic: false, gatewayIndex: 2 })
+  })
+
+  test("does not merge a reused tool id into a completed tool after a new user turn", () => {
+    let state = applyChatPatch({ cursor: 0, messages: [] }, {
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.assistant.final",
+          messageId: "assistant-1",
+          message: { role: "assistant", text: "done", toolCalls: [{ id: "tool-1", tool: "read", status: "success", duration: "0.5s" }] },
+        },
+        createdAtMs: 1,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: { semanticType: "chat.user.created", optimistic: true, messageId: "client-2", message: { role: "user", text: "again", isOptimistic: true } },
+        createdAtMs: 2,
+      },
+    })
+    state = applyChatPatch(state, {
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        payload: {
+          semanticType: "chat.tool.started",
+          runStatus: "tool_running",
+          messageId: "tool-live-2",
+          message: { role: "assistant", text: "checking", content: [{ type: "tool_call", id: "tool-1", name: "read", phase: "start" }] },
+        },
+        createdAtMs: 3,
+      },
+    })
+
+    expect(state.messages.map((message) => message.role)).toEqual(["assistant", "user", "assistant"])
+    expect(state.messages[0]?.toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "success" })
+    expect(state.messages[2]).toMatchObject({ role: "assistant", text: "checking" })
+    expect(state.messages[2]?.toolCalls?.[0]).toMatchObject({ id: "tool-1", status: "running" })
+  })
+
   test("does not replace current optimistic user with a stale confirmed user echo", () => {
     const withOptimistic = applyChatPatch({ cursor: 0, messages: [] }, {
       type: "patch",
