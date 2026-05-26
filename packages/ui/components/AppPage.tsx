@@ -2583,7 +2583,7 @@ function AppShell({
         onNavigateToChat={handleCronJobNavigate}
       />
 
-      <div className="flex flex-1 overflow-hidden bg-white dark:bg-[#151518]">
+      <div className="flex flex-1 overflow-hidden">
         <Sidebar
           width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
           collapsed={!sidebarOpen}
