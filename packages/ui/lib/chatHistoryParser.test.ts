@@ -509,6 +509,56 @@ describe("parseChatHistory", () => {
     assert.equal(calls.find((call) => call.id === "tc2")?.resultText, "second output")
   })
 
+  it("does not merge tool calls across a hidden blank user turn boundary", () => {
+    const parsed = parseChatHistory([
+      {
+        id: "a-old-tools",
+        role: "assistant",
+        timestamp: 1000,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc-old",
+            name: "read",
+            arguments: {},
+            status: "success",
+          },
+        ],
+      },
+      {
+        id: "a-old-text",
+        role: "assistant",
+        timestamp: 1100,
+        text: "old answer",
+      },
+      {
+        id: "u-hidden",
+        role: "user",
+        timestamp: 1200,
+        content: [],
+      },
+      {
+        id: "a-new-tools",
+        role: "assistant",
+        timestamp: 1300,
+        content: [
+          {
+            type: "toolCall",
+            id: "tc-new",
+            name: "session_status",
+            arguments: {},
+          },
+        ],
+      },
+    ])
+
+    assert.equal(parsed.messages.length, 2)
+    assert.equal(parsed.messages[0]?.text, "old answer")
+    assert.equal(parsed.messages[0]?.toolCalls?.[0]?.id, "tc-old")
+    assert.equal(parsed.messages[1]?.text, "")
+    assert.equal(parsed.messages[1]?.toolCalls?.[0]?.id, "tc-new")
+  })
+
   it("restores canonical snake_case tool call blocks from session history", () => {
     const parsed = parseChatHistory([
       {

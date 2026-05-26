@@ -680,6 +680,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
     SpawnedSubagent & { terminal?: boolean }
   >()
   const subagentBySessionKey = new Map<string, SpawnedSubagent & { terminal?: boolean }>()
+  let assistantMergeBlockedByUserBoundary = false
 
   for (const item of deduped) {
     const role = item.role
@@ -715,6 +716,11 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
           attachments,
         })
       }
+      // Even if the Gateway/user echo has no visible text, it is still a turn
+      // boundary. Without this, the next assistant/tool message is merged into
+      // the previous assistant card, making tools from later questions appear
+      // above/inside older answers.
+      assistantMergeBlockedByUserBoundary = true
       pendingToolCalls = []
       resultQueue = []
       pendingToolById.clear()
@@ -768,7 +774,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
       const reasoningText = thinkingText(item).trim()
       if (text || pendingToolCalls.length > 0 || reasoningText) {
         const last = messages.at(-1)
-        if (last?.role === "assistant") {
+        if (last?.role === "assistant" && !assistantMergeBlockedByUserBoundary) {
           if (text) last.text = mergeAssistantText(last.text, text)
           last.toolCalls = [...(last.toolCalls ?? []), ...pendingToolCalls]
           if (reasoningText) last.reasoningText = last.reasoningText ? `${last.reasoningText}${reasoningText}` : reasoningText
@@ -793,6 +799,7 @@ export function parseChatHistory(raw: RawHistoryMessage[]): ParsedChatHistory {
             gatewayIndex: openclawSeq(item),
           })
         }
+        assistantMergeBlockedByUserBoundary = false
         pendingToolCalls = []
       }
       continue
