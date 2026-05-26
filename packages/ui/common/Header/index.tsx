@@ -123,6 +123,10 @@ export function Header({
   const [isTauri, setIsTauri] = useState(false)
   const [openClawVersion, setOpenClawVersion] = useState<string | null>(null)
   const [nodeVersion, setNodeVersion] = useState<string | null>(null)
+  const [uniqueSidebarBg, setUniqueSidebarBg] = useState(() => {
+    if (typeof window === "undefined") return false
+    return localStorage.getItem("openclaw.uniqueSidebarBg") === "true"
+  })
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
   const [dragOverGroupId, setDragOverGroupId] = useState<"group-1" | "group-2" | null>(null)
@@ -136,6 +140,23 @@ export function Header({
       )
     }, 0)
     return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    function syncSidebarBackground(event?: Event) {
+      if (event instanceof CustomEvent && typeof event.detail === "boolean") {
+        setUniqueSidebarBg(event.detail)
+        return
+      }
+      setUniqueSidebarBg(localStorage.getItem("openclaw.uniqueSidebarBg") === "true")
+    }
+
+    window.addEventListener("appearance:sidebar-bg", syncSidebarBackground)
+    window.addEventListener("storage", syncSidebarBackground)
+    return () => {
+      window.removeEventListener("appearance:sidebar-bg", syncSidebarBackground)
+      window.removeEventListener("storage", syncSidebarBackground)
+    }
   }, [])
 
   useEffect(() => {
@@ -197,7 +218,10 @@ export function Header({
       )}
       {/* Left: app identity */}
       <div
-        className="relative z-10 flex shrink-0 items-center gap-3 overflow-hidden px-3"
+        className={cn(
+          "relative z-10 flex shrink-0 items-center gap-3 self-stretch overflow-hidden px-3",
+          uniqueSidebarBg && "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]",
+        )}
         style={sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
       >
         {showTrafficLights && <TrafficLights />}
