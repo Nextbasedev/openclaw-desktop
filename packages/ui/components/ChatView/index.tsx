@@ -799,6 +799,8 @@ export function ChatView({
   const userScrollIntentRef = useRef(false)
   const isAtBottomRef = useRef(true)
   const needsInitialScrollRef = useRef(true)
+  const autoScrollingRef = useRef(false)
+  const messageListRef = useRef<HTMLDivElement | null>(null)
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
@@ -1008,7 +1010,11 @@ export function ChatView({
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
+    autoScrollingRef.current = true
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    window.setTimeout(() => {
+      autoScrollingRef.current = false
+    }, 450)
   }, [bottomRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
@@ -1054,15 +1060,48 @@ export function ChatView({
     ) {
       needsInitialScrollRef.current = false
       requestAnimationFrame(() => {
+        autoScrollingRef.current = true
         bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+        requestAnimationFrame(() => {
+          autoScrollingRef.current = false
+        })
       })
     }
   }, [bottomRef, renderedMessages.length, loading])
 
   useLayoutEffect(() => {
     if (!isAtBottomRef.current) return
+    autoScrollingRef.current = true
     bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+    requestAnimationFrame(() => {
+      autoScrollingRef.current = false
+    })
   }, [bottomRef, renderedMessages.length, isGenerating, pendingTools.length, status, statusLabel])
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+
+    let frame: number | null = null
+    const observer = new ResizeObserver(() => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = null
+        if (isAtBottomRef.current || autoScrollingRef.current) {
+          bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
+        }
+        syncJumpToBottomVisibility()
+      })
+    })
+    observer.observe(el)
+    if (messageListRef.current) observer.observe(messageListRef.current)
+    if (bottomRef.current) observer.observe(bottomRef.current)
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [bottomRef, renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1433,7 +1472,16 @@ export function ChatView({
       return (
         <div
           id={`message-${msg.messageId}`}
-          className={`mx-auto max-w-3xl px-4 py-2.5 transition-all duration-500 ${highlightedMessageId && highlightedMessageId !== msg.messageId ? "opacity-40" : ""} ${highlightedMessageId === msg.messageId ? "rounded-lg ring-1 ring-yellow-500/40" : ""}`}
+          data-chat-message-row="true"
+          className={cn(
+            "mx-auto max-w-[44rem] px-4 py-3 transition-all duration-500",
+            "[content-visibility:auto]",
+            msg.role === "assistant"
+              ? "[contain-intrinsic-size:auto_300px]"
+              : "[contain-intrinsic-size:auto_80px]",
+            highlightedMessageId && highlightedMessageId !== msg.messageId && "opacity-40",
+            highlightedMessageId === msg.messageId && "rounded-lg ring-1 ring-yellow-500/40"
+          )}
         >
           {msg.role === "assistant" && orphanAssistantSubagents.length > 0 && (
             <div className="mb-2">
@@ -1741,7 +1789,7 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overscroll-contain"
       >
-        <div className="min-h-full">
+        <div ref={messageListRef} className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8">
             {loadingOlderMessages && (
               <div className="mb-4 flex justify-center text-xs text-muted-foreground">

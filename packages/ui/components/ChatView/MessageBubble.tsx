@@ -794,8 +794,8 @@ export const MessageBubble = memo(function MessageBubble({
     >
       <div
         className={cn(
-          "flex max-w-[85%] min-w-0 flex-col overflow-hidden",
-          isUser ? "items-end" : "w-[85%] items-start"
+          "flex min-w-0 flex-col overflow-visible",
+          isUser ? "max-w-[min(85%,42rem)] items-end" : "w-full items-start"
         )}
       >
         {message.replyTo && (
@@ -863,26 +863,26 @@ export const MessageBubble = memo(function MessageBubble({
                 className={cn(
                   "max-w-full min-w-0 overflow-hidden text-[14px] leading-relaxed",
                   isUser && userSlashCommandName
-                    ? "relative rounded-2xl rounded-tr-sm border border-white/10 bg-[#1f1f24] px-2.5 py-2 text-white shadow-[0_10px_28px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    ? "relative rounded-2xl border border-border/45 bg-muted px-3 py-2 text-foreground shadow-sm"
                     : isUser
-                      ? "rounded-2xl rounded-tr-sm bg-[#252529] px-4 py-2.5 text-white"
+                      ? "rounded-2xl bg-muted px-4 py-2.5 text-foreground shadow-sm"
                       : isAssistantError
-                        ? "w-full text-red-300"
-                      : "w-full text-foreground"
+                        ? "w-full px-2 text-red-300"
+                      : "w-full px-2 text-foreground"
                 )}
               >
               {shouldAnimateSlashCommandBorder && (
                 <>
                   <motion.span
                     aria-hidden="true"
-                    className="pointer-events-none absolute top-2 right-0 bottom-2 w-px bg-white/80"
+                    className="pointer-events-none absolute top-2 right-0 bottom-2 w-px bg-foreground/60"
                     initial={{ scaleY: 0, opacity: 0, originY: 0 }}
                     animate={{ scaleY: 1, opacity: [0, 0.95, 0] }}
                     transition={{ duration: 0.48, ease: "easeOut" }}
                   />
                   <motion.span
                     aria-hidden="true"
-                    className="pointer-events-none absolute right-2 bottom-0 h-px bg-white/80"
+                    className="pointer-events-none absolute right-2 bottom-0 h-px bg-foreground/60"
                     initial={{ width: 0, opacity: 0 }}
                     animate={{
                       width: "calc(100% - 1rem)",
@@ -894,10 +894,10 @@ export const MessageBubble = memo(function MessageBubble({
               )}
               {isUser && userSlashCommandName ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="flex size-6 shrink-0 items-center justify-center text-white/65">
+                  <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
                     <LuTerminal className="size-3.5" />
                   </span>
-                  <code className="min-w-0 font-mono text-[13.5px] leading-6 tracking-[-0.01em] [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-white">
+                  <code className="min-w-0 font-mono text-[13.5px] leading-6 tracking-[-0.01em] [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-foreground">
                     {message.text}
                   </code>
                 </div>
