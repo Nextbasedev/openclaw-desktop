@@ -1741,7 +1741,7 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overscroll-contain"
       >
-        <div className="flex min-h-full flex-col justify-end">
+        <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8">
             {loadingOlderMessages && (
               <div className="mb-4 flex justify-center text-xs text-muted-foreground">
