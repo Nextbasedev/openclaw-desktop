@@ -9,9 +9,10 @@ import { ArchiveTab } from "./tabs/ArchiveTab"
 import { ConfigTab } from "./tabs/ConfigTab"
 import { UsageTab } from "./tabs/UsageTab"
 import { VoiceTab } from "./tabs/VoiceTab"
+import ConnectPage from "@/components/ConnectPage"
 import { cn } from "@/lib/utils"
 
-export type SettingSection = "usage" | "config" | "archive" | "appearance" | "voice" | "help" | "shortcuts"
+export type SettingSection = "usage" | "config" | "archive" | "connect" | "appearance" | "voice" | "help" | "shortcuts"
 
 type SectionGroup = {
   label: string
@@ -25,6 +26,7 @@ const SECTION_GROUPS: SectionGroup[] = [
       { id: "usage", label: "Usage", icon: Icons.Automations },
       { id: "config", label: "Config", icon: Icons.Settings },
       { id: "archive", label: "Archive", icon: Icons.File },
+      { id: "connect", label: "Connect", icon: Icons.Globe },
     ],
   },
   {
@@ -89,13 +91,18 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
 
       <div
         ref={scrollRef}
-        className="my-2 mx-2 min-h-0 flex-1 w-full max-w-2xl overflow-y-auto scrollbar-hide md:my-4 lg:my-6"
+        className={cn(
+          "my-2 mx-2 min-h-0 flex-1 w-full overflow-y-auto scrollbar-hide md:my-4 lg:my-6",
+          resolvedSection === "connect" ? "max-w-6xl" : "max-w-2xl",
+        )}
       >
         {resolvedSection === "usage" && <UsageTab />}
 
         {resolvedSection === "config" && <ConfigTab />}
 
         {resolvedSection === "archive" && <ArchiveTab />}
+
+        {resolvedSection === "connect" && <ConnectPage />}
 
         {resolvedSection === "appearance" && <AppearanceTab />}
 

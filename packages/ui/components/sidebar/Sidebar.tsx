@@ -18,13 +18,11 @@ import type { Space } from "@/types/space"
 const DEFAULT_DRAGGABLE_ITEMS: SidebarNavItem[] = [
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "skill", label: "Skill", icon: "skill" },
-  { id: "connect", label: "Connect", icon: "connect" },
 ]
 
 const NAV_HREFS: Record<string, string> = {
   chat: "/",
   skill: "/skill",
-  connect: "/connect",
 }
 
 const UNIQUE_SIDEBAR_BG_KEY = "openclaw.uniqueSidebarBg"
