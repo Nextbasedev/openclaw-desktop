@@ -1553,7 +1553,7 @@ function AppShell({
     routeRequestRef.current += 1
     setPendingPrompt(null)
     setComposerError(null)
-    clearConversationState()
+    if (!restorePath) clearConversationState()
     setChatRefreshTrigger((n) => n + 1)
     if (!restorePath) window.history.pushState(null, "", routeUrl("/"))
     emit("sidebar:refresh")
