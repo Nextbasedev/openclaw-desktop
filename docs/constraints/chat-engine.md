@@ -98,6 +98,21 @@ Chat opens
   separate questions just because no visible user bubble was rendered.
 - Replayed/backfilled `running` tool blocks must not downgrade a visible
   terminal tool (`success`/`error`) with the same `toolCallId`.
+- Chat tool-card state must follow Activity tab semantics: once a run/turn is
+  no longer live, stale `running` / `awaitingResult` display rows are finalized
+  visually instead of showing an old spinner. Activity tab is the reference
+  behavior; do not modify Activity to mask ChatView bugs.
+- During an active run, if `pendingTools` is empty, older visible assistant tool
+  cards must not keep a spinner just because global `isGenerating` is true.
+  `isGenerating` describes the current turn, not every historical tool card.
+- `middleware_chat_history` / Gateway canonical history can omit inline
+  `tool_call` content blocks (`canonicalToolCount: 0`). Reconcile/backfill is a
+  recovery path and must never replace a richer live-projected transcript with a
+  shorter canonical parse that drops tool cards or intermediate assistant rows.
+  If fresh history has fewer parsed messages than the current visible state,
+  merge additively and preserve existing `toolCalls`.
+- Immediate history backfill after `runStatus: done` is expected. The UI must
+  treat it as reconciliation, not as permission to wipe richer live state.
 
 ## Focused / New Window Replay Cursor
 
