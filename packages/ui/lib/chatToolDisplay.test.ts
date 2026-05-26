@@ -3,7 +3,7 @@ import { groupAssistantToolCallsByMessage, mergeToolCallsForDisplay } from "./ch
 import type { ChatMessage } from "@/components/ChatView/types"
 
 describe("ChatView tool display grouping", () => {
-  test("keeps all tool calls for one assistant response in one steps block", () => {
+  test("keeps contiguous tool calls before assistant text in one steps block", () => {
     const messages: ChatMessage[] = [
       { messageId: "u1", role: "user", text: "check project" },
       {
@@ -15,13 +15,13 @@ describe("ChatView tool display grouping", () => {
           { id: "read", tool: "read", status: "success" },
         ],
       },
-      { messageId: "a-text", role: "assistant", text: "I found it." },
       {
-        messageId: "a-tools-late",
+        messageId: "a-tools-2",
         role: "assistant",
         text: "",
-        toolCalls: [{ id: "exec", tool: "exec", status: "success" }],
+        toolCalls: [{ id: "grep", tool: "grep", status: "success" }],
       },
+      { messageId: "a-text", role: "assistant", text: "I found it." },
     ]
 
     const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
@@ -29,9 +29,34 @@ describe("ChatView tool display grouping", () => {
     expect(grouped.get("a-tools-1")).toMatchObject([
       { id: "memory", tool: "memory_search" },
       { id: "read", tool: "read" },
-      { id: "exec", tool: "exec" },
+      { id: "grep", tool: "grep" },
     ])
-    expect(suppressed.has("a-tools-late")).toBe(true)
+    expect(suppressed.has("a-tools-2")).toBe(true)
+  })
+
+  test("starts a new steps block after assistant text so later running tools do not relabel old answers", () => {
+    const messages: ChatMessage[] = [
+      { messageId: "u1", role: "user", text: "check project" },
+      {
+        messageId: "a-tools-1",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "read", tool: "read", status: "success" }],
+      },
+      { messageId: "a-text", role: "assistant", text: "I found it." },
+      {
+        messageId: "a-tools-late",
+        role: "assistant",
+        text: "",
+        toolCalls: [{ id: "exec", tool: "exec", status: "running" }],
+      },
+    ]
+
+    const { grouped, suppressed } = groupAssistantToolCallsByMessage(messages)
+
+    expect(grouped.get("a-tools-1")).toMatchObject([{ id: "read", status: "success" }])
+    expect(grouped.get("a-tools-late")).toMatchObject([{ id: "exec", status: "running" }])
+    expect(suppressed.size).toBe(0)
   })
 
   test("starts a new steps block after the next user message", () => {

@@ -74,7 +74,15 @@ export function groupAssistantToolCallsByMessage(messages: ChatMessage[]) {
       flush()
       continue
     }
-    if (message.role !== "assistant" || !message.toolCalls?.length) continue
+    if (message.role !== "assistant") continue
+    if (message.text.trim()) {
+      // Assistant text is the visible boundary of a response segment. Do not
+      // keep merging later tool activity into the earlier steps block, or one
+      // new running tool makes the completed steps above old answers look like
+      // they are loading again.
+      flush()
+    }
+    if (!message.toolCalls?.length) continue
 
     if (!firstToolMessageId) {
       firstToolMessageId = message.messageId
