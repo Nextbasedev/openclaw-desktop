@@ -136,7 +136,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
 
           {resolvedSection === "voice" && <VoiceTab />}
 
-          {resolvedSection === "help" && <HelpTab onShortcutsClick={() => { onSectionChange("shortcuts"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
+          {resolvedSection === "help" && <HelpTab />}
 
           {resolvedSection === "shortcuts" && <KeyboardShortcutsTab onBack={() => { onSectionChange("help"); if (scrollRef.current) scrollRef.current.scrollTop = 0 }} />}
         </div>
