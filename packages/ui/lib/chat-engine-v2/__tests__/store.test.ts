@@ -2732,6 +2732,49 @@ describe("global V2 chat engine store", () => {
     expect(state?.messages.find((m) => m.messageId === "a1")?.toolCalls?.find((t) => t.id === "tc-2")?.status).toBe("success")
   })
 
+  test("history backfill running tool block cannot resurrect a completed visible tool", () => {
+    seedGlobalChatSession({
+      sessionKey: "s1",
+      cursor: 10,
+      status: "thinking",
+      pendingTools: [],
+      messages: [
+        { messageId: "u1", role: "user", text: "do tool" },
+        { messageId: "a-tool", role: "assistant", text: "", toolCalls: [{ id: "tc-done", tool: "session_status", status: "success", duration: "0.5s", resultText: "ok" }] },
+        { messageId: "a-text", role: "assistant", text: "Done" },
+      ],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 11,
+        type: "chat.message.upsert",
+        sessionKey: "s1",
+        createdAtMs: Date.now(),
+        payload: {
+          sessionKey: "s1",
+          semanticType: "chat.assistant.delta",
+          runStatus: "tool_running",
+          statusLabel: "session_status",
+          message: {
+            id: "a-backfill-running",
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc-done", name: "session_status", input: {} }],
+          },
+        },
+      },
+    })
+
+    const state = getGlobalChatSession("s1")
+    expect(state?.pendingTools.find((t) => t.id === "tc-done")).toBeUndefined()
+    expect(state?.messages.flatMap((m) => m.toolCalls ?? []).find((t) => t.id === "tc-done")).toMatchObject({
+      status: "success",
+      duration: "0.5s",
+      resultText: "ok",
+    })
+  })
+
   test("running tool stays in pendingTools until result arrives", () => {
     seedGlobalChatSession({
       sessionKey: "s1",

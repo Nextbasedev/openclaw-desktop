@@ -388,6 +388,11 @@ function findVisibleToolById(state: SessionState, id: string | null) {
   return null
 }
 
+function findVisibleTerminalToolById(state: SessionState, id: string | null) {
+  const tool = findVisibleToolById(state, id)
+  return tool && (tool.status === "success" || tool.status === "error") ? tool : null
+}
+
 function applyToolResultById(state: SessionState, params: { id: string | null; resultText: string; createdAtMs: number; source?: unknown }) {
   const pendingIndex = params.id
     ? state.pendingTools.findIndex((tool) => tool.id === params.id)
@@ -673,6 +678,16 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
   }
   const pending = new Map(state.pendingTools.map((item) => [item.id, item]))
   const existingTool = pending.get(inline.id)
+  const visibleTerminalTool = findVisibleTerminalToolById(state, inline.id)
+  if (visibleTerminalTool && inline.status === "running") {
+    frontendLog("stream", "global-chat-session.visible-terminal-tool-running-skip", {
+      toolCallId: inline.id,
+      tool: inline.tool,
+      existingStatus: visibleTerminalTool.status,
+      patchCursor: frame.patch.cursor,
+    }, "debug")
+    return false
+  }
   pending.set(inline.id, {
     ...(existingTool ?? inline),
     ...inline,
@@ -822,6 +837,16 @@ function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
       block.id,
       `tool:${messageId}:${blockIndex}:${tool}`
     )
+    const visibleTerminalTool = findVisibleTerminalToolById(state, id)
+    if (visibleTerminalTool) {
+      frontendLog("stream", "global-chat-session.visible-terminal-tool-block-skip", {
+        toolCallId: id,
+        tool,
+        existingStatus: visibleTerminalTool.status,
+        patchCursor: frame.patch.cursor,
+      }, "debug")
+      continue
+    }
     const input = block.arguments ?? block.input
     const existing = pending.get(id)
     pending.set(id, {
