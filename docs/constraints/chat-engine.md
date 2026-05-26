@@ -24,6 +24,11 @@
   - Marker text in message body (`[Attached image: ...]`)
 - Error messages parsed from `stopReason: "error"` or `Error:` prefix
 - Media attachment preambles (instructions for agents) are stripped from user-visible text
+- Blank/hidden Gateway user messages are still turn boundaries. Even when a
+  user echo has no visible text/content and should not render as a bubble, it
+  must prevent the next assistant/tool message from merging into the previous
+  assistant card. Otherwise tool calls from a later question can appear above
+  or inside older answers.
 
 ## Bootstrap Flow
 
@@ -84,6 +89,15 @@ Chat opens
 - UI filters `pendingTools` to only show `running` or `awaitingResult` tools, PLUS completed tools not yet in message history
 - `mergeToolCallsForDisplay()` deduplicates: skips live tools already completed in base message history
 - Never render the same tool card twice (once in message history, once as live pending)
+- Tool cards must be scoped to their assistant message / run segment, never to
+  the global chat `status` or `isGenerating` flag. A new run entering
+  `thinking` / `tool_running` must not make completed tool cards above older
+  answers show loading.
+- Tool grouping must flush at assistant text and at every user boundary
+  (including hidden/blank user boundaries). Do not group tool calls across
+  separate questions just because no visible user bubble was rendered.
+- Replayed/backfilled `running` tool blocks must not downgrade a visible
+  terminal tool (`success`/`error`) with the same `toolCallId`.
 
 ## Focused / New Window Replay Cursor
 
