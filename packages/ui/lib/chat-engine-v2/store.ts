@@ -974,6 +974,28 @@ function hasAssistantAnswerAfterLatestUser(state: SessionState) {
   return false
 }
 
+function hasVisibleToolRows(messages: ChatMessage[]) {
+  return messages.some((message) => message.role === "assistant" && Boolean(message.toolCalls?.length))
+}
+
+function preserveActiveTurnToolTranscript(
+  previous: ChatMessage[],
+  incoming: ChatMessage[],
+  frame: PatchFrame,
+) {
+  if (!hasVisibleToolRows(previous)) return incoming
+  if (incoming.length >= previous.length && hasVisibleToolRows(incoming)) return incoming
+  const merged = dedupeChatMessages([...previous, ...incoming])
+  frontendLog("stream", "global-chat-session.active-tool-transcript-preserved", {
+    patchCursor: frame.patch.cursor,
+    patchType: frame.patch.type,
+    previousCount: previous.length,
+    incomingCount: incoming.length,
+    mergedCount: merged.length,
+  }, "debug")
+  return merged
+}
+
 function maybeFinalizeAnsweredRun(state: SessionState, patchType: string) {
   // Legacy/corrupt-stream fallback only. In the normal middleware contract,
   // run completion is authoritative via canonical runStatus/chat.run.* patches.
@@ -1442,9 +1464,12 @@ function handlePatch(frame: PatchFrame) {
   if (isUserMessagePatch(frame)) {
     resetDetachedActivityForNewTurn(state)
   }
+  const previousMessages = state.messages
   const next = applyChatPatch({ cursor: state.cursor, messages: state.messages }, frame)
   state.cursor = Math.max(state.cursor, next.cursor, frame.patch.cursor)
-  state.messages = next.messages
+  state.messages = ACTIVE_STATUSES.has(state.status) && !isUserMessagePatch(frame)
+    ? preserveActiveTurnToolTranscript(previousMessages, next.messages, frame)
+    : next.messages
   if (isUserMessagePatch(frame)) {
     finalizePreviousRunningToolsForNewTurn(state)
   }
