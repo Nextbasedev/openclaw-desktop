@@ -29,6 +29,9 @@
 
 Async responses may update UI state only if they still belong to the latest visible scope/request.
 
-Older responses must be ignored, not allowed to overwrite the current chat, workspace, git repo, config file, or active space.
+Older responses must be ignored, not allowed to overwrite the current chat, workspace, git repo, config file, active space, sidebar list, or route selection.
 
-See `docs/plans/group-11-async-race-guards.md` for the detailed implementation plan.
+See:
+
+- `docs/constraints/async-ui-state.md` for durable async UI state rules.
+- `docs/plans/group-11-async-race-guards.md` for the detailed implementation plan.
