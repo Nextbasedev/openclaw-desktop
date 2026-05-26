@@ -1439,7 +1439,8 @@ export function ChatView({
           ? []
           : groupedToolCalls.get(msg.messageId) ?? msg.toolCalls ?? []
       const shouldFinalizeDisplayedTools =
-        msg.role === "assistant" && (index < latestRenderedUserIndex || !isGenerating)
+        msg.role === "assistant" &&
+        (index < latestRenderedUserIndex || !isGenerating || pendingTools.length === 0)
       const filteredToolCalls = applyTerminalToolState(
         toolCallsWithoutSpawn(messageToolCalls),
         terminalToolState,
