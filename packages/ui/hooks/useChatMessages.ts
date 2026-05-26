@@ -484,7 +484,7 @@ function subagentFromCanonicalTool(tool: InlineToolCall): SpawnedSubagent | null
     // The child remains spawning/working until its own session status arrives.
     // Never infer "completed" from the parent tool result; that is what made
     // freshly-created subagents flash as done during live/backfill races.
-    status: tool.status === "error" ? "failed" : childSessionKey ? "working" : "spawning",
+    status: tool.status === "error" ? "failed" : childSessionKey ? "working" : tool.status === "success" ? "completed" : "spawning",
     toolCallId: tool.id,
   }
 }
@@ -1114,7 +1114,7 @@ export function useChatMessages(
                 toolCallId,
               }),
               sessionKey: childKey,
-              status: error ? "failed" : childKey ? "working" : prev?.status ?? "spawning",
+              status: error ? "failed" : childKey ? "working" : "completed",
             })
             break
           }

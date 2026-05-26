@@ -2081,7 +2081,7 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("keeps sessions_spawn active when result has no child session link", () => {
+  test("completes sessions_spawn when result has no child session link", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
       patch: {
@@ -2117,7 +2117,7 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
-      { toolCallId: "spawn-complete", sessionKey: null, status: "spawning" },
+      { toolCallId: "spawn-complete", sessionKey: null, status: "completed" },
     ])
   })
 

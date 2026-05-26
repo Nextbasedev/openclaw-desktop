@@ -431,7 +431,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
           ? "failed"
           : (childKey ?? spawn.sessionKey)
             ? "working"
-            : spawn.status,
+            : "completed",
       }
     }))
   }
@@ -747,7 +747,7 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
       ...(existing ?? { id: `spawn:${inline.id}`, label, task: typeof input.task === "string" ? input.task : undefined, sessionKey: null, toolCallId: inline.id }),
       label: existing?.label ?? label,
       sessionKey: childSessionKey,
-      status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : existing?.status ?? "spawning",
+      status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
     })
     state.spawnedSubagents = dedupeSpawnedSubagents(Array.from(spawns.values()))
   }

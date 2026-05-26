@@ -113,7 +113,7 @@ export function reduceSubagentLifecycle(
     next.set(event.toolCallId, {
       ...existing,
       childSessionKey,
-      status: event.error ? "failed" : childSessionKey ? "working" : existing.status,
+      status: event.error ? "failed" : childSessionKey ? "working" : "completed",
       openEnabled: Boolean(childSessionKey),
     })
     return next
