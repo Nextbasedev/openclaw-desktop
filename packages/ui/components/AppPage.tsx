@@ -2607,7 +2607,7 @@ function AppShell({
           onSpaceDelete={handleSpaceDelete}
         />
 
-        <div className="flex flex-1 flex-col overflow-hidden rounded-tl-[10px] border-l border-t border-border/50 bg-background">
+        <div className="flex flex-1 flex-col overflow-hidden">
           <main
             ref={mainContentRef}
             className="relative flex flex-1 items-start justify-center overflow-hidden transition-all duration-300 ease-in-out"

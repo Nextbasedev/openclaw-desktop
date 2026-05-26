@@ -219,7 +219,7 @@ export function Header({
       {/* Left: app identity */}
       <div
         className={cn(
-          "relative z-10 flex shrink-0 items-center gap-3 self-stretch overflow-hidden px-3",
+          "relative z-10 flex shrink-0 items-center gap-3 self-stretch overflow-hidden rounded-br-[30px] px-3",
           uniqueSidebarBg && "bg-gradient-to-b from-[#F4F7FF] to-[#E6EEFE] dark:from-[#0D1424] dark:to-[#060913]",
         )}
         style={sidebarReservedWidth > 0 ? { minWidth: sidebarReservedWidth } : undefined}
