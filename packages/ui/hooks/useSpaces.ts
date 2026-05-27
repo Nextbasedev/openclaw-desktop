@@ -131,12 +131,21 @@ export function useSpaces() {
     const result = await invoke<{ space: Space; activeSpaceId: string }>("middleware_spaces_create", {
       input: { name: name?.trim() || undefined, iconImage: iconImage || undefined },
     })
+
+    let createdSpace = result.space
+    if (iconImage && !createdSpace.iconImage) {
+      createdSpace = { ...createdSpace, iconImage }
+      void invoke<SpaceMutationResponse>("middleware_spaces_update", {
+        input: { spaceId: result.space.id, iconImage },
+      }).catch((error) => console.error("[Spaces] icon persistence fallback failed", error))
+    }
+
     invalidateMiddlewareStartupBootstrap()
-    activeSpaceOverrideRef.current = result.activeSpaceId || result.space.id
-    setSpaces((prev) => upsertSpace(prev, result.space))
-    setActiveSpaceId(result.activeSpaceId || result.space.id)
+    activeSpaceOverrideRef.current = result.activeSpaceId || createdSpace.id
+    setSpaces((prev) => upsertSpace(prev, createdSpace))
+    setActiveSpaceId(result.activeSpaceId || createdSpace.id)
     await loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after create failed", error))
-    return result.space
+    return createdSpace
   }, [loadSpacesFresh])
 
   const updateSpace = useCallback(async (spaceId: string, input: { name?: string; iconImage?: SpaceIconImage | null; repoRoot?: string | null; projectId?: string | null }) => {

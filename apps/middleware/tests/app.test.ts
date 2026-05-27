@@ -702,6 +702,23 @@ describe("middleware app", () => {
 
     expect(commandCreated.statusCode).toBe(200);
     expect(commandCreated.json().space).toMatchObject({ name: "Command Image Space", iconImage });
+
+    const updatedIconImage = { ...iconImage, name: "updated-space.png" };
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/api/spaces/${created.json().space.id}`,
+      payload: { iconImage: updatedIconImage },
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().space).toMatchObject({ iconImage: updatedIconImage });
+
+    const bootstrap = await app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(bootstrap.statusCode).toBe(200);
+    expect(bootstrap.json().spaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: created.json().space.id, iconImage: updatedIconImage }),
+      expect.objectContaining({ id: commandCreated.json().space.id, iconImage }),
+    ]));
   });
 
   test("bootstrap imports Gateway sessions without a project into the default space", async () => {
