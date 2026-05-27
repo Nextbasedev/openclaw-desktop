@@ -23,7 +23,10 @@ type SidebarProps = {
   className?: string
   width?: number
   collapsed?: boolean
+  previewExpanded?: boolean
   onClose?: () => void
+  onPreviewOpen?: () => void
+  onPreviewClose?: () => void
   onResizeStart?: () => void
   activeTab: string
   onTabChange: (tab: string) => void
@@ -54,7 +57,10 @@ export function Sidebar({
   className,
   width = 220,
   collapsed = false,
+  previewExpanded = false,
   onClose,
+  onPreviewOpen,
+  onPreviewClose,
   onResizeStart,
   activeTab,
   onTabChange,
@@ -130,8 +136,8 @@ export function Sidebar({
   )
 
   const isHiddenMobileSidebar = collapsed && isMobileViewport
-  const showExpandedContent = !collapsed || isMobileViewport
-  const itemCollapsed = isMobileViewport ? false : collapsed
+  const showExpandedContent = !collapsed || previewExpanded || isMobileViewport
+  const itemCollapsed = isMobileViewport ? false : collapsed && !previewExpanded
   const showPrimaryNav = items.length > 0
   const activeSpaceName =
     spaces.find((space) => space.id === activeSpaceId)?.name ?? "MySpace"
@@ -151,6 +157,7 @@ export function Sidebar({
       <aside
         aria-hidden={isHiddenMobileSidebar}
         style={sidebarStyle}
+        onMouseLeave={previewExpanded ? onPreviewClose : undefined}
         className={cn(
           "group/sidebar relative flex h-full shrink-0 flex-col overflow-hidden",
           "w-[var(--sidebar-width)]",
@@ -189,6 +196,7 @@ export function Sidebar({
                 <CollapsedSpacesPopover
                   spaces={spaces}
                   activeSpaceId={activeSpaceId}
+                  tooltipsDisabled={previewExpanded}
                   onSpaceSwitch={onSpaceSwitch}
                   onSpaceNewChat={onSpaceNewChat}
                   onSpaceCreate={onSpaceCreate}
@@ -244,6 +252,8 @@ export function Sidebar({
               <CollapsedSpacesPopover
                 spaces={spaces}
                 activeSpaceId={activeSpaceId}
+                tooltipsDisabled
+                onCollapsedPreviewStart={onPreviewOpen}
                 onSpaceSwitch={onSpaceSwitch}
                 onSpaceNewChat={onSpaceNewChat}
                 onSpaceCreate={onSpaceCreate}

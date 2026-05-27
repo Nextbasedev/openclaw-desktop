@@ -14,6 +14,8 @@ import { SpaceDialogs } from "./SpaceDialogs"
 type Props = {
   spaces: Space[]
   activeSpaceId: string | null
+  tooltipsDisabled?: boolean
+  onCollapsedPreviewStart?: () => void
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
   onSpaceNewChat: (spaceId: string) => void | Promise<void>
   onSpaceCreate: (name?: string) => void | Promise<void>
@@ -24,27 +26,27 @@ type Props = {
 
 const ICON_STYLES = [
   {
-    background: "from-slate-950 via-cyan-950/80 to-sky-950/60",
+    background: "bg-[#073642]",
     text: "text-cyan-200",
     glow: "shadow-cyan-300/18",
   },
   {
-    background: "from-zinc-950 via-violet-950/85 to-fuchsia-950/65",
+    background: "bg-[#2f155f]",
     text: "text-violet-200",
     glow: "shadow-violet-300/18",
   },
   {
-    background: "from-slate-950 via-emerald-950/80 to-teal-950/60",
+    background: "bg-[#073f2f]",
     text: "text-emerald-200",
     glow: "shadow-emerald-300/18",
   },
   {
-    background: "from-stone-950 via-amber-950/80 to-orange-950/60",
+    background: "bg-[#4a2607]",
     text: "text-amber-200",
     glow: "shadow-amber-300/18",
   },
   {
-    background: "from-zinc-950 via-rose-950/80 to-pink-950/60",
+    background: "bg-[#4a0f25]",
     text: "text-pink-200",
     glow: "shadow-pink-300/18",
   },
@@ -88,6 +90,8 @@ const VIEWPORT_MARGIN = 12
 export function CollapsedSpacesPopover({
   spaces,
   activeSpaceId,
+  tooltipsDisabled = false,
+  onCollapsedPreviewStart,
   onSpaceSwitch,
   onSpaceNewChat,
   onSpaceCreate,
@@ -235,10 +239,11 @@ export function CollapsedSpacesPopover({
         const iconStyle = styleForSpace(space)
 
         return (
-          <GlassTooltip key={space.id} label={space.name} disabled={contextMenu.open}>
+          <GlassTooltip key={space.id} label={space.name} disabled={tooltipsDisabled || contextMenu.open}>
             <button
               type="button"
               onClick={() => openProject(space)}
+              onMouseEnter={onCollapsedPreviewStart}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
                 "group flex size-10 cursor-pointer items-center justify-center rounded-md border",
@@ -251,7 +256,7 @@ export function CollapsedSpacesPopover({
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-md bg-gradient-to-br text-[14px] font-semibold shadow-lg shadow-black/25 ring-1 ring-inset ring-white/10",
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold shadow-lg shadow-black/25 ring-1 ring-inset ring-white/10",
                   iconStyle.background,
                   iconStyle.text,
                   iconStyle.glow,

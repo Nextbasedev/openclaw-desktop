@@ -220,7 +220,7 @@ function focusedChatWindowParams() {
   }
 }
 
-const SIDEBAR_MIN = 160
+const SIDEBAR_MIN = 240
 const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 240
 const SIDEBAR_COLLAPSED = 56
@@ -463,6 +463,7 @@ function AppShell({
   const [appContextMenu, setAppContextMenu] = useState({ open: false, x: 0, y: 0 })
   const appContextMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
+  const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
   const [splitRatio, setSplitRatio] = useState(0.5)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -497,6 +498,7 @@ function AppShell({
       ? "chat"
       : activeTab
   const fullScreenInspectorOpen = activeTab === "inspector"
+  const renderedSidebarWidth = sidebarPreviewOpen ? SIDEBAR_DEFAULT : sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED
 
   const prevTabRef = useRef("chat")
   const lastSettingsTabRef = useRef(activeTab)
@@ -1046,8 +1048,14 @@ function AppShell({
       setTerminalActive(true)
     }
   }, [inspectorOpen, terminalActive])
-  const toggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), [])
-  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+  const toggleSidebar = useCallback(() => {
+    setSidebarPreviewOpen(false)
+    setSidebarOpen((prev) => !prev)
+  }, [])
+  const closeSidebar = useCallback(() => {
+    setSidebarPreviewOpen(false)
+    setSidebarOpen(false)
+  }, [])
 
   const openSettings = useCallback((section: SettingsSection = "usage") => {
     setConnectAutoOpenEnabled(false)
@@ -1184,6 +1192,7 @@ function AppShell({
 
   const handleResizeStart = useCallback(() => {
     if (!sidebarOpen) return
+    setSidebarPreviewOpen(false)
     isResizing.current = true
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
@@ -1199,7 +1208,15 @@ function AppShell({
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
       if (isResizing.current) {
-        const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX))
+        if (e.clientX < SIDEBAR_MIN) {
+          setSidebarOpen(false)
+          setSidebarPreviewOpen(false)
+          isResizing.current = false
+          document.body.style.cursor = ""
+          document.body.style.userSelect = ""
+          return
+        }
+        const newWidth = Math.min(SIDEBAR_MAX, e.clientX)
         setSidebarWidth(newWidth)
       }
       if (isSplitResizing.current) {
@@ -1576,6 +1593,7 @@ function AppShell({
   }, [clearConversationState, editorGroups.focusedGroupId])
 
   const handleSpaceSwitch = useCallback(async (spaceId: string) => {
+    setSidebarPreviewOpen(false)
     setSidebarOpen(true)
     if (spaceId === activeSpaceId) return
     if (activeSpaceId) {
@@ -2589,7 +2607,7 @@ function AppShell({
         onToggleTerminal={toggleTerminal}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
-        sidebarReservedWidth={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+        sidebarReservedWidth={renderedSidebarWidth}
         editorGroups={effectiveActiveTab === "chat" ? editorGroups : null}
         onSelectChatTab={effectiveActiveTab === "chat" ? handleEditorTabSelect : undefined}
         onCloseChatTab={effectiveActiveTab === "chat" ? handleEditorTabClose : undefined}
@@ -2609,9 +2627,14 @@ function AppShell({
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
-          width={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+          width={renderedSidebarWidth}
           collapsed={!sidebarOpen}
+          previewExpanded={sidebarPreviewOpen}
           onClose={closeSidebar}
+          onPreviewOpen={() => {
+            if (!sidebarOpen) setSidebarPreviewOpen(true)
+          }}
+          onPreviewClose={() => setSidebarPreviewOpen(false)}
           onResizeStart={handleResizeStart}
           activeTab={effectiveActiveTab}
           onTabChange={handleTabChange}
@@ -2807,7 +2830,7 @@ function AppShell({
           activeTab={fullWindowInspectorTab}
           onTabChange={handleInspectorTabChange}
           onClose={handleSettingsBack}
-          leftOffset={sidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED}
+          leftOffset={renderedSidebarWidth}
           collapsedWidth={inspectorWidth}
           sessionKey={activeSessionKey}
           projectId={activeTopic?.projectId ?? null}
