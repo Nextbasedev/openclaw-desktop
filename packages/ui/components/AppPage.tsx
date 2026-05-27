@@ -2628,7 +2628,7 @@ function AppShell({
     })
   }, [])
 
-  const connectionScreenActive = effectiveActiveTab === "connect"
+  const connectionScreenActive = effectiveActiveTab === "connect" || (effectiveActiveTab === "settings" && settingsSection === "connect")
 
   if (connectionScreenActive) {
     return (
