@@ -651,6 +651,8 @@ function AppShell({
       return
     }
 
+    if (totalNonDraftTabs > 0) return
+
     const targetGroup = getFocusedGroup(editorGroups)
     const hasDraft = targetGroup.tabs.some((t) => t.kind === "draft")
     if (!hasDraft) {
@@ -666,7 +668,7 @@ function AppShell({
         tabId: targetGroup.tabs.find((t) => t.kind === "draft")?.id ?? `draft:${targetGroup.id}`,
       })
     }
-  }, [activeChat, activeTopic, effectiveActiveTab])
+  }, [activeChat, activeTopic, effectiveActiveTab, editorGroups, totalNonDraftTabs])
 
   useEffect(() => {
     if (!activeSessionKey || !activeChat) return
