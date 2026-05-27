@@ -480,11 +480,12 @@ export function GitTab({ projectId, selection, onSelectionChange, inspectorScope
       })
 
       if (effectiveProjectId) {
+        // Only update repoRoot — never overwrite workspaceRoot.
+        // Workspace folder was chosen first; Git is optional metadata on top.
         await invoke("middleware_projects_update", {
           input: {
             projectId: effectiveProjectId,
             repoRoot: repo.path,
-            workspaceRoot: repo.path,
           },
         })
         await loadGitTarget(effectiveProjectId, null)
