@@ -753,10 +753,16 @@ function AppShell({
       setPendingPrompt(null)
       setComposerError(null)
       setFocusedToolCallId(null)
-      setActiveTab("chat")
+      const hasSavedMiddleware = Boolean(localStorage.getItem("openclaw.middleware.url")?.trim())
+      setConnectAutoOpenEnabled(!hasSavedMiddleware)
+      setSidebarOpen(hasSavedMiddleware)
+      setInspectorOpen(false)
+      setTerminalActive(false)
+      setActiveTab(hasSavedMiddleware ? "chat" : "connect")
       setChatRefreshTrigger((n) => n + 1)
       try { localStorage.removeItem("openclaw.activeProjectId") } catch {}
-      if (getRoutePath() !== "/") window.history.replaceState(null, "", routeUrl("/"))
+      const nextRoute = hasSavedMiddleware ? "/" : "/connect"
+      if (getRoutePath() !== nextRoute) window.history.replaceState(null, "", routeUrl(nextRoute))
       emit("sidebar:refresh")
     }
     window.addEventListener(MIDDLEWARE_CONNECTION_CHANGED_EVENT, resetMiddlewareScopedUi)
@@ -2621,6 +2627,45 @@ function AppShell({
       y: Math.min(Math.max(event.clientY, APP_CONTEXT_MENU_MARGIN), maxY),
     })
   }, [])
+
+  const connectionScreenActive = effectiveActiveTab === "connect"
+
+  if (connectionScreenActive) {
+    return (
+      <div
+        className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
+        onContextMenu={handleAppContextMenu}
+      >
+        <Header
+          inspectorOpen={false}
+          terminalOpen={false}
+          sidebarOpen={false}
+          sidebarReservedWidth={0}
+          editorGroups={null}
+          workspaceControls={false}
+          onOpenSettings={openSettings}
+          onOpenNotifications={openNotifications}
+          onOpenLogs={openLogs}
+          useNativeWindowChrome={useNativeWindowChrome}
+          onNavigateToChat={handleCronJobNavigate}
+        />
+
+        <main className="min-h-0 flex-1 overflow-hidden">
+          <ConnectPage />
+        </main>
+
+        <LogsDialog open={logsOpen} onClose={closeLogs} />
+        <AppContextMenu
+          menuRef={appContextMenuRef}
+          open={appContextMenu.open}
+          x={appContextMenu.x}
+          y={appContextMenu.y}
+          onClose={closeAppContextMenu}
+          onReload={() => window.location.reload()}
+        />
+      </div>
+    )
+  }
 
   return (
     <div
