@@ -24,6 +24,8 @@ import { dedupeRequest } from "@/lib/requestDedupe"
 import { openRouteInNewWindow } from "@/lib/openRouteWindow"
 import type { ActiveChat } from "@/types/chat"
 import type { EditorTab, EditorGroupsState } from "@/lib/editorGroups"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
 
 type VersionInfo = {
   version: string
@@ -532,9 +534,23 @@ function HeaderActionTooltip({
   children: ReactNode
 }) {
   return (
-    <span className="contents" title={label} aria-label={label}>
-      {children}
-    </span>
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        collisionPadding={12}
+        showArrow={false}
+        className={cn(
+          GLASS_POPOVER,
+          "max-w-[420px] whitespace-normal break-words border-transparent bg-[var(--glass-bg)] px-3 py-1.5 text-[12px] font-medium text-foreground",
+          "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+        )}
+      >
+        <span className="block whitespace-normal break-words">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

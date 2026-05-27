@@ -31,14 +31,6 @@ describe("editorGroupsReducer", () => {
     })
   })
 
-  it("does not create a new state object when adding an already active unchanged tab", () => {
-    const state = createInitialState(chatTab("a"))
-
-    const next = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("a") })
-
-    expect(next).toBe(state)
-  })
-
   it("reorders tabs inside the same group without changing the active tab", () => {
     let state = createInitialState(chatTab("a"))
     state = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("b") })

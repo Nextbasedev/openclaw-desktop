@@ -2,12 +2,18 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { invoke } from "@/lib/ipc"
+import { invoke, openEventStream } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { GLASS_POPOVER } from "@/constants/glassPopover"
+import { notify, ensureNotificationPermission } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import type { ActiveChat } from "@/types/chat"
 import {
+  applyCronEventToJobs,
+  formatCronRunTime,
   getCronStatusMeta,
+  mergeCronRunEvents,
   sortCronJobsByStatus,
   type CronJobLike,
   type CronRunEventLike,
@@ -80,6 +86,20 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       },
     )
   })
+}
+
+function showCronNotification(event: CronRunEvent) {
+  if (typeof window === "undefined") return
+
+  const title = event.name ?? `Cron Job ${event.jobId.slice(0, 8)}`
+  const isError = event.type === "cron.run.failed"
+  const body = isError
+    ? `Failed: ${event.error ?? "Unknown error"}`
+    : event.type === "cron.run.completed"
+      ? "Completed successfully"
+      : "Started running"
+
+  void notify({ title, body })
 }
 
 function statusIcon(type: CronRunEvent["type"]) {
@@ -167,6 +187,46 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const jobNamesRef = useRef<Map<string, string>>(new Map())
+  const openRef = useRef(false)
+  const fetchJobsRef = useRef<() => Promise<void>>(async () => {})
+
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
+
+  useEffect(() => {
+    void ensureNotificationPermission()
+  }, [])
+
+  useEffect(() => {
+    const cleanup = openEventStream(
+      "/api/stream/cron",
+      (evt: MessageEvent) => {
+        try {
+          const event = JSON.parse(evt.data) as CronRunEvent
+          event.name = resolveEventName(event, jobNamesRef.current)
+          if (event.name) jobNamesRef.current.set(event.jobId, event.name)
+          setEvents((prev) => mergeCronRunEvents(prev, event, MAX_EVENTS))
+          setJobs((prev) => sortCronJobsByStatus(applyCronEventToJobs(prev, event)).slice(0, 3))
+          if (openRef.current) void fetchJobsRef.current()
+          if (
+            event.type === "cron.run.completed" ||
+            event.type === "cron.run.failed"
+          ) {
+            setBadgeCount((c) => c + 1)
+            showCronNotification(event)
+          }
+        } catch {
+          // ignore malformed events
+        }
+      },
+    )
+
+    return () => {
+      cleanup()
+    }
+  }, [])
+
   useEffect(() => {
     if (open) setBadgeCount(0)
   }, [open])
@@ -231,6 +291,10 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
   }, [])
 
   useEffect(() => {
+    fetchJobsRef.current = fetchJobs
+  }, [fetchJobs])
+
+  useEffect(() => {
     if (!open) return
     fetchJobs()
     const timer = window.setInterval(fetchJobs, 5_000)
@@ -283,35 +347,54 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
 
   return (
     <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        data-testid="notifications-trigger"
-        aria-label="Notifications"
-        title="Notifications"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "relative flex size-7 items-center justify-center rounded-md",
-          "cursor-pointer transition-colors group/icon",
-          open
-            ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        <Icons.Notification size={16} strokeWidth={1.5} className="size-4" />
-        {badgeCount > 0 && (
-          <span
+      <Tooltip delayDuration={250}>
+        <TooltipTrigger asChild>
+          <button
+            ref={triggerRef}
+            type="button"
+            data-testid="notifications-trigger"
+            aria-label="Notifications"
+            onClick={() => setOpen((v) => !v)}
             className={cn(
-              "absolute -right-0.5 -top-0.5 flex items-center justify-center",
-              "min-w-[14px] rounded-full bg-destructive px-[3px] py-[1px]",
-              "text-[8px] font-bold leading-none text-destructive-foreground",
-              "pointer-events-none",
+              "relative flex size-7 items-center justify-center rounded-md",
+              "cursor-pointer transition-colors group/icon",
+              open
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {badgeCount > 99 ? "99+" : badgeCount}
+            <Icons.Notification size={16} strokeWidth={1.5} className="size-4" />
+            {badgeCount > 0 && (
+              <span
+                className={cn(
+                  "absolute -right-0.5 -top-0.5 flex items-center justify-center",
+                  "min-w-[14px] rounded-full bg-destructive px-[3px] py-[1px]",
+                  "text-[8px] font-bold leading-none text-destructive-foreground",
+                  "pointer-events-none",
+                )}
+              >
+                {badgeCount > 99 ? "99+" : badgeCount}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          align="center"
+          sideOffset={8}
+          collisionPadding={12}
+          showArrow={false}
+          className={cn(
+            GLASS_POPOVER,
+            "max-w-[420px] whitespace-normal break-words border-transparent bg-[var(--glass-bg)] px-3 py-1.5 text-[12px] font-medium text-foreground",
+            "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_30px_rgba(0,0,0,0.32)]",
+          )}
+        >
+          <span className="block whitespace-normal break-words">
+            Notifications
           </span>
-        )}
-      </button>
+        </TooltipContent>
+      </Tooltip>
 
       <AnimatePresence>
         {open && (
