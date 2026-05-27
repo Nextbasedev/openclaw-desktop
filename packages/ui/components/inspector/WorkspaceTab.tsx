@@ -970,17 +970,6 @@ export function WorkspaceTab({
   inspectorScope?: InspectorScope
   onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {
-  // Show picker when direct chat has no scope selected
-  if (inspectorScope?.kind === "unset") {
-    return (
-      <InspectorScopePicker
-        title="Choose workspace for this chat"
-        description="Workspace is folder-first. Pick any folder; Git is optional metadata."
-        onSelectScope={(scope) => onInspectorScopeChange?.(scope)}
-      />
-    )
-  }
-
   const [workspaceSessionKey, setWorkspaceSessionKey] = useState<string | null>(
     globalWorkspaceSessionKeyCache ?? sessionKey ?? null,
   )
@@ -1451,6 +1440,18 @@ export function WorkspaceTab({
   }, [loadRoot, projectId])
 
   const missingWorkspace = isMissingWorkspaceError(treeError)
+
+  // Show picker when direct chat has no scope selected
+  // MUST be after all hooks to avoid React hooks violation
+  if (inspectorScope?.kind === "unset") {
+    return (
+      <InspectorScopePicker
+        title="Choose workspace for this chat"
+        description="Workspace is folder-first. Pick any folder; Git is optional metadata."
+        onSelectScope={(scope) => onInspectorScopeChange?.(scope)}
+      />
+    )
+  }
 
   return (
     <div className="relative flex h-full overflow-hidden">
