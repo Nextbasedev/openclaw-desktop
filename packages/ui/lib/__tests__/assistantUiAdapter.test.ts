@@ -106,7 +106,7 @@ describe("assistant-ui adapter", () => {
       base({ messageId: "a1", role: "assistant", text: "two" }),
     ])
 
-    expect(messages.map((message) => message.id)).toEqual(["u1", "assistant-turn:u1:1"])
+    expect(messages.map((message) => message.id)).toEqual(["user-turn:1", "assistant-turn:1:1"])
   })
 
   it("uses different assistant display ids for distinct assistant messages in one turn", () => {
@@ -117,10 +117,11 @@ describe("assistant-ui adapter", () => {
     ])
 
     expect(messages.map((message) => message.id)).toEqual([
-      "u1",
-      "assistant-turn:u1:1",
-      "assistant-turn:u1:2",
+      "user-turn:1",
+      "assistant-turn:1:1",
     ])
+    expect(messages[1].metadata.custom.openclaw.toolCalls?.[0]?.id).toBe("t1")
+    expect(messages[1].metadata.custom.openclaw.text).toBe("two")
   })
 
   it("keeps assistant display ids stable when backend ids change during a turn", () => {
@@ -133,9 +134,24 @@ describe("assistant-ui adapter", () => {
       base({ messageId: "assistant-final-42", role: "assistant", text: "partial final", animateText: true }),
     ])
 
-    expect(before[1].id).toBe("assistant-turn:u1:1")
-    expect(after[1].id).toBe("assistant-turn:u1:1")
+    expect(before[0].id).toBe("user-turn:1")
+    expect(after[0].id).toBe("user-turn:1")
+    expect(before[1].id).toBe("assistant-turn:1:1")
+    expect(after[1].id).toBe("assistant-turn:1:1")
     expect(after[1].metadata.custom.openclaw.messageId).toBe("assistant-final-42")
+  })
+
+  it("keeps user display ids stable when optimistic user id becomes canonical", () => {
+    const before = toAssistantMessages([
+      base({ messageId: "client:abc", role: "user", text: "hello" }),
+    ])
+    const after = toAssistantMessages([
+      base({ messageId: "gateway:42", role: "user", text: "hello" }),
+    ])
+
+    expect(before[0].id).toBe("user-turn:1")
+    expect(after[0].id).toBe("user-turn:1")
+    expect(after[0].metadata.custom.openclaw.messageId).toBe("gateway:42")
   })
 
   it("extracts composer text from assistant-ui append messages", () => {

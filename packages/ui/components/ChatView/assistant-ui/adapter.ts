@@ -39,6 +39,57 @@ function createdAt(message: ChatMessage): Date {
   return value && Number.isFinite(value.getTime()) ? value : new Date(0)
 }
 
+function mergeText(existing: string, incoming: string) {
+  if (!existing.trim()) return incoming
+  if (!incoming.trim()) return existing
+  if (incoming.startsWith(existing)) return incoming
+  if (existing.includes(incoming)) return existing
+  return `${existing}\n\n${incoming}`
+}
+
+function mergeAssistantMessages(messages: ChatMessage[]): ChatMessage {
+  const [first, ...rest] = messages
+  if (!first) throw new Error("mergeAssistantMessages requires at least one message")
+
+  return rest.reduce<ChatMessage>((merged, message) => ({
+    ...merged,
+    ...message,
+    messageId: merged.messageId,
+    text: mergeText(merged.text, message.text),
+    reasoningText: mergeText(merged.reasoningText ?? "", message.reasoningText ?? "") || undefined,
+    toolCalls: [...(merged.toolCalls ?? []), ...(message.toolCalls ?? [])],
+    embeds: [...(merged.embeds ?? []), ...(message.embeds ?? [])],
+    attachments: [...(merged.attachments ?? []), ...(message.attachments ?? [])],
+    animateText: Boolean(merged.animateText || message.animateText),
+    isOptimistic: Boolean(merged.isOptimistic || message.isOptimistic),
+    sendStatus: message.sendStatus ?? merged.sendStatus,
+    sendError: message.sendError ?? merged.sendError,
+  }), first)
+}
+
+function coalesceAssistantTurns(messages: readonly ChatMessage[]): ChatMessage[] {
+  const result: ChatMessage[] = []
+  let assistantBuffer: ChatMessage[] = []
+
+  const flushAssistantBuffer = () => {
+    if (assistantBuffer.length === 0) return
+    result.push(mergeAssistantMessages(assistantBuffer))
+    assistantBuffer = []
+  }
+
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      assistantBuffer.push(message)
+      continue
+    }
+    flushAssistantBuffer()
+    result.push(message)
+  }
+
+  flushAssistantBuffer()
+  return result
+}
+
 function convertAttachments(message: ChatMessage): ExternalThreadMessage["attachments"] {
   return (message.attachments ?? []).map((attachment, index) => ({
     id: `${message.messageId}:attachment:${index}`,
@@ -113,18 +164,19 @@ export function toAssistantMessage(
 }
 
 export function toAssistantMessages(messages: readonly ChatMessage[]): OpenClawAssistantMessage[] {
-  let currentUserTurnId = "start"
+  const coalesced = coalesceAssistantTurns(messages)
+  let currentTurnIndex = 0
   let assistantOrdinalInTurn = 0
 
-  return messages.map((message) => {
+  return coalesced.map((message) => {
     if (message.role === "user") {
-      currentUserTurnId = message.messageId
+      currentTurnIndex += 1
       assistantOrdinalInTurn = 0
-      return toAssistantMessage(message)
+      return toAssistantMessage(message, `user-turn:${currentTurnIndex}`)
     }
 
     assistantOrdinalInTurn += 1
-    const displayId = `assistant-turn:${currentUserTurnId}:${assistantOrdinalInTurn}`
+    const displayId = `assistant-turn:${currentTurnIndex}:${assistantOrdinalInTurn}`
     return toAssistantMessage(message, displayId)
   })
 }
