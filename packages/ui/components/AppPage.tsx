@@ -2964,10 +2964,7 @@ function MainContent({
     return (
       <div
         className="flex h-full w-full"
-        style={{
-          background:
-            "linear-gradient(90deg, color-mix(in oklch, var(--muted) 20%, transparent) 0 220px, var(--background) 220px 100%)",
-        }}
+        style={{ background: "#1d1d20" }}
       >
         <SettingsDashboard
           key={`settings:${settingsSection}`}
