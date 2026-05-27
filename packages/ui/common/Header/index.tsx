@@ -167,6 +167,15 @@ export function Header({
   const hasVisibleTabs = Boolean(editorGroups?.groups.some((g) => g.tabs.length > 0))
   const isSplitTabs = (editorGroups?.groups.length ?? 0) > 1
 
+  useEffect(() => {
+    if (!draggingTabId) return
+    const previousCursor = document.body.style.cursor
+    document.body.style.cursor = "grabbing"
+    return () => {
+      document.body.style.cursor = previousCursor
+    }
+  }, [draggingTabId])
+
   const handleTabReorder = useCallback((
     groupId: "group-1" | "group-2",
     currentTabs: EditorTab[],
@@ -305,9 +314,16 @@ export function Header({
                       as="div"
                       layout="position"
                       transition={{ layout: { type: "spring", stiffness: 420, damping: 34, mass: 0.85 } }}
-                      className="shrink-0"
-                      style={{ position: "relative", zIndex: draggingTabId === tab.id ? 60 : group.activeTabId === tab.id ? 30 : 10 }}
-                      whileDrag={{ zIndex: 60, scale: 1.015 }}
+                      className={cn(
+                        "shrink-0 cursor-pointer",
+                        draggingTabId === tab.id && "cursor-grabbing",
+                      )}
+                      style={{
+                        position: "relative",
+                        zIndex: draggingTabId === tab.id ? 60 : group.activeTabId === tab.id ? 30 : 10,
+                        cursor: draggingTabId === tab.id ? "grabbing" : "pointer",
+                      }}
+                      whileDrag={{ zIndex: 60, scale: 1.015, cursor: "grabbing" }}
                       onDragStart={() => setDraggingTabId(tab.id)}
                       onDragEnd={() => setDraggingTabId(null)}
                     >
