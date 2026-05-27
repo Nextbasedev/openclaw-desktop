@@ -90,7 +90,7 @@ export function CollapsedSpacesPopover({
                   type="button"
                   onClick={() => openProject(space)}
                   className={cn(
-                    "group flex size-10 cursor-pointer items-center justify-center rounded-xl border",
+                    "group flex size-10 cursor-pointer items-center justify-center rounded-md border",
                     "bg-white/[0.045] text-foreground/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all duration-150 ease-in-out hover:bg-white/[0.08] hover:text-foreground",
                     active
                       ? "border-violet-400/70 shadow-[0_0_0_1px_rgba(168,85,247,0.35),0_0_20px_rgba(168,85,247,0.24)]"
@@ -100,7 +100,7 @@ export function CollapsedSpacesPopover({
                 >
                   <span
                     className={cn(
-                      "relative flex size-7 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br text-[11px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]",
+                      "relative flex size-full items-center justify-center overflow-hidden rounded-md bg-gradient-to-br text-[14px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]",
                       gradientForSpace(space),
                     )}
                   >
@@ -119,10 +119,10 @@ export function CollapsedSpacesPopover({
                 setOpen(false)
                 void onSpaceCreate()
               }}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-white/[0.08] text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground"
+              className="flex size-full cursor-pointer items-center justify-center rounded-md  text-muted-foreground/70 transition-all hover:bg-white/[0.08] hover:text-foreground"
               aria-label="New project"
             >
-              <LuPlus className="size-5 stroke-[1.7]" />
+              <LuPlus className="size-7 stroke-[1.7]" />
             </button>
           </GlassTooltip>
         </div>
