@@ -28,14 +28,14 @@ type Props = {
 type SpaceIconImage = NonNullable<Space["iconImage"]>
 
 const SPACE_ICON_GRADIENTS = [
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.10)_0%,rgba(15,36,46,0.82)_42%,#09090B_100%)]",
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(35,25,55,0.82)_44%,#09090B_100%)]",
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(19,45,38,0.80)_44%,#09090B_100%)]",
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(56,37,20,0.82)_44%,#09090B_100%)]",
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.10)_0%,rgba(22,40,58,0.82)_42%,#09090B_100%)]",
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(48,26,42,0.78)_44%,#09090B_100%)]",
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(18,42,56,0.82)_44%,#09090B_100%)]",
-  "bg-[linear-gradient(135deg,rgba(255,255,255,0.09)_0%,rgba(50,43,24,0.76)_44%,#09090B_100%)]",
+  "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]",
+  "bg-[linear-gradient(135deg,#080615_0%,rgba(38,28,68,0.78)_50%,rgba(18,38,72,0.58)_100%)]",
+  "bg-[linear-gradient(135deg,#03100D_0%,rgba(12,58,50,0.76)_50%,rgba(6,45,60,0.58)_100%)]",
+  "bg-[linear-gradient(135deg,#120A05_0%,rgba(68,42,18,0.76)_50%,rgba(56,28,38,0.56)_100%)]",
+  "bg-[linear-gradient(135deg,#050B18_0%,rgba(14,48,88,0.78)_50%,rgba(30,28,76,0.58)_100%)]",
+  "bg-[linear-gradient(135deg,#120614_0%,rgba(62,28,58,0.76)_50%,rgba(40,28,76,0.56)_100%)]",
+  "bg-[linear-gradient(135deg,#020A12_0%,rgba(8,58,82,0.78)_50%,rgba(20,46,90,0.58)_100%)]",
+  "bg-[linear-gradient(135deg,#111006_0%,rgba(62,55,22,0.72)_50%,rgba(40,48,46,0.54)_100%)]",
 ]
 const NEW_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
 
