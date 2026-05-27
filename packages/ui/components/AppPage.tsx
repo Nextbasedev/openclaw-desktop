@@ -703,7 +703,7 @@ function AppShell({
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
-  const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "unset" })
+  const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "global" })
   const isResizing = useRef(false)
   const isSplitResizing = useRef(false)
   const mainContentRef = useRef<HTMLElement | null>(null)
@@ -1043,16 +1043,18 @@ function AppShell({
     setActiveAgentId(agentId ?? "root")
   }, [inspectorOpen])
 
-  // ── Inspector scope: load stored scope when session changes ──
+  // ── Inspector scope: project chats use project scope; normal chats default to Global Workspace ──
   useEffect(() => {
     if (activeTopic?.projectId) {
       // Project/topic chat: scope is always the project
       setInspectorScope({ kind: "project", projectId: activeTopic.projectId })
     } else if (activeSessionKey) {
-      // Direct chat: load stored scope
-      setInspectorScope(readStoredInspectorScope(activeSessionKey))
+      // Normal chats are connected to the shared default workspace by default.
+      // If this chat explicitly picked a project/folder before, keep that stored scope.
+      const stored = readStoredInspectorScope(activeSessionKey)
+      setInspectorScope(stored.kind === "unset" ? { kind: "global" } : stored)
     } else {
-      setInspectorScope({ kind: "unset" })
+      setInspectorScope({ kind: "global" })
     }
   }, [activeSessionKey, activeTopic?.projectId])
 
