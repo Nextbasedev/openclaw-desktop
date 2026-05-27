@@ -2844,6 +2844,7 @@ export function useChatMessages(
     }
 
     loadOlderInFlightRef.current = true
+    setLoadError(null)
     const el = scrollContainerRef.current
     const previousScrollHeight = el?.scrollHeight ?? 0
     const previousScrollTop = el?.scrollTop ?? 0

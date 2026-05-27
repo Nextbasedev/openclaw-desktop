@@ -815,11 +815,15 @@ export function ChatView({
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
   const needsInitialScrollRef = useRef(true)
+  const loadOlderClickInFlightRef = useRef(false)
+  const [loadOlderUiBusy, setLoadOlderUiBusy] = useState(false)
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
     userScrollIntentRef.current = false
     needsInitialScrollRef.current = true
+    loadOlderClickInFlightRef.current = false
+    setLoadOlderUiBusy(false)
   }, [sessionKey])
 
   const latestRenderedUserIndex = useMemo(() => {
@@ -995,15 +999,42 @@ export function ChatView({
     [sessionKey, messageActionState.reactions]
   )
 
+  const loadOlderWithoutJump = useCallback(async () => {
+    if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
+    loadOlderClickInFlightRef.current = true
+    setLoadOlderUiBusy(true)
+    const el = scrollContainerRef.current
+    const previousScrollHeight = el?.scrollHeight ?? 0
+    const previousScrollTop = el?.scrollTop ?? 0
+    try {
+      await loadOlderMessages()
+    } finally {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const nextEl = scrollContainerRef.current
+          if (nextEl) {
+            const delta = nextEl.scrollHeight - previousScrollHeight
+            nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
+          }
+          loadOlderClickInFlightRef.current = false
+          setLoadOlderUiBusy(false)
+        })
+      })
+    }
+  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, loadOlderUiBusy, scrollContainerRef])
+
   const handleScroll = useCallback(() => {
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
+      if (hasOlderMessages && userScrollIntentRef.current && el.scrollTop <= 360) {
+        void loadOlderWithoutJump()
+      }
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [activePopoverId, onScroll, scrollContainerRef])
+  }, [activePopoverId, hasOlderMessages, loadOlderWithoutJump, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
@@ -1758,11 +1789,11 @@ export function ChatView({
               <div className="mb-4 flex justify-center">
                 <button
                   type="button"
-                  onClick={() => void loadOlderMessages()}
-                  disabled={loadingOlderMessages}
+                  onClick={() => void loadOlderWithoutJump()}
+                  disabled={loadingOlderMessages || loadOlderUiBusy}
                   className="rounded-full border border-border/50 bg-card px-3 py-1 text-xs text-muted-foreground disabled:opacity-60"
                 >
-                  {loadingOlderMessages ? "Loading earlier messages…" : "Load earlier messages"}
+                  {loadingOlderMessages || loadOlderUiBusy ? "Loading 240 earlier messages…" : "Load 240 earlier messages"}
                 </button>
               </div>
             )}
