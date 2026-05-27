@@ -249,7 +249,7 @@ const compatState = {
 
 const DEFAULT_SPACE_ID = "space_default";
 const DEFAULT_SPACE_NAME = "My Workspace";
-const spacePatchFields = new Set(["name", "iconImage", "ImageIcon", "imageIcon", "icon_image", "repoRoot", "projectId", "sortOrder", "archived", "deleted"]);
+const spacePatchFields = new Set(["name", "iconImage", "repoRoot", "projectId", "sortOrder", "archived", "deleted"]);
 
 const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "branches", "pins", "cronJobs", "cronRuns"] as const;
 
@@ -392,29 +392,7 @@ function sanitizeSpacePatch(input: CompatRecord) {
   for (const key of spacePatchFields) {
     if (key in input) patch[key] = input[key];
   }
-  const iconImage = spaceIconImageFrom(input);
-  if (iconImage !== undefined) {
-    patch.iconImage = iconImage;
-    patch.ImageIcon = iconImage;
-    delete patch.imageIcon;
-    delete patch.icon_image;
-  }
   return patch;
-}
-
-function spaceIconImageFrom(input?: CompatRecord | null) {
-  if (!input || typeof input !== "object") return undefined;
-  return input.iconImage ?? input.ImageIcon ?? input.imageIcon ?? input.icon_image;
-}
-
-function spaceForResponse(space: CompatRecord) {
-  const iconImage = spaceIconImageFrom(space);
-  if (iconImage === undefined) return space;
-  return { ...space, iconImage, ImageIcon: iconImage };
-}
-
-function spacesForResponse(spaces: CompatRecord[]) {
-  return spaces.map(spaceForResponse);
 }
 
 function readV1State(sourcePath: string): CompatRecord {
@@ -3433,7 +3411,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     return {
       ok: true,
       service: "openclaw-middleware",
-      spaces: spacesForResponse(compatState.spaces.filter(visibleSpace)),
+      spaces: compatState.spaces.filter(visibleSpace),
       activeSpaceId: spaceId,
       chats: sortedChatsForResponse(spaceId, false),
       projects,
@@ -3447,7 +3425,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const query = request.query as CompatRecord;
     const archived = query.archived === "true" || query.archived === true;
     return {
-      spaces: spacesForResponse(compatState.spaces.filter((space) => archived ? Boolean(space.archived) && notDeleted(space) : visibleSpace(space))),
+      spaces: compatState.spaces.filter((space) => archived ? Boolean(space.archived) && notDeleted(space) : visibleSpace(space)),
       activeSpaceId: activeSpaceId(),
     };
   });
@@ -3455,11 +3433,10 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
   app.post("/api/spaces", async (request) => {
     const body = (request.body ?? {}) as CompatRecord;
     const timestamp = nowIso();
-    const iconImage = spaceIconImageFrom(body);
     const space = {
       id: id("space"),
       name: body.name || "New Space",
-      ...(iconImage ? { iconImage, ImageIcon: iconImage } : {}),
+      ...(body.iconImage ? { iconImage: body.iconImage } : {}),
       archived: false,
       deleted: false,
       sortOrder: compatState.spaces.length,
@@ -3469,7 +3446,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     compatState.spaces.push(space);
     compatState.activeSpaceId = space.id;
     saveCompatState(context);
-    return { space: spaceForResponse(space), activeSpaceId: space.id };
+    return { space, activeSpaceId: space.id };
   });
 
   app.patch<{ Params: { spaceId: string } }>("/api/spaces/:spaceId", async (request, reply) => {
@@ -3482,7 +3459,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
       compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
     }
     saveCompatCollection(context, "spaces");
-    return { space: spaceForResponse(space) };
+    return { space };
   });
 
   app.post<{ Params: { spaceId: string } }>("/api/spaces/:spaceId/archive", async (request, reply) => {
@@ -3600,7 +3577,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const space = patchById(compatState.spaces, request.params.spaceId, { name: request.params.spaceId === DEFAULT_SPACE_ID ? DEFAULT_SPACE_NAME : body.name || "New Space" });
     if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
     saveCompatCollection(context, "spaces");
-    return { space: spaceForResponse(space), activeSpaceId: activeSpaceId() };
+    return { space, activeSpaceId: activeSpaceId() };
   });
 
   app.post<{ Params: { chatId: string } }>("/api/chats/:chatId/archive", async (request, reply) => {
@@ -4389,19 +4366,18 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         return { ok: true };
       case "middleware_spaces_list":
         return {
-          spaces: spacesForResponse(compatState.spaces.filter((space) => {
+          spaces: compatState.spaces.filter((space) => {
             const archived = input.archived === true || input.archived === "true";
             return archived ? Boolean(space.archived) && notDeleted(space) : visibleSpace(space);
-          })),
+          }),
           activeSpaceId: activeSpaceId(),
         };
       case "middleware_spaces_create": {
         const timestamp = nowIso();
-        const iconImage = spaceIconImageFrom(input);
         const space = {
           id: id("space"),
           name: input.name || "New Space",
-          ...(iconImage ? { iconImage, ImageIcon: iconImage } : {}),
+          ...(input.iconImage ? { iconImage: input.iconImage } : {}),
           archived: false,
           deleted: false,
           sortOrder: compatState.spaces.length,
@@ -4411,7 +4387,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         compatState.spaces.push(space);
         compatState.activeSpaceId = space.id;
         saveCompatState(context);
-        return { space: spaceForResponse(space), activeSpaceId: space.id };
+        return { space, activeSpaceId: space.id };
       }
       case "middleware_spaces_update": {
         const spaceId = String(input.spaceId ?? "");
@@ -4423,7 +4399,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
           compatState.activeSpaceId = compatState.spaces.find((item) => visibleSpace(item))?.id ?? ensureDefaultSpace().id;
         }
         saveCompatState(context);
-        return { space: spaceForResponse(space), activeSpaceId: activeSpaceId() };
+        return { space, activeSpaceId: activeSpaceId() };
       }
       case "middleware_spaces_rename": {
         const spaceId = String(input.spaceId ?? "");
@@ -4431,7 +4407,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const space = patchById(compatState.spaces, spaceId, { name: spaceId === DEFAULT_SPACE_ID ? DEFAULT_SPACE_NAME : input.name || "New Space" });
         if (!space) return reply.code(404).send({ ok: false, error: { message: "Space not found" } });
         saveCompatCollection(context, "spaces");
-        return { space: spaceForResponse(space), activeSpaceId: activeSpaceId() };
+        return { space, activeSpaceId: activeSpaceId() };
       }
       case "middleware_spaces_archive": {
         const spaceId = String(input.spaceId ?? "");
