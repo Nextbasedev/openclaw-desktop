@@ -34,7 +34,7 @@ export function CreateSpaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
-          <DialogTitle>New Project</DialogTitle>
+          <DialogTitle>New Space</DialogTitle>
           <DialogDescription>
             Create a project workspace to keep chats, repo context, and settings separated.
           </DialogDescription>
@@ -49,7 +49,7 @@ export function CreateSpaceDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           <Button onClick={() => void onSubmit()} disabled={busy || !name.trim()}>
-            Create Project
+            Create Space
           </Button>
         </DialogFooter>
       </DialogContent>
