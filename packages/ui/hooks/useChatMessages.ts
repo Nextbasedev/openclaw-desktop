@@ -291,7 +291,7 @@ const CHAT_BOOTSTRAP_VISIBLE_TIMEOUT_MS = 6000
 const CHAT_BOOTSTRAP_TRANSIENT_RETRY_MS = 400
 const CHAT_BOOTSTRAP_TRANSIENT_MAX_RETRIES = 10
 const CHAT_BOOTSTRAP_MESSAGE_LIMIT = 160
-const CHAT_OLDER_PAGE_LIMIT = 80
+const CHAT_OLDER_PAGE_LIMIT = 240
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -635,6 +635,7 @@ export function useChatMessages(
   // independent of parseChatHistory's merged gatewayIndex which can drift
   // forward during assistant message merging and break pagination.
   const oldestLoadedSeqRef = useRef<number | null>(null)
+  const loadOlderInFlightRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sendingGuardRef = useRef(false)
@@ -2830,7 +2831,7 @@ export function useChatMessages(
   }, [])
 
   const loadOlderMessages = useCallback(async () => {
-    if (loadingOlderMessages || !hasOlderMessages) return
+    if (loadOlderInFlightRef.current || loadingOlderMessages || !hasOlderMessages) return
     // Use the tracked raw seq instead of the parsed/merged gatewayIndex.
     // parseChatHistory merges consecutive assistant messages and updates
     // gatewayIndex to the latest seq, which causes beforeSeq to point to
@@ -2842,6 +2843,7 @@ export function useChatMessages(
       return
     }
 
+    loadOlderInFlightRef.current = true
     const el = scrollContainerRef.current
     const previousScrollHeight = el?.scrollHeight ?? 0
     const previousScrollTop = el?.scrollTop ?? 0
@@ -2941,6 +2943,7 @@ export function useChatMessages(
         error: error instanceof Error ? { kind: error.name, message: redactText(error.message) } : { kind: "Error", message: redactText(String(error)) },
       }, "warn")
     } finally {
+      loadOlderInFlightRef.current = false
       setLoadingOlderMessages(false)
     }
   }, [hasOlderMessages, loadingOlderMessages, queryClient, sessionKey, setMessages, statusLabel])

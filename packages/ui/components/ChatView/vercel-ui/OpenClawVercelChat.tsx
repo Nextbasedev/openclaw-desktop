@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { LuArrowDown, LuSparkles } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import { MarkdownContent } from "../MarkdownContent"
@@ -130,20 +130,41 @@ export function OpenClawVercelChat({
     firstMessageKey,
     contentKey,
   })
+  const loadOlderInFlightRef = useRef(false)
   const loadOlderWithoutJump = useCallback(async () => {
+    if (!hasOlderMessages || loadingOlderMessages || loadOlderInFlightRef.current) return
+    loadOlderInFlightRef.current = true
     const container = containerRef.current
     const previousScrollHeight = container?.scrollHeight ?? 0
     const previousScrollTop = container?.scrollTop ?? 0
-    await onLoadOlderMessages?.()
-    requestAnimationFrame(() => {
+    try {
+      await onLoadOlderMessages?.()
+    } finally {
       requestAnimationFrame(() => {
-        const nextContainer = containerRef.current
-        if (!nextContainer) return
-        const delta = nextContainer.scrollHeight - previousScrollHeight
-        nextContainer.scrollTop = previousScrollTop + Math.max(0, delta)
+        requestAnimationFrame(() => {
+          const nextContainer = containerRef.current
+          if (!nextContainer) {
+            loadOlderInFlightRef.current = false
+            return
+          }
+          const delta = nextContainer.scrollHeight - previousScrollHeight
+          nextContainer.scrollTop = previousScrollTop + Math.max(0, delta)
+          loadOlderInFlightRef.current = false
+        })
       })
-    })
-  }, [containerRef, onLoadOlderMessages])
+    }
+  }, [containerRef, hasOlderMessages, loadingOlderMessages, onLoadOlderMessages])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || !hasOlderMessages) return
+    const onScroll = () => {
+      if (container.scrollTop <= 520) void loadOlderWithoutJump()
+    }
+    container.addEventListener("scroll", onScroll, { passive: true })
+    onScroll()
+    return () => container.removeEventListener("scroll", onScroll)
+  }, [containerRef, hasOlderMessages, loadOlderWithoutJump])
   const lastMessage = stableMessages.at(-1)
   const showThinking = isGenerating && lastMessage?.role === "user"
 
