@@ -126,6 +126,7 @@ export function Header({
   const rightClusterRef = useRef<HTMLDivElement>(null)
   const [rightClusterWidth, setRightClusterWidth] = useState(0)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
+  const suppressDragSelectRef = useRef<{ tabId: string; until: number } | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -324,15 +325,26 @@ export function Header({
                         cursor: draggingTabId === tab.id ? "grabbing" : "pointer",
                       }}
                       whileDrag={{ zIndex: 60, scale: 1.015, cursor: "grabbing" }}
-                      onDragStart={() => setDraggingTabId(tab.id)}
-                      onDragEnd={() => setDraggingTabId(null)}
+                      onDragStart={() => {
+                        suppressDragSelectRef.current = { tabId: tab.id, until: Number.POSITIVE_INFINITY }
+                        setDraggingTabId(tab.id)
+                      }}
+                      onDragEnd={() => {
+                        suppressDragSelectRef.current = { tabId: tab.id, until: Date.now() + 250 }
+                        setDraggingTabId(null)
+                      }}
                     >
                       <HeaderTab
                         tab={tab}
                         isActive={group.activeTabId === tab.id}
                         isFocusedGroup={isFocusedGroup}
                         isDragging={draggingTabId === tab.id}
-                        onSelect={() => onSelectChatTab?.(group.id, tab.id)}
+                        onSelect={() => {
+                          const suppressed = suppressDragSelectRef.current
+                          if (suppressed?.tabId === tab.id && Date.now() <= suppressed.until) return
+                          suppressDragSelectRef.current = null
+                          onSelectChatTab?.(group.id, tab.id)
+                        }}
                         onClose={() => onCloseChatTab?.(tab.id)}
                         onOpenWindow={
                           tab.kind === "chat"
