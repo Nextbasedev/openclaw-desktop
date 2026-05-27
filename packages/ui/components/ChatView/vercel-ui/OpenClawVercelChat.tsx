@@ -7,6 +7,7 @@ import { MarkdownContent } from "../MarkdownContent"
 import { ToolCallSteps } from "../ToolCallSteps"
 import type { ChatMessage } from "../types"
 import { shouldAutoLoadOlderHistory } from "../chatHistoryAutoLoad"
+import { restoreDeltaPreservingUserScroll } from "../chatScrollAnchorMath"
 import { logChatScrollDebug } from "../chatScrollDebug"
 import { buildStableVercelTimeline, type StableChatMessage } from "./timeline"
 import { useStableChatScroll } from "./useStableChatScroll"
@@ -46,7 +47,12 @@ function restoreVercelScrollAnchor(container: HTMLElement | null, anchor: Vercel
     const row = Array.from(container.querySelectorAll<HTMLElement>("[data-vercel-chat-message-row='true']"))
       .find((item) => item.dataset.uiId === anchor.uiId)
     if (row) {
-      const deltaPx = row.getBoundingClientRect().top - anchor.top
+      const currentScrollTop = container.scrollTop
+      const deltaPx = restoreDeltaPreservingUserScroll({
+        anchor,
+        currentScrollTop,
+        currentAnchorTop: row.getBoundingClientRect().top,
+      })
       container.scrollTop += deltaPx
       logChatScrollDebug({ source: "vercel-chat", event: "restore-anchor-row", anchorId: anchor.uiId, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
       return
