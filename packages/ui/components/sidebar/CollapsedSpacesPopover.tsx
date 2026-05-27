@@ -25,7 +25,7 @@ type Props = {
 }
 
 const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#25252A_0%,#151519_42%,#09090B_100%)]"
-const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]"
+const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)] text-white"
 
 function getSpaceRank(space: Space) {
   if (typeof space.sortOrder === "number") return space.sortOrder
@@ -224,7 +224,7 @@ export function CollapsedSpacesPopover({
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold text-white shadow-lg shadow-black/30",
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold text-white/40 shadow-lg shadow-black/30",
                   active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE,
                 )}
               >
@@ -246,7 +246,7 @@ export function CollapsedSpacesPopover({
           )}
           aria-label="New project"
         >
-          <LuPlus className="size-7 stroke-[1.7]" />
+          <LuPlus className="size-5.5 stroke-[1.7]" />
         </button>
       </GlassTooltip>
 
