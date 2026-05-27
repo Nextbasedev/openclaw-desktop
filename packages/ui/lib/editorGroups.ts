@@ -366,7 +366,6 @@ export function editorGroupsReducer(
     case "REORDER_TAB": {
       return {
         ...state,
-        focusedGroupId: action.groupId,
         groups: state.groups.map((g) => {
           if (g.id !== action.groupId) return g
           const tab = g.tabs.find((t) => t.id === action.tabId)
@@ -375,7 +374,6 @@ export function editorGroupsReducer(
           return {
             ...g,
             tabs: insertTabAt(withoutTab, tab, action.targetIndex),
-            activeTabId: tab.id,
           }
         }),
       }

@@ -31,10 +31,11 @@ describe("editorGroupsReducer", () => {
     })
   })
 
-  it("reorders tabs inside the same group", () => {
+  it("reorders tabs inside the same group without changing the active tab", () => {
     let state = createInitialState(chatTab("a"))
     state = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("b") })
     state = editorGroupsReducer(state, { type: "ADD_TAB", tab: chatTab("c") })
+    state = editorGroupsReducer(state, { type: "SET_ACTIVE_TAB", groupId: "group-1", tabId: "chat:a" })
 
     const next = editorGroupsReducer(state, {
       type: "REORDER_TAB",
@@ -44,7 +45,7 @@ describe("editorGroupsReducer", () => {
     })
 
     expect(next.groups[0]?.tabs.map((tab) => tab.id)).toEqual(["chat:c", "chat:a", "chat:b"])
-    expect(next.groups[0]?.activeTabId).toBe("chat:c")
+    expect(next.groups[0]?.activeTabId).toBe("chat:a")
   })
 
   it("moves tabs between split groups at the dropped position", () => {
