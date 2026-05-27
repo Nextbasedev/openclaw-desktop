@@ -53,8 +53,6 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }:
     if (!container) return
 
     const sessionChanged = previousSessionKeyRef.current !== sessionKey
-    const firstMessageChanged = previousFirstMessageKeyRef.current !== firstMessageKey
-    const previousScrollHeight = previousScrollHeightRef.current
     const nextScrollHeight = container.scrollHeight
 
     if (sessionChanged) {
@@ -68,9 +66,6 @@ export function useStableChatScroll({ sessionKey, firstMessageKey, contentKey }:
     if (!didInitialBottomRef.current && firstMessageKey) {
       didInitialBottomRef.current = true
       requestAnimationFrame(settleAtBottom)
-    } else if (firstMessageChanged && !isAtBottomRef.current && previousScrollHeight > 0) {
-      const delta = nextScrollHeight - previousScrollHeight
-      if (delta > 0) container.scrollTop += delta
     } else if (isAtBottomRef.current) {
       container.scrollTop = nextScrollHeight
     }

@@ -9,6 +9,7 @@ import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
+import { logChatScrollDebug } from "./chatScrollDebug"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -118,19 +119,33 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
     const row = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
       .find((item) => item.dataset.uiId === anchor.uiId)
     if (row) {
-      container.scrollTop += row.getBoundingClientRect().top - anchor.top
+      const deltaPx = row.getBoundingClientRect().top - anchor.top
+      container.scrollTop += deltaPx
+      logChatScrollDebug({
+        source: "chat",
+        event: "restore-anchor-row",
+        anchorId: anchor.uiId,
+        anchorTop: anchor.top,
+        deltaPx,
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+        clientHeight: container.clientHeight,
+      })
       return
     }
   }
   if (anchor.id) {
     const row = document.getElementById(anchor.id)
     if (row) {
-      container.scrollTop += row.getBoundingClientRect().top - anchor.top
+      const deltaPx = row.getBoundingClientRect().top - anchor.top
+      container.scrollTop += deltaPx
+      logChatScrollDebug({ source: "chat", event: "restore-anchor-dom-id", anchorId: anchor.id, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
       return
     }
   }
   const delta = container.scrollHeight - anchor.previousScrollHeight
   container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
+  logChatScrollDebug({ source: "chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId || anchor.id, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
 }
 
 function settleMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null, done: () => void) {
@@ -1131,6 +1146,16 @@ export function ChatView({
     loadOlderClickInFlightRef.current = true
     setLoadOlderUiBusy(true)
     pendingOlderAnchorRef.current = captureMessageScrollAnchor(scrollContainerRef.current)
+    logChatScrollDebug({
+      source: "chat",
+      event: "load-older-start",
+      sessionKey,
+      anchorId: pendingOlderAnchorRef.current?.uiId || pendingOlderAnchorRef.current?.id,
+      anchorTop: pendingOlderAnchorRef.current?.top,
+      scrollTop: scrollContainerRef.current?.scrollTop,
+      scrollHeight: scrollContainerRef.current?.scrollHeight,
+      clientHeight: scrollContainerRef.current?.clientHeight,
+    })
     try {
       await loadOlderMessages()
     } catch {
@@ -1138,7 +1163,7 @@ export function ChatView({
       loadOlderClickInFlightRef.current = false
       setLoadOlderUiBusy(false)
     }
-  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, loadOlderUiBusy, scrollContainerRef])
+  }, [hasOlderMessages, loadOlderMessages, loadingOlderMessages, loadOlderUiBusy, scrollContainerRef, sessionKey])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current

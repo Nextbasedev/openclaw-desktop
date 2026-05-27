@@ -7,6 +7,7 @@ import { MarkdownContent } from "../MarkdownContent"
 import { ToolCallSteps } from "../ToolCallSteps"
 import type { ChatMessage } from "../types"
 import { shouldAutoLoadOlderHistory } from "../chatHistoryAutoLoad"
+import { logChatScrollDebug } from "../chatScrollDebug"
 import { buildStableVercelTimeline, type StableChatMessage } from "./timeline"
 import { useStableChatScroll } from "./useStableChatScroll"
 
@@ -45,12 +46,15 @@ function restoreVercelScrollAnchor(container: HTMLElement | null, anchor: Vercel
     const row = Array.from(container.querySelectorAll<HTMLElement>("[data-vercel-chat-message-row='true']"))
       .find((item) => item.dataset.uiId === anchor.uiId)
     if (row) {
-      container.scrollTop += row.getBoundingClientRect().top - anchor.top
+      const deltaPx = row.getBoundingClientRect().top - anchor.top
+      container.scrollTop += deltaPx
+      logChatScrollDebug({ source: "vercel-chat", event: "restore-anchor-row", anchorId: anchor.uiId, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
       return
     }
   }
   const delta = container.scrollHeight - anchor.previousScrollHeight
   container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
+  logChatScrollDebug({ source: "vercel-chat", event: "restore-anchor-height-delta", anchorId: anchor.uiId, deltaPx: delta, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
 }
 
 function settleVercelScrollAnchor(container: HTMLElement | null, anchor: VercelScrollAnchor | null, done: () => void) {
@@ -243,6 +247,16 @@ export function OpenClawVercelChat({
     loadOlderInFlightRef.current = true
     setLocalOlderLoading(true)
     pendingOlderAnchorRef.current = captureVercelScrollAnchor(containerRef.current)
+    logChatScrollDebug({
+      source: "vercel-chat",
+      event: "load-older-start",
+      sessionKey,
+      anchorId: pendingOlderAnchorRef.current?.uiId,
+      anchorTop: pendingOlderAnchorRef.current?.top,
+      scrollTop: containerRef.current?.scrollTop,
+      scrollHeight: containerRef.current?.scrollHeight,
+      clientHeight: containerRef.current?.clientHeight,
+    })
     try {
       await onLoadOlderMessages?.()
     } catch {
@@ -250,7 +264,7 @@ export function OpenClawVercelChat({
       loadOlderInFlightRef.current = false
       setLocalOlderLoading(false)
     }
-  }, [containerRef, hasOlderMessages, isOlderLoading, onLoadOlderMessages])
+  }, [containerRef, hasOlderMessages, isOlderLoading, onLoadOlderMessages, sessionKey])
 
   useLayoutEffect(() => {
     const anchor = pendingOlderAnchorRef.current
