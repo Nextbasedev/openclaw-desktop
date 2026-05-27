@@ -1,11 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { useChatMessages } from "@/hooks/useChatMessages"
 import { useChatCompletionNotify } from "@/hooks/useChatCompletionNotify"
 import { MessageBubble, TypingDots } from "./MessageBubble"
 import { ToolCallSteps } from "./ToolCallSteps"
 import { ChatSearch } from "./ChatSearch"
+import { OpenClawAssistantThread } from "./assistant-ui/OpenClawAssistantThread"
 
 import { ThinkingBlock } from "./ThinkingBlock"
 import { SubagentCard } from "./SubagentCard"
@@ -72,6 +73,23 @@ import {
 
 const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
+
+function useAssistantUiChatViewEnabled() {
+  const envEnabled = process.env.NEXT_PUBLIC_OPENCLAW_ASSISTANT_UI_CHATVIEW === "1"
+  return useSyncExternalStore(
+    () => () => {},
+    () => {
+      if (envEnabled) return true
+      try {
+        return window.localStorage.getItem(ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY) === "1"
+      } catch {
+        return false
+      }
+    },
+    () => envEnabled
+  )
+}
 
 type StatusIconMeta = {
   icon: IconType
@@ -1601,6 +1619,8 @@ export function ChatView({
     ]
   )
 
+  const assistantUiChatViewEnabled = useAssistantUiChatViewEnabled()
+
   if (activeSubKey && activeLiveSubagent) {
     return (
       <SubagentFullChat
@@ -1782,6 +1802,19 @@ export function ChatView({
         onHighlightMessage={handleHighlightMessage}
       />
 
+      {assistantUiChatViewEnabled ? (
+        <OpenClawAssistantThread
+          messages={renderedMessages}
+          isRunning={isGenerating}
+          onSendText={(text) => wrappedSend({ text })}
+          onAbort={handleAbort}
+          onSelectTool={onSelectTool}
+          onResolveApproval={resolveExecApproval}
+          className="flex-1"
+        />
+      ) : (
+        <>
+
       <div
         ref={(ref) => {
           scrollContainerRef.current = ref
@@ -1880,6 +1913,8 @@ export function ChatView({
           draftKey={sessionKey}
         />
       </div>
+        </>
+      )}
     </div>
   )
 }
