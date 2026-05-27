@@ -1324,7 +1324,6 @@ function AppShell({
   useEffect(() => {
     if (layoutRestoreAttemptedRef.current || spaces.length === 0) return
     const currentRoute = parseRoute(getRoutePath())
-    if (currentRoute.kind !== "home") return
     layoutRestoreAttemptedRef.current = true
     let cancelled = false
     async function restoreLastWorkspaceLayout() {
@@ -1361,6 +1360,12 @@ function AppShell({
         }
       }
 
+      const restoredRouteTabId = currentRoute.kind === "chat"
+        ? `chat:${currentRoute.chatId}`
+        : currentRoute.kind === "topic"
+          ? `topic:${currentRoute.projectId}:${currentRoute.topicId}`
+          : null
+
       const restoredGroups = snapshot.editorGroups.groups.map((group) => {
         const tabs = group.tabs.flatMap((tab): EditorTab[] => {
           if (tab.kind === "draft") return [tab]
@@ -1372,9 +1377,11 @@ function AppShell({
           }
           return [tab]
         })
-        const activeTabId = tabs.some((tab) => tab.id === group.activeTabId)
-          ? group.activeTabId
-          : tabs[tabs.length - 1]?.id ?? null
+        const activeTabId = restoredRouteTabId && tabs.some((tab) => tab.id === restoredRouteTabId)
+          ? restoredRouteTabId
+          : tabs.some((tab) => tab.id === group.activeTabId)
+            ? group.activeTabId
+            : tabs[tabs.length - 1]?.id ?? null
         const activeTab = tabs.find((tab) => tab.id === activeTabId)
         const chat = activeTab?.kind === "chat" ? activeTab.chat : null
         const sessionKey = chat?.sessionKey ?? group.sessionData?.sessionKey ?? null
@@ -1394,11 +1401,18 @@ function AppShell({
         type: "RESTORE",
         state: {
           groups: restoredGroups.slice(0, 2),
-          focusedGroupId: restoredGroups.some((group) => group.id === snapshot.editorGroups.focusedGroupId)
-            ? snapshot.editorGroups.focusedGroupId
-            : restoredGroups[0]!.id,
+          focusedGroupId: restoredRouteTabId
+            ? restoredGroups.find((group) => group.tabs.some((tab) => tab.id === restoredRouteTabId))?.id
+              ?? (restoredGroups.some((group) => group.id === snapshot.editorGroups.focusedGroupId)
+                ? snapshot.editorGroups.focusedGroupId
+                : restoredGroups[0]!.id)
+            : restoredGroups.some((group) => group.id === snapshot.editorGroups.focusedGroupId)
+              ? snapshot.editorGroups.focusedGroupId
+              : restoredGroups[0]!.id,
         },
       })
+
+      if (currentRoute.kind !== "home") return
 
       const focused = restoredGroups.find((group) => group.id === snapshot.editorGroups.focusedGroupId) ?? restoredGroups[0]
       const activeTab = focused?.tabs.find((tab) => tab.id === focused.activeTabId) ?? focused?.tabs[0]
