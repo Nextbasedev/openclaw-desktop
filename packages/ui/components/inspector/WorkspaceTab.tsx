@@ -64,6 +64,8 @@ import {
 import { GLASS_POPOVER } from "@/constants/glassPopover"
 import { MenuAction } from "@/components/sidebar/ProjectsSection/MenuAction"
 import { RepoPickerDialog } from "@/components/sidebar/RepoPickerDialog"
+import type { InspectorScope } from "./inspectorScope"
+import { InspectorScopePicker } from "./InspectorScopePicker"
 
 /* ── Types ── */
 
@@ -960,10 +962,25 @@ function getFileSidebarDefaults() {
 export function WorkspaceTab({
   sessionKey,
   projectId,
+  inspectorScope,
+  onInspectorScopeChange,
 }: {
   sessionKey?: string | null
   projectId?: string | null
+  inspectorScope?: InspectorScope
+  onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {
+  // Show picker when direct chat has no scope selected
+  if (inspectorScope?.kind === "unset") {
+    return (
+      <InspectorScopePicker
+        title="Choose workspace for this chat"
+        description="Workspace is folder-first. Pick any folder; Git is optional metadata."
+        onSelectScope={(scope) => onInspectorScopeChange?.(scope)}
+      />
+    )
+  }
+
   const [workspaceSessionKey, setWorkspaceSessionKey] = useState<string | null>(
     globalWorkspaceSessionKeyCache ?? sessionKey ?? null,
   )

@@ -11,6 +11,8 @@ import {
   type FileState, type GitFile, type GitContextResponse, type BranchesResponse,
   STATE_CONFIG, parseStatusLine, parseCommitLine, parseGitShow, type FileDiff, type DiffLine, type GitDiffResponse,
 } from "./git-helpers"
+import type { InspectorScope } from "./inspectorScope"
+import { InspectorScopePicker } from "./InspectorScopePicker"
 
 const GIT_TAB_SELECTION_STORAGE_KEY = "openclaw.gitTab.selectedProject.v1"
 
@@ -353,9 +355,11 @@ type GitTabProps = {
   projectId: string | null
   selection?: GitTabSelection | null
   onSelectionChange?: (selection: GitTabSelection) => void
+  inspectorScope?: InspectorScope
+  onInspectorScopeChange?: (scope: InspectorScope) => void
 }
 
-export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps) {
+export function GitTab({ projectId, selection, onSelectionChange, inspectorScope, onInspectorScopeChange }: GitTabProps) {
   const persistedSelectionRef = useRef<GitTabSelection | null>(null)
   if (persistedSelectionRef.current === null) {
     persistedSelectionRef.current = readPersistedGitTabSelection()
@@ -492,6 +496,17 @@ export function GitTab({ projectId, selection, onSelectionChange }: GitTabProps)
       await loadGitTarget(null, repo.path)
     } catch { /* ignore */ }
   }, [effectiveProjectId, loadGitTarget, updateSelection])
+
+  // Show picker when direct chat has no scope selected
+  if (inspectorScope?.kind === "unset") {
+    return (
+      <InspectorScopePicker
+        title="Choose Git scope for this chat"
+        description="Git uses the same chat scope as Workspace. Pick any folder; Git metadata is optional."
+        onSelectScope={(scope) => onInspectorScopeChange?.(scope)}
+      />
+    )
+  }
 
   if (!effectiveProjectId && !activeSelection.repo) {
     return (

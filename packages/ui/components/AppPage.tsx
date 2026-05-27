@@ -10,6 +10,8 @@ import { Footer } from "@/components/Footer"
 import { ChatBox } from "@/components/ChatBox"
 import { AnimatedGreeting } from "@/components/AnimatedGreeting"
 import { InspectorPanel } from "@/components/inspector/InspectorPanel"
+import type { InspectorScope } from "@/components/inspector/inspectorScope"
+import { effectiveInspectorScope, readStoredInspectorScope, writeStoredInspectorScope } from "@/components/inspector/inspectorScope"
 import { SkillPage } from "@/components/SkillPage"
 import { SettingsDashboard, type SettingSection } from "@/components/settings/SettingsDashboard"
 import { NotificationDashboard } from "@/components/notifications/NotificationDashboard"
@@ -701,6 +703,7 @@ function AppShell({
   const [composerError, setComposerError] = useState<string | null>(null)
   const [focusedToolCallId, setFocusedToolCallId] = useState<string | null>(null)
   const [activeAgentId, setActiveAgentId] = useState<string | null>("root")
+  const [inspectorScope, setInspectorScope] = useState<InspectorScope>({ kind: "unset" })
   const isResizing = useRef(false)
   const isSplitResizing = useRef(false)
   const mainContentRef = useRef<HTMLElement | null>(null)
@@ -1039,6 +1042,29 @@ function AppShell({
     if (agentId && !inspectorOpen) setInspectorOpen(true)
     setActiveAgentId(agentId ?? "root")
   }, [inspectorOpen])
+
+  // ── Inspector scope: load stored scope when session changes ──
+  useEffect(() => {
+    if (activeTopic?.projectId) {
+      // Project/topic chat: scope is always the project
+      setInspectorScope({ kind: "project", projectId: activeTopic.projectId })
+    } else if (activeSessionKey) {
+      // Direct chat: load stored scope
+      setInspectorScope(readStoredInspectorScope(activeSessionKey))
+    } else {
+      setInspectorScope({ kind: "unset" })
+    }
+  }, [activeSessionKey, activeTopic?.projectId])
+
+  const computedInspectorScope = effectiveInspectorScope(activeTopic?.projectId ?? null, inspectorScope)
+
+  const handleInspectorScopeChange = useCallback((scope: InspectorScope) => {
+    setInspectorScope(scope)
+    // Persist for direct chats
+    if (activeSessionKey && !activeTopic?.projectId) {
+      writeStoredInspectorScope(activeSessionKey, scope)
+    }
+  }, [activeSessionKey, activeTopic?.projectId])
 
   const toggleInspector = useCallback(() => setInspectorOpen((prev) => !prev), [])
   const setChatModePersisted = useCallback((mode: "simple" | "mission") => {
@@ -2893,6 +2919,8 @@ function AppShell({
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
+          inspectorScope={computedInspectorScope}
+          onInspectorScopeChange={handleInspectorScopeChange}
         />
       </div>
 
@@ -2913,6 +2941,8 @@ function AppShell({
           projectId={activeTopic?.projectId ?? null}
           activeAgentId={activeAgentId}
           onAgentSelect={setActiveAgentId}
+          inspectorScope={computedInspectorScope}
+          onInspectorScopeChange={handleInspectorScopeChange}
         />
       )}
 
@@ -3155,6 +3185,8 @@ function FullScreenInspectorOverlay({
   projectId,
   activeAgentId,
   onAgentSelect,
+  inspectorScope,
+  onInspectorScopeChange,
 }: {
   open: boolean
   activeTab: InspectorTabId
@@ -3166,6 +3198,8 @@ function FullScreenInspectorOverlay({
   projectId: string | null
   activeAgentId: string | null
   onAgentSelect: (id: string) => void
+  inspectorScope?: InspectorScope
+  onInspectorScopeChange?: (scope: InspectorScope) => void
 }) {
   const [collapsedScale, setCollapsedScale] = useState(0.35)
 
@@ -3205,6 +3239,8 @@ function FullScreenInspectorOverlay({
         projectId={projectId}
         activeAgentId={activeAgentId}
         onAgentSelect={onAgentSelect}
+        inspectorScope={inspectorScope}
+        onInspectorScopeChange={onInspectorScopeChange}
         className="h-full"
       />
     </div>

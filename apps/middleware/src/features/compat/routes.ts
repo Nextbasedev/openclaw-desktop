@@ -3931,6 +3931,59 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     } catch { return reply.code(404).send({ ok: false, error: { message: "File not found" } }); }
   });
 
+    // --- folder browser for inspector scope picker ---
+  const NOISY_FOLDERS = new Set(["node_modules", ".git", ".next", "dist", "build", ".cache", ".turbo", "coverage", "__pycache__", ".venv", "vendor", ".gradle", ".idea", ".vscode", ".DS_Store"]);
+
+  app.get("/api/folders/tree", async (request) => {
+    const root = openclawWorkspaceRoot();
+    const query = request.query as CompatRecord;
+    const rel = String(query.path ?? "");
+    const showHidden = query.showHidden === "true";
+    try {
+      const dir = rel ? safeJoin(root, rel) : root;
+      const entries = fs.readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .filter((e) => showHidden || !NOISY_FOLDERS.has(e.name))
+        .filter((e) => showHidden || !e.name.startsWith("."))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((e) => {
+          const entryPath = rel ? `${rel}/${e.name}` : e.name;
+          const absPath = path.join(dir, e.name);
+          const hasGit = fs.existsSync(path.join(absPath, ".git"));
+          let gitRoot: string | null = null;
+          if (hasGit) gitRoot = absPath;
+          else {
+            let check = absPath;
+            while (check !== root && check !== path.dirname(check)) {
+              if (fs.existsSync(path.join(check, ".git"))) { gitRoot = check; break; }
+              check = path.dirname(check);
+            }
+          }
+          const existingProject = compatState.projects.find(
+            (p: CompatRecord) => !p.deleted && !p.archived && (p.workspaceRoot === absPath || p.repoRoot === absPath)
+          );
+          let disabledReason: string | null = null;
+          try { fs.accessSync(absPath, fs.constants.R_OK); } catch { disabledReason = "Permission denied"; }
+          return {
+            name: e.name,
+            path: entryPath,
+            absolutePath: absPath,
+            type: "directory" as const,
+            hasGit: hasGit || Boolean(gitRoot),
+            gitRoot,
+            isGitRoot: hasGit,
+            isProjectRoot: Boolean(existingProject),
+            projectId: existingProject?.id ?? null,
+            isSymlink: false,
+            disabledReason,
+          };
+        });
+      return { root: { name: path.basename(root), path: "", absolutePath: root, type: "directory" as const }, entries };
+    } catch (err) {
+      return { root: { name: path.basename(root), path: "", absolutePath: root, type: "directory" as const }, entries: [], error: err instanceof Error ? err.message : "Failed to read directory" };
+    }
+  });
+
   // --- global workspace (no project scope) ---
   function globalWorkspaceRoot() {
     // Global workspace means connected OpenClaw workspace, not the Desktop app cwd.
