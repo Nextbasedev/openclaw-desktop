@@ -27,7 +27,7 @@ import { frontendLog, initClientLogs } from "@/lib/clientLogs"
 import { getRoutePath, installDesktopRouteShim, routeUrl } from "@/lib/app-router"
 import { openChatInFocusedWindow, openRouteInNewWindow } from "@/lib/openRouteWindow"
 import { emit } from "@/lib/events"
-import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
+import { loadWorkspaceLayoutSnapshot, loadWorkspaceLayoutSnapshotSync, saveWorkspaceLayoutSnapshot } from "@/lib/workspaceLayoutPersistence"
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
@@ -593,7 +593,7 @@ function AppShell({
   const [editorGroups, dispatchGroups] = useReducer(
     editorGroupsReducer,
     undefined,
-    () => createInitialState(),
+    () => loadWorkspaceLayoutSnapshotSync()?.editorGroups ?? createInitialState(),
   )
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0)
   const activeChatRef = useRef<ActiveChat | null>(null)

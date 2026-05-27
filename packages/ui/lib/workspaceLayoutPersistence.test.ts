@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   currentWorkspaceLayoutWindowId,
   loadWorkspaceLayoutSnapshot,
+  loadWorkspaceLayoutSnapshotSync,
+  saveWorkspaceLayoutSnapshot,
   workspaceLayoutCacheKey,
   type WorkspaceLayoutSnapshot,
 } from "./workspaceLayoutPersistence"
@@ -88,5 +90,28 @@ describe("workspace layout persistence", () => {
     const loaded = await loadWorkspaceLayoutSnapshot()
 
     expect(loaded).toEqual(legacy)
+  })
+
+  it("loads the local snapshot synchronously for first render", async () => {
+    const saved = snapshot()
+    saved.editorGroups = {
+      focusedGroupId: "group-1",
+      groups: [{
+        id: "group-1",
+        activeTabId: "chat:one",
+        sessionData: null,
+        tabs: [
+          { id: "chat:one", title: "One", subtitle: "Chat", kind: "chat", chat: { id: "one", name: "One" } },
+          { id: "chat:two", title: "Two", subtitle: "Chat", kind: "chat", chat: { id: "two", name: "Two" } },
+        ],
+      }],
+    }
+
+    await saveWorkspaceLayoutSnapshot(saved)
+
+    expect(loadWorkspaceLayoutSnapshotSync()?.editorGroups.groups[0]?.tabs.map((tab) => tab.id)).toEqual([
+      "chat:one",
+      "chat:two",
+    ])
   })
 })
