@@ -56,7 +56,15 @@ export function useSpaces() {
     const normalized = normalizeSpaces(nextSpaces || [])
     const override = activeSpaceOverrideRef.current
     const overrideStillExists = Boolean(override && normalized.some((space) => space.id === override))
-    setSpaces(normalized)
+    setSpaces((prev) => {
+      const previousById = new Map(prev.map((space) => [space.id, space]))
+      return normalized.map((space) => {
+        const previous = previousById.get(space.id)
+        return !space.iconImage && previous?.iconImage
+          ? { ...space, iconImage: previous.iconImage }
+          : space
+      })
+    })
     setActiveSpaceId(
       overrideStillExists
         ? override
@@ -127,7 +135,7 @@ export function useSpaces() {
     activeSpaceOverrideRef.current = result.activeSpaceId || result.space.id
     setSpaces((prev) => upsertSpace(prev, result.space))
     setActiveSpaceId(result.activeSpaceId || result.space.id)
-    void loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after create failed", error))
+    await loadSpacesFresh().catch((error) => console.error("[Spaces] refresh after create failed", error))
     return result.space
   }, [loadSpacesFresh])
 

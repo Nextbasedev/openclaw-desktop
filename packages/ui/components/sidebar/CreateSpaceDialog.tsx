@@ -98,19 +98,19 @@ export function CreateSpaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "sm:max-w-[520px] overflow-hidden rounded-3xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0",
+          "sm:max-w-[560px] overflow-hidden rounded-3xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0",
           "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
           "backdrop-blur-[40px] backdrop-saturate-[180%]",
         )}
       >
-        <div className="p-6 pb-5">
+        <div className="p-6 pb-4">
           <DialogHeader className="flex-row items-start gap-4 space-y-0 text-left">
             <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.045] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_12px_28px_rgba(0,0,0,0.22)] backdrop-blur-xl">
               <LuImagePlus size={28} strokeWidth={1.8} />
             </div>
             <div className="min-w-0 pt-0.5">
               <DialogTitle>New Space</DialogTitle>
-              <DialogDescription className="mt-2 leading-relaxed">
+              <DialogDescription className="mt-1.5 leading-relaxed">
                 Create a project workspace to keep chats, repo context, and settings separated.
               </DialogDescription>
             </div>
@@ -129,7 +129,7 @@ export function CreateSpaceDialog({
             onClick={() => fileInputRef.current?.click()}
             disabled={busy}
             className={cn(
-              "mt-6 flex min-h-36 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.025] px-5 py-6 text-center transition-colors",
+              "mt-5 flex min-h-32 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.025] px-5 py-5 text-center transition-colors",
               "shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] hover:border-white/18 hover:bg-white/[0.04]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
               previewSrc && "border-solid border-white/16 bg-white/[0.035]",
@@ -143,15 +143,31 @@ export function CreateSpaceDialog({
               ) : (
                 <LuImagePlus size={30} strokeWidth={1.7} className="text-muted-foreground" />
               )}
-              <span className="absolute -bottom-0.5 -right-0.5 flex size-7 items-center justify-center rounded-xl border border-white/10 bg-[var(--glass-bg)] text-foreground shadow-lg backdrop-blur-2xl">
-                <LuPlus size={17} strokeWidth={2.2} />
+              <span
+                role={previewSrc ? "button" : undefined}
+                tabIndex={previewSrc ? 0 : undefined}
+                onClick={(event) => {
+                  if (!previewSrc) return
+                  event.stopPropagation()
+                  onIconImageChange(null)
+                }}
+                onKeyDown={(event) => {
+                  if (!previewSrc || (event.key !== "Enter" && event.key !== " ")) return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onIconImageChange(null)
+                }}
+                className="absolute -bottom-0.5 -right-0.5 flex size-7 items-center justify-center rounded-xl border border-white/10 bg-[var(--glass-bg)] text-foreground shadow-lg backdrop-blur-2xl"
+                aria-label={previewSrc ? "Remove space image" : undefined}
+              >
+                {previewSrc ? <LuX size={16} strokeWidth={2.2} /> : <LuPlus size={17} strokeWidth={2.2} />}
               </span>
             </span>
             <span className="mt-3 text-[13px] font-medium text-foreground">Upload space image (optional)</span>
             <span className="mt-1 text-xs text-muted-foreground">PNG, SVG, JPE, JPG, or JPEG up to 10 MB</span>
           </button>
 
-          <div className="mt-5 space-y-2">
+          <div className="mt-4 space-y-2">
             <label className="text-[13px] font-medium text-muted-foreground" htmlFor="space-name-input">
               Space name
             </label>
@@ -164,23 +180,11 @@ export function CreateSpaceDialog({
               placeholder="e.g. Marketing Website"
               className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.035] px-3 text-sm outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-colors placeholder:text-muted-foreground/60 focus:border-ring/40 focus:ring-2 focus:ring-ring/30"
             />
-            <div className="min-h-5">
-              {iconImage ? (
-                <button
-                  type="button"
-                  onClick={() => onIconImageChange(null)}
-                  disabled={busy}
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
-                >
-                  <LuX size={13} /> Remove image
-                </button>
-              ) : null}
-              {iconError ? <p className="text-xs text-destructive">{iconError}</p> : null}
-            </div>
+            {iconError ? <p className="text-xs text-destructive">{iconError}</p> : null}
           </div>
         </div>
 
-        <DialogFooter className="border-t border-white/[0.06] bg-white/[0.015] px-6 py-5">
+        <DialogFooter className="border-t border-white/[0.06] bg-white/[0.015] px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           <Button onClick={() => void onSubmit()} disabled={busy || !name.trim()}>
             Create Space
