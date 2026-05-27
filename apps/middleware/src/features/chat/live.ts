@@ -6,6 +6,8 @@ import { classifyGatewayMessageSemanticType, projectGatewayMessage, readToolCall
 import type { OpenClawMessage } from "./types.js";
 import type { ProjectedRun } from "./repo.runs.js";
 import { canonicalPatchPayload } from "./projection.js";
+import { SubagentCorrelation, type SpawnLink } from "./subagent-correlation.js";
+import { extractSubagentSessionKey, isSubagentSessionKey } from "./subagent-session.js";
 
 type ChatHistoryResponse = {
   sessionKey?: string;
@@ -35,36 +37,6 @@ function contentFactorSummary(message: Record<string, unknown>) {
   };
 }
 
-function extractChildSessionKey(value: unknown, depth = 0): string | null {
-  if (depth > 8 || value === null || value === undefined) return null;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try {
-        return extractChildSessionKey(JSON.parse(trimmed) as unknown, depth + 1);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = extractChildSessionKey(item, depth + 1);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (!isObject(value)) return null;
-  if (typeof value.childSessionKey === "string" && value.childSessionKey.trim()) return value.childSessionKey.trim();
-  for (const child of Object.values(value)) {
-    const found = extractChildSessionKey(child, depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
-
 function firstString(...values: unknown[]) {
   for (const value of values) {
     if (typeof value === "string" && value.length > 0) return value;
@@ -83,10 +55,6 @@ function liveErrorLabel(payload: Record<string, unknown>, data: Record<string, u
     payload.label,
     data.label,
   ) ?? "Run failed";
-}
-
-function isSubagentSessionKey(sessionKey: string) {
-  return sessionKey.includes(":subagent:");
 }
 
 const RECENT_CONFIRMED_USER_ECHO_TTL_MS = 2 * 60 * 1000;
@@ -117,6 +85,7 @@ export class ChatLiveIngest {
   private recentlyConfirmedUsers = new Map<string, Array<{ id: string; text: string; runId?: string; idempotencyKey?: string; openclawSeq: number; confirmedAtMs: number }>>();
   private liveAssistantText = new Map<string, string>();
   private historyBackfillTimers = new Map<string, NodeJS.Timeout>();
+  private readonly subagents = new SubagentCorrelation();
   private readonly log = createLogger("chat-live");
 
   constructor(private readonly context: AppContext) {}
@@ -229,6 +198,9 @@ export class ChatLiveIngest {
     const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
     const message = isObject(payload.message) ? (payload.message as OpenClawMessage) : null;
     if (!sessionKey || !message) return;
+    if (isSubagentSessionKey(sessionKey)) {
+      this.discoverSubagentChild(sessionKey, "session.message");
+    }
     const receivedAtMs = Date.now();
     const optimistic = this.takeMatchingOptimisticUser(sessionKey, message);
     const optimisticId = optimistic?.id ?? null;
@@ -342,6 +314,9 @@ export class ChatLiveIngest {
       this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, ingestDurationMs: Date.now() - receivedAtMs, delayed: false });
     };
     emitMessagePatch();
+    if (isSubagentSessionKey(sessionKey)) {
+      this.emitChildActivity(sessionKey, "session.message", { childMessageRole: message.role ?? null });
+    }
   }
 
   private associatedRunForMessage(sessionKey: string, message: OpenClawMessage, optimisticRunId?: string | null) {
@@ -431,6 +406,62 @@ export class ChatLiveIngest {
     return match ? { id: match.id, runId: match.runId, idempotencyKey: match.idempotencyKey } : null;
   }
 
+  private emitSubagentPatch(parentSessionKey: string, semanticType: string, payload: Record<string, unknown>) {
+    const patch = this.context.messages.appendProjectionEvent({
+      sessionKey: parentSessionKey,
+      eventType: semanticType,
+      payload: canonicalPatchPayload({
+        sessionKey: parentSessionKey,
+        semanticType,
+        payload: { sessionKey: parentSessionKey, ...payload },
+      }),
+    });
+    this.context.patchBus.broadcast({
+      cursor: patch.cursor,
+      type: patch.eventType,
+      sessionKey: patch.sessionKey,
+      payload: patch.payload,
+      createdAtMs: patch.createdAtMs,
+    });
+    this.log.info("subagent.patch.broadcast", { parentSessionKey, type: semanticType, cursor: patch.cursor, toolCallId: payload.toolCallId, childSessionKey: payload.childSessionKey });
+  }
+
+  private emitSpawnLinked(link: SpawnLink, sourceEvent: string) {
+    this.emitSubagentPatch(link.parentSessionKey, "chat.subagent.spawn_linked", {
+      phase: "spawn_linked",
+      toolCallId: link.toolCallId,
+      childSessionKey: link.childSessionKey,
+      parentSessionKey: link.parentSessionKey,
+      result: { childSessionKey: link.childSessionKey },
+      subagentOf: `spawn:${link.toolCallId}`,
+      sourceEvent,
+    });
+    void this.ensureSessionSubscribed(link.childSessionKey)
+      .then(() => this.log.info("subagent.child.subscribe.ready", { parentSessionKey: link.parentSessionKey, childSessionKey: link.childSessionKey, toolCallId: link.toolCallId, sourceEvent }))
+      .catch((error) => this.log.warn("subagent.child.subscribe.fail", { parentSessionKey: link.parentSessionKey, childSessionKey: link.childSessionKey, toolCallId: link.toolCallId, sourceEvent, ...errorMeta(error) }));
+  }
+
+  private discoverSubagentChild(childSessionKey: string | null, sourceEvent: string) {
+    if (!childSessionKey || !isSubagentSessionKey(childSessionKey)) return null;
+    const link = this.subagents.discoverChild(childSessionKey);
+    if (link) this.emitSpawnLinked(link, sourceEvent);
+    return link;
+  }
+
+  private emitChildActivity(childSessionKey: string, sourceEvent: string, payload: Record<string, unknown> = {}) {
+    const link = this.subagents.linkedSpawnForChild(childSessionKey) ?? this.discoverSubagentChild(childSessionKey, sourceEvent);
+    if (!link) return;
+    this.emitSubagentPatch(link.parentSessionKey, "chat.subagent.child_activity", {
+      phase: "child_activity",
+      toolCallId: link.toolCallId,
+      childSessionKey,
+      parentSessionKey: link.parentSessionKey,
+      subagentOf: `spawn:${link.toolCallId}`,
+      sourceEvent,
+      ...payload,
+    });
+  }
+
   private handleSessionTool(payload: unknown) {
     if (!isObject(payload)) return;
     const data = isObject(payload.data) ? payload.data : payload;
@@ -459,6 +490,9 @@ export class ChatLiveIngest {
     const liveResultValue = data.result ?? data.partialResult ?? data.output ?? data.content ?? data.message ?? data.details;
     const liveResultIsAwaitingPlaceholder = this.isAwaitingToolResultMeta(liveResultValue);
     const liveResultMeta = liveResultIsAwaitingPlaceholder ? liveResultValue : this.safeResultMeta(liveResultValue);
+    if (isSubagentSessionKey(sessionKey)) {
+      this.discoverSubagentChild(sessionKey, "session.tool");
+    }
     const existingTool = this.context.runs.getToolCall(sessionKey, toolCallId);
     const isCompletionOnlyResult = phase === "result" && liveResultValue === undefined;
     const shouldMarkAwaitingResult = (isCompletionOnlyResult || liveResultIsAwaitingPlaceholder) && (!existingTool?.resultMeta || this.isAwaitingToolResultMeta(existingTool.resultMeta));
@@ -484,6 +518,28 @@ export class ChatLiveIngest {
     if (tool.status === "running" && !tool.runId) {
       this.log.info("tool.detached-subagent-live", { sessionKey, toolCallId, phase, name });
     }
+    if (name === "sessions_spawn") {
+      const args = isObject(data.args) ? data.args : {};
+      const label = typeof args.label === "string" && args.label.trim()
+        ? args.label.trim()
+        : typeof args.agentId === "string" && args.agentId.trim()
+          ? args.agentId.trim()
+          : typeof args.task === "string" && args.task.trim()
+            ? args.task.trim().slice(0, 60)
+            : undefined;
+      const task = typeof args.task === "string" ? args.task : undefined;
+      if (phase === "start" || phase === "calling") {
+        const { link } = this.subagents.registerSpawn({ parentSessionKey: sessionKey, toolCallId, label, task });
+        this.emitSubagentPatch(sessionKey, "chat.subagent.spawn_started", {
+          phase: "spawn_started",
+          toolCallId,
+          parentSessionKey: sessionKey,
+          label: label ?? "Sub-agent",
+          ...(task ? { task } : {}),
+        });
+        if (link) this.emitSpawnLinked(link, "pending_child_before_spawn");
+      }
+    }
     const associatedRun = tool.runId ? this.context.runs.getRun(tool.runId) : null;
     if (associatedRun) {
       if (tool.status === "running") this.context.runs.updateRunStatus(associatedRun.runId, "tool_running", { statusLabel: name });
@@ -506,13 +562,22 @@ export class ChatLiveIngest {
     if (shouldMarkAwaitingResult) {
       this.scheduleHistoryBackfill(sessionKey, tool.runId ?? run?.runId ?? gatewayRunId, "gateway_stripped_live_tool_result");
     }
-    if (tool.name === "sessions_spawn" && phase === "result") {
-      const childSessionKey = extractChildSessionKey(tool.resultMeta) ?? extractChildSessionKey(liveResultMeta);
-      if (childSessionKey && childSessionKey !== sessionKey) {
-        void this.ensureSessionSubscribed(childSessionKey)
-          .then(() => this.log.info("subagent.child.subscribe.ready", { parentSessionKey: sessionKey, childSessionKey, toolCallId }))
-          .catch((error) => this.log.warn("subagent.child.subscribe.fail", { parentSessionKey: sessionKey, childSessionKey, toolCallId, ...errorMeta(error) }));
-      }
+    if (tool.name === "sessions_spawn" && (phase === "result" || phase === "error")) {
+      const childSessionKey = extractSubagentSessionKey(tool.resultMeta) ?? extractSubagentSessionKey(liveResultMeta) ?? extractSubagentSessionKey(liveResultValue);
+      const link = childSessionKey && childSessionKey !== sessionKey
+        ? this.subagents.linkSpecific(toolCallId, childSessionKey)
+        : null;
+      if (link) this.emitSpawnLinked(link, "sessions_spawn_result");
+      this.emitSubagentPatch(sessionKey, phase === "error" ? "chat.subagent.spawn_failed" : "chat.subagent.spawn_done", {
+        phase: phase === "error" ? "spawn_failed" : "spawn_done",
+        toolCallId,
+        parentSessionKey: sessionKey,
+        ...(childSessionKey ? { childSessionKey, result: { childSessionKey } } : {}),
+        ...(phase === "error" ? { error: data.error ?? liveResultValue ?? true } : {}),
+      });
+    }
+    if (isSubagentSessionKey(sessionKey)) {
+      this.emitChildActivity(sessionKey, "session.tool", { childToolCallId: toolCallId, childToolName: name, childToolPhase: phase, childToolStatus: tool.status });
     }
   }
 
@@ -863,6 +928,9 @@ export class ChatLiveIngest {
     if (!isObject(payload)) return;
     const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : null;
     if (!sessionKey) return;
+    if (isSubagentSessionKey(sessionKey)) {
+      this.discoverSubagentChild(sessionKey, "sessions.changed");
+    }
     const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : null;
     const status = typeof payload.status === "string" ? payload.status : null;
     this.context.messages.upsertSession({ sessionKey, sessionId, data: payload });
@@ -880,6 +948,9 @@ export class ChatLiveIngest {
       createdAtMs: patch.createdAtMs,
     });
     this.log.info("patch.broadcast", { sessionKey, type: patch.eventType, cursor: patch.cursor, status });
+    if (isSubagentSessionKey(sessionKey)) {
+      this.emitChildActivity(sessionKey, "sessions.changed", { childStatus: status });
+    }
     this.scheduleHistoryBackfill(sessionKey, null, "sessions.changed");
   }
 }

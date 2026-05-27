@@ -1270,6 +1270,7 @@ export function ChatView({
     subagentsByTriggerUserId,
     orphanSubagentsByAssistantId,
     subagentRenderScope,
+    currentTurnSubagents,
   } = useMemo(() => {
     const byTriggerUserId = new Map<string, SpawnedSubagent[]>()
     const orphanByAssistantId = new Map<string, SpawnedSubagent[]>()
@@ -1303,6 +1304,7 @@ export function ChatView({
     return {
       subagentsByTriggerUserId: byTriggerUserId,
       orphanSubagentsByAssistantId: orphanByAssistantId,
+      currentTurnSubagents: latestUserSubagents,
       subagentRenderScope: {
         latestUserMessageId,
         currentTurnCount: latestUserSubagents.length,
@@ -1813,9 +1815,9 @@ export function ChatView({
             </motion.div>
           )}
         </AnimatePresence>
-        {spawnedSubagents.length > 0 && (
+        {currentTurnSubagents.length > 0 && (
           <div className="mb-2">
-            <SubagentBar subagents={spawnedSubagents} onOpen={openSubagent} />
+            <SubagentBar subagents={currentTurnSubagents} onOpen={openSubagent} />
           </div>
         )}
         <ChatBox

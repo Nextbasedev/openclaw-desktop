@@ -431,7 +431,7 @@ function applyToolResultById(state: SessionState, params: { id: string | null; r
           ? "failed"
           : (childKey ?? spawn.sessionKey)
             ? "working"
-            : "completed",
+            : spawn.status,
       }
     }))
   }
@@ -747,10 +747,82 @@ function applyCanonicalToolFromPatch(state: SessionState, frame: PatchFrame) {
       ...(existing ?? { id: `spawn:${inline.id}`, label, task: typeof input.task === "string" ? input.task : undefined, sessionKey: null, toolCallId: inline.id }),
       label: existing?.label ?? label,
       sessionKey: childSessionKey,
-      status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : inline.status === "success" ? "completed" : existing?.status ?? "spawning",
+      status: inline.status === "error" ? "failed" : isSameCompletedChild ? existing!.status : childSessionKey ? "working" : existing?.status ?? "spawning",
     })
     state.spawnedSubagents = dedupeSpawnedSubagents(Array.from(spawns.values()))
   }
+  return true
+}
+
+function applySubagentLifecycleFromPatch(state: SessionState, frame: PatchFrame) {
+  const semanticType = patchSemanticType(frame)
+  if (!semanticType.startsWith("chat.subagent.")) return false
+  const payload = patchPayload(frame)
+  if (!payload) return false
+  const toolCallId = typeof payload.toolCallId === "string" && payload.toolCallId.trim()
+    ? payload.toolCallId.trim()
+    : typeof payload.subagentOf === "string" && payload.subagentOf.startsWith("spawn:")
+      ? payload.subagentOf.slice("spawn:".length)
+      : null
+  if (!toolCallId) return false
+
+  const spawns = new Map(state.spawnedSubagents.map((spawn) => [spawn.toolCallId, spawn]))
+  const existing = spawns.get(toolCallId)
+  const childSessionKey = extractSubagentSessionKey(payload) ?? existing?.sessionKey ?? null
+  const label = compactLabel(payload.label, existing?.label ?? "Sub-agent")
+  const task = typeof payload.task === "string" ? payload.task : existing?.task
+
+  if (semanticType === "chat.subagent.spawn_started") {
+    spawns.set(toolCallId, {
+      ...(existing ?? { id: `spawn:${toolCallId}`, label, sessionKey: null, toolCallId }),
+      label,
+      task,
+      status: existing?.status ?? "spawning",
+    })
+  } else if (semanticType === "chat.subagent.spawn_linked") {
+    const isSameTerminalChild = Boolean(
+      existing?.sessionKey &&
+      childSessionKey &&
+      existing.sessionKey === childSessionKey &&
+      (existing.status === "completed" || existing.status === "failed")
+    )
+    spawns.set(toolCallId, {
+      ...(existing ?? { id: `spawn:${toolCallId}`, label, sessionKey: null, toolCallId }),
+      label: existing?.label ?? label,
+      task,
+      sessionKey: childSessionKey,
+      status: isSameTerminalChild ? existing!.status : childSessionKey ? "working" : existing?.status ?? "linking",
+    })
+  } else if (semanticType === "chat.subagent.spawn_failed") {
+    spawns.set(toolCallId, {
+      ...(existing ?? { id: `spawn:${toolCallId}`, label, sessionKey: null, toolCallId }),
+      label: existing?.label ?? label,
+      task,
+      sessionKey: childSessionKey,
+      status: "failed",
+    })
+  } else if (semanticType === "chat.subagent.spawn_done") {
+    spawns.set(toolCallId, {
+      ...(existing ?? { id: `spawn:${toolCallId}`, label, sessionKey: null, toolCallId }),
+      label: existing?.label ?? label,
+      task,
+      sessionKey: childSessionKey,
+      status: childSessionKey ? "working" : existing?.status ?? "spawning",
+    })
+  } else if (semanticType === "chat.subagent.child_activity") {
+    const childStatus = streamStatusFromPatchValue(payload.childStatus)
+    spawns.set(toolCallId, {
+      ...(existing ?? { id: `spawn:${toolCallId}`, label, sessionKey: null, toolCallId }),
+      label: existing?.label ?? label,
+      task,
+      sessionKey: childSessionKey,
+      status: childStatus ? childStatusToSpawnStatus(childStatus) : existing?.status === "completed" ? "completed" : "working",
+    })
+  } else {
+    return false
+  }
+
+  state.spawnedSubagents = dedupeSpawnedSubagents(Array.from(spawns.values()))
   return true
 }
 
@@ -824,6 +896,7 @@ function carryReasoningToFinalAssistant(state: SessionState, frame: PatchFrame) 
 }
 
 function applyActivityFromPatch(state: SessionState, frame: PatchFrame) {
+  if (applySubagentLifecycleFromPatch(state, frame)) return
   if (applyCanonicalToolFromPatch(state, frame)) return
   if (applyToolResultFromPatch(state, frame)) return
   if (!shouldDeriveToolActivityFromMessage(frame)) return
@@ -886,6 +959,22 @@ function isActiveSpawnStatus(status: SpawnedSubagent["status"]) {
   return status === "spawning" || status === "linking" || status === "working"
 }
 
+function streamStatusFromPatchValue(value: unknown): StreamStatus | null {
+  if (
+    value === "idle" ||
+    value === "connected" ||
+    value === "queued" ||
+    value === "thinking" ||
+    value === "streaming" ||
+    value === "tool_running" ||
+    value === "done" ||
+    value === "error"
+  ) return value
+  if (value === "failed" || value === "aborted") return "error"
+  if (value === "complete" || value === "completed" || value === "success") return "done"
+  return null
+}
+
 function childStatusToSpawnStatus(status: StreamStatus): SpawnedSubagent["status"] {
   if (status === "error") return "failed"
   if (status === "done" || status === "idle" || status === "connected") return "completed"
@@ -922,6 +1011,7 @@ function hasActiveToolOrSubagent(state: SessionState) {
 function patchCarriesToolActivity(frame: PatchFrame) {
   const semanticType = patchSemanticType(frame)
   if (semanticType.startsWith("chat.tool.")) return true
+  if (semanticType.startsWith("chat.subagent.")) return true
   return Boolean(patchPayload(frame)?.toolCall)
 }
 

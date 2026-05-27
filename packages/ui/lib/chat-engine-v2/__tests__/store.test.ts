@@ -2081,7 +2081,7 @@ describe("global V2 chat engine store", () => {
     ])
   })
 
-  test("completes sessions_spawn when result has no child session link", () => {
+  test("keeps sessions_spawn active when result has no child session link", () => {
     ingestGlobalChatPatchForTests({
       type: "patch",
       patch: {
@@ -2117,7 +2117,98 @@ describe("global V2 chat engine store", () => {
     })
 
     expect(getGlobalChatSession("s1")?.spawnedSubagents).toMatchObject([
-      { toolCallId: "spawn-complete", sessionKey: null, status: "completed" },
+      { toolCallId: "spawn-complete", sessionKey: null, status: "spawning" },
+    ])
+  })
+
+  test("links spawned subagent from canonical middleware lifecycle patch", () => {
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.subagent.spawn_started",
+        sessionKey: "parent-1",
+        createdAtMs: Date.now(),
+        payload: {
+          semanticType: "chat.subagent.spawn_started",
+          sessionKey: "parent-1",
+          toolCallId: "spawn-canonical",
+          label: "Audit worker",
+          task: "Audit",
+        },
+      },
+    })
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 2,
+        type: "chat.subagent.spawn_done",
+        sessionKey: "parent-1",
+        createdAtMs: Date.now(),
+        payload: {
+          semanticType: "chat.subagent.spawn_done",
+          sessionKey: "parent-1",
+          toolCallId: "spawn-canonical",
+        },
+      },
+    })
+    expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-canonical", sessionKey: null, status: "spawning" },
+    ])
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 3,
+        type: "chat.subagent.spawn_linked",
+        sessionKey: "parent-1",
+        createdAtMs: Date.now(),
+        payload: {
+          semanticType: "chat.subagent.spawn_linked",
+          sessionKey: "parent-1",
+          toolCallId: "spawn-canonical",
+          childSessionKey: "agent:main:desktop:subagent:child-1",
+          result: { childSessionKey: "agent:main:desktop:subagent:child-1" },
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-canonical", sessionKey: "agent:main:desktop:subagent:child-1", status: "working" },
+    ])
+  })
+
+  test("does not reactivate a completed subagent from replayed spawn_linked", () => {
+    seedGlobalChatSession({
+      sessionKey: "parent-1",
+      messages: [],
+      spawnedSubagents: [{
+        id: "spawn:spawn-canonical",
+        label: "Audit worker",
+        status: "completed",
+        toolCallId: "spawn-canonical",
+        sessionKey: "agent:main:desktop:subagent:child-1",
+      }],
+    })
+
+    ingestGlobalChatPatchForTests({
+      type: "patch",
+      patch: {
+        cursor: 1,
+        type: "chat.subagent.spawn_linked",
+        sessionKey: "parent-1",
+        createdAtMs: Date.now(),
+        payload: {
+          semanticType: "chat.subagent.spawn_linked",
+          sessionKey: "parent-1",
+          toolCallId: "spawn-canonical",
+          childSessionKey: "agent:main:desktop:subagent:child-1",
+        },
+      },
+    })
+
+    expect(getGlobalChatSession("parent-1")?.spawnedSubagents).toMatchObject([
+      { toolCallId: "spawn-canonical", sessionKey: "agent:main:desktop:subagent:child-1", status: "completed" },
     ])
   })
 
