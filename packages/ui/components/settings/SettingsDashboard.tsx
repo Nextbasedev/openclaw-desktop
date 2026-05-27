@@ -66,7 +66,7 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
 
   return (
     <div
-      className="flex h-full w-full min-w-0 overflow-hidden rounded-3xl border border-border/60"
+      className="flex h-full w-full min-w-0 overflow-hidden rounded-tl-3xl border border-border/60"
       style={{
         background:
           "linear-gradient(90deg, color-mix(in oklch, var(--muted) 20%, transparent) 0 220px, var(--background) 220px 100%)",
