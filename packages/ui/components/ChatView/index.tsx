@@ -9,7 +9,6 @@ import { ChatSearch } from "./ChatSearch"
 import { OpenClawVercelChat } from "./vercel-ui/OpenClawVercelChat"
 import { buildStableChatRows, type StableChatMessage } from "./chatStableIds"
 import { shouldAutoLoadOlderHistory } from "./chatHistoryAutoLoad"
-import { restoreDeltaPreservingUserScroll } from "./chatScrollAnchorMath"
 import { logChatScrollDebug } from "./chatScrollDebug"
 
 import { ThinkingBlock } from "./ThinkingBlock"
@@ -120,12 +119,7 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
     const row = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
       .find((item) => item.dataset.uiId === anchor.uiId)
     if (row) {
-      const currentScrollTop = container.scrollTop
-      const deltaPx = restoreDeltaPreservingUserScroll({
-        anchor,
-        currentScrollTop,
-        currentAnchorTop: row.getBoundingClientRect().top,
-      })
+      const deltaPx = row.getBoundingClientRect().top - anchor.top
       container.scrollTop += deltaPx
       logChatScrollDebug({
         source: "chat",
@@ -143,12 +137,7 @@ function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: Messa
   if (anchor.id) {
     const row = document.getElementById(anchor.id)
     if (row) {
-      const currentScrollTop = container.scrollTop
-      const deltaPx = restoreDeltaPreservingUserScroll({
-        anchor,
-        currentScrollTop,
-        currentAnchorTop: row.getBoundingClientRect().top,
-      })
+      const deltaPx = row.getBoundingClientRect().top - anchor.top
       container.scrollTop += deltaPx
       logChatScrollDebug({ source: "chat", event: "restore-anchor-dom-id", anchorId: anchor.id, anchorTop: anchor.top, deltaPx, scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight })
       return
