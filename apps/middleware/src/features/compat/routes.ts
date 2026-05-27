@@ -249,7 +249,7 @@ const compatState = {
 
 const DEFAULT_SPACE_ID = "space_default";
 const DEFAULT_SPACE_NAME = "My Workspace";
-const spacePatchFields = new Set(["name", "repoRoot", "projectId", "sortOrder", "archived", "deleted"]);
+const spacePatchFields = new Set(["name", "iconImage", "repoRoot", "projectId", "sortOrder", "archived", "deleted"]);
 
 const compatCollections = ["spaces", "chats", "projects", "topics", "sessions", "branches", "pins", "cronJobs", "cronRuns"] as const;
 
@@ -3436,6 +3436,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
     const space = {
       id: id("space"),
       name: body.name || "New Space",
+      ...(body.iconImage ? { iconImage: body.iconImage } : {}),
       archived: false,
       deleted: false,
       sortOrder: compatState.spaces.length,
@@ -4376,6 +4377,7 @@ export async function registerCompatRoutes(app: FastifyInstance, context: AppCon
         const space = {
           id: id("space"),
           name: input.name || "New Space",
+          ...(input.iconImage ? { iconImage: input.iconImage } : {}),
           archived: false,
           deleted: false,
           sortOrder: compatState.spaces.length,

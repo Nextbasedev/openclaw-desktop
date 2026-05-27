@@ -17,6 +17,8 @@ type SpacesResponse = {
   activeSpaceId: string
 }
 
+type SpaceIconImage = NonNullable<Space["iconImage"]>
+
 function upsertSpace(spaces: Space[], nextSpace: Space) {
   if (!nextSpace?.id) return spaces
   const found = spaces.some((space) => space.id === nextSpace.id)
@@ -116,10 +118,10 @@ export function useSpaces() {
 
   useEffect(() => on("archive:changed", loadSpacesFresh), [loadSpacesFresh])
 
-  const createSpace = useCallback(async (name?: string) => {
+  const createSpace = useCallback(async (name?: string, iconImage?: SpaceIconImage | null) => {
     invalidateMiddlewareStartupBootstrap()
     const result = await invoke<{ space: Space; activeSpaceId: string }>("middleware_spaces_create", {
-      input: { name: name?.trim() || undefined },
+      input: { name: name?.trim() || undefined, iconImage: iconImage || undefined },
     })
     invalidateMiddlewareStartupBootstrap()
     activeSpaceOverrideRef.current = result.activeSpaceId || result.space.id
@@ -129,11 +131,12 @@ export function useSpaces() {
     return result.space
   }, [loadSpacesFresh])
 
-  const updateSpace = useCallback(async (spaceId: string, input: { name?: string; repoRoot?: string | null; projectId?: string | null }) => {
+  const updateSpace = useCallback(async (spaceId: string, input: { name?: string; iconImage?: SpaceIconImage | null; repoRoot?: string | null; projectId?: string | null }) => {
     invalidateMiddlewareStartupBootstrap()
     const optimisticUpdatedAt = new Date().toISOString()
     const optimisticPatch = {
       ...input,
+      iconImage: input.iconImage ?? undefined,
       repoRoot: input.repoRoot ?? undefined,
       projectId: input.projectId ?? undefined,
     }
@@ -148,7 +151,7 @@ export function useSpaces() {
           : space,
       ),
     )
-    const isRenameOnly = Boolean(input.name) && input.repoRoot === undefined && input.projectId === undefined
+    const isRenameOnly = Boolean(input.name) && input.iconImage === undefined && input.repoRoot === undefined && input.projectId === undefined
     const result = isRenameOnly
       ? await renameSpace(spaceId, input.name!.trim())
       : await invoke<SpaceMutationResponse>("middleware_spaces_update", {

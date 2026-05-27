@@ -465,6 +465,7 @@ function AppShell({
   const appContextMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false)
+  const [sidebarPreviewSpaceId, setSidebarPreviewSpaceId] = useState<string | null>(null)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
   const [splitRatio, setSplitRatio] = useState(0.5)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -515,6 +516,7 @@ function AppShell({
     deleteSpace,
     loading: spacesLoading,
   } = useSpaces()
+  const displayedActiveSpaceId = sidebarPreviewOpen && sidebarPreviewSpaceId ? sidebarPreviewSpaceId : activeSpaceId
 
   useEffect(() => {
     try {
@@ -708,6 +710,7 @@ function AppShell({
   const lastChatRouteBySpaceRef = useRef(new Map<string, string>())
   const lastChatSelectionBySpaceRef = useRef(new Map<string, { chat: ActiveChat; sessionKey: string | null; title: string | null }>())
   const pendingSpaceRouteRestoreRef = useRef<{ spaceId: string; path: string | null } | null>(null)
+  const sidebarPreviewSwitchTimerRef = useRef<number | null>(null)
 
   const { resolvedTheme, setTheme } = useTheme()
 
@@ -1051,10 +1054,12 @@ function AppShell({
   }, [inspectorOpen, terminalActive])
   const toggleSidebar = useCallback(() => {
     setSidebarPreviewOpen(false)
+    setSidebarPreviewSpaceId(null)
     setSidebarOpen((prev) => !prev)
   }, [])
   const closeSidebar = useCallback(() => {
     setSidebarPreviewOpen(false)
+    setSidebarPreviewSpaceId(null)
     setSidebarOpen(false)
   }, [])
 
@@ -1596,6 +1601,7 @@ function AppShell({
   const handleSpaceSwitch = useCallback(async (spaceId: string, options: SpaceSwitchOptions = {}) => {
     const openSidebar = options.openSidebar ?? true
     setSidebarPreviewOpen(!openSidebar)
+    setSidebarPreviewSpaceId(openSidebar ? null : spaceId)
     if (openSidebar) setSidebarOpen(true)
     if (spaceId === activeSpaceId) return
     if (activeSpaceId) {
@@ -1673,8 +1679,8 @@ function AppShell({
     handleNewChat()
   }, [activeSpaceId, handleNewChat, handleSpaceSwitch])
 
-  const handleSpaceCreate = useCallback(async (name?: string) => {
-    const space = await createSpace(name)
+  const handleSpaceCreate = useCallback(async (name?: string, iconImage?: NonNullable<import("@/types/space").Space["iconImage"]> | null) => {
+    const space = await createSpace(name, iconImage)
     await handleSpaceSwitch(space.id)
   }, [createSpace, handleSpaceSwitch])
 

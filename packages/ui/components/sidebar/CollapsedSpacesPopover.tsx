@@ -10,6 +10,7 @@ import { CreateSpaceDialog } from "./CreateSpaceDialog"
 import { GlassTooltip } from "./SidebarItem"
 import { SpaceContextMenuPortal } from "./SpaceContextMenuPortal"
 import { SpaceDialogs } from "./SpaceDialogs"
+import { SpaceIconImage, spaceIconSrc } from "./SpaceIconImage"
 
 type Props = {
   spaces: Space[]
@@ -18,11 +19,13 @@ type Props = {
   onCollapsedPreviewStart?: (spaceId: string) => void
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
   onSpaceNewChat: (spaceId: string) => void | Promise<void>
-  onSpaceCreate: (name?: string) => void | Promise<void>
+  onSpaceCreate: (name?: string, iconImage?: SpaceIconImage | null) => void | Promise<void>
   onSpaceUpdate: (spaceId: string, input: { name?: string; repoRoot?: string | null }) => unknown | Promise<unknown>
   onSpaceArchive: (spaceId: string) => void | Promise<void>
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
+
+type SpaceIconImage = NonNullable<Space["iconImage"]>
 
 const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,rgba(255,255,255,0.04)_0%,#151519_42%,#09090B_100%)]"
 const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)] text-white"
@@ -75,6 +78,8 @@ export function CollapsedSpacesPopover({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Space | null>(null)
   const [name, setName] = useState("New Project")
+  const [iconImage, setIconImage] = useState<SpaceIconImage | null>(null)
+  const [iconError, setIconError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
@@ -119,6 +124,8 @@ export function CollapsedSpacesPopover({
   function openCreate() {
     setPlusMenu((prev) => ({ ...prev, open: false }))
     setName("New Project")
+    setIconImage(null)
+    setIconError(null)
     setCreateOpen(true)
   }
 
@@ -126,7 +133,7 @@ export function CollapsedSpacesPopover({
     if (busy || !name.trim()) return
     setBusy(true)
     try {
-      await onSpaceCreate(name.trim())
+      await onSpaceCreate(name.trim(), iconImage)
       setCreateOpen(false)
     } finally {
       setBusy(false)
@@ -225,10 +232,10 @@ export function CollapsedSpacesPopover({
               <span
                 className={cn(
                   "relative flex size-full items-center justify-center overflow-hidden rounded-md text-[14px] font-semibold text-white/40 shadow-lg shadow-black/30",
-                  active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE,
+                  !spaceIconSrc(space) && (active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE),
                 )}
               >
-                {spaceInitial(space)}
+                {spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
               </span>
             </button>
           </GlassTooltip>
@@ -254,9 +261,13 @@ export function CollapsedSpacesPopover({
         open={createOpen}
         busy={busy}
         name={name}
+        iconImage={iconImage}
+        iconError={iconError}
         inputRef={inputRef}
         onOpenChange={setCreateOpen}
         onNameChange={setName}
+        onIconImageChange={setIconImage}
+        onIconErrorChange={setIconError}
         onSubmit={submitCreate}
       />
 
