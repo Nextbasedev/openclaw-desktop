@@ -2953,7 +2953,13 @@ function MainContent({
 }) {
   if (activeTab === "settings") {
     return (
-      <div className="flex h-full w-full">
+      <div
+        className="flex h-full w-full"
+        style={{
+          background:
+            "linear-gradient(90deg, color-mix(in oklch, var(--muted) 20%, transparent) 0 220px, var(--background) 220px 100%)",
+        }}
+      >
         <SettingsDashboard
           key={`settings:${settingsSection}`}
           onBack={onSettingsBack}
