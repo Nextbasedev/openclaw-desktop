@@ -55,7 +55,7 @@ export function AppContextMenu({
         transformOrigin: "top left",
       }}
       className={cn(
-        "z-[130] w-44 rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1.5",
+        "z-[130] w-44 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1",
         "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
         "backdrop-blur-[40px] backdrop-saturate-[180%]",
       )}

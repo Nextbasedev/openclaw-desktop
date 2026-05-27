@@ -269,7 +269,7 @@ export function CollapsedSpacesPopover({
           type="button"
           onClick={openCreate}
           onContextMenu={openPlusMenu}
-          className="flex size-10 cursor-pointer items-center justify-center rounded-md border border-white/[0.12] bg-white/[0.035] text-muted-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:bg-white/[0.08] hover:text-foreground"
+          className="flex size-10 cursor-pointer items-center justify-center rounded-md border border-none bg-white/[0.035] text-muted-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:bg-white/[0.08] hover:text-foreground"
           aria-label="New project"
         >
           <LuPlus className="size-7 stroke-[1.7]" />
@@ -329,7 +329,7 @@ export function CollapsedSpacesPopover({
             transformOrigin: "top left",
           }}
           className={cn(
-            "z-[120] w-44 rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1.5",
+            "z-[120] w-44 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1.5",
             "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
             "backdrop-blur-[40px] backdrop-saturate-[180%]",
           )}
