@@ -98,7 +98,7 @@ export function CreateSpaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "sm:max-w-[560px] overflow-hidden rounded-3xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0",
+          "sm:max-w-[560px] overflow-hidden rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] p-0",
           "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
           "backdrop-blur-[40px] backdrop-saturate-[180%]",
         )}
