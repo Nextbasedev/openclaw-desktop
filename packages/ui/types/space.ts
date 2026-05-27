@@ -1,13 +1,18 @@
+export type SpaceIconImage = {
+  name: string
+  mimeType: string
+  content: string
+  encoding: "base64"
+  size: number
+}
+
 export type Space = {
   id: string
   name: string
-  iconImage?: {
-    name: string
-    mimeType: string
-    content: string
-    encoding: "base64"
-    size: number
-  }
+  iconImage?: SpaceIconImage
+  ImageIcon?: SpaceIconImage
+  imageIcon?: SpaceIconImage
+  icon_image?: SpaceIconImage
   repoRoot?: string
   projectId?: string
   sortOrder: number
