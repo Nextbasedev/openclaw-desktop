@@ -2,15 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { invoke, openEventStream } from "@/lib/ipc"
+import { invoke } from "@/lib/ipc"
 import { Icons } from "@/components/icons"
-import { notify, ensureNotificationPermission } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import type { ActiveChat } from "@/types/chat"
 import {
-  applyCronEventToJobs,
   getCronStatusMeta,
-  mergeCronRunEvents,
   sortCronJobsByStatus,
   type CronJobLike,
   type CronRunEventLike,
@@ -83,20 +80,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       },
     )
   })
-}
-
-function showCronNotification(event: CronRunEvent) {
-  if (typeof window === "undefined") return
-
-  const title = event.name ?? `Cron Job ${event.jobId.slice(0, 8)}`
-  const isError = event.type === "cron.run.failed"
-  const body = isError
-    ? `Failed: ${event.error ?? "Unknown error"}`
-    : event.type === "cron.run.completed"
-      ? "Completed successfully"
-      : "Started running"
-
-  void notify({ title, body })
 }
 
 function statusIcon(type: CronRunEvent["type"]) {
@@ -184,46 +167,6 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const jobNamesRef = useRef<Map<string, string>>(new Map())
-  const openRef = useRef(false)
-  const fetchJobsRef = useRef<() => Promise<void>>(async () => {})
-
-  useEffect(() => {
-    openRef.current = open
-  }, [open])
-
-  useEffect(() => {
-    void ensureNotificationPermission()
-  }, [])
-
-  useEffect(() => {
-    const cleanup = openEventStream(
-      "/api/stream/cron",
-      (evt: MessageEvent) => {
-        try {
-          const event = JSON.parse(evt.data) as CronRunEvent
-          event.name = resolveEventName(event, jobNamesRef.current)
-          if (event.name) jobNamesRef.current.set(event.jobId, event.name)
-          setEvents((prev) => mergeCronRunEvents(prev, event, MAX_EVENTS))
-          setJobs((prev) => sortCronJobsByStatus(applyCronEventToJobs(prev, event)).slice(0, 3))
-          if (openRef.current) void fetchJobsRef.current()
-          if (
-            event.type === "cron.run.completed" ||
-            event.type === "cron.run.failed"
-          ) {
-            setBadgeCount((c) => c + 1)
-            showCronNotification(event)
-          }
-        } catch {
-          // ignore malformed events
-        }
-      },
-    )
-
-    return () => {
-      cleanup()
-    }
-  }, [])
-
   useEffect(() => {
     if (open) setBadgeCount(0)
   }, [open])
@@ -286,10 +229,6 @@ export function NotificationPopover({ onViewAll, onNavigateToChat }: Notificatio
       setLoading(false)
     }
   }, [])
-
-  useEffect(() => {
-    fetchJobsRef.current = fetchJobs
-  }, [fetchJobs])
 
   useEffect(() => {
     if (!open) return
