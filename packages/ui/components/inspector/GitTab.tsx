@@ -128,12 +128,12 @@ function GitPanelSkeleton() {
 function GitDiffSkeleton() {
   return (
     <div className="space-y-2 p-4 font-mono">
-      <div className="h-5 w-64 animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-[520px] animate-pulse rounded bg-emerald-500/20" />
-      <div className="h-4 w-[460px] animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-[500px] animate-pulse rounded bg-red-500/20" />
-      <div className="h-4 w-[420px] animate-pulse rounded bg-white/10" />
-      <div className="h-4 w-[540px] animate-pulse rounded bg-emerald-500/15" />
+      <div className="h-5 w-64 animate-pulse rounded bg-secondary/45" />
+      <div className="h-4 w-[520px] animate-pulse rounded bg-secondary/35" />
+      <div className="h-4 w-[460px] animate-pulse rounded bg-secondary/30" />
+      <div className="h-4 w-[500px] animate-pulse rounded bg-secondary/35" />
+      <div className="h-4 w-[420px] animate-pulse rounded bg-secondary/25" />
+      <div className="h-4 w-[540px] animate-pulse rounded bg-secondary/30" />
     </div>
   )
 }
@@ -213,20 +213,20 @@ function DiffFileHeader({
 function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
   if (mode === "split") {
     return (
-      <div className="min-w-[760px] font-mono text-[12px] leading-[1.65]">
+      <div className="w-max min-w-full font-mono text-[12px] leading-[1.65]">
         {diff.lines.map((line, idx) => {
           if (line.type === "hunk") {
             return (
-              <div key={idx} className="grid grid-cols-2 border-y border-white/5 bg-[#161b22] text-[11px] font-bold text-[#7d8590]">
-                <div className="px-4 py-1.5">{line.content}</div>
-                <div className="border-l border-white/10 px-4 py-1.5">{line.content}</div>
+              <div key={idx} className="grid w-max min-w-full grid-cols-[minmax(380px,max-content)_minmax(380px,max-content)] border-y border-white/5 bg-[#161b22] text-[11px] font-bold text-[#7d8590]">
+                <div className="whitespace-pre px-4 py-1.5">{line.content}</div>
+                <div className="whitespace-pre border-l border-white/10 px-4 py-1.5">{line.content}</div>
               </div>
             )
           }
           const isAdd = line.type === "addition"
           const isDel = line.type === "deletion"
           return (
-            <div key={idx} className="grid grid-cols-2 border-b border-white/[0.025]">
+            <div key={idx} className="grid w-max min-w-full grid-cols-[minmax(380px,max-content)_minmax(380px,max-content)] border-b border-white/[0.025]">
               <DiffLineCell line={line} side="old" muted={isAdd} tone={isDel ? "del" : "normal"} />
               <DiffLineCell line={line} side="new" muted={isDel} tone={isAdd ? "add" : "normal"} split />
             </div>
@@ -237,7 +237,7 @@ function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
   }
 
   return (
-    <div className="min-w-[720px] font-mono text-[12px] leading-[1.65]">
+    <div className="w-max min-w-full font-mono text-[12px] leading-[1.65]">
       {diff.lines.map((line, idx) => {
         if (line.type === "hunk") {
           return (
@@ -271,7 +271,7 @@ function DiffLineCell({
   return (
     <div
       className={cn(
-        "flex min-w-0 transition-colors",
+        "flex w-max min-w-full transition-colors",
         split && "border-l border-white/10",
         muted && "opacity-30",
         tone === "add" && "bg-[#12351f] text-[#d7ffe0]",
@@ -283,7 +283,7 @@ function DiffLineCell({
         {muted ? "" : (number ?? "")}
       </div>
       <div className={cn("w-6 shrink-0 select-none text-center text-[13px] font-bold", tone === "add" && "text-emerald-300", tone === "del" && "text-red-300", tone === "normal" && "text-muted-foreground/30")}>{muted ? "" : sign}</div>
-      <div className="flex-1 whitespace-pre px-3 font-medium">{muted ? "" : line.content}</div>
+      <div className="shrink-0 whitespace-pre px-3 font-medium">{muted ? "" : line.content}</div>
     </div>
   )
 }
@@ -773,7 +773,7 @@ function CommitDetailView({
         />
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="min-w-0 flex-1 overflow-auto">
         {loading ? (
           <GitDiffSkeleton />
         ) : !diffs?.length ? (
@@ -795,7 +795,7 @@ function CommitDetailView({
                     onClick={() => setSelectedFile(open ? null : file.path)}
                   />
                   {open && (
-                    <div className="overflow-auto bg-[#050505] text-[#e6edf3]">
+                    <div className="overflow-x-auto overflow-y-visible bg-[#050505] text-[#e6edf3]">
                       {currentFileDiff ? <DiffLines diff={currentFileDiff} mode={diffMode} /> : null}
                     </div>
                   )}
