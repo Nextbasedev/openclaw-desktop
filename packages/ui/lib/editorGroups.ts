@@ -159,49 +159,48 @@ export function editorGroupsReducer(
   switch (action.type) {
     case "ADD_TAB": {
       const targetId = action.groupId ?? state.focusedGroupId
-      return {
-        ...state,
-        groups: state.groups.map((g) => {
-          if (g.id !== targetId) return g
-          const existing = g.tabs.findIndex(
-            (t) => t.id === action.tab.id,
-          )
-          const withoutDraft = g.tabs.filter(
-            (t) => t.kind !== "draft",
-          )
-          if (action.tab.kind === "draft") {
-            return {
-              ...g,
-              tabs: [...withoutDraft, action.tab],
-              activeTabId: action.tab.id,
-              sessionData: null,
-            }
+      let changed = false
+      const groups = state.groups.map((g) => {
+        if (g.id !== targetId) return g
+        const existing = g.tabs.findIndex(
+          (t) => t.id === action.tab.id,
+        )
+        const withoutDraft = g.tabs.filter(
+          (t) => t.kind !== "draft",
+        )
+        let nextGroup: EditorGroup
+        if (action.tab.kind === "draft") {
+          nextGroup = {
+            ...g,
+            tabs: [...withoutDraft, action.tab],
+            activeTabId: action.tab.id,
+            sessionData: null,
           }
-          if (existing >= 0) {
-            const nextTab = action.tab
-            const currentTab = g.tabs[existing]
-            if (
-              currentTab?.kind === nextTab.kind &&
-              currentTab.title === nextTab.title &&
-              currentTab.subtitle === nextTab.subtitle &&
-              (currentTab.kind !== "chat" || nextTab.kind !== "chat" || currentTab.chat?.sessionKey === nextTab.chat?.sessionKey) &&
-              (currentTab.kind !== "topic" || nextTab.kind !== "topic" || currentTab.topic?.id === nextTab.topic?.id)
-            ) {
-              const currentSessionData = sessionDataFromTab(currentTab) ?? g.sessionData
-              const sameSessionData =
-                (!currentSessionData && !g.sessionData) ||
-                (Boolean(currentSessionData && g.sessionData) &&
-                  currentSessionData?.chat.id === g.sessionData?.chat.id &&
-                  currentSessionData?.sessionKey === g.sessionData?.sessionKey &&
-                  currentSessionData?.title === g.sessionData?.title)
-              if (g.activeTabId === action.tab.id && sameSessionData) return g
-              return {
-                ...g,
-                activeTabId: action.tab.id,
-                sessionData: currentSessionData,
-              }
+        } else if (existing >= 0) {
+          const nextTab = action.tab
+          const currentTab = g.tabs[existing]
+          if (
+            currentTab?.kind === nextTab.kind &&
+            currentTab.title === nextTab.title &&
+            currentTab.subtitle === nextTab.subtitle &&
+            (currentTab.kind !== "chat" || nextTab.kind !== "chat" || currentTab.chat?.sessionKey === nextTab.chat?.sessionKey) &&
+            (currentTab.kind !== "topic" || nextTab.kind !== "topic" || currentTab.topic?.id === nextTab.topic?.id)
+          ) {
+            const currentSessionData = sessionDataFromTab(currentTab) ?? g.sessionData
+            const sameSessionData =
+              (!currentSessionData && !g.sessionData) ||
+              (Boolean(currentSessionData && g.sessionData) &&
+                currentSessionData?.chat.id === g.sessionData?.chat.id &&
+                currentSessionData?.sessionKey === g.sessionData?.sessionKey &&
+                currentSessionData?.title === g.sessionData?.title)
+            if (g.activeTabId === action.tab.id && sameSessionData) return g
+            nextGroup = {
+              ...g,
+              activeTabId: action.tab.id,
+              sessionData: currentSessionData,
             }
-            return {
+          } else {
+            nextGroup = {
               ...g,
               tabs: withoutDraft.map((t) =>
                 t.id === action.tab.id ? nextTab : t,
@@ -210,14 +209,18 @@ export function editorGroupsReducer(
               sessionData: sessionDataFromTab(nextTab) ?? g.sessionData,
             }
           }
-          return {
+        } else {
+          nextGroup = {
             ...g,
             tabs: [...withoutDraft, action.tab],
             activeTabId: action.tab.id,
             sessionData: sessionDataFromTab(action.tab) ?? g.sessionData,
           }
-        }),
-      }
+        }
+        changed = true
+        return nextGroup
+      })
+      return changed ? { ...state, groups } : state
     }
 
     case "UPDATE_TAB": {
