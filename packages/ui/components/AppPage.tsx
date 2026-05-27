@@ -2645,6 +2645,8 @@ function AppShell({
           sidebarReservedWidth={0}
           editorGroups={null}
           workspaceControls={false}
+          onOpenSettings={openSettings}
+          onOpenLogs={openLogs}
           useNativeWindowChrome={useNativeWindowChrome}
         />
 
