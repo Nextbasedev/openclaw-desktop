@@ -1887,9 +1887,13 @@ export function ChatView({
                 title="Scroll to latest message"
                 onClick={jumpToLatestMessage}
                 initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
+                animate={{ opacity: 1, y: [0, 4, 0], scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                transition={{ duration: 0.16, ease: "easeOut" }}
+                transition={{
+                  opacity: { duration: 0.16, ease: "easeOut" },
+                  scale: { duration: 0.16, ease: "easeOut" },
+                  y: { duration: 1.8, ease: "easeInOut", repeat: Infinity },
+                }}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.94 }}
                 className={cn(
@@ -1899,14 +1903,12 @@ export function ChatView({
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                 )}
               >
-                <motion.span
+                <span
                   aria-hidden="true"
-                  animate={{ y: [0, 4, 0] }}
-                  transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
                   className="flex origin-center bg-transparent"
                 >
                   <MdKeyboardDoubleArrowDown size={22} />
-                </motion.span>
+                </span>
               </motion.button>
             )}
           </AnimatePresence>
