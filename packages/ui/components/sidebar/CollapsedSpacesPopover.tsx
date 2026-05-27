@@ -27,8 +27,22 @@ type Props = {
 
 type SpaceIconImage = NonNullable<Space["iconImage"]>
 
-const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,rgba(255,255,255,0.04)_0%,#151519_42%,#09090B_100%)]"
-const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)] text-white"
+const SPACE_ICON_GRADIENTS = [
+  "bg-[linear-gradient(135deg,#06B6D4_0%,#2563EB_52%,#7C3AED_100%)]",
+  "bg-[linear-gradient(135deg,#A855F7_0%,#EC4899_52%,#F43F5E_100%)]",
+  "bg-[linear-gradient(135deg,#10B981_0%,#14B8A6_52%,#06B6D4_100%)]",
+  "bg-[linear-gradient(135deg,#F59E0B_0%,#F97316_50%,#E11D48_100%)]",
+  "bg-[linear-gradient(135deg,#84CC16_0%,#22C55E_52%,#0EA5E9_100%)]",
+  "bg-[linear-gradient(135deg,#F472B6_0%,#D946EF_48%,#8B5CF6_100%)]",
+  "bg-[linear-gradient(135deg,#38BDF8_0%,#0EA5E9_48%,#1D4ED8_100%)]",
+  "bg-[linear-gradient(135deg,#FDE047_0%,#FB923C_48%,#FB7185_100%)]",
+]
+const NEW_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#22D3EE_0%,#A855F7_52%,#F472B6_100%)]"
+
+function gradientForSpace(space: Space) {
+  const seed = [...space.id].reduce((total, char) => total + char.charCodeAt(0), 0)
+  return SPACE_ICON_GRADIENTS[seed % SPACE_ICON_GRADIENTS.length]
+}
 
 function getSpaceRank(space: Space) {
   if (typeof space.sortOrder === "number") return space.sortOrder
@@ -231,8 +245,9 @@ export function CollapsedSpacesPopover({
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-md bg-transparent text-[14px] font-semibold text-white/40 shadow-lg shadow-black/30",
-                  !spaceIconSrc(space) && (active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE),
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-md bg-transparent text-[14px] font-semibold text-white shadow-lg shadow-black/30",
+                  !spaceIconSrc(space) && gradientForSpace(space),
+                  active && "brightness-110 saturate-125",
                 )}
               >
                 {spaceIconSrc(space) ? <SpaceIconImage space={space} /> : spaceInitial(space)}
@@ -248,8 +263,8 @@ export function CollapsedSpacesPopover({
           onClick={openCreate}
           onContextMenu={openPlusMenu}
           className={cn(
-            "flex size-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-foreground hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
-            SPACE_ICON_SURFACE,
+            "flex size-10 cursor-pointer items-center justify-center rounded-md text-white shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:brightness-110 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
+            NEW_SPACE_ICON_SURFACE,
           )}
           aria-label="New project"
         >
