@@ -572,8 +572,8 @@ function HeaderTab({
         }
       }}
       className={cn(
-        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-grab items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200 active:cursor-grabbing",
-        isDragging && "opacity-45",
+        "group relative mb-0 flex h-[35px] w-46 shrink-0 cursor-pointer items-center gap-2 overflow-hidden rounded-t-[10px] border border-b-0 px-3 text-left transition-[background-color,border-color,box-shadow,opacity,transform] duration-200",
+        isDragging && "cursor-grabbing opacity-45",
         activeAndFocused
           ? "z-20 overflow-visible border-transparent bg-background text-foreground shadow-none before:pointer-events-none before:absolute before:bottom-0 before:-left-[10px] before:size-[10px] before:rounded-br-[10px] before:shadow-[4px_4px_0_4px_var(--background)] after:pointer-events-none after:absolute after:bottom-0 after:-right-[10px] after:size-[10px] after:rounded-bl-[10px] after:shadow-[-4px_4px_0_4px_var(--background)]"
           : isActive
