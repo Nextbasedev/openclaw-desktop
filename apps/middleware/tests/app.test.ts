@@ -669,6 +669,41 @@ describe("middleware app", () => {
     await app.close();
   });
 
+  test("persists uploaded space icons through spaces API and command API", async () => {
+    const app = await createApp(testConfig());
+    const iconImage = {
+      name: "space.png",
+      mimeType: "image/png",
+      content: Buffer.from("space-icon").toString("base64"),
+      encoding: "base64",
+      size: 10,
+    };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/spaces",
+      payload: { name: "Image Space", iconImage },
+    });
+
+    expect(created.statusCode).toBe(200);
+    expect(created.json().space).toMatchObject({ name: "Image Space", iconImage });
+
+    const listed = await app.inject({ method: "GET", url: "/api/spaces" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().spaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: created.json().space.id, iconImage }),
+    ]));
+
+    const commandCreated = await app.inject({
+      method: "POST",
+      url: "/api/commands/middleware_spaces_create",
+      payload: { input: { name: "Command Image Space", iconImage } },
+    });
+
+    expect(commandCreated.statusCode).toBe(200);
+    expect(commandCreated.json().space).toMatchObject({ name: "Command Image Space", iconImage });
+  });
+
   test("bootstrap imports Gateway sessions without a project into the default space", async () => {
     const app = await createApp(testConfig());
     const context = (app as typeof app & { v2Context: { gateway: { connect: unknown; status: unknown; request: unknown } } }).v2Context;
