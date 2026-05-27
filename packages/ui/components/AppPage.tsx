@@ -31,7 +31,7 @@ import { loadWorkspaceLayoutSnapshot, saveWorkspaceLayoutSnapshot } from "@/lib/
 import { fetchChatsForSpace, invalidateChatListCache, loadCachedChatsForSpace } from "@/lib/chatListCache"
 import { sendChatV2 } from "@/lib/chat-engine-v2/client"
 import { chatSendIdempotencyKey } from "@/lib/chat-engine-v2/idempotency"
-import { initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
+import { getMiddlewareConnection, initMiddlewareConnectionCrossWindowSync, MIDDLEWARE_CONNECTION_CHANGED_EVENT, MIDDLEWARE_DISCONNECTED_EVENT } from "@/lib/middleware-client"
 import { checkGatewayOrRedirect, isGatewayError, showGatewayError } from "@/lib/toast"
 import { fallbackChatNameFromText, isWeakChatName } from "@/utils/chatDisplayName"
 import {
@@ -477,6 +477,10 @@ function AppShell({
   const [connectAutoOpenEnabled, setConnectAutoOpenEnabled] = useState(() =>
     Boolean(initialConnect),
   )
+  const [hasMiddlewareConnection, setHasMiddlewareConnection] = useState(() => {
+    if (typeof window === "undefined") return !initialConnect
+    return Boolean(getMiddlewareConnection())
+  })
   const [fullWindowInspectorTab, setFullWindowInspectorTab] =
     useState<InspectorTabId>("activity")
   const [fullScreenInspectorMounted, setFullScreenInspectorMounted] = useState(() => {
@@ -745,6 +749,8 @@ function AppShell({
 
   useEffect(() => {
     function resetMiddlewareScopedUi() {
+      const nextConnection = getMiddlewareConnection()
+      setHasMiddlewareConnection(Boolean(nextConnection))
       routeRequestRef.current += 1
       resolvedChatCacheRef.current.clear()
       clearConversationState()
