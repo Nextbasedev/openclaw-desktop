@@ -16,6 +16,9 @@ type Props = {
   messages: readonly ChatMessage[]
   isGenerating: boolean
   statusText?: string | null
+  hasOlderMessages?: boolean
+  loadingOlderMessages?: boolean
+  onLoadOlderMessages?: () => Promise<void> | void
   onSelectTool?: (toolCallId: string) => void
   onResolveApproval?: (
     approvalId: string,
@@ -113,6 +116,9 @@ export function OpenClawVercelChat({
   messages,
   isGenerating,
   statusText,
+  hasOlderMessages = false,
+  loadingOlderMessages = false,
+  onLoadOlderMessages,
   onSelectTool,
   onResolveApproval,
 }: Props) {
@@ -140,6 +146,19 @@ export function OpenClawVercelChat({
 
       <div ref={containerRef} className="absolute inset-0 touch-pan-y overflow-y-auto overscroll-contain bg-background">
         <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-5 px-2 py-6 md:gap-7 md:px-4">
+          {hasOlderMessages && (
+            <div className="flex justify-center py-1">
+              <button
+                type="button"
+                onClick={() => void onLoadOlderMessages?.()}
+                disabled={loadingOlderMessages}
+                className="rounded-full border border-border/50 bg-card px-3 py-1 text-xs text-muted-foreground disabled:opacity-60"
+              >
+                {loadingOlderMessages ? "Loading earlier messages…" : "Load earlier messages"}
+              </button>
+            </div>
+          )}
+
           {stableMessages.map((message) => (
             <VercelMessage
               key={message.uiId}

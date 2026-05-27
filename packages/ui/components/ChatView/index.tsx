@@ -71,7 +71,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-const AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX = 240
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
@@ -815,10 +814,7 @@ export function ChatView({
   const renderedMessages = visibleAllMessages
   const mountedAtRef = useRef(Date.now())
   const userScrollIntentRef = useRef(false)
-  const isAtBottomRef = useRef(true)
   const needsInitialScrollRef = useRef(true)
-  const autoScrollingRef = useRef(false)
-  const messageListRef = useRef<HTMLDivElement | null>(null)
   // Reset mount timestamp on session change
   useEffect(() => {
     mountedAtRef.current = Date.now()
@@ -1003,36 +999,15 @@ export function ChatView({
     onScroll()
     const el = scrollContainerRef.current
     if (el) {
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-      const atBottom = distanceFromBottom <= JUMP_TO_BOTTOM_THRESHOLD_PX
-      isAtBottomRef.current = atBottom
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= JUMP_TO_BOTTOM_THRESHOLD_PX
       setShowJumpToBottom(!atBottom)
-      if (
-        hasOlderMessages &&
-        !loadingOlderMessages &&
-        userScrollIntentRef.current &&
-        el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
-      ) {
-        void loadOlderMessages()
-      }
     }
     if (activePopoverId) setActivePopoverId(null)
-  }, [
-    activePopoverId,
-    hasOlderMessages,
-    loadOlderMessages,
-    loadingOlderMessages,
-    onScroll,
-    scrollContainerRef,
-  ])
+  }, [activePopoverId, onScroll, scrollContainerRef])
 
   const jumpToLatestMessage = useCallback(() => {
     setShowJumpToBottom(false)
-    autoScrollingRef.current = true
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
-    window.setTimeout(() => {
-      autoScrollingRef.current = false
-    }, 450)
+    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
   }, [bottomRef])
 
   const syncJumpToBottomVisibility = useCallback(() => {
@@ -1044,30 +1019,8 @@ export function ChatView({
   }, [scrollContainerRef])
 
   useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
     syncJumpToBottomVisibility()
-    if (
-      hasOlderMessages &&
-      !loadingOlderMessages &&
-      userScrollIntentRef.current &&
-      el.scrollTop <= AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX &&
-      el.scrollHeight <= el.clientHeight + AUTO_LOAD_OLDER_SCROLL_THRESHOLD_PX
-    ) {
-      void loadOlderMessages()
-    }
-  }, [
-    hasOlderMessages,
-    isGenerating,
-    loadOlderMessages,
-    loadingOlderMessages,
-    pendingTools,
-    renderedMessages,
-    scrollContainerRef,
-    status,
-    statusLabel,
-    syncJumpToBottomVisibility,
-  ])
+  }, [renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
 
   useLayoutEffect(() => {
     if (
@@ -1078,48 +1031,12 @@ export function ChatView({
     ) {
       needsInitialScrollRef.current = false
       requestAnimationFrame(() => {
-        autoScrollingRef.current = true
         bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-        requestAnimationFrame(() => {
-          autoScrollingRef.current = false
-        })
       })
     }
   }, [bottomRef, renderedMessages.length, loading])
 
-  useLayoutEffect(() => {
-    if (!isAtBottomRef.current) return
-    autoScrollingRef.current = true
-    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-    requestAnimationFrame(() => {
-      autoScrollingRef.current = false
-    })
-  }, [bottomRef, renderedMessages.length, isGenerating, pendingTools.length, status, statusLabel])
 
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el || typeof ResizeObserver === "undefined") return
-
-    let frame: number | null = null
-    const observer = new ResizeObserver(() => {
-      if (frame !== null) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        frame = null
-        if (isAtBottomRef.current || autoScrollingRef.current) {
-          bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" })
-        }
-        syncJumpToBottomVisibility()
-      })
-    })
-    observer.observe(el)
-    if (messageListRef.current) observer.observe(messageListRef.current)
-    if (bottomRef.current) observer.observe(bottomRef.current)
-
-    return () => {
-      if (frame !== null) cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [bottomRef, renderedMessages.length, scrollContainerRef, syncJumpToBottomVisibility])
 
   const handleFeedbackSubmit = useCallback(
     (feedback: { tags: string[]; details: string }) => {
@@ -1383,29 +1300,13 @@ export function ChatView({
     }, "debug")
   }, [renderedMessages.length, sessionKey, spawnedSubagents, subagentRenderScope])
 
-  const scrollToRenderedMessage = useCallback((messageId: string, seq?: number) => {
+  const scrollToRenderedMessage = useCallback((messageId: string, _seq?: number) => {
+    void _seq
     const target = document.getElementById(`message-${messageId}`)
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "center" })
-      return true
-    }
-    // Message not loaded yet — load older messages until we reach it
-    if (seq && seq > 0 && hasOlderMessages) {
-      void (async () => {
-        for (let attempt = 0; attempt < 5; attempt++) {
-          await loadOlderMessages()
-          // Wait for React to render the new messages into the DOM
-          await new Promise((r) => setTimeout(r, 500))
-          const el = document.getElementById(`message-${messageId}`)
-          if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "center" })
-            return
-          }
-        }
-      })()
-    }
-    return false
-  }, [hasOlderMessages, loadOlderMessages])
+    if (!target) return false
+    target.scrollIntoView({ behavior: "auto", block: "center" })
+    return true
+  }, [])
 
   // Listen for scroll-to-message events from Ctrl+K global search
   useEffect(() => {
@@ -1805,6 +1706,9 @@ export function ChatView({
             messages={renderedMessages}
             isGenerating={isGenerating}
             statusText={statusText}
+            hasOlderMessages={hasOlderMessages}
+            loadingOlderMessages={loadingOlderMessages}
+            onLoadOlderMessages={loadOlderMessages}
             onSelectTool={onSelectTool}
             onResolveApproval={resolveExecApproval}
           />
@@ -1840,11 +1744,18 @@ export function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overscroll-contain"
       >
-        <div ref={messageListRef} className="min-h-full">
+        <div className="min-h-full">
           <div className="mx-auto max-w-3xl px-4 pt-8">
-            {loadingOlderMessages && (
-              <div className="mb-4 flex justify-center text-xs text-muted-foreground">
-                Loading earlier messages…
+            {hasOlderMessages && (
+              <div className="mb-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => void loadOlderMessages()}
+                  disabled={loadingOlderMessages}
+                  className="rounded-full border border-border/50 bg-card px-3 py-1 text-xs text-muted-foreground disabled:opacity-60"
+                >
+                  {loadingOlderMessages ? "Loading earlier messages…" : "Load earlier messages"}
+                </button>
               </div>
             )}
           </div>

@@ -778,9 +778,7 @@ export function useChatMessages(
   const bottomRef = useRef<HTMLDivElement>(null)
   const seenIds = useRef(new Set<string>())
   const isAtBottomRef = useRef(true)
-  const scrollFrameRef = useRef<number | null>(null)
-  const programmaticScrollUntilRef = useRef(0)
-  const lastSmoothScrollAtRef = useRef(0)
+
   const lastStreamEventAtRef = useRef(Date.now())
   const activeReconcileInFlightRef = useRef(false)
   const messagesRef = useRef<ChatMessage[]>(
@@ -822,56 +820,24 @@ export function useChatMessages(
   const onScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    if (Date.now() < programmaticScrollUntilRef.current) return
-    isAtBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }, [])
 
-  const scrollToBottom = useCallback((smooth = false) => {
+  const scrollToBottom = useCallback((_smooth = false) => {
+    void _smooth
     if (!isAtBottomRef.current) return
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current)
-    }
-    const scroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      const now = Date.now()
-      const allowSmooth = smooth && now - lastSmoothScrollAtRef.current > 180
-      if (allowSmooth) lastSmoothScrollAtRef.current = now
-      programmaticScrollUntilRef.current = now + (allowSmooth ? 350 : 80)
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: allowSmooth ? "smooth" : "auto",
-      })
-      isAtBottomRef.current = true
-      scrollFrameRef.current = null
-    }
-    scrollFrameRef.current = requestAnimationFrame(scroll)
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    isAtBottomRef.current = true
   }, [])
 
-  const forceScrollToBottom = useCallback((smooth = false) => {
+  const forceScrollToBottom = useCallback((_smooth = false) => {
+    void _smooth
     isAtBottomRef.current = true
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current)
-    }
-    const scroll = () => {
-      const el = scrollContainerRef.current
-      if (!el) return
-      programmaticScrollUntilRef.current = Date.now() + (smooth ? 350 : 80)
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
-      })
-      isAtBottomRef.current = true
-      scrollFrameRef.current = null
-    }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      if (smooth) {
-        scrollFrameRef.current = requestAnimationFrame(scroll)
-        return
-      }
-      scroll()
-    })
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
   }, [])
 
   const reconcileActiveRun = useCallback(async () => {
@@ -961,14 +927,6 @@ export function useChatMessages(
       activeReconcileInFlightRef.current = false
     }
   }, [queryClient, sessionKey])
-
-  useEffect(() => {
-    return () => {
-      if (scrollFrameRef.current !== null) {
-        cancelAnimationFrame(scrollFrameRef.current)
-      }
-    }
-  }, [])
 
   const flushToolsToLastAssistant = useCallback(() => {
     const tools = Array.from(pendingToolMapRef.current.values())
