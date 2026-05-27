@@ -1,5 +1,12 @@
 # Group 03 — Subagent Turn Model
 
+**Implemented / ready for PR** — branch `fix/desktop-subagent-correlation`, target `v3`.
+
+Implementation notes:
+- Middleware now owns canonical `sessions_spawn` parent/child correlation and emits normalized lifecycle patches instead of making the UI infer child links from raw session shape.
+- Floating subagent toolbar is scoped to the current/latest turn; Activity remains session-wide.
+- Replayed/duplicate child-link events no longer reactivate completed subagents or spam `spawn_linked` state transitions.
+
 ## Connected issues
 
 - Floating subagent bar shows 8 while inline reply shows 4.
