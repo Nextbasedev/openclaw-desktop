@@ -213,35 +213,19 @@ function DiffFileHeader({
 function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
   if (mode === "split") {
     return (
-      <div className="min-w-[760px] font-mono text-[12px] leading-[1.65]">
-        {diff.lines.map((line, idx) => {
-          if (line.type === "hunk") {
-            return (
-              <div key={idx} className="grid grid-cols-2 border-y border-white/5 bg-[#161b22] text-[11px] font-bold text-[#7d8590]">
-                <div className="px-4 py-1.5">{line.content}</div>
-                <div className="border-l border-white/10 px-4 py-1.5">{line.content}</div>
-              </div>
-            )
-          }
-          const isAdd = line.type === "addition"
-          const isDel = line.type === "deletion"
-          return (
-            <div key={idx} className="grid grid-cols-2 border-b border-white/[0.025]">
-              <DiffLineCell line={line} side="old" muted={isAdd} tone={isDel ? "del" : "normal"} />
-              <DiffLineCell line={line} side="new" muted={isDel} tone={isAdd ? "add" : "normal"} split />
-            </div>
-          )
-        })}
+      <div className="grid min-w-0 grid-cols-2 font-mono text-[12px] leading-[1.65]">
+        <SplitDiffPane diff={diff} side="old" />
+        <SplitDiffPane diff={diff} side="new" />
       </div>
     )
   }
 
   return (
-    <div className="min-w-[720px] font-mono text-[12px] leading-[1.65]">
+    <div className="min-w-max font-mono text-[12px] leading-[1.65]">
       {diff.lines.map((line, idx) => {
         if (line.type === "hunk") {
           return (
-            <div key={idx} className="border-y border-white/5 bg-[#161b22] px-4 py-1.5 text-[11px] font-bold text-[#7d8590]">
+            <div key={idx} className="w-max min-w-full whitespace-pre border-y border-white/5 bg-[#161b22] px-4 py-1.5 text-[11px] font-bold text-[#7d8590]">
               {line.content}
             </div>
           )
@@ -253,26 +237,53 @@ function DiffLines({ diff, mode }: { diff: FileDiff; mode: DiffViewMode }) {
   )
 }
 
+function SplitDiffPane({ diff, side }: { diff: FileDiff; side: "old" | "new" }) {
+  return (
+    <div className={cn("min-w-0 overflow-x-auto bg-[#050505]", side === "new" && "border-l border-white/10")}>
+      <div className="min-w-max">
+        {diff.lines.map((line, idx) => {
+          if (line.type === "hunk") {
+            return (
+              <div key={idx} className="w-max min-w-full whitespace-pre border-y border-white/5 bg-[#161b22] px-4 py-1.5 text-[11px] font-bold text-[#7d8590]">
+                {line.content}
+              </div>
+            )
+          }
+
+          const muted = side === "old" ? line.type === "addition" : line.type === "deletion"
+          const tone = line.type === "addition" ? "add" : line.type === "deletion" ? "del" : "normal"
+          return (
+            <DiffLineCell
+              key={idx}
+              line={line}
+              side={side}
+              tone={muted ? "normal" : tone}
+              muted={muted}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function DiffLineCell({
   line,
   side,
   tone,
   muted = false,
-  split = false,
 }: {
   line: DiffLine
   side: "old" | "new" | "both"
   tone: "add" | "del" | "normal"
   muted?: boolean
-  split?: boolean
 }) {
   const sign = tone === "add" ? "+" : tone === "del" ? "-" : " "
   const number = side === "old" ? line.oldLineNumber : side === "new" ? line.newLineNumber : (line.oldLineNumber ?? line.newLineNumber)
   return (
     <div
       className={cn(
-        "flex min-w-0 transition-colors",
-        split && "border-l border-white/10",
+        "flex w-max min-w-full transition-colors",
         muted && "opacity-30",
         tone === "add" && "bg-[#12351f] text-[#d7ffe0]",
         tone === "del" && "bg-[#3a1719] text-[#ffe0e0]",
@@ -283,7 +294,7 @@ function DiffLineCell({
         {muted ? "" : (number ?? "")}
       </div>
       <div className={cn("w-6 shrink-0 select-none text-center text-[13px] font-bold", tone === "add" && "text-emerald-300", tone === "del" && "text-red-300", tone === "normal" && "text-muted-foreground/30")}>{muted ? "" : sign}</div>
-      <div className="flex-1 whitespace-pre px-3 font-medium">{muted ? "" : line.content}</div>
+      <div className="shrink-0 whitespace-pre px-3 pr-8 font-medium">{muted ? "" : line.content}</div>
     </div>
   )
 }
@@ -773,7 +784,7 @@ function CommitDetailView({
         />
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="min-w-0 flex-1 overflow-auto">
         {loading ? (
           <GitDiffSkeleton />
         ) : !diffs?.length ? (
@@ -795,7 +806,7 @@ function CommitDetailView({
                     onClick={() => setSelectedFile(open ? null : file.path)}
                   />
                   {open && (
-                    <div className="overflow-auto bg-[#050505] text-[#e6edf3]">
+                    <div className="min-w-0 overflow-x-auto overflow-y-visible bg-[#050505] text-[#e6edf3]">
                       {currentFileDiff ? <DiffLines diff={currentFileDiff} mode={diffMode} /> : null}
                     </div>
                   )}
