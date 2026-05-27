@@ -65,8 +65,14 @@ export function SettingsDashboard({ onBack, activeSection, onSectionChange }: Se
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 overflow-hidden rounded-3xl border border-border/60 bg-background">
-      <aside className="flex w-[220px] shrink-0 flex-col border-r border-border/60 bg-muted/20">
+    <div
+      className="flex h-full w-full min-w-0 overflow-hidden rounded-3xl border border-border/60"
+      style={{
+        background:
+          "linear-gradient(90deg, color-mix(in oklch, var(--muted) 20%, transparent) 0 220px, var(--background) 220px 100%)",
+      }}
+    >
+      <aside className="flex w-[220px] shrink-0 flex-col border-r border-border/60">
         <div className="border-b border-border/50 px-4 py-4">
           {onBack ? (
             <button
