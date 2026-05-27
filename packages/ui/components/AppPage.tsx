@@ -516,8 +516,6 @@ function AppShell({
     deleteSpace,
     loading: spacesLoading,
   } = useSpaces()
-  const displayedActiveSpaceId = sidebarPreviewOpen && sidebarPreviewSpaceId ? sidebarPreviewSpaceId : activeSpaceId
-
   useEffect(() => {
     try {
       if (activeSpace?.projectId) localStorage.setItem("openclaw.activeProjectId", activeSpace.projectId)
@@ -710,7 +708,6 @@ function AppShell({
   const lastChatRouteBySpaceRef = useRef(new Map<string, string>())
   const lastChatSelectionBySpaceRef = useRef(new Map<string, { chat: ActiveChat; sessionKey: string | null; title: string | null }>())
   const pendingSpaceRouteRestoreRef = useRef<{ spaceId: string; path: string | null } | null>(null)
-  const sidebarPreviewSwitchTimerRef = useRef<number | null>(null)
 
   const { resolvedTheme, setTheme } = useTheme()
 
@@ -2638,24 +2635,14 @@ function AppShell({
           width={renderedSidebarWidth}
           collapsed={!sidebarOpen}
           previewExpanded={sidebarPreviewOpen}
+          previewSpaceId={sidebarPreviewSpaceId}
           onClose={closeSidebar}
           onPreviewOpen={(spaceId) => {
             if (sidebarOpen) return
             setSidebarPreviewSpaceId(spaceId)
             setSidebarPreviewOpen(true)
-            if (sidebarPreviewSwitchTimerRef.current !== null) {
-              window.clearTimeout(sidebarPreviewSwitchTimerRef.current)
-            }
-            sidebarPreviewSwitchTimerRef.current = window.setTimeout(() => {
-              sidebarPreviewSwitchTimerRef.current = null
-              void handleSpaceSwitch(spaceId, { openSidebar: false })
-            }, 80)
           }}
           onPreviewClose={() => {
-            if (sidebarPreviewSwitchTimerRef.current !== null) {
-              window.clearTimeout(sidebarPreviewSwitchTimerRef.current)
-              sidebarPreviewSwitchTimerRef.current = null
-            }
             setSidebarPreviewOpen(false)
             setSidebarPreviewSpaceId(null)
           }}
@@ -2673,7 +2660,7 @@ function AppShell({
           onNewChat={handleNewChat}
           chatRefreshTrigger={chatRefreshTrigger}
           spaces={spaces}
-          activeSpaceId={displayedActiveSpaceId}
+          activeSpaceId={activeSpaceId}
           onSpaceSwitch={handleSpaceSwitch}
           onSpaceNewChat={handleSpaceNewChat}
           onSpaceCreate={handleSpaceCreate}

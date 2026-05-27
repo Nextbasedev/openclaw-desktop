@@ -24,6 +24,7 @@ type SidebarProps = {
   width?: number
   collapsed?: boolean
   previewExpanded?: boolean
+  previewSpaceId?: string | null
   onClose?: () => void
   onPreviewOpen?: (spaceId: string) => void
   onPreviewClose?: () => void
@@ -60,6 +61,7 @@ export function Sidebar({
   width = 220,
   collapsed = false,
   previewExpanded = false,
+  previewSpaceId = null,
   onClose,
   onPreviewOpen,
   onPreviewClose,
@@ -141,8 +143,9 @@ export function Sidebar({
   const showExpandedContent = !collapsed || previewExpanded || isMobileViewport
   const itemCollapsed = isMobileViewport ? false : collapsed && !previewExpanded
   const showPrimaryNav = items.length > 0
+  const effectiveSpaceId = previewExpanded && previewSpaceId ? previewSpaceId : activeSpaceId
   const activeSpaceName =
-    spaces.find((space) => space.id === activeSpaceId)?.name ?? "MySpace"
+    spaces.find((space) => space.id === effectiveSpaceId)?.name ?? "MySpace"
 
   return (
     <>
@@ -245,7 +248,7 @@ export function Sidebar({
                 onChatClear={onChatClear}
                 onNewChat={onNewChat}
                 refreshTrigger={chatRefreshTrigger}
-                spaceId={activeSpaceId}
+                spaceId={effectiveSpaceId}
               />
             </div>
           </div>
