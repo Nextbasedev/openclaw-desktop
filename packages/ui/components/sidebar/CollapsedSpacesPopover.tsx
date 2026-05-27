@@ -24,8 +24,8 @@ type Props = {
   onSpaceDelete: (spaceId: string) => void | Promise<void>
 }
 
-const SPACE_ICON_BACKGROUND = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
-const ACTIVE_SPACE_ICON_BACKGROUND = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]"
+const SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#09090B_0%,rgba(23,22,25,0.85)_50%,rgba(25,23,25,0.65)_100%)]"
+const ACTIVE_SPACE_ICON_SURFACE = "bg-[linear-gradient(135deg,#020618_0%,rgba(5,51,69,0.80)_50%,rgba(5,47,74,0.60)_100%)]"
 
 function getSpaceRank(space: Space) {
   if (typeof space.sortOrder === "number") return space.sortOrder
@@ -215,17 +215,17 @@ export function CollapsedSpacesPopover({
               onMouseEnter={() => onCollapsedPreviewStart?.(space.id)}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
-                "group flex size-10 cursor-pointer items-center justify-center rounded-[8px] border p-0.5 transition-all duration-150 ease-in-out",
+                "group flex size-10 cursor-pointer items-center justify-center rounded-[8px] transition-all duration-150 ease-in-out",
                 active
-                  ? "border-white shadow-[0_0_0_1px_rgba(255,255,255,0.75),0_0_18px_rgba(59,130,246,0.28)]"
-                  : "border-transparent hover:border-white/25",
+                  ? "shadow-[0_0_0_2px_rgba(255,255,255,0.92),0_0_18px_rgba(59,130,246,0.28)]"
+                  : "shadow-[0_12px_26px_rgba(0,0,0,0.34)] hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
               )}
               aria-label={`Open project ${space.name}`}
             >
               <span
                 className={cn(
-                  "relative flex size-full items-center justify-center overflow-hidden rounded-[8px] text-[14px] font-semibold text-white shadow-lg shadow-black/30 ring-1 ring-inset ring-white/5",
-                  active ? ACTIVE_SPACE_ICON_BACKGROUND : SPACE_ICON_BACKGROUND,
+                  "relative flex size-full items-center justify-center overflow-hidden rounded-[8px] text-[14px] font-semibold text-white shadow-lg shadow-black/30",
+                  active ? ACTIVE_SPACE_ICON_SURFACE : SPACE_ICON_SURFACE,
                 )}
               >
                 {spaceInitial(space)}
@@ -241,8 +241,8 @@ export function CollapsedSpacesPopover({
           onClick={openCreate}
           onContextMenu={openPlusMenu}
           className={cn(
-            "flex size-10 cursor-pointer items-center justify-center rounded-[8px] border border-transparent text-muted-foreground/70 shadow-lg shadow-black/30 transition-all hover:border-white/25 hover:text-foreground",
-            SPACE_ICON_BACKGROUND,
+            "flex size-10 cursor-pointer items-center justify-center rounded-[8px] text-muted-foreground/70 shadow-[0_12px_26px_rgba(0,0,0,0.34)] transition-all hover:text-foreground hover:shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_12px_26px_rgba(0,0,0,0.34)]",
+            SPACE_ICON_SURFACE,
           )}
           aria-label="New project"
         >
