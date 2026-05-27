@@ -59,6 +59,7 @@ import { AppContextMenu } from "@/components/AppContextMenu"
 
 type SettingsSection = SettingSection
 type EditorGroupId = "group-1" | "group-2"
+type SpaceSwitchOptions = { openSidebar?: boolean }
 
 const TABS = new Set(["skill", "connect", "settings", "notifications"])
 const INSPECTOR_ROUTE_TABS = new Set<InspectorTabId>([
@@ -1592,9 +1593,10 @@ function AppShell({
     window.history.pushState(null, "", routeUrl("/"))
   }, [clearConversationState, editorGroups.focusedGroupId])
 
-  const handleSpaceSwitch = useCallback(async (spaceId: string) => {
-    setSidebarPreviewOpen(false)
-    setSidebarOpen(true)
+  const handleSpaceSwitch = useCallback(async (spaceId: string, options: SpaceSwitchOptions = {}) => {
+    const openSidebar = options.openSidebar ?? true
+    setSidebarPreviewOpen(!openSidebar)
+    if (openSidebar) setSidebarOpen(true)
     if (spaceId === activeSpaceId) return
     if (activeSpaceId) {
       const route = parseRoute(getRoutePath())
@@ -2631,8 +2633,8 @@ function AppShell({
           collapsed={!sidebarOpen}
           previewExpanded={sidebarPreviewOpen}
           onClose={closeSidebar}
-          onPreviewOpen={() => {
-            if (!sidebarOpen) setSidebarPreviewOpen(true)
+          onPreviewOpen={(spaceId) => {
+            if (!sidebarOpen) void handleSpaceSwitch(spaceId, { openSidebar: false })
           }}
           onPreviewClose={() => setSidebarPreviewOpen(false)}
           onResizeStart={handleResizeStart}

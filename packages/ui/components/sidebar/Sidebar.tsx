@@ -25,7 +25,7 @@ type SidebarProps = {
   collapsed?: boolean
   previewExpanded?: boolean
   onClose?: () => void
-  onPreviewOpen?: () => void
+  onPreviewOpen?: (spaceId: string) => void
   onPreviewClose?: () => void
   onResizeStart?: () => void
   activeTab: string

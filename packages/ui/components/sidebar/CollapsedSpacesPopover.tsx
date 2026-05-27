@@ -15,7 +15,7 @@ type Props = {
   spaces: Space[]
   activeSpaceId: string | null
   tooltipsDisabled?: boolean
-  onCollapsedPreviewStart?: () => void
+  onCollapsedPreviewStart?: (spaceId: string) => void
   onSpaceSwitch: (spaceId: string) => void | Promise<void>
   onSpaceNewChat: (spaceId: string) => void | Promise<void>
   onSpaceCreate: (name?: string) => void | Promise<void>
@@ -243,7 +243,7 @@ export function CollapsedSpacesPopover({
             <button
               type="button"
               onClick={() => openProject(space)}
-              onMouseEnter={onCollapsedPreviewStart}
+              onMouseEnter={() => onCollapsedPreviewStart?.(space.id)}
               onContextMenu={(event) => openContextMenu(event, space)}
               className={cn(
                 "group flex size-10 cursor-pointer items-center justify-center rounded-md border",
