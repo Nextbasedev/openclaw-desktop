@@ -46,18 +46,6 @@ type FolderNode = FolderEntry & {
 
 /* ── Helpers ── */
 
-function folderBadge(entry: FolderEntry) {
-  if (entry.isProjectRoot) return "Project"
-  if (entry.hasGit) return "Git"
-  return "No Git yet"
-}
-
-function badgeClasses(entry: FolderEntry) {
-  if (entry.isProjectRoot) return "border-sky-400/25 bg-sky-400/10 text-sky-200/80"
-  if (entry.hasGit) return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200/80"
-  return "border-border/40 bg-secondary/35 text-muted-foreground/70"
-}
-
 function updateNode(nodes: FolderNode[], path: string, patch: Partial<FolderNode>): FolderNode[] {
   return nodes.map((n) => {
     if (n.path === path) return { ...n, ...patch }
@@ -111,7 +99,6 @@ function FolderRow({
         disabled={disabled}
         onClick={() => onSelect(node)}
         onDoubleClick={() => onToggle(node)}
-        title={node.disabledReason || node.absolutePath || node.path}
         className={cn(
           "flex w-full cursor-pointer items-center gap-1 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors",
           "disabled:cursor-default disabled:opacity-45",
@@ -126,14 +113,11 @@ function FolderRow({
           {expanded ? <VscChevronDown className="size-3" /> : <VscChevronRight className="size-3" />}
         </span>
         {expanded
-          ? <VscFolderOpened className="size-3.5 shrink-0 text-amber-400/75" />
-          : <VscFolder className="size-3.5 shrink-0 text-amber-400/75" />
+          ? <VscFolderOpened className="size-3.5 shrink-0 text-muted-foreground/70" />
+          : <VscFolder className="size-3.5 shrink-0 text-muted-foreground/70" />
         }
         <span className="min-w-0 flex-1 truncate">{node.name || "root"}</span>
         {node.loading && <span className="text-[10px] text-muted-foreground/45">…</span>}
-        <span className={cn("shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide", badgeClasses(node))}>
-          {folderBadge(node)}
-        </span>
       </button>
       {expanded && node.children?.map((child) => (
         <FolderRow
@@ -230,8 +214,8 @@ export function InspectorScopePicker({
 
   const selectedStatus = selected
     ? selected.disabledReason
-      ?? `${folderBadge(selected)} · ${selected.hasGit ? "Git detected" : "Workspace-only; Git can be added later"}`
-    : "Select Global Workspace, an existing project, or browse any folder."
+      ?? (selected.hasGit ? "Git repository detected for this folder." : "Workspace-only folder. Git can be connected later.")
+    : "Select a folder, or use the global workspace."
 
   const confirmFolder = useCallback(async () => {
     if (!selected || selected.disabledReason || connecting) return
@@ -287,7 +271,7 @@ export function InspectorScopePicker({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search folders/projects…"
+            placeholder="Search folders…"
             className="h-8 min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground/40"
           />
           <button type="button" onClick={loadRoot} className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground">
@@ -296,52 +280,19 @@ export function InspectorScopePicker({
         </div>
       </div>
 
-      {/* Two-column body */}
-      <div className="grid min-h-0 flex-1 grid-cols-[140px_minmax(0,1fr)] overflow-hidden">
-        {/* Left: quick sources */}
-        <div className="flex flex-col gap-1 overflow-y-auto border-r border-border/35 p-2">
-          <button
-            type="button"
-            onClick={() => onSelectScope({ kind: "global" })}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-[12px] text-foreground/85 transition-colors hover:bg-secondary/45"
-          >
-            <VscGlobe className="size-3.5 text-muted-foreground/70" />
-            Global Workspace
-          </button>
-
-          {projects.length > 0 && (
-            <>
-              <p className="mt-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/45">Projects</p>
-              <div className="max-h-[40%] overflow-y-auto">
-                {projects.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => onSelectScope({ kind: "project", projectId: p.id })}
-                    className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] text-foreground/75 transition-colors hover:bg-secondary/45"
-                    title={p.workspaceRoot || p.repoRoot || p.name}
-                  >
-                    <VscFolder className="size-3.5 shrink-0 text-sky-300/70" />
-                    <span className="truncate">{p.name}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-
-          <label className="mt-auto flex cursor-pointer items-center gap-2 px-2 py-1 text-[11px] text-muted-foreground/65">
-            <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} className="accent-foreground" />
-            Show hidden
-          </label>
-        </div>
-
-        {/* Right: folder browser */}
-        <div className="min-h-0 overflow-y-auto p-2">
+      {/* Folder browser */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="mb-2 flex items-center justify-between gap-3 px-2">
           {rootInfo && (
-            <p className="mb-2 truncate px-2 text-[10px] text-muted-foreground/45" title={rootInfo.absolutePath || rootInfo.path}>
+            <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/45" title={rootInfo.absolutePath || rootInfo.path}>
               {rootInfo.absolutePath || rootInfo.path}
             </p>
           )}
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground/60">
+            <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} className="size-3 accent-foreground" />
+            Show hidden
+          </label>
+        </div>
           {loading ? (
             <p className="px-3 py-8 text-center text-[12px] text-muted-foreground/55">Loading folders…</p>
           ) : error ? (
@@ -361,7 +312,6 @@ export function InspectorScopePicker({
           ) : (
             <p className="px-3 py-8 text-center text-[12px] text-muted-foreground/55">No folders found.</p>
           )}
-        </div>
       </div>
 
       {/* Footer: selection status + confirm */}
@@ -370,22 +320,32 @@ export function InspectorScopePicker({
           Selected: {selected ? (selected.absolutePath || selected.path) : "None"}
         </p>
         <p className="mt-1 truncate text-[10px] text-muted-foreground/55">{selectedStatus}</p>
-        <div className="mt-3 flex justify-end gap-2">
+        <div className="mt-3 flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => onSelectScope({ kind: "unset" })}
-            className="cursor-pointer rounded-lg border border-border/45 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+            onClick={() => onSelectScope({ kind: "global" })}
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border/45 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
-            Cancel
+            <VscGlobe className="size-3.5" />
+            Global Workspace
           </button>
-          <button
-            type="button"
-            disabled={!selected || Boolean(selected.disabledReason) || connecting}
-            onClick={confirmFolder}
-            className="glass-btn-primary cursor-pointer px-3 py-1.5 text-[11px] disabled:cursor-default disabled:opacity-50"
-          >
-            {connecting ? "Connecting…" : "Use this folder"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelectScope({ kind: "unset" })}
+              className="cursor-pointer rounded-lg border border-border/45 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!selected || Boolean(selected.disabledReason) || connecting}
+              onClick={confirmFolder}
+              className="glass-btn-primary cursor-pointer px-3 py-1.5 text-[11px] disabled:cursor-default disabled:opacity-50"
+            >
+              {connecting ? "Connecting…" : "Use this folder"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
