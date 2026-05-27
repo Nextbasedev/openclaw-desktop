@@ -1,7 +1,7 @@
 "use client"
 
 import { randomId } from "@/lib/id"
-import { useState, useCallback, useRef, useEffect, useReducer } from "react"
+import { useState, useCallback, useRef, useEffect, useReducer, type MouseEvent as ReactMouseEvent } from "react"
 import { invoke } from "@/lib/ipc"
 import { Header } from "@/common/Header"
 import { Sidebar, DEFAULT_DRAGGABLE_ITEMS } from "@/components/sidebar"
@@ -55,6 +55,7 @@ import {
   type SessionData,
 } from "@/lib/editorGroups"
 import { EditorGroupsContainer } from "@/components/EditorGroupsContainer"
+import { AppContextMenu } from "@/components/AppContextMenu"
 
 type SettingsSection = SettingSection
 type EditorGroupId = "group-1" | "group-2"
@@ -224,6 +225,9 @@ const SIDEBAR_MAX = 480
 const SIDEBAR_DEFAULT = 240
 const SIDEBAR_COLLAPSED = 56
 const INSPECTOR_DEFAULT_WIDTH = 460
+const APP_CONTEXT_MENU_WIDTH = 176
+const APP_CONTEXT_MENU_HEIGHT = 44
+const APP_CONTEXT_MENU_MARGIN = 12
 
 export default function Page() {
   const useNativeWindowChrome = shouldUseNativeWindowChrome()
@@ -456,6 +460,8 @@ function AppShell({
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [chatMode, setChatMode] = useState<"simple" | "mission">("simple")
+  const [appContextMenu, setAppContextMenu] = useState({ open: false, x: 0, y: 0 })
+  const appContextMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH)
   const [splitRatio, setSplitRatio] = useState(0.5)
@@ -2553,8 +2559,29 @@ function AppShell({
     onResetOnboarding()
   }, [onDeleteAccount, onResetOnboarding])
 
+  const closeAppContextMenu = useCallback(() => {
+    setAppContextMenu((prev) => ({ ...prev, open: false }))
+  }, [])
+
+  const handleAppContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null
+    if (target?.closest("input, textarea, [contenteditable='true']")) return
+
+    event.preventDefault()
+    const maxX = Math.max(APP_CONTEXT_MENU_MARGIN, window.innerWidth - APP_CONTEXT_MENU_WIDTH - APP_CONTEXT_MENU_MARGIN)
+    const maxY = Math.max(APP_CONTEXT_MENU_MARGIN, window.innerHeight - APP_CONTEXT_MENU_HEIGHT - APP_CONTEXT_MENU_MARGIN)
+    setAppContextMenu({
+      open: true,
+      x: Math.min(Math.max(event.clientX, APP_CONTEXT_MENU_MARGIN), maxX),
+      y: Math.min(Math.max(event.clientY, APP_CONTEXT_MENU_MARGIN), maxY),
+    })
+  }, [])
+
   return (
-    <div className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background">
+    <div
+      className="relative flex h-dvh min-h-dvh flex-col overflow-hidden bg-background"
+      onContextMenu={handleAppContextMenu}
+    >
       <Header
         inspectorOpen={inspectorOpen}
         onToggleInspector={toggleInspector}
@@ -2820,6 +2847,14 @@ function AppShell({
       />
 
       <LogsDialog open={logsOpen} onClose={closeLogs} />
+      <AppContextMenu
+        menuRef={appContextMenuRef}
+        open={appContextMenu.open}
+        x={appContextMenu.x}
+        y={appContextMenu.y}
+        onClose={closeAppContextMenu}
+        onReload={() => window.location.reload()}
+      />
     </div>
   )
 }

@@ -1,9 +1,11 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react"
+import { createPortal } from "react-dom"
 import { LuPlus } from "react-icons/lu"
 import { cn } from "@/lib/utils"
 import type { Space } from "@/types/space"
+import { MenuAction } from "./ProjectsSection/MenuAction"
 import { CreateSpaceDialog } from "./CreateSpaceDialog"
 import { GlassTooltip } from "./SidebarItem"
 import { SpaceContextMenuPortal } from "./SpaceContextMenuPortal"
@@ -73,6 +75,12 @@ type ContextMenuState = {
   space: Space | null
 }
 
+type PlusMenuState = {
+  open: boolean
+  x: number
+  y: number
+}
+
 const CONTEXT_MENU_WIDTH = 184
 const CONTEXT_MENU_HEIGHT = 144
 const VIEWPORT_MARGIN = 12
@@ -96,7 +104,9 @@ export function CollapsedSpacesPopover({
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
+  const plusMenuRef = useRef<HTMLDivElement>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ open: false, x: 0, y: 0, space: null })
+  const [plusMenu, setPlusMenu] = useState<PlusMenuState>({ open: false, x: 0, y: 0 })
   const orderedSpaces = useMemo(() => {
     return [...spaces].sort((a, b) => getSpaceRank(a) - getSpaceRank(b))
   }, [spaces])
@@ -106,13 +116,18 @@ export function CollapsedSpacesPopover({
   }, [createOpen, renameOpen])
 
   useEffect(() => {
-    if (!contextMenu.open) return
+    if (!contextMenu.open && !plusMenu.open) return
     function closeOnPointerDown(event: PointerEvent) {
       if (contextMenuRef.current?.contains(event.target as Node)) return
+      if (plusMenuRef.current?.contains(event.target as Node)) return
       setContextMenu((prev) => ({ ...prev, open: false, space: null }))
+      setPlusMenu((prev) => ({ ...prev, open: false }))
     }
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setContextMenu((prev) => ({ ...prev, open: false, space: null }))
+      if (event.key === "Escape") {
+        setContextMenu((prev) => ({ ...prev, open: false, space: null }))
+        setPlusMenu((prev) => ({ ...prev, open: false }))
+      }
     }
     window.addEventListener("pointerdown", closeOnPointerDown)
     window.addEventListener("keydown", closeOnEscape)
@@ -120,7 +135,7 @@ export function CollapsedSpacesPopover({
       window.removeEventListener("pointerdown", closeOnPointerDown)
       window.removeEventListener("keydown", closeOnEscape)
     }
-  }, [contextMenu.open])
+  }, [contextMenu.open, plusMenu.open])
 
   function openProject(space: Space) {
     setContextMenu((prev) => ({ ...prev, open: false, space: null }))
@@ -128,6 +143,7 @@ export function CollapsedSpacesPopover({
   }
 
   function openCreate() {
+    setPlusMenu((prev) => ({ ...prev, open: false }))
     setName("New Project")
     setCreateOpen(true)
   }
@@ -165,6 +181,16 @@ export function CollapsedSpacesPopover({
     const x = Math.min(Math.max(event.clientX, VIEWPORT_MARGIN), window.innerWidth - CONTEXT_MENU_WIDTH - VIEWPORT_MARGIN)
     const y = Math.min(Math.max(event.clientY, VIEWPORT_MARGIN), window.innerHeight - CONTEXT_MENU_HEIGHT - VIEWPORT_MARGIN)
     setContextMenu({ open: true, x, y, space })
+    setPlusMenu((prev) => ({ ...prev, open: false }))
+  }
+
+  function openPlusMenu(event: MouseEvent<HTMLElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    const x = Math.min(Math.max(event.clientX, VIEWPORT_MARGIN), window.innerWidth - CONTEXT_MENU_WIDTH - VIEWPORT_MARGIN)
+    const y = Math.min(Math.max(event.clientY, VIEWPORT_MARGIN), window.innerHeight - CONTEXT_MENU_HEIGHT - VIEWPORT_MARGIN)
+    setContextMenu((prev) => ({ ...prev, open: false, space: null }))
+    setPlusMenu({ open: true, x, y })
   }
 
   async function beginNewChat(space: Space) {
@@ -242,6 +268,7 @@ export function CollapsedSpacesPopover({
         <button
           type="button"
           onClick={openCreate}
+          onContextMenu={openPlusMenu}
           className="flex size-10 cursor-pointer items-center justify-center rounded-md border border-white/[0.12] bg-white/[0.035] text-muted-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:bg-white/[0.08] hover:text-foreground"
           aria-label="New project"
         >
@@ -290,6 +317,30 @@ export function CollapsedSpacesPopover({
           onArchive={beginArchive}
           onDelete={beginDelete}
         />
+      )}
+
+      {typeof document !== "undefined" && plusMenu.open && createPortal(
+        <div
+          ref={plusMenuRef}
+          style={{
+            position: "fixed",
+            left: plusMenu.x,
+            top: plusMenu.y,
+            transformOrigin: "top left",
+          }}
+          className={cn(
+            "z-[120] w-44 rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1.5",
+            "shadow-[0_24px_64px_var(--glass-shadow),0_2px_12px_var(--glass-shadow),inset_0_1px_0_var(--glass-inset)]",
+            "backdrop-blur-[40px] backdrop-saturate-[180%]",
+          )}
+        >
+          <MenuAction
+            label="New Space"
+            icon={<LuPlus size={14} strokeWidth={1.7} />}
+            onClick={openCreate}
+          />
+        </div>,
+        document.body,
       )}
     </div>
   )
