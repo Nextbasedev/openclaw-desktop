@@ -1810,6 +1810,7 @@ export function ChatView({
           onAbort={handleAbort}
           onSelectTool={onSelectTool}
           onResolveApproval={resolveExecApproval}
+          renderMessageRow={renderMessageRow}
           className="flex-1"
         />
       ) : (
