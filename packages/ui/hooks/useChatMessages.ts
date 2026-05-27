@@ -2845,9 +2845,6 @@ export function useChatMessages(
 
     loadOlderInFlightRef.current = true
     setLoadError(null)
-    const el = scrollContainerRef.current
-    const previousScrollHeight = el?.scrollHeight ?? 0
-    const previousScrollTop = el?.scrollTop ?? 0
     setLoadingOlderMessages(true)
     try {
       const page = await fetchChatMessagesV2({
@@ -2929,14 +2926,7 @@ export function useChatMessages(
         page.messages.length >= CHAT_OLDER_PAGE_LIMIT &&
         (oldestLoadedSeqRef.current === null || oldestLoadedSeqRef.current > 1)
       )
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const nextEl = scrollContainerRef.current
-          if (!nextEl) return
-          const delta = nextEl.scrollHeight - previousScrollHeight
-          nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
-        })
-      })
+
     } catch (error) {
       frontendLog("chat", "chat.load-older.fail", {
         sessionKey,

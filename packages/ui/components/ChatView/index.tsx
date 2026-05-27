@@ -72,6 +72,47 @@ import {
 } from "@/components/ui/tooltip"
 
 const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+
+type MessageScrollAnchor = {
+  id: string
+  top: number
+  previousScrollHeight: number
+  previousScrollTop: number
+}
+
+function captureMessageScrollAnchor(container: HTMLElement | null): MessageScrollAnchor | null {
+  if (!container) return null
+  const containerTop = container.getBoundingClientRect().top
+  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-chat-message-row='true']"))
+  const visibleRow = rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
+  if (!visibleRow?.id) {
+    return {
+      id: "",
+      top: containerTop,
+      previousScrollHeight: container.scrollHeight,
+      previousScrollTop: container.scrollTop,
+    }
+  }
+  return {
+    id: visibleRow.id,
+    top: visibleRow.getBoundingClientRect().top,
+    previousScrollHeight: container.scrollHeight,
+    previousScrollTop: container.scrollTop,
+  }
+}
+
+function restoreMessageScrollAnchor(container: HTMLElement | null, anchor: MessageScrollAnchor | null) {
+  if (!container || !anchor) return
+  if (anchor.id) {
+    const row = document.getElementById(anchor.id)
+    if (row) {
+      container.scrollTop += row.getBoundingClientRect().top - anchor.top
+      return
+    }
+  }
+  const delta = container.scrollHeight - anchor.previousScrollHeight
+  container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
+}
 const ASSISTANT_UI_CHATVIEW_FLAG_STORAGE_KEY = "openclaw.chatview.assistant-ui"
 
 function useAssistantUiChatViewEnabled() {
@@ -1003,19 +1044,13 @@ export function ChatView({
     if (!hasOlderMessages || loadingOlderMessages || loadOlderUiBusy || loadOlderClickInFlightRef.current) return
     loadOlderClickInFlightRef.current = true
     setLoadOlderUiBusy(true)
-    const el = scrollContainerRef.current
-    const previousScrollHeight = el?.scrollHeight ?? 0
-    const previousScrollTop = el?.scrollTop ?? 0
+    const anchor = captureMessageScrollAnchor(scrollContainerRef.current)
     try {
       await loadOlderMessages()
     } finally {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          const nextEl = scrollContainerRef.current
-          if (nextEl) {
-            const delta = nextEl.scrollHeight - previousScrollHeight
-            nextEl.scrollTop = previousScrollTop + Math.max(0, delta)
-          }
+          restoreMessageScrollAnchor(scrollContainerRef.current, anchor)
           loadOlderClickInFlightRef.current = false
           setLoadOlderUiBusy(false)
         })

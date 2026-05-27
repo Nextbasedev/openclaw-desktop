@@ -11,6 +11,41 @@ import { useStableChatScroll } from "./useStableChatScroll"
 
 type ApprovalDecision = "allow-once" | "allow-always" | "deny"
 
+
+type VercelScrollAnchor = {
+  uiId: string
+  top: number
+  previousScrollHeight: number
+  previousScrollTop: number
+}
+
+function captureVercelScrollAnchor(container: HTMLElement | null): VercelScrollAnchor | null {
+  if (!container) return null
+  const containerTop = container.getBoundingClientRect().top
+  const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-vercel-chat-message-row='true']"))
+  const visibleRow = rows.find((row) => row.getBoundingClientRect().bottom > containerTop + 1)
+  return {
+    uiId: visibleRow?.dataset.uiId ?? "",
+    top: visibleRow?.getBoundingClientRect().top ?? containerTop,
+    previousScrollHeight: container.scrollHeight,
+    previousScrollTop: container.scrollTop,
+  }
+}
+
+function restoreVercelScrollAnchor(container: HTMLElement | null, anchor: VercelScrollAnchor | null) {
+  if (!container || !anchor) return
+  if (anchor.uiId) {
+    const row = Array.from(container.querySelectorAll<HTMLElement>("[data-vercel-chat-message-row='true']"))
+      .find((item) => item.dataset.uiId === anchor.uiId)
+    if (row) {
+      container.scrollTop += row.getBoundingClientRect().top - anchor.top
+      return
+    }
+  }
+  const delta = container.scrollHeight - anchor.previousScrollHeight
+  container.scrollTop = anchor.previousScrollTop + Math.max(0, delta)
+}
+
 type Props = {
   sessionKey: string
   messages: readonly ChatMessage[]
@@ -59,6 +94,8 @@ function VercelMessage({
   return (
     <div
       className="group/message w-full scroll-mt-6"
+      data-vercel-chat-message-row="true"
+      data-ui-id={message.uiId}
       data-role={message.role}
       data-message-id={message.messageId}
     >
@@ -137,19 +174,13 @@ export function OpenClawVercelChat({
     if (!hasOlderMessages || isOlderLoading || loadOlderInFlightRef.current) return
     loadOlderInFlightRef.current = true
     setLocalOlderLoading(true)
-    const container = containerRef.current
-    const previousScrollHeight = container?.scrollHeight ?? 0
-    const previousScrollTop = container?.scrollTop ?? 0
+    const anchor = captureVercelScrollAnchor(containerRef.current)
     try {
       await onLoadOlderMessages?.()
     } finally {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          const nextContainer = containerRef.current
-          if (nextContainer) {
-            const delta = nextContainer.scrollHeight - previousScrollHeight
-            nextContainer.scrollTop = previousScrollTop + Math.max(0, delta)
-          }
+          restoreVercelScrollAnchor(containerRef.current, anchor)
           loadOlderInFlightRef.current = false
           setLocalOlderLoading(false)
         })
